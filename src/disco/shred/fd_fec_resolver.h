@@ -195,6 +195,31 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_shred_t const   * * out_shred,
                                fd_bmtree_node_t     * out_merkle_root );
 
+/* fd_fec_resolver_force_complete forces completion of a partial FEC set
+   in the FEC resolver.  This is to handle a current limitation in the
+   protocol where the repair protocol does not support requesting coding
+   shreds.  FEC resolver requires at least one coding shred to complete,
+   so this function is intended to be called when the caller knows FEC
+   set resolver has already received all the data shreds.
+
+   Note that forcing completion greatly reduces the amount of validation
+   performed on the FEC set.  It only checks that the data shreds are
+   consistent with one another.
+
+   This function expects last_shred to what the caller has determined to
+   be the last shred in the FEC set.  It will use this to derive the
+   data_shred_cnt which is otherwise only available after receiving a
+   coding shred.
+
+   This function returns SHRED_COMPLETES when the last shred validates
+   successfully with the in progress FEC set, and SHRED_REJECTED
+   otherwise. */
+
+int
+fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
+                                fd_shred_t *          last_shred,
+                                fd_fec_set_t const ** out_fec_set );
+
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );
 

@@ -307,7 +307,6 @@ ctx_ll_insert( set_ctx_t * p, set_ctx_t * c ) {
   return c;
 }
 
-
 int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_shred_t const     * shred,
                                ulong                  shred_sz,
@@ -650,6 +649,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                 !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
                            (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
   }
+
   for( ulong i=0UL; (!reject) & (i<set->parity_shred_cnt); i++ ) {
     fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ], FD_SHRED_MAX_SZ );
     if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
@@ -697,6 +697,55 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   *out_fec_set = set;
 
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
+}
+
+/* TODO code is copy-pasted because this function is intended to be
+   removed as soon as an upgrade to the repair protocol to support
+   requesting coding shreds is made available. */
+
+int
+fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
+                                fd_shred_t *          last_shred,
+                                fd_fec_set_t const ** out_fec_set ) {
+  wrapped_sig_t * w_sig = (wrapped_sig_t *)last_shred->signature;
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  int found = !!ctx_map_query( resolver->done_map, *w_sig, NULL );
+  if( found )  return FD_FEC_RESOLVER_SHRED_IGNORED; /* With no packet loss, we expect found==1 about 50% of the time */
+  set_ctx_t * ctx = ctx_map_query( resolver->curr_map, *w_sig, NULL );
+
+  if( FD_UNLIKELY( last_shred->idx >= FD_REEDSOL_DATA_SHREDS_MAX ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+
+  ulong last_next_idx = fd_ulong_min( last_shred->idx + 1, FD_REEDSOL_DATA_SHREDS_MAX - 1 );
+  if( FD_UNLIKELY( !ctx->set->data_shreds[last_next_idx] ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+
+  fd_shred_t const * base_data_shred = fd_shred_parse( ctx->set->data_shreds[0], FD_SHRED_MIN_SZ );
+  int reject = (!base_data_shred);
+
+  ulong data_shred_cnt = last_shred->idx - base_data_shred->fec_set_idx;
+  for( ulong i=1UL; (!reject) & (i<data_shred_cnt); i++ ) {
+    /* Technically, we only need to re-parse the ones we recovered with
+       Reedsol, but parsing is pretty cheap and the rest of the
+       validation we need to do on all of them. */
+    fd_shred_t const * parsed = fd_shred_parse( ctx->set->data_shreds[ i ], FD_SHRED_MIN_SZ );
+    if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
+    reject |= parsed->variant         != base_data_shred->variant;
+    reject |= parsed->slot            != base_data_shred->slot;
+    reject |= parsed->version         != base_data_shred->version;
+    reject |= parsed->fec_set_idx     != base_data_shred->fec_set_idx;
+    reject |= parsed->data.parent_off != base_data_shred->data.parent_off;
+
+    reject |= fd_shred_is_chained( fd_shred_type( parsed->variant ) ) &&
+                !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
+                           (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+  }
+
+  bmtrlist_push_tail( resolver->bmtree_free_list, ctx->tree );
+  freelist_push_tail( resolver->complete_list, ctx->set );
+  freelist_push_tail( resolver->free_list, freelist_pop_head( resolver->complete_list ) );
+
+  *out_fec_set = ctx->set;
+
+  return FD_FEC_RESOLVER_SHRED_REJECTED;
 }
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver ) {
