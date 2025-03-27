@@ -140,7 +140,9 @@ do{
     memcpy( calldests, input->vm_ctx.call_whitelist->bytes, input->vm_ctx.call_whitelist->size );
     /* Make sure bits over max_pc are all 0s. */
     ulong mask = (1UL << (max_pc % 64)) - 1UL;
-    calldests[ max_pc / 64 ] &= mask;
+    if ( max_pc % 64 != 0) {
+      calldests[ max_pc / 64 ] &= mask;
+    }
   }
   ulong entry_pc = fd_ulong_min( input->vm_ctx.entry_pc, rodata_sz / 8UL - 1UL );
   if( input->vm_ctx.sbpf_version >= FD_SBPF_V3 ) {
