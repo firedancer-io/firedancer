@@ -504,7 +504,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     fd_txn_account_init( program_acc );
     memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
     memcpy( program_acc->pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) );
-    program_acc->meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t*), sizeof(fd_account_meta_t*) );
+    program_acc->meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
     program_acc->const_meta = program_acc->meta;
     fd_account_meta_init( program_acc->meta );
     info->program_id = (uchar)txn_ctx->accounts_cnt;
