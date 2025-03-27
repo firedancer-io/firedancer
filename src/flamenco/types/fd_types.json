@@ -1062,18 +1062,12 @@
       ]
     },
     {
-      "name": "pubkey_node",
-      "type": "struct",
-      "fields": [
-        { "name": "pubkey", "type": "pubkey" }
-      ]
-    },
-    {
-      "name": "rent_fresh_accounts_partition",
+      "name": "rent_fresh_account",
       "type": "struct",
       "fields": [
         { "name": "partition", "type": "ulong" },
-        { "name": "accounts", "type": "map", "element": "pubkey_node", "key": "pubkey", "minalloc": 100 }
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "present", "type": "ulong" }
       ]
     },
     {
@@ -1081,7 +1075,7 @@
       "type": "struct",
       "fields": [
         { "name": "total_count", "type": "ulong" },
-        { "name": "partitions", "type": "map", "element": "rent_fresh_accounts_partition", "key": "partition", "minalloc": 400 }
+        { "name": "fresh_accounts", "type": "vector", "element": "rent_fresh_account" }
       ]
     },
     {

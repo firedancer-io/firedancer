@@ -1238,38 +1238,15 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   slot_bank->timestamp_votes.votes_root = NULL;
 
   /* TODO: We might need to load this in from the input. We also need to size this out for worst case, but this also blows up the memory requirement. */
-  /* Allocate all the memory for the rent fresh accounts lists */
-  slot_ctx->slot_bank.rent_fresh_accounts.partitions_root = NULL;
-  slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool = fd_rent_fresh_accounts_partition_t_map_join(
-    fd_rent_fresh_accounts_partition_t_map_new(
-      fd_spad_alloc(
-        runner->spad,
-        fd_rent_fresh_accounts_partition_t_map_align(),
-        fd_rent_fresh_accounts_partition_t_map_footprint( 100UL * 2UL ) ), /* MAX_SLOTS_PER_EPOCH * 2 */
-        100UL * 2UL
-    )
-  );
-  for( ulong i = 0; i < 100UL * 2UL; i++ ) {
-    ulong partition = i;
-    fd_rent_fresh_accounts_partition_t_mapnode_t * new_node = fd_rent_fresh_accounts_partition_t_map_acquire(
-      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool
-    );
-    if( FD_UNLIKELY(( new_node == NULL )) ) {
-      FD_LOG_ERR(( "fd_rent_fresh_accounts_partition_t_map_acquire failed" ));
-    }
-
-    new_node->elem.partition     = partition;
-    new_node->elem.accounts_root = NULL;
-    new_node->elem.accounts_pool = fd_pubkey_node_t_map_join( fd_pubkey_node_t_map_new(
-      fd_spad_alloc( runner->spad, fd_pubkey_node_t_map_align(), fd_pubkey_node_t_map_footprint( 100 ) ),
-      100
-    ) );
-    fd_rent_fresh_accounts_partition_t_map_insert(
-      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
-      &slot_ctx->slot_bank.rent_fresh_accounts.partitions_root,
-      new_node
-    );
-  }
+  /* Allocate all the memory for the rent fresh accounts list */
+  fd_rent_fresh_accounts_new( &slot_bank->rent_fresh_accounts );
+  slot_bank->rent_fresh_accounts.total_count        = 0UL;
+  slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
+  slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
+    runner->spad,
+    FD_RENT_FRESH_ACCOUNT_ALIGN,
+    FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
+  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );

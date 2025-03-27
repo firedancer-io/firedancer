@@ -28,7 +28,6 @@
   X( vote_account,                     vote_state_versioned, 1 )   \
   X( vote_account_two,                 vote_state_versioned, 1 )   \
   X( slot_bank,                        slot_bank, 1            )   \
-  X( rent_fresh_accounts,              rent_fresh_accounts, 1  )   \
   X( gossip_pull_req,                  gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info,    gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info_v2, gossip_msg, 0           )   \

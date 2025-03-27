@@ -98,110 +98,53 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Insert the new account into the partition */
   ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->acc_mgr->part_width, slot_ctx->acc_mgr->slots_per_epoch );
+  fd_rent_fresh_accounts_t * rent_fresh_accounts = &slot_ctx->slot_bank.rent_fresh_accounts;
 
-  fd_rent_fresh_accounts_partition_t_mapnode_t partition_key[1] = {0};
-  partition_key->elem.partition = partition;
-  fd_rent_fresh_accounts_partition_t_mapnode_t * partition_node = fd_rent_fresh_accounts_partition_t_map_find(
-    slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
-    slot_ctx->slot_bank.rent_fresh_accounts.partitions_root,
-    partition_key );
-  if( FD_UNLIKELY( partition_node == NULL ) ) {
-    FD_LOG_ERR(( "fd_rent_fresh_accounts_partition_t_map_find failed" ));
+  /* See if there is an unused fresh account we can re-use */
+  fd_rent_fresh_account_t * rent_fresh_account = NULL;
+  for( ulong i = 0; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
+    if( FD_UNLIKELY( rent_fresh_accounts->fresh_accounts[ i ].present == 0UL ) ) {
+      rent_fresh_account = &rent_fresh_accounts->fresh_accounts[ i ];
+      break;
+    }
   }
-  if( FD_UNLIKELY( partition_node->elem.accounts_pool == NULL ) ) {
-    FD_LOG_ERR(( "node->elem.accounts_pool == NULL" ));
-  }
-  if( FD_UNLIKELY( fd_pubkey_node_t_map_free( partition_node->elem.accounts_pool ) == 0UL ) ) {
-    FD_LOG_ERR(( "rent_fresh_accounts_partition full - increase the partition size" ));
+  if( FD_UNLIKELY( rent_fresh_account == NULL ) ) {
+    FD_LOG_ERR(( "rent_fresh_accounts full! increase FD_RENT_FRESH_ACCOUNTS_MAX" ));
   }
 
-  fd_pubkey_node_t_mapnode_t account_key;
-  fd_memcpy( &account_key.elem.pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
-  fd_pubkey_node_t_mapnode_t * account_node = fd_pubkey_node_t_map_find(
-    partition_node->elem.accounts_pool,
-    partition_node->elem.accounts_root,
-    &account_key
-   );
-  if ( FD_LIKELY( account_node != NULL ) ) {
-   return;
-  }
+  /* Add the account to the rent fresh account list */
+  rent_fresh_account->partition = partition;
+  fd_memcpy( &rent_fresh_account->pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
+  rent_fresh_account->present = 1UL;
 
-  fd_pubkey_node_t_mapnode_t * new_account_node = fd_pubkey_node_t_map_acquire( partition_node->elem.accounts_pool );
-  if( FD_UNLIKELY( new_account_node == NULL ) ) {
-    FD_LOG_ERR(( "new_account_node == NULL" ));
-  }
-  fd_memcpy( &new_account_node->elem.pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
-  fd_pubkey_node_t_map_insert(
-    partition_node->elem.accounts_pool,
-    &partition_node->elem.accounts_root,
-    new_account_node
-  );
-
-  slot_ctx->slot_bank.rent_fresh_accounts.total_count++;
+  rent_fresh_accounts->total_count++;
 }
 
 void
-fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_spad_t *          runtime_spad ) {
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-    /* Collect all the dirty pubkeys into one list */
-    ulong dirty_pubkeys_cnt = 0UL;
-    fd_pubkey_t * dirty_pubkeys = fd_spad_alloc(
-      runtime_spad,
-      FD_PUBKEY_ALIGN,
-      FD_PUBKEY_FOOTPRINT * slot_ctx->slot_bank.rent_fresh_accounts.total_count );
-    if( FD_UNLIKELY( !dirty_pubkeys ) ) {
-      FD_LOG_ERR(( "fd_spad_alloc failed" ));
+fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx ) {
+  /* Update the partition in each rent fresh account */
+  fd_rent_fresh_accounts_t * rent_fresh_accounts = &slot_ctx->slot_bank.rent_fresh_accounts;
+  for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
+    fd_rent_fresh_account_t * rent_fresh_account = &rent_fresh_accounts->fresh_accounts[ i ];
+    if( FD_UNLIKELY( rent_fresh_account->present == 1UL ) ) {
+      rent_fresh_account->partition = fd_rent_key_to_partition(
+        &rent_fresh_account->pubkey,
+        slot_ctx->acc_mgr->part_width,
+        slot_ctx->acc_mgr->slots_per_epoch );
     }
-    for( fd_rent_fresh_accounts_partition_t_mapnode_t * partition_node = fd_rent_fresh_accounts_partition_t_map_minimum(
-            slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
-            slot_ctx->slot_bank.rent_fresh_accounts.partitions_root
-          );
-          partition_node;
-          partition_node = fd_rent_fresh_accounts_partition_t_map_successor(
-            slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
-            partition_node
-           ) ) {
-      fd_pubkey_node_t_mapnode_t * next_account_node;
-      for( fd_pubkey_node_t_mapnode_t * account_node = fd_pubkey_node_t_map_minimum(
-            partition_node->elem.accounts_pool,
-            partition_node->elem.accounts_root
-          );
-          account_node;
-          account_node = next_account_node ) {
-        next_account_node = fd_pubkey_node_t_map_successor(
-          partition_node->elem.accounts_pool,
-          account_node );
-        fd_memcpy( &dirty_pubkeys[dirty_pubkeys_cnt++], &account_node->elem.pubkey, FD_PUBKEY_FOOTPRINT );
-
-        fd_pubkey_node_t_mapnode_t * removed_node = fd_pubkey_node_t_map_remove(
-          partition_node->elem.accounts_pool,
-          &partition_node->elem.accounts_root,
-          account_node );
-        fd_pubkey_node_t_map_release( partition_node->elem.accounts_pool, removed_node );
-      }
-    }
-
-    /* Register each new account, which will insert it into a new partition */
-    for( ulong i = 0UL; i < dirty_pubkeys_cnt; i++ ) {
-      fd_runtime_register_new_fresh_account( slot_ctx, &dirty_pubkeys[i] );
-    }
-
-  } FD_SPAD_FRAME_END;
+  }
 }
 
 void
 fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                   ulong                slots_per_epoch,
-                                   fd_spad_t *          runtime_spad ) {
+                                   ulong                slots_per_epoch ) {
   if( FD_LIKELY( slots_per_epoch == slot_ctx->acc_mgr->slots_per_epoch ) ) {
     return;
   }
 
   fd_acc_mgr_set_slots_per_epoch( slot_ctx, slots_per_epoch );
 
-  fd_runtime_repartition_fresh_account_partitions( slot_ctx, runtime_spad );
+  fd_runtime_repartition_fresh_account_partitions( slot_ctx );
 }
 
 void
@@ -225,7 +168,7 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
   ulong slot0    = fd_epoch_slot0( &schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( &schedule, epoch );
 
-  fd_runtime_update_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ), runtime_spad );
+  fd_runtime_update_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ) );
 
   ulong               vote_acc_cnt  = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
   fd_stake_weight_t * epoch_weights = fd_spad_alloc( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
@@ -475,45 +418,33 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
+  fd_rent_fresh_accounts_t * rent_fresh_accounts = &slot_ctx->slot_bank.rent_fresh_accounts;
+
+  /* Common case: do nothing if we have no rent fresh accounts */
+  if( FD_LIKELY( rent_fresh_accounts->total_count == 0UL ) ) {
+    return;
+  }
+
   ulong slot0 = slot_ctx->slot_bank.prev_slot;
   ulong slot1 = slot_ctx->slot_bank.slot;
 
   /* Accomodate skipped slots */
   for( ulong s = slot0 + 1; s <= slot1; ++s ) {
-    /* Look up the accounts in the partition */
-    fd_rent_fresh_accounts_partition_t_mapnode_t key = {0};
-    key.elem.partition = fd_runtime_get_rent_partition( slot_ctx, s );
-    fd_rent_fresh_accounts_partition_t_mapnode_t * partition_node = fd_rent_fresh_accounts_partition_t_map_find(
-      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
-      slot_ctx->slot_bank.rent_fresh_accounts.partitions_root,
-      &key
-    );
-    if( FD_LIKELY( partition_node == NULL ) ) {
-      FD_LOG_WARNING(( "fresh account partition not found for slot %lu", s ));
-      continue;
-    }
 
-    /* Set the rent epoch field of each account to ULONG_MAX, if it wasn't already.
-       Clear the partition as we are iterating over it. */
-    fd_pubkey_node_t_mapnode_t * next_account_node;
-    for( fd_pubkey_node_t_mapnode_t * account_node = fd_pubkey_node_t_map_minimum(
-            partition_node->elem.accounts_pool,
-            partition_node->elem.accounts_root
-          );
-          account_node;
-          account_node = next_account_node ) {
-      next_account_node = fd_pubkey_node_t_map_successor(
-        partition_node->elem.accounts_pool,
-        account_node );
+    ulong partition = fd_runtime_get_rent_partition( slot_ctx, s );
 
-      fd_runtime_update_rent_epoch_account( slot_ctx, fd_type_pun( &account_node->elem.pubkey ) );
+    /* Iterate over each rent fresh account, updating rent_epoch if it is in this slots partition */
+    for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
+      fd_rent_fresh_account_t * rent_fresh_account = &rent_fresh_accounts->fresh_accounts[ i ];
+      if( FD_UNLIKELY( ( rent_fresh_account->present == 1UL ) && rent_fresh_account->partition == partition ) ) {
 
-      fd_pubkey_node_t_mapnode_t * removed_node = fd_pubkey_node_t_map_remove(
-        partition_node->elem.accounts_pool,
-        &partition_node->elem.accounts_root,
-        account_node );
-      fd_pubkey_node_t_map_release( partition_node->elem.accounts_pool, removed_node );
-      slot_ctx->slot_bank.rent_fresh_accounts.total_count -= 1UL;
+        /* Update the rent epoch value for this account */
+        fd_runtime_update_rent_epoch_account( slot_ctx, &rent_fresh_account->pubkey );
+
+        /* Remove the account from the list */
+        rent_fresh_account->present = 0UL;
+        rent_fresh_accounts->total_count--;
+      }
     }
   }
 }

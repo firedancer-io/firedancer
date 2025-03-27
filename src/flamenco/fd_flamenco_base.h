@@ -12,6 +12,9 @@
 #define FD_SLOT_NULL                 ( ULONG_MAX )
 #define FD_SHRED_IDX_NULL            ( UINT_MAX )
 
+/* This is arbitrary, and needs to be sized for the worst case */
+#define FD_RENT_FRESH_ACCOUNTS_MAX   ( 1000UL )
+
 #define FD_FUNK_KEY_TYPE_ACC ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
 
