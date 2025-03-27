@@ -803,7 +803,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     ulong bytes_in_cur_region  = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz, offset_in_cur_region );
 
     /* Check that current region is writable */
-    if( FD_UNLIKELY( !vm->input_mem_regions[ region_idx ].is_writable && sz ) ) {
+    if( FD_UNLIKELY( !vm->input_mem_regions[ region_idx ].is_writable ) ) {
       FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
       return FD_VM_SYSCALL_ERR_SEGFAULT;
     }
@@ -815,6 +815,10 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
       ulong num_bytes_to_set = fd_ulong_min( sz, bytes_in_cur_region );
       fd_memset( haddr, b, num_bytes_to_set );
       sz -= num_bytes_to_set;
+
+      if( !sz ) {
+        break;
+      }
 
       /* If no more regions left, break. */
       if( ++region_idx==vm->input_mem_regions_cnt ) {
@@ -828,7 +832,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
 
       /* If new region crosses into/out of account region, error out. */
       if( FD_UNLIKELY( vm->input_mem_regions[ region_idx ].is_acct_data !=
-                       vm->input_mem_regions[ region_idx-1UL ].is_acct_data && sz ) ) {
+                       vm->input_mem_regions[ region_idx-1UL ].is_acct_data ) ) {
         FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
         return FD_VM_SYSCALL_ERR_SEGFAULT;
       }
