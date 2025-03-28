@@ -1150,10 +1150,10 @@ fd_feature_id_t const ids[] = {
     .name                      = "remaining_compute_units_syscall_enabled",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
-  { .index                     = offsetof(fd_features_t, enable_program_runtime_v2_and_loader_v4)>>3,
-    .id                        = {"\x73\xd6\xec\x04\xbe\x12\xf9\x97\x7c\x5b\x14\x23\xca\x21\x5f\x5c\xac\x7c\x41\xfa\xd1\xf8\xc7\x7f\x0d\x23\x00\xe1\xb4\xa6\xf1\xd8"},
-                                 /* 8oBxsYqnCvUTGzgEpxPcnVf7MLbWWPYddE33PftFeBBd */
-    .name                      = "enable_program_runtime_v2_and_loader_v4",
+  { .index                     = offsetof(fd_features_t, enable_loader_v4)>>3,
+    .id                        = {"\x6a\xf9\xc2\xb7\xef\x03\x1f\xcd\x0f\x1a\x09\x23\x4e\x8a\x87\x4e\xa1\xf5\x78\x76\x05\xb9\x50\xa3\x0d\x93\x1f\xf6\x6a\x54\x99\xd6"},
+                                 /* 8Cb77yHjPWe9wuWUfXeh6iszFGCDGNCoFk3tprViYHNm */
+    .name                      = "enable_loader_v4",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, require_rent_exempt_split_destination)>>3,
@@ -1560,6 +1560,36 @@ fd_feature_id_t const ids[] = {
     .name                      = "disable_partitioned_rent_collection",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, vote_only_full_fec_sets)>>3,
+    .id                        = {"\x09\xe7\xc5\x4a\x98\x6c\xb6\x68\x7d\xea\x99\x67\x65\x85\xc4\x3a\x6b\xac\x6d\x4c\x86\x10\x38\x21\xa6\x5c\x47\x63\x60\x46\x6a\x13"},
+                                 /* ffecLRhhakKSGhMuc6Fz2Lnfq4uT9q3iu9ZsNaPLxPc */
+    .name                      = "vote_only_full_fec_sets",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, drop_unchained_merkle_shreds)>>3,
+    .id                        = {"\x20\x0f\x3a\xb8\x5d\x6c\x0b\x80\xe0\x5b\xbd\x7c\x65\x02\x11\xc5\x4c\xa1\x37\x3a\x74\xc9\x1a\xf1\xe7\x34\x0b\xf5\x27\x82\x0f\x8d"},
+                                 /* 3A9WtMU4aHuryD3VN7SFKdfXto8HStLb1Jj6HjkgfnGL */
+    .name                      = "drop_unchained_merkle_shreds",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, verify_retransmitter_signature)>>3,
+    .id                        = {"\x9c\xcc\xbd\x50\xa2\xed\x41\xa8\x85\x34\x23\x68\x9b\xcd\xb3\x28\xd1\x52\xd5\xe6\xfa\xcd\x2d\x3d\x8e\xbc\x54\x90\xee\x43\x96\xa6"},
+                                 /* BZ5g4hRbu5hLQQBdPyo2z9icGyJ8Khiyj3QS6dhWijTb */
+    .name                      = "verify_retransmitter_signature",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, enable_turbine_extended_fanout_experiments)>>3,
+    .id                        = {"\x9c\xfa\x56\x83\x27\xa3\x72\x02\xcc\xb2\x43\x58\x96\x7a\xd0\xb1\x15\x49\x12\xb3\x1e\xb1\x38\xb9\x5c\x09\x00\x03\xc2\x36\xd8\xbe"},
+                                 /* BZn14Liea52wtBwrXUxTv6vojuTTmfc7XGEDTXrvMD7b */
+    .name                      = "enable_turbine_extended_fanout_experiments",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, vote_only_retransmitter_signed_fec_sets)>>3,
+    .id                        = {"\x06\x51\x2b\xe1\x3a\x96\x4f\x49\x50\xb7\xac\x06\xb0\x90\x4d\x04\xbb\xbf\x29\xc7\x0c\x01\xf6\x52\x11\x2b\x02\xfa\x13\x90\x98\x76"},
+                                 /* RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph */
+    .name                      = "vote_only_retransmitter_signed_fec_sets",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1732,7 +1762,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x3cbf822ccb2eebd4: return &ids[ 163 ];
   case 0xe9d32123513c4d0d: return &ids[ 164 ];
   case 0x64205286d7935342: return &ids[ 165 ];
-  case 0x97f912be04ecd673: return &ids[ 166 ];
+  case 0xcd1f03efb7c2f96a: return &ids[ 166 ];
   case 0x4b241cb4c6f3b3b2: return &ids[ 167 ];
   case 0x21746beaa849f9d9: return &ids[ 168 ];
   case 0x9bb55b5df1c396c5: return &ids[ 169 ];
@@ -1794,6 +1824,11 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8ef4f4fdbc3d6c85: return &ids[ 225 ];
   case 0xd571e3dc9532c905: return &ids[ 226 ];
   case 0x4d86ca23d81d6d11: return &ids[ 227 ];
+  case 0x68b66c984ac5e709: return &ids[ 228 ];
+  case 0x800b6c5db83a0f20: return &ids[ 229 ];
+  case 0xa841eda250bdcc9c: return &ids[ 230 ];
+  case 0x0272a3278356fa9c: return &ids[ 231 ];
+  case 0x494f963ae12b5106: return &ids[ 232 ];
   default: break;
   }
   return NULL;
@@ -1965,7 +2000,7 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, revise_turbine_epoch_stakes          
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_poseidon_syscall                                 )>>3==163UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, timely_vote_credits                                     )>>3==164UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, remaining_compute_units_syscall_enabled                 )>>3==165UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_program_runtime_v2_and_loader_v4                 )>>3==166UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_loader_v4                                        )>>3==166UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_rent_exempt_split_destination                   )>>3==167UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, better_error_codes_for_tx_lamport_check                 )>>3==168UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_compression_syscall                    )>>3==169UL, layout );
@@ -2027,4 +2062,9 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_50m            
 FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==225UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==226UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, disable_partitioned_rent_collection                     )>>3==227UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_full_fec_sets                                 )>>3==228UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, drop_unchained_merkle_shreds                            )>>3==229UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, verify_retransmitter_signature                          )>>3==230UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_turbine_extended_fanout_experiments              )>>3==231UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_retransmitter_signed_fec_sets                 )>>3==232UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

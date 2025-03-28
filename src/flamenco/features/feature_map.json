@@ -165,7 +165,7 @@
   {"name":"enable_poseidon_syscall","pubkey": "FL9RsQA6TVUoh5xJQ9d936RHSebA1NLQqe3Zv9sXZRpr","activated_on_all_clusters":1},
   {"name":"timely_vote_credits","old": "2oXpeh141pPZCTCFHBsvCwG2BtaHZZAtrVhwaxSy6brS","pubkey":"tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ","activated_on_all_clusters":1},
   {"name":"remaining_compute_units_syscall_enabled","pubkey": "5TuppMutoyzhUSfuYdhgzD47F92GL1g89KpCZQKqedxP"},
-  {"name":"enable_program_runtime_v2_and_loader_v4","pubkey": "8oBxsYqnCvUTGzgEpxPcnVf7MLbWWPYddE33PftFeBBd"},
+  {"name":"enable_loader_v4","pubkey": "8Cb77yHjPWe9wuWUfXeh6iszFGCDGNCoFk3tprViYHNm"},
   {"name":"require_rent_exempt_split_destination","pubkey": "D2aip4BBr8NPWtU9vLrwrBvbuaQ8w1zV38zFLxx4pfBV","cleaned_up":[2,0,0],"activated_on_all_clusters":1},
   {"name":"better_error_codes_for_tx_lamport_check","pubkey": "Ffswd3egL3tccB6Rv3XY6oqfdzn913vUcjCSnpvCKpfx","cleaned_up":[2,0,0],"activated_on_all_clusters":1},
   {"name":"enable_alt_bn128_compression_syscall","pubkey": "EJJewYSddEEtSZHiqugnvhQHiWyZKjkFDQASd7oKSagn","activated_on_all_clusters":1},
@@ -227,5 +227,9 @@
   {"name":"move_precompile_verification_to_svm","pubkey":"9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp"},
   {"name":"enable_transaction_loading_failure_fees","pubkey":"PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP","activated_on_all_clusters":1},
   {"name":"disable_partitioned_rent_collection","pubkey":"2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC"},
-  {"name":"vote_only_full_fec_sets","pubkey":"ffecLRhhakKSGhMuc6Fz2Lnfq4uT9q3iu9ZsNaPLxPc"}
+  {"name":"vote_only_full_fec_sets","pubkey":"ffecLRhhakKSGhMuc6Fz2Lnfq4uT9q3iu9ZsNaPLxPc"},
+  {"name":"drop_unchained_merkle_shreds","pubkey":"3A9WtMU4aHuryD3VN7SFKdfXto8HStLb1Jj6HjkgfnGL"},
+  {"name":"verify_retransmitter_signature","pubkey":"BZ5g4hRbu5hLQQBdPyo2z9icGyJ8Khiyj3QS6dhWijTb"},
+  {"name":"enable_turbine_extended_fanout_experiments","pubkey":"BZn14Liea52wtBwrXUxTv6vojuTTmfc7XGEDTXrvMD7b"},
+  {"name":"vote_only_retransmitter_signed_fec_sets","pubkey":"RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph"}
 ]

@@ -47,7 +47,7 @@ default_enable_features( fd_features_t * features ) {
   features->update_hashes_per_tick3 = 0UL;
   features->update_hashes_per_tick4 = 0UL;
   features->enable_bpf_loader_extend_program_ix = 0UL;
-  features->enable_program_runtime_v2_and_loader_v4 = 0UL;
+  features->enable_loader_v4 = 0UL;
   features->increase_tx_account_lock_limit = 0UL;
   features->stake_raise_minimum_delegation_to_1_sol = 0UL;
   features->enable_alt_bn128_syscall = 0UL;
