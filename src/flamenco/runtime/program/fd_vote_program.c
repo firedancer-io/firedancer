@@ -1983,9 +1983,13 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
   // tie in code for fd_bank_hash_cmp that helps us detect if we have forked from the cluster.
   //
   // There is no corresponding code in anza
+
   if( !deq_fd_vote_lockout_t_empty( vote_state_update->lockouts ) ) {
     fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
     fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
+    if( lockout ) {
+      FD_LOG_DEBUG(( "bank hash from slot=%lu hash=%s", lockout->slot, FD_BASE58_ENC_32_ALLOCA(&vote_state_update->hash) ));
+    }
     if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
       fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_bank_hash_cmp_insert(
@@ -2072,6 +2076,10 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
 
   if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
     fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
+    if( lockout ) {
+      FD_LOG_DEBUG(( "Bank hash=%s for slot=%lu", FD_BASE58_ENC_32_ALLOCA(&tower_sync->hash), lockout->slot ));
+    }
+
     fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
     if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
       fd_bank_hash_cmp_lock( bank_hash_cmp );

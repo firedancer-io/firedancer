@@ -27,7 +27,9 @@ fd_exec_txn_ctx_new( void * mem ) {
 }
 
 fd_exec_txn_ctx_t *
-fd_exec_txn_ctx_join( void * mem ) {
+fd_exec_txn_ctx_join( void *      mem,
+                      fd_spad_t * spad,
+                      fd_wksp_t * spad_wksp ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL block" ));
     return NULL;
@@ -39,6 +41,10 @@ fd_exec_txn_ctx_join( void * mem ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  /* Rejoin the wksp */
+  ctx->spad      = spad;
+  ctx->spad_wksp = spad_wksp;
 
   return ctx;
 }
@@ -276,11 +282,17 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   txn_ctx->acc_mgr = fd_wksp_laddr( runtime_pub_wksp, acc_mgr_gaddr );
   if( FD_UNLIKELY( !txn_ctx->acc_mgr ) ) {
-    FD_LOG_ERR(( "Could not find valid account manager" ));
+    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
   }
   txn_ctx->acc_mgr->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
+  if( FD_UNLIKELY( !txn_ctx->acc_mgr->funk ) ) {
+    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
+  }
 
   txn_ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
+  if( FD_UNLIKELY( !txn_ctx->sysvar_cache ) ) {
+    FD_LOG_ERR(( "Could not find valid sysvar cache" ));
+  }
 
   txn_ctx->features     = slot_ctx->epoch_ctx->features;
   txn_ctx->status_cache = slot_ctx->status_cache;

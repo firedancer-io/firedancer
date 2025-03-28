@@ -61,29 +61,34 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
   /* TODO: These are fields borrowed from the slot and epoch ctx. This
-     could be refactored even further. */
+     could be refactored even further. Currently these fields are not
+     all valid local joins. */
 
-  /* local */
+
+  uint flags;
+
+
   fd_features_t                   features;
   fd_sysvar_cache_t const *       sysvar_cache;
   fd_txncache_t *                 status_cache;
   ulong                           prev_lamports_per_signature;
   int                             enable_exec_recording;
   ulong                           total_epoch_stake;
-  fd_bank_hash_cmp_t *            bank_hash_cmp;
+  fd_bank_hash_cmp_t *            bank_hash_cmp; /* FIXME: broken */
   fd_funk_txn_t *                 funk_txn;
   fd_acc_mgr_t *                  acc_mgr;
   fd_wksp_t *                     runtime_pub_wksp;
   ulong                           slot;
   fd_fee_rate_governor_t          fee_rate_governor;
-  fd_block_hash_queue_t           block_hash_queue; /* TODO:FIXME: make globally addressable */
+  fd_block_hash_queue_t           block_hash_queue;
 
   fd_epoch_schedule_t             schedule;
   fd_rent_t                       rent;
   double                          slots_per_year;
-  fd_stakes_t                     stakes; /* TODO:FIXME: Handle global addressable stuff */
+  fd_stakes_t                     stakes;
 
   fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
+  fd_wksp_t *                     spad_wksp;                                   /* Workspace for the spad. */
 
   ulong                           paid_fees;
   ulong                           compute_unit_limit;                          /* Compute unit limit for this transaction. */
@@ -206,7 +211,7 @@ void *
 fd_exec_txn_ctx_new( void * mem );
 
 fd_exec_txn_ctx_t *
-fd_exec_txn_ctx_join( void * mem );
+fd_exec_txn_ctx_join( void * mem, fd_spad_t * spad, fd_wksp_t * spad_wksp );
 
 void *
 fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );

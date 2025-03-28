@@ -30,6 +30,9 @@ $(call add-objs,fd_txncache,fd_flamenco)
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
 
+$(call add-hdrs,fd_runtime_public.h)
+$(call add-objs,fd_runtime_public,fd_flamenco)
+
 $(call add-hdrs, tests/fd_dump_pb.h)
 $(call add-objs, tests/fd_dump_pb,fd_flamenco)
 

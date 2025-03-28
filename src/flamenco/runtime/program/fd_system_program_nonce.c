@@ -89,7 +89,7 @@ fd_durable_nonce_from_blockhash( fd_hash_t *       out,
                                  fd_hash_t const * blockhash ) {
   uchar buf[45];
   memcpy( buf,    "DURABLE_NONCE", 13UL );
-  memcpy( buf+13, blockhash,       32UL );
+  memcpy( buf+13, blockhash,       sizeof(fd_hash_t) );
   fd_sha256_hash( buf, sizeof(buf), out );
 }
 
@@ -108,8 +108,9 @@ fd_system_program_set_nonce_state( fd_borrowed_account_t *           account,
 
   do {
     int err = 99999;
-    if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_changed( account, &err ) ) )
+    if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_changed( account, &err ) ) ) {
       return err;
+    }
   } while(0);
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L1024-L1026 */
@@ -1077,7 +1078,9 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         /* make_modifiable uses the old length for the data copy */
         ulong old_tot_len = sizeof(fd_account_meta_t)+rollback_nonce_rec->const_meta->dlen;
         void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
-        fd_txn_account_make_mutable( rollback_nonce_rec, borrowed_account_data );
+        fd_txn_account_make_mutable( rollback_nonce_rec,
+                                     borrowed_account_data,
+                                     txn_ctx->spad_wksp );
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->meta->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }

@@ -14,10 +14,52 @@ struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
 
+struct fd_accounts_hash_task_info {
+  fd_exec_slot_ctx_t *  slot_ctx;
+  fd_pubkey_t           acc_pubkey[1];
+  fd_hash_t             acc_hash[1];
+  fd_funk_rec_t const * rec;
+  uint                  should_erase;
+  uint                  hash_changed;
+};
+typedef struct fd_accounts_hash_task_info fd_accounts_hash_task_info_t;
+
+struct fd_accounts_hash_task_data {
+  fd_accounts_hash_task_info_t * info;
+  ulong                          info_sz;
+  fd_lthash_value_t *            lthash_values;
+  ulong                          num_recs;
+};
+typedef struct fd_accounts_hash_task_data fd_accounts_hash_task_data_t;
+
 union fd_features;
 typedef union fd_features fd_features_t;
 
 FD_PROTOTYPES_BEGIN
+
+int
+fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
+                               fd_hash_t *                    hash,
+                               fd_capture_ctx_t *             capture_ctx,
+                               fd_accounts_hash_task_data_t * task_datas,
+                               ulong                          task_datas_cnt,
+                               fd_lthash_value_t *            lt_hashes,
+                               ulong                          lt_hashes_cnt,
+                               ulong                          signature_cnt,
+                               fd_spad_t *                    runtime_spad );
+
+void
+fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
+                              fd_accounts_hash_task_data_t * task_data,
+                              fd_spad_t *                    runtime_spad );
+
+void
+fd_account_hash( fd_acc_mgr_t *                 acc_mgr,
+                 fd_funk_txn_t *                funk_txn,
+                 fd_accounts_hash_task_info_t * task_info,
+                 fd_lthash_value_t *            lt_hash,
+                 ulong                          slot,
+                 fd_features_t *                features );
 
 int
 fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,

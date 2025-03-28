@@ -72,15 +72,22 @@ fd_txn_account_make_readonly( fd_txn_account_t * acct, void * buf ) {
 }
 
 fd_txn_account_t *
-fd_txn_account_make_mutable( fd_txn_account_t * acct, void * buf ) {
-  if( FD_UNLIKELY( acct->data != NULL ) ) FD_LOG_ERR(( "borrowed account is already mutable" ));
+fd_txn_account_make_mutable( fd_txn_account_t * acct,
+                             void *             buf,
+                             fd_wksp_t *        wksp ) {
+  if( FD_UNLIKELY( acct->data != NULL ) ) {
+    FD_LOG_ERR(( "borrowed account is already mutable" ));
+  }
 
-  ulong   dlen         = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;
+  ulong   dlen         = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0UL;
   uchar * new_raw_data = fd_txn_account_init_data( acct, buf );
 
   acct->const_meta = acct->meta = (fd_account_meta_t *)new_raw_data;
   acct->const_data = acct->data = new_raw_data + sizeof(fd_account_meta_t);
   acct->meta->dlen = dlen;
+
+  acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta );
+  acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data );
 
   return acct;
 }

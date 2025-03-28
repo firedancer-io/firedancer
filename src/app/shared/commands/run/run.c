@@ -21,6 +21,7 @@
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
+#include "../../../../flamenco/runtime/fd_runtime_public.h"
 #endif
 #include "../../../../funk/fd_funk.h"
 #include "../../../../waltz/ip/fd_fib4.h"
@@ -582,12 +583,14 @@ fdctl_obj_new( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     FD_TEST( fd_keyswitch_new( laddr, FD_KEYSWITCH_STATE_UNLOCKED ) );
 #if FD_HAS_NO_AGAVE
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "runtime_pub" ) ) ) {
     FD_TEST( fd_runtime_public_new( laddr ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "exec_spad" ) ) ) {
+    FD_TEST( fd_spad_new( laddr, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
 #endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));

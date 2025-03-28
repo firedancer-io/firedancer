@@ -31,9 +31,9 @@ struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   fd_features_t              features;
   fd_epoch_bank_t            epoch_bank;
 
-  fd_bank_hash_cmp_t       * bank_hash_cmp;
-  fd_runtime_public_t      * replay_public;
-  int                        constipate_root; /* Used for constipation in offline replay .*/
+  fd_bank_hash_cmp_t *       bank_hash_cmp;
+  fd_runtime_public_t *      runtime_public;
+  int                        constipate_root; /* Used for constipation in offline replay. */
   ulong                      total_epoch_stake;
 };
 

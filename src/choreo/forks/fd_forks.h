@@ -26,7 +26,7 @@ struct fd_fork {
                  consensus, publishing) and should definitely not be
                  removed. */
   uint  end_idx; /* the end_idx of the last batch executed on this fork */
-  fd_exec_slot_ctx_t slot_ctx;
+  fd_exec_slot_ctx_t * slot_ctx;
 };
 
 typedef struct fd_fork fd_fork_t;
@@ -126,15 +126,15 @@ fd_forks_delete( void * forks );
    and no one else is joined, and non-NULL slot_ctx.  Inserts the first
    fork into the frontier containing slot_ctx.  This should be the
    slot_ctx from loading a snapshot, restoring a bank from Funk, or the
-   genesis slot_ctx.  The slot_ctx will be copied into an element
-   acquired from the memory pool owned by forks.  Returns fork on
-   success, NULL on failure.
+   genesis slot_ctx.  The slot_ctx is assumed to be in the same address
+   space as the forks data structure and that a valid local join exists.
+   Returns fork on success, NULL on failure.
 
    In general, this should be called by the same process that formatted
    forks' memory, ie. the caller of fd_forks_new. */
 
 fd_fork_t *
-fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx );
+fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t * slot_ctx );
 
 /* fd_forks_query queries for the fork corresponding to slot in the
    frontier.  Returns the fork if found, otherwise NULL. */

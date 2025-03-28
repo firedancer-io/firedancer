@@ -223,11 +223,11 @@ fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
 
 // slot_ctx should be const.
 static void
-fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
-              fd_capture_ctx_t * capture_ctx,
-              fd_hash_t * hash,
+fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
+              fd_capture_ctx_t *      capture_ctx,
+              fd_hash_t *             hash,
               fd_pubkey_hash_pair_t * dirty_keys,
-              ulong dirty_key_cnt ) {
+              ulong                   dirty_key_cnt ) {
   slot_ctx->slot_bank.prev_banks_hash = slot_ctx->slot_bank.banks_hash;
   slot_ctx->slot_bank.parent_signature_cnt = slot_ctx->signature_cnt;
   slot_ctx->prev_lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
@@ -307,53 +307,41 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   }
 }
 
-struct fd_accounts_hash_task_info {
-  fd_exec_slot_ctx_t * slot_ctx;
-  fd_pubkey_t acc_pubkey[1];
-  fd_hash_t acc_hash[1];
-  fd_funk_rec_t const * rec;
-  uint should_erase;
-  uint hash_changed;
-};
-typedef struct fd_accounts_hash_task_info fd_accounts_hash_task_info_t;
-
-struct fd_accounts_hash_task_data {
-  struct fd_accounts_hash_task_info *info;
-  ulong                              info_sz;
-  fd_lthash_value_t                 *lthash_values;
-};
-typedef struct fd_accounts_hash_task_data fd_accounts_hash_task_data_t;
-
-static void
-fd_account_hash_task( void *tpool,
-                      ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
-                      void *args FD_PARAM_UNUSED,
-                      void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                      ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
-                      ulong m0, ulong m1 FD_PARAM_UNUSED,
-                      ulong n0, ulong n1 FD_PARAM_UNUSED) {
-  fd_accounts_hash_task_info_t * task_info = ((fd_accounts_hash_task_data_t *)tpool)->info + m0;
-  fd_exec_slot_ctx_t * slot_ctx = task_info->slot_ctx;
+void
+fd_account_hash( fd_acc_mgr_t *                 acc_mgr,
+                 fd_funk_txn_t *                funk_txn,
+                 fd_accounts_hash_task_info_t * task_info,
+                 fd_lthash_value_t *            lt_hash,
+                 ulong                          slot,
+                 fd_features_t *                features ) {
   int err = 0;
-  fd_funk_txn_t const * txn_out = NULL;
-  fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err, &txn_out );
+  fd_funk_txn_t const *     txn_out  = NULL;
+  fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr,
+                                                            funk_txn,
+                                                            task_info->acc_pubkey,
+                                                            &task_info->rec,
+                                                            &err,
+                                                            &txn_out );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || !acc_meta ) ) {
     FD_LOG_WARNING(( "failed to view account during bank hash" ));
     return;
   }
 
   fd_account_meta_t * acc_meta_parent = NULL;
-  if( NULL != txn_out ) {
-    fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
-    fd_wksp_t *     wksp = fd_funk_wksp( funk );
-    fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, wksp );
-    txn_out = fd_funk_txn_parent( (fd_funk_txn_t *) txn_out, txn_map );
-    acc_meta_parent = (fd_account_meta_t *)fd_acc_mgr_view_raw( slot_ctx->acc_mgr, txn_out, task_info->acc_pubkey, NULL, &err, NULL);
+  if( txn_out ) {
+    fd_funk_t *     funk    = acc_mgr->funk;
+    fd_wksp_t *     wksp    = fd_funk_wksp( funk );
+    fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+    txn_out                 = fd_funk_txn_parent( (fd_funk_txn_t *) txn_out, txn_map );
+    acc_meta_parent         = (fd_account_meta_t *)fd_acc_mgr_view_raw( acc_mgr,
+                                                                        txn_out,
+                                                                        task_info->acc_pubkey,
+                                                                        NULL,
+                                                                        &err,
+                                                                        NULL );
   }
 
-  fd_lthash_value_t * acc = &(((fd_accounts_hash_task_data_t *)tpool)->lthash_values[n0]);
-
-  if( FD_UNLIKELY(acc_meta->info.lamports == 0) ) {
+  if( FD_UNLIKELY( !acc_meta->info.lamports ) ) {
     fd_memset( task_info->acc_hash->hash, 0, FD_HASH_FOOTPRINT );
 
     /* If we erase records instantly, this causes problems with the
@@ -370,15 +358,20 @@ fd_account_hash_task( void *tpool,
     uchar *             acc_data = fd_account_meta_get_data((fd_account_meta_t *) acc_meta);
     fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t new_lthash_value;
-    fd_lthash_zero(&new_lthash_value);
-    fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data, FD_HASH_BOTH_HASHES, &slot_ctx->epoch_ctx->features );
+    fd_lthash_zero( &new_lthash_value );
+    fd_hash_account_current( task_info->acc_hash->hash,
+                             &new_lthash_value,
+                             acc_meta,
+                             acc_key->key,
+                             acc_data,
+                             FD_HASH_BOTH_HASHES,
+                             features );
 
     if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
       task_info->hash_changed = 1;
-      fd_lthash_add( acc, &new_lthash_value);
+      fd_lthash_add( lt_hash, &new_lthash_value);
     }
   }
-
   if( FD_LIKELY(task_info->hash_changed && ((NULL != acc_meta_parent) && (acc_meta_parent->info.lamports != 0) ) ) ) {
     uchar *             acc_data = fd_account_meta_get_data(acc_meta_parent);
     fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
@@ -386,19 +379,53 @@ fd_account_hash_task( void *tpool,
     fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;
 
-    fd_hash_account_current( old_hash.hash, &old_lthash_value, acc_meta_parent, acc_key->key, acc_data, FD_HASH_JUST_LTHASH, &slot_ctx->epoch_ctx->features );
-    fd_lthash_sub( acc, &old_lthash_value );
+    fd_hash_account_current( old_hash.hash,
+                             &old_lthash_value,
+                             acc_meta_parent,
+                             acc_key->key,
+                             acc_data,
+                             FD_HASH_JUST_LTHASH,
+                             features );
+    fd_lthash_sub( lt_hash, &old_lthash_value );
   }
 
-  if( acc_meta->slot == slot_ctx->slot_bank.slot ) {
-      task_info->hash_changed = 1;
+  if( acc_meta->slot == slot ) {
+    task_info->hash_changed = 1;
   }
 }
 
 static void
+fd_account_hash_task( void * tpool,
+                      ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                      void *args FD_PARAM_UNUSED,
+                      void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                      ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
+                      ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
+                      ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
+
+  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)tpool;
+  ulong                          start_idx  = t0;
+  ulong                          stop_idx   = t1;
+
+  fd_lthash_value_t * lthash = (fd_lthash_value_t*)args;
+
+  for( ulong i=start_idx; i<=stop_idx; i++ ) {
+    fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
+    fd_exec_slot_ctx_t *           slot_ctx  = task_info->slot_ctx;
+    fd_account_hash( slot_ctx->acc_mgr,
+                     slot_ctx->funk_txn,
+                     task_info,
+                     lthash,
+                     slot_ctx->slot_bank.slot,
+                     &slot_ctx->epoch_ctx->features );
+  }
+}
+
+void
 fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
                               fd_accounts_hash_task_data_t * task_data,
                               fd_spad_t *                    runtime_spad ) {
+
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *     funk    = acc_mgr->funk;
   fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -408,8 +435,9 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
-    if( !fd_funk_key_is_acc( rec->pair.key  ) )
+    if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
       continue;
+    }
 
     fd_pubkey_t const * pubkey  = fd_funk_key_to_acc( rec->pair.key );
 
@@ -419,11 +447,13 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
     rec_cnt++;
   }
 
-  task_data->info = fd_spad_alloc( runtime_spad, alignof(fd_accounts_hash_task_info_t), rec_cnt * sizeof(fd_accounts_hash_task_info_t) );
+  task_data->info    = fd_spad_alloc( runtime_spad, alignof(fd_accounts_hash_task_info_t), rec_cnt * sizeof(fd_accounts_hash_task_info_t) );
+  task_data->info_sz = rec_cnt;
 
   /* Iterate over accounts that have been changed in the current
      database transaction. */
-  ulong task_info_idx = 0;
+
+  ulong recs_iterated = 0UL;
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
@@ -433,15 +463,144 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
     if( !fd_funk_key_is_acc( rec->pair.key  ) )
       continue;
 
-    fd_accounts_hash_task_info_t * task_info = &task_data->info[task_info_idx++];
+    fd_accounts_hash_task_info_t * task_info = &task_data->info[recs_iterated++];
 
-    *task_info->acc_pubkey = *acc_key;
-    task_info->slot_ctx = slot_ctx;
+    *task_info->acc_pubkey  = *acc_key;
+    task_info->slot_ctx     = slot_ctx;
     task_info->hash_changed = 0;
     task_info->should_erase = 0;
   }
 
-  task_data->info_sz = task_info_idx;
+  if( FD_UNLIKELY( recs_iterated!=task_data->info_sz ) ) {
+    FD_LOG_ERR(( "recs_iterated: %lu, task_data->info_sz: %lu", recs_iterated, task_data->info_sz ));
+  }
+}
+
+int
+fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
+                               fd_hash_t *                    hash,
+                               fd_capture_ctx_t *             capture_ctx,
+                               fd_accounts_hash_task_data_t * task_datas,
+                               ulong                          task_datas_cnt,
+                               fd_lthash_value_t *            lt_hashes,
+                               ulong                          lt_hashes_cnt,
+                               ulong                          signature_cnt,
+                               fd_spad_t *                    runtime_spad ) {
+  ulong dirty_key_cnt = 0;
+
+
+  fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
+  fd_funk_t *     funk    = acc_mgr->funk;
+  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+
+  // Apply the lthash changes to the bank lthash
+  fd_lthash_value_t * lt_hash = (fd_lthash_value_t *)fd_type_pun( slot_ctx->slot_bank.lthash.lthash );
+  for( ulong i = 0; i < lt_hashes_cnt; i++ ) {
+    fd_lthash_add( lt_hash, &lt_hashes[i] );
+  }
+
+  for( ulong j=0UL; j<task_datas_cnt; j++ ) {
+
+    fd_accounts_hash_task_data_t * task_data = &task_datas[j];
+
+    fd_pubkey_hash_pair_t * dirty_keys = fd_spad_alloc( runtime_spad,
+                                                        FD_PUBKEY_HASH_PAIR_ALIGN,
+                                                        task_data->info_sz * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
+
+    for( ulong i = 0; i < task_data->info_sz; i++ ) {
+      fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
+      /* Upgrade to writable record */
+      if( !task_info->hash_changed ) {
+        continue;
+      }
+
+      FD_TXN_ACCOUNT_DECL( acc_rec );
+      acc_rec->const_rec = task_info->rec;
+
+      fd_pubkey_t const * acc_key = fd_funk_key_to_acc( task_info->rec->pair.key );
+      int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_ERR(( "failed to modify account during bank hash" ));
+      }
+
+      /* Update hash */
+
+      memcpy( acc_rec->meta->hash, task_info->acc_hash->hash, sizeof(fd_hash_t) );
+      acc_rec->meta->slot = slot_ctx->slot_bank.slot;
+
+      /* Add account to "dirty keys" list, which will be added to the
+        bank hash. */
+
+      fd_pubkey_hash_pair_t * dirty_entry = &dirty_keys[dirty_key_cnt++];
+      dirty_entry->rec = task_info->rec;
+      dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
+
+      char acc_key_string[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( acc_key_string, (uchar const*)acc_key );
+      char owner_string[ FD_BASE58_ENCODED_32_SZ ];
+      fd_acct_addr_cstr( owner_string, acc_rec->meta->info.owner );
+
+      FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %s "
+                    "slot: %lu "
+                    "lamports: %lu  "
+                    "owner: %s "
+                    "executable: %s,  "
+                    "rent_epoch: %lu, "
+                    "data_len: %lu",
+                    acc_key_string,
+                    slot_ctx->slot_bank.slot,
+                    acc_rec->meta->info.lamports,
+                    owner_string,
+                    acc_rec->meta->info.executable ? "true" : "false",
+                    acc_rec->meta->info.rent_epoch,
+                    acc_rec->meta->dlen ));
+
+      if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
+        fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr,
+                                                                  slot_ctx->funk_txn,
+                                                                  task_info->acc_pubkey,
+                                                                  &task_info->rec,
+                                                                  &err,
+                                                                  NULL);
+        if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+          FD_LOG_WARNING(( "failed to view account during capture" ));
+          continue;
+        }
+
+        uchar const * acc_data = (uchar *)acc_meta + acc_meta->hlen;
+
+        err = fd_solcap_write_account( capture_ctx->capture,
+                                      acc_key->uc,
+                                      &acc_rec->meta->info,
+                                      acc_data,
+                                      acc_rec->meta->dlen,
+                                      task_info->acc_hash->hash );
+
+        if( FD_UNLIKELY( err ) ) {
+          FD_LOG_ERR(( "Unable to write out solcap file" ));
+        }
+      }
+    }
+
+    /* Sort and hash "dirty keys" to the accounts delta hash. */
+
+    slot_ctx->signature_cnt = signature_cnt;
+    fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
+
+    for( ulong i = 0; i < task_data->info_sz; i++ ) {
+      fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
+      /* Upgrade to writable record */
+      if( FD_LIKELY( !task_info->should_erase ) ) {
+        continue;
+      }
+
+      /* All removed recs should be stored with the slot from the funk txn. */
+      fd_funk_rec_remove( funk, fd_funk_rec_modify(funk, task_info->rec), task_info->rec->pair.xid->ul[0] );
+    }
+  }
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+
 }
 
 int
@@ -451,129 +610,46 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            ulong                signature_cnt,
                            fd_tpool_t *         tpool,
                            fd_spad_t *          runtime_spad ) {
-  fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *     funk    = acc_mgr->funk;
-  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
 
   /* Collect list of changed accounts to be added to bank hash */
-  fd_accounts_hash_task_data_t task_data;
+  fd_accounts_hash_task_data_t * task_data = fd_spad_alloc( runtime_spad,
+                                                            alignof(fd_accounts_hash_task_data_t),
+                                                            sizeof(fd_accounts_hash_task_data_t) );
+
+  fd_collect_modified_accounts( slot_ctx, task_data, runtime_spad );
 
   ulong wcnt = fd_tpool_worker_cnt( tpool );
-  task_data.lthash_values = fd_spad_alloc( runtime_spad, FD_LTHASH_VALUE_ALIGN, wcnt * FD_LTHASH_VALUE_FOOTPRINT );
-  for( ulong i = 0; i < wcnt; i++ ) {
-    fd_lthash_zero(&task_data.lthash_values[i]);
+
+  fd_lthash_value_t * lt_hashes = fd_spad_alloc( runtime_spad,
+                                                 FD_LTHASH_VALUE_ALIGN,
+                                                 wcnt * FD_LTHASH_VALUE_FOOTPRINT );
+  for( ulong i=0UL; i<wcnt; i++ ) {
+    fd_lthash_zero( &lt_hashes[i] );
   }
 
-  /* Find accounts which might have changed */
-  fd_collect_modified_accounts( slot_ctx, &task_data, runtime_spad );
-
-  fd_pubkey_hash_pair_t * dirty_keys = fd_spad_alloc( runtime_spad,
-                                                      FD_PUBKEY_HASH_PAIR_ALIGN,
-                                                      task_data.info_sz * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
-  ulong dirty_key_cnt = 0;
-
-  /* Find accounts which have changed */
-  fd_tpool_exec_all_rrobin( tpool, 0, wcnt, fd_account_hash_task, &task_data,
-                            NULL, NULL, 1, 0, task_data.info_sz );
-
-  // Apply the lthash changes to the bank lthash
-  fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun( slot_ctx->slot_bank.lthash.lthash );
-  for( ulong i = 0; i < wcnt; i++ ) {
-    fd_lthash_add( acc, &task_data.lthash_values[i] );
+  ulong cnt_per_worker = task_data->info_sz / (wcnt-1UL);
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong end_idx   = worker_idx!=wcnt-1 ? start_idx + cnt_per_worker - 1 : task_data->info_sz - 1;
+    fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
+                   task_data, start_idx, end_idx,
+                   &lt_hashes[worker_idx], 0UL, 0UL,
+                   0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
   }
 
-  for( ulong i = 0; i < task_data.info_sz; i++ ) {
-    fd_accounts_hash_task_info_t * task_info = &task_data.info[i];
-    /* Upgrade to writable record */
-    if( !task_info->hash_changed ) {
-      continue;
-    }
-
-    FD_TXN_ACCOUNT_DECL( acc_rec );
-    acc_rec->const_rec = task_info->rec;
-
-    fd_pubkey_t const * acc_key = fd_funk_key_to_acc( task_info->rec->pair.key );
-    int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(( "failed to modify account during bank hash" ));
-    }
-
-    /* Update hash */
-
-    memcpy( acc_rec->meta->hash, task_info->acc_hash->hash, sizeof(fd_hash_t) );
-    acc_rec->meta->slot = slot_ctx->slot_bank.slot;
-
-    /* Add account to "dirty keys" list, which will be added to the
-       bank hash. */
-
-    fd_pubkey_hash_pair_t * dirty_entry = &dirty_keys[dirty_key_cnt++];
-    dirty_entry->rec = task_info->rec;
-    dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
-
-    char acc_key_string[ FD_BASE58_ENCODED_32_SZ ];
-    fd_acct_addr_cstr( acc_key_string, (uchar const*)acc_key );
-    char owner_string[ FD_BASE58_ENCODED_32_SZ ];
-    fd_acct_addr_cstr( owner_string, acc_rec->meta->info.owner );
-
-    FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %s "
-                   "slot: %lu "
-                   "lamports: %lu  "
-                   "owner: %s "
-                   "executable: %s,  "
-                   "rent_epoch: %lu, "
-                   "data_len: %lu",
-                   acc_key_string,
-                   slot_ctx->slot_bank.slot,
-                   acc_rec->meta->info.lamports,
-                   owner_string,
-                   acc_rec->meta->info.executable ? "true" : "false",
-                   acc_rec->meta->info.rent_epoch,
-                   acc_rec->meta->dlen ));
-
-    if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
-      fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr,
-                                                                slot_ctx->funk_txn,
-                                                                task_info->acc_pubkey,
-                                                                &task_info->rec,
-                                                                &err,
-                                                                NULL);
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to view account during capture" ));
-        continue;
-      }
-
-      uchar const * acc_data = (uchar *)acc_meta + acc_meta->hlen;
-
-      err = fd_solcap_write_account( capture_ctx->capture,
-                                     acc_key->uc,
-                                     &acc_rec->meta->info,
-                                     acc_data,
-                                     acc_rec->meta->dlen,
-                                     task_info->acc_hash->hash );
-
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "Unable to write out solcap file" ));
-      }
-    }
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    fd_tpool_wait( tpool, worker_idx );
   }
 
-  /* Sort and hash "dirty keys" to the accounts delta hash. */
-
-  slot_ctx->signature_cnt = signature_cnt;
-  fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
-
-  for( ulong i = 0; i < task_data.info_sz; i++ ) {
-    fd_accounts_hash_task_info_t * task_info = &task_data.info[i];
-    /* Upgrade to writable record */
-    if( FD_LIKELY( !task_info->should_erase ) ) {
-      continue;
-    }
-
-    /* All removed recs should be stored with the slot from the funk txn. */
-    fd_funk_rec_remove( funk, fd_funk_rec_modify(funk, task_info->rec), task_info->rec->pair.xid->ul[0] );
-  }
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_update_hash_bank_exec_hash( slot_ctx,
+                                        hash,
+                                        capture_ctx,
+                                        task_data,
+                                        1UL,
+                                        lt_hashes,
+                                        wcnt,
+                                        signature_cnt,
+                                        runtime_spad );
 }
 
 int
@@ -599,12 +675,22 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
                                            FD_LTHASH_VALUE_ALIGN,
                                            wcnt * FD_LTHASH_VALUE_FOOTPRINT );
   for( ulong i = 0; i < wcnt; i++ ) {
-    fd_lthash_zero(&task_data.lthash_values[i]);
+    fd_lthash_zero( &task_data.lthash_values[i] );
   }
 
-  /* Find accounts which have changed */
-  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_account_hash_task, task_data.info,
-                            NULL, NULL, 1, 0, task_data.info_sz );
+  ulong cnt_per_worker = task_data.info_sz / (wcnt-1UL);
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong end_idx   = worker_idx!=wcnt-1 ? start_idx + cnt_per_worker - 1 : task_data.info_sz - 1;
+    fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
+                   &task_data, start_idx, end_idx,
+                   &task_data.lthash_values[worker_idx], 0UL, 0UL,
+                   0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
+  }
+
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    fd_tpool_wait( tpool, worker_idx );
+  }
 
   for( ulong i = 0; i < task_data.info_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data.info[i];
@@ -700,8 +786,7 @@ fd_hash_account( uchar                     hash[ static 32 ],
                  uchar const               pubkey[ static 32 ],
                  uchar const *             data,
                  int                       hash_needed,
-                 fd_features_t            *features    FD_PARAM_UNUSED
- ) {
+                 fd_features_t *           features FD_PARAM_UNUSED ) {
   ulong         lamports   = m->info.lamports;  /* >0UL */
   ulong         rent_epoch = m->info.rent_epoch;
   uchar         executable = m->info.executable & 0x1;

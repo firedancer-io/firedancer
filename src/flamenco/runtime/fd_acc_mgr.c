@@ -84,7 +84,7 @@ int
 fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
                  fd_funk_txn_t const * txn,
                  fd_pubkey_t const *   pubkey,
-                 fd_txn_account_t *    account) {
+                 fd_txn_account_t *    account ) {
   /* TODO: re-add this check after consulting on why this builtin program check.
      Is it the case that the  */
   // if( fd_pubkey_is_builtin_program( pubkey )
@@ -108,6 +108,11 @@ fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
 
   account->const_meta = meta;
   account->const_data = (uchar const *)meta + meta->hlen;
+
+  fd_wksp_t * funk_wksp = fd_funk_wksp( acc_mgr->funk );
+  account->meta_gaddr   = fd_wksp_gaddr( funk_wksp, account->const_meta );
+  account->data_gaddr   = fd_wksp_gaddr( funk_wksp, account->const_data );
+
 
   if( ULONG_MAX == account->starting_dlen )
     account->starting_dlen = meta->dlen;
@@ -193,8 +198,10 @@ fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
 
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
+  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) ) {
+    FD_LOG_WARNING(( "WRONG MAGIC" ));
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
+  }
 
 #ifdef VLOG
   FD_LOG_DEBUG(( "fd_acc_mgr_modify: %s create: %s  lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld",
@@ -257,7 +264,13 @@ fd_acc_mgr_save( fd_acc_mgr_t *     acc_mgr,
 int
 fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
                            fd_funk_txn_t *    txn,
-                           fd_txn_account_t * account ) {
+                           fd_txn_account_t * account,
+                           fd_wksp_t *        acc_data_wksp ) {
+
+  account->meta = fd_wksp_laddr( acc_data_wksp, account->meta_gaddr );
+  account->data = fd_wksp_laddr( acc_data_wksp, account->data_gaddr );
+  account->const_meta = account->meta;
+  account->const_data = account->data;
 
   fd_funk_start_write( acc_mgr->funk );
   fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );

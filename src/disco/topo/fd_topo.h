@@ -307,7 +307,7 @@ typedef struct {
     } restart;
 
     struct {
-      ulong dummy;
+      char funk_file[ PATH_MAX ];
     } exec;
 
     struct {
