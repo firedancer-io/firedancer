@@ -9,10 +9,10 @@ FD_STATIC_ASSERT( FD_H2_OUR_SETTINGS_ENCODED_SZ == sizeof(fd_h2_frame_hdr_t) + 6
 FD_STATIC_ASSERT( FD_H2_CONN_RESPOND_BUFSZ >= 24UL + FD_H2_OUR_SETTINGS_ENCODED_SZ, layout );
 
 static ulong
-fd_h2_conn_drain( fd_h2_conn_t * conn,
-                  uchar *        buf,
-                  ulong          bufsz,
-                  long           cur_time ) {
+fd_h2_conn_drain_tx( fd_h2_conn_t * conn,
+                     uchar *        buf,
+                     ulong          bufsz,
+                     long           cur_time ) {
   ulong tot_sz = 0UL;
   for(;;) {
     if( FD_UNLIKELY( tot_sz+64UL > bufsz ) ) FD_LOG_ERR(( "undersz buffer" ));
@@ -21,6 +21,15 @@ fd_h2_conn_drain( fd_h2_conn_t * conn,
     tot_sz += res_sz;
   }
   return tot_sz;
+}
+
+static void
+fd_h2_conn_drain_rx( fd_h2_conn_t * conn,
+                     fd_h2_rbuf_t * rbuf ) {
+  for(;;) {
+    int res = fd_h2_conn_rx_next( conn, rbuf );
+    if( !res ) break;
+  }
 }
 
 static void
@@ -39,7 +48,7 @@ test_h2_client_handshake( fd_h2_config_t * config ) {
   FD_TEST( conn->state  == FD_H2_CONN_STATE_CLIENT_INITIAL );
 
   uchar buf[ 160 ];
-  FD_TEST( fd_h2_conn_drain( conn, buf, sizeof(buf), 1UL )==69 );
+  FD_TEST( fd_h2_conn_drain_tx( conn, buf, sizeof(buf), 1UL )==69 );
   FD_TEST( fd_memeq( buf, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24 ) );
   static uchar const settings_frame_expected[ 45 ] = {
     /* payload size: 24 bytes */
@@ -68,12 +77,12 @@ test_h2_client_handshake( fd_h2_config_t * config ) {
 
   FD_TEST( conn->action == 0                              );
   FD_TEST( conn->state  == FD_H2_CONN_STATE_WAIT_SETTINGS );
-  FD_TEST( fd_h2_conn_drain( conn, buf, sizeof(buf), 1L )==0 );
+  FD_TEST( fd_h2_conn_drain_tx( conn, buf, sizeof(buf), 1L )==0 );
 
   /* Ensure that the handshake timeout fires */
 
   fd_h2_conn_t conn_timeout[1] = {conn[0]};
-  FD_TEST( fd_h2_conn_drain( conn_timeout, buf, sizeof(buf), 1002L )==17 );
+  FD_TEST( fd_h2_conn_drain_tx( conn_timeout, buf, sizeof(buf), 1002L )==17 );
   static uchar const goaway_timeout_expected[ 17 ] __attribute__((unused)) = {
     /* payload size: 24 bytes */
     0x00, 0x00, 0x18,
@@ -122,7 +131,26 @@ test_h2_client_handshake( fd_h2_config_t * config ) {
   uchar rbuf_[ 64 ];
   FD_TEST( fd_h2_rbuf_init( rbuf, rbuf_, sizeof(rbuf_) )==rbuf );
   fd_h2_rbuf_push( rbuf, server_settings, sizeof(server_settings) );
-  fd_h2_conn_rx_next( conn, rbuf );
+  fd_h2_conn_drain_rx( conn, rbuf );
+  FD_TEST( conn->action == FD_H2_CONN_ACTION_SETTINGS_ACK );
+  FD_TEST( conn->state  == FD_H2_CONN_STATE_WAIT_SETTINGS );
+  FD_TEST( fd_h2_conn_drain_tx( conn, buf, sizeof(buf), 1L )==9 );
+
+  static uchar const settings_ack_expected[ 9 ] = {
+    /* payload size: 0 bytes */
+    0x00, 0x00, 0x00,
+    /* frame type: SETTINGS */
+    0x04,
+    /* flags: ACK */
+    0x01,
+    /* stream id: 0 */
+    0x00, 0x00, 0x00, 0x00
+  };
+  FD_TEST( fd_memeq( buf, settings_ack_expected, sizeof(settings_ack_expected) ) );
+
+  FD_TEST( conn->action == 0 );
+  FD_TEST( conn->state  == FD_H2_CONN_STATE_ESTABLISHED );
+  FD_TEST( fd_h2_conn_drain_tx( conn, buf, sizeof(buf), 1L )==0 );
 }
 
 static void

@@ -198,6 +198,31 @@ fd_h2_conn_rx_body( fd_h2_conn_t * conn,
     conn->frame_rem = 0UL;
     conn->tx_wnd    = fd_int_if( !!conn->stream_id, 0, conn->tx_wnd + (int)increment );
     return 1;
+  case FD_H2_FRAME_TYPE_SETTINGS:
+    for( ; conn->frame_rem; conn->frame_rem -= 6 ) {
+      if( FD_UNLIKELY( fd_h2_rbuf_used_sz( rbuf )<sizeof(fd_h2_setting_t) ) ) return 0;
+      fd_h2_setting_t setting;
+      memcpy( &setting, fd_h2_rbuf_pop( rbuf, sizeof(fd_h2_setting_t) ), sizeof(fd_h2_setting_t) );
+      uint value = fd_uint_bswap( setting.value );
+      switch( fd_ushort_bswap( setting.id ) ) {
+      case FD_H2_SETTINGS_INITIAL_WINDOW_SIZE:
+        conn->peer_settings.initial_window_size = value;
+        break;
+      case FD_H2_SETTINGS_MAX_FRAME_SIZE:
+        conn->peer_settings.max_frame_size = value;
+        break;
+      case FD_H2_SETTINGS_MAX_HEADER_LIST_SIZE:
+        conn->peer_settings.max_header_list_size = value;
+        break;
+      case FD_H2_SETTINGS_MAX_CONCURRENT_STREAMS:
+        conn->peer_settings.max_concurrent_streams = value;
+        break;
+      }
+    }
+    if( !( conn->frame_flags & FD_H2_FLAG_ACK ) ) {
+      conn->action |= FD_H2_CONN_ACTION_SETTINGS_ACK;
+    }
+    return 1;
   default:
     return 0;
   }
@@ -206,9 +231,10 @@ fd_h2_conn_rx_body( fd_h2_conn_t * conn,
 static int
 fd_h2_conn_rx_next1( fd_h2_conn_t * conn,
                      fd_h2_rbuf_t * rbuf ) {
-  int rx_ok = fd_h2_conn_rx_body( conn, rbuf );
-  if( !rx_ok ) return 0;
-  return fd_h2_conn_rx_header( conn, rbuf );
+  if( !conn->frame_rem ) {
+    return fd_h2_conn_rx_header( conn, rbuf );
+  }
+  return fd_h2_conn_rx_body( conn, rbuf );
 }
 
 int
@@ -258,6 +284,9 @@ fd_h2_conn_respond( fd_h2_conn_t * conn,
     conn->setting_rx--;
     conn->action &= (uchar)~fd_uchar_if( conn->setting_rx, 0, FD_H2_CONN_ACTION_SETTINGS_ACK );
     conn->ack_next = cur_time + conn->ack_backoff;
+    if( FD_UNLIKELY( conn->state == FD_H2_CONN_STATE_WAIT_SETTINGS ) ) {
+      conn->state = FD_H2_CONN_STATE_ESTABLISHED;
+    }
     return sizeof(fd_h2_frame_hdr_t);
   }
 
