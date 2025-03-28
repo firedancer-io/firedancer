@@ -33,7 +33,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_sol_sysvar_clock_t *   result,
                       fd_sysvar_cache_t const * sysvar_cache,
-                      fd_acc_mgr_t *            acc_mgr,
+                      fd_funk_t *               funk,
                       fd_funk_txn_t *           funk_txn );
 
 /* fd_slot_cnt_2day returns the number of slots in two days.

@@ -1,5 +1,6 @@
 #include "fd_txn_account.h"
 #include "fd_acc_mgr.h"
+#include "fd_runtime.h"
 
 fd_txn_account_t *
 fd_txn_account_init( void * ptr ) {
@@ -46,15 +47,22 @@ fd_txn_account_setup_common( fd_txn_account_t * acct ) {
   if( ULONG_MAX == acct->starting_lamports ) {
     acct->starting_lamports = meta->info.lamports;
   }
+}
 
-  if( FD_UNLIKELY( meta==NULL ) ) {
-    static const fd_account_meta_t sentinel = { 
-      .magic = FD_ACCOUNT_META_MAGIC, 
-      .info = { .rent_epoch = ULONG_MAX }
-    };
-    acct->const_meta        = &sentinel;
+void
+fd_txn_account_setup_sentinel_meta( fd_txn_account_t * acct,
+                                    fd_spad_t *        spad,
+                                    fd_wksp_t *        spad_wksp ) {
+  fd_account_meta_t const * meta = acct->const_meta ? acct->const_meta : acct->meta;
+  if( meta==NULL ) {
+    fd_account_meta_t * sentinel = fd_spad_alloc( spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) );
+    fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
+    sentinel->magic                = FD_ACCOUNT_META_MAGIC;
+    sentinel->info.rent_epoch      = ULONG_MAX;
+    acct->const_meta        = sentinel;
     acct->starting_lamports = 0UL;
     acct->starting_dlen     = 0UL;
+    acct->meta_gaddr        = fd_wksp_gaddr( spad_wksp, sentinel );
   }
 }
 
@@ -138,13 +146,92 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
   return acct;
 }
 
-/* Factory constructor impl */
-int
-fd_txn_account_create_from_funk( fd_txn_account_t *  acct_ptr,
-                                 fd_pubkey_t const * acc_pubkey,
-                                 fd_acc_mgr_t *      acc_mgr,
-                                 fd_funk_txn_t *     funk_txn ) {
-  fd_txn_account_init( acct_ptr );
+/* Factory constructors from funk */
 
-  return fd_acc_mgr_view( acc_mgr, funk_txn, acc_pubkey, acct_ptr );
+int
+fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
+                                        fd_pubkey_t const *   pubkey,
+                                        fd_funk_t *           funk,
+                                        fd_funk_txn_t const * funk_txn ) {
+  fd_txn_account_init( acct );
+
+  int err = FD_FUNK_ACC_MGR_SUCCESS;
+  fd_account_meta_t const * meta = fd_funk_acc_mgr_get_acc_meta_readonly( funk,
+                                                                          funk_txn,
+                                                                          pubkey,
+                                                                          &acct->const_rec,
+                                                                          &err,
+                                                                          NULL );
+
+  if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
+    return err;
+  }
+
+  if( FD_UNLIKELY( !fd_account_meta_exists( meta ) ) ) {
+    return FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  if( FD_UNLIKELY( acct->magic!=FD_TXN_ACCOUNT_MAGIC ) ) {
+    return FD_FUNK_ACC_MGR_ERR_WRONG_MAGIC;
+  }
+
+  fd_wksp_t * funk_wksp = fd_funk_wksp( funk );
+  acct->meta_gaddr   = fd_wksp_gaddr( funk_wksp, acct->const_meta );
+  acct->data_gaddr   = fd_wksp_gaddr( funk_wksp, acct->const_data );
+
+  fd_txn_account_setup_readonly( acct, pubkey, meta );
+
+  return FD_FUNK_ACC_MGR_SUCCESS;
+}
+
+int
+fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
+                                       fd_pubkey_t const * pubkey,
+                                       fd_funk_t *         funk,
+                                       fd_funk_txn_t *     funk_txn,
+                                       int                 do_create,
+                                       ulong               min_data_sz ) {
+  /* TODO: prevent executor tile from calling this function gracefully */
+
+  fd_txn_account_init( acct );
+
+  int err = FD_FUNK_ACC_MGR_SUCCESS;
+  fd_account_meta_t * meta = fd_funk_acc_mgr_get_acc_meta_mutable( funk,
+                                                                   funk_txn,
+                                                                   pubkey,
+                                                                   do_create,
+                                                                   min_data_sz,
+                                                                   acct->const_rec,
+                                                                   &acct->rec,
+                                                                   &err );
+  
+  if( FD_UNLIKELY( !meta ) ) {
+    return err;
+  }
+
+  if( FD_UNLIKELY( meta->magic!=FD_ACCOUNT_META_MAGIC ) ) {
+    return FD_FUNK_ACC_MGR_ERR_WRONG_MAGIC;
+  }
+
+  fd_txn_account_setup_mutable( acct, pubkey, meta );
+
+  return FD_FUNK_ACC_MGR_SUCCESS;
+}
+
+/* Funk save function impl */
+
+int
+fd_txn_account_save( fd_funk_t *        funk,
+                     fd_txn_account_t * acct ) {
+  if( acct->meta == NULL || acct->rec == NULL ) {
+    /* The meta is NULL so the account is not writable. */
+    return FD_FUNK_ACC_MGR_ERR_WRITE_FAILED;
+  }
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  ulong reclen = sizeof(fd_account_meta_t)+acct->const_meta->dlen;
+  uchar * raw = fd_funk_val( acct->rec, wksp );
+  fd_memcpy( raw, acct->meta, reclen );
+
+  return FD_FUNK_ACC_MGR_SUCCESS;
 }

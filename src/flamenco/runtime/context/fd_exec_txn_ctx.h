@@ -76,7 +76,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                           total_epoch_stake;
   fd_bank_hash_cmp_t *            bank_hash_cmp; /* FIXME: broken */
   fd_funk_txn_t *                 funk_txn;
-  fd_acc_mgr_t *                  acc_mgr;
+  fd_funk_t *                     funk;
   fd_wksp_t *                     runtime_pub_wksp;
   ulong                           slot;
   fd_fee_rate_governor_t          fee_rate_governor;
@@ -148,6 +148,13 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
      first. */
   fd_instr_info_t             instr_infos[FD_MAX_INSTRUCTION_TRACE_LENGTH];
   ulong                       instr_info_cnt;
+
+  /* These instr infos are statically allocated at the beginning of a transaction
+     and are only written to / referred to within the VM. It's kept
+     at the transaction level because syscalls like `GetProcessedSiblingInstruction()`
+     may refer to instructions processed earlier in the transaction. */
+  fd_instr_info_t             cpi_instr_infos[FD_MAX_INSTRUCTION_TRACE_LENGTH];
+  ulong                       cpi_instr_info_cnt;
 
   fd_exec_instr_trace_entry_t instr_trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
   ulong                       instr_trace_length;                           /* Number of instructions in the trace */
@@ -226,7 +233,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_wksp_t const *          funk_wksp,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
-                                    ulong                      acc_mgr_gaddr,
                                     ulong                      sysvar_cache_gaddr,
                                     ulong                      funk_gaddr );
 

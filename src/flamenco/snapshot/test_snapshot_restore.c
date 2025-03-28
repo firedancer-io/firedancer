@@ -69,9 +69,6 @@ main( int     argc,
 
   fd_funk_start_write( funk );
 
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_wksp_alloc_laddr( wksp, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT, static_tag ), funk );
-  FD_TEST( acc_mgr );
-
   void * restore_mem = fd_wksp_alloc_laddr( wksp, fd_snapshot_restore_align(), fd_snapshot_restore_footprint(), static_tag );
 
   fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 4194304UL ), static_tag ), 4194304UL );
@@ -87,14 +84,14 @@ main( int     argc,
      context that is waiting for a manifest. */
 
 # define NEW_RESTORE() \
-    fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, _dummy_ctx, cb_manifest, cb_status_cache, NULL )
+    fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, _dummy_ctx, cb_manifest, cb_status_cache, NULL )
 
   /* NEW_RESTORE_POST_MANIFEST is a convenience macro to create a new
      snapshot restore context that pretends that the manifest has
      already been restored. */
 
 # define NEW_RESTORE_POST_MANIFEST() __extension__({ \
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, _dummy_ctx, cb_manifest, cb_status_cache, NULL ); \
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, _dummy_ctx, cb_manifest, cb_status_cache, NULL ); \
     restore->manifest_done = MANIFEST_DONE_SEEN; \
     restore->slot          = restore_slot; \
     restore; \
@@ -102,15 +99,15 @@ main( int     argc,
 
   /* Test invalid params */
   fd_spad_push( _spad );
-  FD_TEST( !fd_snapshot_restore_new( NULL,        acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL ) );  /* NULL mem */
-  FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL ) );  /* NULL acc_mgr */
+  FD_TEST( !fd_snapshot_restore_new( NULL,        funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL ) );  /* NULL mem */
+  FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL ) );  /* NULL funk */
   fd_spad_pop( _spad );
 
   /* Reject accounts before manifest */
 
   do {
     fd_spad_push( _spad );
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     FD_TEST( restore->failed        == 0 );
     FD_TEST( restore->manifest_done == 0 );
@@ -131,7 +128,7 @@ main( int     argc,
   do {
     fd_spad_push( _spad );
     FD_LOG_WARNING(("SPAD %lu", _spad->mem_max));
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, 18UL ) );
@@ -145,7 +142,7 @@ main( int     argc,
 
   do {
     fd_spad_push( _spad );
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, 18UL ) );
@@ -159,7 +156,7 @@ main( int     argc,
 
   do {
     fd_spad_push( _spad );
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
@@ -172,7 +169,7 @@ main( int     argc,
 
   do {
     fd_spad_push( _spad );
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
@@ -412,9 +409,9 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
+      fd_account_meta_t const * acc = fd_funk_acc_mgr_get_acc_meta_readonly( funk, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
-      FD_TEST( !fd_acc_exists( acc ) );
+      FD_TEST( !fd_account_meta_exists( acc ) );
     } while(0);
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
@@ -435,12 +432,12 @@ main( int     argc,
     fd_pubkey_t key[1] = {{ .ul = {9} }};
     do {
       fd_funk_rec_t * out_rec;
-      fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, restore->funk_txn, key, 1, 0UL, NULL, &out_rec, NULL );
+      fd_account_meta_t * meta = fd_funk_acc_mgr_get_acc_meta_mutable( funk, restore->funk_txn, key, 1, 0UL, NULL, &out_rec, NULL );
       FD_TEST( meta );
       meta->dlen          = 0UL;
       meta->info.lamports = 0UL;
       meta->slot          = 9UL;
-      FD_TEST( !fd_acc_exists( meta ) );
+      FD_TEST( !fd_account_meta_exists( meta ) );
     } while(0);
 
     /* Restore the snapshot */
@@ -457,9 +454,9 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
+      fd_account_meta_t const * acc = fd_funk_acc_mgr_get_acc_meta_readonly( funk, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
-      FD_TEST( !fd_acc_exists( acc ) );
+      FD_TEST( !fd_account_meta_exists( acc ) );
       FD_TEST( acc->slot == 9UL );
     } while(0);
 
@@ -483,12 +480,12 @@ main( int     argc,
     fd_pubkey_t key[1] = {{ .ul = {9} }};
     do {
       fd_funk_rec_t * out_rec;
-      fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, restore->funk_txn, key, 1, 4UL, NULL, &out_rec, NULL );
+      fd_account_meta_t * meta = fd_funk_acc_mgr_get_acc_meta_mutable( funk, restore->funk_txn, key, 1, 4UL, NULL, &out_rec, NULL );
       FD_TEST( meta );
       meta->dlen          =  4UL;
       meta->info.lamports = 90UL;
       meta->slot          =  9UL;
-      FD_TEST( fd_acc_exists( meta ) );
+      FD_TEST( fd_account_meta_exists( meta ) );
       memcpy( (uchar *)meta + meta->hlen, "ABCD", 4UL );
     } while(0);
 
@@ -519,9 +516,9 @@ main( int     argc,
 
       /* Verify key 9 */
       fd_pubkey_t pubkey1[1]; memcpy( pubkey1, hdr1.meta.pubkey, 32 );
-      fd_account_meta_t const * acc1 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey1, NULL, NULL, NULL );
+      fd_account_meta_t const * acc1 = fd_funk_acc_mgr_get_acc_meta_readonly( funk, restore->funk_txn, pubkey1, NULL, NULL, NULL );
       FD_TEST( acc1 );
-      FD_TEST( fd_acc_exists( acc1 ) );
+      FD_TEST( fd_account_meta_exists( acc1 ) );
       FD_TEST( acc1->slot == 9UL );
       FD_TEST( acc1->dlen            ==  4UL );
       FD_TEST( acc1->info.lamports   == 90UL );
@@ -531,9 +528,9 @@ main( int     argc,
 
       /* Verify key 10 */
       fd_pubkey_t pubkey2[1]; memcpy( pubkey2, hdr2.meta.pubkey, 32 );
-      fd_account_meta_t const * acc2 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey2, NULL, NULL, NULL );
+      fd_account_meta_t const * acc2 = fd_funk_acc_mgr_get_acc_meta_readonly( funk, restore->funk_txn, pubkey2, NULL, NULL, NULL );
       FD_TEST( acc2 );
-      FD_TEST( fd_acc_exists( acc2 ) );
+      FD_TEST( fd_account_meta_exists( acc2 ) );
       FD_TEST( acc2->slot == 8UL );
       FD_TEST( acc2->dlen            == hdr2.meta.data_len   );
       FD_TEST( acc2->info.lamports   == hdr2.info.lamports   );
@@ -636,7 +633,7 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
+      fd_account_meta_t const * acc = fd_funk_acc_mgr_get_acc_meta_readonly( funk, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
       FD_TEST( acc->dlen            ==       2UL );
       FD_TEST( acc->info.lamports   ==    1234UL );
@@ -667,7 +664,6 @@ main( int     argc,
 
   fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( _spad ) ) );
   fd_wksp_free_laddr( restore_mem );
-  fd_wksp_free_laddr( fd_acc_mgr_delete( acc_mgr ) );
   fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
   fd_wksp_delete_anonymous( wksp );
 

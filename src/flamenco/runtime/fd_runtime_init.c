@@ -33,14 +33,14 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank);
   fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
-  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err );
+  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( slot_ctx->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err );
   if (NULL == rec)
   {
     FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
+  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->funk));
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
@@ -64,7 +64,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_funk_rec_key_t id      = fd_runtime_slot_bank_key();
   int               opt_err = 0;
-  fd_funk_rec_t *   rec     = fd_funk_rec_write_prepare( slot_ctx->acc_mgr->funk,
+  fd_funk_rec_t *   rec     = fd_funk_rec_write_prepare( slot_ctx->funk,
                                                          slot_ctx->funk_txn,
                                                          &id,
                                                          sz,
@@ -76,7 +76,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val( rec, fd_funk_wksp( slot_ctx->acc_mgr->funk ) );
+  uchar * buf = fd_funk_val( rec, fd_funk_wksp( slot_ctx->funk ) );
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data    = buf + sizeof(uint),
@@ -106,7 +106,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
                           int                  clear_first,
                           fd_spad_t *          runtime_spad ) {
 
-  fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
+  fd_funk_t *           funk         = slot_ctx->funk;
   fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   {
@@ -238,8 +238,11 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
                     fd_spad_t *             runtime_spad ) {
 
   FD_TXN_ACCOUNT_DECL( acct_rec );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  int err = fd_txn_account_init_from_funk_readonly( acct_rec,
+                                                    (fd_pubkey_t *)acct,
+                                                    slot_ctx->funk,
+                                                    slot_ctx->funk_txn );
+  if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
     return;
   }
 

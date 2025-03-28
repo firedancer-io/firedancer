@@ -79,21 +79,24 @@ FD_SYSVAR_CACHE_ITER(X)
 void                                                                      \
 fd_sysvar_cache_restore_##name(                                           \
   fd_sysvar_cache_t * cache,                                              \
-  fd_acc_mgr_t *      acc_mgr,                                            \
+  fd_funk_t *          funk,                                              \
   fd_funk_txn_t *     funk_txn,                                           \
   fd_spad_t *         runtime_spad,                                       \
   fd_wksp_t *         wksp ) {                                            \
   do {                                                                    \
     fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                  \
     FD_TXN_ACCOUNT_DECL( account );                                       \
-    int view_err = fd_acc_mgr_view( acc_mgr, funk_txn, pubkey, account ); \
-    if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;                 \
+    int view_err = fd_txn_account_init_from_funk_readonly( account,       \
+                                                           pubkey,        \
+                                                           funk,          \
+                                                           funk_txn );    \
+    if( view_err==FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;            \
                                                                           \
-    if( view_err!=FD_ACC_MGR_SUCCESS ) {                                  \
+    if( view_err!=FD_FUNK_ACC_MGR_SUCCESS ) {                             \
       char pubkey_cstr[ FD_BASE58_ENCODED_32_SZ ];                        \
       FD_LOG_ERR(( "fd_acc_mgr_view(%s) failed (%d-%s)",                  \
                   fd_acct_addr_cstr( pubkey_cstr, pubkey->key ),          \
-                  view_err, fd_acc_mgr_strerror( view_err ) ));           \
+                  view_err, fd_funk_acc_mgr_strerror( view_err ) ));      \
     }                                                                     \
                                                                           \
     if( account->const_meta->info.lamports == 0UL ) break;                \
@@ -128,12 +131,12 @@ fd_sysvar_cache_restore_##name(                                           \
 
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
-                         fd_acc_mgr_t *      acc_mgr,
+                         fd_funk_t *         funk,
                          fd_funk_txn_t *     funk_txn,
                          fd_spad_t *         runtime_spad,
                          fd_wksp_t *         wksp ) {
 # define X( type, name )                                               \
-fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn, runtime_spad, wksp );
+fd_sysvar_cache_restore_##name( cache, funk, funk_txn, runtime_spad, wksp );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 }

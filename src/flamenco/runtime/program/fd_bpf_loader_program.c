@@ -107,8 +107,8 @@ int
 fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_pubkey_t const *  pubkey ) {
   FD_TXN_ACCOUNT_DECL( rec );
-  int read_result = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
-  if( read_result != FD_ACC_MGR_SUCCESS ) {
+  int read_result = fd_txn_account_init_from_funk_readonly( rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn );
+  if( read_result != FD_FUNK_ACC_MGR_SUCCESS ) {
     return -1;
   }
 
@@ -790,7 +790,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_sol_sysvar_clock_t clock = {0};
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
                                               instr_ctx->txn_ctx->sysvar_cache,
-                                              instr_ctx->txn_ctx->acc_mgr,
+                                              instr_ctx->txn_ctx->funk,
                                               instr_ctx->txn_ctx->funk_txn ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
@@ -1204,7 +1204,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
                                               instr_ctx->txn_ctx->sysvar_cache,
-                                              instr_ctx->txn_ctx->acc_mgr,
+                                              instr_ctx->txn_ctx->funk,
                                               instr_ctx->txn_ctx->funk_txn ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
@@ -1582,7 +1582,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_sol_sysvar_clock_t clock = {0};
         if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
                                                 instr_ctx->txn_ctx->sysvar_cache,
-                                                instr_ctx->txn_ctx->acc_mgr,
+                                                instr_ctx->txn_ctx->funk,
                                                 instr_ctx->txn_ctx->funk_txn ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
         }
@@ -1706,7 +1706,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_sol_sysvar_clock_t clock = {0};
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
                                               instr_ctx->txn_ctx->sysvar_cache,
-                                              instr_ctx->txn_ctx->acc_mgr,
+                                              instr_ctx->txn_ctx->funk,
                                               instr_ctx->txn_ctx->funk_txn ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
@@ -1929,7 +1929,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                     programdata_pubkey,
                                                     &program_data_account,
                                                     fd_txn_account_check_exists );
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
         if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -1995,7 +1995,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
        TLDR: A program is present in the BPF cache iff it is already deployed AND passes current SBPF and VM checks.
        Only then it is considered valid to interact with. */
     fd_sbpf_validated_program_t * prog = NULL;
-    if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->txn_ctx->acc_mgr->funk,
+    if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->txn_ctx->funk,
                                               ctx->txn_ctx->funk_txn,
                                               &ctx->instr->program_id_pubkey, &prog )!=0 ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not cached" );
@@ -2024,11 +2024,10 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
                                      fd_spad_t *          runtime_spad ) {
   /* Set up a dummy instr and txn context */
   fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
-  fd_funk_t *         funk               = slot_ctx->acc_mgr->funk;
+  fd_funk_t *         funk               = slot_ctx->funk;
   fd_wksp_t *         funk_wksp          = fd_funk_wksp( funk );
   fd_wksp_t *         runtime_wksp       = fd_wksp_containing( slot_ctx );
   ulong               funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong               acc_mgr_gaddr      = fd_wksp_gaddr( runtime_wksp, slot_ctx->acc_mgr );
   ulong               sysvar_cache_gaddr = fd_wksp_gaddr( runtime_wksp, txn_ctx->sysvar_cache );
   ulong               funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk );
 
@@ -2037,7 +2036,6 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
                                       funk_wksp,
                                       runtime_wksp,
                                       funk_txn_gaddr,
-                                      acc_mgr_gaddr,
                                       sysvar_cache_gaddr,
                                       funk_gaddr );
 
@@ -2047,7 +2045,7 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = NULL,
     .txn_ctx   = txn_ctx,
-    .acc_mgr   = txn_ctx->acc_mgr,
+    .funk      = txn_ctx->funk,
     .funk_txn  = txn_ctx->funk_txn,
     .parent    = NULL,
     .index     = 0U,

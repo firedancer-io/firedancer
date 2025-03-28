@@ -43,7 +43,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
                                                   &fd_sysvar_instructions_id,
                                                   &rec,
                                                   fd_txn_account_check_exists );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && rec==NULL ) ) {
+  if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS && rec==NULL ) ) {
     /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
        before this is called, and this is only called if the sysvar instructions account is in
        the borrowed accounts list. */
@@ -140,7 +140,7 @@ fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
                                                   &fd_sysvar_instructions_id,
                                                   &rec,
                                                   fd_txn_account_check_borrow_mut );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/message_processor.rs#L40 */
     return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX;
   }

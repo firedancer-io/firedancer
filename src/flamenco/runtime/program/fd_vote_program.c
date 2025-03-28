@@ -2384,9 +2384,9 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &me );
 
   switch( rc ) {
-  case FD_ACC_MGR_SUCCESS:
+  case FD_FUNK_ACC_MGR_SUCCESS:
     break;
-  case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
+  case FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L637
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   default:

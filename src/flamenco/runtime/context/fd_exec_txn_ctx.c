@@ -95,7 +95,7 @@ fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+    return FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
   fd_txn_account_t * txn_account = &ctx->accounts[idx];
@@ -103,11 +103,11 @@ fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
 
   if( FD_LIKELY( condition != NULL ) ) {
     if( FD_UNLIKELY( !condition( *account, ctx, idx ) ) ) {
-      return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      return FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     }
   }
 
-  return FD_ACC_MGR_SUCCESS;
+  return FD_FUNK_ACC_MGR_SUCCESS;
 }
 
 int
@@ -117,7 +117,7 @@ fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *             ctx,
                                       fd_txn_account_condition_fn_t * condition ) {
   int index = fd_exec_txn_ctx_find_index_of_account( ctx, pubkey );
   if( FD_UNLIKELY( index==-1 ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+    return FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
   return fd_exec_txn_ctx_get_account_at_index( ctx,
@@ -137,8 +137,8 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
   int err = fd_exec_txn_ctx_get_account_with_key( ctx, pubkey, account, condition );
-  if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
-    return FD_ACC_MGR_SUCCESS;
+  if( FD_UNLIKELY( err==FD_FUNK_ACC_MGR_SUCCESS ) ) {
+    return FD_FUNK_ACC_MGR_SUCCESS;
   }
 
   for( ulong i=0; i<ctx->executable_cnt; i++ ) {
@@ -148,15 +148,15 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
 
       if( FD_LIKELY( condition != NULL ) ) {
         if( FD_UNLIKELY( !condition( *account, ctx, (int)i ) ) ) {
-          return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+          return FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
         }
       }
 
-      return FD_ACC_MGR_SUCCESS;
+      return FD_FUNK_ACC_MGR_SUCCESS;
     }
   }
 
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  return FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
 }
 
 void
@@ -216,7 +216,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_wksp_t const *          funk_wksp,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
-                                    ulong                      acc_mgr_gaddr,
                                     ulong                      sysvar_cache_gaddr,
                                     ulong                      funk_gaddr ) {
 
@@ -227,13 +226,9 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
 
-  ctx->acc_mgr = fd_wksp_laddr( runtime_pub_wksp, acc_mgr_gaddr );
-  if( FD_UNLIKELY( !ctx->acc_mgr ) ) {
-    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
-  }
-  ctx->acc_mgr->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
-  if( FD_UNLIKELY( !ctx->acc_mgr->funk ) ) {
-    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
+  ctx->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
+  if( FD_UNLIKELY( !ctx->funk ) ) {
+    FD_LOG_ERR(( "Could not find valid account manager %lu", funk_gaddr ));
   }
 
   ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
@@ -348,7 +343,7 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
                              int                       idx ) {
   (void) ctx;
   (void) idx;
-  return fd_acc_exists( acc->const_meta );
+  return fd_account_meta_exists( acc->const_meta );
 }
 
 int

@@ -135,7 +135,7 @@ struct fd_rpc_ctx {
 
 static void *
 read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, ulong * result_len ) {
-  fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
+  fd_funk_rec_key_t recid = fd_funk_acc_key(acct);
   fd_funk_t * funk = ctx->global->funk;
   return fd_funk_rec_query_safe(funk, &recid, fd_scratch_virtual(), result_len);
 }
@@ -162,7 +162,7 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
 
 static void *
 read_account_with_xid( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
+  fd_funk_rec_key_t recid = fd_funk_acc_key(acct);
   fd_funk_t * funk = ctx->global->funk;
   return fd_funk_rec_query_xid_safe(funk, &recid, xid, fd_scratch_virtual(), result_len);
 }
