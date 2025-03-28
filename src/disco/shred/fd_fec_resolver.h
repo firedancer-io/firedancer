@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_shred_fd_fec_resolver_h
 #include "../../ballet/shred/fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
@@ -89,6 +90,11 @@
 #define FD_FEC_RESOLVER_ALIGN (128UL)
 struct fd_fec_resolver;
 typedef struct fd_fec_resolver fd_fec_resolver_t;
+
+typedef union {
+   fd_ed25519_sig_t u;
+   ulong            l;
+ } wrapped_sig_t;
 
 /* fd_fec_resolver_sign_fn: used to sign shreds that require a
    retransmitter signature. */
@@ -194,6 +200,21 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_fec_set_t const * * out_fec_set,
                                fd_shred_t const   * * out_shred,
                                fd_bmtree_node_t     * out_merkle_root );
+
+int
+fd_fec_resolver_curr_contains( fd_fec_resolver_t * resolver,
+                               fd_ed25519_sig_t  * signature );
+
+int
+fd_fec_resolver_done_contains( fd_fec_resolver_t * resolver,
+                               fd_ed25519_sig_t  * signature );
+
+/* fd_fec_resolver_last_shred_query returns the last shred in the FEC */
+int
+fd_fec_resolver_last_shred_query( fd_fec_resolver_t * resolver,
+                                  fd_ed25519_sig_t  * signature,
+                                  uint                last_shred_idx,
+                                  fd_shred_t        * out_last_shred );
 
 /* fd_fec_resolver_force_complete forces completion of a partial FEC set
    in the FEC resolver.

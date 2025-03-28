@@ -1,17 +1,11 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/shred/fd_fec_set.h"
 #include "../../ballet/sha512/fd_sha512.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
 
 #define SHRED_CNT_NOT_SET      (UINT_MAX/2U)
-
-typedef union {
-  fd_ed25519_sig_t u;
-  ulong            l;
-} wrapped_sig_t;
 
 struct set_ctx;
 typedef struct set_ctx set_ctx_t;
@@ -699,7 +693,41 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
 }
 
-/* TODO some code is copy-pasted because this function is intended to be
+int
+fd_fec_resolver_curr_contains( fd_fec_resolver_t * resolver,
+                               fd_ed25519_sig_t  * signature ) {
+  wrapped_sig_t * w_sig = (wrapped_sig_t *)signature;
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return 0;
+  return !!ctx_map_query( resolver->curr_map, *w_sig, NULL );
+}
+
+int
+fd_fec_resolver_done_contains( fd_fec_resolver_t * resolver,
+                               fd_ed25519_sig_t  * signature ) {
+  wrapped_sig_t * w_sig = (wrapped_sig_t *)signature;
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return 0;
+  return !!ctx_map_query( resolver->done_map, *w_sig, NULL );
+}
+
+int
+fd_fec_resolver_last_shred_query( fd_fec_resolver_t * resolver,
+                                  fd_ed25519_sig_t  * signature,
+                                  uint                last_shred_idx,
+                                  fd_shred_t        * out_last_shred ) {
+  wrapped_sig_t * w_sig = (wrapped_sig_t *)signature;
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+
+  set_ctx_t * ctx = ctx_map_query( resolver->curr_map, *w_sig, NULL );
+  if( FD_UNLIKELY( !ctx ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+
+  fd_fec_set_t     * set        = ctx->set;
+  fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ last_shred_idx ] );
+
+  fd_memcpy( out_last_shred, data_shred, fd_shred_sz( data_shred ) );
+  return FD_FEC_RESOLVER_SHRED_OKAY;
+}
+
+/* TODO code is copy-pasted because this function is intended to be
    removed as soon as an upgrade to the repair protocol to support
    requesting coding shreds is made available. */
 
@@ -711,7 +739,9 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
   /* Error if last_shred is obviously invalid... don't even
      try to process the associated FEC set. */
 
-  if( FD_UNLIKELY( last_shred->idx >= FD_REEDSOL_DATA_SHREDS_MAX ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  ulong idx_in_set = last_shred->idx - last_shred->fec_set_idx;
+
+  if( FD_UNLIKELY( idx_in_set >= FD_REEDSOL_DATA_SHREDS_MAX ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   /* Error if can't find the last_shred's FEC set. */
 
@@ -737,14 +767,14 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
   /* Error if gaps in receives to last data shred. Implies that the FEC
      set is still incomplete. */
 
-  for( ulong i=0UL; i<=last_shred->idx; i++ ) if( !d_rcvd_test( ctx->set->data_shred_rcvd, i ) ) {
+  for( ulong i=0UL; i<=idx_in_set; i++ ) if( !d_rcvd_test( ctx->set->data_shred_rcvd, i ) ) {
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
   /* Error if last shred is not in fact last shred and FEC resolver has
      seen a shred with a higher idx. */
 
-  for( ulong i=last_shred->idx + 1; i<FD_REEDSOL_DATA_SHREDS_MAX; i++ ) if( d_rcvd_test( ctx->set->data_shred_rcvd, i ) ) {
+  for( ulong i=idx_in_set + 1; i<FD_REEDSOL_DATA_SHREDS_MAX; i++ ) if( d_rcvd_test( ctx->set->data_shred_rcvd, i ) ) {
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -754,7 +784,7 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
   fd_shred_t const * base_data_shred = fd_shred_parse( ctx->set->data_shreds[0], FD_SHRED_MIN_SZ );
   int reject = (!base_data_shred);
 
-  for( ulong i=1UL; (!reject) & (i<=last_shred->idx); i++ ) {
+  for( ulong i=1UL; (!reject) & (i<=idx_in_set); i++ ) {
 
     /* casting is safe because these data shreds must have been all rcvd
        from the network and not recovered. */
@@ -781,6 +811,15 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
 
   /* Don't need to populate merkle proofs or retransmitter signatures
      because it is by definition the full set of rcvd data shreds. */
+
+  set_ctx_t * done_ll_sentinel = resolver->done_ll_sentinel;
+  set_ctx_t * curr_map         = resolver->curr_map;
+  set_ctx_t * done_map         = resolver->done_map;
+  ulong       done_depth       = resolver->done_depth;
+
+  ctx_ll_insert( done_ll_sentinel, ctx_map_insert( done_map, ctx->sig ) );
+  if( FD_UNLIKELY( ctx_map_key_cnt( done_map ) > done_depth ) ) ctx_map_remove( done_map, ctx_ll_remove( done_ll_sentinel->prev ) );
+  ctx_map_remove( curr_map, ctx_ll_remove( ctx ) );
 
   bmtrlist_push_tail( resolver->bmtree_free_list, ctx->tree );
   freelist_push_tail( resolver->complete_list, ctx->set );

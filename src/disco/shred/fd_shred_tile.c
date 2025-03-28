@@ -82,6 +82,7 @@
 #define MAX_SHRED_DESTS 40200UL
 
 #define FD_SHRED_TILE_SCRATCH_ALIGN 128UL
+#define SHRED_CNT_NOT_SET           (UINT_MAX/2U) /* copied from fec_resolver */
 
 #define IN_KIND_CONTACT (0UL)
 #define IN_KIND_STAKE   (1UL)
@@ -92,7 +93,8 @@
 
 #define STORE_OUT_IDX   0
 #define NET_OUT_IDX     1
-#define SIGN_OUT_IDX    2
+#define REPAIR_OUT_IDX  2
+#define SIGN_OUT_IDX    3
 
 #define MAX_SLOTS_PER_EPOCH 432000UL
 
@@ -322,6 +324,15 @@ during_frag( fd_shred_ctx_t * ctx,
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_memcpy( ctx->shred_buffer, dcache_entry, sz);
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
@@ -482,9 +493,11 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->skip_frag = 1;
       return;
     }
+    //FD_LOG_INFO(("Shred tile %lu handling shred sig %lu", ctx->round_robin_id, sig));
     fd_memcpy( ctx->shred_buffer, dcache_entry+hdr_sz, sz-hdr_sz );
     ctx->shred_buffer_sz = sz-hdr_sz;
   }
+
 }
 
 static inline void
@@ -554,6 +567,34 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
+    fd_ed25519_sig_t * shred_sig = (fd_ed25519_sig_t *)fd_type_pun( ctx->shred_buffer );
+    if( FD_UNLIKELY( fd_fec_resolver_done_contains( ctx->resolver, shred_sig ) ) ) {
+      /* This is a FEC completion message from the repair tile.  We
+         need to make sure that we don't complete something that's just been completed. */
+      FD_LOG_WARNING(( "FEC completion message from repair tile, but shred tile %lu has just completed it.", ctx->round_robin_id ));
+      return;
+    } /* FIXME: Is there a chance something will be freed so fast that the sig lives in free_list? */
+
+    FD_LOG_WARNING(( "FEC completion message from repair tile, and shred tile %lu has not completed it yet.", ctx->round_robin_id ));
+    FD_TEST( fd_fec_resolver_curr_contains( ctx->resolver, shred_sig ) );
+
+    uint last_idx =  fd_disco_repair_shred_sig_last_shred_idx( sig );
+    fd_shred_t out_last_shred[1] = { 0 };
+    int rv = fd_fec_resolver_last_shred_query( ctx->resolver, shred_sig, last_idx, out_last_shred );
+    if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_OKAY ) ) {
+      FD_LOG_ERR(( "Shred tile %lu does not have the shred stored in fec_resolver", ctx->round_robin_id ));
+    }
+
+    fd_fec_set_t const * out_fec_set[1];
+    rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
+    if( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) __asm__( "int $3" ); // FIXME: err
+
+    FD_TEST( ctx->fec_sets <= *out_fec_set );
+    ctx->send_fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets);
+    ctx->shredded_txn_cnt = 0UL;
+  }
+
   const ulong fanout = 200UL;
   fd_shred_dest_idx_t _dests[ 200*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
@@ -603,7 +644,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         int  is_code               = fd_shred_is_code( fd_shred_type( shred->variant ) );
         uint shred_idx_or_data_cnt = shred->idx;
-        int  completes = 0;
+        int  completes             = 0;
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
         else  completes = shred->data.flags & ( FD_SHRED_DATA_FLAG_SLOT_COMPLETE | FD_SHRED_DATA_FLAG_DATA_COMPLETE );
         ulong sig = fd_disco_shred_repair_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
@@ -634,10 +675,18 @@ after_frag( fd_shred_ctx_t *    ctx,
   fd_fec_set_t * set = ctx->fec_sets + ctx->send_fec_set_idx;
   fd_shred34_t * s34 = ctx->shred34 + 4UL*ctx->send_fec_set_idx;
 
-  s34[ 0 ].shred_cnt =                         fd_ulong_min( set->data_shred_cnt,   34UL );
-  s34[ 1 ].shred_cnt = set->data_shred_cnt   - fd_ulong_min( set->data_shred_cnt,   34UL );
-  s34[ 2 ].shred_cnt =                         fd_ulong_min( set->parity_shred_cnt, 34UL );
-  s34[ 3 ].shred_cnt = set->parity_shred_cnt - fd_ulong_min( set->parity_shred_cnt, 34UL );
+  ulong data_shred_cnt   = set->data_shred_cnt;
+  ulong parity_shred_cnt = set->parity_shred_cnt;
+  if( data_shred_cnt == SHRED_CNT_NOT_SET || parity_shred_cnt == SHRED_CNT_NOT_SET ) {
+    FD_TEST( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ); // We MUST be in a force_completes situation
+    data_shred_cnt   = fd_disco_repair_shred_sig_last_shred_idx( sig ) + 1;
+    parity_shred_cnt = 0UL;
+  }
+
+  s34[ 0 ].shred_cnt =                    fd_ulong_min( data_shred_cnt,   34UL );
+  s34[ 1 ].shred_cnt = data_shred_cnt   - fd_ulong_min( data_shred_cnt,   34UL );
+  s34[ 2 ].shred_cnt =                    fd_ulong_min( parity_shred_cnt, 34UL );
+  s34[ 3 ].shred_cnt = parity_shred_cnt - fd_ulong_min( parity_shred_cnt, 34UL );
 
   ulong s34_cnt     = 2UL + !!(s34[ 1 ].shred_cnt) + !!(s34[ 3 ].shred_cnt);
   ulong txn_per_s34 = ctx->shredded_txn_cnt / s34_cnt;
@@ -661,8 +710,7 @@ after_frag( fd_shred_ctx_t *    ctx,
        though there is a separate link that directly connects pack and
        replay when we are leader, we still need the shreds in the
        blockstore to, for example, serve repair requests. */
-
-    for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
+    for( ulong i=0UL; i<data_shred_cnt; i++ ) {
       fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ i ] );
       fd_blockstore_shred_insert( ctx->blockstore, data_shred );
     }
@@ -679,11 +727,10 @@ after_frag( fd_shred_ctx_t *    ctx,
      know whether shred will finish inserting into blockstore first or
      repair will finish validating the FEC set first. */
 
-    fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ set->data_shred_cnt - 1 ] );
+    fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ data_shred_cnt - 1 ] );
 
     /* Copy the last shred and merkle root of the FEC set into the frag. */
-
-    ulong   sig   = 0UL; /* don't skip */
+    ulong   sig   =  fd_disco_shred_repair_sig( 0, last->slot, last->fec_set_idx, 0, 0 );
     uchar * chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
     memcpy( chunk, last, FD_SHRED_CODE_HEADER_SZ );
     memcpy( chunk, out_merkle_root.hash, FD_SHRED_MERKLE_ROOT_SZ );
@@ -707,9 +754,9 @@ after_frag( fd_shred_ctx_t *    ctx,
 
   fd_shred_t const * new_shreds[ FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX ];
   ulong k=0UL;
-  for( ulong i=0UL; i<set->data_shred_cnt; i++ )
+  for( ulong i=0UL; i<data_shred_cnt; i++ )
     if( !d_rcvd_test( set->data_shred_rcvd,   i ) )  new_shreds[ k++ ] = (fd_shred_t const *)set->data_shreds  [ i ];
-  for( ulong i=0UL; i<set->parity_shred_cnt; i++ )
+  for( ulong i=0UL; i<parity_shred_cnt; i++ )
     if( !p_rcvd_test( set->parity_shred_rcvd, i ) )  new_shreds[ k++ ] = (fd_shred_t const *)set->parity_shreds[ i ];
 
   if( FD_UNLIKELY( !k ) ) return;
@@ -916,7 +963,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store_out_wmark  = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
   ctx->store_out_chunk  = ctx->store_out_chunk0;
 
-  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", 0 /* one repair tile so always kind_id 0 */ );
+  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", ctx->round_robin_id );
   if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer topo compiler hint */
     fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
     ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
