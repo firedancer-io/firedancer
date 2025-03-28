@@ -701,15 +701,14 @@ dynamic_port_range = "8900-9000"
     # current `mainnet-beta` conditions.
     #
     # Net tiles are responsible for sending and receiving packets from
-    # the network device configured in the [tiles.net] section below.
+    # the network device configured in the [net] section below.
     # Each net tile will service exactly one queue from the device, and
     # Firedancer will error on boot if the number of queues on the
     # device is not configured correctly.
     #
     # The net tile is designed to scale linearly when adding more tiles.
     #
-    # See the comments for the [tiles.net] section below for more
-    # information.
+    # See the comments for the [net] section below for more information.
     net_tile_count = 1
 
     # How many QUIC tiles to run.  Should be set to 1.  This is
@@ -836,41 +835,59 @@ dynamic_port_range = "8900-9000"
     # max_page_size.
     gigantic_page_threshold_mib = 128
 
-# Tiles are described in detail in the layout section above.  While the
-# layout configuration determines how many of each tile to place on
-# which CPU core to create a functioning system, below is the individual
-# settings that can change behavior of the tiles.
-[tiles]
-    # A networking tile is responsible for sending and receiving packets
-    # on the network.  Each networking tile is bound to a specific
-    # queue on a network device.  For example, if you have one network
-    # device with four queues, you must run four net tiles.
+# The network stack is provided by net tiles, which are responsible for
+# sending and receiving packets on the network.
+#
+# Net tiles will multiplex in both directions, fanning out packets
+# to multiple parts of Firedancer that can receive and handle them,
+# like QUIC tiles and the Turbine retransmission engine.  Then also
+# fanning in from these various network senders to transmit on the
+# queues we have available.
+[net]
+    # Firedancer supports multiple network provider APIs.
     #
-    # Net tiles will multiplex in both directions, fanning out packets
-    # to multiple parts of Firedancer that can receive and handle them,
-    # like QUIC tiles and the Turbine retransmission engine.  Then also
-    # fanning in from these various network senders to transmit on the
-    # queues we have available.
-    [tiles.net]
-        # Which interface to bind to for network traffic.  Currently,
-        # only one interface is supported for networking.  If this is
-        # empty, the default is the interface used to route to 8.8.8.8,
-        # you can check what this is with `ip route get 8.8.8.8`
-        #
-        # If developing under a network namespace with [netns] enabled,
-        # this should be the same as [development.netns.interface0].
-        interface = ""
+    # Valid options:
+    #
+    # - "xdp" (default) uses Linux XDP APIs for high performance
+    #   networking.  In this mode, each net tile is bound to a separate
+    #   queue on the network device.  For example, if you configure
+    #   Firedancer to run four net tiles, it will reconfigure the device
+    #   to use four RX/TX queues.
+    #
+    # - "socket" uses Linux UDP sockets. Useful as a slow but more
+    #   widely compatible fallback.  Known to break CLI tools such
+    #   as the monitor.  Not recommended for production/mainnet.
+    #
+    provider = "xdp"
 
-        # Optional IPv4 bind address for peer-to-peer traffic.  For
-        # incoming packets, specifies the destination address to listen
-        # on.  For outgoing packets, sets the default source address.
-        # When left unspecified (default), listens on all addresses, and
-        # derives the source address for outgoing packets based on
-        # address and route tables.  Should be an IPv4 address, e.g.
-        # "198.51.100.2"
-        bind_address = ""
+    # Which interface to bind to for network traffic.  Currently,
+    # only one interface is supported for networking.  If this is
+    # empty, the default is the interface used to route to 8.8.8.8,
+    # you can check what this is with `ip route get 8.8.8.8`
+    #
+    # If developing under a network namespace with [netns] enabled,
+    # this should be the same as [development.netns.interface0].
+    interface = ""
 
-        # Firedancer uses the Linux XDP API for fast packet processing.
+    # Optional IPv4 bind address for peer-to-peer traffic.  For
+    # incoming packets, specifies the destination address to listen
+    # on.  For outgoing packets, sets the default source address.
+    # When left unspecified (default), listens on all addresses, and
+    # derives the source address for outgoing packets based on
+    # address and route tables.  Should be an IPv4 address, e.g.
+    # "198.51.100.2"
+    bind_address = ""
+
+    # The maximum number of packets in-flight between a net tile and
+    # downstream consumers, after which additional packets begin to
+    # replace older ones, which will be dropped.  Smaller values use
+    # less memory.  Larger values decrease link overruns caused by
+    # excessive latency.
+    ingress_buffer_size = 16384
+
+    # This section contains XDP-specific network configuration.
+    # Only active if [net.provider] is set to "xdp".
+    [net.xdp]
         # XDP is redundantly provided by different parts in the kernel.
         # This option selects the XDP provider.  Possible values for
         # this option are:
@@ -926,13 +943,20 @@ dynamic_port_range = "8900-9000"
         # improve throughput.
         flush_timeout_micros = 20
 
-        # The maximum number of packets in-flight between a net tile and
-        # downstream consumers, after which additional packets begin to
-        # replace older ones, which will be dropped.  Smaller values use
-        # less memory.  Larger values decrease link overruns caused by
-        # excessive latency.
-        send_buffer_size = 16384
+    [net.socket]
+        # Sets the socket receive buffer size via SO_RCVBUF.
+        # Raises net.core.rmem_max accordingly
+        receive_buffer_size = 134217728
 
+        # Sets the socket receive buffer size via SO_SNDBUF.
+        # Raises net.core.wmem_max accordingly
+        send_buffer_size = 134217728
+
+# Tiles are described in detail in the layout section above.  While the
+# layout configuration determines how many of each tile to place on
+# which CPU core to create a functioning system, below is the individual
+# settings that can change behavior of the tiles.
+[tiles]
     # The netlink tile forwards Linux network configuration to net tiles.
     # This config section contains advanced options that typically do not
     # need to be changed.
@@ -1318,25 +1342,6 @@ dynamic_port_range = "8900-9000"
     # if [gossip.entrypoints] is non-empty.
     bootstrap = false
 
-    # Experimental network stack options.
-    [development.net]
-        # Firedancer supports multiple network provider APIs.
-        # Valid options:
-        # - "xdp" (default) uses Linux XDP APIs for high performance
-        #   networking.
-        # - "socket" uses Linux UDP sockets. Useful as a slow but more
-        #   widely compatible fallback.  Known to break CLI tools such
-        #   as the monitor.  Not recommended for production/mainnet.
-        provider = "xdp"
-
-        # Sets the socket receive buffer size via SO_RCVBUF.
-        # Raises net.core.rmem_max accordingly
-        sock_receive_buffer_size = 134217728
-
-        # Sets the socket receive buffer size via SO_SNDBUF.
-        # Raises net.core.wmem_max accordingly
-        sock_send_buffer_size = 134217728
-
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
     # Firedancer instance and have them go through more of the kernel
@@ -1568,7 +1573,7 @@ dynamic_port_range = "8900-9000"
         #
         # The IP address should fulfill these requirements:
         # - 'ip route get <IP>' resolves to the XDP interface
-        #   (see [tiles.net.interface])
+        #   (see [net.interface])
         # - 'ip neigh get <NEXTHOP> dev <INTERFACE>' returns REACHABLE
         # If these requirements are not met, no packets will be sent out.
         fake_dst_ip = ""  # e.g. "192.0.2.64"

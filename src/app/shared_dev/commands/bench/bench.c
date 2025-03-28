@@ -170,9 +170,9 @@ bench_cmd_fn( args_t *   args,
                   0, 0.0f, 0.0f,
                   config->layout.quic_tile_count,
                   dest_port,
-                  config->tiles.net.ip_addr,
+                  config->net.ip_addr,
                   config->rpc.port,
-                  config->tiles.net.ip_addr,
+                  config->net.ip_addr,
                   args->load.no_quic );
 
   args_t configure_args = {
@@ -188,8 +188,8 @@ bench_cmd_fn( args_t *   args,
   run_firedancer_init( config, 1 );
   fdctl_setup_netns( config, 1 );
 
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->tiles.net.bind_address_parsed );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
     (void)fds;
   }
 
