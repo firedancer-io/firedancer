@@ -352,6 +352,8 @@ typedef struct {
 
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
+      ulong   max_pending_shred_sets;
+      uint    shred_tile_cnt;
     } repair;
 
     struct {
