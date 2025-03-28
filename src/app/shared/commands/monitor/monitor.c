@@ -18,6 +18,7 @@
 #include <sys/resource.h>
 #include <linux/capability.h>
 #include <sys/ioctl.h>
+#include <termios.h>
 #include "generated/monitor_seccomp.h"
 
 void
@@ -260,6 +261,13 @@ drain_to_buffer( char ** buf,
   }
 }
 
+static struct termios termios_backup;
+
+static void
+restore_terminal( void ) {
+  (void)tcsetattr( STDIN_FILENO, TCSANOW, &termios_backup );
+}
+
 void
 run_monitor( config_t const * config,
              int              drain_output_fd,
@@ -303,8 +311,20 @@ run_monitor( config_t const * config,
     if( FD_UNLIKELY( (ulong)n>=buf_sz ) ) FD_LOG_ERR(( "snprintf truncated" )); \
     buf += n; buf_sz -= (ulong)n;                                               \
   } while(0)
-  ulong line_count = 0;
   int monitor_pane = 0;
+
+  /* Restore original terminal attributes at exit */
+  atexit( restore_terminal );
+  if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &termios_backup ) ) ) {
+    FD_LOG_ERR(( "tcgetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* Disable character echo and line buffering */
+  struct termios term = termios_backup;
+  term.c_lflag &= (tcflag_t)~(ICANON | ECHO);
+  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term ) ) ) {
+    FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   for(;;) {
     /* Wait a somewhat randomized amount and then make a diagnostic
@@ -321,7 +341,6 @@ run_monitor( config_t const * config,
     char * buf = buffer;
     ulong buf_sz = FD_MONITOR_TEXT_BUF_SZ;
 
-    
     PRINT( "\033[2J\033[H" );
 
     /* drain any firedancer log messages into the terminal */
@@ -333,10 +352,10 @@ run_monitor( config_t const * config,
       buf_sz = FD_MONITOR_TEXT_BUF_SZ;
     }
 
-    char * mon_start = buf;
-    
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) PRINT( TEXT_NEWLINE );
-    if( FD_UNLIKELY( fd_getchar() == '\t' ) ) monitor_pane = !monitor_pane;
+    int c = fd_getchar();
+    if( FD_UNLIKELY( c=='\t'   ) ) monitor_pane = !monitor_pane;
+    if( FD_UNLIKELY( c=='\x04' ) ) break; /* Ctrl-D */
 
     long dt = now-then;
 
@@ -510,13 +529,6 @@ run_monitor( config_t const * config,
       break;
     }
 
-    /* Still more monitoring to do ... wind up for the next iteration by
-       swapping the two snap arrays. */
-    line_count = 0;
-    for ( ulong i=(ulong)(mon_start-buffer); i<sizeof(buffer) - buf_sz; i++ ) {
-      if( buffer[i] == '\n' ) line_count++;
-    }
-
     then = now; tic = toc;
     tile_snap_t * tmp = tile_snap_prv; tile_snap_prv = tile_snap_cur; tile_snap_cur = tmp;
     link_snap_t * tmp2 = link_snap_prv; link_snap_prv = link_snap_cur; link_snap_cur = tmp2;
@@ -526,7 +538,7 @@ run_monitor( config_t const * config,
 static void
 signal1( int sig ) {
   (void)sig;
-  fd_sys_util_exit_group( 0 );
+  exit( 0 ); /* gracefully exit */
 }
 
 void
@@ -605,5 +617,5 @@ monitor_cmd_fn( args_t *   args,
                args->monitor.seed,
                args->monitor.ns_per_tic );
 
-  fd_sys_util_exit_group( 0 );
+  exit( 0 ); /* gracefully exit */
 }
