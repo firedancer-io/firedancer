@@ -322,9 +322,9 @@ fd_spad_vtable = {
 };
 
 void
-fd_spad_private_frame_end_debug( fd_spad_debug_state_t * _spad_state ) { /* declared here to avoid a fd_spad_pop forward reference */
+fd_spad_private_frame_end_debug( fd_spad_debug_state_t * _spad_state ) {
   fd_spad_pop( _spad_state->spad );
 
-  FD_TEST( _spad_state->frame_free == _spad_state->spad->frame_free );
-  FD_TEST( _spad_state->mem_used == _spad_state->spad->mem_used );
+  FD_TEST_BRK( _spad_state->frame_free == _spad_state->spad->frame_free );
+  FD_TEST_BRK( _spad_state->mem_used == _spad_state->spad->mem_used );
 }
