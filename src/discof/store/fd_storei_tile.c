@@ -290,7 +290,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
   }
 
   /* everything else is shred */
-  FD_TEST( ctx->s34_buffer->shred_cnt>0UL );
+  FD_TEST( (ctx->s34_buffer->shred_cnt>0UL) & (ctx->s34_buffer->shred_cnt<=34UL) );
 
   if( FD_UNLIKELY( ctx->is_trusted ) ) {
     /* this slot is coming from our leader pipeline */
