@@ -29,8 +29,7 @@
 
      // create a client or a server handshake object
      //   call upon a new connection to manage the connection TLS handshake
-     // hostname may be null for servers
-     fd_quic_tls_hs_t * hs = fd_quic_tls_hs_new( quic_tls, conn_id, conn_id_sz, is_server, hostname );
+     fd_quic_tls_hs_t * hs = fd_quic_tls_hs_new( quic_tls, conn_id, conn_id_sz, is_server, transport_params, now );
 
      // delete a handshake object
      //   NULL is allowed here
@@ -130,7 +129,9 @@ struct fd_quic_tls_hs {
   /* user defined context supplied in callbacks */
   void *          context;
 
-  ulong           next; /* alloc pool linked list */
+  ulong           next;      /* alloc pool/cache dlist */
+  ulong           prev;      /* cache dlist */
+  ulong           birthtime; /* allocation time, used for cache eviction sanity check */
 
   /* handshake data
      this is data that must be sent to the peer
@@ -183,6 +184,7 @@ struct fd_quic_tls_hs {
 
   /* our own QUIC transport params */
   fd_quic_transport_params_t self_transport_params;
+
 };
 
 /* fd_quic_tls_new formats an unused memory region for use as an
@@ -204,7 +206,8 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
                     fd_quic_tls_t *    quic_tls,
                     void *             context,
                     int                is_server,
-                    fd_quic_transport_params_t const * self_transport_params );
+                    fd_quic_transport_params_t const * self_transport_params,
+                    ulong              now );
 
 void
 fd_quic_tls_hs_delete( fd_quic_tls_hs_t * hs );

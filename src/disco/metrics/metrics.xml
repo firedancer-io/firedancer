@@ -181,6 +181,7 @@ metric introduced.
 
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
+    <counter name="HandshakeEvicted" summary="Number of handshakes dropped due to eviction." />
 
     <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />

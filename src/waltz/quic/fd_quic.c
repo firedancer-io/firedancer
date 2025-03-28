@@ -206,6 +206,7 @@ fd_quic_new( void * mem,
   quic->config.idle_timeout = FD_QUIC_DEFAULT_IDLE_TIMEOUT;
   quic->config.ack_delay    = FD_QUIC_DEFAULT_ACK_DELAY;
   quic->config.retry_ttl    = FD_QUIC_DEFAULT_RETRY_TTL;
+  quic->config.tls_hs_ttl   = FD_QUIC_DEFAULT_TLS_HS_TTL;
 
   /* Default clock source */
   quic->cb.now             = fd_quic_clock_wallclock;
@@ -521,6 +522,15 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
   state->hs_pool = hs_pool;
+
+  /* State: Initialize TLS handshake cache */
+  if( FD_LIKELY( !fd_quic_tls_hs_cache_join(
+    fd_quic_tls_hs_cache_new( &state->hs_cache )
+  ))) {
+    FD_LOG_WARNING(( "fd_quic_tls_hs_cache_new failed" ));
+    return NULL;
+  }
+
 
   if( layout.stream_pool_off ) {
     ulong stream_pool_cnt = limits->stream_pool_cnt;
@@ -1058,6 +1068,8 @@ fd_quic_fini( fd_quic_t * quic ) {
 
   fd_quic_tls_hs_pool_delete( fd_quic_tls_hs_pool_leave( state->hs_pool ) ); state->hs_pool = NULL;
   fd_quic_tls_delete( state->tls );
+  fd_quic_tls_hs_cache_delete( fd_quic_tls_hs_cache_leave( &state->hs_cache ) );
+
 
   /* Delete conn ID map */
 
@@ -1378,6 +1390,32 @@ fd_quic_send_retry( fd_quic_t *               quic,
   return 0UL;
 }
 
+/* fd_quic_tls_hs_cache_evict evicts the oldest tls_hs if it's exceeded its ttl
+   Assumes cache is non-empty
+   and returns 1 if evicted, otherwise returns 0. */
+static int
+fd_quic_tls_hs_cache_evict( fd_quic_t       * quic,
+                            fd_quic_conn_t  * new_conn,
+                            fd_quic_state_t * state ) {
+
+  fd_quic_tls_hs_t* hs_to_free = fd_quic_tls_hs_cache_ele_peek_head( &state->hs_cache, state->hs_pool );
+
+  if( state->now < hs_to_free->birthtime + quic->config.tls_hs_ttl ) {
+    /* oldest is too young to evict */
+    if( new_conn ) {
+      new_conn->state = FD_QUIC_CONN_STATE_DEAD;
+      fd_quic_svc_schedule( state, new_conn, FD_QUIC_SVC_INSTANT );
+      quic->metrics.conn_aborted_cnt++;
+    }
+    quic->metrics.hs_err_alloc_fail_cnt++;
+    return 0;
+  }
+
+  fd_quic_conn_free( quic, hs_to_free->context );
+  quic->metrics.hs_evicted_cnt++;
+  return 1;
+}
+
 /* fd_quic_handle_v1_initial handles an "Initial"-type packet.
    Valid for both server and client.  Initial packets are used to
    establish QUIC conns and wrap the TLS handshake flow among other
@@ -1616,19 +1654,20 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* Create a TLS handshake */
 
       if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
-        fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
-        quic->metrics.conn_aborted_cnt++;
-        quic->metrics.hs_err_alloc_fail_cnt++;
-        FD_DEBUG( FD_LOG_WARNING(( "zero fd_quic_tls_hs_pool_free" )) );
-        return FD_QUIC_PARSE_FAIL;
+        /* try evicting, 0 if oldest is too young so fail */
+        if( !fd_quic_tls_hs_cache_evict( quic, conn, state )) {
+          return FD_QUIC_PARSE_FAIL;
+        }
       }
+
       fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
           fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
           state->tls,
           (void*)conn,
           1 /*is_server*/,
-          tp );
+          tp,
+          state->now );
+      fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, tls_hs, state->hs_pool );
       conn->tls_hs = tls_hs;
       quic->metrics.hs_created_cnt++;
 
@@ -4052,6 +4091,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
   /* free tls-hs */
   fd_quic_tls_hs_delete( conn->tls_hs );
   if( conn->tls_hs ) {
+    /* Remove the handshake from the cache before releasing it */
+    fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool);
     fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
   }
   conn->tls_hs = NULL;
@@ -4083,14 +4124,15 @@ fd_quic_connect( fd_quic_t *  quic,
                  ushort       src_udp_port ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
+  state->now              = fd_quic_now( quic );
 
   if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "zero fd_quic_tls_hs_pool_free" )) );
-    quic->metrics.hs_err_alloc_fail_cnt++;
-    return NULL;
+    /* try evicting, 0 if oldest is too young so fail */
+    if( !fd_quic_tls_hs_cache_evict( quic, NULL, state ) ) {
+      return NULL;
+    }
   }
 
-  state->now = fd_quic_now( quic );
 
   fd_rng_t * rng = state->_rng;
 
@@ -4144,11 +4186,15 @@ fd_quic_connect( fd_quic_t *  quic,
       state->tls,
       (void*)conn,
       0 /*is_server*/,
-      tp );
+      tp,
+      state->now );
   if( FD_UNLIKELY( tls_hs->alert ) ) {
     FD_LOG_WARNING(( "fd_quic_tls_hs_client_new failed" ));
-    goto fail_tls_hs;
+    /* shut down tls_hs */
+    fd_quic_conn_free( quic, conn );
+    return NULL;
   }
+  fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, tls_hs, state->hs_pool );
 
   quic->metrics.hs_created_cnt++;
   conn->tls_hs = tls_hs;
@@ -4164,12 +4210,6 @@ fd_quic_connect( fd_quic_t *  quic,
   /* everything initialized */
   return conn;
 
-fail_tls_hs:
-  /* shut down tls_hs */
-  fd_quic_tls_hs_delete( tls_hs );
-  fd_quic_tls_hs_pool_ele_release( state->hs_pool, tls_hs );
-  fd_quic_conn_free( quic, conn );
-  return NULL;
 }
 
 fd_quic_conn_t *
@@ -4670,6 +4710,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     conn->handshake_done_send = 0;
     fd_quic_state_t * state = fd_quic_get_state( conn->quic );
     fd_quic_tls_hs_delete( conn->tls_hs );
+    /* Remove the handshake from the cache before releasing it */
+    fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
     fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
     conn->tls_hs = NULL;
   }
@@ -5556,6 +5598,7 @@ fd_quic_handle_handshake_done_frame(
   /* Deallocate tls_hs once completed */
   fd_quic_state_t * state = fd_quic_get_state( conn->quic );
   fd_quic_tls_hs_delete( conn->tls_hs );
+  fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
   fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
   conn->tls_hs = NULL;
 

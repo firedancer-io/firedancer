@@ -94,6 +94,7 @@
 | quic_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail | `counter` | Number of packets failed to send because of metadata alloc fail. |
 | quic_&#8203;handshakes_&#8203;created | `counter` | Number of handshake flows created. |
 | quic_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail | `counter` | Number of handshakes dropped due to alloc fail. |
+| quic_&#8203;handshake_&#8203;evicted | `counter` | Number of handshakes dropped due to eviction. |
 | quic_&#8203;stream_&#8203;received_&#8203;events | `counter` | Number of stream RX events. |
 | quic_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total stream payload bytes received. |
 | quic_&#8203;received_&#8203;frames_&#8203;unknown | `counter` | Number of QUIC frames received. (Unknown frame type) |
