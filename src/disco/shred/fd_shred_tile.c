@@ -88,6 +88,7 @@
 #define IN_KIND_POH     (2UL)
 #define IN_KIND_NET     (3UL)
 #define IN_KIND_SIGN    (4UL)
+#define IN_KIND_REPAIR  (5UL)
 
 #define STORE_OUT_IDX   0
 #define NET_OUT_IDX     1
@@ -602,9 +603,10 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         int  is_code               = fd_shred_is_code( fd_shred_type( shred->variant ) );
         uint shred_idx_or_data_cnt = shred->idx;
+        int  completes = 0;
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
-        ulong sig = fd_disco_shred_repair_sig( shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
-        FD_TEST( fd_disco_shred_repair_sig_skip( sig ) );
+        else  completes = shred->data.flags & ( FD_SHRED_DATA_FLAG_SLOT_COMPLETE | FD_SHRED_DATA_FLAG_DATA_COMPLETE );
+        ulong sig = fd_disco_shred_repair_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
 
@@ -888,6 +890,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

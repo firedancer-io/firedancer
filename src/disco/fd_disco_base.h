@@ -140,8 +140,10 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    The encoded fields vary depending on the type of the sig.  The
    diagram below describes the encoding.
 
-   skip (1) | slot (32) | fec_set_idx (15) | is_code (1) | shred_idx or data_cnt (15)
-   [63]     | [31, 62]  | [16, 30]         | [15]        | [0, 14]
+   completes (1) | slot (32) | fec_set_idx (15) | is_code (1) | shred_idx or data_cnt (15)
+   [63]          | [31, 62]  | [16, 30]         | [15]        | [0, 14]
+
+   TODO: Fix explanation
 
    The first bit of the sig indicates whether it is ok to skip the frag.
    This is the case when the frag is a shred header and the necessary
@@ -177,14 +179,14 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    are uniformly coding shreds and fixed size. */
 
 FD_FN_CONST static inline ulong
-fd_disco_shred_repair_sig( ulong slot, uint fec_set_idx, int is_code, uint shred_idx_or_data_cnt ) {
-  return 1UL << 63 | slot << 31 | fec_set_idx << 16 | (ulong)is_code << 15 | shred_idx_or_data_cnt;
+fd_disco_shred_repair_sig( int completes, ulong slot, uint fec_set_idx, int is_code, uint shred_idx_or_data_cnt ) {
+  return (ulong)completes << 63 | slot << 31 | fec_set_idx << 16 | (ulong)is_code << 15 | shred_idx_or_data_cnt;
 }
 
 /* fd_disco_shred_repair_sig_{...} are accessors for the fields encoded
    in the sig described above. */
 
-FD_FN_CONST static inline int    fd_disco_shred_repair_sig_skip          ( ulong sig ) { return         fd_ulong_extract_bit( sig, 63     ); }
+FD_FN_CONST static inline int    fd_disco_shred_repair_sig_completes     ( ulong sig ) { return fd_ulong_extract_bit( sig, 63     );           }
 FD_FN_CONST static inline ulong  fd_disco_shred_repair_sig_slot          ( ulong sig ) { return         fd_ulong_extract    ( sig, 31, 62 ); }
 FD_FN_CONST static inline uint   fd_disco_shred_repair_sig_fec_set_idx   ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 16, 30 ); }
 FD_FN_CONST static inline int    fd_disco_shred_repair_sig_is_code       ( ulong sig ) { return         fd_ulong_extract_bit( sig, 15     ); }
