@@ -25,7 +25,7 @@ enabled( config_t const * config ) {
   if( config->development.netns.enabled ) return 0;
 
   /* only enable if network stack is XDP */
-  if( 0!=strcmp( config->development.net.provider, "xdp" ) ) return 0;
+  if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
 
   return 1;
 }
@@ -111,20 +111,20 @@ static void
 init( config_t const * config ) {
   /* we need one channel for both TX and RX on the NIC for each QUIC
      tile, but the interface probably defaults to one channel total */
-  if( FD_UNLIKELY( device_is_bonded( config->tiles.net.interface ) ) ) {
+  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     /* if using a bonded device, we need to disable gro on the
        underlying devices.
 
        we don't need to disable gro on the bonded device, as the packets are
        redirected by XDP before any of the kernel bonding logic */
     char line[ 4096 ];
-    device_read_slaves( config->tiles.net.interface, line );
+    device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
       init_device( token );
     }
   } else {
-    init_device( config->tiles.net.interface );
+    init_device( config->net.interface );
   }
   init_device( "lo" );
 }
@@ -174,15 +174,15 @@ check_device( const char * device ) {
 
 static configure_result_t
 check( config_t const * config ) {
-  if( FD_UNLIKELY( device_is_bonded( config->tiles.net.interface ) ) ) {
+  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
-    device_read_slaves( config->tiles.net.interface, line );
+    device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
       CHECK( check_device( token ) );
     }
   } else {
-    CHECK( check_device( config->tiles.net.interface ) );
+    CHECK( check_device( config->net.interface ) );
   }
 
   CONFIGURE_OK();
