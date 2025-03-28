@@ -237,7 +237,7 @@ slot_ctx_restore( ulong                 slot,
       FD_LOG_ERR( ( "failed to decode banks record" ) );
     }
 
-    uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_bank_align(), total_sz );
+    uchar * mem = fd_spad_alloc_check( runtime_spad, fd_slot_bank_align(), total_sz );
     if( FD_UNLIKELY( !mem ) ) {
       FD_LOG_ERR( ( "failed to allocate memory for slot bank" ) );
     }
