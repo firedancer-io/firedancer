@@ -261,7 +261,10 @@ gui_http_request( fd_http_server_request_t const * request ) {
 
   int is_vite_page = !strcmp( request->path, "/" ) ||
                      !strcmp( request->path, "/leaderSchedule" ) ||
-                     !strcmp( request->path, "/gossip" );
+                     !strcmp( request->path, "/gossip") ||
+                     !strncmp( request->path, "/?", strlen("/?") ) ||
+                     !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
+                     !strncmp( request->path, "/gossip?", strlen("/gossip?") );
 
   for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
     if( !strcmp( request->path, f->name ) ||
