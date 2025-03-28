@@ -195,6 +195,10 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_shred_t const   * * out_shred,
                                fd_bmtree_node_t     * out_merkle_root );
 
+int
+fd_fec_resolver_curr_contains( fd_fec_resolver_t * resolver,
+                               ulong               sig );
+
 /* fd_fec_resolver_force_complete forces completion of a partial FEC set
    in the FEC resolver.  This is to handle a current limitation in the
    protocol where the repair protocol does not support requesting coding

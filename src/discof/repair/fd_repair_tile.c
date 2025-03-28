@@ -391,11 +391,9 @@ during_frag( fd_repair_tile_ctx_t * ctx,
 
     // process data shreds and see if we  need to force complete. If we do, then we need to read the frag.
     if( FD_UNLIKELY( !is_code && check_blind_fec_completed( ctx->fec_repair, slot, fec_set_idx ) ) ) {
-      /* we have a data shred, check if it completes a force_complete FEC */
-      // we do not want to skip reading this frag if it forces completion of this fec set. Instead
-      // we want to respond to the shred_tile and tell it.
-      FD_LOG_WARNING(("Recieved shred that blind completed"));
-
+      /* we have a data shred, check if it completes a force_complete FEC
+         we do not want to skip reading this frag if it forces completion of this fec set. Instead
+         we want to respond to the shred_tile and tell it to force_complete. */
     } else if( FD_UNLIKELY( sz == FD_SHRED_CODE_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ ) ) {
       /* FEC COMPLETE MESSAGE */
     } else if( FD_UNLIKELY( shred_idx == UINT_MAX || fec_set_idx == UINT_MAX || slot == ULONG_MAX ) ) {
@@ -445,23 +443,26 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     uint  fec_set_idx = fd_disco_shred_repair_sig_fec_set_idx( sig );
 
     if( sz == FD_SHRED_CODE_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ ) {
-
+      /* Do FEC Complete things */
     } else if( check_blind_fec_completed( ctx->fec_repair, slot, fec_set_idx ) ){
       /* we need to force complete the fec */
       fd_shred_t * data_hdr = ( fd_shred_t * )fd_type_pun( ctx->buffer );
       /* TODO: assert data shred */
+      FD_TEST( fd_shred_is_data( fd_shred_type( data_hdr->variant ) ) );
 
       ulong sig = fd_ulong_load_8( data_hdr->signature );
       int shred_tile_idx = (int) ( sig % (ulong)ctx->shred_tile_cnt );
 
       uchar * shed_out_buf = fd_chunk_to_laddr( ctx->shred_out_ctx[shred_tile_idx].mem, ctx->shred_out_ctx[shred_tile_idx].chunk );
       fd_memcpy( shed_out_buf, ctx->buffer, sz );
-      fd_stem_publish( ctx->stem, ctx->shred_out_ctx[shred_tile_idx].idx, 0, ctx->shred_out_ctx[shred_tile_idx].chunk, sz, 0UL, 0UL, tspub );
+      fd_stem_publish( ctx->stem, ctx->shred_out_ctx[shred_tile_idx].idx, sig, ctx->shred_out_ctx[shred_tile_idx].chunk, sz, 0UL, 0UL, tspub );
 
+      FD_LOG_WARNING(("Sending blind complete message to shred tile %d, with sig %lu", shred_tile_idx, sig ));
     } else {
       /* bits saturated*/
 
     }
+    return;
   }
 
 

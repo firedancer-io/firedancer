@@ -699,6 +699,14 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
 }
 
+int
+fd_fec_resolver_curr_contains( fd_fec_resolver_t * resolver,
+                               ulong               sig ) {
+  wrapped_sig_t * w_sig = (wrapped_sig_t *)fd_type_pun( &sig ); // nasty nasty cast TODO
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return 0;
+  return !!ctx_map_query( resolver->curr_map, *w_sig, NULL );
+}
+
 /* TODO code is copy-pasted because this function is intended to be
    removed as soon as an upgrade to the repair protocol to support
    requesting coding shreds is made available. */
