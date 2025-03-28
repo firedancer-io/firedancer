@@ -19,6 +19,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   IDX_T max = set_max(); FD_TEST( max==(IDX_T)MAX );
 
   ulong sum_full = 0UL; for( IDX_T idx=(IDX_T)0; idx<max; idx++ ) sum_full += (ulong)idx+1UL;
@@ -259,6 +261,26 @@ main( int     argc,
     f0 = set_insert( f0, idx ); f1 = set_union   ( f1, e );
   }
 
+  set_t z = set_null();
+
+  for( IDX_T l=(IDX_T)0; l<=max; l++ ) {
+    for( IDX_T h=l; h<=max; h++ ) {
+      set_t r = z; for( IDX_T i=l; i<h;   i++ ) r = set_insert( r, i );
+      set_t t = z; for( IDX_T i=0; i<max; i++ ) t = set_insert_if( fd_rng_uint( rng ) & 1U, t, i );
+      set_t x = set_union    ( t, r );
+      set_t y = set_intersect( t, r );
+      set_t w = set_subtract ( t, r );
+
+      FD_TEST( set_eq( set_range( l, h ), r ) );
+
+      FD_TEST( set_eq( set_insert_range( t, l, h ), x ) );
+      FD_TEST( set_eq( set_select_range( t, l, h ), y ) );
+      FD_TEST( set_eq( set_remove_range( t, l, h ), w ) );
+
+      FD_TEST( set_range_cnt( t, l, h )==set_cnt( y ) );
+    }
+  }
+
 #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
 #define FD_EXPECT_LOG_CRIT( CALL ) do {                            \
     FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
@@ -288,6 +310,8 @@ main( int     argc,
 
   FD_TEST( set_is_null( n0 ) ); FD_TEST( set_is_null( n1 ) );
   FD_TEST( set_is_full( f0 ) ); FD_TEST( set_is_full( f1 ) );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

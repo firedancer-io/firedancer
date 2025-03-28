@@ -16,6 +16,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   ulong max = set_max( NULL ); FD_TEST( max==(ulong)MAX );
 
   ulong sum_full = 0UL; for( ulong idx=0UL; idx<max; idx++ ) sum_full += idx+1UL;
@@ -289,6 +291,36 @@ main( int     argc,
   FD_TEST( set_is_null( n0 ) ); FD_TEST( set_is_null( n1 ) );
   FD_TEST( set_is_full( f0 ) ); FD_TEST( set_is_full( f1 ) );
 
+  set_t _r[ set_word_cnt ]; set_t * r = set_join( set_new( _r ) );
+  set_t _s[ set_word_cnt ]; set_t * s = set_join( set_new( _s ) );
+
+  set_t _x[ set_word_cnt ]; set_t * x = set_join( set_new( _x ) );
+  set_t _y[ set_word_cnt ]; set_t * y = set_join( set_new( _y ) );
+  set_t _w[ set_word_cnt ]; set_t * w = set_join( set_new( _w ) );
+
+  for( ulong rem=1000UL; rem; rem-- ) {
+    ulong l = fd_rng_ulong_roll( rng, max+1UL );
+    ulong h = fd_rng_ulong_roll( rng, max+1UL );
+    fd_swap_if( l>h, l, h );
+
+    /* At this point l and h are uniform IID random pair such that 0<=l<=h<=max */
+
+    set_null( r ); for( ulong i=l;   i<h;   i++ ) set_insert( r, i );
+    set_null( s ); for( ulong i=0UL; i<max; i++ ) set_insert_if( s, fd_rng_uint( rng ) & 1U, i );
+
+    set_union    ( x, s, r );
+    set_intersect( y, s, r );
+    set_subtract ( w, s, r );
+
+    FD_TEST( set_range( t, l, h )==t ); FD_TEST( set_eq( t, r ) );
+
+    set_copy( t, s ); FD_TEST( set_insert_range( t, l, h )==t ); FD_TEST( set_eq( t, x ) );
+    set_copy( t, s ); FD_TEST( set_select_range( t, l, h )==t ); FD_TEST( set_eq( t, y ) );
+    set_copy( t, s ); FD_TEST( set_remove_range( t, l, h )==t ); FD_TEST( set_eq( t, w ) );
+
+    FD_TEST( set_range_cnt( s, l, h )==set_cnt( y ) );
+  }
+
 #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
 #define FD_EXPECT_LOG_CRIT( CALL ) do {                            \
     FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
@@ -328,6 +360,8 @@ main( int     argc,
   set_delete( set_leave( f1   ) );
   set_delete( set_leave( f0   ) );
   set_delete( set_leave( null ) );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

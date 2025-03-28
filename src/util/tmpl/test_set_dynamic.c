@@ -8,14 +8,19 @@
 #define SET_NAME set
 #include "fd_set_dynamic.c"
 
-static uchar scratch_smem[ 16384 ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
-static ulong scratch_fmem[ 1     ];
+#define SCRATCH_SZ (65536UL)
+static uchar scratch_smem[ SCRATCH_SZ ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
+static ulong scratch_fmem[ 1          ];
 
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_scratch_attach( scratch_smem, scratch_fmem, 16384UL, 2UL );
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  /* FIXME: Deprecate use of scratch here in favor of local or spad */
+  fd_scratch_attach( scratch_smem, scratch_fmem, SCRATCH_SZ, 2UL );
   fd_scratch_push();
 
   ulong max = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, 12345UL );
@@ -29,7 +34,7 @@ main( int     argc,
 
   ulong align     = set_align();
   ulong footprint = set_footprint( max );
-  if( FD_UNLIKELY( (9UL*(footprint+align-1UL)) > 16384UL ) ) {
+  if( FD_UNLIKELY( (14UL*(footprint+align-1UL)) > SCRATCH_SZ) ) {
     FD_LOG_WARNING(( "skip: increase scratch space size for this --max" ));
     return 0;
   }
@@ -307,6 +312,36 @@ main( int     argc,
   FD_TEST( set_is_null( n0 ) ); FD_TEST( set_is_null( n1 ) );
   FD_TEST( set_is_full( f0 ) ); FD_TEST( set_is_full( f1 ) );
 
+  set_t * r = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( r ); FD_TEST( set_max( r )==max );
+  set_t * s = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( s ); FD_TEST( set_max( s )==max );
+
+  set_t * x = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( x ); FD_TEST( set_max( x )==max );
+  set_t * y = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( y ); FD_TEST( set_max( y )==max );
+  set_t * w = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( w ); FD_TEST( set_max( w )==max );
+
+  for( ulong rem=1000UL; rem; rem-- ) {
+    ulong l = fd_rng_ulong_roll( rng, max+1UL );
+    ulong h = fd_rng_ulong_roll( rng, max+1UL );
+    fd_swap_if( l>h, l, h );
+
+    /* At this point l and h are uniform IID random pair such that 0<=l<=h<=max */
+
+    set_null( r ); for( ulong i=l;   i<h;   i++ ) set_insert( r, i );
+    set_null( s ); for( ulong i=0UL; i<max; i++ ) set_insert_if( s, fd_rng_uint( rng ) & 1U, i );
+
+    set_union    ( x, s, r );
+    set_intersect( y, s, r );
+    set_subtract ( w, s, r );
+
+    FD_TEST( set_range( t, l, h )==t ); FD_TEST( set_eq( t, r ) );
+
+    set_copy( t, s ); FD_TEST( set_insert_range( t, l, h )==t ); FD_TEST( set_eq( t, x ) );
+    set_copy( t, s ); FD_TEST( set_select_range( t, l, h )==t ); FD_TEST( set_eq( t, y ) );
+    set_copy( t, s ); FD_TEST( set_remove_range( t, l, h )==t ); FD_TEST( set_eq( t, w ) );
+
+    FD_TEST( set_range_cnt( s, l, h )==set_cnt( y ) );
+  }
+
   /* FIXME: TEST SET -> SHSET -> MEM */
 
 #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
@@ -354,6 +389,8 @@ main( int     argc,
 
   fd_scratch_pop();
   fd_scratch_detach( NULL );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

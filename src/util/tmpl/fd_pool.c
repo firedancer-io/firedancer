@@ -341,33 +341,30 @@ POOL_(ele_test)( POOL_T const * join,
   return (!ele) | ((idx<max) & ((ulong)ele==((ulong)join+(idx*sizeof(POOL_T))))); /* last test checks alignment */
 }
 
-FD_FN_CONST
-static inline ulong
+FD_FN_CONST static inline ulong
 POOL_(idx)( POOL_T const * join,
             POOL_T const * ele ) {
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( !POOL_(ele_test)( join, ele ) ) ) FD_LOG_CRIT(( "no such element" ));
-#endif
-return ele ? (ulong)(ele-join) : POOL_IDX_NULL;
+# endif
+  return ele ? (ulong)(ele-join) : POOL_IDX_NULL;
 }
 
-FD_FN_CONST
-static inline POOL_T *
+FD_FN_CONST static inline POOL_T *
 POOL_(ele)( POOL_T *   join,
             ulong      idx ) {
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( !POOL_(idx_test)( join, idx ) ) ) FD_LOG_CRIT(( "no such index" ));
-#endif
+# endif
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
 
-FD_FN_CONST
-static inline POOL_T const *
+FD_FN_CONST static inline POOL_T const *
 POOL_(ele_const)( POOL_T const *   join,
                   ulong            idx ) {
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( !POOL_(idx_test)( join, idx ) ) ) FD_LOG_CRIT(( "no such index" ));
-#endif
+# endif
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
 
@@ -387,9 +384,9 @@ POOL_(used)( POOL_T const * join ) {
 static inline ulong
 POOL_(idx_acquire)( POOL_T * join ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( !meta->free ) ) FD_LOG_CRIT(( "pool is full" ));
-#endif
+# endif
   ulong idx = meta->free_top;
   meta->free_top = (ulong)join[ idx ].POOL_NEXT;
   meta->free--;
@@ -400,15 +397,15 @@ static inline void
 POOL_(idx_release)( POOL_T * join,
                     ulong    idx ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( (meta->max<=idx) | (idx==POOL_IDX_NULL) ) ) FD_LOG_CRIT(( "invalid index" ));
-#if POOL_SENTINEL
+# if POOL_SENTINEL
   if( FD_UNLIKELY( POOL_(idx_sentinel)( join )==idx ) ) FD_LOG_CRIT(( "cannot releaes sentinel" ));
   if( FD_UNLIKELY( meta->free>=meta->max-1 ) ) FD_LOG_CRIT(( "pool is empty" ));
-#else
+# else
   if( FD_UNLIKELY( meta->free>=meta->max ) ) FD_LOG_CRIT(( "pool is empty" ));
-#endif
-#endif
+# endif
+# endif
   join[ idx ].POOL_NEXT = (POOL_IDX_T)meta->free_top;
   meta->free_top = idx;
   meta->free++;
