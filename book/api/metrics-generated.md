@@ -343,6 +343,9 @@
 | shred_&#8203;fec_&#8203;set_&#8203;spilled | `counter` | The number of FEC sets that were spilled because they didn't complete in time and we needed space |
 | shred_&#8203;shred_&#8203;rejected_&#8203;initial | `counter` | The number shreds that were rejected before any resources were allocated for the FEC set |
 | shred_&#8203;fec_&#8203;rejected_&#8203;fatal | `counter` | The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid |
+| shred_&#8203;force_&#8203;complete_&#8203;request | `counter` | The number of times we recieved a FEC force complete message |
+| shred_&#8203;force_&#8203;complete_&#8203;failure | `counter` | The number of times we failed to force complete a FEC set on request |
+| shred_&#8203;force_&#8203;complete_&#8203;success | `counter` | The number of times we successfully forced completed a FEC set on request |
 
 ## Store Tile
 | Metric | Type | Description |

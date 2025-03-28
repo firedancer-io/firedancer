@@ -1,15 +1,34 @@
 #include "fd_fec_repair.h"
 
 void *
-fd_fec_repair_new( void * shmem, ulong intra_max, ulong seed ) {
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_fec_repair_t * repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(),     sizeof(fd_fec_repair_t)                  );
-  void * intra_pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_intra_pool_align(), fd_fec_intra_pool_footprint( intra_max ) );
-  void * intra_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_intra_map_align(),  fd_fec_intra_map_footprint( intra_max )  );
-  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_fec_repair_align() ) == (ulong)shmem + fd_fec_repair_footprint( intra_max ) );
+fd_fec_repair_new( void * shmem, ulong fec_max, uint shred_tile_cnt, ulong seed ) {
+  ulong total_fecs_pow2 = fd_ulong_pow2_up( fec_max * shred_tile_cnt );
+  int   lg_total_fecs   = fd_ulong_find_msb( total_fecs_pow2 );
 
-  repair->intra_pool = fd_fec_intra_pool_new( intra_pool, intra_max );
-  repair->intra_map  = fd_fec_intra_map_new ( intra_map, intra_max, seed );
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_fec_repair_t * repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(),      sizeof(fd_fec_repair_t)                  );
+  void * intra_pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_intra_pool_align(),  fd_fec_intra_pool_footprint( total_fecs_pow2 ) );
+  void * intra_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_intra_map_align(),   fd_fec_intra_map_footprint( total_fecs_pow2 )  );
+  void * intra_chainer_map = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_map_align(), fd_fec_chainer_map_footprint( lg_total_fecs ) );
+  void * order_pool_lst    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), sizeof(fd_fec_order_t*) * shred_tile_cnt );
+  void * order_dlist_lst   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), sizeof(fd_fec_order_dlist_t*) * shred_tile_cnt );
+
+  repair->intra_pool      = fd_fec_intra_pool_new( intra_pool, total_fecs_pow2 );
+  repair->intra_map       = fd_fec_intra_map_new ( intra_map, total_fecs_pow2, seed );
+  repair->fec_chainer_map = fd_fec_chainer_map_new( intra_chainer_map, lg_total_fecs );
+  repair->order_pool_lst  = (fd_fec_order_t **)order_pool_lst;
+  repair->order_dlist_lst = (fd_fec_order_dlist_t **)order_dlist_lst;
+
+  for( ulong i = 0UL; i < shred_tile_cnt; i++ ) {
+    void * order_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_order_pool_align(), fd_fec_order_pool_footprint( fec_max ) );
+    void * order_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_order_dlist_align(), fd_fec_order_dlist_footprint() );
+    repair->order_pool_lst[i]  = fd_fec_order_pool_new ( order_pool, fec_max );
+    repair->order_dlist_lst[i] = fd_fec_order_dlist_new( order_dlist );
+  }
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_fec_repair_align() ) == (ulong)shmem + fd_fec_repair_footprint( fec_max, shred_tile_cnt ) );
+
+  repair->fec_max        = fec_max;
+  repair->shred_tile_cnt = shred_tile_cnt;
 
   return repair;
 }
@@ -17,8 +36,17 @@ fd_fec_repair_new( void * shmem, ulong intra_max, ulong seed ) {
 fd_fec_repair_t *
 fd_fec_repair_join( void * shfec_repair ) {
   fd_fec_repair_t * fec_repair = (fd_fec_repair_t *)shfec_repair;
-  fec_repair->intra_pool = fd_fec_intra_pool_join( fec_repair->intra_pool );
-  fec_repair->intra_map  = fd_fec_intra_map_join( fec_repair->intra_map );
+  ulong shred_tile_cnt = fec_repair->shred_tile_cnt;
+
+  fec_repair->intra_pool      = fd_fec_intra_pool_join( fec_repair->intra_pool );
+  fec_repair->intra_map       = fd_fec_intra_map_join( fec_repair->intra_map );
+  fec_repair->fec_chainer_map = fd_fec_chainer_map_join( fec_repair->fec_chainer_map );
+
+  for( ulong i = 0UL; i < shred_tile_cnt; i++ ) {
+    fec_repair->order_pool_lst[i]  = fd_fec_order_pool_join ( fec_repair->order_pool_lst[i] );
+    fec_repair->order_dlist_lst[i] = fd_fec_order_dlist_join( fec_repair->order_dlist_lst[i] );
+  }
+
   return fec_repair;
 }
 
