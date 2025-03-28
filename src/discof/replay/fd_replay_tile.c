@@ -64,9 +64,7 @@
 
 #define VOTE_ACC_MAX   (2000000UL)
 
-#define BANK_HASH_CMP_LG_MAX           (16UL)
-#define INVALID_BANK_HASH_TX_THRESHOLD (16UL) /* NOTE: This is an arbitrary number. */
-
+#define BANK_HASH_CMP_LG_MAX (16UL)
 struct fd_shred_replay_in_ctx {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -208,8 +206,7 @@ struct fd_replay_tile_ctx {
      owned by the epoch bank). */
 
   fd_voter_t *          epoch_voters; /* map chain of slot->voter */
-  ulong                 curr_slot_bhm_cnt;
-  //fd_bank_hash_cmp_t *  bank_hash_cmp;
+  fd_bank_hash_cmp_t *  bank_hash_cmp;
 
   /* Microblock (entry) batch buffer for replay. */
 
@@ -361,9 +358,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
-  //l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  // l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -1210,11 +1205,16 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
 
     fd_runtime_public_epoch_msg_t * epoch_msg = (fd_runtime_public_epoch_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
 
-    epoch_msg->features          = slot_ctx->epoch_ctx->features;
-    epoch_msg->total_epoch_stake = slot_ctx->epoch_ctx->total_epoch_stake;
-    epoch_msg->epoch_schedule    = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
-    epoch_msg->rent              = slot_ctx->epoch_ctx->epoch_bank.rent;
-    epoch_msg->slots_per_year    = slot_ctx->epoch_ctx->epoch_bank.slots_per_year;
+    epoch_msg->features            = slot_ctx->epoch_ctx->features;
+    epoch_msg->total_epoch_stake   = slot_ctx->epoch_ctx->total_epoch_stake;
+    epoch_msg->epoch_schedule      = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
+    epoch_msg->rent                = slot_ctx->epoch_ctx->epoch_bank.rent;
+    epoch_msg->slots_per_year      = slot_ctx->epoch_ctx->epoch_bank.slots_per_year;
+    epoch_msg->bank_hash_cmp_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp,
+                                                    fd_bank_hash_cmp_leave( ctx->bank_hash_cmp ) );
+    if( FD_UNLIKELY( !epoch_msg->bank_hash_cmp_gaddr ) ) {
+      FD_LOG_ERR(( "Failed to get gaddr for bank hash cmp" ));
+    }
 
     ulong   stakes_encode_sz  = fd_stakes_size( &slot_ctx->epoch_ctx->epoch_bank.stakes ) + 128UL;
     uchar * stakes_encode_mem = fd_spad_alloc( ctx->runtime_spad,
@@ -1291,9 +1291,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ctx->exec_ready[ i ] = 0;
   }
-
-  /* Reset the count of invalid bank hashes txns for a new slot. */
-  ctx->curr_slot_bhm_cnt = 0UL;
 
   long prepare_time_ns = -fd_log_wallclock();
 
@@ -2100,13 +2097,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_NOTICE(( "vote account: %s", FD_BASE58_ENC_32_ALLOCA( key.c ) ));
   fd_tower_print( ctx->tower, ctx->root );
 
-  /* FIXME: The stake-weighted bank hash compare is currently broken and
-     needs to be replaced. Currently we are using a very rudimentary
-     bank hash validation mechanism that just tracks the number of vote
-     transactions that fail as a result of mismatched bank hashes. */
-  // fd_bank_hash_cmp_t * bank_hash_cmp = ctx->epoch_ctx->bank_hash_cmp;
-  // bank_hash_cmp->total_stake         = ctx->epoch->total_stake;
-  // bank_hash_cmp->watermark           = snapshot_slot;
+  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->epoch_ctx->bank_hash_cmp;
+  bank_hash_cmp->total_stake         = ctx->epoch->total_stake;
+  bank_hash_cmp->watermark           = snapshot_slot;
 
 
 
@@ -2156,7 +2149,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->capture_ctx,
                            ctx->tpool,
                            ctx->runtime_spad );
-  //ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
+  ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
   init_after_snapshot( ctx );
 
@@ -2311,13 +2304,6 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         info.exec_res = info.txn_ctx->exec_err;
 
         if( info.txn_ctx->flags == FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
-          /* Record any invalid slot hash vote transactions */
-          if( FD_UNLIKELY( info.exec_res==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-                            info.txn_ctx->custom_err==FD_VOTE_ERR_SLOTS_HASH_MISMATCH &&
-                            !memcmp( &info.txn_ctx->instr_infos[ info.txn_ctx->instr_err_idx ].program_id_pubkey, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) ) {
-            FD_LOG_WARNING(( "Bank hash mismatch from vote program detected" ));
-            ctx->curr_slot_bhm_cnt++;
-          }
           fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
         }
 
@@ -2565,51 +2551,43 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Bank hash comparison, and halt if there's a mismatch after replay  */
     /**********************************************************************/
 
-    // fd_hash_t const * bank_hash = &child->slot_ctx->slot_bank.banks_hash;
-    // fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx->epoch_ctx->bank_hash_cmp;
-    // fd_bank_hash_cmp_lock( bank_hash_cmp );
-    // fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
+    fd_hash_t const * bank_hash = &child->slot_ctx->slot_bank.banks_hash;
+    fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx->epoch_ctx->bank_hash_cmp;
+    fd_bank_hash_cmp_lock( bank_hash_cmp );
+    fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
 
-    // /* Try to move the bank hash comparison watermark forward */
-    // for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
-    //   int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
-    //   switch ( rc ) {
-    //     case -1:
+    /* Try to move the bank hash comparison watermark forward */
+    for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
+      int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+      switch ( rc ) {
+        case -1:
 
-    //       /* Mismatch */
+          /* Mismatch */
 
-    //       funk_cancel( ctx, cmp_slot );
-    //       checkpt( ctx );
-    //       FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+          funk_cancel( ctx, cmp_slot );
+          checkpt( ctx );
+          FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
-    //       break;
+          break;
 
-    //     case 0:
+        case 0:
 
-    //       /* Not ready */
+          /* Not ready */
 
-    //       break;
+          break;
 
-    //     case 1:
+        case 1:
 
-    //       /* Match*/
+          /* Match*/
 
-    //       bank_hash_cmp->watermark = cmp_slot;
-    //       break;
+          bank_hash_cmp->watermark = cmp_slot;
+          break;
 
-    //     default:;
-    //   }
-    // }
-
-    // fd_bank_hash_cmp_unlock( bank_hash_cmp );
-
-    if( FD_UNLIKELY( ctx->curr_slot_bhm_cnt>=INVALID_BANK_HASH_TX_THRESHOLD ) ) {
-      checkpt( ctx );
-      FD_LOG_ERR(( "Too many invalid bank hash transactions. Halting." ));
+        default:;
+      }
     }
 
-    // fd_bank_hash_cmp_unlock( bank_hash_cmp );
-
+    fd_bank_hash_cmp_unlock( bank_hash_cmp );
     ctx->flags = EXEC_FLAG_READY_NEW;
   } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
 
@@ -2740,7 +2718,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  // void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -2783,7 +2760,10 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "runtime_pub" );
-  FD_TEST( replay_obj_id!=ULONG_MAX );
+  if( FD_UNLIKELY( replay_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "no runtime_public" ));
+  }
+
   ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
 
   if( ctx->runtime_public_wksp==NULL ) {
@@ -2791,7 +2771,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
-  FD_TEST( ctx->runtime_public!=NULL );
+  if( FD_UNLIKELY( !ctx->runtime_public ) ) {
+    FD_LOG_ERR(( "no runtime_public" ));
+  }
 
   /**********************************************************************/
   /* snapshot                                                           */
@@ -2950,7 +2932,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   uchar * acc_mgr_shmem = fd_spad_alloc( ctx->runtime_spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   ctx->acc_mgr       = fd_acc_mgr_new( acc_mgr_shmem, ctx->funk );
-  // ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_mem ) );
+
+  uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
+  ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
+
   ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {
