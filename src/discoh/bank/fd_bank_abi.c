@@ -7,6 +7,13 @@
 
 #define ABI_ALIGN( x ) __attribute__((packed)) __attribute__((aligned(x)))
 
+/* Lots of these types contain Rust structs with vectors in them.  The
+   capacity field of Rust Vec<> objects is declared with
+      type Cap = core::num::niche_types::UsizeNoHighBit;
+   The compiler takes advantage of this to use that high bit in
+   discriminating between members of Rust structs. */
+#define ABI_HIGH_BIT 9223372036854775808UL
+FD_STATIC_ASSERT( ABI_HIGH_BIT==0x8000000000000000UL, bank_abi_tag );
 
 typedef struct ABI_ALIGN(1UL) {
   uchar key[ 32UL ];
@@ -34,8 +41,11 @@ typedef struct ABI_ALIGN(8UL) {
   uchar program_id_index;
 } sanitized_txn_abi_compiled_instruction_t;
 
-FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_compiled_instruction_t) == 56UL, "messed up size" );
-FD_STATIC_ASSERT( alignof(sanitized_txn_abi_compiled_instruction_t) == 8UL, "messed up size" );
+FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_compiled_instruction_t) == 56UL, bank_abi );
+FD_STATIC_ASSERT( alignof(sanitized_txn_abi_compiled_instruction_t) == 8UL, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_compiled_instruction_t, accounts_cap)==0, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_compiled_instruction_t, data_cap)==24, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_compiled_instruction_t, program_id_index)==48, bank_abi );
 
 typedef struct ABI_ALIGN(1UL) {
   uchar num_required_signatures;
@@ -60,28 +70,35 @@ typedef struct ABI_ALIGN(8UL) {
   sanitized_txn_abi_message_header_t header;
 } sanitized_txn_abi_legacy_message0_t;
 
-FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_legacy_message0_t) == 88UL, "messed up size" );
-FD_STATIC_ASSERT( alignof(sanitized_txn_abi_legacy_message0_t) == 8UL, "messed up size" );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_legacy_message0_t, account_keys_cap)==0, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_legacy_message0_t, instructions_cap)==24, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_legacy_message0_t, recent_blockhash)==48, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_legacy_message0_t, header)==80, bank_abi );
+FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_legacy_message0_t) == 88UL, bank_abi );
+FD_STATIC_ASSERT( alignof(sanitized_txn_abi_legacy_message0_t) == 8UL, bank_abi );
 
 typedef struct ABI_ALIGN(8UL) {
   ulong   is_writable_account_cache_cap;
   uchar * is_writable_account_cache;
   ulong   is_writable_account_cache_cnt;
 
-  union __attribute__((__packed__)) __attribute__((aligned(8UL))) {
-    struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
-      ulong tag; /* Niche tag encoding.  Value 0 is borrowed, nonzero is owned. */
+  union ABI_ALIGN(8UL) {
+    ulong discr;
+
+    /* when discr==ABI_HIGH_BIT */
+    struct ABI_ALIGN(8UL) {
+      uchar _padding[8];
       sanitized_txn_abi_legacy_message0_t * borrowed;
     };
 
-    struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
-      sanitized_txn_abi_legacy_message0_t owned;
-    };
+    /* else */
+    sanitized_txn_abi_legacy_message0_t owned;
   } message;
 } sanitized_txn_abi_legacy_message1_t;
 
-FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_legacy_message1_t) == 112UL, "messed up size" );
-FD_STATIC_ASSERT( alignof(sanitized_txn_abi_legacy_message1_t) == 8UL, "messed up size" );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_legacy_message1_t, message)==24UL, bank_abi );
+FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_legacy_message1_t) == 112UL, bank_abi );
+FD_STATIC_ASSERT( alignof(sanitized_txn_abi_legacy_message1_t) == 8UL, bank_abi );
 
 typedef struct ABI_ALIGN(8UL) {
   ulong   writable_indexes_cap;
@@ -138,64 +155,147 @@ typedef struct ABI_ALIGN(8UL) {
   ulong   is_writable_account_cache_cnt;
 
   union __attribute__((__packed__)) __attribute__((aligned(8UL))) {
+    ulong discr;
+
+    /* when discr==ABI_HIGH_BIT */
     struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
-      ulong tag; /* Niche tag encoding.  Value 0 is borrowed, nonzero is owned. */
+      uchar _padding[8];
       sanitized_txn_abi_v0_message_t * borrowed;
     };
 
+    /* else */
     struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
       sanitized_txn_abi_v0_message_t owned;
     };
   } message;
 
   union __attribute__((__packed__)) __attribute__((aligned(8UL))) {
+    ulong discr;
+
+    /* when discr==ABI_HIGH_BIT */
     struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
-      ulong tag; /* Niche tag encoding.  Value 0 is borrowed, nonzero is owned. */
+      uchar _padding[8];
       sanitized_txn_abi_v0_loaded_addresses_t * borrowed;
     };
 
+    /* else */
     struct __attribute__((__packed__)) __attribute__((aligned(8UL))) {
       sanitized_txn_abi_v0_loaded_addresses_t owned;
     };
   } loaded_addresses;
 } sanitized_txn_abi_v0_loaded_msg_t;
 
-FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_v0_loaded_msg_t) == 184UL, "messed up size" );
-FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v0_loaded_msg_t) == 8UL, "messed up size" );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v0_loaded_msg_t, is_writable_account_cache_cap)==0, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v0_loaded_msg_t, message)==24, bank_abi );
+FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_v0_loaded_msg_t, loaded_addresses)==136, bank_abi );
+FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_v0_loaded_msg_t)==184UL, bank_abi );
+FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v0_loaded_msg_t)==8UL, bank_abi );
 
 typedef union ABI_ALIGN(8UL) {
+  ulong discr;
+
+  /* when discr==ABI_HIGH_BIT */
   struct ABI_ALIGN(8UL) {
-    ulong tag; /* Niche tag encoding.  Value 0 is legacy, nonzero is v0. */
+    uchar _padding[8];
     sanitized_txn_abi_legacy_message1_t legacy;
   };
 
-  sanitized_txn_abi_v0_loaded_msg_t v0; /* No tag. First field is always non-NULL, so rustc can disciminate from legacy. */
+  /* else */
+  /* No tag. Rust Vec's cap field (the first field in v0) is
+     core::num::niche_types::UsizeNoHighBit, so this is never ambiguous. */
+  sanitized_txn_abi_v0_loaded_msg_t v0;
 } sanitized_txn_abi_message_t;
 
-FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_message_t) == 184UL, "messed up size" );
-FD_STATIC_ASSERT( alignof(sanitized_txn_abi_message_t) == 8UL, "messed up size" );
+FD_STATIC_ASSERT( sizeof (sanitized_txn_abi_message_t) == 184UL, bank_abi );
+FD_STATIC_ASSERT( alignof(sanitized_txn_abi_message_t) == 8UL,   bank_abi );
 
-FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_message_t, v0) == 0UL, "messed up size" );
-FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_message_t, legacy) == 8UL, "messed up size" );
+
+typedef union {
+  ulong discr;
+  /* When discr==1 */
+  struct {
+    uchar _padding[8];
+    uchar _0;
+    ulong _1;
+  };
+  /* when discr==0 */
+  /* None */
+} option_u8_u64_t;
+FD_STATIC_ASSERT( sizeof (option_u8_u64_t)==24UL, bank_abi );
+FD_STATIC_ASSERT( alignof(option_u8_u64_t)==8UL,  bank_abi );
+
+
+typedef union {
+  uint discr;
+  /* When discr==1 */
+  struct {
+    uchar _padding[4];
+    uchar _0;
+    uint  _1;
+  };
+  /* when discr==0 */
+  /* None */
+} option_u8_u32_t;
+FD_STATIC_ASSERT( sizeof (option_u8_u32_t)==12UL, bank_abi );
+FD_STATIC_ASSERT( alignof(option_u8_u32_t)==4UL, bank_abi );
+
+
 
 struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
-  ulong                           signatures_cap;
-  sanitized_txn_abi_signature_t * signatures;
-  ulong                           signatures_cnt;
+  struct ABI_ALIGN(8UL) {
+    struct ABI_ALIGN(8UL) {
+      option_u8_u64_t requested_compute_unit_price;
+      option_u8_u32_t requested_compute_unit_limit;
+      option_u8_u32_t requested_heap_size;
+      option_u8_u32_t requested_loaded_accounts_data_size_limit;
 
-  sanitized_txn_abi_message_t message;
+      ushort num_non_compute_budget_instructions;
+      ushort num_non_migratable_builtin_instructions;
+      ushort num_non_builtin_instructions;
+      ushort migrating_builtin[3];
+    } compute_budget_instruction_details;
 
-  uchar message_hash[ 32 ];
-  uchar is_simple_vote_tx;
+    uchar _message_hash[ 32 ]; /* with the same value as message_hash */
+
+    struct ABI_ALIGN(8UL) {
+      ulong num_transaction_signatures;
+      ulong num_secp256k1_instruction_signatures;
+      ulong num_ed25519_instruction_signatures;
+      ulong num_secp256r1_instruction_signatures;
+    }; /* TransactionSignatureDetails */
+
+    uchar is_simple_vote_transaction; /* same as is_simple_vote_tx */
+  }; /* parts of the TransactionMeta */
+
+  struct ABI_ALIGN(8UL) {
+    ulong                           signatures_cap;
+    sanitized_txn_abi_signature_t * signatures;
+    ulong                           signatures_cnt;
+
+    sanitized_txn_abi_message_t message;
+
+    uchar message_hash[ 32 ];
+    uchar is_simple_vote_tx;
+  }; /* parts of the SanitizedTransaction */
 };
 
-FD_STATIC_ASSERT( sizeof(struct fd_bank_abi_txn_private) == 248UL, "messed up size" );
-FD_STATIC_ASSERT( alignof(struct fd_bank_abi_txn_private) == 8UL, "messed up size" );
+FD_STATIC_ASSERT( sizeof (struct fd_bank_abi_txn_private)==392UL, bank_abi );
+FD_STATIC_ASSERT( alignof(struct fd_bank_abi_txn_private)==8UL,   bank_abi );
 
-FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, signatures) == 8UL, "messed up size" );
-FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, message) == 24UL, "messed up size" );
-FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, message_hash) == 208UL, "messed up size" );
-FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, is_simple_vote_tx) == 240UL, "messed up size" );
+FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, signatures_cap )==144UL, bank_abi );
+
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_compute_unit_price)==0, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_compute_unit_limit)==24, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_heap_size)==36, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.requested_loaded_accounts_data_size_limit)==48, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_compute_budget_instructions)==60, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_migratable_builtin_instructions)==62, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_builtin_instructions)==64, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.migrating_builtin)==66, bank_abi );
+
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, message)          -offsetof(struct fd_bank_abi_txn_private, signatures_cap)==24, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, message_hash)     -offsetof(struct fd_bank_abi_txn_private, signatures_cap)==208, bank_abi );
+FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, is_simple_vote_tx)-offsetof(struct fd_bank_abi_txn_private, signatures_cap)==240, bank_abi );
 
 static int
 is_key_called_as_program( fd_txn_t const * txn,
@@ -302,6 +402,38 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
   return FD_BANK_ABI_TXN_INIT_SUCCESS;
 }
 
+#define MAP_PERFECT_NAME      precompile_table
+#define MAP_PERFECT_LG_TBL_SZ 2
+#define MAP_PERFECT_T         fd_acct_addr_t
+#define MAP_PERFECT_KEY       b
+#define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
+#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
+#define MAP_PERFECT_COMPLEX_KEY 1
+#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
+
+#define PERFECT_HASH( u ) (((2U*(u))>>30)&0x3U)
+
+#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
+                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
+                                          PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
+#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
+
+#define MAP_PERFECT_0  ( KECCAK_SECP_PROG_ID ),
+#define MAP_PERFECT_1  ( ED25519_SV_PROG_ID  ),
+#define MAP_PERFECT_2  ( SECP256R1_PROG_ID   ),
+
+#include "../../util/tmpl/fd_map_perfect.c"
+
+/* Redefine it so we can use it below */
+#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
+                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
+                                          PERFECT_HASH( ((uint)a08 | ((uint)a09<<8) | ((uint)a10<<16) | ((uint)a11<<24)) )
+#define HASH( x ) MAP_PERFECT_HASH_PP( x )
+
+FD_STATIC_ASSERT( HASH( KECCAK_SECP_PROG_ID )<3, precompile_table );
+FD_STATIC_ASSERT( HASH( ED25519_SV_PROG_ID  )<3, precompile_table );
+FD_STATIC_ASSERT( HASH( SECP256R1_PROG_ID   )<3, precompile_table );
+
 int
 fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
                       uchar *             out_sidecar,
@@ -320,14 +452,40 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   fd_blake3_append( blake3, "solana-tx-message-v1", 20UL );
   fd_blake3_append( blake3, payload + txn->message_off, payload_sz - txn->message_off );
   fd_blake3_fini( blake3, out_txn->message_hash );
+  memcpy( out_txn->_message_hash, out_txn->message_hash, 32UL );
 
-  out_txn->is_simple_vote_tx = !!is_simple_vote;
+  out_txn->is_simple_vote_tx          = !!is_simple_vote;
+  out_txn->is_simple_vote_transaction = !!is_simple_vote;
+
+  /* ComputeBudgetInstructionDetails is only used in the method
+     sanitize_and_convert_to_compute_budget_limits which never gets
+     called from the code paths we invoke. */
+  memset( &out_txn->compute_budget_instruction_details, '\0', sizeof(out_txn->compute_budget_instruction_details) );
+
+
+  ulong sig_counters[4] = { 0UL };
+  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
+  for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
+    ulong prog_id_idx = (ulong)txn->instr[i].program_id;
+    fd_acct_addr_t const * prog_id = addr_base + prog_id_idx;
+
+    /* Lookup prog_id in hash table.  If it's a miss, it'll return
+       UINT_MAX which gets clamped to 3.  Otherwise, it'll be 0, 1, or
+       2. */
+    sig_counters[ fd_uint_min( 3UL, precompile_table_hash_or_default( prog_id ) ) ] +=
+      (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+  }
+  out_txn->num_transaction_signatures = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER );
+  out_txn->num_secp256k1_instruction_signatures = sig_counters[ HASH( KECCAK_SECP_PROG_ID ) ];
+  out_txn->num_ed25519_instruction_signatures = sig_counters  [ HASH( ED25519_SV_PROG_ID  ) ];
+  out_txn->num_secp256r1_instruction_signatures = sig_counters[ HASH( SECP256R1_PROG_ID   ) ];
+
 
   if( FD_LIKELY( txn->transaction_version==FD_TXN_VLEGACY ) ) {
     sanitized_txn_abi_legacy_message1_t * legacy = &out_txn->message.legacy;
     sanitized_txn_abi_legacy_message0_t * message = &legacy->message.owned;
 
-    out_txn->message.tag = 9223372036854775808UL;
+    out_txn->message.discr = ABI_HIGH_BIT;
 
     legacy->is_writable_account_cache_cnt = txn->acct_addr_cnt;
     legacy->is_writable_account_cache_cap = txn->acct_addr_cnt;
@@ -482,6 +640,6 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
 
 fd_acct_addr_t const *
 fd_bank_abi_get_lookup_addresses( fd_bank_abi_txn_t const * txn ) {
-  return txn->message.tag==9223372036854775808UL ? NULL :
+  return txn->message.discr==ABI_HIGH_BIT ? NULL :
     (fd_acct_addr_t const *) txn->message.v0.loaded_addresses.owned.writable;
 }
