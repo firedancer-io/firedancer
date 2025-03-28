@@ -1,9 +1,4 @@
-#include "../fd_util.h"
-#if FD_HAS_HOSTED
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
+#include "../fd_util_test.h"
 
 #define CIDX_T uchar
 #define VAL_T  schar
@@ -575,42 +570,25 @@ main( int     argc,
 
   FD_TEST( !treap_verify( treap, pool ) );
 
-     /* test handholding */
-   #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
-   #define FD_EXPECT_LOG_CRIT( CALL ) do {                            \
-       FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
-       pid_t pid = fork();                                            \
-       FD_TEST( pid >= 0 );                                           \
-       if( pid == 0 ) {                                               \
-         fd_log_level_logfile_set( 6 );                               \
-         __typeof__(CALL) res = (CALL);                               \
-         __asm__("" : "+r"(res));                                     \
-         _exit( 0 );                                                  \
-       }                                                              \
-       int status = 0;                                                \
-       wait( &status );                                               \
-                                                                      \
-       FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
-     } while( 0 )
-
-     FD_EXPECT_LOG_CRIT( treap_idx_remove( treap, 64, pool ) );
-     FD_EXPECT_LOG_CRIT( treap_idx_insert( treap, 64, pool ) );
-
-     treap_delete( treap_leave( treap ) );
-     treap = treap_join( treap_new( _treap, 64UL ) );
-     FD_LOG_NOTICE(( "verify: %d", treap_verify( treap, pool ) ));
-     pool_delete( pool_leave( pool ) );
-     pool = pool_join( pool_new( scratch, 64UL ) );
-     for( ulong i=0UL; i<64UL; i++ ) {
-       ulong idx = pool_idx_acquire( pool );
-       pool[ idx ].val       = (schar)i;
-       pool[ idx ].prio_cidx = (uchar)(i^36UL);
-       treap_idx_insert( treap, idx, pool );
-     }
-     FD_EXPECT_LOG_CRIT( treap_idx_insert( treap, 2, pool ) );
-   #else
-     FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
-   #endif
+  /* test handholding */
+  #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+    FD_EXPECT_LOG_CRIT( treap_idx_remove( treap, 64, pool ) );
+    FD_EXPECT_LOG_CRIT( treap_idx_insert( treap, 64, pool ) );
+    treap_delete( treap_leave( treap ) );
+    treap = treap_join( treap_new( _treap, 64UL ) );
+    FD_LOG_NOTICE(( "verify: %d", treap_verify( treap, pool ) ));
+    pool_delete( pool_leave( pool ) );
+    pool = pool_join( pool_new( scratch, 64UL ) );
+    for( ulong i=0UL; i<64UL; i++ ) {
+      ulong idx = pool_idx_acquire( pool );
+      pool[ idx ].val       = (schar)i;
+      pool[ idx ].prio_cidx = (uchar)(i^36UL);
+      treap_idx_insert( treap, idx, pool );
+    }
+    FD_EXPECT_LOG_CRIT( treap_idx_insert( treap, 2, pool ) );
+  #else
+    FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+  #endif
 
   /* Test leave */
 
