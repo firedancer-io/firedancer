@@ -112,7 +112,7 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache );
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
-                         fd_funk_txn_t *     funk_txn,
+                         fd_funkier_txn_t *  funk_txn,
                          fd_spad_t *         runtime_spad,
                          fd_wksp_t *         wksp );
 
@@ -122,7 +122,7 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
 void                                                                   \
 fd_sysvar_cache_restore_##name( fd_sysvar_cache_t * cache,             \
                                 fd_acc_mgr_t *      acc_mgr,           \
-                                fd_funk_txn_t *     funk_txn,          \
+                                fd_funkier_txn_t *  funk_txn,          \
                                 fd_spad_t *         runtime_spad,      \
                                 fd_wksp_t *         wksp );
   FD_SYSVAR_CACHE_ITER(X)

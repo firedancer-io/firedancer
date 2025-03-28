@@ -444,11 +444,11 @@ main( void ) {
 //   /**********************************************************************/
 
 //   fd_wksp_tag_query_info_t funk_info;
-//   fd_funk_t *              funk     = NULL;
+//   fd_funkier_t *              funk     = NULL;
 //   ulong                    funk_tag = FD_FUNK_MAGIC;
 //   if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
 //     void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
-//     funk         = fd_funk_join( shmem );
+//     funk         = fd_funkier_join( shmem );
 //   }
 //   if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
 
@@ -570,9 +570,9 @@ main( void ) {
 //   fd_runtime_update_leaders( snapshot_slot_ctx, snapshot_slot_ctx->slot_bank.slot );
 //   fd_calculate_epoch_accounts_hash_values( snapshot_slot_ctx );
 
-//   fd_funk_start_write( funk );
+//   fd_funkier_start_write( funk );
 //   fd_bpf_scan_and_create_bpf_program_cache_entry( snapshot_slot_ctx, snapshot_slot_ctx->funk_txn );
-//   fd_funk_end_write( funk );
+//   fd_funkier_end_write( funk );
 //   snapshot_slot_ctx->leader =
 //       fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( epoch_ctx ), snapshot_slot );
 

@@ -131,9 +131,9 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
 }
 
 fd_slot_history_t *
-fd_sysvar_slot_history_read( fd_acc_mgr_t *  acc_mgr,
-                             fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad ) {
+fd_sysvar_slot_history_read( fd_acc_mgr_t *     acc_mgr,
+                             fd_funkier_txn_t * funk_txn,
+                             fd_spad_t *        spad ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;

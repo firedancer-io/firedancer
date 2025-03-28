@@ -1,11 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 
-#include "../../fd_flamenco_base.h"
-#include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../../funk/fd_funk_txn.h"
-#include "../../types/fd_types.h"
-#include "../../features/fd_features.h"
+#include "../fd_acc_mgr.h"
+#include "../context/fd_exec_slot_ctx.h"
+#include "../../vm/syscall/fd_vm_syscall.h"
 
 struct fd_sbpf_validated_program {
   ulong magic;
@@ -53,24 +51,24 @@ fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const *     prog,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn,
+                                                fd_funkier_txn_t *      funk_txn,
                                                 fd_spad_t *          runtime_spad );
 
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_funk_txn_t *      funk_txn,
+                                                 fd_funkier_txn_t *      funk_txn,
                                                  fd_pubkey_t const *  pubkey,
                                                  fd_spad_t *          runtime_spad );
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                                      fd_funk_txn_t *      funk_txn,
+                                                      fd_funkier_txn_t *      funk_txn,
                                                       fd_tpool_t *         tpool,
                                                       fd_spad_t *          runtime_spad );
 
 int
-fd_bpf_load_cache_entry( fd_funk_t *                    funk,
-                         fd_funk_txn_t *                funk_txn,
+fd_bpf_load_cache_entry( fd_funkier_t *                 funk,
+                         fd_funkier_txn_t *             funk_txn,
                          fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog );
 
