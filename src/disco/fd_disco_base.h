@@ -143,18 +143,19 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    completes (1) | slot (32) | fec_set_idx (15) | is_code (1) | shred_idx or data_cnt (15)
    [63]          | [31, 62]  | [16, 30]         | [15]        | [0, 14]
 
-   TODO: Fix explanation
+   There are two types of messages on the shred_repair link.  The first
+   type is a generic shred message. The second is a FEC set completion
+   message. Since we have run out of bits, the reciever must look at the
+   sz of the dcache entry to determine which type of message it is.
 
-   The first bit of the sig indicates whether it is ok to skip the frag.
-   This is the case when the frag is a shred header and the necessary
-   information for the link is fully encoded in the remaining bits of
-   the sig.  If skip is 0, readers must ignore the rest of the sig and
-   process the frag.
+   For the first message type:
 
-   If skip = 1, the next 32 bits [31, 62] describe the slot number. Note
-   if the slot number saturates 32 bits (ie. slot >= UINT_MAX) then skip
-   would be 0 in the sig, so the slot number is only encoded in 32 bits
-   within the sig when it is correct to do so.
+   The first bit [63] describes whether this shred contains either a
+   batch complete or data complete flag.
+
+   The next 32 bits [31, 62] describe the slot number. Note if the slot
+   number saturates 32 bits (ie. slot >= UINT_MAX) then the reciever is
+   responsible for reading the slot number from the dcache entry.
 
    The following 15 bits [16, 30] describe the fec_set_idx.  This is a
    15-bit value because shreds are bounded to 2^15 per slot, so in the
@@ -166,14 +167,15 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    [0, 14] encode the shred_idx.  If is_code = 1, the sig describes a
    coding shred, and the last 15 bits encode the data_cnt.
 
-   When type is 1, the sig describes a completed FEC set.  In this case,
-   the second bit describes whether the FEC set completes the entry
-   batch, which will be true if the last data shred in the FEC set is
-   marked with a DATA_COMPLETES flag (FIXME this is not invariant in the
-   protocol yet).  As with coding frags, the last 15 bits describe the
-   data_cnt.  The frag will contain the full shred header of the last
-   data shred in the FEC set, as well the merkle root and chained merkle
-   root of the FEC set. */
+   The frag will contain the full shred header of the last data shred in
+   the FEC set.
+
+   For the second message type:
+
+   Only the slot and fec_set_idx bits are populated. The data in the
+   frag is the full shred header of the last data shred in the FEC set,
+   the merkle root of the FEC set, and the chained merkle root of the
+   FEC. */
 
 /* TODO this shred_repair_sig can be greatly simplified when FEC sets
    are uniformly coding shreds and fixed size. */
@@ -186,12 +188,21 @@ fd_disco_shred_repair_sig( int completes, ulong slot, uint fec_set_idx, int is_c
 /* fd_disco_shred_repair_sig_{...} are accessors for the fields encoded
    in the sig described above. */
 
-FD_FN_CONST static inline int    fd_disco_shred_repair_sig_completes     ( ulong sig ) { return fd_ulong_extract_bit( sig, 63     );           }
+FD_FN_CONST static inline int    fd_disco_shred_repair_sig_completes     ( ulong sig ) { return         fd_ulong_extract_bit( sig, 63     ); }
 FD_FN_CONST static inline ulong  fd_disco_shred_repair_sig_slot          ( ulong sig ) { return         fd_ulong_extract    ( sig, 31, 62 ); }
 FD_FN_CONST static inline uint   fd_disco_shred_repair_sig_fec_set_idx   ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 16, 30 ); }
 FD_FN_CONST static inline int    fd_disco_shred_repair_sig_is_code       ( ulong sig ) { return         fd_ulong_extract_bit( sig, 15     ); }
 FD_FN_CONST static inline uint   fd_disco_shred_repair_sig_shred_idx     ( ulong sig ) { return (uint)  fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 0 */
 FD_FN_CONST static inline uint   fd_disco_shred_repair_sig_data_cnt      ( ulong sig ) { return (uint)  fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 1 */
+
+/* Exclusively used for force completion messages */
+
+FD_FN_CONST static inline ulong
+fd_disco_repair_shred_sig( uint last_shred_idx ){
+   return (ulong) last_shred_idx;
+}
+
+FD_FN_CONST static inline uint fd_disco_repair_shred_sig_last_shred_idx( ulong sig ) { return (uint) sig; }
 
 
 FD_FN_CONST static inline ulong
