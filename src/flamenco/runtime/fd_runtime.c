@@ -1545,11 +1545,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[0] );
 
     if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
-      if( FD_LIKELY( txn_ctx->nonce_account_advanced ) ) {
-        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[ txn_ctx->nonce_account_idx_in_txn ] );
-      } else {
-        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ] );
-      }
+      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ] );
     }
   } else {
 

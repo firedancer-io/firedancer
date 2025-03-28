@@ -241,10 +241,6 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
       if( FD_UNLIKELY( err ) ) return err;
     } while(0);
 
-    /* So we don't re-do nonce advancement when we commit the transaction.
-     */
-    ctx->txn_ctx->nonce_account_advanced = 1U;
-
     break;
   }
 
