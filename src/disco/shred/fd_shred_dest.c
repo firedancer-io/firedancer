@@ -286,8 +286,8 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] );
     /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
-    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (ushort)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
-    else                                     out[i] = (ushort)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
+    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
+    else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
   }
   fd_wsample_restore_all( sdest->staked );
 

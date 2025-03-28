@@ -26,6 +26,20 @@
 typedef void (fd_shredder_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
 
 
+#define FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT      (4UL)
+#define FD_SHRED_FEATURES_ACTIVATION_SLOT_SZ       (8UL)
+#define FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED (ULONG_MAX)
+#define FD_SHRED_FEATURES_ACTIVATION_IDX_DISABLE_TURBINE_FANOUT_EXPERIMENTS           (0UL)
+#define FD_SHRED_FEATURES_ACTIVATION_IDX_ENABLE_TURBINE_EXTENDED_FANOUT_EXPERIMENTS   (1UL)
+#define FD_SHRED_FEATURES_ACTIVATION_IDX_ENABLE_CHAINED_MERKLE_SHREDS                 (2UL)
+#define FD_SHRED_FEATURES_ACTIVATION_IDX_DROP_UNCHAINED_MERKLE_SHREDS                 (3UL)
+
+struct fd_shred_features_activation_private {
+   /* slots for features of interest - update cnt as needed in the future. */
+   ulong slots[ FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT ];
+};
+typedef struct fd_shred_features_activation_private fd_shred_features_activation_t;
+
 
 static ulong const fd_shredder_data_to_parity_cnt[ 33UL ] = {
    0UL, 17UL, 18UL, 19UL, 19UL, 20UL, 21UL, 21UL,
