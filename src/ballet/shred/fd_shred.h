@@ -136,6 +136,8 @@
 /* A merkle inclusion proof node. */
 typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 
+FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD_SHRED_MERKLE_ROOT_SZ );
+
 /* Constants relating to the data shred "flags" field. */
 
 /* Mask of the "reference tick"    field in shred.data.flags */

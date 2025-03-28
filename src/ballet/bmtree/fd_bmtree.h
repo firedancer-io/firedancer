@@ -151,8 +151,6 @@ struct __attribute__((packed)) fd_bmtree_node {
 };
 typedef struct fd_bmtree_node fd_bmtree_node_t;
 
-FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == 32, update FD_SHRED_MERKLE_ROOT_SZ );
-
 /* bmtree_hash_leaf computes `SHA-256(prefix|data), where prefix is the
    first prefix_sz bytes of fd_bmtree_leaf_prefix.  prefix_sz is
    typically FD_BMTREE_LONG_PREFIX_SZ or FD_BMTREE_SHORT_PREFIX_SZ.
