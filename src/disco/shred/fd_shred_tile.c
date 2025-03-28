@@ -93,6 +93,7 @@
 #define STORE_OUT_IDX   0
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
+#define REPAIR_OUT_IDX  3
 
 #define MAX_SLOTS_PER_EPOCH 432000UL
 
@@ -329,6 +330,15 @@ during_frag( fd_shred_ctx_t * ctx,
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_memcpy( ctx->shred_buffer, dcache_entry, sz );
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
@@ -577,6 +587,55 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
+    FD_MCNT_INC( SHRED, FORCE_COMPLETE_REQUEST, 1UL );
+    fd_ed25519_sig_t const * shred_sig = (fd_ed25519_sig_t const *)fd_type_pun( ctx->shred_buffer );
+    if( FD_UNLIKELY( fd_fec_resolver_done_contains( ctx->resolver, shred_sig ) ) ) {
+      /* This is a FEC completion message from the repair tile.  We need
+         to make sure that we don't force complete something that's just
+         been completed. */
+      FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
+      return;
+    }
+
+    uint last_idx = fd_disco_repair_shred_sig_last_shred_idx( sig );
+    uchar buf_last_shred[FD_SHRED_MIN_SZ];
+    int rv = fd_fec_resolver_shred_query( ctx->resolver, shred_sig, last_idx, buf_last_shred );
+    if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_OKAY ) ) {
+
+      /* We will hit this case if FEC is no longer in curr_map, or if
+         the shred signature is invalid, which is okay.
+
+         There's something of a race condition here.  It's possible (but
+         very unlikely) that between when the repair tile observed the
+         FEC set needed to be force completed and now, the FEC set was
+         completed, and then so many additional FEC sets were completed
+         that it fell off the end of the done list.  In that case
+         fd_fec_resolver_done_contains would have returned false, but
+         fd_fec_resolver_shred_query will not return OKAY, which means
+         we'll end up in this block of code.  If the FEC set was
+         completed, then there's nothing we need to do.  If it was
+         spilled, then we'll need to re-repair all the shreds in the FEC
+         set, but it's not fatal. */
+
+      FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
+      return;
+    }
+    fd_shred_t * out_last_shred = (fd_shred_t *)fd_type_pun( buf_last_shred );
+
+    fd_fec_set_t const * out_fec_set[1];
+    rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
+    if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) ){
+      FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx ));
+      FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
+      return;
+    }
+    FD_MCNT_INC( SHRED, FORCE_COMPLETE_SUCCESS, 1UL );
+    FD_TEST( ctx->fec_sets <= *out_fec_set );
+    ctx->send_fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets);
+    ctx->shredded_txn_cnt = 0UL;
+  }
+
   ulong fanout = 200UL; /* Default Agave's DATA_PLANE_FANOUT = 200UL */
 
   fd_bmtree_node_t out_merkle_root;
@@ -585,6 +644,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
     fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz );
+
     if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
 
     fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
@@ -652,13 +712,13 @@ after_frag( fd_shred_ctx_t *    ctx,
         for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ]), ctx->tsorig );
       } while( 0 );
 
-      if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer topo compiler hint */
+      if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* Optimize for full firedancer. The branch predictor will learn quickly if this is frankendancer instead */
 
         /* Construct the sig from the shred. */
 
         int  is_code               = fd_shred_is_code( fd_shred_type( shred->variant ) );
         uint shred_idx_or_data_cnt = shred->idx;
-        int  completes = 0;
+        int  completes             = 0;
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
         else  completes = shred->data.flags & ( FD_SHRED_DATA_FLAG_SLOT_COMPLETE | FD_SHRED_DATA_FLAG_DATA_COMPLETE );
         ulong sig = fd_disco_shred_repair_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
@@ -716,7 +776,6 @@ after_frag( fd_shred_ctx_t *    ctx,
        though there is a separate link that directly connects pack and
        replay when we are leader, we still need the shreds in the
        blockstore to, for example, serve repair requests. */
-
     for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
       fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ i ] );
       fd_blockstore_shred_insert( ctx->blockstore, data_shred );
@@ -736,9 +795,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ set->data_shred_cnt - 1 ] );
 
-    /* Copy the last shred and merkle root of the FEC set into the frag. */
-
-    ulong   sig   = 0UL; /* don't skip */
+    /* Copy the last data shred's header and merkle root of the FEC set into the frag. */
+    ulong   sig   =  fd_disco_shred_repair_sig( 0, last->slot, last->fec_set_idx, 0, 0 );
     uchar * chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
     memcpy( chunk, last, FD_SHRED_CODE_HEADER_SZ );
     memcpy( chunk, out_merkle_root.hash, FD_SHRED_MERKLE_ROOT_SZ );
@@ -754,7 +812,8 @@ after_frag( fd_shred_ctx_t *    ctx,
   fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
     fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, ctx->tsorig, tspub );
-  fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
+  if( FD_UNLIKELY( s34[ 2 ].shred_cnt ) )
+    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
     fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
 
@@ -842,6 +901,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->batch_cnt       = 0UL;
   ctx->slot            = ULONG_MAX;
 
+  /* If the default partial_depth is ever changed, correspondingly
+     change the size of the fd_fec_intra_pool in fd_fec_repair. */
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, shred_store_mcache_depth,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt            = shred_store_mcache_depth + tile->shred.fec_resolver_depth + 4UL;
@@ -980,7 +1041,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store_out_wmark  = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
   ctx->store_out_chunk  = ctx->store_out_chunk0;
 
-  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", 0 /* one repair tile so always kind_id 0 */ );
+  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", ctx->round_robin_id );
   if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer topo compiler hint */
     fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
     ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;

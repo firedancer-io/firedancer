@@ -469,6 +469,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       for( uint idx = 0; idx <= buffered_idx; idx++ ) {
         if( FD_UNLIKELY( fd_block_set_test( data_complete_idxs, idx ) ) ) {
           uint data_cnt = consumed_idx != UINT_MAX ? idx - consumed_idx : idx + 1;
+
           replay_sig = fd_disco_repair_replay_sig( slot, data_cnt, (ushort)( slot - parent_slot ), complete_idx == idx );
           fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, 0, 0UL, tsorig, tspub );
           ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, 0, ctx->replay_out_chunk0, ctx->replay_out_wmark );
