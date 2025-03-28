@@ -250,7 +250,8 @@ fd_acc_mgr_save( fd_acc_mgr_t *     acc_mgr,
 int
 fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
                            fd_funk_txn_t *    txn,
-                           fd_txn_account_t * account );
+                           fd_txn_account_t * account,
+                           fd_wksp_t *        wksp );
 
 int
 fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *      acc_mgr,

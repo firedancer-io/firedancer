@@ -1270,12 +1270,11 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int
-fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t            * slot_ctx,
-                                         fd_capture_ctx_t              * capture_ctx,
-                                         fd_runtime_block_info_t const * block_info,
-                                         fd_tpool_t                    * tpool,
-                                         fd_spad_t                     * runtime_spad ) {
+void
+fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
+                                         fd_spad_t *                      runtime_spad,
+                                         fd_accounts_hash_task_data_t * * task_data,
+                                         ulong                            lt_hash_cnt ) {
 
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
 
@@ -1284,34 +1283,57 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t            * slot_ct
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( slot_ctx, slot_ctx->funk_txn, tpool, runtime_spad );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
     FD_LOG_WARNING(( "update bpf program cache failed" ));
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
-    return result;
   }
 
-  result = fd_update_hash_bank_tpool( slot_ctx,
-                                      capture_ctx,
-                                      &slot_ctx->slot_bank.banks_hash,
-                                      block_info->signature_cnt,
-                                      tpool,
-                                      runtime_spad );
+  /* Collect list of changed accounts to be added to bank hash */
+  *task_data = fd_spad_alloc( runtime_spad,
+                              alignof(fd_accounts_hash_task_data_t),
+                              sizeof(fd_accounts_hash_task_data_t) );
+  (*task_data)->lthash_values = fd_spad_alloc( runtime_spad,
+                                               alignof(fd_lthash_value_t),
+                                               lt_hash_cnt * sizeof(fd_lthash_value_t) );
 
-  if( FD_UNLIKELY( result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "hashing bank failed" ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
-    return result;
+  for( ulong i=0UL; i<lt_hash_cnt; i++ ) {
+    fd_lthash_zero( &((*task_data)->lthash_values)[i] );
+  }
+
+  fd_collect_modified_accounts( slot_ctx, *task_data, runtime_spad );
+}
+
+int
+fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
+                                          fd_capture_ctx_t *               capture_ctx,
+                                          fd_runtime_block_info_t const *  block_info,
+                                          fd_spad_t *                      runtime_spad,
+                                          fd_accounts_hash_task_data_t *   task_data,
+                                          ulong                            lt_hash_cnt ) {
+
+  int err = fd_update_hash_bank_exec_hash( slot_ctx,
+                                           &slot_ctx->slot_bank.banks_hash,
+                                           capture_ctx,
+                                           task_data,
+                                           1UL,
+                                           task_data->lthash_values,
+                                           lt_hash_cnt,
+                                           block_info->signature_cnt,
+                                           runtime_spad );
+
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "Unable to hash at end of slot" ));
   }
 
   /* We don't want to save the epoch bank at the end of every slot because it
      should only be changing at the epoch boundary. */
 
-  result = fd_runtime_save_slot_bank( slot_ctx );
-  if( FD_UNLIKELY( result!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+  err = fd_runtime_save_slot_bank( slot_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to save slot bank" ));
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
-    return result;
+    return err;
   }
 
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -1319,6 +1341,67 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t            * slot_ct
   slot_ctx->total_compute_units_requested = 0UL;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
+
+}
+
+static void
+fd_account_hash_task( void * tpool,
+                      ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                      void *args FD_PARAM_UNUSED,
+                      void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                      ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
+                      ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
+                      ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
+
+  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)tpool;
+  ulong                          start_idx  = t0;
+  ulong                          stop_idx   = t1;
+
+  fd_lthash_value_t * lthash = (fd_lthash_value_t*)args;
+
+  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)reduce;
+  for( ulong i=start_idx; i<=stop_idx; i++ ) {
+    fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
+    fd_account_hash( slot_ctx->acc_mgr,
+                     slot_ctx->funk_txn,
+                     task_info,
+                     lthash,
+                     slot_ctx->slot_bank.slot,
+                     &slot_ctx->epoch_ctx->features );
+  }
+}
+
+int
+fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *            slot_ctx,
+                                         fd_capture_ctx_t *              capture_ctx,
+                                         fd_runtime_block_info_t const * block_info,
+                                         fd_tpool_t *                    tpool,
+                                         fd_spad_t *                     runtime_spad ) {
+
+  fd_accounts_hash_task_data_t * task_data = NULL;
+
+  ulong wcnt = fd_tpool_worker_cnt( tpool );
+
+  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, wcnt );
+
+  ulong cnt_per_worker = task_data->info_sz / (wcnt-1UL);
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                             fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
+                   task_data, start_idx, end_idx,
+                   &task_data->lthash_values[worker_idx], slot_ctx, 0UL,
+                   0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
+  }
+
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    fd_tpool_wait( tpool, worker_idx );
+  }
+
+  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, wcnt );
+
+  return 0;
 }
 
 /******************************************************************************/
@@ -1348,11 +1431,13 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
+
+    task_info[txn_idx].txn_ctx->spad      = runtime_spad;
+    task_info[txn_idx].txn_ctx->spad_wksp = fd_wksp_containing( runtime_spad );
     int err = fd_execute_txn_prepare_start( slot_ctx,
                                             txn_ctx,
                                             txn_descriptor,
-                                            &raw_txn,
-                                            runtime_spad );
+                                            &raw_txn );
     if( FD_UNLIKELY( err ) ) {
       task_info[txn_idx].exec_res = err;
       txn->flags                  = 0U;
@@ -1431,7 +1516,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
   err = fd_executor_check_transactions( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
-    task_info->exec_res = err;
+    task_info->exec_res   = err;
     return;
   }
 
@@ -1440,7 +1525,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
   err = fd_executor_validate_transaction_fee_payer( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
-    task_info->exec_res = err;
+    task_info->exec_res   = err;
     return;
   }
 
@@ -1478,17 +1563,14 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
    executor to finalize borrowed account changes back into funk. It also
    handles txncache insertion and updates to the vote/stake cache. */
 
-static int
+int
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info ) {
+
   /* TODO: Allocations should probably not be made out of the exec_spad in this
      function. If they are, the size of the data needs to be accounted for in
      the calculation of the bound of the spad as defined in fd_runtime.h. */
-
-  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
-    return -1;
-  }
 
   /* Store transaction info including logs */
   fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
@@ -1539,16 +1621,16 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
 
     void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-    fd_txn_account_make_mutable( acct, acct_data );
+    fd_txn_account_make_mutable( acct, acct_data, txn_ctx->spad_wksp );
     acct->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
-    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[0] );
+    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[0], txn_ctx->spad_wksp );
 
     if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
       if( FD_LIKELY( txn_ctx->nonce_account_advanced ) ) {
-        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[ txn_ctx->nonce_account_idx_in_txn ] );
+        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[ txn_ctx->nonce_account_idx_in_txn ], txn_ctx->spad_wksp );
       } else {
-        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ] );
+        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ], txn_ctx->spad_wksp );
       }
     }
   } else {
@@ -1620,7 +1702,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
-      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i] );
+      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i], txn_ctx->spad_wksp );
       int fresh_account = acc_rec->meta &&
          acc_rec->meta->info.lamports && acc_rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH;
       if( FD_UNLIKELY( fresh_account ) ) {
@@ -1665,10 +1747,11 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
   task_info->txn                  = txn;
   fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
   task_info->txn_ctx->spad        = exec_spad;
+  task_info->txn_ctx->spad_wksp   = fd_wksp_containing( exec_spad );
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-  res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn, exec_spad );
+  res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
   if( FD_UNLIKELY( res ) ) {
     txn->flags = 0U;
     return -1;
@@ -1725,6 +1808,10 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
                                       task_info,
                                       exec_spad,
                                       capture_ctx );
+
+  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
+    return;
+  }
 
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 }
@@ -3962,31 +4049,4 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
     }
   }
 
-}
-
-// TODO: add tracking account_state hashes so that we can verify our
-// banks hash... this has interesting threading implications since we
-// could execute the cryptography in another thread for tracking this
-// but we don't actually have anything to compare it to until we hit
-// another snapshot...  Probably we should just store the results into
-// the slot_ctx state (a slot/hash map)?
-//
-// What slots exactly do cache'd account_updates go into?  how are
-// they hashed (which slot?)?
-
-ulong
-fd_runtime_public_footprint ( void ) {
-  return sizeof(fd_runtime_public_t);
-}
-
-fd_runtime_public_t *
-fd_runtime_public_join ( void * ptr )
-{
-  return (fd_runtime_public_t *) ptr;
-}
-
-void *
-fd_runtime_public_new ( void * ptr )  {
-  fd_memset(ptr, 0, sizeof(fd_runtime_public_t));
-  return ptr;
 }

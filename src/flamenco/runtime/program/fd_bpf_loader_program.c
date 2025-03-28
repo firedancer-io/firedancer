@@ -2021,7 +2021,7 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
                                      ulong                elf_sz,
                                      fd_spad_t *          runtime_spad ) {
   /* Set up a dummy instr and txn context */
-  fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ) );
+  fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
   fd_funk_t *         funk               = slot_ctx->acc_mgr->funk;
   fd_wksp_t *         funk_wksp          = fd_funk_wksp( funk );
   fd_wksp_t *         runtime_wksp       = fd_wksp_containing( slot_ctx );

@@ -218,9 +218,9 @@ check_rent_transition( fd_txn_account_t * account, fd_rent_t const * rent, ulong
 /* https://github.com/anza-xyz/agave/blob/v2.0.2/svm/src/account_loader.rs#L103 */
 static int
 fd_validate_fee_payer( fd_txn_account_t * account,
-                       fd_rent_t const *       rent,
-                       ulong                   fee,
-                       fd_spad_t *             exec_spad ) {
+                       fd_rent_t const *  rent,
+                       ulong              fee,
+                       fd_spad_t *        exec_spad ) {
   if( FD_UNLIKELY( account->const_meta->info.lamports==0UL ) ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
@@ -228,7 +228,7 @@ fd_validate_fee_payer( fd_txn_account_t * account,
   ulong min_balance = 0UL;
 
   int is_nonce = fd_executor_is_system_nonce_account( account, exec_spad );
-  if ( FD_UNLIKELY( is_nonce<0 ) ) {
+  if( FD_UNLIKELY( is_nonce<0 ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
   }
 
@@ -815,16 +815,17 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-static int
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
-                                             fd_spad_t *         spad ) {
+int
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
-  FD_SPAD_FRAME_BEGIN( spad ) {
+  FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
+
+  txn_ctx->accounts_cnt = 0UL;
 
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
   // Set up accounts in the transaction body and perform checks
-  for( ulong i = 0; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
+  for( ulong i = 0UL; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
     txn_ctx->account_keys[i] = tx_accs[i];
   }
 
@@ -882,7 +883,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
         return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
       }
 
-      uchar * mem = fd_spad_alloc( spad, fd_address_lookup_table_state_align(), total_sz );
+      uchar * mem = fd_spad_alloc( txn_ctx->spad, fd_address_lookup_table_state_align(), total_sz );
       if( FD_UNLIKELY( !mem ) ) {
         FD_LOG_ERR(( "Unable to allocate memory for address lookup table state" ));
       }
@@ -1178,20 +1179,20 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+  for( ulong i = 0UL; i < txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
-    /* An account writable iff it is writable AND it is not being demoted.
-        If this criteria is not met, the account should not be marked as touched
-        via updating its most recent slot. */
+    /* An account writable iff it is writable AND it is not being
+       demoted. If this criteria is not met, the account should not be
+       marked as touched via updating its most recent slot. */
     if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
       continue;
     }
 
     acc_rec->meta->slot = txn_ctx->slot;
 
-    if( acc_rec->meta->info.lamports == 0 ) {
-      acc_rec->meta->dlen = 0;
+    if( !acc_rec->meta->info.lamports ) {
+      acc_rec->meta->dlen = 0UL;
       memset( acc_rec->meta->info.owner, 0, sizeof(fd_pubkey_t) );
     }
   }
@@ -1223,6 +1224,7 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong j = 0UL;
+  fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
   for( ulong i = 0UL; i < txn_ctx->accounts_cnt; i++ ) {
 
     fd_pubkey_t * acc = &txn_ctx->account_keys[i];
@@ -1230,8 +1232,16 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     txn_ctx->nonce_account_idx_in_txn = ULONG_MAX;
     txn_ctx->nonce_account_advanced   = 0U;
 
-    int                err         = fd_txn_account_create_from_funk( &txn_ctx->accounts[i], acc, txn_ctx->acc_mgr, txn_ctx->funk_txn );
     fd_txn_account_t * txn_account = &txn_ctx->accounts[i];
+    txn_account->const_data = NULL;
+    txn_account->const_meta = NULL;
+    txn_account->meta       = NULL;
+    txn_account->data       = NULL;
+    txn_account->meta_gaddr = 0UL;
+    txn_account->data_gaddr = 0UL;
+
+    int err = fd_txn_account_create_from_funk( &txn_ctx->accounts[i], acc, txn_ctx->acc_mgr, txn_ctx->funk_txn );
+
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
       FD_LOG_ERR(( "fd_acc_mgr_view err=%d", err ));
     }
@@ -1244,8 +1254,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
        TODO: The txn account semantics should better match Agave's. */
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
       void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-      fd_txn_account_make_mutable( txn_account, txn_account_data );
-
+      fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
       /* All new accounts should have their rent epoch set to ULONG_MAX.
          https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L485-L497 */
       if( is_unknown_account ||
@@ -1256,10 +1265,16 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     fd_account_meta_t const * meta = txn_account->const_meta ? txn_account->const_meta : txn_account->meta;
     if( meta==NULL ) {
-      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC, .info = { .rent_epoch = ULONG_MAX } };
-      txn_account->const_meta        = &sentinel;
+      /* TODO: Do we ever need this code? */
+      fd_account_meta_t * sentinel = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) );
+      fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
+      sentinel->magic                = FD_ACCOUNT_META_MAGIC;
+      sentinel->info.rent_epoch      = ULONG_MAX;
+      txn_account->const_meta        = sentinel;
       txn_account->starting_lamports = 0UL;
       txn_account->starting_dlen     = 0UL;
+      txn_account->meta_gaddr        = fd_wksp_gaddr( txn_ctx->spad_wksp, sentinel );
+
       continue;
     }
 
@@ -1296,12 +1311,11 @@ int
 fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_exec_txn_ctx_t *        txn_ctx,
                               fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw,
-                              fd_spad_t *                spad ) {
+                              fd_rawtxn_b_t const *      txn_raw ) {
 
   fd_funk_t * funk               = slot_ctx->acc_mgr->funk;
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
+  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx->acc_mgr );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
   ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->acc_mgr );
   ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->acc_mgr->funk );
@@ -1320,7 +1334,7 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   /* Unroll accounts from aluts and place into correct spots */
-  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx, spad );
+  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
 
   return res;
 }
@@ -1377,7 +1391,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
   /* Initialize log collection */
   fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->enable_exec_recording );
 
-  for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
+  for( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
 #ifdef VLOG
     FD_LOG_WARNING(( "Start of transaction for %d for %s", i, FD_BASE58_ENC_64_ALLOCA( sig ) ));
 #endif
@@ -1392,7 +1406,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
     if( dump_insn ) {
       // Capture the input and convert it into a Protobuf message
-      fd_dump_instr_to_protobuf(txn_ctx, &txn_ctx->instr_infos[i], i);
+      fd_dump_instr_to_protobuf( txn_ctx, &txn_ctx->instr_infos[i], i );
     }
 
     txn_ctx->current_instr_idx = i;
@@ -1434,10 +1448,9 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
       into the replay tile once it is implemented. */
   int err = fd_executor_txn_check( txn_ctx );
   if( err != FD_EXECUTOR_INSTR_SUCCESS ) {
-    FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_executor_txn_check failed (%d)", err ));
     return err;
   }
-
   return 0;
 }
 

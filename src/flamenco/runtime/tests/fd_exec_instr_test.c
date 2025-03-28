@@ -382,7 +382,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
   fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, runner->spad ) );
-  fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
+  fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
 
   assert( epoch_ctx );
   assert( slot_ctx  );
@@ -985,7 +985,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL, runner->spad );
 
   /* Setup the spad for account allocation */
-  task_info->txn_ctx->spad = runner->spad;
+  task_info->txn_ctx->spad      = runner->spad;
+  task_info->txn_ctx->spad_wksp = fd_wksp_containing( runner->spad );
 
   fd_runtime_pre_execute_check( task_info, 0 );
 

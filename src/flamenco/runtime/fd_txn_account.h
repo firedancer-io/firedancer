@@ -22,6 +22,9 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   uchar                     * data;
   fd_funk_rec_t             * rec;
 
+  ulong                       meta_gaddr;
+  ulong                       data_gaddr;
+
   /* consider making this a struct or removing entirely if not needed */
   ulong                       starting_dlen;
   ulong                       starting_lamports;
@@ -79,11 +82,13 @@ fd_txn_account_resize( fd_txn_account_t * acct,
 
 /* Operators */
 
-/* buf is a handle to the account shared data.
-   Sets the account shared data as mutable. */
+/* buf is a handle to the account shared data. Sets the account shared
+   data as mutable. Also, gaddr aware pointers for account metadata and
+   data are stored in the txn account. */
 fd_txn_account_t *
 fd_txn_account_make_mutable( fd_txn_account_t * acct,
-                          void *          buf );
+                             void *             buf,
+                             fd_wksp_t *        wksp );
 
 /* In Agave, dummy accounts are sometimes created that contain metadata
    that differs from what's in the accounts DB.  For example, see
@@ -93,11 +98,11 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
    borrowed accounts without those modification writing through to
    funk. */
 
-/* buf is a handle to the account shared data.
-   Sets the account shared data as read only. */
+/* buf is a handle to the account shared data. Sets the account shared
+   data as read only. */
 fd_txn_account_t *
 fd_txn_account_make_readonly( fd_txn_account_t * acct,
-                            void *          buf );
+                              void *             buf );
 
 static inline int
 fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports ) {

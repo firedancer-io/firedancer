@@ -17,6 +17,7 @@
 #include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_borrowed_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../flamenco/runtime/fd_txncache.h"
@@ -131,7 +132,7 @@ typedef struct fd_ledger_args fd_ledger_args_t;
 /* Allocations ****************************************************************/
 
 static void
-init_spads( fd_ledger_args_t * args, int has_tpool ) {
+init_exec_spads( fd_ledger_args_t * args, int has_tpool ) {
 
   FD_LOG_NOTICE(( "setting up exec_spads" ));
 
@@ -153,22 +154,6 @@ init_spads( fd_ledger_args_t * args, int has_tpool ) {
       args->exec_spads[ i ] = spad;
     }
   }
-
-  /* Similiarly, we need an allocator that is scoped to the runtime and not
-     transaction execution. This is responsible for managing the memory at the
-     epoch boundary and at the start/end of a slot's execution. */
-
-  /* FIXME: This bound should be calculated based on various data structures
-     that exist at the slot_ctx/epoch_ctx. It should encapsulate all allocations
-     that happen outside of transaction execution. */
-
-  uchar *     mem  = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( args->runtime_mem_bound ), 999UL );
-  fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, args->runtime_mem_bound ) );
-  if( FD_UNLIKELY( !spad ) ) {
-    FD_LOG_ERR(( "Failed to allocate runtime spad" ));
-  }
-  args->runtime_spad = spad;
-
 }
 
 /* Snapshot *******************************************************************/
@@ -1025,7 +1010,7 @@ minify( fd_ledger_args_t * args ) {
   }
 
   args->valloc = allocator_setup( args->wksp );
-  init_spads( args, 0 );
+  init_exec_spads( args, 0 );
 
   fd_rocksdb_t big_rocksdb;
   char * err = fd_rocksdb_init( &big_rocksdb, args->rocksdb_list[ 0UL ] );
@@ -1096,7 +1081,7 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   init_tpool( args );
-  init_spads( args, 1 );
+  init_exec_spads( args, 1 );
 
   fd_spad_t * spad = args->runtime_spad;
 
@@ -1252,7 +1237,21 @@ replay( fd_ledger_args_t * args ) {
   init_blockstore( args ); /* Does the same for the blockstore */
 
   init_tpool( args ); /* Sets up tpool */
-  init_spads( args, 1 ); /* Sets up spad */
+  init_exec_spads( args, 1 ); /* Sets up spad */
+
+  void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp,
+    fd_runtime_public_align(),
+    fd_runtime_public_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
+  if( FD_UNLIKELY( !runtime_public_mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate runtime_public mem" ));
+  }
+  fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint() );
+
+  fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_runtime_public_new( runtime_public_mem ) );
+  args->runtime_spad = fd_spad_join( fd_wksp_laddr( args->wksp, runtime_public->runtime_spad_gaddr ) );
+  if( FD_UNLIKELY( !args->runtime_spad ) ) {
+    FD_LOG_ERR(( "Unable to join runtime spad" ));
+  }
 
   fd_spad_t * spad = args->runtime_spad;
 
@@ -1272,16 +1271,13 @@ replay( fd_ledger_args_t * args ) {
   args->epoch_ctx->epoch_bank.cluster_version[1] = args->cluster_version[1];
   args->epoch_ctx->epoch_bank.cluster_version[2] = args->cluster_version[2];
 
-  void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp, fd_runtime_public_align(), fd_runtime_public_footprint( ), FD_EXEC_EPOCH_CTX_MAGIC );
-  fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint( ) );
-
-  args->epoch_ctx->replay_public = fd_runtime_public_join( runtime_public_mem );
+  args->epoch_ctx->runtime_public = runtime_public;
 
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
   // activate them
-  fd_memcpy( &args->epoch_ctx->replay_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
+  fd_memcpy( &args->epoch_ctx->runtime_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
   void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );

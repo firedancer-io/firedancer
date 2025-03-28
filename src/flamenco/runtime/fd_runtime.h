@@ -253,17 +253,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 FD_STATIC_ASSERT( FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT <= FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT, merkle verify footprint exceeds txn execution footprint );
 
-/* definition of the public/readable workspace */
-struct fd_runtime_public {
-  // FIXME:  This is a non-fork-aware copy of the currently active
-  // features.  Once the epoch_ctx and the slot_ctx get moved into
-  // this workspace AND we make the epoch_ctx properly fork aware at
-  // the epoch boundary, we can remove this copy of the features map
-  // and just use the epoch_ctx (or slot_ctx) copy directly.
-  fd_features_t features;
-};
-typedef struct fd_runtime_public fd_runtime_public_t;
-
 /* Helpers for runtime public frame management. */
 
 /* Helpers for runtime spad frame management. */
@@ -458,13 +447,10 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_spad_t *          runtime_spad,
                                               fd_cost_tracker_t *  cost_tracker_opt );
 
-/* fd_runtime_process_txns and fd_runtime_execute_txns_in_waves_tpool are
-   both entrypoints for executing transactions. Currently, the former is used
-   in the leader pipeline as conflict-free microblocks are streamed in from the
-   pack tile. The latter is used for replaying non-leader blocks. Currently the
-   entire block must be received to start replaying. This allows us to scheedule
-   out all of the transactions. Eventually, transactions will be executed in
-   a streamed fashion.*/
+int
+fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
+                         fd_capture_ctx_t *           capture_ctx,
+                         fd_execute_txn_task_info_t * task_info );
 
 /* Epoch Boundary *************************************************************/
 
@@ -544,20 +530,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_tpool_t *         tpool,
                          fd_spad_t *          spad );
-
-ulong
-fd_runtime_public_footprint ( void );
-
-fd_runtime_public_t *
-fd_runtime_public_join ( void * ptr ) ;
-
-void *
-fd_runtime_public_new ( void * ptr ) ;
-
-FD_FN_CONST static inline ulong
-fd_runtime_public_align( void ) {
-  return alignof(fd_runtime_public_t);
-}
 
 FD_PROTOTYPES_END
 

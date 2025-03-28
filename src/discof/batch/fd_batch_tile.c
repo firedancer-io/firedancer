@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_runtime_public.h"
 
 #include "generated/fd_batch_tile_seccomp.h"
 
@@ -51,8 +52,8 @@ struct fd_snapshot_tile_ctx {
   fd_wksp_t *     replay_out_mem;
   ulong           replay_out_chunk;
 
-  fd_wksp_t  *    replay_public_wksp;
-  fd_runtime_public_t * replay_public;
+  fd_wksp_t  *    runtime_public_wksp;
+  fd_runtime_public_t * runtime_public;
 
   /* Bump allocator */
   fd_spad_t *     spad;
@@ -283,16 +284,16 @@ unprivileged_init( fd_topo_t      * topo,
   ctx->replay_out_chunk       = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );;
 
   /* replay public setup */
-  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "replay_pub" );
+  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "runtime_pub" );
   FD_TEST( replay_obj_id!=ULONG_MAX );
-  ctx->replay_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
+  ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
 
-  if( ctx->replay_public_wksp==NULL ) {
-    FD_LOG_ERR(( "no replay_public workspace" ));
+  if( ctx->runtime_public_wksp==NULL ) {
+    FD_LOG_ERR(( "no runtime_public workspace" ));
   }
 
-  ctx->replay_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
-  FD_TEST( ctx->replay_public!=NULL );
+  ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
+  FD_TEST( ctx->runtime_public!=NULL );
 }
 
 static void
@@ -308,7 +309,7 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
   FD_LOG_WARNING(( "Creating snapshot incremental=%lu slot=%lu", is_incremental, snapshot_slot ));
 
   fd_snapshot_ctx_t snapshot_ctx = {
-    .features                 = &ctx->replay_public->features,
+    .features                 = &ctx->runtime_public->features,
     .slot                     = snapshot_slot,
     .out_dir                  = ctx->out_dir,
     .is_incremental           = (uchar)is_incremental,
@@ -405,7 +406,7 @@ static void
 produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch_fseq ) {
   ulong eah_slot = fd_batch_fseq_get_slot( batch_fseq );
 
-  if( FD_FEATURE_ACTIVE_( eah_slot, ctx->replay_public->features, accounts_lt_hash ) )
+  if( FD_FEATURE_ACTIVE_( eah_slot, ctx->runtime_public->features, accounts_lt_hash ) )
     return;
 
   ulong tsorig = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
@@ -459,7 +460,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
 
     fd_hash_t epoch_account_hash = {0};
 
-    fd_accounts_hash( funk, slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad, 0, &ctx->replay_public->features );
+    fd_accounts_hash( funk, slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad, 0, &ctx->runtime_public->features );
 
     FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 
