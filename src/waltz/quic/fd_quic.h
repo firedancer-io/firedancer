@@ -179,6 +179,10 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   ulong retry_ttl;
 # define FD_QUIC_DEFAULT_RETRY_TTL (ulong)(1e9) /* 1s */
 
+  /* hs_ttl: time-to-live for tls_hs */
+  ulong tls_hs_ttl;
+# define FD_QUIC_DEFAULT_TLS_HS_TTL (ulong)(3e9) /* 3s */
+
   /* TLS config ********************************************/
 
   /* identity_key: Ed25519 public key of node identity */
@@ -321,6 +325,7 @@ union fd_quic_metrics {
     /* Handshake metrics */
     ulong hs_created_cnt;          /* number of handshake flows created */
     ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
+    ulong hs_evicted_cnt;          /* number of handshakes evicted */
 
     /* Stream metrics */
     ulong stream_opened_cnt;        /* number of streams opened */
