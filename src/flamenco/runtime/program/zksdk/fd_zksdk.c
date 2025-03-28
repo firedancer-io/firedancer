@@ -160,8 +160,8 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L42 */
-  uint accessed_accounts = 0U;
-  uchar const * context = NULL;
+  ushort        accessed_accounts = 0U;
+  uchar const * context           = NULL;
   /* Note: instr_id is guaranteed to be valid, to access values in the arrays. */
   ulong context_sz = fd_zksdk_context_sz[instr_id];
   ulong proof_data_sz = context_sz + fd_zksdk_proof_sz[instr_id];
