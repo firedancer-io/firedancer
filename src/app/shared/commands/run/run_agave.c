@@ -122,6 +122,7 @@ agave_boot( config_t const * config ) {
     for( ulong i=0UL; i<config->ledger.account_index_include_keys_cnt; i++ )
       ADD( "--account-index-include-key", config->ledger.account_index_include_keys[ i ] );
   }
+  if( config->ledger.disable_accounts_disk_index ) ADD1( "--disable-accounts-disk-index" );
 
   /* gossip */
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
