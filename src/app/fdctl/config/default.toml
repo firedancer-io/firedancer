@@ -258,6 +258,13 @@ dynamic_port_range = "8900-9000"
     # passed to the Agave client with the `--require-tower`
     # argument.
     require_tower = false
+    
+    # If disable account disk index is true, index will be store in ram.
+    # Lower disk I/O but slightly longer initial catchup,
+    # and mainnet account index will take additional ~70gb ram
+    # This option is passed to the Agave client with the
+    # `--disable-accounts-disk-index` argument.
+    disable_accounts_disk_index = false
 
 [gossip]
     # Routable DNS name or IP address and port number to use to

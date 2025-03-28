@@ -123,6 +123,7 @@ agave_boot( config_t const * config ) {
     for( ulong i=0UL; i<config->frankendancer.ledger.account_index_include_keys_cnt; i++ )
       ADD( "--account-index-include-key", config->frankendancer.ledger.account_index_include_keys[ i ] );
   }
+  if( config->frankendancer.ledger.disable_accounts_disk_index ) ADD1( "--disable-accounts-disk-index" );
 
   /* gossip */
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
