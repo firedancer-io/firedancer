@@ -3155,7 +3155,7 @@ write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * sta
   fd_account_meta_t *     acc_meta = NULL;
   uchar *                 acc_data = NULL;
   FD_TXN_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, acc_key, 1, data_sz, rec );
+  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->funk, slot_ctx->funk_txn, 1, data_sz );
   FD_TEST( !err );
 
   acc_meta                  = rec->meta;

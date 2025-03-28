@@ -17,7 +17,7 @@ fd_sysvar_fees_init( fd_exec_slot_ctx_t * slot_ctx );
 fd_sysvar_fees_t *
 fd_sysvar_fees_read( fd_sysvar_fees_t *        result,
                      fd_sysvar_cache_t const * sysvar_cache,
-                     fd_acc_mgr_t *            acc_mgr,
+                     fd_funk_t *               funk,
                      fd_funk_txn_t *           funk_txn );
 
 void

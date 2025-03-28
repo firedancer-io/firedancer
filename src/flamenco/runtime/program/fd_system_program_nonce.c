@@ -992,8 +992,11 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   FD_TXN_ACCOUNT_DECL( durable_nonce_rec );
-  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[ instr_accts[0] ], durable_nonce_rec );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
+                                                    &txn_ctx->account_keys[ instr_accts[0] ],
+                                                    txn_ctx->funk,
+                                                    txn_ctx->funk_txn );
+  if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
@@ -1055,8 +1058,11 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
            advance to.
          */
         fd_txn_account_t * rollback_nonce_rec = fd_txn_account_init( &txn_ctx->rollback_nonce_account[ 0 ] );
-        int                err                = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[ instr_accts[ 0 ] ], rollback_nonce_rec );
-        if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        int                err                = fd_txn_account_init_from_funk_readonly( rollback_nonce_rec,
+                                                                                        &txn_ctx->account_keys[ instr_accts[ 0 ] ],
+                                                                                        txn_ctx->funk,
+                                                                                        txn_ctx->funk_txn );
+        if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
         fd_nonce_state_versions_t new_state = {

@@ -304,7 +304,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     }
 
     /* `fd_vm_prepare_instruction()` will always set up a valid index for `index_in_caller`, so we can access the borrowed account directly.
-       A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_borrowed_accounts_for_txn()`
+       A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_accounts_for_txn()`
        will set its meta up) */
     fd_txn_account_t const *  acc_rec     = vm->instr_ctx->instr->accounts[instruction_accounts[i].index_in_caller];
     fd_pubkey_t const *       account_key = acc_rec->pubkey;
@@ -556,7 +556,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
     fd_guarded_borrowed_account_t borrowed_callee_acc;
     err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
-    if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
+    if( FD_UNLIKELY( err && ( err != FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
 
@@ -612,7 +612,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
        https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
     fd_guarded_borrowed_account_t borrowed_callee_acc;
     err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
-    if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
+    if( FD_UNLIKELY( err && ( err != FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
 

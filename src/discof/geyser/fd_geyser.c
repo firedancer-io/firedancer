@@ -228,7 +228,7 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
         FD_SCRATCH_SCOPE_BEGIN {
           fd_pubkey_t addr;
           fd_memcpy(&addr, msg->accts.accts[i].id, 32U );
-          fd_funk_rec_key_t key = fd_acc_funk_key( &addr );
+          fd_funk_rec_key_t key = fd_funk_acc_key( &addr );
           ulong datalen;
           void * data = fd_funk_rec_query_xid_safe( ctx->funk, &key, &msg->accts.funk_xid, fd_scratch_virtual(), &datalen );
           if( data ) {

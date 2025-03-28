@@ -472,11 +472,9 @@ after_credit( fd_restart_tile_ctx_t * ctx,
     /* Decode the slot history sysvar, referencing fd_sysvar_slot_history_read in fd_sysvar_slot_history.c */
     fd_slot_history_t * slot_history;
     {
-      void * acc_mgr_mem          = fd_valloc_malloc( fd_spad_virtual( ctx->runtime_spad ), FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
-      fd_acc_mgr_t * acc_mgr      = fd_acc_mgr_new( acc_mgr_mem, ctx->funk );
       fd_pubkey_t const * program = &fd_sysvar_slot_history_id;
       FD_TXN_ACCOUNT_DECL( rec );
-      int err = fd_acc_mgr_view( acc_mgr, NULL, program, rec );
+      int err = fd_txn_account_init_from_funk_readonly( rec, program, ctx->funk, NULL );
       if (err)
         FD_LOG_ERR(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
 

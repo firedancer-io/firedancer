@@ -12,14 +12,14 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
                ulong                sz,
                ulong                slot ) {
 
-  fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
+  fd_funk_t *     funk     = slot_ctx->funk;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
 
   FD_TXN_ACCOUNT_DECL( rec );
 
-  int err = fd_acc_mgr_modify( acc_mgr, funk_txn, pubkey, 1, sz, rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
-    return FD_ACC_MGR_ERR_READ_FAILED;
+  int err = fd_txn_account_init_from_funk_mutable( rec, pubkey, funk, funk_txn, 1, sz );
+  if( FD_UNLIKELY( err != FD_FUNK_ACC_MGR_SUCCESS ) )
+    return FD_FUNK_ACC_MGR_ERR_READ_FAILED;
 
   fd_memcpy(rec->data, data, sz);
 

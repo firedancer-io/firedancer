@@ -24,7 +24,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
 
 /* fd_sysvar_slot_hashes_read reads the slot hashes sysvar from the
    accounts manager.  On success, returns 0 and writes deserialized
-   value into *result.  On failure, returns the bincode/acc_mgr error
+   value into *result.  On failure, returns the bincode/funk_acc_mgr error
    code. */
 fd_slot_hashes_t *
 fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t * slot_ctx,

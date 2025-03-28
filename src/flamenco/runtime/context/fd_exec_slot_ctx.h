@@ -20,7 +20,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   /* External joins, pointers to be set by caller */
 
-  fd_acc_mgr_t *              acc_mgr;
+  fd_funk_t *                 funk;
   fd_blockstore_t *           blockstore;
   fd_block_rewards_t          block_rewards;
   ulong                       txns_meta_gaddr;
@@ -30,6 +30,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_slot_bank_t              slot_bank;
 
   ulong                       total_compute_units_requested;
+  ulong                       slots_per_epoch;
+  ulong                       part_width;
 
   /* TODO figure out what to do with this */
   fd_epoch_reward_status_t    epoch_reward_status;

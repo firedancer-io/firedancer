@@ -269,7 +269,7 @@ status_check_tower( ulong slot, void * _ctx ) {
     return 1;
   }
 
-  fd_slot_history_t * slot_history = fd_sysvar_slot_history_read( ctx->acc_mgr,
+  fd_slot_history_t * slot_history = fd_sysvar_slot_history_read( ctx->funk,
                                                                   ctx->funk_txn,
                                                                   ctx->spad );
 
@@ -414,7 +414,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
   }
 
   /* The rest of this function is a no-op for us since we already set up the transaction accounts
-     for unknown accounts within `fd_executor_setup_borrowed_accounts_for_txn()`.
+     for unknown accounts within `fd_executor_setup_accounts_for_txn()`.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L566-L577 */
 }
 
@@ -498,7 +498,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
                                                     instr->program_id,
                                                     &program_account,
                                                     fd_txn_account_check_exists );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || program_account->const_meta->info.lamports==0UL ) ) {
+    if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS || program_account->const_meta->info.lamports==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
 
@@ -528,11 +528,11 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
        should be avoided.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
     FD_TXN_ACCOUNT_DECL( owner_account );
-    err = fd_acc_mgr_view( txn_ctx->acc_mgr,
-                           txn_ctx->funk_txn,
-                           (fd_pubkey_t *)program_account->const_meta->info.owner,
-                           owner_account );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    err = fd_txn_account_init_from_funk_readonly( owner_account,
+                                                  (fd_pubkey_t *)program_account->const_meta->info.owner,
+                                                  txn_ctx->funk,
+                                                  txn_ctx->funk_txn );
+    if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -795,7 +795,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
                                               FD_FEE_PAYER_TXN_IDX,
                                               &fee_payer_rec,
                                               fd_txn_account_check_fee_payer_writable );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
@@ -852,7 +852,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
                                                          txn_ctx->_txn_raw->raw,
-                                                         txn_ctx->acc_mgr,
+                                                         txn_ctx->funk,
                                                          txn_ctx->funk_txn,
                                                          txn_ctx->slot,
                                                          slot_hashes->hashes,
@@ -1025,7 +1025,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
       .txn_ctx   = txn_ctx,
-      .acc_mgr   = txn_ctx->acc_mgr,
+      .funk      = txn_ctx->funk,
       .funk_txn  = txn_ctx->funk_txn,
       .parent    = parent,
       .index     = parent ? (parent->child_cnt++) : 0,
@@ -1141,89 +1141,77 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash
   return ( age<=max_age );
 }
 
-void
-fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
-  ulong j = 0UL;
-  fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
-  for( ulong i = 0UL; i < txn_ctx->accounts_cnt; i++ ) {
+fd_txn_account_t *
+fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
+                               ushort              idx ) {
+  fd_pubkey_t *      acc         = &txn_ctx->account_keys[ idx ];
+  int                err         = fd_txn_account_init_from_funk_readonly( &txn_ctx->accounts[ idx ],
+                                                                           acc,
+                                                                           txn_ctx->funk,
+                                                                           txn_ctx->funk_txn );
+  fd_txn_account_t * txn_account = &txn_ctx->accounts[ idx ];
 
-    fd_pubkey_t * acc = &txn_ctx->account_keys[i];
+  if( FD_UNLIKELY( err!=FD_FUNK_ACC_MGR_SUCCESS && err!=FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+    FD_LOG_ERR(( "fd_acc_mgr_view err=%d", err ));
+  }
 
-    txn_ctx->nonce_account_idx_in_txn = ULONG_MAX;
-    txn_ctx->nonce_account_advanced   = 0U;
+  uchar is_unknown_account = err==FD_FUNK_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
 
-    fd_txn_account_t * txn_account = &txn_ctx->accounts[i];
-    txn_account->const_data = NULL;
-    txn_account->const_meta = NULL;
-    txn_account->meta       = NULL;
-    txn_account->data       = NULL;
-    txn_account->meta_gaddr = 0UL;
-    txn_account->data_gaddr = 0UL;
+  if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)idx ) || idx==FD_FEE_PAYER_TXN_IDX ) {
+    void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
 
-    int err = fd_txn_account_create_from_funk( &txn_ctx->accounts[i], acc, txn_ctx->acc_mgr, txn_ctx->funk_txn );
+    /* promote the account to mutable, which requires a memcpy*/
+    fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
 
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-      FD_LOG_ERR(( "fd_acc_mgr_view err=%d", err ));
-    }
-    uchar is_unknown_account = err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-    memcpy( txn_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
-
-    /* Create a txn account for all writable accounts and the fee payer
-       account which is almost always writable, but doesn't have to be.
-
-       TODO: The txn account semantics should better match Agave's. */
-    if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
-      void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-      fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
-      /* All new accounts should have their rent epoch set to ULONG_MAX.
+    /* All new accounts should have their rent epoch set to ULONG_MAX.
          https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L485-L497 */
-      if( is_unknown_account ||
-          (i>0UL && fd_should_set_exempt_rent_epoch_max( txn_ctx, txn_account )) ) {
-        txn_account->meta->info.rent_epoch = ULONG_MAX;
-      }
+    if( is_unknown_account ||
+        (idx>0UL && fd_should_set_exempt_rent_epoch_max( txn_ctx, txn_account )) ) {
+      txn_account->meta->info.rent_epoch = ULONG_MAX;
     }
+  }
 
-    fd_account_meta_t const * meta = txn_account->const_meta ? txn_account->const_meta : txn_account->meta;
-    if( meta==NULL ) {
-      /* TODO: Do we ever need this code? */
-      fd_account_meta_t * sentinel = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) );
-      fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
-      sentinel->magic                = FD_ACCOUNT_META_MAGIC;
-      sentinel->info.rent_epoch      = ULONG_MAX;
-      txn_account->const_meta        = sentinel;
-      txn_account->starting_lamports = 0UL;
-      txn_account->starting_dlen     = 0UL;
-      txn_account->meta_gaddr        = fd_wksp_gaddr( txn_ctx->spad_wksp, sentinel );
+  fd_txn_account_setup_sentinel_meta( txn_account, txn_ctx->spad, txn_ctx->spad_wksp );
 
-      continue;
-    }
+  return txn_account;
+}
 
-    if( FD_UNLIKELY( memcmp( meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      int err = 0;
-      fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar)i, &err );
-      if( FD_UNLIKELY( !program_loader_state ) ) {
-        continue;
-      }
+void
+fd_executor_setup_executable_account( fd_exec_txn_ctx_t * txn_ctx, ushort acc_idx, ushort executable_idx ) {
+  int err = 0;
+  fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar)acc_idx, &err );
+  if( FD_UNLIKELY( !program_loader_state ) ) {
+    return;
+  }
 
-      if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
-        continue;
-      }
+  if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
+    return;
+  }
 
-      /* Attempt to load the program data account from funk. This prevents any unknown program
-         data accounts from getting loaded into the executable accounts list. If such a program is
-         invoked, the call will fail at the instruction execution level since the programdata
-         account will not exist within the executable accounts list. */
-      fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
-      if( FD_UNLIKELY( fd_txn_account_create_from_funk( &txn_ctx->executable_accounts[j],
-                                                        programdata_acc,
-                                                        txn_ctx->acc_mgr,
-                                                        txn_ctx->funk_txn ) ) ) {
-        continue;
-      }
+  /* Attempt to load the program data account from funk. This prevents any unknown program
+      data accounts from getting loaded into the executable accounts list. If such a program is
+      invoked, the call will fail at the instruction execution level since the programdata
+      account will not exist within the executable accounts list. */
+  fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
+  fd_txn_account_init_from_funk_readonly( &txn_ctx->executable_accounts[ executable_idx ],
+                                          programdata_acc,
+                                          txn_ctx->funk,
+                                          txn_ctx->funk_txn );
+}
+
+void
+fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+  ushort j = 0UL;
+  fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
+  for( ushort i = 0UL; i < txn_ctx->accounts_cnt; i++ ) {
+
+    fd_txn_account_t * txn_account = fd_executor_setup_txn_account( txn_ctx, i );
+
+    if( FD_UNLIKELY( memcmp( txn_account->meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
+      fd_executor_setup_executable_account( txn_ctx, i, j );
       j++;
     }
   }
-  txn_ctx->executable_cnt = j;
 }
 
 /* Stuff to be done before multithreading can begin */
@@ -1233,12 +1221,11 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_txn_t const *           txn_descriptor,
                               fd_rawtxn_b_t const *      txn_raw ) {
 
-  fd_funk_t * funk               = slot_ctx->acc_mgr->funk;
+  fd_funk_t * funk               = slot_ctx->funk;
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx->acc_mgr );
+  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx->funk ); /* TODO is this correct? */
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->acc_mgr );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->acc_mgr->funk );
+  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->funk );
   ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->sysvar_cache );
 
   /* Init txn ctx */
@@ -1248,7 +1235,6 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                                       funk_wksp,
                                       runtime_pub_wksp,
                                       funk_txn_gaddr,
-                                      acc_mgr_gaddr,
                                       sysvar_cache_gaddr,
                                       funk_gaddr );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
@@ -1319,7 +1305,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
       ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
-      if( ret != FD_ACC_MGR_SUCCESS ) {
+      if( ret != FD_FUNK_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instructions failed to update instruction index" ));
         txn_ctx->instr_err_idx = i;
         return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
