@@ -6,6 +6,7 @@
 #include "fd_runtime_init.h"
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
+#include "fd_hashes.h"
 #include "../features/fd_features.h"
 #include "fd_rent_lists.h"
 #include "../../ballet/poh/fd_poh.h"
@@ -396,6 +397,20 @@ fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad );
+
+void
+fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
+                                         fd_spad_t *                      runtime_spad,
+                                         fd_accounts_hash_task_data_t * * task_data,
+                                         ulong                            lt_hash_cnt );
+
+int
+fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
+                                          fd_capture_ctx_t *               capture_ctx,
+                                          fd_runtime_block_info_t const *  block_info,
+                                          fd_spad_t *                      runtime_spad,
+                                          fd_accounts_hash_task_data_t *   task_data,
+                                          ulong                            lt_hash_cnt );
 
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t            * slot_ctx,

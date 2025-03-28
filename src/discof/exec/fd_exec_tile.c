@@ -248,19 +248,24 @@ hash_accounts( fd_exec_tile_ctx_t *                ctx,
 
   ulong             start_idx = msg->start_idx;
   ulong             end_idx   = msg->end_idx;
-  fd_lthash_value_t lt_hash;
-  fd_lthash_zero( &lt_hash );
 
   fd_accounts_hash_task_info_t * task_info = fd_wksp_laddr( ctx->runtime_public_wksp, msg->task_infos_gaddr );
   if( FD_UNLIKELY( !task_info ) ) {
     FD_LOG_ERR(( "Unable to join task info array" ));
   }
 
+  fd_lthash_value_t * lthash = fd_wksp_laddr( ctx->runtime_public_wksp, msg->lthash_gaddr );
+  if( FD_UNLIKELY( !lthash ) ) {
+    FD_LOG_ERR(( "Unable to join lthash" ));
+  }
+
+  fd_lthash_zero( lthash );
+
   for( ulong i=start_idx; i<=end_idx; i++ ) {
     fd_account_hash( ctx->txn_ctx->acc_mgr,
                      ctx->txn_ctx->funk_txn,
                      &task_info[i],
-                     &lt_hash,
+                     lthash,
                      ctx->txn_ctx->slot,
                      &ctx->txn_ctx->features );
   }
@@ -338,6 +343,7 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done() );
   } else if( sig==EXEC_HASH_ACCS_SIG ) {
     FD_LOG_NOTICE(( "Sending ack for hash accs msg" ));
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done() );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }
