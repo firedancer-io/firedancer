@@ -65,6 +65,7 @@ struct fd_runtime_public_epoch_msg {
   double              slots_per_year;
   ulong               stakes_encoded_gaddr;
   ulong               stakes_encoded_sz;
+  ulong               bank_hash_cmp_gaddr;
 };
 typedef struct fd_runtime_public_epoch_msg fd_runtime_public_epoch_msg_t;
 
