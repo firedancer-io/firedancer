@@ -73,6 +73,9 @@ struct fd_fec_intra {
   ulong recv_cnt;    /* count of shreds received so far data + coding */
   ulong data_cnt;    /* count of total data shreds in the FEC set */
 
+  uint  buffered_idx;  /* wmk of shreds buffered contiguously, inclusive. Starts at 0 */
+  uint  completes_idx; /* UINT_MAX unless this FEC contains a shred with a batch_complete or slot_complete flag. shred_idx - fec_set_idx */
+
   fd_fec_intra_idxs_t idxs[fd_fec_intra_idxs_word_cnt]; /* bit vec of rx'd data shred idxs */
  };
  typedef struct fd_fec_intra fd_fec_intra_t;
@@ -169,19 +172,72 @@ fd_fec_repair_delete( void * fec_repair );
 //    keyed by slot and fec_set_idx into the map.  Returns NULL if the map
 //    is full. */
 
-// static inline fd_fec_intra_t *
-// fd_fec_repair_ele_insert( fd_fec_repair_t * fec_repair, ulong slot, uint fec_set_idx ) {
-//   if( FD_UNLIKELY( fd_fec_repair_ele_map_key_cnt( fec_repair->map ) == fd_fec_repair_ele_map_key_max( fec_repair->map ) ) ) return NULL;
-//   ulong             key = slot << 32 | (ulong)fec_set_idx;
-//   fd_fec_intra_t * fec = fd_fec_repair_ele_map_insert( fec_repair->map, key ); /* cannot fail */
-//   fec->slot             = slot;
-//   fec->fec_set_idx      = fec_set_idx;
-//   fec->ts               = fd_log_wallclock();
-//   fec->recv_cnt         = 0;
-//   fec->data_cnt         = 0;
-//   fd_fec_repair_ele_idxs_null( fec->idxs );
-//   return fec;
-// }
+static inline fd_fec_intra_t *
+fd_fec_repair_ele_insert( fd_fec_repair_t * fec_repair,
+                          ulong             slot,
+                          uint              fec_set_idx,
+                          uint              shred_idx,
+                          int               completes ) {
+
+  ulong key = slot << 32 | (ulong)fec_set_idx;
+  fd_fec_intra_t * fec = fd_fec_intra_map_ele_query( fec_repair->intra_map, &key, NULL, fec_repair->intra_pool );
+  if( FD_UNLIKELY( !fec ) ) {
+    if( FD_UNLIKELY( !fd_fec_intra_pool_free( fec_repair->intra_pool ) ) ) return NULL;
+    fec = fd_fec_intra_pool_ele_acquire( fec_repair->intra_pool );
+    fec->key              = key;
+    fec->slot             = slot;
+    fec->fec_set_idx      = fec_set_idx;
+    fec->ts               = fd_log_wallclock();
+    fec->recv_cnt         = 0;
+    fec->data_cnt         = 0;
+    fec->completes_idx    = UINT_MAX;
+    fec->buffered_idx     = UINT_MAX;
+    fd_fec_intra_idxs_null( fec->idxs );
+    fd_fec_intra_map_ele_insert( fec_repair->intra_map, fec, fec_repair->intra_pool ); /* cannot fail */
+  }
+
+  fd_fec_intra_idxs_insert( fec->idxs, shred_idx - fec_set_idx );
+  /* advanced buffered if possible */
+  for( uint i = fec->buffered_idx + 1; i <= fec->completes_idx; i++ ) {
+    if( fd_fec_intra_idxs_test( fec->idxs, i ) ) {
+      fec->buffered_idx = i;
+    } else {
+      break;
+    }
+  }
+
+  if( FD_UNLIKELY( completes ) ) {
+    fec->completes_idx = shred_idx - fec_set_idx;
+  }
+  return fec;
+}
+
+static inline int
+check_blind_fec_completed( fd_fec_repair_t * fec_repair,
+                           ulong             slot,
+                           uint              fec_set_idx ) {
+
+  ulong fec_key = ( slot << 32 ) | ( fec_set_idx );
+  fd_fec_intra_t * fec_intra = fd_fec_intra_map_ele_query( fec_repair->intra_map, &fec_key, NULL, fec_repair->intra_pool );
+
+  ulong next_fec_key = ( slot << 32 ) | ( fec_set_idx + fec_intra->buffered_idx + 1 );
+
+  /* speculate - is the next shred after this the next FEC set? */
+
+  if( fec_intra->buffered_idx == UINT_MAX ) return 0;
+  if( fec_intra->buffered_idx == fec_intra->completes_idx ) return 1; /* This happens when completes is populated by batch_complete flag or by the below */
+
+  fd_fec_intra_t * next_fec = fd_fec_intra_map_ele_query( fec_repair->intra_map, &next_fec_key, NULL, fec_repair->intra_pool );
+  if( !next_fec ) return 0;
+
+  /* we have discovered the end of a fec_set. Now check if we've actually buffered that much */
+
+  if( fec_intra->completes_idx == UINT_MAX ) {
+    fec_intra->completes_idx = fec_intra->buffered_idx;
+  }
+
+  return ( fec_intra->buffered_idx != UINT_MAX && fec_intra->buffered_idx == fec_intra->completes_idx );
+}
 
 // /* fd_fec_repair_ele_query removes an in-progress FEC set from the map.
 //    Returns NULL if no fec set keyed by slot and fec_set_idx is found. */
