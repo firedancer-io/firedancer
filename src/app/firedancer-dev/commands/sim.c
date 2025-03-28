@@ -182,7 +182,7 @@ sim_topo( config_t * config ) {
 
   /* not specified by [tiles.replay] */
   strncpy( replay_tile->replay.identity_key_path, config->paths.identity_key, sizeof(replay_tile->replay.identity_key_path) );
-  replay_tile->replay.ip_addr = config->tiles.net.ip_addr;
+  replay_tile->replay.ip_addr = config->net.ip_addr;
   replay_tile->replay.vote = config->firedancer.consensus.vote;
   strncpy( replay_tile->replay.vote_account_path, config->paths.vote_account, sizeof(replay_tile->replay.vote_account_path) );
   replay_tile->replay.full_interval        = config->tiles.batch.full_interval;

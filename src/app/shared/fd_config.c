@@ -176,7 +176,7 @@ fd_config_fillh( fd_config_t * config ) {
 
 static void
 fd_config_fill_net( fd_config_t * config ) {
-  if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
+  if( FD_UNLIKELY( !strcmp( config->net.interface, "" ) && !config->development.netns.enabled ) ) {
     uint ifindex;
     int result = fd_net_util_internet_ifindex( &ifindex );
     if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -188,34 +188,34 @@ fd_config_fill_net( fd_config_t * config ) {
                    "You can fix this error by specifying a network interface to bind to in "
                    "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( ifindex, config->tiles.net.interface ) ) )
+    if( FD_UNLIKELY( !if_indextoname( ifindex, config->net.interface ) ) )
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( !strcmp( config->tiles.net.interface, "" ) ) {
-      memcpy( config->tiles.net.interface, config->development.netns.interface0, sizeof(config->tiles.net.interface) );
+    if( !strcmp( config->net.interface, "" ) ) {
+      memcpy( config->net.interface, config->development.netns.interface0, sizeof(config->net.interface) );
     }
 
     if( !strcmp( config->development.pktgen.fake_dst_ip, "" ) ) {
       memcpy( config->development.pktgen.fake_dst_ip, config->development.netns.interface1_addr, sizeof(config->development.netns.interface1_addr) );
     }
 
-    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) ) {
+    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->net.interface ) ) ) {
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
                    "for development, the configuration file must specify that "
-                   "[development.netns.interface0] is the same as [tiles.net.interface]" ));
+                   "[development.netns.interface0] is the same as [net.interface]" ));
     }
 
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->net.ip_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
   } else { /* !config->development.netns.enabled */
-    if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
+    if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
+      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
     uint iface_ip;
-    if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->tiles.net.interface, &iface_ip ) ) )
-      FD_LOG_ERR(( "could not get IP address for interface `%s`", config->tiles.net.interface ));
+    if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
+      FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
 
     if( FD_UNLIKELY( !config->is_firedancer ) ) {
       if( FD_UNLIKELY( strcmp( config->frankendancer.gossip.host, "" ) ) ) {
@@ -237,11 +237,11 @@ fd_config_fill_net( fd_config_t * config ) {
                     "behind a NAT and this interface is publicly reachable, you can continue by "
                     "manually specifying the IP address to advertise in your configuration under "
                     "[gossip.host].",
-                    config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+                    config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
       }
     }
 
-    config->tiles.net.ip_addr = iface_ip;
+    config->net.ip_addr = iface_ip;
   }
 }
 
@@ -251,10 +251,10 @@ fd_config_fill( fd_config_t * config,
                 int           is_local_cluster ) {
   if( FD_UNLIKELY( netns ) ) {
     config->development.netns.enabled = 1;
-    strncpy( config->tiles.net.interface,
+    strncpy( config->net.interface,
              config->development.netns.interface0,
-             sizeof(config->tiles.net.interface) );
-    config->tiles.net.interface[ sizeof(config->tiles.net.interface) - 1 ] = '\0';
+             sizeof(config->net.interface) );
+    config->net.interface[ sizeof(config->net.interface) - 1 ] = '\0';
   }
 
   struct utsname utsname;
@@ -349,9 +349,9 @@ fd_config_fill( fd_config_t * config,
 
   config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
 
-  if( 0!=strcmp( config->tiles.net.bind_address, "" ) ) {
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.net.bind_address, &config->tiles.net.bind_address_parsed ) ) ) {
-      FD_LOG_ERR(( "`tiles.net.bind_address` is not a valid IPv4 address" ));
+  if( 0!=strcmp( config->net.bind_address, "" ) ) {
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->net.bind_address, &config->net.bind_address_parsed ) ) ) {
+      FD_LOG_ERR(( "`net.bind_address` is not a valid IPv4 address" ));
     }
   }
 
@@ -486,10 +486,17 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
-  CFG_HAS_NON_EMPTY( tiles.net.xdp_mode );
-  CFG_HAS_POW2     ( tiles.net.xdp_rx_queue_size );
-  CFG_HAS_POW2     ( tiles.net.xdp_tx_queue_size );
-  CFG_HAS_NON_ZERO ( tiles.net.send_buffer_size );
+  CFG_HAS_NON_ZERO( net.ingress_buffer_size );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
+    CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
+    CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
+  } else if( 0==strcmp( config->net.provider, "socket" ) ) {
+    CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
+    CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
+  } else {
+    FD_LOG_ERR(( "invalid `net.provider`: must be \"xdp\" or \"socket\"" ));
+  }
 
   CFG_HAS_NON_ZERO( tiles.netlink.max_routes    );
   CFG_HAS_NON_ZERO( tiles.netlink.max_neighbors );
@@ -514,13 +521,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
 
   CFG_HAS_NON_ZERO( tiles.gui.gui_listen_port );
-
-  if( strcmp( config->development.net.provider, "xdp" ) &&
-      strcmp( config->development.net.provider, "socket" ) ) {
-    FD_LOG_ERR(( "invalid `development.net.provider`: must be \"xdp\" or \"socket\"" ));
-  }
-  CFG_HAS_NON_ZERO( development.net.sock_receive_buffer_size );
-  CFG_HAS_NON_ZERO( development.net.sock_send_buffer_size );
 
   CFG_HAS_NON_EMPTY( development.netns.interface0 );
   CFG_HAS_NON_EMPTY( development.netns.interface0_mac );

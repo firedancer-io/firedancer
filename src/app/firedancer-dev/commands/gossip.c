@@ -37,8 +37,7 @@ gossip_topo( config_t * config ) {
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  fd_topos_net_tiles( topo, 1UL, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, config->development.net.provider, config->tiles.net.interface, config->tiles.net.bind_address_parsed, config->tiles.net.flush_timeout_micros,
-                      config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_zero_copy, config->tiles.net.xdp_mode, config->development.net.sock_receive_buffer_size, config->development.net.sock_send_buffer_size, tile_to_cpu );
+  fd_topos_net_tiles( topo, 1UL, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
   ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
   if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
   if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
@@ -50,7 +49,7 @@ gossip_topo( config_t * config ) {
 
   strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.gossip_listen_port     = config->gossip.port;
-  gossip_tile->gossip.ip_addr                = config->tiles.net.ip_addr;
+  gossip_tile->gossip.ip_addr                = config->net.ip_addr;
   gossip_tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
   gossip_tile->gossip.entrypoints_cnt = fd_ulong_min( config->gossip.resolved_entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
   fd_memcpy( gossip_tile->gossip.entrypoints, config->gossip.resolved_entrypoints, gossip_tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
@@ -73,9 +72,9 @@ gossip_topo( config_t * config ) {
   fd_topob_tile_out( topo, "sign", 0UL, "sign_gossip", 0UL );
 
   fd_topob_wksp( topo, "gossip_net" );
-  fd_topob_link( topo, "gossip_net", "gossip_net", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
+  fd_topob_link( topo, "gossip_net", "gossip_net", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
 
-  fd_topos_net_rx_link( topo, "net_gossip", 0UL, config->tiles.net.send_buffer_size );
+  fd_topos_net_rx_link( topo, "net_gossip", 0UL, config->net.ingress_buffer_size );
   fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "net_gossip",   0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "sign_gossip",  0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   fd_topos_tile_in_net( topo, "metric_in", "gossip_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -112,8 +111,8 @@ gossip_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   initialize_workspaces( config );
   initialize_stacks( config );
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
-    fd_topo_install_xdp( topo, config->tiles.net.bind_address_parsed );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    fd_topo_install_xdp( topo, config->net.bind_address_parsed );
   }
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 

@@ -277,18 +277,18 @@ main_pid_namespace( void * _args ) {
   }
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, NULL ) ) )
-      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, NULL ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
   }
 
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int need_xdp = 0==strcmp( config->development.net.provider, "xdp" );
+  int need_xdp = 0==strcmp( config->net.provider, "xdp" );
   fd_xdp_fds_t xdp_fds = {0};
   if( need_xdp ) {
-    xdp_fds = fd_topo_install_xdp( &config->topo, config->tiles.net.bind_address_parsed );
+    xdp_fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
@@ -663,7 +663,7 @@ fdctl_check_configure( config_t const * config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
-  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->development.net.provider, "xdp" ) ) ) {
+  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->net.provider, "xdp" ) ) ) {
     check = fd_cfg_stage_ethtool_channels.check( config );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
@@ -719,10 +719,10 @@ fdctl_setup_netns( config_t * config,
 
   int original_netns_;
   int * original_netns = stay ? NULL : &original_netns_;
-  if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, original_netns ) ) )
-    FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, original_netns ) ) )
+    FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
 
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_cfg_stage_ethtool_channels.init( config );
     fd_cfg_stage_ethtool_gro     .init( config );
     fd_cfg_stage_ethtool_loopback.init( config );
