@@ -107,7 +107,8 @@ main( int     argc,
       quic_tls,
       tls_client,
       0 /* is_server */,
-      tmp_tp ) );
+      tmp_tp,
+      100UL ) );
 
   my_quic_tls_t    tls_server[1] = {0};
   fd_quic_tls_hs_t hs_server[1];
@@ -116,7 +117,8 @@ main( int     argc,
       quic_tls,
       tls_server,
       1 /* is_server */,
-      tmp_tp ) );
+      tmp_tp,
+      100UL ) );
 
   // generate initial secrets for client
 

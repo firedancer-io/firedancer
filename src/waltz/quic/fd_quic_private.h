@@ -20,6 +20,12 @@
 #define POOL_T    fd_quic_tls_hs_t
 #include "../../util/tmpl/fd_pool.c"
 
+/* Handshake FIFO cache dlist */
+#define DLIST_NAME  fd_quic_tls_hs_cache
+#define DLIST_ELE_T fd_quic_tls_hs_t
+#include "../../util/tmpl/fd_dlist.c"
+
+
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
    encryption.  Only intended for testing. */
 #ifndef FD_QUIC_DISABLE_CRYPTO
@@ -79,8 +85,11 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_log_tx_t        log_tx[1];
   uint                    free_conn_list; /* free list of unused connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
+
   fd_quic_tls_t           tls[1];
   fd_quic_tls_hs_t *      hs_pool;
+  fd_quic_tls_hs_cache_t  hs_cache; /* dlist <> dlist_private */
+
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_rng_t                _rng[1];        /* random number generator */
   fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
