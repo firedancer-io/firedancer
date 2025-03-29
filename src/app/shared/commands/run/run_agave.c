@@ -69,8 +69,8 @@ agave_boot( config_t const * config ) {
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );
 
-  if( strcmp( config->tiles.net.bind_address, "" ) )
-    ADD( "--bind-address", config->tiles.net.bind_address );
+  if( strcmp( config->net.bind_address, "" ) )
+    ADD( "--bind-address", config->net.bind_address );
   ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
@@ -131,7 +131,7 @@ agave_boot( config_t const * config ) {
   if( strcmp( config->gossip.host, "" ) ) {
     ADD( "--gossip-host", config->gossip.host );
   } else {
-    FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) ) );
+    FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->net.ip_addr) ) );
     ADD( "--gossip-host", ip_addr );
   }
   if( config->development.gossip.allow_private_address ) {

@@ -40,6 +40,10 @@ name = \"fd1\"
 [gossip]
     entrypoints = [\"$PRIMARY_IP:8001\"]
     port = 8700
+#[net]
+    #interface = \"$_PRIMARY_INTERFACE\"
+    #[net.xdp]
+        #xdp_mode = \"drv\"
 [tiles]
     [tiles.repair]
         repair_intake_listen_port = 8701
@@ -53,9 +57,6 @@ name = \"fd1\"
         funk_rec_max = 10000000
         funk_txn_max = 1024
         cluster_version = 2004
-    #[tiles.net]
-        #interface = \"$_PRIMARY_INTERFACE\"
-        #xdp_mode = \"drv\"
 [log]
     path = \"fddev_leader.log\"
     level_stderr = \"INFO\"

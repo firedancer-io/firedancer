@@ -208,7 +208,7 @@ txn_cmd_fn( args_t *   args,
     }
   }
 
-  uint dst_ip = config->tiles.net.ip_addr;
+  uint dst_ip = config->net.ip_addr;
   if( FD_UNLIKELY( args->txn.dst_ip ) )
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( args->txn.dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 

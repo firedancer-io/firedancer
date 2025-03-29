@@ -334,8 +334,8 @@ vary across drivers. Popular well tested drivers include:
 - `ice` &mdash; Intel E800 series
 
 Firedancer installs an XDP program on the network interface
-`[tiles.net.interface]` and `lo` while it is running. This program
-redirects traffic on ports that Firedancer is listening on via `AF_XDP`.
+`[net.interface]` and `lo` while it is running. This program redirects
+traffic on ports that Firedancer is listening on via `AF_XDP`.
 Traffic targeting any other applications (e.g. an SSH or HTTP server
 running on the system) passes through as usual. The XDP program is
 unloaded when the Firedancer process exits.

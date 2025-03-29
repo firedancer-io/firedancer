@@ -57,6 +57,8 @@ name = \"fd2test\"
 [gossip]
     entrypoints = [\"$1:8700\"]
     port = 8800
+[net]
+    interface = \"$_PRIMARY_INTERFACE\"
 [tiles]
     [tiles.repair]
         repair_intake_listen_port = 8801
@@ -70,8 +72,6 @@ name = \"fd2test\"
         funk_rec_max = 10000000
         funk_txn_max = 1024
         cluster_version = 2004
-    [tiles.net]
-        interface = \"$_PRIMARY_INTERFACE\"
 [log]
     path = \"fddev_follower.log\"
     level_stderr = \"INFO\"

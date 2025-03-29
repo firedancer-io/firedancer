@@ -257,7 +257,7 @@ fd_xsk_init( fd_xsk_t *              xsk,
     if( FD_LIKELY( errno==ENXIO || errno==EINVAL ) ) {
       FD_LOG_ERR(( "xsk sendto failed xsk_fd=%d (%i-%s).  This likely indicates "
                    "a bug with your NIC driver.  Try switching XDP mode using "
-                   "tiles.net.xdp_mode in the configuration TOML.\n"
+                   "net.xdp.xdp_mode in the configuration TOML.\n"
                    "Certain Intel NICs with certain driver/kernel combinations "
                    "are known to exhibit this issue in skb mode but work in drv "
                    "mode.", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));

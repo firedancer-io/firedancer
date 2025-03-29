@@ -62,8 +62,7 @@ pktgen_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topos_net_tiles( topo, config->layout.net_tile_count, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, config->development.net.provider, config->tiles.net.interface, config->tiles.net.bind_address_parsed, config->tiles.net.flush_timeout_micros,
-                      config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_zero_copy, config->tiles.net.xdp_mode, config->development.net.sock_receive_buffer_size, config->development.net.sock_send_buffer_size, tile_to_cpu );
+  fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
   fd_topob_wksp( topo, "pktgen" );
@@ -76,7 +75,7 @@ pktgen_topo( config_t * config ) {
   fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   /* Create dummy RX link */
-  fd_topos_net_rx_link( topo, "net_quic", 0UL, config->tiles.net.send_buffer_size );
+  fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
   fd_topob_tile_out( topo, "net", 0UL, "net_quic", 0UL );
   fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
@@ -224,7 +223,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   initialize_workspaces( config );
   initialize_stacks( config );
   fdctl_setup_netns( config, 1 );
-  (void)fd_topo_install_xdp( topo, config->tiles.net.bind_address_parsed );
+  (void)fd_topo_install_xdp( topo, config->net.bind_address_parsed );
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* FIXME allow running sandboxed/multiprocess */
