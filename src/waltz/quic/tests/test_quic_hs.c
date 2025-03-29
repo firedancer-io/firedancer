@@ -1,4 +1,5 @@
 #include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 
 #include <stdio.h>
@@ -49,6 +50,27 @@ my_handshake_complete( fd_quic_conn_t * conn,
   FD_LOG_NOTICE(( "client handshake complete" ));
 
   client_complete = 1;
+}
+
+static void
+validate_quic_hs_tls_cache( fd_quic_t * quic ) {
+  fd_quic_state_t        * state     =  fd_quic_get_state( quic );
+  fd_quic_tls_hs_cache_t * hs_cache  =  &state->hs_cache;
+  fd_quic_tls_hs_t       * pool      =  state->hs_pool;
+
+  ulong  cache_cnt  = 0UL;
+  ulong  prev_birth = 0UL;
+  for( fd_quic_tls_hs_cache_iter_t iter = fd_quic_tls_hs_cache_iter_fwd_init( hs_cache, pool );
+      !fd_quic_tls_hs_cache_iter_done( iter, hs_cache, pool );
+      iter = fd_quic_tls_hs_cache_iter_fwd_next( iter, hs_cache, pool )
+  ) {
+    fd_quic_tls_hs_t * hs = fd_quic_tls_hs_cache_iter_ele( iter, hs_cache, pool );
+    FD_TEST( hs->birthtime >= prev_birth );
+    prev_birth = hs->birthtime;
+    cache_cnt++;
+  }
+
+  FD_TEST( cache_cnt == fd_quic_tls_hs_pool_used( pool ) );
 }
 
 
@@ -132,6 +154,8 @@ main( int argc, char ** argv ) {
     FD_LOG_INFO(( "running services" ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
+    validate_quic_hs_tls_cache( client_quic );
+    validate_quic_hs_tls_cache( server_quic );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -192,6 +216,41 @@ main( int argc, char ** argv ) {
 
   fd_quic_svc_validate( server_quic );
   fd_quic_svc_validate( client_quic );
+  validate_quic_hs_tls_cache( client_quic );
+  validate_quic_hs_tls_cache( server_quic );
+
+  FD_TEST_CUSTOM( sizeof(fd_quic_tls_hs_cache_t) == fd_quic_tls_hs_cache_footprint( ),
+                    "tls hs cache relies on footprint==sizeof, modify that impl" );
+
+  FD_LOG_NOTICE(( "Testing TLS cache - within ttl prevents eviction " ));
+  client_quic->config.tls_hs_ttl = 5UL;
+
+  ulong             prev_evicted = client_quic->metrics.hs_evicted_cnt;
+  fd_quic_state_t * client_state = fd_quic_get_state( client_quic );
+  FD_TEST( prev_evicted == 0 );
+
+  /* fill buffer, no eviction or failure */
+  for( int i=0; i<10; ++i ) {
+    FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0 ) );
+    FD_TEST( client_quic->metrics.hs_evicted_cnt == prev_evicted );
+  }
+  FD_TEST( !fd_quic_tls_hs_pool_free( client_state->hs_pool ) );
+  validate_quic_hs_tls_cache( client_quic );
+
+  now++;
+  /* new connection should fail because within TTL of 5 */
+  ulong prev_fail = client_quic->metrics.hs_err_alloc_fail_cnt;
+  FD_TEST( !fd_quic_connect( client_quic, 0U, 0, 0U, 0 ) );
+  FD_TEST( client_quic->metrics.hs_err_alloc_fail_cnt == prev_fail+1 );
+  validate_quic_hs_tls_cache( client_quic );
+
+  FD_LOG_NOTICE(( "Testing TLS cache - evicts if over ttl " ));
+  now+=10;
+  FD_TEST( !fd_quic_tls_hs_pool_free( client_state->hs_pool ) );
+  FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0 ) );
+  validate_quic_hs_tls_cache( client_quic );
+  FD_TEST( client_quic->metrics.hs_evicted_cnt == prev_evicted+1 );
+
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
