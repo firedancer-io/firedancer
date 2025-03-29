@@ -33,6 +33,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &fd_cfg_stage_blockstore,
 #endif
   NULL,
+  &fd_cfg_stage_ledger,
 };
 
 extern fd_topo_run_tile_t fd_tile_net;

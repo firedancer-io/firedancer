@@ -10,7 +10,7 @@
 
 #define NAME_SZ 256
 #define AFFINITY_SZ 256
-#define CONFIGURE_STAGE_COUNT 12
+#define CONFIGURE_STAGE_COUNT 13
 
 union fdctl_args {
   struct {
