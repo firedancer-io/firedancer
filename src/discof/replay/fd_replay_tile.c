@@ -15,6 +15,7 @@
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
 #include "../../flamenco/stakes/fd_stakes.h"
@@ -434,6 +435,73 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_weights_out_chunk, stake_weights_sz, 0UL, 0UL, tspub );
     ctx->stake_weights_out_chunk = fd_dcache_compact_next( ctx->stake_weights_out_chunk, stake_weights_sz, ctx->stake_weights_out_chunk0, ctx->stake_weights_out_wmark );
   }
+}
+
+static void
+replay_block_finalize( fd_replay_tile_ctx_t * ctx,
+                       fd_stem_context_t *    stem,
+                       fd_runtime_block_info_t * runtime_block_info ) {
+
+  /* TODO: Currently this is being done out of the exec tile. This
+     should eventually be moved to the privleged writer tiles which have
+     write access into the runtime spad. */
+
+    fd_accounts_hash_task_data_t * task_data = NULL;
+    fd_runtime_block_execute_finalize_start( ctx->slot_ctx, ctx->runtime_spad, &task_data, ctx->exec_cnt );
+
+    ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
+    ulong task_infos_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, task_data->info );
+
+    for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
+
+      ulong lt_hash_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, &task_data->lthash_values[ worker_idx ] );
+      if( FD_UNLIKELY( !lt_hash_gaddr ) ) {
+        FD_LOG_ERR(( "lt_hash_gaddr is NULL" ));
+        return;
+      }
+
+      ulong start_idx = worker_idx * cnt_per_worker;
+      ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                                        fd_ulong_sat_sub( task_data->info_sz, 1UL );
+
+      fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
+
+      fd_runtime_public_hash_bank_msg_t * hash_msg = (fd_runtime_public_hash_bank_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      hash_msg->task_infos_gaddr = task_infos_gaddr;
+      hash_msg->lthash_gaddr     = lt_hash_gaddr;
+      hash_msg->start_idx        = start_idx;
+      hash_msg->end_idx          = end_idx;
+
+      fd_stem_publish( stem, exec_out->idx, EXEC_HASH_ACCS_SIG, exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), 0UL, 0UL, 0UL );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), exec_out->chunk0, exec_out->wmark );
+    }
+
+    /* Spins and blocks until all exec tiles are done hashing. */
+    uchar to_check[ ctx->exec_cnt ];
+    uchar to_check_cnt = (uchar)ctx->exec_cnt;
+    for( uchar i=0UL; i<(uchar)ctx->exec_cnt; i++ ) {
+      to_check[ i ] = i;
+    }
+    while( to_check_cnt>0 ) {
+      uchar next_to_check_cnt = 0;
+      for( uchar i=0; i< to_check_cnt; i++ ) {
+        uchar idx = to_check[ i ];
+        ulong res = fd_fseq_query( ctx->exec_fseq[ idx ] );
+        uint state = fd_exec_fseq_get_state( res );
+        if( state != FD_EXEC_STATE_HASH_DONE ) {
+          to_check[ next_to_check_cnt++ ] = idx;
+        }
+      }
+      to_check_cnt = next_to_check_cnt;
+    }
+
+    fd_runtime_block_execute_finalize_finish( ctx->slot_ctx,
+                                              ctx->capture_ctx,
+                                              runtime_block_info,
+                                              ctx->runtime_spad,
+                                              task_data,
+                                              ctx->exec_cnt );
+
 }
 
 /* Receives from store tile (soon to be repair) newly completed slices
@@ -1756,19 +1824,19 @@ after_frag( fd_replay_tile_ctx_t * ctx,
        Then, execute the transactions, and notify the pack tile. We should be
        taking advantage of bank_busy flags. */
 
-    for( ulong i=1UL; i<ctx->exec_spad_cnt; i++ ) {
-      fd_tpool_wait( ctx->tpool, i );
-    }
+    // for( ulong i=1UL; i<ctx->exec_spad_cnt; i++ ) {
+    //   fd_tpool_wait( ctx->tpool, i );
+    // }
 
-    fd_runtime_process_txns_in_microblock_stream( ctx->slot_ctx,
-                                                  ctx->capture_ctx,
-                                                  txns,
-                                                  txn_cnt,
-                                                  ctx->tpool,
-                                                  ctx->exec_spads,
-                                                  ctx->exec_spad_cnt,
-                                                  ctx->runtime_spad,
-                                                  NULL );
+    // fd_runtime_process_txns_in_microblock_stream( ctx->slot_ctx,
+    //                                               ctx->capture_ctx,
+    //                                               txns,
+    //                                               txn_cnt,
+    //                                               ctx->tpool,
+    //                                               ctx->exec_spads,
+    //                                               ctx->exec_spad_cnt,
+    //                                               ctx->runtime_spad,
+    //                                               NULL );
 
     fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
 
@@ -2020,7 +2088,8 @@ read_snapshot( void *              _ctx,
 }
 
 static void
-init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
+init_after_snapshot( fd_replay_tile_ctx_t * ctx,
+                     fd_stem_context_t *    stem ) {
   /* Do not modify order! */
 
   /* First, load in the sysvars into the sysvar cache. This is required to
@@ -2053,11 +2122,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
-    FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx,
-                                                      NULL,
-                                                      &info,
-                                                      ctx->tpool,
-                                                      ctx->runtime_spad ) == 0 );
+    replay_block_finalize( ctx, stem, &info );
+
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot_bank.slot      = 1UL;
@@ -2151,7 +2217,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->runtime_spad );
   ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
-  init_after_snapshot( ctx );
+  init_after_snapshot( ctx, stem );
 
   /* Redirect ctx->slot_ctx to point to the memory inside forks. */
 
@@ -2312,6 +2378,8 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         break;
       case FD_EXEC_STATE_IDLE:
         break;
+      case FD_EXEC_STATE_HASH_DONE:
+        break;
       default:
         FD_LOG_ERR(( "Unexpected fseq state from exec tile idx=%lu state=%u", i, state ));
         break;
@@ -2365,19 +2433,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     /* Destroy the slot history */
     fd_slot_history_destroy( fork->slot_ctx->slot_history );
-    for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
-      fd_tpool_wait( ctx->tpool, i+1 );
-    }
 
     fd_runtime_block_info_t runtime_block_info[1];
     runtime_block_info->signature_cnt = fork->slot_ctx->signature_cnt;
 
     ctx->block_finalizing = 0;
 
-    int res = fd_runtime_block_execute_finalize_tpool( fork->slot_ctx, ctx->capture_ctx, runtime_block_info, ctx->tpool, ctx->runtime_spad );
-    if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-      FD_LOG_ERR(( "block finished failed" ));
-    }
+    replay_block_finalize( ctx, stem, runtime_block_info );
 
     fd_spad_pop( ctx->runtime_spad );
     FD_LOG_NOTICE(( "Spad memory after executing block %lu", ctx->runtime_spad->mem_used ));

@@ -19,6 +19,7 @@
 #define FD_EXEC_STATE_SLOT_DONE  (1<<3UL      )
 #define FD_EXEC_STATE_TXN_DONE   (1<<4UL      )
 #define FD_EXEC_STATE_IDLE       (1<<5UL      )
+#define FD_EXEC_STATE_HASH_DONE  (1<<6UL      )
 
 static uint FD_FN_UNUSED
 fd_exec_fseq_get_state( ulong fseq ) {
@@ -57,6 +58,11 @@ fd_exec_fseq_set_idle( void ) {
   return FD_EXEC_STATE_IDLE;
 }
 
+static ulong FD_FN_UNUSED
+fd_exec_fseq_set_hash_done( void ) {
+  return FD_EXEC_STATE_HASH_DONE;
+}
+
 struct fd_runtime_public_epoch_msg {
   fd_features_t       features;
   ulong               total_epoch_stake;
@@ -86,6 +92,7 @@ typedef struct fd_runtime_public_txn_msg fd_runtime_public_txn_msg_t;
 
 struct fd_runtime_public_hash_bank_msg {
   ulong task_infos_gaddr;
+  ulong lthash_gaddr;
   ulong start_idx;
   ulong end_idx;
 };
