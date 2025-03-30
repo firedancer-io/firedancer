@@ -3,6 +3,11 @@
 
 #include "../../util/bits/fd_bits.h"
 
+/* Forward declarations for all objects */
+
+struct fd_h2_conn;
+typedef struct fd_h2_conn fd_h2_conn_t;
+
 /* HTTP/2 error codes
    https://www.iana.org/assignments/http2-parameters/http2-parameters.xhtml#error-code */
 
@@ -20,5 +25,27 @@
 #define FD_H2_ERR_ENHANCE_YOUR_CALM     0x0b
 #define FD_H2_ERR_INADEQUATE_SECURITY   0x0c
 #define FD_H2_ERR_HTTP_1_1_REQUIRED     0x0d
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_h2_frame_name returns a static-lifetime uppercase cstr with the
+   name of a HTTP/2 frame. */
+
+FD_FN_CONST char const *
+fd_h2_frame_name( uint frame_id );
+
+/* fd_h2_setting_name returns a static-lifetime uppercase cstr with the
+   name of a HTTP/2 setting. */
+
+FD_FN_CONST char const *
+fd_h2_setting_name( uint setting_id );
+
+/* fd_h2_strerror returns a static-lifetime cstr briefly describing the
+   given FD_H2_ERR_* code. */
+
+FD_FN_CONST char const *
+fd_h2_strerror( uint err );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_h2_fd_h2_base */

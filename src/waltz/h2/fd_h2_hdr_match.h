@@ -159,6 +159,7 @@ fd_h2_hdr_match( fd_h2_hdr_matcher_t const * matcher,
       return (int)fd_h2_hpack_matcher[ index ];
     }
   }
+  if( FD_UNLIKELY( !name_len ) ) return 0;
 
   fd_h2_hdr_match_seed = matcher->seed;
   fd_h2_hdr_match_key_t key = { .hdr=name, .hdr_len=(ushort)name_len };

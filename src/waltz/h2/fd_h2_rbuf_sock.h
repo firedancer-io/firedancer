@@ -11,17 +11,15 @@
 static inline ulong
 fd_h2_rbuf_prepare_recvmsg( fd_h2_rbuf_t * rbuf,
                             struct iovec   iov[2] ) {
-  uchar * buf0      = rbuf->buf0;
-  uchar * buf1      = rbuf->buf1;
-  uchar * lo        = rbuf->lo;
-  uchar * hi        = rbuf->hi;
-  ulong   frame_max = rbuf->frame_max;
+  uchar * buf0 = rbuf->buf0;
+  uchar * buf1 = rbuf->buf1;
+  uchar * lo   = rbuf->lo;
+  uchar * hi   = rbuf->hi;
+  ulong free_sz = fd_h2_rbuf_free_sz( rbuf );
+  if( FD_UNLIKELY( !free_sz ) ) return 0UL;
 
   if( lo<=hi ) {
 
-    ulong used_sz = (ulong)( hi-lo );
-    if( FD_UNLIKELY( used_sz>=frame_max ) ) return 0UL;
-    ulong free_sz = frame_max-used_sz;
     iov[ 0 ].iov_base = hi;
     iov[ 0 ].iov_len  = fd_ulong_min( (ulong)( buf1-hi ), free_sz );
     free_sz -= iov[ 0 ].iov_len;
@@ -31,13 +29,11 @@ fd_h2_rbuf_prepare_recvmsg( fd_h2_rbuf_t * rbuf,
 
   } else {
 
-    ulong free_sz = (ulong)( lo-hi );
-    if( FD_UNLIKELY( free_sz<=frame_max ) ) return 0UL;
     iov[ 0 ].iov_base = hi;
-    iov[ 0 ].iov_len  = free_sz-frame_max;
+    iov[ 0 ].iov_len  = free_sz;
     iov[ 1 ].iov_base = NULL;
     iov[ 1 ].iov_len  = 0UL;
-    return 2uL;
+    return 1uL;
 
   }
 }
