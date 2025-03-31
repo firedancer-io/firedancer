@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #define _GNU_SOURCE
 #include "../../disco/tiles.h"
 #include "generated/fd_exec_tile_seccomp.h"
@@ -28,14 +29,77 @@ struct fd_exec_tile_ctx {
   fd_runtime_public_t * runtime_public;
   fd_spad_t const *     runtime_spad;
 
-  /* Management around exec spad and frame lifetimes. We will always
-     have 1 frame pushed onto the spad. This frame will contain the
-     txn_ctx. Any allocations made for the scope of an epoch boundary
-     will live in the next spad frame. Then, all allocations made for
-     the scope of the slot ctx will live in the next spad frame.
-     Finally, any state used for actually executing the transaction
-     will use the remaining frames. The pending_{n}_pop variables are
-     used to manage lifetimes we recieve slot/epoch updates. */
+  /* Management around exec spad and frame lifetimes.
+
+
+     We will always have at least 1 frame pushed onto the exec spad.
+     This frame will contain the txn_ctx. The replay tile will propogate
+     new slot and new epoch messages to the exec tile at the start of a
+     new epoch or at the start of a new slot. These messages will live
+     in their own frames so that they have distinct lifetimes. We expect
+     to recieve an update for a new epoch first: this will live inside
+     of the second spad frame. Then all allocations made at the start of
+     a new slot will live in the third spad frame. The following
+     frame(s) will be used for the execution of the current transaction.
+     The pending_{n}_pop variables are used to manage lifetimes for
+     txn/slot/epoch updates. We need frames for the epoch and slot to
+     store information that is copied into the exec tile at every
+     epoch/slot.
+
+     Examples:
+
+     Start of a new transaction:
+       * If pending_txn_pop==1:
+         State before new transaction message received:
+         | txn_ctx frame | epoch frame | slot frame | prev txn frame |
+         State after new transaction message received:
+         * The prev txn's frame is popped off because pending_txn_pop==1.
+         | txn_ctx frame | epoch frame | slot frame |
+         * A new frame is pushed onto the exec spad for the new transaction.
+         | txn_ctx frame | epoch frame | slot frame | new txn frame |
+         * pending_txn_pop is set to 1 to indicate that we need to pop
+           the txn frame at the start of the next transaction.
+      * If pending_txn_pop==0:
+         State before new transaction message received:
+         * Because there is no pending_txn_pop we know that there is no
+           frame for a previous transaction; this implies that this is
+           the first transaction in the slot
+         | txn_ctx frame | epoch frame | slot frame |
+         State after new transaction message received:
+         * A new frame is pushed onto the exec spad for the new transaction.
+         | txn_ctx frame | epoch frame | slot frame | new txn frame |
+         * pending_txn_pop is set to 1 to indicate that we need to pop
+           the txn frame at the start of the next transaction.
+
+      Start of a new slot:
+      * If pending_slot_pop==1:
+        State before new slot message received (assuming the previous slot had txns):
+        | txn_ctx frame | epoch frame | prev slot frame | prev txn frame |
+        State after new slot message received:
+        * The prev txn's frame is popped off because pending_txn_pop==1. (see above)
+        * The prev slot's frame is also popped off because pending_slot_pop==1.
+        | txn_ctx frame | epoch frame |
+        * A new frame is pushed onto the exec spad for the new slot.
+        | txn_ctx frame | epoch frame | slot frame |
+        * pending_slot_pop is set to 1 to indicate that we need to pop
+          the slot frame at the start of the next slot.
+      * If pending_slot_pop==0:
+        State before new slot message received:
+        * Because there is no pending_slot_pop we know that there is no
+          slot frame for a previous slot; this implies that this is the
+          first slot in the current epoch. This also implies that there
+          can be no pending txn frame that needs to get popped on.
+        | txn_ctx frame | epoch frame |
+        State after new slot message received:
+        * A new frame is pushed onto the exec spad for the new slot.
+        | txn_ctx frame | epoch frame | slot frame |
+        * pending_slot_pop is set to 1 to indicate that we need to pop
+          the slot frame at the start of the next slot.
+
+      ... This same principle extends to dealing with new epoch scoped
+      spad frames.
+
+   */
   fd_spad_t *           exec_spad;
   fd_wksp_t *           exec_spad_wksp;
   int                   pending_txn_pop;
@@ -56,6 +120,12 @@ struct fd_exec_tile_ctx {
   fd_exec_txn_ctx_t *   txn_ctx;
   int                   exec_res;
   uint                  flags;
+
+  /* The txn id is a value that is monotonically increased after
+     executing a transaction. It is used to prevent race conditions in
+     interactions between the exec and replay tile. It is expected to
+     overflow back to 0. */
+  uint                  txn_id;
 
   ulong *               exec_fseq;
 
@@ -126,15 +196,6 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
     FD_LOG_ERR(( "Could not decode stakes" ));
   }
   ctx->txn_ctx->stakes = *stakes;
-
-  /* TODO: The bank hash cmp obj can likely be shared once at boot and
-     there is no need to pass it forward every epoch. The proper
-     solution here is probably to create a new message type. */
-  fd_bank_hash_cmp_t * bank_hash_cmp_local = fd_bank_hash_cmp_join( fd_wksp_laddr( ctx->runtime_public_wksp, epoch_msg->bank_hash_cmp_gaddr ) );
-  if( FD_UNLIKELY( !bank_hash_cmp_local ) ) {
-    FD_LOG_ERR(( "Could not get laddr for bank hash cmp" ));
-  }
-  ctx->txn_ctx->bank_hash_cmp = bank_hash_cmp_local;
 }
 
 static void
@@ -210,7 +271,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     .txn      = &ctx->txn,
   };
 
-  fd_txn_t const * txn_descriptor = (fd_txn_t const *)task_info.txn->_;
+  fd_txn_t const * txn_descriptor = TXN( task_info.txn );
   fd_rawtxn_b_t    raw_txn        = {
     .raw    = task_info.txn->payload,
     .txn_sz = (ushort)task_info.txn->payload_sz
@@ -352,7 +413,8 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
        the transaction back to funk. */
     ctx->txn_ctx->exec_err = ctx->exec_res;
     ctx->txn_ctx->flags    = ctx->flags;
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done() );
+
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done( ctx->txn_id++ ) );
   } else if( sig==EXEC_HASH_ACCS_SIG ) {
     FD_LOG_NOTICE(( "Sending ack for hash accs msg" ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done() );

@@ -224,6 +224,7 @@ fd_exec_txn_ctx_delete( void * mem );
 void
 fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx );
 
+/* TODO: the constructors for the txn_ctx needs to be properly consolidated. */
 void
 fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * ctx,
                        fd_txn_t const * txn_descriptor,

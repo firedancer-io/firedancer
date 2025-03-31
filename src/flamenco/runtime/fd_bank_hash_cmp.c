@@ -189,6 +189,7 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
   }
 
   double pct = (double)stake / (double)bank_hash_cmp->total_stake;
+  FD_LOG_NOTICE(("PCT %f", pct));;
   if( FD_LIKELY( pct > 0.52 ) ) {
     if( FD_UNLIKELY( 0 != memcmp( &cmp->ours, theirs, sizeof( fd_hash_t ) ) ) ) {
       FD_LOG_WARNING(( "\n\n[Bank Hash Comparison]\n"

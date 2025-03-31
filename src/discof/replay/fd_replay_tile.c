@@ -63,6 +63,14 @@
 #define SENDER_OUT_IDX (2UL)
 #define POH_OUT_IDX    (3UL)
 
+#define EXEC_BOOT_WAIT  (0UL)
+#define EXEC_BOOT_DONE  (1UL)
+#define EXEC_EPOCH_WAIT (2UL)
+#define EXEC_EPOCH_DONE (3UL)
+#define EXEC_SLOT_WAIT  (4UL)
+#define EXEC_TXN_BUSY   (5UL)
+#define EXEC_TXN_READY  (6UL)
+
 #define VOTE_ACC_MAX   (2000000UL)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
@@ -263,10 +271,10 @@ struct fd_replay_tile_ctx {
   /* TODO: Some of these arrays should be bitvecs that get masked into. */
   ulong               exec_cnt;
   ulong               exec_out_idx;
-  fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
+  fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ];   /* Sending to exec unexecuted txns */
   uchar               exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
-  uchar               exec_hashing[ FD_PACK_MAX_BANK_TILES ]; /* Is tile hashing accs */
-  ulong *             exec_fseq[ FD_PACK_MAX_BANK_TILES ]; /* fseq of the last executed txn */
+  uint                prev_ids[ FD_PACK_MAX_BANK_TILES ];   /* Previous txn id if any */
+  ulong *             exec_fseq[ FD_PACK_MAX_BANK_TILES ];  /* fseq of the last executed txn */
   int                 block_finalizing;
 
   ulong root; /* the root slot is the most recent slot to have reached
@@ -1279,7 +1287,7 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
 
-    ctx->exec_ready[ i ] = 0;
+    ctx->exec_ready[ i ] = EXEC_EPOCH_WAIT;
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
 
     fd_runtime_public_epoch_msg_t * epoch_msg = (fd_runtime_public_epoch_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
@@ -1328,7 +1336,7 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
 
-    ctx->exec_ready[ i ] = 0;
+    ctx->exec_ready[ i ] = EXEC_SLOT_WAIT;
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
 
     fd_runtime_public_slot_msg_t * slot_msg = (fd_runtime_public_slot_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
@@ -1368,7 +1376,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              ulong                  flags ) {
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    ctx->exec_ready[ i ] = 0;
+    ctx->exec_ready[ i ] = EXEC_SLOT_WAIT;
   }
 
   long prepare_time_ns = -fd_log_wallclock();
@@ -1600,7 +1608,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
   uchar to_exec[ FD_PACK_MAX_BANK_TILES ];
   uchar num_free_exec_tiles = 0UL;
   for( uchar i=0; i<ctx->exec_cnt; i++ ) {
-    if( ctx->exec_ready[ i ]==1 ) {
+    if( ctx->exec_ready[ i ]==EXEC_TXN_READY ) {
       to_exec[ num_free_exec_tiles++ ] = i;
     }
   }
@@ -1623,12 +1631,12 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
 
       uchar exec_idx = to_exec[ num_free_exec_tiles-1 ];
       //FD_LOG_WARNING(( "[%s] executing txn", __func__ ));
-      ulong                             pay_sz   = 0UL;
-      fd_replay_out_ctx_t *             exec_out = &ctx->exec_out[ exec_idx ];
-      fd_txn_p_t txn_p;
+      ulong                         pay_sz   = 0UL;
+      fd_replay_out_ctx_t *         exec_out = &ctx->exec_out[ exec_idx ];
+      fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       ulong txn_sz = fd_txn_parse_core( ctx->mbatch + ctx->slice_exec_ctx.wmark,
                                         fd_ulong_min( FD_TXN_MTU, ctx->slice_exec_ctx.sz - ctx->slice_exec_ctx.wmark ),
-                                        TXN( &txn_p ),
+                                        TXN( &exec_msg->txn ),
                                         NULL,
                                         &pay_sz );
 
@@ -1636,18 +1644,9 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
         __asm__("int $3");
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
-      fd_memcpy( txn_p.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
-      txn_p.payload_sz           = pay_sz;
+      fd_memcpy( exec_msg->txn.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
+      exec_msg->txn.payload_sz           = pay_sz;
       ctx->slice_exec_ctx.wmark += pay_sz;
-
-      fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( &exec_msg->txn, &txn_p, sizeof(fd_txn_p_t) );
-
-      /* dispatch dcache */
-      ctx->exec_ready[ exec_idx ] = 0;
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
 
       /* dispatch tpool */
 
@@ -1659,7 +1658,13 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
         FD_LOG_ERR(( "Unable to select a fork" ));
       }
 
-      publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
+      publish_account_notifications( ctx, fork, ctx->curr_slot, &exec_msg->txn, 1 );
+
+      /* dispatch dcache */
+      ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
 
       ctx->slice_exec_ctx.txns_rem--;
       num_free_exec_tiles--;
@@ -2354,49 +2359,61 @@ join_txn_ctx( fd_replay_tile_ctx_t * ctx,
 
 static void
 handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
+
+  /* This function is responsible for updating the local view for the
+     states of the exec tiles. */
+
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong res = fd_fseq_query( ctx->exec_fseq[ i ] );
     if( FD_UNLIKELY( res==ULONG_MAX ) ) {
       FD_LOG_WARNING(( "Exec tile fseq idx=%lu is not booted", i ));
     }
 
-    uint state = fd_exec_fseq_get_state( res );
+    uint state  = fd_exec_fseq_get_state( res );
+    uint txn_id = 0U;
     switch( state ) {
       case FD_EXEC_STATE_NOT_BOOTED:
         /* Init is not complete in the exec tile for some reason. */
         FD_LOG_WARNING(( "Exec tile idx=%lu is not booted", i ));
         break;
       case FD_EXEC_STATE_BOOTED:
-        FD_LOG_NOTICE(( "Exec tile idx=%lu is booting", i ));
-        join_txn_ctx( ctx, i, fd_exec_fseq_get_booted_offset( res ) );
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
+        if( ctx->exec_ready[ i ] == EXEC_BOOT_WAIT ) {
+          FD_LOG_NOTICE(( "Exec tile idx=%lu is booting", i ));
+          join_txn_ctx( ctx, i, fd_exec_fseq_get_booted_offset( res ) );
+        }
         break;
       case FD_EXEC_STATE_EPOCH_DONE:
-        FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed epoch message", i ));
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
-        ctx->exec_ready[ i ] = 0;
+        if( ctx->exec_ready[ i ]==EXEC_EPOCH_WAIT ) {
+          FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed epoch message", i ));
+          ctx->exec_ready[ i ] = EXEC_EPOCH_DONE;
+        }
         break;
       case FD_EXEC_STATE_SLOT_DONE:
-        FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed slot message", i ));
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
-        ctx->exec_ready[ i ] = 1;
+        if( ctx->exec_ready[ i ]==EXEC_SLOT_WAIT ) {
+          FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed slot message", i ));
+          ctx->exec_ready[ i ] = EXEC_TXN_READY;
+        }
         break;
       case FD_EXEC_STATE_TXN_DONE:
-        FD_LOG_DEBUG(( "Ack that exec tile idx=%lu has processed txn message", i ));
-        fd_execute_txn_task_info_t info = {0};
-        info.txn_ctx  = ctx->exec_txn_ctxs[ i ];
-        info.exec_res = info.txn_ctx->exec_err;
+        /* We must make sure that we don't try to finalize the same txn
+           twice. This would happen in the case of */
+        txn_id = fd_exec_fseq_get_txn_id( res );
+        if( ctx->exec_ready[ i ]==EXEC_TXN_BUSY && ctx->prev_ids[ i ]!=txn_id ) {
+          FD_LOG_DEBUG(( "Ack that exec tile idx=%lu has processed txn message with id=%u", i, txn_id ));
+          fd_execute_txn_task_info_t info = {0};
+          info.txn_ctx  = ctx->exec_txn_ctxs[ i ];
+          info.exec_res = info.txn_ctx->exec_err;
 
-        if( info.txn_ctx->flags == FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
-          fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
+          if( info.txn_ctx->flags == FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
+            fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
+          }
+
+          ctx->exec_ready[ i ] = EXEC_TXN_READY;
+          ctx->prev_ids[ i ]   = txn_id;
         }
-
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
-        ctx->exec_ready[ i ] = 1;
-        break;
-      case FD_EXEC_STATE_IDLE:
         break;
       case FD_EXEC_STATE_HASH_DONE:
+        FD_LOG_NOTICE(( "State is hash done" ));
         break;
       default:
         FD_LOG_ERR(( "Unexpected fseq state from exec tile idx=%lu state=%u", i, state ));
@@ -3114,8 +3131,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->exec_cnt = tile->replay.exec_tile_count;
   for( ulong i = 0UL; i < ctx->exec_cnt; i++ ) {
     /* Mark all initial state as not being ready. */
-    ctx->exec_ready[ i ]    = 0;
-    ctx->exec_hashing[ i ]  = 0;
+    ctx->exec_ready[ i ]    = EXEC_BOOT_WAIT;
+    ctx->prev_ids[ i ]      = UINT_MAX;
     ctx->exec_txn_ctxs[ i ] = NULL;
 
     ulong exec_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_fseq.%lu", i );

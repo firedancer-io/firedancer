@@ -18,7 +18,6 @@
 #define FD_EXEC_STATE_EPOCH_DONE (1<<2UL      )
 #define FD_EXEC_STATE_SLOT_DONE  (1<<3UL      )
 #define FD_EXEC_STATE_TXN_DONE   (1<<4UL      )
-#define FD_EXEC_STATE_IDLE       (1<<5UL      )
 #define FD_EXEC_STATE_HASH_DONE  (1<<6UL      )
 
 static uint FD_FN_UNUSED
@@ -49,13 +48,15 @@ fd_exec_fseq_set_epoch_done( void ) {
 }
 
 static ulong FD_FN_UNUSED
-fd_exec_fseq_set_txn_done( void ) {
-  return FD_EXEC_STATE_TXN_DONE;
+fd_exec_fseq_set_txn_done( uint txn_id ) {
+  ulong state = ((ulong)txn_id << 32UL);
+  state      |= FD_EXEC_STATE_TXN_DONE;
+  return state;
 }
 
-static ulong FD_FN_UNUSED
-fd_exec_fseq_set_idle( void ) {
-  return FD_EXEC_STATE_IDLE;
+static uint FD_FN_UNUSED
+fd_exec_fseq_get_txn_id( ulong fseq ) {
+  return (uint)(fseq >> 32UL);
 }
 
 static ulong FD_FN_UNUSED

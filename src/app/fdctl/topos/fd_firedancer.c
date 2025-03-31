@@ -428,8 +428,8 @@ fd_topo_initialize( config_t * config ) {
 
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
-    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, exec_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_fseq.%lu", i ) );
   }
 

@@ -2083,7 +2083,7 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
           0,
           fd_query_pubkey_stake( vote_account->acct->pubkey,
           &ctx->txn_ctx->stakes.vote_accounts ) );
-
+      FD_LOG_NOTICE(("BANK HASH %s", FD_BASE58_ENC_32_ALLOCA( &tower_sync->hash )));
       if( FD_LIKELY( tower_sync->has_root ) ) {
         fd_bank_hash_cmp_entry_t * cmp =
           fd_bank_hash_cmp_map_query( bank_hash_cmp->map, tower_sync->root, NULL );
