@@ -39,8 +39,11 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) ) {
+  int err = fd_exec_txn_ctx_get_account_with_key( txn_ctx,
+                                                  &fd_sysvar_instructions_id,
+                                                  &rec,
+                                                  fd_txn_account_check_exists );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && rec==NULL ) ) {
     /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
        before this is called, and this is only called if the sysvar instructions account is in
        the borrowed accounts list. */
@@ -130,12 +133,24 @@ int
 fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
                                                  ushort              current_instr_idx ) {
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
-    return FD_ACC_MGR_ERR_READ_FAILED;
 
+  /* Obtain the sysvar instruction account
+     https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L53-L55 */
+  int err = fd_exec_txn_ctx_get_account_with_key( txn_ctx,
+                                                  &fd_sysvar_instructions_id,
+                                                  &rec,
+                                                  fd_txn_account_check_borrow_mut );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/message_processor.rs#L40 */
+    return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX;
+  }
+
+  /* Store the current instruction index
+     https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L58-L61 */
   uchar * serialized_current_instr_idx = rec->data + (rec->meta->dlen - sizeof(ushort));
   FD_STORE( ushort, serialized_current_instr_idx, current_instr_idx );
 
-  return FD_ACC_MGR_SUCCESS;
+  fd_txn_account_release_write( rec );
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }

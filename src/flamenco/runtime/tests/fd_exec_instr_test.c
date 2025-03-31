@@ -1778,7 +1778,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         }
       }
 
-      if( !( fd_txn_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( acc->meta );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
@@ -1961,7 +1961,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if (is_cpi) {
     ctx->txn_ctx->instr_info_cnt = 1;
 
-    /* Need to setup txn_descriptor for txn account write checks (see fd_txn_account_is_writable_idx)
+    /* Need to setup txn_descriptor for txn account write checks (see fd_exec_txn_ctx_account_is_writable_idx)
        FIXME: this could probably go in fd_exec_test_instr_context_create? */
     fd_txn_t * txn_descriptor = (fd_txn_t *)fd_spad_alloc_debug( spad, fd_txn_align(), fd_txn_footprint( ctx->txn_ctx->instr_info_cnt, 0UL ) );
     txn_descriptor->transaction_version = FD_TXN_V0;
@@ -2266,20 +2266,31 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
            TODO: Once direct mapping is enabled we _technically_ don't need
                  this check */
 
-        if( fd_exec_txn_ctx_get_account_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
+        if( fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                                  idx_in_txn,
+                                                  &acct,
+                                                  fd_txn_account_check_exists ) ) {
           break;
         }
         if( acct->meta == NULL ){
           break;
         }
 
-        /* Now borrow mutably (with resize) */
-        int err = fd_exec_txn_ctx_get_account_modify_idx( txn_ctx,
-                                                          idx_in_txn,
-                                                          /* Do not reallocate if data is not going to be modified */
-                                                          acct_state->data ? acct_state->data->size : 0UL,
-                                                          &acct );
+        /* Now get account with is_writable check */
+        int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                                        idx_in_txn,
+                                                        /* Do not reallocate if data is not going to be modified */
+                                                        &acct,
+                                                        fd_txn_account_check_is_writable );
         if( err ) break;
+
+        /* resize manually
+           FIXME: This will go away when lower level account APIs exist to set data. */
+        if( acct_state->data ) {
+          if( acct_state->data->size > acct->const_meta->dlen ) {
+            fd_txn_account_resize( acct, acct_state->data->size );
+          }
+        }
 
         /* Update account state */
         acct->meta->info.lamports = acct_state->lamports;

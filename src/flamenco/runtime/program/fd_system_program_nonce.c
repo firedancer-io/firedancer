@@ -838,7 +838,7 @@ fd_system_program_exec_authorize_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L484-L485 */
 
   fd_guarded_borrowed_account_t account;
-  err = fd_exec_instr_ctx_try_borrow_account( ctx, 0, &account );
+  err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, 0, &account );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -987,7 +987,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
                    (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
-  if( FD_UNLIKELY( !fd_txn_account_is_writable_idx( txn_ctx, instr_accts[0] ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, instr_accts[0] ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 

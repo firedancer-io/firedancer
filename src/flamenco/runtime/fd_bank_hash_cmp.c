@@ -34,12 +34,12 @@ fd_bank_hash_cmp_new( void * mem ) {
 fd_bank_hash_cmp_t *
 fd_bank_hash_cmp_join( void * bank_hash_cmp ) {
   if( FD_UNLIKELY( !bank_hash_cmp ) ) {
-    FD_LOG_WARNING( ( "NULL bank_hash_cmp" ) );
+    FD_LOG_WARNING(( "NULL bank_hash_cmp" ));
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)bank_hash_cmp, fd_bank_hash_cmp_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned bank_hash_cmp" ) );
+    FD_LOG_WARNING(( "misaligned bank_hash_cmp" ));
     return NULL;
   }
 

@@ -478,6 +478,8 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
 
 # if !FD_HAS_NO_AGAVE
   for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
+    if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
+
     if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
       topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
     }

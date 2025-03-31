@@ -19,7 +19,10 @@ struct fd_borrowed_account {
   ulong                       magic;
   fd_txn_account_t *          acct;
   fd_exec_instr_ctx_t const * instr_ctx;
-  int                         instr_acc_idx;
+
+  /* index_in_instruction will be USHORT_MAX for borrowed program accounts because
+     they are not stored in the list of instruction accounts in the instruction context */
+  ushort                      index_in_instruction;
 };
 typedef struct fd_borrowed_account fd_borrowed_account_t;
 
@@ -35,10 +38,10 @@ static inline void
 fd_borrowed_account_init( fd_borrowed_account_t *     borrowed_acct,
                           fd_txn_account_t *          acct,
                           fd_exec_instr_ctx_t const * instr_ctx,
-                          int                         instr_acc_idx ) {
-  borrowed_acct->acct = acct;
-  borrowed_acct->instr_ctx = instr_ctx;
-  borrowed_acct->instr_acc_idx = instr_acc_idx;
+                          ushort                      index_in_instruction ) {
+  borrowed_acct->acct                 = acct;
+  borrowed_acct->instr_ctx            = instr_ctx;
+  borrowed_acct->index_in_instruction = index_in_instruction;
 
   FD_COMPILER_MFENCE();
   borrowed_acct->magic = FD_BORROWED_ACCOUNT_MAGIC;
@@ -290,7 +293,7 @@ fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrow
           fd_borrowed_account_is_executable( borrowed_acct );
 }
 
-/* fd_borrowed_account_is_signer mirror the Agave functions
+/* fd_borrowed_account_is_signer mirrors the Agave function
    solana_sdk::transaction_context::BorrowedAccount::is_signer.
    Returns 1 if the account is a signer or is writable and 0 otherwise.
 
@@ -299,15 +302,16 @@ fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrow
 static inline int
 fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
   fd_exec_instr_ctx_t const * instr_ctx = borrowed_acct->instr_ctx;
-  if( FD_UNLIKELY( borrowed_acct->instr_acc_idx >= instr_ctx->instr->acct_cnt ) ) {
+  fd_instr_info_t     const * instr     = instr_ctx->instr;
+
+  if( FD_UNLIKELY( borrowed_acct->index_in_instruction>=instr_ctx->instr->acct_cnt ) ) {
     return 0;
   }
 
-  fd_instr_info_t const * instr = instr_ctx->instr;
-  return fd_instr_acc_is_signer_idx( instr, (ulong)borrowed_acct->instr_acc_idx );
+  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->index_in_instruction );
 }
 
-/* fd_borrowed_account_is_writer mirror the Agave functions
+/* fd_borrowed_account_is_writer mirrors the Agave function
    solana_sdk::transaction_context::BorrowedAccount::is_writer.
    Returns 1 if the account is a signer or is writable and 0 otherwise.
 
@@ -316,12 +320,13 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
 static inline int
 fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
   fd_exec_instr_ctx_t const * instr_ctx = borrowed_acct->instr_ctx;
-  if( FD_UNLIKELY( borrowed_acct->instr_acc_idx >= instr_ctx->instr->acct_cnt ) ) {
+  fd_instr_info_t     const * instr     = instr_ctx->instr;
+
+  if( FD_UNLIKELY( borrowed_acct->index_in_instruction>=instr_ctx->instr->acct_cnt ) ) {
     return 0;
   }
 
-  fd_instr_info_t const * instr = instr_ctx->instr;
-  return fd_instr_acc_is_writable_idx( instr, (ulong)borrowed_acct->instr_acc_idx );
+  return fd_instr_acc_is_writable_idx( instr, borrowed_acct->index_in_instruction );
 }
 
 /* fd_borrowed_account_is_owned_by_current_program mirrors Agave's
@@ -347,9 +352,6 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
 static inline int
 fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_acct,
                                          int *                       err ) {
-  fd_instr_info_t const * instr = borrowed_acct->instr_ctx->instr;
-  FD_TEST( borrowed_acct->instr_acc_idx < instr->acct_cnt );
-
   /* Only non-executable accounts data can be changed
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1076 */
   if( FD_UNLIKELY( fd_borrowed_account_is_executable_internal( borrowed_acct ) ) ) {

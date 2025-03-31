@@ -1,8 +1,11 @@
 #include "helper.h"
-
+#include "../../fd_sys_util.h"
 #include "../../../../tango/cnc/fd_cnc.h"
-
+#include <sys/time.h>
+#include <sys/select.h>
 #include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
 
 #define PRINT( ... ) do {                                                        \
     int n = snprintf( *buf, *buf_sz, __VA_ARGS__ );                              \
@@ -175,4 +178,33 @@ printf_pct( char ** buf,
 
   if( pct<=999.999 ) { PRINT( " %7.3f", pct ); return; }
   /**/                 PRINT( ">999.999" );
+}
+
+int
+fd_getchar( void ) {
+
+  fd_set read_fds;
+  FD_ZERO( &read_fds );
+  FD_SET( STDIN_FILENO, &read_fds );
+  fd_set except_fds = read_fds;
+
+  struct timeval timeout;
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 0;
+
+  if( FD_UNLIKELY( -1==select( 1, &read_fds, NULL, &except_fds, &timeout ) ) ) {
+    FD_LOG_ERR(( "select(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  int ch = 0;
+  if( FD_UNLIKELY( FD_ISSET( STDIN_FILENO, &read_fds ) || FD_ISSET( STDIN_FILENO, &except_fds ) ) ) {
+    long read_ret = read( STDIN_FILENO, &ch, 1 );
+    if( FD_UNLIKELY( read_ret<0 ) ) {
+      FD_LOG_ERR(( "read(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else if( FD_UNLIKELY( !read_ret ) ) {
+      fd_sys_util_exit_group( 0 );
+    }
+  }
+
+  return (int)ch;
 }

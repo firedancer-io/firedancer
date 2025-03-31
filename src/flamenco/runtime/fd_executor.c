@@ -2,6 +2,7 @@
 #include "context/fd_exec_epoch_ctx.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
+#include "fd_runtime.h"
 #include "fd_runtime_err.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
@@ -444,10 +445,10 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acct = &txn_ctx->accounts[i];
-    uchar unknown_acc = !!( fd_exec_txn_ctx_get_account_view_idx( txn_ctx, (uchar)i, &acct ) ||
-                            acct->const_meta->info.lamports==0UL );
+    uchar unknown_acc = !!(fd_exec_txn_ctx_get_account_at_index( txn_ctx, (uchar)i, &acct, fd_txn_account_check_exists ) ||
+                            acct->const_meta->info.lamports==0UL);
     ulong acc_size    = unknown_acc ? 0UL : acct->const_meta->dlen;
-    uchar is_writable = !!( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) );
+    uchar is_writable = !!( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) );
 
     /* Collect the fee payer account separately
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L431 */
@@ -493,7 +494,10 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L455-L462 */
     fd_txn_account_t * program_account = NULL;
-    int err = fd_exec_txn_ctx_get_account_view_idx( txn_ctx, instr->program_id, &program_account );
+    int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                                    instr->program_id,
+                                                    &program_account,
+                                                    fd_txn_account_check_exists );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || program_account->const_meta->info.lamports==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -787,7 +791,10 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L436 */
   fd_txn_account_t * fee_payer_rec = NULL;
-  err = fd_exec_txn_ctx_get_account_modify_fee_payer( txn_ctx, &fee_payer_rec );
+  err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                              FD_FEE_PAYER_TXN_IDX,
+                                              &fee_payer_rec,
+                                              fd_txn_account_check_fee_payer_writable );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
@@ -834,111 +841,24 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( txn_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+      return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+    }
+
     fd_slot_hashes_t slot_hashes[1];
     fd_bincode_decode_ctx_t decode = { .wksp = txn_ctx->runtime_pub_wksp };
     fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
 
-    if( FD_UNLIKELY( !&slot_hashes[0] ) ) {
-      return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
-    }
-
-    fd_pubkey_t readonly_lut_accs[128];
-    ulong       readonly_lut_accs_cnt = 0UL;
-    // Set up accounts in the account look up tables.
-    fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
-    for( ulong i = 0UL; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
-      fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
-      fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
-
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-      FD_TXN_ACCOUNT_DECL( addr_lut_rec );
-      int err = fd_acc_mgr_view( txn_ctx->acc_mgr,
-                                 txn_ctx->funk_txn,
-                                 addr_lut_acc,
-                                 addr_lut_rec );
-      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-        return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L96-L114 */
-      if( FD_UNLIKELY( memcmp( addr_lut_rec->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
-      }
-
-      /* Realistically impossible case, but need to make sure we don't cause an OOB data access
-          https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
-      if( FD_UNLIKELY( addr_lut_rec->const_meta->dlen < FD_LOOKUP_TABLE_META_SIZE ) ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/accounts-db/src/accounts.rs#L141-L142 */
-      fd_bincode_decode_ctx_t decode_ctx = {
-        .data    = addr_lut_rec->const_data,
-        .dataend = &addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE]
-      };
-
-      ulong total_sz = 0UL;
-      err = fd_address_lookup_table_state_decode_footprint( &decode_ctx, &total_sz );
-      if( FD_UNLIKELY( err ) ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-      }
-
-      uchar * mem = fd_spad_alloc( txn_ctx->spad, fd_address_lookup_table_state_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for address lookup table state" ));
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
-      fd_address_lookup_table_state_t * addr_lookup_table_state = fd_address_lookup_table_state_decode( mem, &decode_ctx );
-
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
-      if( FD_UNLIKELY( addr_lookup_table_state->discriminant != fd_address_lookup_table_state_enum_lookup_table ) ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-      }
-
-      /* Again probably an impossible case, but the ALUT data needs to be 32-byte aligned
-          https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
-      if( FD_UNLIKELY( (addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L101-L112 */
-      fd_pubkey_t * lookup_addrs     = (fd_pubkey_t *)&addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE];
-      ulong         lookup_addrs_cnt = (addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
-
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
-      ulong active_addresses_len;
-      err = fd_get_active_addresses_len( &addr_lookup_table_state->inner.lookup_table,
-                                          txn_ctx->slot,
-                                          slot_hashes->hashes,
-                                          lookup_addrs_cnt,
-                                          &active_addresses_len );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L169-L182 */
-      uchar * writable_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->writable_off;
-      for( ulong j = 0; j < addr_lut->writable_cnt; j++ ) {
-        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
-        if( writable_lut_idxs[j] >= active_addresses_len ) {
-          return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
-        }
-        txn_ctx->account_keys[txn_ctx->accounts_cnt++] = lookup_addrs[writable_lut_idxs[j]];
-      }
-
-      uchar * readonly_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->readonly_off;
-      for( ulong j = 0; j < addr_lut->readonly_cnt; j++ ) {
-        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
-        if( readonly_lut_idxs[j] >= active_addresses_len ) {
-          return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
-        }
-        readonly_lut_accs[readonly_lut_accs_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
-      }
-    }
-
-    fd_memcpy( &txn_ctx->account_keys[txn_ctx->accounts_cnt], readonly_lut_accs, readonly_lut_accs_cnt * sizeof(fd_pubkey_t) );
-    txn_ctx->accounts_cnt += readonly_lut_accs_cnt;
+    fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
+    int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
+                                                         txn_ctx->_txn_raw->raw,
+                                                         txn_ctx->acc_mgr,
+                                                         txn_ctx->funk_txn,
+                                                         txn_ctx->slot,
+                                                         slot_hashes->hashes,
+                                                         accts_alt );
+    txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
 
@@ -1185,7 +1105,7 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* An account writable iff it is writable AND it is not being
        demoted. If this criteria is not met, the account should not be
        marked as touched via updating its most recent slot. */
-    if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
+    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) ) {
       continue;
     }
 
@@ -1251,7 +1171,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
        account which is almost always writable, but doesn't have to be.
 
        TODO: The txn account semantics should better match Agave's. */
-    if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
+    if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
       void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
       /* All new accounts should have their rent epoch set to ULONG_MAX.
@@ -1394,11 +1314,13 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 #ifdef VLOG
     FD_LOG_WARNING(( "Start of transaction for %d for %s", i, FD_BASE58_ENC_64_ALLOCA( sig ) ));
 #endif
+    txn_ctx->current_instr_idx = i;
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
       ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instructions failed to update instruction index" ));
+        txn_ctx->instr_err_idx = i;
         return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
     }
@@ -1408,7 +1330,6 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
       fd_dump_instr_to_protobuf( txn_ctx, &txn_ctx->instr_infos[i], i );
     }
 
-    txn_ctx->current_instr_idx = i;
     int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG
     FD_LOG_WARNING(( "fd_execute_instr result (%d) for %s", exec_result, FD_BASE58_ENC_64_ALLOCA( sig ) ));

@@ -23,6 +23,7 @@ typedef struct fd_bank_hash_cmp_entry fd_bank_hash_cmp_entry_t;
 
 struct fd_bank_hash_cmp {
   fd_bank_hash_cmp_entry_t * map;
+  ulong                      map_gaddr;
   ulong                      cnt;
   ulong                      watermark; /*  */
   ulong                      total_stake;
