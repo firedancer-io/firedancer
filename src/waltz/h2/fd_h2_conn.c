@@ -1,5 +1,6 @@
 #include "fd_h2_conn.h"
 #include "fd_h2_base.h"
+#include "fd_h2_callback.h"
 #include "fd_h2_proto.h"
 #include "../../util/log/fd_log.h"
 #include "fd_h2_rbuf.h"
@@ -72,16 +73,16 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
   uint  stream_id  = conn->rx_stream_id;
   uint  chunk_sz   = (uint)fd_ulong_min( frame_rem, rbuf_avail );
-  int   end_stream = !!( conn->rx_frame_flags & FD_H2_FLAG_END_STREAM );
-  int   fin        = end_stream && rbuf_avail>frame_rem;
+  uint  fin_flag   = conn->rx_frame_flags & FD_H2_FLAG_END_STREAM;
+  if( rbuf_avail<frame_rem ) fin_flag = 0;
 
   ulong sz0, sz1;
   uchar const * peek = fd_h2_rbuf_peek_frag( rbuf_rx, &sz0, &sz1 );
   if( FD_LIKELY( !sz1 ) ) {
-    cb->data( conn, stream_id, peek, sz0, fin );
+    cb->data( conn, stream_id, peek, sz0, fin_flag );
   } else {
-    cb->data( conn, stream_id, peek,          sz0, 0   );
-    cb->data( conn, stream_id, rbuf_rx->buf0, sz1, fin );
+    cb->data( conn, stream_id, peek,          sz0, 0        );
+    cb->data( conn, stream_id, rbuf_rx->buf0, sz1, fin_flag );
   }
 
   conn->rx_frame_rem -= chunk_sz;
@@ -100,6 +101,8 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     return 0;
   }
 
+  conn->rx_stream_id = stream_id;
+
   if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_PRIORITY ) ) {
     if( FD_UNLIKELY( payload_sz<5UL ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
@@ -107,6 +110,10 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     }
     payload    += 5UL;
     payload_sz -= 5UL;
+  }
+
+  if( FD_UNLIKELY( !( frame_flags & FD_H2_FLAG_END_HEADERS ) ) ) {
+    conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
   cb->headers( conn, stream_id, payload, payload_sz, frame_flags );
@@ -122,32 +129,38 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
                        uint                      frame_flags,
                        uint                      stream_id ) {
 
-  if( FD_UNLIKELY( !stream_id ) ) {
+  if( FD_UNLIKELY( ( conn->rx_stream_id!=stream_id                    ) |
+                   ( !( conn->flags & FD_H2_CONN_FLAGS_CONTINUATION ) ) |
+                   ( !stream_id                                       ) ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
   }
 
-  cb->headers( conn, stream_id, payload, payload_sz, frame_flags & FD_H2_VFLAG_CONTINUATION );
+  if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_END_HEADERS ) ) {
+    conn->flags &= (uchar)~FD_H2_CONN_FLAGS_CONTINUATION;
+  }
+
+  cb->headers( conn, stream_id, payload, payload_sz, frame_flags );
 
   return 1;
 }
 
 static int
-fd_h2_rx_rst_stream( fd_h2_conn_t * conn,
-                     uchar const *  payload,
-                     ulong          payload_sz,
-                     uint           stream_id ) {
-
+fd_h2_rx_rst_stream( fd_h2_conn_t *            conn,
+                     uchar const *             payload,
+                     ulong                     payload_sz,
+                     fd_h2_callbacks_t const * cb,
+                     uint                      stream_id ) {
   if( FD_UNLIKELY( payload_sz!=4UL ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
     return 0;
   }
-  if( FD_UNLIKELY( stream_id ) ) {
+  if( FD_UNLIKELY( !stream_id ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
   }
   uint error_code = fd_uint_bswap( FD_LOAD( uint, payload ) );
-  fd_h2_conn_error( conn, error_code );
+  cb->rst_stream( conn, stream_id, error_code );
   return 1;
 }
 
@@ -362,7 +375,7 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
   case FD_H2_FRAME_TYPE_CONTINUATION:
     return fd_h2_rx_continuation( conn, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_RST_STREAM:
-    return fd_h2_rx_rst_stream( conn, payload, payload_sz, stream_id );
+    return fd_h2_rx_rst_stream( conn, payload, payload_sz, cb, stream_id );
   case FD_H2_FRAME_TYPE_SETTINGS:
     return fd_h2_rx_settings( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_PING:

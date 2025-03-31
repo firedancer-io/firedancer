@@ -89,7 +89,7 @@ fd_h2_rbuf_prepare_sendmsg( fd_h2_rbuf_t * rbuf,
   ulong used_sz = fd_h2_rbuf_used_sz( rbuf );
   if( FD_UNLIKELY( !used_sz ) ) return 0UL;
 
-  if( lo<=hi ) {
+  if( hi<=lo ) {
 
     iov[ 0 ].iov_base = lo;
     iov[ 0 ].iov_len  = fd_ulong_min( (ulong)( buf1-lo ), used_sz );

@@ -4,6 +4,9 @@
 
 #include "fd_h2_callback.h"
 #include "fd_h2_conn.h"
+#include "fd_h2_proto.h"
+#include "fd_h2_rbuf.h"
+#include "fd_h2_stream.h"
 #include "fd_h2_rbuf_sock.h"
 #include "fd_hpack.h"
 #include "../../util/fd_util.h"
@@ -14,7 +17,8 @@
 #include <sys/socket.h> /* socket(2) */
 
 static fd_h2_callbacks_t test_h2_callbacks;
-static uint test_h2_stream_id;
+static fd_h2_rbuf_t rbuf_tx[1];
+static fd_h2_stream_t g_stream;
 
 static void
 test_cb_conn_established( fd_h2_conn_t * conn ) {
@@ -30,17 +34,57 @@ test_cb_conn_final( fd_h2_conn_t * conn,
 }
 
 static void
+test_cb_rst_stream( fd_h2_conn_t * conn,
+                    uint           stream_id,
+                    uint           error_code ) {
+  (void)conn;
+  FD_LOG_NOTICE(( "Request %u: received RST_STREAM (%u-%s)", stream_id, error_code, fd_h2_strerror( error_code ) ));
+}
+
+static void
+send_response( fd_h2_conn_t * conn ) {
+  FD_LOG_NOTICE(( "Request %u: Done reading", g_stream.stream_id ));
+
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<9 ) ) {
+    FD_LOG_WARNING(( "Not enough space in rbuf_tx" ));
+    fd_h2_conn_error( conn, FD_H2_ERR_INTERNAL );
+    return;
+  }
+
+  fd_h2_tx_prepare( conn, rbuf_tx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, g_stream.stream_id );
+  uchar hpack[] = {
+    0x88, /* :status: 200 */
+  };
+  fd_h2_rbuf_push( rbuf_tx, hpack, sizeof(hpack) );
+  fd_h2_tx_commit( conn, rbuf_tx );
+
+  fd_h2_tx_prepare( conn, rbuf_tx, FD_H2_FRAME_TYPE_DATA, FD_H2_FLAG_END_STREAM, g_stream.stream_id );
+  fd_h2_rbuf_push( rbuf_tx, "Ok", 2UL );
+  fd_h2_tx_commit( conn, rbuf_tx );
+
+  FD_LOG_NOTICE(( "Request %u: Response sent", g_stream.stream_id ));
+}
+
+static void
 test_cb_headers( fd_h2_conn_t * conn,
                  uint           stream_id,
                  void const *   data,
                  ulong          data_sz,
                  ulong          flags ) {
-  (void)flags;
-
-  if( stream_id!=test_h2_stream_id ) {
-    FD_LOG_NOTICE(( "Request %u", stream_id ));
-    test_h2_stream_id = stream_id;
+  if( stream_id!=g_stream.stream_id ) {
+    FD_LOG_NOTICE(( "Request %u: Start", stream_id ));
+    g_stream.stream_id = stream_id;
+    fd_h2_stream_init( &g_stream, stream_id );
   }
+
+  fd_h2_stream_rx_headers( &g_stream, flags );
+  if( FD_UNLIKELY( g_stream.state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
+    FD_LOG_WARNING(( "Request %u in illegal state", stream_id ));
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return;
+  }
+
+  FD_LOG_HEXDUMP_DEBUG(( "Header field block", data, data_sz ));
 
   fd_hpack_rd_t hpack_rd[1];
   fd_hpack_rd_init( hpack_rd, data, data_sz );
@@ -58,6 +102,39 @@ test_cb_headers( fd_h2_conn_t * conn,
     FD_LOG_NOTICE(( "-> %.*s: %.*s",
                     (int)hdr->name_len,  (char const *)hdr->name,
                     (int)hdr->value_len, (char const *)hdr->value ));
+  }
+
+  if( flags & FD_H2_FLAG_END_HEADERS ) {
+    FD_LOG_NOTICE(( "Request %u: Headers complete", stream_id ));
+  }
+  if( flags & FD_H2_FLAG_END_STREAM ) {
+    send_response( conn );
+  }
+}
+
+static void
+test_cb_data( fd_h2_conn_t * conn,
+              uint           stream_id,
+              void const *   data,
+              ulong          data_sz,
+              ulong          flags ) {
+  if( stream_id!=g_stream.stream_id ) {
+    FD_LOG_WARNING(( "DATA frame for unknown stream %u", stream_id ));
+    g_stream.stream_id = stream_id;
+    fd_h2_stream_init( &g_stream, stream_id );
+  }
+
+  fd_h2_stream_rx_data( &g_stream, flags );
+  if( FD_UNLIKELY( g_stream.state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
+    FD_LOG_WARNING(( "Request %u in illegal state", stream_id ));
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return;
+  }
+
+  FD_LOG_HEXDUMP_NOTICE(( "Request data", data, data_sz ));
+
+  if( flags & FD_H2_FLAG_END_STREAM ) {
+    send_response( conn );
   }
 }
 
@@ -92,12 +169,13 @@ handle_conn( int tcp_sock ) {
 
   fd_h2_conn_t conn[1];
   fd_h2_conn_init_server( conn );
+  conn->self_settings.max_concurrent_streams = 1;
+  g_stream.stream_id = 0;
 
   static uchar scratch[ 16384 ];
   static uchar rx_buf [ 16384 ];
   static uchar tx_buf [ 16384 ];
   fd_h2_rbuf_t rbuf_rx[1];
-  fd_h2_rbuf_t rbuf_tx[1];
   fd_h2_rbuf_init( rbuf_rx, rx_buf, sizeof(rx_buf) );
   fd_h2_rbuf_init( rbuf_tx, tx_buf, sizeof(tx_buf) );
 
@@ -110,6 +188,11 @@ handle_conn( int tcp_sock ) {
         FD_LOG_WARNING(( "sendmsg failed (%i-%s)", err, fd_io_strerror( err ) ));
         return;
       }
+    }
+
+    if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) {
+      FD_LOG_NOTICE(( "Closing TCP conn" ));
+      return;
     }
 
     int err = fd_h2_rbuf_recvmsg( rbuf_rx, tcp_sock, MSG_NOSIGNAL );
@@ -130,6 +213,8 @@ main( int     argc,
   test_h2_callbacks.conn_established = test_cb_conn_established;
   test_h2_callbacks.conn_final       = test_cb_conn_final;
   test_h2_callbacks.headers          = test_cb_headers;
+  test_h2_callbacks.data             = test_cb_data;
+  test_h2_callbacks.rst_stream       = test_cb_rst_stream;
 
   ushort port = fd_env_strip_cmdline_ushort( &argc, &argv, "--port", NULL, 8080 );
 

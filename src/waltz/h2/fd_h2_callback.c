@@ -25,8 +25,8 @@ fd_h2_noop_data( fd_h2_conn_t * conn,
                  uint           stream_id,
                  void const *   data,
                  ulong          data_sz,
-                 int            end_stream ) {
-  (void)conn; (void)stream_id; (void)data; (void)data_sz; (void)end_stream;
+                 ulong          flags ) {
+  (void)conn; (void)stream_id; (void)data; (void)data_sz; (void)flags;
 }
 
 static void

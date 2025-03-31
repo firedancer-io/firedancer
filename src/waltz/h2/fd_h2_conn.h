@@ -67,18 +67,20 @@ typedef struct fd_h2_conn fd_h2_conn_t;
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
 
 #define FD_H2_CONN_FLAGS_LG_DEAD                (0) /* conn has passed */
+#define FD_H2_CONN_FLAGS_LG_CONTINUATION        (1) /* next frame must be CONTINUATION */
 #define FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         (3) /* send GOAWAY */
 #define FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      (4) /* send preface, SETTINGS */
 #define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 (5) /* wait for initial ACK of initial SETTINGS */
 #define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     (6) /* wait for peer's initial SETTINGS */
 #define FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      (7) /* wait for client preface, then send settings */
 
-#define FD_H2_CONN_FLAGS_CLIENT_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      ))
-#define FD_H2_CONN_FLAGS_SERVER_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      ))
-#define FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     ))
-#define FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 ))
-#define FD_H2_CONN_FLAGS_SEND_GOAWAY         ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         ))
 #define FD_H2_CONN_FLAGS_DEAD                ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_DEAD                ))
+#define FD_H2_CONN_FLAGS_CONTINUATION        ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_CONTINUATION        ))
+#define FD_H2_CONN_FLAGS_SEND_GOAWAY         ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         ))
+#define FD_H2_CONN_FLAGS_CLIENT_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      ))
+#define FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 ))
+#define FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     ))
+#define FD_H2_CONN_FLAGS_SERVER_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      ))
 
 /* A connection is established when no more handshake-related flags are
    sent.  Specifically: The connection preface was sent, the peer's

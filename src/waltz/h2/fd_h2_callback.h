@@ -6,8 +6,6 @@
 
 #include "fd_h2_base.h"
 
-#define FD_H2_VFLAG_CONTINUATION (0x80000000)
-
 /* fd_h2_callbacks_t is a virtual function table.  May not contain NULL
    pointers. */
 
@@ -42,7 +40,7 @@ struct fd_h2_callbacks_t {
             uint           stream_id,
             void const *   data,
             ulong          data_sz,
-            int            end_stream );
+            ulong          flags );
 
   /* rst_stream signals peer-requested termination of a stream. */
 

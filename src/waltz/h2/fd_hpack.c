@@ -103,6 +103,7 @@ static uint
 fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
                       fd_h2_hdr_t *   hdr ) {
   uchar const * end = rd->src_end;
+next:
   if( FD_UNLIKELY( rd->src >= end ) ) FD_LOG_CRIT(( "fd_hpack_rd_next called out of bounds" ));
 
   uint b0 = *(rd->src++);
@@ -171,6 +172,7 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
     /* Dynamic Table Size Update */
     ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
     if( FD_UNLIKELY( max_sz!=0UL ) ) return FD_H2_ERR_COMPRESSION;
+    goto next;
   }
 
   /* Unknown HPACK instruction */
