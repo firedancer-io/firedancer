@@ -9,17 +9,19 @@
 /* FD_H2_FRAME_TYPE_* give HTTP/2 frame IDs.
    https://www.iana.org/assignments/http2-parameters/http2-parameters.xhtml#frame-type */
 
-#define FD_H2_FRAME_TYPE_DATA          ((uchar)0x00)
-#define FD_H2_FRAME_TYPE_HEADERS       ((uchar)0x01)
-#define FD_H2_FRAME_TYPE_PRIORITY      ((uchar)0x02)
-#define FD_H2_FRAME_TYPE_RST_STREAM    ((uchar)0x03)
-#define FD_H2_FRAME_TYPE_SETTINGS      ((uchar)0x04)
-#define FD_H2_FRAME_TYPE_PUSH_PROMISE  ((uchar)0x05)
-#define FD_H2_FRAME_TYPE_PING          ((uchar)0x06)
-#define FD_H2_FRAME_TYPE_GOAWAY        ((uchar)0x07)
-#define FD_H2_FRAME_TYPE_WINDOW_UPDATE ((uchar)0x08)
-#define FD_H2_FRAME_TYPE_CONTINUATION  ((uchar)0x09)
-#define FD_H2_FRAME_TYPE_ALTSVC        ((uchar)0x0a)
+#define FD_H2_FRAME_TYPE_DATA            ((uchar)0x00)
+#define FD_H2_FRAME_TYPE_HEADERS         ((uchar)0x01)
+#define FD_H2_FRAME_TYPE_PRIORITY        ((uchar)0x02)
+#define FD_H2_FRAME_TYPE_RST_STREAM      ((uchar)0x03)
+#define FD_H2_FRAME_TYPE_SETTINGS        ((uchar)0x04)
+#define FD_H2_FRAME_TYPE_PUSH_PROMISE    ((uchar)0x05)
+#define FD_H2_FRAME_TYPE_PING            ((uchar)0x06)
+#define FD_H2_FRAME_TYPE_GOAWAY          ((uchar)0x07)
+#define FD_H2_FRAME_TYPE_WINDOW_UPDATE   ((uchar)0x08)
+#define FD_H2_FRAME_TYPE_CONTINUATION    ((uchar)0x09)
+#define FD_H2_FRAME_TYPE_ALTSVC          ((uchar)0x0a)
+#define FD_H2_FRAME_TYPE_ORIGIN          ((uchar)0x0c)
+#define FD_H2_FRAME_TYPE_PRIORITY_UPDATE ((uchar)0x10)
 
 /* fd_h2_frame_{length,type} pack/unpack the typlen field as found in a
    frame header. */
@@ -106,5 +108,21 @@ struct __attribute__((packed)) fd_h2_goaway {
 };
 
 typedef struct fd_h2_goaway fd_h2_goaway_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_h2_frame_name returns a static-lifetime uppercase cstr with the
+   name of a HTTP/2 frame. */
+
+FD_FN_CONST char const *
+fd_h2_frame_name( uint frame_id );
+
+/* fd_h2_setting_name returns a static-lifetime uppercase cstr with the
+   name of a HTTP/2 setting. */
+
+FD_FN_CONST char const *
+fd_h2_setting_name( uint setting_id );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_h2_fd_h2_proto */

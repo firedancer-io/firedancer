@@ -4,6 +4,7 @@
 #include "test_h2_rbuf.c"
 #include "test_h2_hdr_match.c"
 #include "test_h2_conn.c"
+#include "test_h2_proto.c"
 
 int
 main( int     argc,
@@ -23,6 +24,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing h2_conn" ));
   test_h2_conn();
+
+  FD_LOG_NOTICE(( "Testing h2_proto" ));
+  test_h2_proto();
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

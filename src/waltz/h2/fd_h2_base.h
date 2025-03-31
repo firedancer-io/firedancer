@@ -28,18 +28,6 @@ typedef struct fd_h2_conn fd_h2_conn_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_h2_frame_name returns a static-lifetime uppercase cstr with the
-   name of a HTTP/2 frame. */
-
-FD_FN_CONST char const *
-fd_h2_frame_name( uint frame_id );
-
-/* fd_h2_setting_name returns a static-lifetime uppercase cstr with the
-   name of a HTTP/2 setting. */
-
-FD_FN_CONST char const *
-fd_h2_setting_name( uint setting_id );
-
 /* fd_h2_strerror returns a static-lifetime cstr briefly describing the
    given FD_H2_ERR_* code. */
 
