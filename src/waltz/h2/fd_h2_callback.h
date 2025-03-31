@@ -14,8 +14,7 @@
 struct fd_h2_callbacks_t {
 
   void
-  (* conn_established)( fd_h2_conn_t * conn,
-                        uint           h2_err );
+  (* conn_established)( fd_h2_conn_t * conn );
 
   /* conn_final notifies the caller just before conn closes. */
 

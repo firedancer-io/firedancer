@@ -1,9 +1,8 @@
 #include "fd_h2_callback.h"
 
 static void
-fd_h2_noop_conn_established( fd_h2_conn_t * conn,
-                             uint           h2_err ) {
-  (void)conn; (void)h2_err;
+fd_h2_noop_conn_established( fd_h2_conn_t * conn ) {
+  (void)conn;
 }
 
 static void

@@ -19,16 +19,6 @@ struct fd_h2_settings {
 
 typedef struct fd_h2_settings fd_h2_settings_t;
 
-/* fd_h2_config_t contains fd_h2-specific settings that are invisible to
-   the peer. */
-
-struct fd_h2_config {
-  float ns_per_tick;
-  long  settings_timeout;
-};
-
-typedef struct fd_h2_config fd_h2_config_t;
-
 /* FD_H2_MAX_PENDING_SETTINGS limits the number of SETTINGS frames that
    fd_h2 can burst without an acknowledgement.  Aborts the conn with a
    TCP RST if fd_h2 or the peer pile on too many unacknowledged SETTINGS
@@ -51,9 +41,6 @@ struct fd_h2_conn {
   fd_h2_settings_t self_settings;
   fd_h2_settings_t peer_settings;
 
-  long settings_timeout;
-  long settings_deadline;
-
   uchar * tx_frame_p;     /* points to first byte of frame header */
   ulong   tx_payload_off;
   ulong   rx_suppress;    /* skip frame handlers until this RX offset */
@@ -68,8 +55,8 @@ struct fd_h2_conn {
   uint  rx_active;       /* currently active receive streams */
   uint  tx_active;       /* currently active transmit streams */
 
-  uchar state;           /* one of FD_H2_CONN_STATE_* */
-  uchar action;          /* bit set of FD_H2_CONN_ACTION_* */
+  uchar flags;           /* bit set of FD_H2_CONN_FLAGS_* */
+  uchar conn_error;
   uchar setting_tx;      /* no of sent SETTINGS frames pending their ACK */
   uchar rx_frame_flags;  /* current RX frame: flags */
   uchar rx_pad_rem;      /* current RX frame: pad bytes remaining */
@@ -77,50 +64,42 @@ struct fd_h2_conn {
 
 typedef struct fd_h2_conn fd_h2_conn_t;
 
-/* FD_H2_CONN_STATE_* give states in the connection lifecycle */
+/* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
 
-#define FD_H2_CONN_STATE_DEAD           ((uchar)0x00)
-#define FD_H2_CONN_STATE_CLIENT_INITIAL ((uchar)0x01) /* send preface+settings */
-#define FD_H2_CONN_STATE_SERVER_INITIAL ((uchar)0x02) /* send settings */
-#define FD_H2_CONN_STATE_WAIT_SETTINGS  ((uchar)0x03) /* wait for initial settings */
-#define FD_H2_CONN_STATE_ESTABLISHED    ((uchar)0x04) /* wait for frames */
-#define FD_H2_CONN_STATE_UPSET          ((uchar)0x80) /* forcibly closing with error */
+#define FD_H2_CONN_FLAGS_LG_DEAD                (0) /* conn has passed */
+#define FD_H2_CONN_FLAGS_LG_SETTINGS            (2) /* need to send a SETTINGS frame */
+#define FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         (3) /* send GOAWAY */
+#define FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      (4) /* send preface, SETTINGS */
+#define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 (5) /* wait for initial ACK of initial SETTINGS */
+#define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     (6) /* wait for peer's initial SETTINGS */
+#define FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      (7) /* wait for client preface, then send settings */
 
-#define FD_H2_CONN_ACTION_SETTINGS     ((uchar)0x02) /* need to send a SETTINGS frame */
+#define FD_H2_CONN_FLAGS_CLIENT_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      ))
+#define FD_H2_CONN_FLAGS_SERVER_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      ))
+#define FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     ))
+#define FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 ))
+#define FD_H2_CONN_FLAGS_SEND_GOAWAY         ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         ))
+#define FD_H2_CONN_FLAGS_SETTINGS            ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SETTINGS            ))
+#define FD_H2_CONN_FLAGS_DEAD                ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_DEAD                ))
 
-FD_PROTOTYPES_BEGIN
+/* A connection is established when no more handshake-related flags are
+   sent.  Specifically: The connection preface was sent, the peer's
+   preface was received, a SETTINGS frame was sent, a SETTINGS frame was
+   received, a SETTINGS ACK was sent, and a SETTINGS ACK was received. */
 
-/* fd_h2_config_validate returns FD_H2_SUCCESS if a config object is
-   valid and FD_H2_ERR_INTERNAL otherwise.  Logs reason for validate
-   failure. */
+#define FD_H2_CONN_FLAGS_HANDSHAKING (0xf0)
 
-int
-fd_h2_config_validate( fd_h2_config_t const * config );
-
-#if FD_HAS_DOUBLE
-
-/* fd_h2_config_defaults derives sensible defaults for an h2_config.
-   WARNING: Creates the assumption that fd_tickcount() is used for
-   timestamps.  Take appropriate precautions (thread pinning, etc.).
-   WARNING: Calls fd_tempo_tick_per_ns() which may block the caller for
-   a couple 100 milliseconds to train the clock. */
-
-fd_h2_config_t *
-fd_h2_config_defaults( fd_h2_config_t * config );
-
-#endif /* FD_HAS_DOUBLE */
-
-/* fd_h2_conn_init_client bootstraps a conn object for use as a client
-   side HTTP/2 connection.  config is copied into the conn object.
-   Returns conn on success, or NULL on failure (logs warning).  This
-   call is currently infallible so there are no failure conditions.  The
-   client should check for failure regardless (future proofing). */
+/* fd_h2_conn_init_{client,server} bootstraps a conn object for use as a
+   {client,server}-side HTTP/2 connection.  Returns conn on success, or
+   NULL on failure (logs warning).  This call is currently infallible so
+   there are no failure conditions.  The caller should check for failure
+   regardless (future proofing). */
 
 fd_h2_conn_t *
-fd_h2_conn_init_client( fd_h2_conn_t *         conn,
-                        fd_h2_config_t const * config );
+fd_h2_conn_init_client( fd_h2_conn_t * conn );
 
-/* FIXME implement fd_h2_conn_init_server */
+fd_h2_conn_t *
+fd_h2_conn_init_server( fd_h2_conn_t * conn );
 
 /* fd_h2_conn_fini destroys a h2_conn object.  Since h2_conn has no
    references or ownership over external objects, this is a no-op. */
@@ -148,8 +127,7 @@ fd_h2_rx( fd_h2_conn_t *            conn,
 
 void
 fd_h2_tx_control( fd_h2_conn_t * conn,
-                  fd_h2_rbuf_t * rbuf_tx,
-                  long           cur_time );
+                  fd_h2_rbuf_t * rbuf_tx );
 
 /* fd_h2_tx_check_sz checks whether rbuf_tx has enough space to buffer
    a frame for sending.  frame_max is the max frame size to check for.

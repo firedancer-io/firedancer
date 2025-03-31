@@ -1,7 +1,6 @@
 #include "fd_h2_conn.h"
 #include "fd_h2_base.h"
 #include "fd_h2_proto.h"
-#include "../../tango/tempo/fd_tempo.h"
 #include "../../util/log/fd_log.h"
 #include "fd_h2_rbuf.h"
 #include <float.h>
@@ -15,43 +14,22 @@ static fd_h2_settings_t const fd_h2_settings_initial = {
   .max_header_list_size   = UINT_MAX
 };
 
-int
-fd_h2_config_validate( fd_h2_config_t const * config ) {
-  if( config->ns_per_tick<=FLT_EPSILON || config->ns_per_tick>=FLT_MAX ) {
-    FD_LOG_WARNING(( "invalid config: invalid ns_per_tick" ));
-    return FD_H2_ERR_INTERNAL;
-  }
-  if( config->settings_timeout<=0 ) {
-    FD_LOG_WARNING(( "invalid config: missing settings_timeout" ));
-    return FD_H2_ERR_INTERNAL;
-  }
-  return FD_H2_SUCCESS;
-}
-
-#if FD_HAS_DOUBLE
-
-fd_h2_config_t *
-fd_h2_config_defaults( fd_h2_config_t * config ) {
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  double ns_per_tick = 1.0/tick_per_ns;
-  *config = (fd_h2_config_t) {
-    .ns_per_tick      = (float)ns_per_tick,
-    .settings_timeout = (long)(  3e9*tick_per_ns )
+fd_h2_conn_t *
+fd_h2_conn_init_client( fd_h2_conn_t * conn ) {
+  *conn = (fd_h2_conn_t) {
+    .self_settings = fd_h2_settings_initial,
+    .peer_settings = fd_h2_settings_initial,
+    .flags         = FD_H2_CONN_FLAGS_CLIENT_INITIAL
   };
-  return config;
+  return conn;
 }
-
-#endif /* FD_HAS_DOUBLE */
 
 fd_h2_conn_t *
-fd_h2_conn_init_client( fd_h2_conn_t *         conn,
-                        fd_h2_config_t const * config ) {
+fd_h2_conn_init_server( fd_h2_conn_t * conn ) {
   *conn = (fd_h2_conn_t) {
-    .self_settings     = fd_h2_settings_initial,
-    .peer_settings     = fd_h2_settings_initial,
-    .settings_timeout  = config->settings_timeout,
-    .settings_deadline = LONG_MAX,
-    .state             = FD_H2_CONN_STATE_CLIENT_INITIAL
+    .self_settings = fd_h2_settings_initial,
+    .peer_settings = fd_h2_settings_initial,
+    .flags         = FD_H2_CONN_FLAGS_SERVER_INITIAL
   };
   return conn;
 }
@@ -70,7 +48,7 @@ static void
 fd_h2_gen_settings( fd_h2_settings_t const * settings,
                     uchar                    buf[ FD_H2_OUR_SETTINGS_ENCODED_SZ ] ) {
   fd_h2_frame_hdr_t hdr = {
-    .typlen    = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_SETTINGS, 24UL ),
+    .typlen    = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_SETTINGS, 36UL ),
     .flags     = 0,
     .stream_id = 0
   };
@@ -89,7 +67,9 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
 static void
 fd_h2_conn_error( fd_h2_conn_t * conn,
                   uint           err_code ) {
-  conn->state = FD_H2_CONN_STATE_UPSET | (uchar)( err_code & 0xf );
+  /* Clear all other flags */
+  conn->flags = FD_H2_CONN_FLAGS_SEND_GOAWAY;
+  conn->conn_error = (uchar)err_code;
 }
 
 static void
@@ -180,12 +160,13 @@ fd_h2_rx_rst_stream( fd_h2_conn_t * conn,
 }
 
 static int
-fd_h2_rx_settings( fd_h2_conn_t * conn,
-                   fd_h2_rbuf_t * rbuf_tx,
-                   uchar const *  payload,
-                   ulong          payload_sz,
-                   uint           frame_flags,
-                   uint           stream_id ) {
+fd_h2_rx_settings( fd_h2_conn_t *            conn,
+                   fd_h2_rbuf_t *            rbuf_tx,
+                   uchar const *             payload,
+                   ulong                     payload_sz,
+                   fd_h2_callbacks_t const * cb,
+                   uint                      frame_flags,
+                   uint                      stream_id ) {
 
   if( FD_UNLIKELY( stream_id ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
@@ -200,6 +181,12 @@ fd_h2_rx_settings( fd_h2_conn_t * conn,
     if( FD_UNLIKELY( !conn->setting_tx ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return 0;
+    }
+    if( conn->flags & FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 ) {
+      conn->flags &= ~FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;
+      if( !( conn->flags & FD_H2_CONN_FLAGS_HANDSHAKING ) ) {
+        cb->conn_established( conn );
+      }
     }
     conn->setting_tx--;
     return 1;
@@ -242,8 +229,11 @@ fd_h2_rx_settings( fd_h2_conn_t * conn,
   }
   fd_h2_rbuf_push( rbuf_tx, &hdr, sizeof(fd_h2_frame_hdr_t) );
 
-  if( FD_UNLIKELY( conn->state == FD_H2_CONN_STATE_WAIT_SETTINGS ) ) {
-    conn->state = FD_H2_CONN_STATE_ESTABLISHED;
+  if( conn->flags & FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 ) {
+    conn->flags &= ~FD_H2_CONN_FLAGS_WAIT_SETTINGS_0;
+    if( !( conn->flags & FD_H2_CONN_FLAGS_HANDSHAKING ) ) {
+      cb->conn_established( conn );
+    }
   }
 
   return 1;
@@ -312,7 +302,7 @@ fd_h2_rx_goaway( fd_h2_conn_t *            conn,
   }
 
   uint error_code = fd_uint_bswap( FD_LOAD( uint, payload+4UL ) );
-  conn->state = FD_H2_CONN_STATE_DEAD;
+  conn->flags = FD_H2_CONN_FLAGS_DEAD;
   cb->conn_final( conn, error_code );
 
   return 1;
@@ -376,7 +366,7 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
   case FD_H2_FRAME_TYPE_RST_STREAM:
     return fd_h2_rx_rst_stream( conn, payload, payload_sz, stream_id );
   case FD_H2_FRAME_TYPE_SETTINGS:
-    return fd_h2_rx_settings( conn, rbuf_tx, payload, payload_sz, frame_flags, stream_id );
+    return fd_h2_rx_settings( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_PING:
     return fd_h2_rx_ping( conn, rbuf_tx, payload, payload_sz, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_GOAWAY:
@@ -410,7 +400,10 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
   }
 
   /* A new frame starts.  Peek the header. */
-  if( FD_UNLIKELY( fd_h2_rbuf_used_sz( rbuf_rx )<sizeof(fd_h2_frame_hdr_t) ) ) return;
+  if( FD_UNLIKELY( fd_h2_rbuf_used_sz( rbuf_rx )<sizeof(fd_h2_frame_hdr_t) ) ) {
+    conn->rx_suppress = rbuf_rx->lo_off + sizeof(fd_h2_frame_hdr_t);
+    return;
+  }
   fd_h2_rbuf_t rx_peek = *rbuf_rx;
   fd_h2_frame_hdr_t hdr;
   fd_h2_rbuf_pop_copy( &rx_peek, &hdr, sizeof(fd_h2_frame_hdr_t) );
@@ -446,7 +439,10 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   /* Consume all or nothing */
   ulong const tot_sz = sizeof(fd_h2_frame_hdr_t) + frame_sz;
-  if( FD_UNLIKELY( tot_sz>fd_h2_rbuf_used_sz( rbuf_rx ) ) ) return;
+  if( FD_UNLIKELY( tot_sz>fd_h2_rbuf_used_sz( rbuf_rx ) ) ) {
+    conn->rx_suppress = rbuf_rx->lo_off + tot_sz;
+    return;
+  }
 
   /* FIXME generate conn errors instead */
   uint payload_sz = rem_sz-pad_sz;
@@ -472,7 +468,7 @@ fd_h2_rx( fd_h2_conn_t *            conn,
   /* Pre-receive TX work */
 
   /* Stop handling frames on conn error. */
-  if( FD_UNLIKELY( ( conn->state & 0xf0 )==FD_H2_CONN_STATE_UPSET ) ) return;
+  if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return;
 
   /* All other logic below can only proceed if new data arrived. */
   if( FD_UNLIKELY( !fd_h2_rbuf_used_sz( rbuf_rx ) ) ) return;
@@ -498,68 +494,52 @@ fd_h2_rx( fd_h2_conn_t *            conn,
 
 void
 fd_h2_tx_control( fd_h2_conn_t * conn,
-                  fd_h2_rbuf_t * rbuf_tx,
-                  long           cur_time ) {
-
-  if( FD_LIKELY( (!conn->action) & (conn->state==FD_H2_CONN_STATE_ESTABLISHED) ) ) return;
+                  fd_h2_rbuf_t * rbuf_tx ) {
 
   if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<96 ) ) return;
 
-  /* FIXME Optimize by combining STATE and ACTION and switching by LSB set. */
+  switch( fd_uint_find_lsb( conn->flags | 0x100 ) ) {
 
-  if( conn->state == FD_H2_CONN_STATE_CLIENT_INITIAL ) {
-    uchar buf[ sizeof(fd_h2_client_preface)+FD_H2_OUR_SETTINGS_ENCODED_SZ ];
-    memcpy( buf, fd_h2_client_preface, sizeof(fd_h2_client_preface) );
-    conn->state   = FD_H2_CONN_STATE_WAIT_SETTINGS;
-    conn->action &= (uchar)~(FD_H2_CONN_ACTION_SETTINGS );
-    conn->settings_deadline = cur_time + conn->settings_timeout;
-    fd_h2_gen_settings( &conn->self_settings, buf+sizeof(fd_h2_client_preface) );
-    fd_h2_rbuf_push( rbuf_tx, buf, sizeof(buf) );
-    return;
-  }
-
-  if( FD_UNLIKELY( conn->action & FD_H2_CONN_ACTION_SETTINGS ) ) {
+  case FD_H2_CONN_FLAGS_LG_SETTINGS: {
     /* Can't send another SETTINGS frame, already waiting for lots of ACKs */
-    if( FD_UNLIKELY( conn->setting_tx >= FD_H2_MAX_PENDING_SETTINGS ) ) return;
+    if( FD_UNLIKELY( conn->setting_tx >= FD_H2_MAX_PENDING_SETTINGS ) ) break;
 
     uchar buf[ FD_H2_OUR_SETTINGS_ENCODED_SZ ];
     fd_h2_gen_settings( &conn->self_settings, buf );
-    conn->setting_tx++;
-    conn->action &= (uchar)~FD_H2_CONN_ACTION_SETTINGS;
     fd_h2_rbuf_push( rbuf_tx, buf, sizeof(buf) );
-    return;
+    conn->setting_tx++;
+    conn->flags &= (uchar)~FD_H2_CONN_FLAGS_SETTINGS;
+    break;
   }
 
-  if( FD_UNLIKELY( conn->state == FD_H2_CONN_STATE_WAIT_SETTINGS ) ) {
-    if( cur_time > conn->settings_deadline ) {
-      fd_h2_conn_error( conn, FD_H2_ERR_SETTINGS_TIMEOUT );
-      /* fall through */
-    }
+  case FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL: {
+    uchar buf[ sizeof(fd_h2_client_preface)+FD_H2_OUR_SETTINGS_ENCODED_SZ ];
+    memcpy( buf, fd_h2_client_preface, sizeof(fd_h2_client_preface) );
+    fd_h2_gen_settings( &conn->self_settings, buf+sizeof(fd_h2_client_preface) );
+    fd_h2_rbuf_push( rbuf_tx, buf, sizeof(buf) );
+    conn->setting_tx++;
+    conn->flags = FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 | FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;
+    break;
   }
 
-  if( FD_UNLIKELY( (conn->state & 0xf0)==FD_H2_CONN_STATE_UPSET ) ) {
+  case FD_H2_CONN_FLAGS_LG_SEND_GOAWAY: {
     fd_h2_goaway_t goaway = {
       .hdr = {
         .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 24UL )
       },
       .last_stream_id = 0, /* FIXME */
-      .error_code     = fd_uint_bswap( conn->state & 0xf )
+      .error_code     = fd_uint_bswap( (uint)conn->conn_error )
     };
-    conn->state = FD_H2_CONN_STATE_DEAD;
+    conn->flags = FD_H2_CONN_FLAGS_DEAD;
     fd_h2_rbuf_push( rbuf_tx, &goaway, sizeof(fd_h2_goaway_t) );
-    return;
+    break;
   }
 
-}
+  default:
+    break;
 
-fd_h2_conn_t *
-fd_h2_conn_init_server( fd_h2_conn_t * conn ) {
-  *conn = (fd_h2_conn_t) {
-    .self_settings = fd_h2_settings_initial,
-    .peer_settings = fd_h2_settings_initial,
-    .state         = FD_H2_CONN_STATE_SERVER_INITIAL
-  };
-  return conn;
+  }
+
 }
 
 FD_FN_CONST char const *
