@@ -44,13 +44,18 @@ fd_h2_frame_typlen( ulong type,      /* in [0,2^8) */
   return (fd_uint_bswap( (uint)length )>>8) | ((uint)type<<24);
 }
 
+FD_FN_CONST static inline uint
+fd_h2_frame_stream_id( uint r_stream_id ) {
+  return fd_uint_bswap( r_stream_id ) & 0x7fffffffu;
+}
+
 /* fd_h2_frame_hdr_t matches the encoding of a HTTP/2 frame header.
    https://www.rfc-editor.org/rfc/rfc9113.html#section-4.1 */
 
 struct __attribute__((packed)) fd_h2_frame_hdr {
   uint  typlen;
   uchar flags;
-  uint  stream_id;
+  uint  r_stream_id;
 };
 
 typedef struct fd_h2_frame_hdr fd_h2_frame_hdr_t;
@@ -108,6 +113,19 @@ struct __attribute__((packed)) fd_h2_goaway {
 };
 
 typedef struct fd_h2_goaway fd_h2_goaway_t;
+
+
+/* fd_h2_rst_stream_t matches the encoding of a RST_STREAM frame.
+   https://www.rfc-editor.org/rfc/rfc9113.html#name-rst_stream */
+
+struct __attribute__((packed)) fd_h2_rst_stream {
+  fd_h2_frame_hdr_t hdr;
+
+  uint error_code;
+};
+
+typedef struct fd_h2_rst_stream fd_h2_rst_stream_t;
+
 
 FD_PROTOTYPES_BEGIN
 

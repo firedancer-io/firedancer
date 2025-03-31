@@ -49,9 +49,7 @@ static void
 fd_h2_gen_settings( fd_h2_settings_t const * settings,
                     uchar                    buf[ FD_H2_OUR_SETTINGS_ENCODED_SZ ] ) {
   fd_h2_frame_hdr_t hdr = {
-    .typlen    = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_SETTINGS, 36UL ),
-    .flags     = 0,
-    .stream_id = 0
+    .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_SETTINGS, 36UL ),
   };
   fd_memcpy( buf, &hdr, 9UL );
 
@@ -118,6 +116,21 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
 
   cb->headers( conn, stream_id, payload, payload_sz, frame_flags );
 
+  return 1;
+}
+
+static int
+fd_h2_rx_priority( fd_h2_conn_t * conn,
+                   ulong          payload_sz,
+                   uint           stream_id ) {
+  if( FD_UNLIKELY( payload_sz!=5UL ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
+    return 0;
+  }
+  if( FD_UNLIKELY( !stream_id ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return 0;
+  }
   return 1;
 }
 
@@ -210,14 +223,29 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
 
   for( ulong off=0UL; off<payload_sz; off+=sizeof(fd_h2_setting_t) ) {
     fd_h2_setting_t setting = FD_LOAD( fd_h2_setting_t, payload+off );
-    uint value = fd_uint_bswap( setting.value );
+    ushort id    = fd_ushort_bswap( setting.id );
+    uint   value = fd_uint_bswap( setting.value );
 
-    switch( fd_ushort_bswap( setting.id ) ) {
+    switch( id ) {
+    case FD_H2_SETTINGS_ENABLE_PUSH:
+      if( FD_UNLIKELY( value>1 ) ) {
+        fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+        return 0;
+      }
+      break;
     case FD_H2_SETTINGS_INITIAL_WINDOW_SIZE:
+      if( FD_UNLIKELY( value>0x7fffffff ) ) {
+        fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
+        return 0;
+      }
       conn->peer_settings.initial_window_size = value;
       /* FIXME update window accordingly */
       break;
     case FD_H2_SETTINGS_MAX_FRAME_SIZE:
+      if( FD_UNLIKELY( value<0x4000 || value>0xffffff ) ) {
+        fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
+        return 0;
+      }
       conn->peer_settings.max_frame_size = value;
       /* FIXME validate min */
       break;
@@ -321,6 +349,7 @@ fd_h2_rx_goaway( fd_h2_conn_t *            conn,
 
 static int
 fd_h2_rx_window_update( fd_h2_conn_t *            conn,
+                        fd_h2_rbuf_t *            rbuf_tx,
                         fd_h2_callbacks_t const * cb,
                         uchar const *             payload,
                         ulong                     payload_sz,
@@ -349,6 +378,19 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
 
   } else {
 
+    if( FD_UNLIKELY( !increment ) ) {
+      fd_h2_rst_stream_t rst_stream = {
+        .hdr = {
+          .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
+          .flags       = 0U,
+          .r_stream_id = fd_uint_bswap( stream_id )
+        },
+        .error_code = fd_uint_bswap( FD_H2_ERR_PROTOCOL )
+      };
+      fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+      return 0;
+    }
+
     /* Stream-level window update */
     cb->stream_window_update( conn, stream_id, (uint)increment );
 
@@ -372,18 +414,20 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
   switch( frame_type ) {
   case FD_H2_FRAME_TYPE_HEADERS:
     return fd_h2_rx_headers( conn, payload, payload_sz, cb, frame_flags, stream_id );
-  case FD_H2_FRAME_TYPE_CONTINUATION:
-    return fd_h2_rx_continuation( conn, payload, payload_sz, cb, frame_flags, stream_id );
+  case FD_H2_FRAME_TYPE_PRIORITY:
+    return fd_h2_rx_priority( conn, payload_sz, stream_id );
   case FD_H2_FRAME_TYPE_RST_STREAM:
     return fd_h2_rx_rst_stream( conn, payload, payload_sz, cb, stream_id );
   case FD_H2_FRAME_TYPE_SETTINGS:
     return fd_h2_rx_settings( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
+  case FD_H2_FRAME_TYPE_CONTINUATION:
+    return fd_h2_rx_continuation( conn, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_PING:
     return fd_h2_rx_ping( conn, rbuf_tx, payload, payload_sz, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_GOAWAY:
     return fd_h2_rx_goaway( conn, cb, payload, payload_sz, stream_id );
   case FD_H2_FRAME_TYPE_WINDOW_UPDATE:
-    return fd_h2_rx_window_update( conn, cb, payload, payload_sz, stream_id );
+    return fd_h2_rx_window_update( conn, rbuf_tx, cb, payload, payload_sz, stream_id );
   default:
     return 1;
   }
@@ -421,6 +465,11 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
   uint const frame_type = fd_h2_frame_type  ( hdr.typlen );
   uint const frame_sz   = fd_h2_frame_length( hdr.typlen );
 
+  if( FD_UNLIKELY( frame_sz > conn->self_settings.max_frame_size ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
+    return;
+  }
+
   /* Peek padding */
   uint pad_sz = 0U;
   uint rem_sz = frame_sz;
@@ -441,7 +490,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
   if( frame_type==FD_H2_FRAME_TYPE_DATA ) {
     conn->rx_frame_rem   = rem_sz;
     conn->rx_frame_flags = hdr.flags;
-    conn->rx_stream_id   = fd_uint_bswap( hdr.stream_id );
+    conn->rx_stream_id   = fd_h2_frame_stream_id( hdr.r_stream_id );
     conn->rx_pad_rem     = (uchar)pad_sz;
     *rbuf_rx = rx_peek;
     fd_h2_rx_data( conn, rbuf_rx, cb );
@@ -466,7 +515,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     fd_h2_rx_frame( conn, rbuf_tx, frame, payload_sz, cb,
                     frame_type,
                     hdr.flags,
-                    fd_uint_bswap( hdr.stream_id ) );
+                    fd_h2_frame_stream_id( hdr.r_stream_id ) );
   (void)ok; /* FIXME */
   fd_h2_rbuf_skip( rbuf_rx, pad_sz );
 }
@@ -529,7 +578,7 @@ fd_h2_tx_control( fd_h2_conn_t * conn,
   case FD_H2_CONN_FLAGS_LG_SEND_GOAWAY: {
     fd_h2_goaway_t goaway = {
       .hdr = {
-        .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 24UL )
+        .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 8UL )
       },
       .last_stream_id = 0, /* FIXME */
       .error_code     = fd_uint_bswap( (uint)conn->conn_error )

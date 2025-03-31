@@ -1,5 +1,5 @@
 /* test_h2_server is a dummy HTTP/2 server for testing purposes.
-   It responds to GET and POST requests by echoing the request path.
+   It responds to GET and POST requests with status 200.
    The server uses single threaded blocking sockets without timeouts. */
 
 #include "fd_h2_callback.h"
@@ -257,10 +257,8 @@ main( int     argc,
       if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( pid==0 ) {
         fd_log_private_tid_set( (ulong)getpid() );
-        close( listen_sock );
         handle_conn( tcp_sock );
-        close( tcp_sock );
-        return 0;
+        exit( 0 );
       }
     } else {
       handle_conn( tcp_sock );

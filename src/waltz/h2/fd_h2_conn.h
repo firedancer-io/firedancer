@@ -172,9 +172,9 @@ fd_h2_tx_prepare( fd_h2_conn_t * conn,
   conn->tx_payload_off = rbuf_tx->hi_off + 9;
 
   fd_h2_frame_hdr_t hdr = {
-    .typlen    = fd_h2_frame_typlen( frame_type, 0 ),
-    .flags     = (uchar)flags,
-    .stream_id = fd_uint_bswap( stream_id )
+    .typlen      = fd_h2_frame_typlen( frame_type, 0 ),
+    .flags       = (uchar)flags,
+    .r_stream_id = fd_uint_bswap( stream_id )
   };
   fd_h2_rbuf_push( rbuf_tx, &hdr, sizeof(fd_h2_frame_hdr_t) );
 }
@@ -220,9 +220,9 @@ fd_h2_tx( fd_h2_rbuf_t * rbuf_tx,
           uint           flags,
           uint           stream_id ) {
   fd_h2_frame_hdr_t hdr = {
-    .typlen    = fd_h2_frame_typlen( frame_type, payload_sz ),
-    .flags     = (uchar)flags,
-    .stream_id = fd_uint_bswap( stream_id )
+    .typlen      = fd_h2_frame_typlen( frame_type, payload_sz ),
+    .flags       = (uchar)flags,
+    .r_stream_id = fd_uint_bswap( stream_id )
   };
   fd_h2_rbuf_push( rbuf_tx, &hdr, sizeof(fd_h2_frame_hdr_t) );
   fd_h2_rbuf_push( rbuf_tx, payload, payload_sz );
