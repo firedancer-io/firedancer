@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #define _GNU_SOURCE
 #include "../../disco/tiles.h"
 #include "generated/fd_exec_tile_seccomp.h"
@@ -82,7 +81,9 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
                              fd_runtime_public_epoch_msg_t * epoch_msg ) {
 
   /* If we need to refresh epoch-level information, we need to pop off
-     the transaction-level, slot-level, and epoch-level frames. */
+     the transaction-level, slot-level, and epoch-level frames.
+
+     TODO: Epoch-level information should probably live in its own spad. */
   if( FD_LIKELY( ctx->pending_txn_pop ) ) {
     fd_spad_pop( ctx->exec_spad );
     ctx->pending_txn_pop = 0;

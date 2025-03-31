@@ -1224,7 +1224,6 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong j = 0UL;
-  fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
   for( ulong i = 0UL; i < txn_ctx->accounts_cnt; i++ ) {
 
     fd_pubkey_t * acc = &txn_ctx->account_keys[i];

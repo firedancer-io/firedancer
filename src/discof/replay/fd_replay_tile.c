@@ -3310,7 +3310,7 @@ metrics_write( fd_replay_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, SLOT, ctx->metrics.slot );
 }
 
-/* TODO: This is definitely not correct */
+/* TODO: This needs to get sized out correctly. */
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_ctx_t

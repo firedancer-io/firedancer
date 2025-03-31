@@ -30,17 +30,15 @@ fd_funk_map_write_unlock( void ) {
   waiting_lock = 0;
 }
 
-fd_funk_t *
-fd_funk_open_file( const char * filename,
-                   ulong        wksp_tag,
-                   ulong        seed,
-                   ulong        txn_max,
-                   ulong        rec_max,
-                   ulong        total_sz,
-                   fd_funk_file_mode_t mode,
-                   fd_funk_close_file_args_t * close_args_out ) {
-
-  fd_funk_map_write_lock();
+static fd_funk_t *
+fd_funk_open_file_inner( const char *                filename,
+                         ulong                       wksp_tag,
+                         ulong                       seed,
+                         ulong                       txn_max,
+                         ulong                       rec_max,
+                         ulong                       total_sz,
+                         fd_funk_file_mode_t         mode,
+                         fd_funk_close_file_args_t * close_args_out ) {
 
   /* See if we already have the file open */
 
@@ -74,7 +72,6 @@ fd_funk_open_file( const char * filename,
         close_args_out->fd = -1;
         close_args_out->total_sz = 0;
       }
-      fd_funk_map_write_unlock();
       return funk;
     }
   }
@@ -82,7 +79,7 @@ fd_funk_open_file( const char * filename,
   /* Open the file */
 
   int open_flags, can_resize, can_create, do_new;
-  switch (mode) {
+  switch( mode ) {
   case FD_FUNK_READONLY:
     if( filename == NULL  || filename[0] == '\0' ) {
       FD_LOG_WARNING(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace, funk file required" ));
@@ -266,7 +263,6 @@ fd_funk_open_file( const char * filename,
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
     }
-    fd_funk_map_write_unlock();
     return funk;
 
   } else {
@@ -318,9 +314,23 @@ fd_funk_open_file( const char * filename,
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
     }
-    fd_funk_map_write_unlock();
     return funk;
   }
+}
+
+fd_funk_t *
+fd_funk_open_file( const char *                filename,
+                   ulong                       wksp_tag,
+                   ulong                       seed,
+                   ulong                       txn_max,
+                   ulong                       rec_max,
+                   ulong                       total_sz,
+                   fd_funk_file_mode_t         mode,
+                   fd_funk_close_file_args_t * close_args_out ) {
+  fd_funk_map_write_lock();
+  fd_funk_t * funk = fd_funk_open_file_inner( filename, wksp_tag, seed, txn_max, rec_max, total_sz, mode, close_args_out );
+  fd_funk_map_write_unlock();
+  return funk;
 }
 
 fd_funk_t *
@@ -463,7 +473,6 @@ fd_funk_recover_checkpoint( const char * funk_filename,
     close_args_out->fd = fd;
     close_args_out->total_sz = total_sz;
   }
-  fd_funk_map_write_unlock();
   return funk;
 }
 
