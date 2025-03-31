@@ -67,7 +67,6 @@ typedef struct fd_h2_conn fd_h2_conn_t;
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
 
 #define FD_H2_CONN_FLAGS_LG_DEAD                (0) /* conn has passed */
-#define FD_H2_CONN_FLAGS_LG_SETTINGS            (2) /* need to send a SETTINGS frame */
 #define FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         (3) /* send GOAWAY */
 #define FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      (4) /* send preface, SETTINGS */
 #define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 (5) /* wait for initial ACK of initial SETTINGS */
@@ -79,7 +78,6 @@ typedef struct fd_h2_conn fd_h2_conn_t;
 #define FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     ))
 #define FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 ))
 #define FD_H2_CONN_FLAGS_SEND_GOAWAY         ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         ))
-#define FD_H2_CONN_FLAGS_SETTINGS            ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SETTINGS            ))
 #define FD_H2_CONN_FLAGS_DEAD                ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_DEAD                ))
 
 /* A connection is established when no more handshake-related flags are

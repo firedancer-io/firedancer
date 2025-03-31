@@ -500,18 +500,6 @@ fd_h2_tx_control( fd_h2_conn_t * conn,
 
   switch( fd_uint_find_lsb( conn->flags | 0x100 ) ) {
 
-  case FD_H2_CONN_FLAGS_LG_SETTINGS: {
-    /* Can't send another SETTINGS frame, already waiting for lots of ACKs */
-    if( FD_UNLIKELY( conn->setting_tx >= FD_H2_MAX_PENDING_SETTINGS ) ) break;
-
-    uchar buf[ FD_H2_OUR_SETTINGS_ENCODED_SZ ];
-    fd_h2_gen_settings( &conn->self_settings, buf );
-    fd_h2_rbuf_push( rbuf_tx, buf, sizeof(buf) );
-    conn->setting_tx++;
-    conn->flags &= (uchar)~FD_H2_CONN_FLAGS_SETTINGS;
-    break;
-  }
-
   case FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL: {
     uchar buf[ sizeof(fd_h2_client_preface)+FD_H2_OUR_SETTINGS_ENCODED_SZ ];
     memcpy( buf, fd_h2_client_preface, sizeof(fd_h2_client_preface) );
