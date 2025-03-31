@@ -26,16 +26,6 @@ static void __attribute__((destructor)) free_buf(void) {
   free(trace_buf);
 }
 
-/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
-#define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
-#define DEPRECATED_LOADER_COMPUTE_UNITS  (1140UL)
-#define UPGRADEABLE_LOADER_COMPUTE_UNITS (2370UL)
-/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/bpf_loader_upgradeable.rs#L29-L120 */
-#define SIZE_OF_PROGRAM                  (36UL  ) /* UpgradeableLoaderState::size_of_program() */
-#define BUFFER_METADATA_SIZE             (37UL  ) /* UpgradeableLoaderState::size_of_buffer_metadata() */
-#define PROGRAMDATA_METADATA_SIZE        (45UL  ) /* UpgradeableLoaderState::size_of_programdata_metadata() */
-#define SIZE_OF_UNINITIALIZED            (4UL   ) /* UpgradeableLoaderState::size_of_uninitialized() */
-
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int
 program_error_to_instr_error( ulong  err,

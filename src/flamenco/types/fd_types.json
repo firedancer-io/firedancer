@@ -1732,22 +1732,33 @@
         { "name": "offset", "type": "uint" },
         { "name": "bytes", "type": "vector", "element": "uchar" }
       ],
-      "comment": "https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L11-L17"
+      "comment": "https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L21-L27"
     },
     {
-      "name": "loader_v4_program_instruction_truncate",
+      "name": "loader_v4_program_instruction_copy",
+      "type": "struct",
+      "fields": [
+        { "name": "destination_offset", "type": "uint" },
+        { "name": "source_offset", "type": "uint" },
+        { "name": "length", "type": "uint" }
+      ],
+      "comment": "https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L35-L42"
+    },
+    {
+      "name": "loader_v4_program_instruction_set_program_length",
       "type": "struct",
       "fields": [
         { "name": "new_size", "type": "uint" }
       ],
-      "comment": "https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L33-L36"
+      "comment": "https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L57-L60"
     },
     {
       "name": "loader_v4_program_instruction",
       "type": "enum",
       "variants": [
         { "name": "write", "type": "loader_v4_program_instruction_write" },
-        { "name": "truncate", "type": "loader_v4_program_instruction_truncate" },
+        { "name": "copy", "type": "loader_v4_program_instruction_copy" },
+        { "name": "set_program_length", "type": "loader_v4_program_instruction_set_program_length" },
         { "name": "deploy" },
         { "name": "retract" },
         { "name": "transfer_authority" },

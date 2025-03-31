@@ -2630,10 +2630,20 @@ void *fd_loader_v4_program_instruction_write_generate( void *mem, void **alloc_m
   return mem;
 }
 
-void *fd_loader_v4_program_instruction_truncate_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_loader_v4_program_instruction_truncate_t *self = (fd_loader_v4_program_instruction_truncate_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_loader_v4_program_instruction_truncate_t);
-  fd_loader_v4_program_instruction_truncate_new(mem);
+void *fd_loader_v4_program_instruction_copy_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_loader_v4_program_instruction_copy_t *self = (fd_loader_v4_program_instruction_copy_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_loader_v4_program_instruction_copy_t);
+  fd_loader_v4_program_instruction_copy_new(mem);
+  self->destination_offset = fd_rng_uint( rng );
+  self->source_offset = fd_rng_uint( rng );
+  self->length = fd_rng_uint( rng );
+  return mem;
+}
+
+void *fd_loader_v4_program_instruction_set_program_length_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_loader_v4_program_instruction_set_program_length_t *self = (fd_loader_v4_program_instruction_set_program_length_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_loader_v4_program_instruction_set_program_length_t);
+  fd_loader_v4_program_instruction_set_program_length_new(mem);
   self->new_size = fd_rng_uint( rng );
   return mem;
 }
@@ -2645,7 +2655,11 @@ void fd_loader_v4_program_instruction_inner_generate( fd_loader_v4_program_instr
     break;
   }
   case 1: {
-    fd_loader_v4_program_instruction_truncate_generate( &self->truncate, alloc_mem, rng );
+    fd_loader_v4_program_instruction_copy_generate( &self->copy, alloc_mem, rng );
+    break;
+  }
+  case 2: {
+    fd_loader_v4_program_instruction_set_program_length_generate( &self->set_program_length, alloc_mem, rng );
     break;
   }
   }
@@ -2654,7 +2668,7 @@ void *fd_loader_v4_program_instruction_generate( void *mem, void **alloc_mem, fd
   fd_loader_v4_program_instruction_t *self = (fd_loader_v4_program_instruction_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_loader_v4_program_instruction_t);
   fd_loader_v4_program_instruction_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 6;
+  self->discriminant = fd_rng_uint( rng ) % 7;
   fd_loader_v4_program_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
