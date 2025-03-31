@@ -443,13 +443,15 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-replay_block_finalize( fd_replay_tile_ctx_t * ctx,
-                       fd_stem_context_t *    stem,
+replay_block_finalize( fd_replay_tile_ctx_t *    ctx,
+                       fd_stem_context_t *       stem,
                        fd_runtime_block_info_t * runtime_block_info ) {
 
   /* TODO: Currently this is being done out of the exec tile. This
      should eventually be moved to the privleged writer tiles which have
      write access into the runtime spad. */
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
     fd_accounts_hash_task_data_t * task_data = NULL;
     fd_runtime_block_execute_finalize_start( ctx->slot_ctx, ctx->runtime_spad, &task_data, ctx->exec_cnt );
@@ -477,27 +479,36 @@ replay_block_finalize( fd_replay_tile_ctx_t * ctx,
       hash_msg->start_idx        = start_idx;
       hash_msg->end_idx          = end_idx;
 
-      fd_stem_publish( stem, exec_out->idx, EXEC_HASH_ACCS_SIG, exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), 0UL, 0UL, 0UL );
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem,
+                       exec_out->idx,
+                       EXEC_HASH_ACCS_SIG,
+                       exec_out->chunk,
+                       sizeof(fd_runtime_public_hash_bank_msg_t),
+                       0UL,
+                       tsorig,
+                       tspub );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), exec_out->chunk0, exec_out->wmark );
     }
 
     /* Spins and blocks until all exec tiles are done hashing. */
-    uchar to_check[ ctx->exec_cnt ];
-    uchar to_check_cnt = (uchar)ctx->exec_cnt;
-    for( uchar i=0UL; i<(uchar)ctx->exec_cnt; i++ ) {
-      to_check[ i ] = i;
-    }
-    while( to_check_cnt>0 ) {
-      uchar next_to_check_cnt = 0;
-      for( uchar i=0; i< to_check_cnt; i++ ) {
-        uchar idx = to_check[ i ];
-        ulong res = fd_fseq_query( ctx->exec_fseq[ idx ] );
-        uint state = fd_exec_fseq_get_state( res );
-        if( state != FD_EXEC_STATE_HASH_DONE ) {
-          to_check[ next_to_check_cnt++ ] = idx;
+    uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
+    for( ;; ) {
+      uchar wait_cnt = 0;
+      for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+        if( !hash_done[ i ] ) {
+          ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+          uint  state = fd_exec_fseq_get_state( res );
+          if( state==FD_EXEC_STATE_HASH_DONE ) {
+            hash_done[ i ] = 1;
+          } else {
+            wait_cnt++;
+          }
         }
       }
-      to_check_cnt = next_to_check_cnt;
+      if( !wait_cnt ) {
+        break;
+      }
     }
 
     fd_runtime_block_execute_finalize_finish( ctx->slot_ctx,
@@ -1611,6 +1622,8 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
     /* change to whatever condition handles if(ex ec free). */
     if( ctx->slice_exec_ctx.txns_rem > 0 && num_free_exec_tiles > 0 ) {
 
+      ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
       uchar exec_idx = to_exec[ num_free_exec_tiles-1 ];
       //FD_LOG_WARNING(( "[%s] executing txn", __func__ ));
       ulong                             pay_sz   = 0UL;
@@ -1635,7 +1648,8 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
 
       /* dispatch dcache */
       ctx->exec_ready[ exec_idx ] = 0;
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, 0UL, 0UL );
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
 
       /* dispatch tpool */
@@ -1825,7 +1839,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* TODO: The leader pipeline execution needs to be optimized. This is
        very hacky and suboptimal. First, wait for the tpool workers to be idle.
        Then, execute the transactions, and notify the pack tile. We should be
-       taking advantage of bank_busy flags. */
+       taking advantage of bank_busy flags.
+
+       FIXME: It is currently not working and the below commented out
+       code corresponds to executing packed microblocks. */
 
     // for( ulong i=1UL; i<ctx->exec_spad_cnt; i++ ) {
     //   fd_tpool_wait( ctx->tpool, i );
@@ -2125,8 +2142,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
+    /* TODO: replay_block_finalize() does a nested stem_publish that
+       should be unrolled into after_frag() or after_credit() */
     replay_block_finalize( ctx, stem, &info );
-
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot_bank.slot      = 1UL;
@@ -2453,6 +2471,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     ctx->block_finalizing = 0;
 
+    /* TODO: There is currently a nested stem_publish in
+       replay_block_finalize() that should be unrolled. */
     replay_block_finalize( ctx, stem, runtime_block_info );
 
     fd_spad_pop( ctx->runtime_spad );

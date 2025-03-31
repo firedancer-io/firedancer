@@ -254,11 +254,13 @@ hash_accounts( fd_exec_tile_ctx_t *                ctx,
     FD_LOG_ERR(( "Unable to join task info array" ));
   }
 
-  fd_lthash_value_t * lthash = fd_wksp_laddr( ctx->runtime_public_wksp, msg->lthash_gaddr );
+  if( FD_UNLIKELY( !msg->lthash_gaddr ) ) {
+    FD_LOG_ERR(( "lthash gaddr is zero" ));
+  }
+  fd_lthash_value_t * lthash = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->lthash_gaddr );
   if( FD_UNLIKELY( !lthash ) ) {
     FD_LOG_ERR(( "Unable to join lthash" ));
   }
-
   fd_lthash_zero( lthash );
 
   for( ulong i=start_idx; i<=end_idx; i++ ) {
@@ -381,7 +383,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tile_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->tile_idx = tile->kind_id;
 
-
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_exec_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_exec", ctx->tile_idx );
   if( FD_UNLIKELY( ctx->replay_exec_in_idx==ULONG_MAX ) ) {
@@ -407,8 +408,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ runtime_obj_id ].wksp_id ].wksp;
-
-  if( FD_UNLIKELY( ctx->runtime_public_wksp==NULL ) ) {
+  if( FD_UNLIKELY( !ctx->runtime_public_wksp ) ) {
     FD_LOG_ERR(( "No runtime_public workspace" ));
   }
 
@@ -557,7 +557,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-
+/* The stem burst is bound by the max number of exec tiles that are
+   posible. */
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_exec_tile_ctx_t

@@ -307,6 +307,31 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
+void
+fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
+                       fd_wksp_t *           funk_wksp,
+                       uchar *               is_bpf_program ) {
+
+  if( !fd_funk_key_is_acc( rec->pair.key ) ) {
+    *is_bpf_program = 0;
+    return;
+  }
+
+  void const * raw = fd_funk_val( rec, funk_wksp );
+
+  fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+
+  if( metadata &&
+    memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
+    memcmp( metadata->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
+    memcmp( metadata->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+    memcmp( metadata->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
+  *is_bpf_program = 0;
+  } else {
+    *is_bpf_program = 1;
+  }
+}
+
 static void FD_FN_UNUSED
 fd_bpf_scan_task( void * tpool,
                   ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
@@ -319,26 +344,7 @@ fd_bpf_scan_task( void * tpool,
   fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)args;
   uchar * is_bpf_program = (uchar *)reduce + m0;
 
-  if( !fd_funk_key_is_acc( recs->pair.key ) ) {
-    *is_bpf_program = 0;
-    return;
-  }
-
-  fd_pubkey_t const * pubkey = fd_type_pun_const( recs->pair.key[0].uc );
-
-  FD_TXN_ACCOUNT_DECL( exec_rec );
-  if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
-    return;
-  }
-
-  if( memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
-    *is_bpf_program = 0;
-  } else {
-    *is_bpf_program = 1;
-  }
+  fd_bpf_is_bpf_program( recs, fd_funk_wksp( slot_ctx->acc_mgr->funk ), is_bpf_program );
 }
 
 int
