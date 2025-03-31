@@ -2,7 +2,6 @@
 #include "fd_h2_base.h"
 #include "fd_h2_callback.h"
 #include "fd_h2_proto.h"
-#include "../../util/log/fd_log.h"
 #include "fd_h2_rbuf.h"
 #include <float.h>
 
@@ -76,6 +75,12 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
 
   ulong sz0, sz1;
   uchar const * peek = fd_h2_rbuf_peek_frag( rbuf_rx, &sz0, &sz1 );
+  if( sz0>=chunk_sz ) {
+    sz0 = chunk_sz;
+    sz1 = 0;
+  } else if( sz0+sz1>chunk_sz ) {
+    sz1 = chunk_sz-sz0;
+  }
   if( FD_LIKELY( !sz1 ) ) {
     cb->data( conn, stream_id, peek, sz0, fin_flag );
   } else {
@@ -84,6 +89,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   }
 
   conn->rx_frame_rem -= chunk_sz;
+  fd_h2_rbuf_skip( rbuf_rx, chunk_sz );
 }
 
 static int
@@ -153,6 +159,7 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
     conn->flags &= (uchar)~FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
+  FD_LOG_HEXDUMP_NOTICE(( "Request headers", payload, payload_sz ));
   cb->headers( conn, stream_id, payload, payload_sz, frame_flags );
 
   return 1;
@@ -451,6 +458,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
     uint  chunk_sz   = (uint)fd_ulong_min( pad_rem, rbuf_avail );
     fd_h2_rbuf_skip( rbuf_rx, chunk_sz );
+    conn->rx_pad_rem -= (uchar)chunk_sz;
     return;
   }
 
@@ -479,11 +487,12 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
       !!( hdr.flags & FD_H2_FLAG_PADDED ) ) {
     if( FD_UNLIKELY( fd_h2_rbuf_used_sz( &rx_peek )<1UL ) ) return;
     pad_sz = rx_peek.lo[0];
-    if( FD_UNLIKELY( pad_sz>=frame_sz ) ) {
+    rem_sz--;
+    if( FD_UNLIKELY( pad_sz>=rem_sz ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return;
     }
-    rem_sz--;
+    fd_h2_rbuf_skip( &rx_peek, 1UL );
   }
 
   /* Special case: Process data incrementally */
