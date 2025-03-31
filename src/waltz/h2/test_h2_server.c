@@ -216,7 +216,17 @@ main( int     argc,
   test_h2_callbacks.data             = test_cb_data;
   test_h2_callbacks.rst_stream       = test_cb_rst_stream;
 
-  ushort port = fd_env_strip_cmdline_ushort( &argc, &argv, "--port", NULL, 8080 );
+  ushort       port = fd_env_strip_cmdline_ushort( &argc, &argv, "--port", NULL, 8080 );
+  char const * mode = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--mode", NULL, "simple" );
+
+  int do_fork = 0;
+  if( !strcmp( mode, "simple" ) ) {
+    do_fork = 0;
+  } else if( !strcmp( mode, "fork" ) ) {
+    do_fork = 1;
+  } else {
+    FD_LOG_ERR(( "Unknown --mode '%s'", mode ));
+  }
 
   int listen_sock = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
   if( FD_UNLIKELY( listen_sock<0 ) ) FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM,IPPROTO_TCP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -242,7 +252,19 @@ main( int     argc,
     if( FD_UNLIKELY( tcp_sock<0 ) ) FD_LOG_ERR(( "accept(listen_sock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     FD_LOG_NOTICE(( "Accepted TCP conn" ));
-    handle_conn( tcp_sock );
+    if( do_fork ) {
+      pid_t pid = fork();
+      if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( pid==0 ) {
+        fd_log_private_tid_set( (ulong)getpid() );
+        close( listen_sock );
+        handle_conn( tcp_sock );
+        close( tcp_sock );
+        return 0;
+      }
+    } else {
+      handle_conn( tcp_sock );
+    }
 
     if( FD_UNLIKELY( 0!=close( tcp_sock ) ) ) FD_LOG_ERR(( "close(tcp_sock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
