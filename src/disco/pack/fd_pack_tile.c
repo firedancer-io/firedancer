@@ -51,8 +51,8 @@ FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 /* Optionally allow a larger limit for benchmarking */
 #define LARGER_MAX_COST_PER_BLOCK (18UL*48000000UL)
 
-/* 1.5 M cost units, enough for 1 max size transaction */
-const ulong CUS_PER_MICROBLOCK = 1500000UL;
+/* 1.6 M cost units, enough for 1 max size transaction */
+const ulong CUS_PER_MICROBLOCK = 1600000UL;
 
 #define SMALL_MICROBLOCKS 1
 
@@ -628,16 +628,24 @@ after_credit( fd_pack_ctx_t *     ctx,
     }
   }
 
-  /* Try to schedule the next microblock.  Do we have any idle bank
-     tiles in the first `pacing_bank_cnt`? */
-  if( FD_LIKELY( ctx->bank_idle_bitset & fd_ulong_mask_lsb( pacing_bank_cnt ) ) ) { /* Optimize for schedule */
+  /* Try to schedule the next microblock. */
+  if( FD_LIKELY( ctx->bank_idle_bitset ) ) { /* Optimize for schedule */
     any_ready = 1;
 
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
+    /* We want to exempt votes from pacing, so we always allow
+       scheduling votes.  It doesn't really make much sense to pace
+       bundles, because they get scheduled in FIFO order.  However, we
+       keep pacing for normal transactions.  For example, if
+       pacing_bank_cnt is 0, then pack won't schedule normal
+       transactions to any bank tile. */
+    int flags = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,              FD_PACK_SCHEDULE_BUNDLE, 0 )
+                                      | fd_int_if( i<pacing_bank_cnt, FD_PACK_SCHEDULE_TXN,    0 );
+
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
-    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, microblock_dst );
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
