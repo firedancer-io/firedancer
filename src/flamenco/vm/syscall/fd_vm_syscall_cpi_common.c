@@ -966,22 +966,24 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      We have inlined the anza function update_caller_account_perms here.
      TODO: consider factoring this out */
   if( vm->direct_mapping ) {
-    for( ulong i=0UL; i<vm->instr_ctx->instr->acct_cnt; i++ ) {
+    for( ulong i=0UL; i<caller_accounts_to_update_len; i++ ) {
+      ulong acc_instr_idx = callee_account_keys[i];
+
       /* https://github.com/firedancer-io/solana/blob/508f325e19c0fd8e16683ea047d7c1a85f127e74/programs/bpf_loader/src/syscalls/cpi.rs#L939-L943 */
       /* Anza only even attemps to update the account permissions if it is a
          "caller account". Only writable accounts are caller accounts. */
-      if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, i ) ) {
+      if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, acc_instr_idx ) ) {
 
         /* Borrow the callee account
            https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1154-L1155 */
         fd_guarded_borrowed_account_t callee_acc;
-        FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, i, &callee_acc );
+        FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, acc_instr_idx, &callee_acc );
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1298 */
         uchar is_writable = !!fd_borrowed_account_can_data_be_changed( &callee_acc, &err );
         /* Lookup memory regions for the account data and the realloc region. */
-        ulong data_region_idx    = vm->acc_region_metas[i].has_data_region ? vm->acc_region_metas[i].region_idx : 0;
-        ulong realloc_region_idx = vm->acc_region_metas[i].has_resizing_region ? vm->acc_region_metas[i].region_idx : 0;
+        ulong data_region_idx    = vm->acc_region_metas[ acc_instr_idx ].has_data_region ? vm->acc_region_metas[ acc_instr_idx ].region_idx : 0;
+        ulong realloc_region_idx = vm->acc_region_metas[ acc_instr_idx ].has_resizing_region ? vm->acc_region_metas[ acc_instr_idx ].region_idx : 0;
         if( data_region_idx && realloc_region_idx ) {
           realloc_region_idx++;
         }
