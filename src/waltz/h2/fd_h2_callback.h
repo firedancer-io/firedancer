@@ -9,7 +9,28 @@
 /* fd_h2_callbacks_t is a virtual function table.  May not contain NULL
    pointers. */
 
-struct fd_h2_callbacks_t {
+struct fd_h2_callbacks {
+
+  /* stream_create requests the callee to allocate a stream object for
+     a peer-initiated HTTP/2 stream.
+
+     The returned pointer hould be valid until at least when fd_h2_rx
+     returns, which is the function that issues the callback.  The
+     callee initializes the stream with fd_h2_stream_init.  The user of
+     this API promises to eventually close the stream with
+     fd_h2_stream_close (unless the fd_h2_conn is destroyed).
+
+     Returns NULL if the app rejects the creation of the stream. */
+
+  fd_h2_stream_t *
+  (* stream_create)( fd_h2_conn_t * conn,
+                     uint           stream_id );
+
+  /* stream_query queries for a previously created stream. */
+
+  fd_h2_stream_t *
+  (* stream_query)( fd_h2_conn_t * conn,
+                    uint           stream_id );
 
   void
   (* conn_established)( fd_h2_conn_t * conn );
@@ -26,23 +47,24 @@ struct fd_h2_callbacks_t {
      the header block comes from a continuation frame. */
 
   void
-  (* headers)( fd_h2_conn_t * conn,
-               uint           stream_id,
-               void const *   data,
-               ulong          data_sz,
-               ulong          flags );
+  (* headers)( fd_h2_conn_t *   conn,
+               fd_h2_stream_t * stream,
+               void const *     data,
+               ulong            data_sz,
+               ulong            flags );
 
   /* data delivers a chunk of incoming raw stream data.  Not necessarily
      aligned to an HTTP/2 frame. */
 
   void
-  (* data)( fd_h2_conn_t * conn,
-            uint           stream_id,
-            void const *   data,
-            ulong          data_sz,
-            ulong          flags );
+  (* data)( fd_h2_conn_t *   conn,
+            fd_h2_stream_t * stream,
+            void const *     data,
+            ulong            data_sz,
+            ulong            flags );
 
-  /* rst_stream signals peer-requested termination of a stream. */
+  /* rst_stream signals peer-requested termination of a stream.  The app
+     should call fd_h2_stream_close on this stream. */
 
   void
   (* rst_stream)( fd_h2_conn_t * conn,
@@ -64,7 +86,7 @@ struct fd_h2_callbacks_t {
 
 };
 
-typedef struct fd_h2_callbacks_t fd_h2_callbacks_t;
+typedef struct fd_h2_callbacks fd_h2_callbacks_t;
 
 FD_PROTOTYPES_BEGIN
 

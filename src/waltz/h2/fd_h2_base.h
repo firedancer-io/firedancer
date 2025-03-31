@@ -5,8 +5,14 @@
 
 /* Forward declarations for all objects */
 
+struct fd_h2_callbacks;
+typedef struct fd_h2_callbacks fd_h2_callbacks_t;
+
 struct fd_h2_conn;
 typedef struct fd_h2_conn fd_h2_conn_t;
+
+struct fd_h2_stream;
+typedef struct fd_h2_stream fd_h2_stream_t;
 
 /* HTTP/2 error codes
    https://www.iana.org/assignments/http2-parameters/http2-parameters.xhtml#error-code */

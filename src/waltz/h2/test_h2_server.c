@@ -2,6 +2,7 @@
    It responds to GET and POST requests with status 200.
    The server uses single threaded blocking sockets without timeouts. */
 
+#include "fd_h2_base.h"
 #include "fd_h2_callback.h"
 #include "fd_h2_conn.h"
 #include "fd_h2_proto.h"
@@ -10,6 +11,7 @@
 #include "fd_h2_rbuf_sock.h"
 #include "fd_hpack.h"
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <errno.h>
 #include <unistd.h> /* close(2) */
@@ -19,6 +21,25 @@
 static fd_h2_callbacks_t test_h2_callbacks;
 static fd_h2_rbuf_t rbuf_tx[1];
 static fd_h2_stream_t g_stream;
+
+static fd_h2_stream_t *
+test_cb_stream_create( fd_h2_conn_t * conn,
+                       uint           stream_id ) {
+  (void)conn;
+  if( g_stream.stream_id ) {
+    fd_h2_stream_close( &g_stream, conn );
+  }
+  fd_h2_stream_init( &g_stream, stream_id );
+  return &g_stream;
+}
+
+static fd_h2_stream_t *
+test_cb_stream_query( fd_h2_conn_t * conn,
+                      uint           stream_id ) {
+  (void)conn;
+  if( g_stream.stream_id!=stream_id ) return NULL;
+  return &g_stream;
+}
 
 static void
 test_cb_conn_established( fd_h2_conn_t * conn ) {
@@ -39,6 +60,10 @@ test_cb_rst_stream( fd_h2_conn_t * conn,
                     uint           error_code ) {
   (void)conn;
   FD_LOG_NOTICE(( "Request %u: received RST_STREAM (%u-%s)", stream_id, error_code, fd_h2_strerror( error_code ) ));
+  if( g_stream.stream_id==stream_id ) {
+    fd_h2_stream_close( &g_stream, conn );
+    memset( &g_stream, 0, sizeof(g_stream) );
+  }
 }
 
 static void
@@ -66,24 +91,11 @@ send_response( fd_h2_conn_t * conn ) {
 }
 
 static void
-test_cb_headers( fd_h2_conn_t * conn,
-                 uint           stream_id,
-                 void const *   data,
-                 ulong          data_sz,
-                 ulong          flags ) {
-  if( stream_id!=g_stream.stream_id ) {
-    FD_LOG_NOTICE(( "Request %u: Start", stream_id ));
-    g_stream.stream_id = stream_id;
-    fd_h2_stream_init( &g_stream, stream_id );
-  }
-
-  fd_h2_stream_rx_headers( &g_stream, flags );
-  if( FD_UNLIKELY( g_stream.state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
-    FD_LOG_WARNING(( "Request %u in illegal state", stream_id ));
-    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
-    return;
-  }
-
+test_cb_headers( fd_h2_conn_t *   conn,
+                 fd_h2_stream_t * stream,
+                 void const *     data,
+                 ulong            data_sz,
+                 ulong            flags ) {
   FD_LOG_HEXDUMP_DEBUG(( "Header field block", data, data_sz ));
 
   fd_hpack_rd_t hpack_rd[1];
@@ -105,7 +117,7 @@ test_cb_headers( fd_h2_conn_t * conn,
   }
 
   if( flags & FD_H2_FLAG_END_HEADERS ) {
-    FD_LOG_NOTICE(( "Request %u: Headers complete", stream_id ));
+    FD_LOG_NOTICE(( "Request %u: Headers complete", stream->stream_id ));
   }
   if( flags & FD_H2_FLAG_END_STREAM ) {
     send_response( conn );
@@ -113,20 +125,14 @@ test_cb_headers( fd_h2_conn_t * conn,
 }
 
 static void
-test_cb_data( fd_h2_conn_t * conn,
-              uint           stream_id,
-              void const *   data,
-              ulong          data_sz,
-              ulong          flags ) {
-  if( stream_id!=g_stream.stream_id ) {
-    FD_LOG_WARNING(( "DATA frame for unknown stream %u", stream_id ));
-    g_stream.stream_id = stream_id;
-    fd_h2_stream_init( &g_stream, stream_id );
-  }
-
+test_cb_data( fd_h2_conn_t *   conn,
+              fd_h2_stream_t * stream,
+              void const *     data,
+              ulong            data_sz,
+              ulong            flags ) {
   fd_h2_stream_rx_data( &g_stream, flags );
   if( FD_UNLIKELY( g_stream.state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
-    FD_LOG_WARNING(( "Request %u in illegal state", stream_id ));
+    FD_LOG_WARNING(( "Request %u in illegal state", stream->stream_id ));
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return;
   }
@@ -210,14 +216,17 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   fd_h2_callbacks_init( &test_h2_callbacks );
+  test_h2_callbacks.stream_create    = test_cb_stream_create;
+  test_h2_callbacks.stream_query     = test_cb_stream_query;
   test_h2_callbacks.conn_established = test_cb_conn_established;
   test_h2_callbacks.conn_final       = test_cb_conn_final;
   test_h2_callbacks.headers          = test_cb_headers;
   test_h2_callbacks.data             = test_cb_data;
   test_h2_callbacks.rst_stream       = test_cb_rst_stream;
 
-  ushort       port = fd_env_strip_cmdline_ushort( &argc, &argv, "--port", NULL, 8080 );
-  char const * mode = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--mode", NULL, "simple" );
+  char const * bind_cstr = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bind", NULL, "0.0.0.0" );
+  ushort       port      = fd_env_strip_cmdline_ushort( &argc, &argv, "--port", NULL, 8080      );
+  char const * mode      = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--mode", NULL, "simple"  );
 
   int do_fork = 0;
   if( !strcmp( mode, "simple" ) ) {
@@ -235,6 +244,9 @@ main( int     argc,
   addr.sin_family      = AF_INET;
   addr.sin_addr.s_addr = INADDR_ANY;
   addr.sin_port        = fd_ushort_bswap( port );
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( bind_cstr, &addr.sin_addr.s_addr ) ) ) {
+    FD_LOG_ERR(( "invalid --bind address" ));
+  }
   if( FD_UNLIKELY( 0!=bind( listen_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) ) ) ) {
     FD_LOG_ERR(( "bind(:%hu) failed (%i-%s)", port, errno, fd_io_strerror( errno ) ));
   }

@@ -4,7 +4,6 @@
 /* fd_h2_conn.h provides the HTTP/2 connection state machine and utils
    for multiplexing frames. */
 
-#include "fd_h2_callback.h"
 #include "fd_h2_rbuf.h"
 #include "fd_h2_proto.h"
 
@@ -47,6 +46,8 @@ struct fd_h2_conn {
 
   uint  rx_frame_rem;    /* current RX frame: payload bytes remaining */
   uint  rx_stream_id;    /* current RX frame: stream ID */
+  uint  rx_stream_min;
+  uint  tx_stream_min;
 
   uint  rx_wnd_wmark;    /* receive window refill threshold */
   uint  rx_wnd_max;      /* receive window max size */

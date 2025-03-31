@@ -1,8 +1,8 @@
 #include "fd_h2_conn.h"
-#include "fd_h2_base.h"
 #include "fd_h2_callback.h"
 #include "fd_h2_proto.h"
 #include "fd_h2_rbuf.h"
+#include "fd_h2_stream.h"
 #include <float.h>
 
 char const fd_h2_client_preface[24] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -19,7 +19,8 @@ fd_h2_conn_init_client( fd_h2_conn_t * conn ) {
   *conn = (fd_h2_conn_t) {
     .self_settings = fd_h2_settings_initial,
     .peer_settings = fd_h2_settings_initial,
-    .flags         = FD_H2_CONN_FLAGS_CLIENT_INITIAL
+    .flags         = FD_H2_CONN_FLAGS_CLIENT_INITIAL,
+    .rx_stream_min = 2U
   };
   return conn;
 }
@@ -29,12 +30,28 @@ fd_h2_conn_init_server( fd_h2_conn_t * conn ) {
   *conn = (fd_h2_conn_t) {
     .self_settings = fd_h2_settings_initial,
     .peer_settings = fd_h2_settings_initial,
-    .flags         = FD_H2_CONN_FLAGS_SERVER_INITIAL
+    .flags         = FD_H2_CONN_FLAGS_SERVER_INITIAL,
+    .rx_stream_min = 1U
   };
   return conn;
 }
 
-static inline void
+static void
+fd_h2_stream_error( fd_h2_rbuf_t * rbuf_tx,
+                    uint           stream_id,
+                    uint           h2_err ) {
+  fd_h2_rst_stream_t rst_stream = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
+      .flags       = 0U,
+      .r_stream_id = fd_uint_bswap( stream_id )
+    },
+    .error_code = fd_uint_bswap( h2_err )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+}
+
+static void
 fd_h2_setting_encode( uchar * buf,
                       ushort  setting_id,
                       uint    setting_value ) {
@@ -65,6 +82,7 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
 static void
 fd_h2_rx_data( fd_h2_conn_t *            conn,
                fd_h2_rbuf_t *            rbuf_rx,
+               fd_h2_rbuf_t *            rbuf_tx,
                fd_h2_callbacks_t const * cb ) {
   ulong frame_rem  = conn->rx_frame_rem;
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
@@ -72,6 +90,12 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   uint  chunk_sz   = (uint)fd_ulong_min( frame_rem, rbuf_avail );
   uint  fin_flag   = conn->rx_frame_flags & FD_H2_FLAG_END_STREAM;
   if( rbuf_avail<frame_rem ) fin_flag = 0;
+
+  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+  if( FD_UNLIKELY( !stream ) ) {
+    fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+    return;
+  }
 
   ulong sz0, sz1;
   uchar const * peek = fd_h2_rbuf_peek_frag( rbuf_rx, &sz0, &sz1 );
@@ -82,10 +106,10 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     sz1 = chunk_sz-sz0;
   }
   if( FD_LIKELY( !sz1 ) ) {
-    cb->data( conn, stream_id, peek, sz0, fin_flag );
+    cb->data( conn, stream, peek, sz0, fin_flag );
   } else {
-    cb->data( conn, stream_id, peek,          sz0, 0        );
-    cb->data( conn, stream_id, rbuf_rx->buf0, sz1, fin_flag );
+    cb->data( conn, stream, peek,          sz0, 0        );
+    cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
   }
 
   conn->rx_frame_rem -= chunk_sz;
@@ -94,6 +118,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
 
 static int
 fd_h2_rx_headers( fd_h2_conn_t *            conn,
+                  fd_h2_rbuf_t *            rbuf_tx,
                   uchar *                   payload,
                   ulong                     payload_sz,
                   fd_h2_callbacks_t const * cb,
@@ -103,6 +128,26 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
   if( FD_UNLIKELY( !stream_id ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
+  }
+
+  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+  if( !stream ) {
+    if( FD_UNLIKELY( (  stream_id    <   conn->rx_stream_min    ) |
+                     ( (stream_id&1) != (conn->rx_stream_min&1) ) ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+      return 0;
+    }
+    if( FD_UNLIKELY( conn->rx_active >= conn->self_settings.max_concurrent_streams ) ) {
+      fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
+      return 1;
+    }
+    stream = cb->stream_create( conn, stream_id );
+    if( FD_UNLIKELY( !stream ) ) {
+      fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
+      return 1;
+    }
+    conn->rx_active++;
+    conn->rx_stream_min = stream_id+2;
   }
 
   conn->rx_stream_id = stream_id;
@@ -120,7 +165,13 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
-  cb->headers( conn, stream_id, payload, payload_sz, frame_flags );
+  fd_h2_stream_rx_headers( stream, frame_flags );
+  if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return 0;
+  }
+
+  cb->headers( conn, stream, payload, payload_sz, frame_flags );
 
   return 1;
 }
@@ -142,6 +193,7 @@ fd_h2_rx_priority( fd_h2_conn_t * conn,
 
 static int
 fd_h2_rx_continuation( fd_h2_conn_t *            conn,
+                       fd_h2_rbuf_t *            rbuf_tx,
                        uchar *                   payload,
                        ulong                     payload_sz,
                        fd_h2_callbacks_t const * cb,
@@ -159,8 +211,15 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
     conn->flags &= (uchar)~FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
-  FD_LOG_HEXDUMP_NOTICE(( "Request headers", payload, payload_sz ));
-  cb->headers( conn, stream_id, payload, payload_sz, frame_flags );
+  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+  if( FD_UNLIKELY( !stream ) ) {
+    fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_INTERNAL );
+    return 1;
+  }
+
+  fd_h2_stream_rx_headers( stream, frame_flags );
+
+  cb->headers( conn, stream, payload, payload_sz, frame_flags );
 
   return 1;
 }
@@ -176,6 +235,10 @@ fd_h2_rx_rst_stream( fd_h2_conn_t *            conn,
     return 0;
   }
   if( FD_UNLIKELY( !stream_id ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return 0;
+  }
+  if( FD_UNLIKELY( stream_id >= fd_ulong_max( conn->rx_stream_min, conn->tx_stream_min ) ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
   }
@@ -286,6 +349,12 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
 }
 
 static int
+fd_h2_rx_push_promise( fd_h2_conn_t * conn ) {
+  fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+  return 0;
+}
+
+static int
 fd_h2_rx_ping( fd_h2_conn_t * conn,
                fd_h2_rbuf_t * rbuf_tx,
                uchar const *  payload,
@@ -385,17 +454,14 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
 
   } else {
 
-    if( FD_UNLIKELY( !increment ) ) {
-      fd_h2_rst_stream_t rst_stream = {
-        .hdr = {
-          .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
-          .flags       = 0U,
-          .r_stream_id = fd_uint_bswap( stream_id )
-        },
-        .error_code = fd_uint_bswap( FD_H2_ERR_PROTOCOL )
-      };
-      fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+    if( FD_UNLIKELY( stream_id >= fd_ulong_max( conn->rx_stream_min, conn->tx_stream_min ) ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return 0;
+    }
+
+    if( FD_UNLIKELY( !increment ) ) {
+      fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_PROTOCOL );
+      return 1;
     }
 
     /* Stream-level window update */
@@ -420,15 +486,17 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
                 uint                      stream_id ) {
   switch( frame_type ) {
   case FD_H2_FRAME_TYPE_HEADERS:
-    return fd_h2_rx_headers( conn, payload, payload_sz, cb, frame_flags, stream_id );
+    return fd_h2_rx_headers( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_PRIORITY:
     return fd_h2_rx_priority( conn, payload_sz, stream_id );
   case FD_H2_FRAME_TYPE_RST_STREAM:
     return fd_h2_rx_rst_stream( conn, payload, payload_sz, cb, stream_id );
   case FD_H2_FRAME_TYPE_SETTINGS:
     return fd_h2_rx_settings( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
+  case FD_H2_FRAME_TYPE_PUSH_PROMISE:
+    return fd_h2_rx_push_promise( conn );
   case FD_H2_FRAME_TYPE_CONTINUATION:
-    return fd_h2_rx_continuation( conn, payload, payload_sz, cb, frame_flags, stream_id );
+    return fd_h2_rx_continuation( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_PING:
     return fd_h2_rx_ping( conn, rbuf_tx, payload, payload_sz, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_GOAWAY:
@@ -450,7 +518,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
   /* All frames except DATA are fully buffered, thus assume that current
      frame is a DATA frame if rx_frame_rem != 0. */
   if( conn->rx_frame_rem ) {
-    fd_h2_rx_data( conn, rbuf_rx, cb );
+    fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb );
     return;
   }
   if( FD_UNLIKELY( conn->rx_pad_rem ) ) {
@@ -475,6 +543,11 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   if( FD_UNLIKELY( frame_sz > conn->self_settings.max_frame_size ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
+    return;
+  }
+  if( FD_UNLIKELY( (!!( conn->flags & FD_H2_CONN_FLAGS_CONTINUATION ) ) &
+                   (    frame_type!=FD_H2_FRAME_TYPE_CONTINUATION     ) ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return;
   }
 
@@ -502,7 +575,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     conn->rx_stream_id   = fd_h2_frame_stream_id( hdr.r_stream_id );
     conn->rx_pad_rem     = (uchar)pad_sz;
     *rbuf_rx = rx_peek;
-    fd_h2_rx_data( conn, rbuf_rx, cb );
+    fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb );
     return;
   }
 

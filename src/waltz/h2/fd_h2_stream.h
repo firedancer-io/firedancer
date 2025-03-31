@@ -4,6 +4,7 @@
 /* fd_h2_stream.h provides the HTTP/2 stream state machine. */
 
 #include "fd_h2_proto.h"
+#include "fd_h2_conn.h"
 
 struct fd_h2_stream {
   uint  stream_id;
@@ -27,6 +28,17 @@ fd_h2_stream_init( fd_h2_stream_t * stream,
                    uint             stream_id ) {
   *stream = (fd_h2_stream_t) { .stream_id = stream_id };
   return stream;
+}
+
+static inline void
+fd_h2_stream_close( fd_h2_stream_t * stream,
+                    fd_h2_conn_t *   conn ) {
+  if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_CLOSED ) ) return;
+  if( ( (stream->stream_id&1) == (conn->rx_stream_id&1) ) &
+      ( stream->state != FD_H2_STREAM_STATE_CLOSED      ) ) {
+    conn->rx_active--;
+  }
+  stream->state = FD_H2_STREAM_STATE_CLOSED;
 }
 
 static inline void

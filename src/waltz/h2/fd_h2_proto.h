@@ -67,6 +67,17 @@ typedef struct fd_h2_frame_hdr fd_h2_frame_hdr_t;
 #define FD_H2_FLAG_PRIORITY    ((uchar)0x20)
 
 
+/* fd_h2_priority_t matches the encoding of a PRIORITY frame. */
+
+struct __attribute__((packed)) fd_h2_priority {
+  fd_h2_frame_hdr_t hdr;
+  uint r_stream_dep;
+  uchar weight;
+};
+
+typedef struct fd_h2_priority fd_h2_priority_t;
+
+
 /* A SETTINGS frame contains a series of fd_h2_setting_t. */
 
 struct __attribute__((packed)) fd_h2_setting {
