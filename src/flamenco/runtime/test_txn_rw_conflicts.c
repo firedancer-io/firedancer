@@ -143,11 +143,11 @@ void add_address_lookup_table( fd_funk_t *     funk,
 
   /* Append an address lookup table after txn_payload */
   fd_txn_acct_addr_lut_t alt = {
-    .addr_off    =in_payload_sz+sizeof(fd_txn_acct_addr_lut_t),
-    .writable_cnt=1,
-    .readonly_cnt=1,
-    .writable_off=in_payload_sz+sizeof(fd_txn_acct_addr_lut_t)+sizeof(fd_acct_addr_t),
-    .readonly_off=in_payload_sz+sizeof(fd_txn_acct_addr_lut_t)+sizeof(fd_acct_addr_t)+sizeof(uchar)
+    .addr_off    =(ushort)(in_payload_sz+sizeof(fd_txn_acct_addr_lut_t)),
+    .writable_cnt=(ushort)1,
+    .readonly_cnt=(ushort)1,
+    .writable_off=(ushort)(in_payload_sz+sizeof(fd_txn_acct_addr_lut_t)+sizeof(fd_acct_addr_t)),
+    .readonly_off=(ushort)(in_payload_sz+sizeof(fd_txn_acct_addr_lut_t)+sizeof(fd_acct_addr_t)+sizeof(uchar))
   };
   /*                    original txn binary   lookup table struct            lookup table address   address indexes */
   //uchar txn_with_alt[ in_payload           +sizeof(fd_txn_acct_addr_lut_t)+sizeof(fd_acct_addr_t)+sizeof(uchar)*2 ];
