@@ -61,16 +61,15 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_txn_account_t      * pro
                                                      uchar const          ** program_data,
                                                      ulong                 * program_data_len ) {
   int err;
-  fd_loader_v4_state_t state = {0};
 
   /* Get the current loader v4 state. This implicitly also checks the dlen. */
-  err = fd_loader_v4_get_state( program_acc, &state );
+  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program_acc, &err );
   if( FD_UNLIKELY( err ) ) {
     return -1;
   }
 
   /* The program must be deployed or finalized. */
-  if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( &state ) ) ) {
+  if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( state ) ) ) {
     return -1;
   }
 

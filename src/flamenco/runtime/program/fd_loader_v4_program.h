@@ -17,7 +17,7 @@
           or already deployed and in maintenance (and thus cannot be invoked).
       - Deployed
         - This is the normal state for a program that is ready to be invoked.
-        - Programs cannot be retracted within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots of deployment.
+        - Programs cannot be retracted within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (1) slot of deployment.
       - Finalized
         - The program is immutable.
         - Users must specify a "next version" which, from my inspection, serves no functional purpose besides showing up
@@ -27,29 +27,29 @@
     - Buffer accounts are no longer necessary. Instead, the `write` instruction writes directly into the program account.
       - Optionally, when calling `deploy`, the user can provide a source buffer account to overwrite the program data
         instead of calling retract -> write -> deploy.
-      - There is no direct `upgrade` instruction anymore. The user must either retract the program, truncate / write new bytes, and redeploy,
-        or write new bytes to a source buffer account and call `deploy`.
-    - There is no `close` instruction anymore. Instead, the user must call `truncate` with a new size of 0 bytes, which automatically closes the program account
-      and resets it into an uninitialized state.
+      - There is no direct `upgrade` instruction anymore. The user must either retract the program, call set_program_length,
+        write new bytes, and redeploy, or they can write new bytes to a source buffer account and call `deploy`.
+    - There is no `close` instruction anymore. Instead, the user must call `set_program_length` with a new size of 0 bytes, which
+      automatically closes the program account and resets it into an uninitialized state.
 */
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.4/builtins-default-costs/src/lib.rs#L33 */
+/* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L30 */
 #define LOADER_V4_DEFAULT_COMPUTE_UNITS (2000UL)
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L15 */
-#define LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS (750UL)
+/* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/lib.rs#L11 */
+#define LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS (1UL)
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L46-L49 */
+/* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/state.rs#L31-L36 */
 #define LOADER_V4_PROGRAM_DATA_OFFSET (48UL)
 
 /* Serization / deserialization done for the loader v4 state is done using a `std::mem::transmute()` instead of using
    the standard bincode deserialization. The key difference of doing this is that state deserialization does not fail
    if the `status` enum within the state is invalid (Retracted, Deployed, Finalized). To stay conformant with their semantics,
-   we represent `status` as a ulong (intentionally instead of a uint because Agave uses `repr(u64)`) and use direct pointer
-   reinterpretation to decode and encode data between the program account and the state object. It also keeps the type size
+   we represent `status` as a ulong (intentionally instead of a uint because Agave uses `repr(u64)`) and use type punning
+   to decode and encode data between the program account and the state object. It also keeps the type size
    consistent with Agave's for safe transmute operations.
 
-   https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/sdk/program/src/loader_v4.rs#L16-L26 */
+   https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/state.rs#L3-L13 */
 #define FD_LOADER_V4_STATUS_ENUM_RETRACTED (0UL)
 #define FD_LOADER_V4_STATUS_ENUM_DELOYED   (1UL)
 #define FD_LOADER_V4_STATUS_ENUM_FINALIZED (2UL)
@@ -68,9 +68,9 @@ fd_loader_v4_status_is_retracted( fd_loader_v4_state_t const * state );
 FD_FN_PURE uchar
 fd_loader_v4_status_is_finalized( fd_loader_v4_state_t const * state );
 
-int
+fd_loader_v4_state_t const *
 fd_loader_v4_get_state( fd_txn_account_t const * program,
-                        fd_loader_v4_state_t *   state );
+                        int *                    err );
 
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx );

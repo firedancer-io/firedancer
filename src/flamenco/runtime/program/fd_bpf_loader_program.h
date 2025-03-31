@@ -9,9 +9,12 @@
 #include "../fd_borrowed_account.h"
 #include "fd_bpf_program_util.h"
 
+/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
 #define DEPRECATED_LOADER_COMPUTE_UNITS  (1140UL)
 #define UPGRADEABLE_LOADER_COMPUTE_UNITS (2370UL)
+
+/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/bpf_loader_upgradeable.rs#L29-L120 */
 #define SIZE_OF_PROGRAM                  (36UL  ) /* UpgradeableLoaderState::size_of_program() */
 #define BUFFER_METADATA_SIZE             (37UL  ) /* UpgradeableLoaderState::size_of_buffer_metadata() */
 #define PROGRAMDATA_METADATA_SIZE        (45UL  ) /* UpgradeableLoaderState::size_of_programdata_metadata() */
