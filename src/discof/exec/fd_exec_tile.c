@@ -196,6 +196,15 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
     FD_LOG_ERR(( "Could not decode stakes" ));
   }
   ctx->txn_ctx->stakes = *stakes;
+
+  /* TODO: The bank hash cmp obj can likely be shared once at boot and
+      there is no need to pass it forward every epoch. The proper
+      solution here is probably to create a new message type. */
+  fd_bank_hash_cmp_t * bank_hash_cmp_local = fd_bank_hash_cmp_join( fd_wksp_laddr( ctx->runtime_public_wksp, epoch_msg->bank_hash_cmp_gaddr ) );
+  if( FD_UNLIKELY( !bank_hash_cmp_local ) ) {
+    FD_LOG_ERR(( "Could not get laddr for bank hash cmp" ));
+  }
+  ctx->txn_ctx->bank_hash_cmp = bank_hash_cmp_local;
 }
 
 static void
@@ -416,7 +425,7 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
 
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done( ctx->txn_id++ ) );
   } else if( sig==EXEC_HASH_ACCS_SIG ) {
-    FD_LOG_NOTICE(( "Sending ack for hash accs msg" ));
+    FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done() );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));

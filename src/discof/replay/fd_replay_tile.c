@@ -1631,12 +1631,12 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
 
       uchar exec_idx = to_exec[ num_free_exec_tiles-1 ];
       //FD_LOG_WARNING(( "[%s] executing txn", __func__ ));
-      ulong                         pay_sz   = 0UL;
-      fd_replay_out_ctx_t *         exec_out = &ctx->exec_out[ exec_idx ];
-      fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      ulong                             pay_sz   = 0UL;
+      fd_replay_out_ctx_t *             exec_out = &ctx->exec_out[ exec_idx ];
+      fd_txn_p_t txn_p;
       ulong txn_sz = fd_txn_parse_core( ctx->mbatch + ctx->slice_exec_ctx.wmark,
                                         fd_ulong_min( FD_TXN_MTU, ctx->slice_exec_ctx.sz - ctx->slice_exec_ctx.wmark ),
-                                        TXN( &exec_msg->txn ),
+                                        TXN( &txn_p ),
                                         NULL,
                                         &pay_sz );
 
@@ -1644,9 +1644,18 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
         __asm__("int $3");
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
-      fd_memcpy( exec_msg->txn.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
-      exec_msg->txn.payload_sz           = pay_sz;
+      fd_memcpy( txn_p.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
+      txn_p.payload_sz           = pay_sz;
       ctx->slice_exec_ctx.wmark += pay_sz;
+
+      fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      memcpy( &exec_msg->txn, &txn_p, sizeof(fd_txn_p_t) );
+
+      /* dispatch dcache */
+      ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
 
       /* dispatch tpool */
 
@@ -1658,13 +1667,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
         FD_LOG_ERR(( "Unable to select a fork" ));
       }
 
-      publish_account_notifications( ctx, fork, ctx->curr_slot, &exec_msg->txn, 1 );
-
-      /* dispatch dcache */
-      ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
+      publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
 
       ctx->slice_exec_ctx.txns_rem--;
       num_free_exec_tiles--;
@@ -2398,8 +2401,9 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         /* We must make sure that we don't try to finalize the same txn
            twice. This would happen in the case of */
         txn_id = fd_exec_fseq_get_txn_id( res );
+        //FD_LOG_NOTICE(("TXN ID %u %u", txn_id, ctx->prev_ids[ i ]));
         if( ctx->exec_ready[ i ]==EXEC_TXN_BUSY && ctx->prev_ids[ i ]!=txn_id ) {
-          FD_LOG_DEBUG(( "Ack that exec tile idx=%lu has processed txn message with id=%u", i, txn_id ));
+          //FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed txn message with id=%u", i, txn_id ));
           fd_execute_txn_task_info_t info = {0};
           info.txn_ctx  = ctx->exec_txn_ctxs[ i ];
           info.exec_res = info.txn_ctx->exec_err;
@@ -2407,7 +2411,7 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
           if( info.txn_ctx->flags == FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
             fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
           }
-
+          //FD_LOG_NOTICE(("READY FOR NEXT TXN %u", txn_id));
           ctx->exec_ready[ i ] = EXEC_TXN_READY;
           ctx->prev_ids[ i ]   = txn_id;
         }
