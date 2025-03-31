@@ -119,7 +119,6 @@ struct fd_exec_tile_ctx {
   fd_txn_p_t            txn;
   fd_exec_txn_ctx_t *   txn_ctx;
   int                   exec_res;
-  uint                  flags;
 
   /* The txn id is a value that is monotonically increased after
      executing a transaction. It is used to prevent race conditions in
@@ -292,7 +291,6 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) {
     task_info.txn->flags = 0U;
     task_info.exec_res   = err;
-    ctx->flags = 0U;
     return;
   }
 
@@ -300,7 +298,6 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)ctx->txn_ctx->_txn_raw->raw+ctx->txn_ctx->txn_descriptor->signature_off ) ));
     task_info.txn->flags = 0U;
     task_info.exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-    ctx->flags = 0U;
     return;
   }
 
@@ -308,14 +305,12 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
 
   fd_runtime_pre_execute_check( &task_info, 0 );
   if( FD_UNLIKELY( !( task_info.txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-    ctx->flags = 0U;
     return;
   }
 
   /* Execute */
   task_info.txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   ctx->exec_res         = fd_execute_txn( &task_info );
-  ctx->flags            = FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
   if( FD_LIKELY( ctx->exec_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
     fd_txn_reclaim_accounts( task_info.txn_ctx );
@@ -421,8 +416,7 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
        executing. The replay tile will be repsonsible for commiting
        the transaction back to funk. */
     ctx->txn_ctx->exec_err = ctx->exec_res;
-    ctx->txn_ctx->flags    = ctx->flags;
-
+    ctx->txn_ctx->flags    = ctx->txn.flags;
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done( ctx->txn_id++ ) );
   } else if( sig==EXEC_HASH_ACCS_SIG ) {
     FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));

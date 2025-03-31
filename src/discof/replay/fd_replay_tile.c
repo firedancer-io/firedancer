@@ -1287,6 +1287,8 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
 
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
     ctx->exec_ready[ i ] = EXEC_EPOCH_WAIT;
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
 
@@ -1320,7 +1322,14 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
     epoch_msg->stakes_encoded_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, stakes_encode_mem );
     epoch_msg->stakes_encoded_sz    = stakes_encode_sz;
 
-    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_EPOCH_SIG, exec_out->chunk, sizeof(fd_runtime_public_epoch_msg_t), 0UL, 0UL, 0UL );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     EXEC_NEW_EPOCH_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_epoch_msg_t),
+                     0UL,
+                     tsorig, tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_epoch_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 }
@@ -1335,6 +1344,8 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
      also mark the tile as not not being ready. */
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
     ctx->exec_ready[ i ] = EXEC_SLOT_WAIT;
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
@@ -1364,7 +1375,15 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
     slot_msg->block_hash_queue_encoded_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, bhq_encode_mem );
     slot_msg->block_hash_queue_encoded_sz    = bhq_encode_sz;
 
-    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_SLOT_SIG, exec_out->chunk, sizeof(fd_runtime_public_slot_msg_t), 0UL, 0UL, 0UL );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     EXEC_NEW_SLOT_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_slot_msg_t),
+                     0UL,
+                     tsorig,
+                     tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_slot_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 }
@@ -1651,12 +1670,6 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       memcpy( &exec_msg->txn, &txn_p, sizeof(fd_txn_p_t) );
 
-      /* dispatch dcache */
-      ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
-
       /* dispatch tpool */
 
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
@@ -1668,6 +1681,12 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       }
 
       publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
+
+      /* dispatch dcache */
+      ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
 
       ctx->slice_exec_ctx.txns_rem--;
       num_free_exec_tiles--;
@@ -2401,23 +2420,20 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         /* We must make sure that we don't try to finalize the same txn
            twice. This would happen in the case of */
         txn_id = fd_exec_fseq_get_txn_id( res );
-        //FD_LOG_NOTICE(("TXN ID %u %u", txn_id, ctx->prev_ids[ i ]));
         if( ctx->exec_ready[ i ]==EXEC_TXN_BUSY && ctx->prev_ids[ i ]!=txn_id ) {
-          //FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed txn message with id=%u", i, txn_id ));
+          FD_LOG_DEBUG(( "Ack that exec tile idx=%lu has processed txn message with id=%u", i, txn_id ));
           fd_execute_txn_task_info_t info = {0};
           info.txn_ctx  = ctx->exec_txn_ctxs[ i ];
           info.exec_res = info.txn_ctx->exec_err;
 
-          if( info.txn_ctx->flags == FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
+          if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
             fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
           }
-          //FD_LOG_NOTICE(("READY FOR NEXT TXN %u", txn_id));
           ctx->exec_ready[ i ] = EXEC_TXN_READY;
           ctx->prev_ids[ i ]   = txn_id;
         }
         break;
       case FD_EXEC_STATE_HASH_DONE:
-        FD_LOG_NOTICE(( "State is hash done" ));
         break;
       default:
         FD_LOG_ERR(( "Unexpected fseq state from exec tile idx=%lu state=%u", i, state ));
@@ -2432,6 +2448,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
 
+  /* TODO: Consider moving state management to during_housekeeping */
   /* Check all the exec fseqs and handle any updates if needed. */
   handle_exec_state_updates( ctx );
 
