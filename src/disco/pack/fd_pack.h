@@ -521,6 +521,14 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
    bundles.  pack must be a valid local join. */
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
+
+/* FD_PACK_SCHEDULE_{VOTE,BUNDLE,TXN} form a set of bitflags used in
+   fd_pack_schedule_next_microblock below.  They control what types of
+   scheduling are allowed.  The names should be self-explanatory. */
+#define FD_PACK_SCHEDULE_VOTE   1
+#define FD_PACK_SCHEDULE_BUNDLE 2
+#define FD_PACK_SCHEDULE_TXN    4
+
 /* fd_pack_schedule_next_microblock schedules pending transactions.
    These transaction either form a microblock, which is a set of
    non-conflicting transactions, or a bundle.  The semantics of this
@@ -528,6 +536,24 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    there are some reasons why they both use this function.
 
    For both codepaths, pack must be a local join of a pack object.
+   schedule_flags must be a bitwise combination of the
+   FD_PACK_SCHEDULE_* values defined above.  When the bit is set
+   corresponding to a transaction type, this function will consider
+   scheduling transactions of that type.  Passing 0 for schedule_flags
+   is a no-op.  The full policy is as follows:
+    1. If the VOTE bit is set, attempt to schedule votes.  This is the
+       microblock case.
+    2. If the BUNDLE bit is set, and step 1 did not schedule any votes,
+       attempt to schedule bundles.  This is the bundle case.
+    3. If the TXN bit is set, and step 2 did not schedule any bundles
+       for a reason other than account conflicts, attempt to schedule
+       normal transactions.  This is the microblock case.
+   Note that it is possible to schedule a microblock containing both
+   votes and normal transactions, but bundles cannot be combined with
+   either other type.  Additionally, if the BUNDLE bit is not set, step
+   2 will not schedule any bundles for that reason, which is a reason
+   other than account conflicts, so that clause will always be
+   satisfied.
 
    Microblock case:
    Transactions part of the scheduled microblock are copied to out in no
@@ -561,7 +587,13 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    bundle.  The return value may be 0 if there are no eligible
    transactions at the moment. */
 
-ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float vote_fraction, ulong bank_tile, fd_txn_p_t * out );
+ulong
+fd_pack_schedule_next_microblock( fd_pack_t  * pack,
+                                  ulong        total_cus,
+                                  float        vote_fraction,
+                                  ulong        bank_tile,
+                                  int          schedule_flags,
+                                  fd_txn_p_t * out );
 
 
 /* fd_pack_rebate_cus adjusts the compute unit accounting for the
