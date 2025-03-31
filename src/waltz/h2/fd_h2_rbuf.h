@@ -27,10 +27,6 @@ static inline fd_h2_rbuf_t *
 fd_h2_rbuf_init( fd_h2_rbuf_t * rbuf,
                  void *         buf,
                  ulong          bufsz ) {
-  if( FD_UNLIKELY( bufsz<64 ) ) {
-    FD_LOG_WARNING(( "h2_rbuf init failed: bufsz too small" ));
-    return NULL;
-  }
   *rbuf = (fd_h2_rbuf_t) {
     .buf0  = (uchar *)buf,
     .buf1  = (uchar *)buf+bufsz,

@@ -33,14 +33,15 @@ static inline ulong
 fd_hpack_rd_varint( fd_hpack_rd_t * rd,
                     uint            prefix,
                     uint            addend ) {
+  prefix &= addend;
   /* FIXME does not detect overflow */
 
   /* Length is 0 */
   if( prefix<addend ) return prefix;
 
   /* Read encoded word */
-  ulong enc;
-  if( FD_LIKELY( rd->src+8 < rd->src_end ) ) {
+  ulong enc = 0UL;
+  if( FD_LIKELY( rd->src+8 <= rd->src_end ) ) {
     /* happy path: speculatively read oob */
     enc = fd_ulong_load_8( rd->src );
   } else {
@@ -79,7 +80,9 @@ fd_hpack_rd_varint( fd_hpack_rd_t * rd,
     ( ( enc&0x7f00000000000000UL )>>7 );
 #endif
 
-  rd->src += sz;
+  uchar const * src_end = rd->src+sz;
+  if( FD_UNLIKELY( src_end>rd->src_end ) ) return ULONG_MAX; /* eof */
+  rd->src = src_end;
   return result+addend;
 }
 

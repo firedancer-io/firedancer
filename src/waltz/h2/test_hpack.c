@@ -1,4 +1,4 @@
-#include "fd_hpack.h"
+#include "fd_hpack_private.h"
 #include "../../util/log/fd_log.h"
 
 static uchar const rfc7541_c31_bin[] = {
@@ -134,6 +134,46 @@ test_hpack_rd( uchar const *       bin,
   FD_TEST( fd_hpack_rd_done( rd ) );
 }
 
+struct test_hpack_case {
+  ulong res;
+  uchar enc[ 8 ];
+  uchar bits;
+  uchar prefix;
+  uchar len;
+};
+
+typedef struct test_hpack_case test_hpack_case_t;
+
+static test_hpack_case_t const test_hpack_cases[] = {
+  { .bits=1, .prefix=0x00, .len=0, .res=   0UL },
+  { .bits=2, .prefix=0x02, .len=0, .res=   2UL },
+  { .bits=3, .prefix=0x06, .len=0, .res=   6UL },
+  { .bits=4, .prefix=0x0e, .len=0, .res=  14UL },
+  { .bits=5, .prefix=0x1e, .len=0, .res=  30UL },
+  { .bits=6, .prefix=0x3e, .len=0, .res=  62UL },
+  { .bits=7, .prefix=0x7e, .len=0, .res= 126UL },
+  { .bits=8, .prefix=0xfe, .len=0, .res= 254UL },
+  { .bits=5, .prefix=0xff, .len=2, .res=1337UL, .enc={0x9a, 0x0a} },
+  { .bits=5, .prefix=0x9f, .len=2, .res=1337UL, .enc={0x9a, 0x0a} },
+  { .bits=5, .prefix=0xbf, .len=2, .res=1337UL, .enc={0x9a, 0x0a} },
+  { .bits=0 }
+};
+
+static void
+test_hpack_rd_varint( void ) {
+  for( test_hpack_case_t const * c=test_hpack_cases; c->bits; c++ ) {
+    for( ulong len=0UL; len<=8UL; len++ ) {
+      fd_hpack_rd_t rd = { .src=c->enc, .src_end=c->enc+len };
+      ulong res = fd_hpack_rd_varint( &rd, c->prefix, (1U<<(c->bits))-1U );
+      if( len < c->len ) {
+        FD_TEST( res==ULONG_MAX );
+      } else {
+        FD_TEST( res==c->res );
+      }
+    }
+  }
+}
+
 void
 test_hpack( void ) {
   test_hpack_rd( rfc7541_c31_bin, sizeof(rfc7541_c31_bin), rfc7541_c31_dec );
@@ -144,4 +184,5 @@ test_hpack( void ) {
   test_hpack_rd( rfc7541_c43_bin, sizeof(rfc7541_c43_bin), rfc7541_c33_dec );
   test_hpack_rd( rfc7541_c51_bin, sizeof(rfc7541_c51_bin), rfc7541_c51_dec );
   test_hpack_rd( rfc7541_c61_bin, sizeof(rfc7541_c61_bin), rfc7541_c51_dec );
+  test_hpack_rd_varint();
 }

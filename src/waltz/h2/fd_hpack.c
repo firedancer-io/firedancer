@@ -119,14 +119,14 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
     if( FD_UNLIKELY( rd->src+2 > end ) ) return FD_H2_ERR_COMPRESSION;
 
     uint  name_word = *(rd->src++);
-    ulong name_len  = fd_hpack_rd_varint( rd, name_word&0x7fU, 0x7f );
+    ulong name_len  = fd_hpack_rd_varint( rd, name_word, 0x7f );
     if( FD_UNLIKELY( name_len==ULONG_MAX     ) ) return FD_H2_ERR_COMPRESSION;
     if( FD_UNLIKELY( rd->src+name_len >= end ) ) return FD_H2_ERR_COMPRESSION;
     uchar const * name_p = rd->src;
     rd->src += name_len;
 
     uint  value_word = *(rd->src++);
-    ulong value_len  = fd_hpack_rd_varint( rd, value_word&0x7fU, 0x7f );
+    ulong value_len  = fd_hpack_rd_varint( rd, value_word, 0x7f );
     if( FD_UNLIKELY( value_len==ULONG_MAX    ) ) return FD_H2_ERR_COMPRESSION;
     if( FD_UNLIKELY( rd->src+value_len > end ) ) return FD_H2_ERR_COMPRESSION;
     uchar const * value_p = rd->src;
@@ -144,10 +144,10 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
   if( (b0&0xc0)==0x40 || (b0&0xf0)==0x00 || (b0&0xf0)==0x10 ) {
     /* name indexed, value literal */
     uint  name_mask = (b0&0xc0)==0x40 ? 0x3f : 0x0f;
-    ulong name_idx  = fd_hpack_rd_varint( rd, b0&name_mask, name_mask );
+    ulong name_idx  = fd_hpack_rd_varint( rd, b0, name_mask );
 
     uint  value_word = *(rd->src++);
-    ulong value_len  = fd_hpack_rd_varint( rd, value_word&0x7fU, 0x7f );
+    ulong value_len  = fd_hpack_rd_varint( rd, value_word, 0x7f );
     if( FD_UNLIKELY( value_len==ULONG_MAX    ) ) return FD_H2_ERR_COMPRESSION;
     if( FD_UNLIKELY( rd->src+value_len > end ) ) return FD_H2_ERR_COMPRESSION;
     uchar const * value_p = rd->src;
@@ -163,13 +163,13 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
 
   if( FD_UNLIKELY( (b0&0xc0)==0xc0 ) ) {
     /* name indexed, value indexed, index >=128 */
-    ulong idx = fd_hpack_rd_varint( rd, (b0&0x7f), 0x7f ); /* may fail */
+    ulong idx = fd_hpack_rd_varint( rd, b0, 0x7f ); /* may fail */
     return fd_hpack_rd_indexed( hdr, idx );
   }
 
   if( FD_UNLIKELY( (b0&0xe0)==0x20 ) ) {
     /* Dynamic Table Size Update */
-    ulong max_sz = fd_hpack_rd_varint( rd, b0&0x1f, 0x1f );
+    ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
     if( FD_UNLIKELY( max_sz!=0UL ) ) return FD_H2_ERR_COMPRESSION;
   }
 
