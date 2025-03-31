@@ -87,17 +87,25 @@ typedef struct fd_h2_conn fd_h2_conn_t;
 
 #define FD_H2_CONN_FLAGS_HANDSHAKING (0xf0)
 
+FD_PROTOTYPES_BEGIN
+
 /* fd_h2_conn_init_{client,server} bootstraps a conn object for use as a
    {client,server}-side HTTP/2 connection.  Returns conn on success, or
    NULL on failure (logs warning).  This call is currently infallible so
    there are no failure conditions.  The caller should check for failure
-   regardless (future proofing). */
+   regardless (future proofing).
+
+   fd_h2_conn_init_server assumes that the client preface was already
+   received from the incoming stream.  The preface is the 24 byte
+   constant string fd_h2_client_preface. */
 
 fd_h2_conn_t *
 fd_h2_conn_init_client( fd_h2_conn_t * conn );
 
 fd_h2_conn_t *
 fd_h2_conn_init_server( fd_h2_conn_t * conn );
+
+extern char const fd_h2_client_preface[24];
 
 /* fd_h2_conn_fini destroys a h2_conn object.  Since h2_conn has no
    references or ownership over external objects, this is a no-op. */
@@ -216,6 +224,14 @@ fd_h2_tx( fd_h2_rbuf_t * rbuf_tx,
   };
   fd_h2_rbuf_push( rbuf_tx, &hdr, sizeof(fd_h2_frame_hdr_t) );
   fd_h2_rbuf_push( rbuf_tx, payload, payload_sz );
+}
+
+static inline void
+fd_h2_conn_error( fd_h2_conn_t * conn,
+                  uint           err_code ) {
+  /* Clear all other flags */
+  conn->flags = FD_H2_CONN_FLAGS_SEND_GOAWAY;
+  conn->conn_error = (uchar)err_code;
 }
 
 FD_PROTOTYPES_END

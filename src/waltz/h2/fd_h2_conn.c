@@ -5,7 +5,7 @@
 #include "fd_h2_rbuf.h"
 #include <float.h>
 
-static char const fd_h2_client_preface[24] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+char const fd_h2_client_preface[24] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 static fd_h2_settings_t const fd_h2_settings_initial = {
   .max_concurrent_streams = UINT_MAX,
@@ -63,14 +63,6 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
 }
 
 /* fd_h2_rx1 handles one frame. */
-
-static void
-fd_h2_conn_error( fd_h2_conn_t * conn,
-                  uint           err_code ) {
-  /* Clear all other flags */
-  conn->flags = FD_H2_CONN_FLAGS_SEND_GOAWAY;
-  conn->conn_error = (uchar)err_code;
-}
 
 static void
 fd_h2_rx_data( fd_h2_conn_t *            conn,
@@ -173,6 +165,12 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
     return 0;
   }
 
+  if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) {
+    /* As a server, the first frame we should send is SETTINGS, not
+       SETTINGS ACK as generated here */
+    return 0;
+  }
+
   if( frame_flags & FD_H2_FLAG_ACK ) {
     if( FD_UNLIKELY( payload_sz ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
@@ -183,7 +181,7 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
       return 0;
     }
     if( conn->flags & FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 ) {
-      conn->flags &= ~FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;
+      conn->flags &= (uchar)~FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;
       if( !( conn->flags & FD_H2_CONN_FLAGS_HANDSHAKING ) ) {
         cb->conn_established( conn );
       }
@@ -230,7 +228,7 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
   fd_h2_rbuf_push( rbuf_tx, &hdr, sizeof(fd_h2_frame_hdr_t) );
 
   if( conn->flags & FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 ) {
-    conn->flags &= ~FD_H2_CONN_FLAGS_WAIT_SETTINGS_0;
+    conn->flags &= (uchar)~FD_H2_CONN_FLAGS_WAIT_SETTINGS_0;
     if( !( conn->flags & FD_H2_CONN_FLAGS_HANDSHAKING ) ) {
       cb->conn_established( conn );
     }
@@ -451,10 +449,12 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   *rbuf_rx = rx_peek;
   uchar * frame = fd_h2_rbuf_pop( rbuf_rx, scratch, payload_sz );
-  fd_h2_rx_frame( conn, rbuf_tx, frame, payload_sz, cb,
-                  frame_type,
-                  hdr.flags,
-                  fd_uint_bswap( hdr.stream_id ) );
+  int ok =
+    fd_h2_rx_frame( conn, rbuf_tx, frame, payload_sz, cb,
+                    frame_type,
+                    hdr.flags,
+                    fd_uint_bswap( hdr.stream_id ) );
+  (void)ok; /* FIXME */
   fd_h2_rbuf_skip( rbuf_rx, pad_sz );
 }
 
@@ -500,10 +500,13 @@ fd_h2_tx_control( fd_h2_conn_t * conn,
 
   switch( fd_uint_find_lsb( conn->flags | 0x100 ) ) {
 
-  case FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL: {
-    uchar buf[ sizeof(fd_h2_client_preface)+FD_H2_OUR_SETTINGS_ENCODED_SZ ];
-    memcpy( buf, fd_h2_client_preface, sizeof(fd_h2_client_preface) );
-    fd_h2_gen_settings( &conn->self_settings, buf+sizeof(fd_h2_client_preface) );
+  case FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL:
+    fd_h2_rbuf_push( rbuf_tx, fd_h2_client_preface, sizeof(fd_h2_client_preface) );
+    __attribute__((fallthrough));
+
+  case FD_H2_CONN_FLAGS_LG_SERVER_INITIAL: {
+    uchar buf[ FD_H2_OUR_SETTINGS_ENCODED_SZ ];
+    fd_h2_gen_settings( &conn->self_settings, buf );
     fd_h2_rbuf_push( rbuf_tx, buf, sizeof(buf) );
     conn->setting_tx++;
     conn->flags = FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 | FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;

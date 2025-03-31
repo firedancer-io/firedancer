@@ -62,13 +62,6 @@ fd_hpack_rd_init( fd_hpack_rd_t * rd,
                   uchar const *   src,
                   ulong           srcsz );
 
-/* fd_hpack_rd_fini destroys a hpack_rd and releases read interest in
-   src.  Currently no-op but should be used by callers to improve
-   readability/future proofing. */
-
-static inline void
-fd_hpack_rd_fini( fd_hpack_rd_t * rd FD_PARAM_UNUSED ) {}
-
 /* fd_hpack_rd_done returns 1 if all header entries were read from
    hpack_rd.  Returns 0 if fd_hpack_rd_next should be called again. */
 
@@ -93,7 +86,7 @@ fd_hpack_rd_done( fd_hpack_rd_t const * rd ) {
    and **scratch (the free bytes in the scratch buffer, not the pointer
    itself) are invalidated/filled with garbage on failure. */
 
-int
+uint
 fd_hpack_rd_next( fd_hpack_rd_t * hpack_rd,
                   fd_h2_hdr_t *   hdr,
                   uchar **        scratch,

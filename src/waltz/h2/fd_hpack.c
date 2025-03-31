@@ -84,7 +84,7 @@ fd_hpack_rd_init( fd_hpack_rd_t * rd,
    Currently, only supports the static table.  (Pretends that the
    dynamic table size is 0). */
 
-static int
+static uint
 fd_hpack_rd_indexed( fd_h2_hdr_t * hdr,
                      ulong         idx ) {
   if( FD_UNLIKELY( idx==0 || idx>61 ) ) return FD_H2_ERR_COMPRESSION;
@@ -99,7 +99,7 @@ fd_hpack_rd_indexed( fd_h2_hdr_t * hdr,
   return FD_H2_SUCCESS;
 }
 
-static int
+static uint
 fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
                       fd_h2_hdr_t *   hdr ) {
   uchar const * end = rd->src_end;
@@ -109,7 +109,7 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
 
   if( (b0&0xc0)==0x80 ) {
     /* name indexed, value indexed, index in [0,63], varint sz 0 */
-    int err = fd_hpack_rd_indexed( hdr, b0&0x7f );
+    uint err = fd_hpack_rd_indexed( hdr, b0&0x7f );
     hdr->hint |= FD_H2_HDR_HINT_VALUE_INDEXED;
     return err;
   }
@@ -153,7 +153,7 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
     uchar const * value_p = rd->src;
     rd->src += value_len;
 
-    int err = fd_hpack_rd_indexed( hdr, name_idx );
+    uint err = fd_hpack_rd_indexed( hdr, name_idx );
     if( FD_UNLIKELY( err ) ) return FD_H2_ERR_COMPRESSION;
     hdr->value     = (char const *)value_p;
     hdr->value_len = (uint)value_len;
@@ -190,12 +190,12 @@ fd_hpack_decoded_sz_max( ulong enc_sz ) {
   return enc_sz*2UL;
 }
 
-int
+uint
 fd_hpack_rd_next( fd_hpack_rd_t * hpack_rd,
                   fd_h2_hdr_t *   hdr,
                   uchar **        scratch,
                   uchar *         scratch_end ) {
-  int err = fd_hpack_rd_next_raw( hpack_rd, hdr );
+  uint err = fd_hpack_rd_next_raw( hpack_rd, hdr );
   if( FD_UNLIKELY( err ) ) return err;
 
   uchar * scratch_ = *scratch;
