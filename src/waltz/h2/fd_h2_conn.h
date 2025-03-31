@@ -87,7 +87,6 @@ typedef struct fd_h2_conn fd_h2_conn_t;
 #define FD_H2_CONN_STATE_UPSET          ((uchar)0x80) /* forcibly closing with error */
 
 #define FD_H2_CONN_ACTION_SETTINGS     ((uchar)0x02) /* need to send a SETTINGS frame */
-#define FD_H2_CONN_ACTION_RX_STUFFED   ((uchar)0x10) /* need to generate frames to unblock RX */
 
 FD_PROTOTYPES_BEGIN
 
@@ -136,12 +135,12 @@ fd_h2_conn_fini( fd_h2_conn_t * conn );
    Assumes scratch_sz >= conn.self_settings.max_frame_size. */
 
 void
-fd_h2_rx( fd_h2_conn_t *      conn,
-          fd_h2_rbuf_t *      rbuf_rx,
-          fd_h2_rbuf_t *      rbuf_tx,
-          uchar *             scratch,
-          ulong               scratch_sz,
-          fd_h2_callbacks_t * cb );
+fd_h2_rx( fd_h2_conn_t *            conn,
+          fd_h2_rbuf_t *            rbuf_rx,
+          fd_h2_rbuf_t *            rbuf_tx,
+          uchar *                   scratch,
+          ulong                     scratch_sz,
+          fd_h2_callbacks_t const * cb );
 
 /* fd_h2_tx_control writes out control messages to rbuf_out.  Should be
    called immediately when creating a conn or whenever a timer

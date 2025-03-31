@@ -93,9 +93,9 @@ fd_h2_conn_error( fd_h2_conn_t * conn,
 }
 
 static void
-fd_h2_rx_data( fd_h2_conn_t *      conn,
-               fd_h2_rbuf_t *      rbuf_rx,
-               fd_h2_callbacks_t * cb ) {
+fd_h2_rx_data( fd_h2_conn_t *            conn,
+               fd_h2_rbuf_t *            rbuf_rx,
+               fd_h2_callbacks_t const * cb ) {
   ulong frame_rem  = conn->rx_frame_rem;
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
   uint  stream_id  = conn->rx_stream_id;
@@ -116,12 +116,12 @@ fd_h2_rx_data( fd_h2_conn_t *      conn,
 }
 
 static int
-fd_h2_rx_headers( fd_h2_conn_t *      conn,
-                  uchar *             payload,
-                  ulong               payload_sz,
-                  fd_h2_callbacks_t * cb,
-                  uint                frame_flags,
-                  uint                stream_id ) {
+fd_h2_rx_headers( fd_h2_conn_t *            conn,
+                  uchar *                   payload,
+                  ulong                     payload_sz,
+                  fd_h2_callbacks_t const * cb,
+                  uint                      frame_flags,
+                  uint                      stream_id ) {
 
   if( FD_UNLIKELY( !stream_id ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
@@ -143,12 +143,12 @@ fd_h2_rx_headers( fd_h2_conn_t *      conn,
 }
 
 static int
-fd_h2_rx_continuation( fd_h2_conn_t *      conn,
-                       uchar *             payload,
-                       ulong               payload_sz,
-                       fd_h2_callbacks_t * cb,
-                       uint                frame_flags,
-                       uint                stream_id ) {
+fd_h2_rx_continuation( fd_h2_conn_t *            conn,
+                       uchar *                   payload,
+                       ulong                     payload_sz,
+                       fd_h2_callbacks_t const * cb,
+                       uint                      frame_flags,
+                       uint                      stream_id ) {
 
   if( FD_UNLIKELY( !stream_id ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
@@ -242,6 +242,10 @@ fd_h2_rx_settings( fd_h2_conn_t * conn,
   }
   fd_h2_rbuf_push( rbuf_tx, &hdr, sizeof(fd_h2_frame_hdr_t) );
 
+  if( FD_UNLIKELY( conn->state == FD_H2_CONN_STATE_WAIT_SETTINGS ) ) {
+    conn->state = FD_H2_CONN_STATE_ESTABLISHED;
+  }
+
   return 1;
 }
 
@@ -292,11 +296,11 @@ fd_h2_rx_ping( fd_h2_conn_t * conn,
 }
 
 static int
-fd_h2_rx_goaway( fd_h2_conn_t *      conn,
-                 fd_h2_callbacks_t * cb,
-                 uchar const *       payload,
-                 ulong               payload_sz,
-                 uint                stream_id ) {
+fd_h2_rx_goaway( fd_h2_conn_t *            conn,
+                 fd_h2_callbacks_t const * cb,
+                 uchar const *             payload,
+                 ulong                     payload_sz,
+                 uint                      stream_id ) {
 
   if( FD_UNLIKELY( stream_id ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
@@ -315,11 +319,11 @@ fd_h2_rx_goaway( fd_h2_conn_t *      conn,
 }
 
 static int
-fd_h2_rx_window_update( fd_h2_conn_t *      conn,
-                        fd_h2_callbacks_t * cb,
-                        uchar const *       payload,
-                        ulong               payload_sz,
-                        uint                stream_id ) {
+fd_h2_rx_window_update( fd_h2_conn_t *            conn,
+                        fd_h2_callbacks_t const * cb,
+                        uchar const *             payload,
+                        ulong                     payload_sz,
+                        uint                      stream_id ) {
   if( FD_UNLIKELY( payload_sz!=4UL ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
     return 0;
@@ -356,14 +360,14 @@ fd_h2_rx_window_update( fd_h2_conn_t *      conn,
    0 on connection error. */
 
 static int
-fd_h2_rx_frame( fd_h2_conn_t *      conn,
-                fd_h2_rbuf_t *      rbuf_tx,
-                uchar *             payload,
-                ulong               payload_sz,
-                fd_h2_callbacks_t * cb,
-                uint                frame_type,
-                uint                frame_flags,
-                uint                stream_id ) {
+fd_h2_rx_frame( fd_h2_conn_t *            conn,
+                fd_h2_rbuf_t *            rbuf_tx,
+                uchar *                   payload,
+                ulong                     payload_sz,
+                fd_h2_callbacks_t const * cb,
+                uint                      frame_type,
+                uint                      frame_flags,
+                uint                      stream_id ) {
   switch( frame_type ) {
   case FD_H2_FRAME_TYPE_HEADERS:
     return fd_h2_rx_headers( conn, payload, payload_sz, cb, frame_flags, stream_id );
@@ -385,12 +389,12 @@ fd_h2_rx_frame( fd_h2_conn_t *      conn,
 }
 
 static void
-fd_h2_rx1( fd_h2_conn_t *      conn,
-           fd_h2_rbuf_t *      rbuf_rx,
-           fd_h2_rbuf_t *      rbuf_tx,
-           uchar *             scratch,
-           ulong               scratch_sz,
-           fd_h2_callbacks_t * cb ) {
+fd_h2_rx1( fd_h2_conn_t *            conn,
+           fd_h2_rbuf_t *            rbuf_rx,
+           fd_h2_rbuf_t *            rbuf_tx,
+           uchar *                   scratch,
+           ulong                     scratch_sz,
+           fd_h2_callbacks_t const * cb ) {
   /* All frames except DATA are fully buffered, thus assume that current
      frame is a DATA frame if rx_frame_rem != 0. */
   if( conn->rx_frame_rem ) {
@@ -459,12 +463,12 @@ fd_h2_rx1( fd_h2_conn_t *      conn,
 }
 
 void
-fd_h2_rx( fd_h2_conn_t *      conn,
-          fd_h2_rbuf_t *      rbuf_rx,
-          fd_h2_rbuf_t *      rbuf_tx,
-          uchar *             scratch,
-          ulong               scratch_sz,
-          fd_h2_callbacks_t * cb ) {
+fd_h2_rx( fd_h2_conn_t *            conn,
+          fd_h2_rbuf_t *            rbuf_rx,
+          fd_h2_rbuf_t *            rbuf_tx,
+          uchar *                   scratch,
+          ulong                     scratch_sz,
+          fd_h2_callbacks_t const * cb ) {
   /* Pre-receive TX work */
 
   /* Stop handling frames on conn error. */
