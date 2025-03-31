@@ -1018,7 +1018,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x1b\xa8\x9a\x1c\x70\xb2\x9a\xca\x07\x34\x3d\x0b\xbf\xe2\x48\x67\x97\x3a\xdb\x59\x2e\x5d\x00\xfa\xde\x49\x8b\x33\x77\x3f\x70\xa0"},
                                  /* 2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj */
     .name                      = "apply_cost_tracker_during_replay",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, deplete_cu_meter_on_vm_failure)>>3,
     .id                        = {"\x96\x30\x7a\x11\x82\xf7\xe4\xee\x64\x9d\xe0\x5b\x0f\xcc\xe5\x25\x7b\x93\x34\x69\x52\xaa\x5a\x1d\x8f\xd1\x2f\x90\xa6\x98\x75\x98"},
@@ -1471,7 +1472,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa5\x84\xb6\xe5\x4b\xa8\x34\x24\x94\xbb\xa3\x5d\x43\x00\x19\x22\x7e\x11\x1e\xb6\xba\xc9\x95\x77\xf9\xe1\x83\xa5\x46\x5d\xff\x48"},
                                  /* C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm */
     .name                      = "migrate_address_lookup_table_program_to_core_bpf",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, migrate_stake_program_to_core_bpf)>>3,
     .id                        = {"\x4f\x6e\x58\xf2\xa5\x04\x0c\xd3\x86\x2c\xea\xf5\xe7\x5e\x1a\xc4\x52\x52\xca\xea\xdf\x75\x06\xd3\x0e\xef\x5e\x33\x25\x16\xaf\xcf"},
@@ -1545,7 +1547,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x85\x6c\x3d\xbc\xfd\xf4\xf4\x8e\x9f\xfa\xe7\xd0\xf8\xfc\x84\xda\x5a\x8b\x15\x32\x54\xe0\xe1\xa2\xe4\x64\x57\x89\x94\x0b\x38\x47"},
                                  /* 9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp */
     .name                      = "move_precompile_verification_to_svm",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_transaction_loading_failure_fees)>>3,
     .id                        = {"\x05\xc9\x32\x95\xdc\xe3\x71\xd5\xa0\x2c\x0f\xe9\xc0\xa6\x12\xfa\xe6\x68\x7d\x69\x95\x6d\x0d\xb5\x77\xf3\x6e\xf1\xf9\x78\x72\x8c"},
