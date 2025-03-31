@@ -170,7 +170,7 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* `process_instruction_truncate()` resizes an undeployed program account to the specified size.
+/* `fd_loader_v4_program_instruction_set_program_length()` resizes an undeployed program account to the specified size.
    Initialization is taken care of when the program account size is first increased. Decreasing the size
    to 0 will close the program account.
 
@@ -185,10 +185,10 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
 
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L123-L208 */
 static int
-fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                               instr_ctx,
-                                           fd_loader_v4_program_instruction_truncate_t const * truncate ) {
+fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *                                         instr_ctx,
+                                                     fd_loader_v4_program_instruction_set_program_length_t const * set_program_length ) {
   int  err;
-  uint new_size = truncate->new_size;
+  uint new_size = set_program_length->new_size;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L130 */
   fd_guarded_borrowed_account_t program;
@@ -212,12 +212,6 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
     if( FD_UNLIKELY( !fd_borrowed_account_is_writable( &program ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not writeable" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L145-L148 */
-    if( FD_UNLIKELY( !fd_borrowed_account_is_signer( &program ) ) ) {
-      fd_log_collector_msg_literal( instr_ctx, "Program did not sign" );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L149-L152 */
@@ -294,7 +288,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
     }
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L197-L199 */
-    err = fd_borrowed_account_set_data_length( &program, new_program_dlen );
+    err = fd_borrowed_account_set_data_length( &program, LOADER_V4_PROGRAM_DATA_OFFSET + new_program_dlen );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -302,7 +296,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L200-L205 */
     if( is_initialization ) {
       /* https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L197 */
-      program.acct->meta->info.executable = true;
+      program.acct->meta->info.executable = 1;
 
       /* Serialize into the program account directly. Note that an error is impossible
           because `new_program_dlen` > `LOADER_V4_PROGRAM_DATA_OFFSET`.
@@ -737,12 +731,15 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
           rc = fd_loader_v4_program_instruction_write( instr_ctx, &instruction->inner.write );
           break;
         }
-        case fd_loader_v4_program_instruction_enum_truncate: {
+        case fd_loader_v4_program_instruction_enum_copy: {
           fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 2U );
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L477-L479 */
-          rc = fd_loader_v4_program_instruction_truncate( instr_ctx, &instruction->inner.truncate );
+          rc = fd_loader_v4_program_instruction_set_program_length( instr_ctx, &instruction->inner.set_program_length );
           break;
+        }
+        case fd_loader_v4_program_instruction_enum_set_program_length: {
+
         }
         case fd_loader_v4_program_instruction_enum_deploy: {
           fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 2U );

@@ -3606,7 +3606,7 @@ typedef struct fd_bpf_loader_program_instruction_global fd_bpf_loader_program_in
 #define FD_BPF_LOADER_PROGRAM_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_bpf_loader_program_instruction_global_t)
 #define FD_BPF_LOADER_PROGRAM_INSTRUCTION_GLOBAL_ALIGN (8UL)
 
-/* https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L11-L17 */
+/* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L21-L27 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_write {
   uint offset;
@@ -3626,31 +3626,53 @@ typedef struct fd_loader_v4_program_instruction_write_global fd_loader_v4_progra
 #define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_GLOBAL_FOOTPRINT sizeof(fd_loader_v4_program_instruction_write_global_t)
 #define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_GLOBAL_ALIGN (8UL)
 
-/* https://github.com/anza-xyz/agave/blob/007194391ca8313b2854d523769d0bedf040ef92/sdk/program/src/loader_v4_instruction.rs#L33-L36 */
-/* Encoded Size: Fixed (4 bytes) */
-struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_truncate {
-  uint new_size;
+/* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L35-L42 */
+/* Encoded Size: Fixed (12 bytes) */
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_copy {
+  uint destination_offset;
+  uint source_offset;
+  uint length;
 };
-typedef struct fd_loader_v4_program_instruction_truncate fd_loader_v4_program_instruction_truncate_t;
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_FOOTPRINT sizeof(fd_loader_v4_program_instruction_truncate_t)
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_ALIGN (8UL)
+typedef struct fd_loader_v4_program_instruction_copy fd_loader_v4_program_instruction_copy_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_FOOTPRINT sizeof(fd_loader_v4_program_instruction_copy_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_truncate_global {
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_copy_global {
+  uint destination_offset;
+  uint source_offset;
+  uint length;
+};
+typedef struct fd_loader_v4_program_instruction_copy_global fd_loader_v4_program_instruction_copy_global_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_GLOBAL_FOOTPRINT sizeof(fd_loader_v4_program_instruction_copy_global_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_GLOBAL_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L57-L60 */
+/* Encoded Size: Fixed (4 bytes) */
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_set_program_length {
   uint new_size;
 };
-typedef struct fd_loader_v4_program_instruction_truncate_global fd_loader_v4_program_instruction_truncate_global_t;
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_GLOBAL_FOOTPRINT sizeof(fd_loader_v4_program_instruction_truncate_global_t)
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_GLOBAL_ALIGN (8UL)
+typedef struct fd_loader_v4_program_instruction_set_program_length fd_loader_v4_program_instruction_set_program_length_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_FOOTPRINT sizeof(fd_loader_v4_program_instruction_set_program_length_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_set_program_length_global {
+  uint new_size;
+};
+typedef struct fd_loader_v4_program_instruction_set_program_length_global fd_loader_v4_program_instruction_set_program_length_global_t;
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_GLOBAL_FOOTPRINT sizeof(fd_loader_v4_program_instruction_set_program_length_global_t)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_GLOBAL_ALIGN (8UL)
 
 union fd_loader_v4_program_instruction_inner {
   fd_loader_v4_program_instruction_write_t write;
-  fd_loader_v4_program_instruction_truncate_t truncate;
+  fd_loader_v4_program_instruction_copy_t copy;
+  fd_loader_v4_program_instruction_set_program_length_t set_program_length;
 };
 typedef union fd_loader_v4_program_instruction_inner fd_loader_v4_program_instruction_inner_t;
 
 union fd_loader_v4_program_instruction_inner_global {
   fd_loader_v4_program_instruction_write_global_t write;
-  fd_loader_v4_program_instruction_truncate_t truncate;
+  fd_loader_v4_program_instruction_copy_t copy;
+  fd_loader_v4_program_instruction_set_program_length_t set_program_length;
 };
 typedef union fd_loader_v4_program_instruction_inner_global fd_loader_v4_program_instruction_inner_global_t;
 
@@ -8140,20 +8162,35 @@ void * fd_loader_v4_program_instruction_write_decode_global( void * mem, fd_binc
 void fd_loader_v4_program_instruction_write_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 int fd_loader_v4_program_instruction_write_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
 
-void fd_loader_v4_program_instruction_truncate_new( fd_loader_v4_program_instruction_truncate_t * self );
-int fd_loader_v4_program_instruction_truncate_encode( fd_loader_v4_program_instruction_truncate_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_loader_v4_program_instruction_truncate_destroy( fd_loader_v4_program_instruction_truncate_t * self );
-void fd_loader_v4_program_instruction_truncate_walk( void * w, fd_loader_v4_program_instruction_truncate_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_loader_v4_program_instruction_truncate_size( fd_loader_v4_program_instruction_truncate_t const * self );
-ulong fd_loader_v4_program_instruction_truncate_footprint( void );
-ulong fd_loader_v4_program_instruction_truncate_align( void );
-int fd_loader_v4_program_instruction_truncate_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-int fd_loader_v4_program_instruction_truncate_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_loader_v4_program_instruction_truncate_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_loader_v4_program_instruction_truncate_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_loader_v4_program_instruction_truncate_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_loader_v4_program_instruction_truncate_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_loader_v4_program_instruction_truncate_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_copy_new( fd_loader_v4_program_instruction_copy_t * self );
+int fd_loader_v4_program_instruction_copy_encode( fd_loader_v4_program_instruction_copy_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_copy_destroy( fd_loader_v4_program_instruction_copy_t * self );
+void fd_loader_v4_program_instruction_copy_walk( void * w, fd_loader_v4_program_instruction_copy_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_loader_v4_program_instruction_copy_size( fd_loader_v4_program_instruction_copy_t const * self );
+ulong fd_loader_v4_program_instruction_copy_footprint( void );
+ulong fd_loader_v4_program_instruction_copy_align( void );
+int fd_loader_v4_program_instruction_copy_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_loader_v4_program_instruction_copy_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_loader_v4_program_instruction_copy_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_copy_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_loader_v4_program_instruction_copy_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_copy_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_copy_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_copy_t * self, fd_bincode_decode_ctx_t * ctx );
+
+void fd_loader_v4_program_instruction_set_program_length_new( fd_loader_v4_program_instruction_set_program_length_t * self );
+int fd_loader_v4_program_instruction_set_program_length_encode( fd_loader_v4_program_instruction_set_program_length_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_set_program_length_destroy( fd_loader_v4_program_instruction_set_program_length_t * self );
+void fd_loader_v4_program_instruction_set_program_length_walk( void * w, fd_loader_v4_program_instruction_set_program_length_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_loader_v4_program_instruction_set_program_length_size( fd_loader_v4_program_instruction_set_program_length_t const * self );
+ulong fd_loader_v4_program_instruction_set_program_length_footprint( void );
+ulong fd_loader_v4_program_instruction_set_program_length_align( void );
+int fd_loader_v4_program_instruction_set_program_length_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_loader_v4_program_instruction_set_program_length_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_loader_v4_program_instruction_set_program_length_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_set_program_length_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_loader_v4_program_instruction_set_program_length_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_loader_v4_program_instruction_set_program_length_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+int fd_loader_v4_program_instruction_set_program_length_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_set_program_length_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_loader_v4_program_instruction_new_disc( fd_loader_v4_program_instruction_t * self, uint discriminant );
 void fd_loader_v4_program_instruction_new( fd_loader_v4_program_instruction_t * self );
@@ -8172,18 +8209,20 @@ void fd_loader_v4_program_instruction_decode_inner_global( void * struct_mem, vo
 int fd_loader_v4_program_instruction_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_write( fd_loader_v4_program_instruction_t const * self );
-FD_FN_PURE uchar fd_loader_v4_program_instruction_is_truncate( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_copy( fd_loader_v4_program_instruction_t const * self );
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_set_program_length( fd_loader_v4_program_instruction_t const * self );
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_deploy( fd_loader_v4_program_instruction_t const * self );
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_retract( fd_loader_v4_program_instruction_t const * self );
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_transfer_authority( fd_loader_v4_program_instruction_t const * self );
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_finalize( fd_loader_v4_program_instruction_t const * self );
 enum {
 fd_loader_v4_program_instruction_enum_write = 0,
-fd_loader_v4_program_instruction_enum_truncate = 1,
-fd_loader_v4_program_instruction_enum_deploy = 2,
-fd_loader_v4_program_instruction_enum_retract = 3,
-fd_loader_v4_program_instruction_enum_transfer_authority = 4,
-fd_loader_v4_program_instruction_enum_finalize = 5,
+fd_loader_v4_program_instruction_enum_copy = 1,
+fd_loader_v4_program_instruction_enum_set_program_length = 2,
+fd_loader_v4_program_instruction_enum_deploy = 3,
+fd_loader_v4_program_instruction_enum_retract = 4,
+fd_loader_v4_program_instruction_enum_transfer_authority = 5,
+fd_loader_v4_program_instruction_enum_finalize = 6,
 };
 void fd_bpf_upgradeable_loader_program_instruction_write_new( fd_bpf_upgradeable_loader_program_instruction_write_t * self );
 int fd_bpf_upgradeable_loader_program_instruction_write_encode( fd_bpf_upgradeable_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx );
