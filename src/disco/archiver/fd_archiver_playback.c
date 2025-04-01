@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 #include <linux/if_xdp.h>
 #include "generated/archiver_playback_seccomp.h"
-
+#include "../../disco/topo/fd_pod_format.h"
 /* The archiver playback tile consumes from the archive file, adds artificial delay
 to reproduce exactly the timing from the capture, and forwards these fragments to the
 receiver tiles (shred/quic/gossip/repair).
@@ -23,9 +23,7 @@ receiver tiles.
 */
 
 #define NET_SHRED_OUT_IDX  (0UL)
-#define NET_QUIC_OUT_IDX   (1UL)
-#define NET_GOSSIP_OUT_IDX (2UL)
-#define NET_REPAIR_OUT_IDX (3UL)
+#define NET_REPAIR_OUT_IDX (1UL)
 
 #define FD_ARCHIVER_PLAYBACK_ALLOC_TAG   (3UL)
 
@@ -43,6 +41,7 @@ typedef struct fd_archiver_playback_stats fd_archiver_playback_stats_t;
 
 typedef struct {
   fd_wksp_t * mem;
+  ulong       mtu;
   ulong       chunk0;
   ulong       wmark;
   ulong       chunk;
@@ -58,11 +57,20 @@ struct fd_archiver_playback_tile_ctx {
 
   ulong prev_publish_time;
   ulong now;
+  ulong need_notify;
+  ulong notified;
 
   fd_archiver_playback_out_ctx_t out[ 32 ];
 
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
+
+  ulong playback_done;
+  ulong done_time;
+  ulong playback_started;
+  ulong playback_cnt[FD_ARCHIVER_TILE_CNT];
+
+  ulong * published_wmark; /* same as the one in replay tile */
 };
 typedef struct fd_archiver_playback_tile_ctx fd_archiver_playback_tile_ctx_t;
 
@@ -125,9 +133,9 @@ privileged_init( fd_topo_t *      topo,
     FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-    tile->archiver.archive_fd = open( tile->archiver.archive_path, O_RDONLY | O_DIRECT, 0666 );
+    tile->archiver.archive_fd = open( tile->archiver.archiver_path, O_RDONLY | O_DIRECT, 0666 );
     if ( FD_UNLIKELY( tile->archiver.archive_fd == -1 ) ) {
-      FD_LOG_ERR(( "failed to open archive file %s %d %d %s", tile->archiver.archive_path, tile->archiver.archive_fd, errno, strerror(errno) ));
+      FD_LOG_ERR(( "failed to open archive file %s %d %d %s", tile->archiver.archiver_path, tile->archiver.archive_fd, errno, strerror(errno) ));
     }
 }
 
@@ -169,11 +177,31 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link      = &topo->links[ tile->out_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
+    ctx->out[ i ].mtu    = link->mtu;
     ctx->out[ i ].mem    = link_wksp->wksp;
     ctx->out[ i ].chunk0 = fd_dcache_compact_chunk0( link_wksp->wksp, link->dcache );
     ctx->out[ i ].wmark  = fd_dcache_compact_wmark( link_wksp->wksp, link->dcache, link->mtu );
     ctx->out[ i ].chunk  = ctx->out[ i ].chunk0;
   }
+
+  ctx->playback_done                            = 0;
+  ctx->playback_started                         = 0;
+  ctx->now                                      = 0;
+  ctx->prev_publish_time                        = 0;
+  /* for now, we require a notification before playback another frag */
+  FD_TEST( tile->in_cnt==1 );
+  ctx->need_notify                              = 1;
+  ctx->notified                                 = 1;
+  ctx->playback_cnt[FD_ARCHIVER_TILE_ID_SHRED]  = 0;
+  ctx->playback_cnt[FD_ARCHIVER_TILE_ID_REPAIR] = 0;
+
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  FD_TEST( root_slot_obj_id!=ULONG_MAX );
+  ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
+
+  FD_LOG_WARNING(( "Playback tile finishes initialization" ));
 }
 
 static void
@@ -181,11 +209,45 @@ during_housekeeping( fd_archiver_playback_tile_ctx_t * ctx ) {
   ctx->now =(ulong)((double)(fd_tickcount()) / ctx->tick_per_ns);
 }
 
+static void
+after_frag( fd_archiver_playback_tile_ctx_t * ctx,
+            ulong                             in_idx,
+            ulong                             seq    FD_PARAM_UNUSED,
+            ulong                             sig    FD_PARAM_UNUSED,
+            ulong                             sz     FD_PARAM_UNUSED,
+            ulong                             tsorig FD_PARAM_UNUSED,
+            ulong                             tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t *               stem   FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( in_idx!=0 ) ) FD_LOG_ERR(( "Playback seems corrupted." ));
+  ctx->notified = 1;
+}
+
 static inline void
 after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
               fd_stem_context_t *                   stem,
               int *                                 opt_poll_in FD_PARAM_UNUSED,
               int *                                 charge_busy FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( ctx->playback_done ) ) {
+    if( ctx->now>ctx->done_time+1000000000UL*5UL ) {
+      FD_LOG_ERR(( "Playback is done with %lu shred frags and %lu repair frags.",
+                   ctx->playback_cnt[FD_ARCHIVER_TILE_ID_SHRED],
+                   ctx->playback_cnt[FD_ARCHIVER_TILE_ID_REPAIR] ));
+    }
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->playback_started ) ) {
+    ulong wmark = fd_fseq_query( ctx->published_wmark );
+    if( wmark!=ULONG_MAX ) {
+      /* Replay tile has updated root_slot (aka. published_wmark), meaning
+       * (1) snapshot has been loaded; (2) blockstore has been initialized */
+      ctx->playback_started = 1;
+      FD_LOG_WARNING(( "playback starts with wmark=%lu", wmark ));
+    } else {
+      return;
+    }
+  }
+
   /* Peek the header without consuming anything, to see if we need to wait */
   char const * peek = fd_io_buffered_istream_peek( &ctx->istream );
   if( FD_UNLIKELY(( !peek )) ) {
@@ -195,50 +257,66 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   /* Consume the header */
   fd_archiver_frag_header_t * header = fd_type_pun( (char *)peek );
   if( FD_UNLIKELY( header->magic != FD_ARCHIVER_HEADER_MAGIC ) ) {
-    FD_LOG_ERR(( "bad magic in archive header: %lu", header->magic ));
+    FD_LOG_WARNING(( "bad magic in archive header: %lu", header->magic ));
+    ctx->playback_done = 1;
+    ctx->done_time     = ctx->now;
+    return;
   }
 
-  /* Determine if we should wait before publishing this */
-  /* need to delay if now > (when we should publish it)  */
+  /* Determine if we should wait before publishing this
+     need to delay if now > (when we should publish it)  */
   if( ctx->prev_publish_time != 0UL &&
-    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment - 500000000 ) )) {
+    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment ) )) {
+    return;
+  }
+
+  /* Determine if playback receives the notification for
+     the previous frag from storei tile. */
+  if( FD_LIKELY( ctx->need_notify && !ctx->notified ) ) return;
+
+  /* Consume the header from the stream */
+  fd_archiver_frag_header_t header_tmp;
+  if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, &header_tmp, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) )) {
+    FD_LOG_WARNING(( "failed to consume header" ));
+    ctx->playback_done = 1;
+    ctx->done_time     = ctx->now;
     return;
   }
 
   /* Determine the output link on which to send the frag */
   ulong out_link_idx = 0UL;
-  switch ( header->tile_id ) {
+  switch ( header_tmp.tile_id ) {
     case FD_ARCHIVER_TILE_ID_SHRED:
     out_link_idx = NET_SHRED_OUT_IDX;
-    break;
-    case FD_ARCHIVER_TILE_ID_QUIC:
-    out_link_idx = NET_QUIC_OUT_IDX;
-    break;
-    case FD_ARCHIVER_TILE_ID_GOSSIP:
-    out_link_idx = NET_GOSSIP_OUT_IDX;
+    ctx->playback_cnt[FD_ARCHIVER_TILE_ID_SHRED]++;
     break;
     case FD_ARCHIVER_TILE_ID_REPAIR:
     out_link_idx = NET_REPAIR_OUT_IDX;
+    ctx->playback_cnt[FD_ARCHIVER_TILE_ID_REPAIR]++;
     break;
     default:
     FD_LOG_ERR(( "unsupported tile id" ));
   }
 
-  /* Consume the header from the stream */
-  fd_archiver_frag_header_t header_tmp;
-  if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, &header_tmp, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) )) {
-    FD_LOG_ERR(( "failed to consume header" ));
+  /* Consume the fragment from the stream */
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out[ out_link_idx ].mem, ctx->out[ out_link_idx ].chunk );
+  if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, dst, header_tmp.sz ) ) ) {
+    FD_LOG_WARNING(( "failed to consume frag" ));
+    ctx->playback_done = 1;
+    ctx->done_time     = ctx->now;
+    return;
   }
 
-  /* Consume the fragment from the stream */
-  uchar       * dst      = (uchar *)fd_chunk_to_laddr( ctx->out[ out_link_idx ].mem, ctx->out[ out_link_idx ].chunk );
-  fd_io_buffered_istream_read( &ctx->istream, dst, header_tmp.sz );
-
-  fd_stem_publish( stem, out_link_idx, header->sig, ctx->out[ out_link_idx ].chunk, header->sz, 0UL, 0UL, 0UL);
+  if( FD_LIKELY( ctx->need_notify ) ) ctx->notified=0;
+  if( FD_UNLIKELY(( ctx->out[ out_link_idx ].mtu<header_tmp.sz )) ) {
+    FD_LOG_ERR(( "Try to playback frag with sz=%lu, exceeding mtu=%lu for link%lu",
+                 header_tmp.sz, ctx->out[ out_link_idx ].mtu, out_link_idx ));
+  }
+  fd_stem_publish( stem, out_link_idx, header_tmp.sig, ctx->out[ out_link_idx ].chunk, header_tmp.sz, 0UL, 0UL, 0UL);
   ctx->out[ out_link_idx ].chunk = fd_dcache_compact_next( ctx->out[ out_link_idx ].chunk,
-                                                                            header->sz,
-                                                                        ctx->out[ out_link_idx ].chunk0,
-                                                                        ctx->out[ out_link_idx ].wmark );
+                                                           header_tmp.sz,
+                                                           ctx->out[ out_link_idx ].chunk0,
+                                                           ctx->out[ out_link_idx ].wmark );
   ctx->prev_publish_time = ctx->now;
 }
 
@@ -249,6 +327,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_playback_tile_ctx_t)
 
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../stem/fd_stem.c"

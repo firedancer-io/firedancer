@@ -21,6 +21,8 @@
         use_consumed_cus = false
     [tiles.restart]
         in_wen_restart = false
+    [tiles.archiver]
+        enabled = false
 
 [consensus]
     vote = true
