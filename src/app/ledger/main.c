@@ -721,7 +721,13 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
   fd_funk_start_write( funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx, args->slot_ctx->funk_txn, args->tpool, args->runtime_spad );
+  FD_LOG_NOTICE(("TPOOL %p", (void*)args->tpool));
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx,
+                                                        args->slot_ctx->funk_txn,
+                                                        args->runtime_spad,
+                                                        tpool_wrapper,
+                                                        1,
+                                                        args->tpool );
   fd_funk_end_write( funk );
 
   /* First, load in the sysvars into the sysvar cache. This is required to

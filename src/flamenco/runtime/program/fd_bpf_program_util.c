@@ -4,6 +4,7 @@
 #include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
+#include "../fd_runtime_public.h"
 
 #include <assert.h>
 
@@ -322,36 +323,79 @@ fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
   fd_account_meta_t const * metadata = fd_type_pun_const( raw );
 
   if( metadata &&
-    memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-    memcmp( metadata->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-    memcmp( metadata->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-    memcmp( metadata->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
-  *is_bpf_program = 0;
+      memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
+      memcmp( metadata->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
+      memcmp( metadata->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+      memcmp( metadata->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
+    *is_bpf_program = 0;
   } else {
     *is_bpf_program = 1;
   }
 }
 
 static void FD_FN_UNUSED
-fd_bpf_scan_task( void * tpool,
-                  ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
-                  void * args,
-                  void * reduce , ulong stride FD_PARAM_UNUSED,
+fd_bpf_scan_task( void * tpool, ulong t0, ulong t1,
+                  void * args, void * reduce, ulong stride FD_PARAM_UNUSED,
                   ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
-                  ulong m0, ulong m1 FD_PARAM_UNUSED,
+                  ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
                   ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED  ) {
-  fd_funk_rec_t const * recs = ((fd_funk_rec_t const **)tpool)[m0];
-  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)args;
-  uchar * is_bpf_program = (uchar *)reduce + m0;
+  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const * *)tpool;
+  ulong                   start_idx      = t0;
+  ulong                   end_idx        = t1;
+  uchar *                 is_bpf_program = (uchar *)args;
+  fd_exec_slot_ctx_t *    slot_ctx       = (fd_exec_slot_ctx_t *)reduce;
 
-  fd_bpf_is_bpf_program( recs, fd_funk_wksp( slot_ctx->acc_mgr->funk ), is_bpf_program );
+  for( ulong i=start_idx; i<end_idx; i++ ) {
+    fd_funk_rec_t const * rec = recs[ i ];
+    fd_bpf_is_bpf_program( rec, fd_funk_wksp( slot_ctx->acc_mgr->funk ), &is_bpf_program[ i ] );
+  }
+}
+
+static void
+fd_bpf_scan_and_create_program_cache_entry_tpool_helper( fd_tpool_t *            tpool,
+                                                         fd_funk_rec_t const * * recs,
+                                                         uchar *                 is_bpf_program,
+                                                         ulong                   rec_cnt,
+                                                         fd_exec_slot_ctx_t *    slot_ctx ) {
+
+  ulong wcnt           = fd_tpool_worker_cnt( tpool );
+  ulong cnt_per_worker = rec_cnt / wcnt;
+  FD_LOG_NOTICE(("TPOOL %p", (void*)tpool));
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                            fd_ulong_sat_sub( rec_cnt, 1UL );
+
+    fd_tpool_exec( tpool, worker_idx, fd_bpf_scan_task,
+                   recs, start_idx, end_idx,
+                   is_bpf_program, slot_ctx, 0UL,
+                   0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
+  }
+
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    fd_tpool_wait( tpool, worker_idx );
+  }
+}
+
+void
+tpool_wrapper( fd_funk_rec_t const * * recs,
+               uchar *                 is_bpf_program,
+               ulong                   rec_cnt,
+               fd_exec_slot_ctx_t *    slot_ctx,
+               va_list                 args ) {
+  fd_tpool_t * tpool = va_arg( args, fd_tpool_t * );
+  FD_LOG_NOTICE(("TPOOL %p", (void*)tpool));
+  va_end( args );
+  fd_bpf_scan_and_create_program_cache_entry_tpool_helper( tpool, recs, is_bpf_program, rec_cnt, slot_ctx );
 }
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                                       fd_funk_txn_t *      funk_txn,
-                                                      fd_tpool_t *         tpool,
-                                                      fd_spad_t *          runtime_spad ) {
+                                                      fd_spad_t *          runtime_spad,
+                                                      para_wrapper_func    wrapper_fn,
+                                                      int                  count,
+                                                      ... ) {
   long        elapsed_ns = -fd_log_wallclock();
   fd_funk_t * funk       = slot_ctx->acc_mgr->funk;
   ulong       cached_cnt = 0UL;
@@ -387,10 +431,15 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
         rec_cnt++;
       }
 
-      fd_tpool_exec_all_block( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_bpf_scan_task,
-                               recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
+      /* We need to pass in the var args into the wrapper function.
+         TODO: This is temporary and can be removed once we don't use
+         tpools in offline and live replay. */
+      va_list args;
+      va_start( args, count );
+      wrapper_fn( recs, is_bpf_program, rec_cnt, slot_ctx, args );
+      va_end( args );
 
-      for( ulong i = 0; i<rec_cnt; i++ ) {
+      for( ulong i=0UL; i<rec_cnt; i++ ) {
         if( !is_bpf_program[ i ] ) {
           continue;
         }

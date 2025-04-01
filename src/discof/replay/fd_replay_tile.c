@@ -446,6 +446,93 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
+fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t *  ctx,
+                                                         fd_stem_context_t *     stem,
+                                                         fd_funk_rec_t const * * recs,
+                                                         uchar *                 is_bpf_program,
+                                                         ulong                   rec_cnt,
+                                                         fd_exec_slot_ctx_t *    slot_ctx ) {
+
+
+  (void)slot_ctx; /* TODO: remove this */
+  ulong cnt_per_worker = rec_cnt / ctx->exec_cnt;
+
+  ulong recs_gaddr   = fd_wksp_gaddr( ctx->runtime_public_wksp, recs );
+  if( FD_UNLIKELY( !recs_gaddr ) ) {
+    FD_LOG_ERR(( "Unable to calculate gaddr for recs arary" ));
+  }
+
+  ulong is_bpf_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, is_bpf_program );
+  if( FD_UNLIKELY( !is_bpf_gaddr ) ) {
+    FD_LOG_ERR(( "Unable to calculate gaddr for is bpf array" ));
+  }
+
+  for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                                      fd_ulong_sat_sub( rec_cnt, 1UL );
+
+    fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
+
+    fd_runtime_public_bpf_scan_msg_t * scan_msg = (fd_runtime_public_bpf_scan_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    scan_msg->start_idx       = start_idx;
+    scan_msg->end_idx         = end_idx;
+    scan_msg->recs_gaddr      = recs_gaddr;
+    scan_msg->is_bpf_gaddr    = is_bpf_gaddr;
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     EXEC_BPF_SCAN_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_bpf_scan_msg_t),
+                     0UL,
+                     tsorig,
+                     tspub );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk,
+                                              sizeof(fd_runtime_public_bpf_scan_msg_t),
+                                              exec_out->chunk0,
+                                              exec_out->wmark );
+
+  }
+
+  /* Spins and blocks until all exec tiles are done scanning. */
+  uchar scan_done[ FD_PACK_MAX_BANK_TILES ] = {0};
+  for( ;; ) {
+    uchar wait_cnt = 0;
+    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+      if( !scan_done[ i ] ) {
+        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+        uint  state = fd_exec_fseq_get_state( res );
+        if( state==FD_EXEC_STATE_BPF_SCAN_DONE ) {
+          scan_done[ i ] = 1;
+        } else {
+          wait_cnt++;
+        }
+      }
+    }
+    if( !wait_cnt ) {
+      break;
+    }
+  }
+}
+
+static void FD_FN_UNUSED
+tiles_wrapper(  fd_funk_rec_t const * * recs,
+                uchar *                 is_bpf_program,
+                ulong                   rec_cnt,
+                fd_exec_slot_ctx_t *    slot_ctx,
+                va_list                 args ) {
+  FD_LOG_WARNING(("MAKE IT INTO THIS WRAPPER"));
+  fd_replay_tile_ctx_t * ctx  = va_arg( args, fd_replay_tile_ctx_t * );
+  fd_stem_context_t *    stem = va_arg( args, fd_stem_context_t * );
+  fd_bpf_scan_and_create_program_cache_entry_tiles_helper( ctx, stem, recs, is_bpf_program, rec_cnt, slot_ctx );
+}
+
+static void
 replay_block_finalize( fd_replay_tile_ctx_t *    ctx,
                        fd_stem_context_t *       stem,
                        fd_runtime_block_info_t * runtime_block_info ) {
@@ -2126,8 +2213,11 @@ read_snapshot( void *              _ctx,
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                         ctx->slot_ctx->funk_txn,
-                                                        ctx->tpool,
-                                                        ctx->runtime_spad );
+                                                        ctx->runtime_spad,
+                                                        tiles_wrapper,
+                                                        2,
+                                                        ctx,
+                                                        stem );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
@@ -2184,8 +2274,11 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
     fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                           ctx->slot_ctx->funk_txn,
-                                                          ctx->tpool,
-                                                          ctx->runtime_spad );
+                                                          ctx->runtime_spad,
+                                                          tiles_wrapper,
+                                                          2,
+                                                          ctx,
+                                                          stem );
     fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
@@ -2439,6 +2532,8 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         }
         break;
       case FD_EXEC_STATE_HASH_DONE:
+        break;
+      case FD_EXEC_STATE_BPF_SCAN_DONE:
         break;
       default:
         FD_LOG_ERR(( "Unexpected fseq state from exec tile idx=%lu state=%u", i, state ));
