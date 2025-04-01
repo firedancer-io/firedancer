@@ -4089,7 +4089,8 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_tpool_t *         tpool,
                                                 fd_spad_t * *        exec_spads,
                                                 ulong                exec_spad_cnt,
-                                                fd_spad_t *          runtime_spad ) {
+                                                fd_spad_t *          runtime_spad,
+                                                int *                is_epoch_boundary ) {
 
   /* Update block height. */
   slot_ctx->slot_bank.block_height += 1UL;
@@ -4116,6 +4117,9 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                     runtime_spad );
       fd_funk_end_write( slot_ctx->acc_mgr->funk );
     }
+    *is_epoch_boundary = 1;
+  } else {
+    *is_epoch_boundary = 0;
   }
 
   if( slot_ctx->slot_bank.slot != 0UL && (
@@ -4176,11 +4180,13 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_dump_block_to_protobuf( slot_ctx, capture_ctx, runtime_spad, block_ctx );
     }
 
+    int is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                     tpool,
                                                     exec_spads,
                                                     exec_spad_cnt,
-                                                    runtime_spad );
+                                                    runtime_spad,
+                                                    &is_epoch_boundary );
 
     /* All runtime allocations here are scoped to the end of a block. */
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {

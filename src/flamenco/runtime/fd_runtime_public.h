@@ -64,6 +64,11 @@ fd_exec_fseq_set_hash_done( void ) {
   return FD_EXEC_STATE_HASH_DONE;
 }
 
+/* FIXME: This will need to get reworked when we consolidate the
+   slot/epoch ctx/bank. We will use zero-copy accesssors into a
+   fork-aware funk record. This will allow us to have one object which
+   represents runtime state that is fork-aware that doesn't need to be
+   bincode serialized/deserialized. */
 struct fd_runtime_public_epoch_msg {
   fd_features_t       features;
   ulong               total_epoch_stake;

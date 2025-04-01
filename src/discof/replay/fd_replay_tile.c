@@ -1479,11 +1479,22 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, fork->slot_ctx->funk_txn, &xid, 1 );
   fd_funk_end_write( ctx->funk );
 
+  int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch( fork->slot_ctx,
                                                   ctx->tpool,
                                                   ctx->exec_spads,
                                                   ctx->exec_spad_cnt,
-                                                  ctx->runtime_spad );
+                                                  ctx->runtime_spad,
+                                                  &is_epoch_boundary );
+
+  if( FD_UNLIKELY( !is_epoch_boundary ) ) {
+    send_exec_epoch_msg( ctx, stem, fork->slot_ctx );
+  }
+
+  /* At this point we need to notify all of the exec tiles and tell them
+    that a new slot is ready to be published. At this point, we should
+    also mark the tile as not not being ready. */
+    send_exec_slot_msg( ctx, stem, ctx->slot_ctx );
 
   /* We want to push on a spad frame before we start executing a block.
      Apart from allocations made at the epoch boundary, there should be no
@@ -1584,11 +1595,6 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
     FD_LOG_WARNING(("Fork for slot %lu already exists, so we don't make a new one. Restarting execution from batch %u", curr_slot, fork->end_idx ));
   }
   ctx->slot_ctx = fork->slot_ctx;
-
-  /* At this point we need to notify all of the exec tiles and tell them
-     that a new slot is ready to be published. At this point, we should
-     also mark the tile as not not being ready. */
-  send_exec_slot_msg( ctx, stem, ctx->slot_ctx );
 
   /**********************************************************************/
   /* Get the solcap context for replaying curr_slot                     */
@@ -2272,7 +2278,6 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   // Tell the world about the current activate features
   fd_memcpy( &ctx->runtime_public->features, &ctx->slot_ctx->epoch_ctx->features, sizeof(ctx->runtime_public->features) );
 
-  /* TODO: We should really be doing this after every epoch boundary. */
   send_exec_epoch_msg( ctx, stem, ctx->slot_ctx );
 
 
