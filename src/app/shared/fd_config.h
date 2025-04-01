@@ -432,8 +432,8 @@ struct fd_config {
     } restart;
 
     struct {
-      int   playback;
-      char  archive_path[ PATH_MAX ];
+      int   enabled;
+      char  archiver_path[ PATH_MAX ];
     } archiver;
 
   } tiles;
