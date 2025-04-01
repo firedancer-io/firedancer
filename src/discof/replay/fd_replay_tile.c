@@ -453,7 +453,7 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
                                                          ulong                   rec_cnt,
                                                          fd_exec_slot_ctx_t *    slot_ctx ) {
 
-
+  FD_LOG_NOTICE(("STARTING LOOP NOW"));
   (void)slot_ctx; /* TODO: remove this */
   ulong cnt_per_worker = rec_cnt / ctx->exec_cnt;
 
@@ -467,14 +467,24 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
     FD_LOG_ERR(( "Unable to calculate gaddr for is bpf array" ));
   }
 
+  uint prev_ids[ FD_PACK_MAX_BANK_TILES ];
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+    uint  state = fd_exec_fseq_get_state( res );
+    if( state==FD_EXEC_STATE_BPF_SCAN_DONE ) {
+      prev_ids[ i ] = fd_exec_fseq_get_bpf_id( res );
+    } else {
+      prev_ids[ i ] = UINT_MAX;
+    }
+  }
+
   for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
 
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
-    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong start_idx = worker_idx * cnt_per_worker;
     ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
                                                       fd_ulong_sat_sub( rec_cnt, 1UL );
-
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
 
     fd_runtime_public_bpf_scan_msg_t * scan_msg = (fd_runtime_public_bpf_scan_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
@@ -507,8 +517,11 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
       if( !scan_done[ i ] ) {
         ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
         uint  state = fd_exec_fseq_get_state( res );
-        if( state==FD_EXEC_STATE_BPF_SCAN_DONE ) {
+        uint  id    = fd_exec_fseq_get_bpf_id( res );
+        FD_LOG_NOTICE(("tile=%lu, state=%u, id=%u prev_id=%u", i, state, id, prev_ids[i]));
+        if( state==FD_EXEC_STATE_BPF_SCAN_DONE && id!=prev_ids[ i ] ) {
           scan_done[ i ] = 1;
+          prev_ids[ i ]  = id;
         } else {
           wait_cnt++;
         }
@@ -518,6 +531,7 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
       break;
     }
   }
+  FD_LOG_NOTICE(("DONE ACKING ALL"));
 }
 
 static void FD_FN_UNUSED

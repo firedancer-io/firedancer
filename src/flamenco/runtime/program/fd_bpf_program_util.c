@@ -360,7 +360,6 @@ fd_bpf_scan_and_create_program_cache_entry_tpool_helper( fd_tpool_t *           
 
   ulong wcnt           = fd_tpool_worker_cnt( tpool );
   ulong cnt_per_worker = rec_cnt / wcnt;
-  FD_LOG_NOTICE(("TPOOL %p", (void*)tpool));
   for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
     ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
@@ -384,7 +383,6 @@ tpool_wrapper( fd_funk_rec_t const * * recs,
                fd_exec_slot_ctx_t *    slot_ctx,
                va_list                 args ) {
   fd_tpool_t * tpool = va_arg( args, fd_tpool_t * );
-  FD_LOG_NOTICE(("TPOOL %p", (void*)tpool));
   va_end( args );
   fd_bpf_scan_and_create_program_cache_entry_tpool_helper( tpool, recs, is_bpf_program, rec_cnt, slot_ctx );
 }

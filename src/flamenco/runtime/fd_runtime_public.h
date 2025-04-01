@@ -67,8 +67,15 @@ fd_exec_fseq_set_hash_done( void ) {
 }
 
 static ulong FD_FN_UNUSED
-fd_exec_fseq_set_bpf_scan_done( void ) {
-  return FD_EXEC_STATE_BPF_SCAN_DONE;
+fd_exec_fseq_set_bpf_scan_done( ulong id ) {
+  ulong state = ((ulong)id << 32UL);
+  state      |= FD_EXEC_STATE_BPF_SCAN_DONE;
+  return state;
+}
+
+static uint FD_FN_UNUSED
+fd_exec_fseq_get_bpf_id( ulong fseq ) {
+  return (uint)(fseq >> 32UL);
 }
 
 /* FIXME: This will need to get reworked when we consolidate the
