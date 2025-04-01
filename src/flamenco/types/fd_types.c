@@ -11496,7 +11496,7 @@ void fd_slot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, 
 int fd_slot_hashes_convert_global_to_local( void const * global_self, fd_slot_hashes_t * self, fd_bincode_decode_ctx_t * ctx ) {
   int err = 0;
   fd_slot_hashes_global_t const * mem = (fd_slot_hashes_global_t const *)global_self;
-  self->hashes = deq_fd_slot_hash_t_join( fd_wksp_laddr( ctx->wksp, mem->hashes_gaddr ) );
+  self->hashes = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->wksp, mem->hashes_gaddr ) );
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_hashes_new(fd_slot_hashes_t * self) {
@@ -21641,72 +21641,161 @@ ulong fd_loader_v4_program_instruction_write_size( fd_loader_v4_program_instruct
   return size;
 }
 
-int fd_loader_v4_program_instruction_truncate_encode( fd_loader_v4_program_instruction_truncate_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_copy_encode( fd_loader_v4_program_instruction_copy_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->destination_offset, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->source_offset, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->length, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_program_instruction_copy_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_loader_v4_program_instruction_copy_t);
+  void const * start_data = ctx->data;
+  int err = fd_loader_v4_program_instruction_copy_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = start_data;
+  return err;
+}
+int fd_loader_v4_program_instruction_copy_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  int err = 0;
+  err = fd_bincode_uint32_decode_footprint( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_decode_footprint( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_decode_footprint( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return 0;
+}
+void * fd_loader_v4_program_instruction_copy_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_copy_t * self = (fd_loader_v4_program_instruction_copy_t *)mem;
+  fd_loader_v4_program_instruction_copy_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_copy_t);
+  void * * alloc_mem = &alloc_region;
+  fd_loader_v4_program_instruction_copy_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_loader_v4_program_instruction_copy_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_copy_t * self = (fd_loader_v4_program_instruction_copy_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->destination_offset, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->source_offset, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->length, ctx );
+}
+void * fd_loader_v4_program_instruction_copy_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_copy_global_t * self = (fd_loader_v4_program_instruction_copy_global_t *)mem;
+  fd_loader_v4_program_instruction_copy_new( (fd_loader_v4_program_instruction_copy_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_copy_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_loader_v4_program_instruction_copy_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_loader_v4_program_instruction_copy_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_copy_global_t * self = (fd_loader_v4_program_instruction_copy_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->destination_offset, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->source_offset, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->length, ctx );
+}
+int fd_loader_v4_program_instruction_copy_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_copy_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  int err = 0;
+  fd_loader_v4_program_instruction_copy_global_t const * mem = (fd_loader_v4_program_instruction_copy_global_t const *)global_self;
+  self->destination_offset = mem->destination_offset;
+  self->source_offset = mem->source_offset;
+  self->length = mem->length;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_loader_v4_program_instruction_copy_new(fd_loader_v4_program_instruction_copy_t * self) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_copy_t) );
+}
+void fd_loader_v4_program_instruction_copy_destroy( fd_loader_v4_program_instruction_copy_t * self ) {
+}
+
+ulong fd_loader_v4_program_instruction_copy_footprint( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_FOOTPRINT; }
+ulong fd_loader_v4_program_instruction_copy_align( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_ALIGN; }
+
+void fd_loader_v4_program_instruction_copy_walk( void * w, fd_loader_v4_program_instruction_copy_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_program_instruction_copy", level++ );
+  fun( w, &self->destination_offset, "destination_offset", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->source_offset, "source_offset", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->length, "length", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_program_instruction_copy", level-- );
+}
+ulong fd_loader_v4_program_instruction_copy_size( fd_loader_v4_program_instruction_copy_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  size += sizeof(uint);
+  size += sizeof(uint);
+  return size;
+}
+
+int fd_loader_v4_program_instruction_set_program_length_encode( fd_loader_v4_program_instruction_set_program_length_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint32_encode( self->new_size, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
-int fd_loader_v4_program_instruction_truncate_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_loader_v4_program_instruction_truncate_t);
+int fd_loader_v4_program_instruction_set_program_length_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_loader_v4_program_instruction_set_program_length_t);
   void const * start_data = ctx->data;
-  int err = fd_loader_v4_program_instruction_truncate_decode_footprint_inner( ctx, total_sz );
+  int err = fd_loader_v4_program_instruction_set_program_length_decode_footprint_inner( ctx, total_sz );
   if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
-int fd_loader_v4_program_instruction_truncate_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+int fd_loader_v4_program_instruction_set_program_length_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return 0;
 }
-void * fd_loader_v4_program_instruction_truncate_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_loader_v4_program_instruction_truncate_t * self = (fd_loader_v4_program_instruction_truncate_t *)mem;
-  fd_loader_v4_program_instruction_truncate_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_truncate_t);
+void * fd_loader_v4_program_instruction_set_program_length_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_set_program_length_t * self = (fd_loader_v4_program_instruction_set_program_length_t *)mem;
+  fd_loader_v4_program_instruction_set_program_length_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_set_program_length_t);
   void * * alloc_mem = &alloc_region;
-  fd_loader_v4_program_instruction_truncate_decode_inner( mem, alloc_mem, ctx );
+  fd_loader_v4_program_instruction_set_program_length_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
-void fd_loader_v4_program_instruction_truncate_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_loader_v4_program_instruction_truncate_t * self = (fd_loader_v4_program_instruction_truncate_t *)struct_mem;
+void fd_loader_v4_program_instruction_set_program_length_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_set_program_length_t * self = (fd_loader_v4_program_instruction_set_program_length_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->new_size, ctx );
 }
-void * fd_loader_v4_program_instruction_truncate_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_loader_v4_program_instruction_truncate_global_t * self = (fd_loader_v4_program_instruction_truncate_global_t *)mem;
-  fd_loader_v4_program_instruction_truncate_new( (fd_loader_v4_program_instruction_truncate_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_truncate_global_t);
+void * fd_loader_v4_program_instruction_set_program_length_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_set_program_length_global_t * self = (fd_loader_v4_program_instruction_set_program_length_global_t *)mem;
+  fd_loader_v4_program_instruction_set_program_length_new( (fd_loader_v4_program_instruction_set_program_length_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_set_program_length_global_t);
   void * * alloc_mem = &alloc_region;
-  fd_loader_v4_program_instruction_truncate_decode_inner_global( mem, alloc_mem, ctx );
+  fd_loader_v4_program_instruction_set_program_length_decode_inner_global( mem, alloc_mem, ctx );
   return self;
 }
-void fd_loader_v4_program_instruction_truncate_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_loader_v4_program_instruction_truncate_global_t * self = (fd_loader_v4_program_instruction_truncate_global_t *)struct_mem;
+void fd_loader_v4_program_instruction_set_program_length_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_set_program_length_global_t * self = (fd_loader_v4_program_instruction_set_program_length_global_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->new_size, ctx );
 }
-int fd_loader_v4_program_instruction_truncate_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_loader_v4_program_instruction_set_program_length_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_set_program_length_t * self, fd_bincode_decode_ctx_t * ctx ) {
   int err = 0;
-  fd_loader_v4_program_instruction_truncate_global_t const * mem = (fd_loader_v4_program_instruction_truncate_global_t const *)global_self;
+  fd_loader_v4_program_instruction_set_program_length_global_t const * mem = (fd_loader_v4_program_instruction_set_program_length_global_t const *)global_self;
   self->new_size = mem->new_size;
   return FD_BINCODE_SUCCESS;
 }
-void fd_loader_v4_program_instruction_truncate_new(fd_loader_v4_program_instruction_truncate_t * self) {
-  fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_truncate_t) );
+void fd_loader_v4_program_instruction_set_program_length_new(fd_loader_v4_program_instruction_set_program_length_t * self) {
+  fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_set_program_length_t) );
 }
-void fd_loader_v4_program_instruction_truncate_destroy( fd_loader_v4_program_instruction_truncate_t * self ) {
+void fd_loader_v4_program_instruction_set_program_length_destroy( fd_loader_v4_program_instruction_set_program_length_t * self ) {
 }
 
-ulong fd_loader_v4_program_instruction_truncate_footprint( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_FOOTPRINT; }
-ulong fd_loader_v4_program_instruction_truncate_align( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_TRUNCATE_ALIGN; }
+ulong fd_loader_v4_program_instruction_set_program_length_footprint( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_FOOTPRINT; }
+ulong fd_loader_v4_program_instruction_set_program_length_align( void ){ return FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_ALIGN; }
 
-void fd_loader_v4_program_instruction_truncate_walk( void * w, fd_loader_v4_program_instruction_truncate_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_program_instruction_truncate", level++ );
+void fd_loader_v4_program_instruction_set_program_length_walk( void * w, fd_loader_v4_program_instruction_set_program_length_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_program_instruction_set_program_length", level++ );
   fun( w, &self->new_size, "new_size", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_program_instruction_truncate", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_program_instruction_set_program_length", level-- );
 }
-ulong fd_loader_v4_program_instruction_truncate_size( fd_loader_v4_program_instruction_truncate_t const * self ) {
+ulong fd_loader_v4_program_instruction_set_program_length_size( fd_loader_v4_program_instruction_set_program_length_t const * self ) {
   ulong size = 0;
   size += sizeof(uint);
   return size;
@@ -21715,20 +21804,23 @@ ulong fd_loader_v4_program_instruction_truncate_size( fd_loader_v4_program_instr
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_write(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 0;
 }
-FD_FN_PURE uchar fd_loader_v4_program_instruction_is_truncate(fd_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_copy(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 1;
 }
-FD_FN_PURE uchar fd_loader_v4_program_instruction_is_deploy(fd_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_set_program_length(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 2;
 }
-FD_FN_PURE uchar fd_loader_v4_program_instruction_is_retract(fd_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_deploy(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 3;
 }
-FD_FN_PURE uchar fd_loader_v4_program_instruction_is_transfer_authority(fd_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_retract(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 4;
 }
-FD_FN_PURE uchar fd_loader_v4_program_instruction_is_finalize(fd_loader_v4_program_instruction_t const * self) {
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_transfer_authority(fd_loader_v4_program_instruction_t const * self) {
   return self->discriminant == 5;
+}
+FD_FN_PURE uchar fd_loader_v4_program_instruction_is_finalize(fd_loader_v4_program_instruction_t const * self) {
+  return self->discriminant == 6;
 }
 void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instruction_inner_t * self, uint discriminant );
 int fd_loader_v4_program_instruction_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -21740,11 +21832,13 @@ int fd_loader_v4_program_instruction_inner_decode_footprint( uint discriminant, 
     return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = fd_loader_v4_program_instruction_truncate_decode_footprint_inner( ctx, total_sz );
+    err = fd_loader_v4_program_instruction_copy_decode_footprint_inner( ctx, total_sz );
     if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 2: {
+    err = fd_loader_v4_program_instruction_set_program_length_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 3: {
@@ -21754,6 +21848,9 @@ int fd_loader_v4_program_instruction_inner_decode_footprint( uint discriminant, 
     return FD_BINCODE_SUCCESS;
   }
   case 5: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 6: {
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -21781,10 +21878,11 @@ void fd_loader_v4_program_instruction_inner_decode_inner( fd_loader_v4_program_i
     break;
   }
   case 1: {
-    fd_loader_v4_program_instruction_truncate_decode_inner( &self->truncate, alloc_mem, ctx );
+    fd_loader_v4_program_instruction_copy_decode_inner( &self->copy, alloc_mem, ctx );
     break;
   }
   case 2: {
+    fd_loader_v4_program_instruction_set_program_length_decode_inner( &self->set_program_length, alloc_mem, ctx );
     break;
   }
   case 3: {
@@ -21794,6 +21892,9 @@ void fd_loader_v4_program_instruction_inner_decode_inner( fd_loader_v4_program_i
     break;
   }
   case 5: {
+    break;
+  }
+  case 6: {
     break;
   }
   }
@@ -21805,10 +21906,11 @@ void fd_loader_v4_program_instruction_inner_decode_inner_global( fd_loader_v4_pr
     break;
   }
   case 1: {
-    fd_loader_v4_program_instruction_truncate_decode_inner_global( &self->truncate, alloc_mem, ctx );
+    fd_loader_v4_program_instruction_copy_decode_inner_global( &self->copy, alloc_mem, ctx );
     break;
   }
   case 2: {
+    fd_loader_v4_program_instruction_set_program_length_decode_inner_global( &self->set_program_length, alloc_mem, ctx );
     break;
   }
   case 3: {
@@ -21818,6 +21920,9 @@ void fd_loader_v4_program_instruction_inner_decode_inner_global( fd_loader_v4_pr
     break;
   }
   case 5: {
+    break;
+  }
+  case 6: {
     break;
   }
   }
@@ -21831,11 +21936,13 @@ int fd_loader_v4_program_instruction_convert_global_to_local_inner( fd_loader_v4
     break;
   }
   case 1: {
-    err = fd_loader_v4_program_instruction_truncate_convert_global_to_local( &mem->truncate, &self->truncate, ctx );
+    err = fd_loader_v4_program_instruction_copy_convert_global_to_local( &mem->copy, &self->copy, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   case 2: {
+    err = fd_loader_v4_program_instruction_set_program_length_convert_global_to_local( &mem->set_program_length, &self->set_program_length, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   case 3: {
@@ -21845,6 +21952,9 @@ int fd_loader_v4_program_instruction_convert_global_to_local_inner( fd_loader_v4
     break;
   }
   case 5: {
+    break;
+  }
+  case 6: {
     break;
   }
   }
@@ -21890,10 +22000,11 @@ void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instructio
     break;
   }
   case 1: {
-    fd_loader_v4_program_instruction_truncate_new( &self->truncate );
+    fd_loader_v4_program_instruction_copy_new( &self->copy );
     break;
   }
   case 2: {
+    fd_loader_v4_program_instruction_set_program_length_new( &self->set_program_length );
     break;
   }
   case 3: {
@@ -21903,6 +22014,9 @@ void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instructio
     break;
   }
   case 5: {
+    break;
+  }
+  case 6: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -21923,7 +22037,11 @@ void fd_loader_v4_program_instruction_inner_destroy( fd_loader_v4_program_instru
     break;
   }
   case 1: {
-    fd_loader_v4_program_instruction_truncate_destroy( &self->truncate );
+    fd_loader_v4_program_instruction_copy_destroy( &self->copy );
+    break;
+  }
+  case 2: {
+    fd_loader_v4_program_instruction_set_program_length_destroy( &self->set_program_length );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -21945,23 +22063,28 @@ void fd_loader_v4_program_instruction_walk( void * w, fd_loader_v4_program_instr
     break;
   }
   case 1: {
-    fun( w, self, "truncate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-    fd_loader_v4_program_instruction_truncate_walk( w, &self->inner.truncate, fun, "truncate", level );
+    fun( w, self, "copy", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_loader_v4_program_instruction_copy_walk( w, &self->inner.copy, fun, "copy", level );
     break;
   }
   case 2: {
-    fun( w, self, "deploy", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "set_program_length", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_loader_v4_program_instruction_set_program_length_walk( w, &self->inner.set_program_length, fun, "set_program_length", level );
     break;
   }
   case 3: {
-    fun( w, self, "retract", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "deploy", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 4: {
-    fun( w, self, "transfer_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "retract", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 5: {
+    fun( w, self, "transfer_authority", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 6: {
     fun( w, self, "finalize", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
@@ -21977,7 +22100,11 @@ ulong fd_loader_v4_program_instruction_size( fd_loader_v4_program_instruction_t 
     break;
   }
   case 1: {
-    size += fd_loader_v4_program_instruction_truncate_size( &self->inner.truncate );
+    size += fd_loader_v4_program_instruction_copy_size( &self->inner.copy );
+    break;
+  }
+  case 2: {
+    size += fd_loader_v4_program_instruction_set_program_length_size( &self->inner.set_program_length );
     break;
   }
   }
@@ -21993,7 +22120,12 @@ int fd_loader_v4_program_instruction_inner_encode( fd_loader_v4_program_instruct
     break;
   }
   case 1: {
-    err = fd_loader_v4_program_instruction_truncate_encode( &self->truncate, ctx );
+    err = fd_loader_v4_program_instruction_copy_encode( &self->copy, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 2: {
+    err = fd_loader_v4_program_instruction_set_program_length_encode( &self->set_program_length, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
