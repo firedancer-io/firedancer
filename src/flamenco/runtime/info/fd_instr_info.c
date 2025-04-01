@@ -8,11 +8,12 @@ fd_instr_info_accumulate_starting_lamports( fd_instr_info_t *         instr,
                                             ushort                    idx_in_callee,
                                             ushort                    idx_in_txn ) {
   if( FD_LIKELY( !instr->is_duplicate[ idx_in_callee ] ) ) {
-    if( txn_ctx->accounts[ idx_in_txn ].const_meta ) {
+    fd_txn_account_t const * account = &txn_ctx->accounts[ idx_in_txn ];
+    if( account->vt->get_meta( account ) ) {
       fd_uwide_inc(
         &instr->starting_lamports_h, &instr->starting_lamports_l,
         instr->starting_lamports_h, instr->starting_lamports_l,
-        txn_ctx->accounts[ idx_in_txn ].const_meta->info.lamports );
+        account->vt->get_lamports( account ) );
     }
   }
 }
@@ -63,8 +64,9 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
   *total_lamports_l = 0UL;
   for( ulong i=0UL; i<instr->acct_cnt; ++i ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
+    fd_txn_account_t const * account = &txn_ctx->accounts[ idx_in_txn ];
 
-    if( txn_ctx->accounts[ idx_in_txn ].const_meta == NULL ||
+    if( account->vt->get_meta( account ) == NULL ||
         instr->is_duplicate[i] ) {
       continue;
     }
@@ -74,7 +76,7 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
     ulong tmp_total_lamports_l = 0UL;
 
     fd_uwide_inc( &tmp_total_lamports_h, &tmp_total_lamports_l, *total_lamports_h, *total_lamports_l,
-                  txn_ctx->accounts[ idx_in_txn ].const_meta->info.lamports );
+                  account->vt->get_lamports( account ) );
 
     if( tmp_total_lamports_h < *total_lamports_h ) {
       return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;

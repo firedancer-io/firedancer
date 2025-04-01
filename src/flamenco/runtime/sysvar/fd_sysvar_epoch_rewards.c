@@ -18,7 +18,7 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
     FD_LOG_ERR(("fd_sysvar_epoch_rewards_encode failed"));
   }
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_epoch_rewards_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_epoch_rewards_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
 fd_sysvar_epoch_rewards_t *
@@ -39,8 +39,8 @@ fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
   }
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = acc->const_data,
-    .dataend = acc->const_data + acc->const_meta->dlen
+    .data    = acc->vt->get_data( acc ),
+    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
   };
 
   ulong total_sz = 0UL;

@@ -178,9 +178,9 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   int is_dupe = 0;
 
   /* Check if account exists */
-  rec->const_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, &rec->const_rec, NULL, NULL );
-  if( rec->const_meta )
-    if( rec->const_meta->slot > restore->accv_slot )
+  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, NULL, NULL, NULL );
+  if( rec_meta )
+    if( rec_meta->slot > restore->accv_slot )
       is_dupe = 1;
 
   /* Write account */
@@ -190,14 +190,14 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
       FD_LOG_WARNING(( "fd_txn_account_init_from_funk_mutable(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
       return ENOMEM;
     }
-    rec->meta->dlen = hdr->meta.data_len;
-    rec->meta->slot = restore->accv_slot;
-    memcpy( &rec->meta->hash, hdr->hash.uc, 32UL );
-    memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
-    if( rec->meta && rec->meta->info.lamports && rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH ) {
+    rec->vt->set_data_len( rec, hdr->meta.data_len );
+    rec->vt->set_slot( rec, restore->accv_slot );
+    rec->vt->set_hash( rec, &hdr->hash );
+    rec->vt->set_info( rec, &hdr->info );
+    if( rec->vt->get_meta( rec ) && rec->vt->get_lamports( rec ) && rec->vt->get_rent_epoch( rec ) != FD_RENT_EXEMPT_RENT_EPOCH ) {
       restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
     }
-    restore->acc_data = rec->data;
+    restore->acc_data = rec->vt->get_data_mut( rec );
 
     fd_txn_account_mutable_fini( rec, funk, funk_txn );
   }

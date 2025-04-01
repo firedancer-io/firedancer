@@ -40,21 +40,21 @@ dump_account_state( fd_txn_account_t const *    txn_account,
     fd_memcpy(output_account->address, txn_account->pubkey, sizeof(fd_pubkey_t));
 
     // Lamports
-    output_account->lamports = (uint64_t) txn_account->const_meta->info.lamports;
+    output_account->lamports = (uint64_t) txn_account->vt->get_lamports( txn_account );
 
     // Data
-    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( txn_account->const_meta->dlen ) );
-    output_account->data->size = (pb_size_t) txn_account->const_meta->dlen;
-    fd_memcpy(output_account->data->bytes, txn_account->const_data, txn_account->const_meta->dlen);
+    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( txn_account->vt->get_data_len( txn_account ) ) );
+    output_account->data->size = (pb_size_t) txn_account->vt->get_data_len( txn_account );
+    fd_memcpy(output_account->data->bytes, txn_account->vt->get_data( txn_account ), txn_account->vt->get_data_len( txn_account ) );
 
     // Executable
-    output_account->executable = (bool) txn_account->const_meta->info.executable;
+    output_account->executable = (bool) txn_account->vt->is_executable( txn_account );
 
     // Rent epoch
-    output_account->rent_epoch = (uint64_t) txn_account->const_meta->info.rent_epoch;
+    output_account->rent_epoch = (uint64_t) txn_account->vt->get_rent_epoch( txn_account );
 
     // Owner
-    fd_memcpy(output_account->owner, txn_account->const_meta->info.owner, sizeof(fd_pubkey_t));
+    fd_memcpy(output_account->owner, txn_account->vt->get_owner( txn_account ), sizeof(fd_pubkey_t));
 
     // Seed address (not present)
     output_account->has_seed_addr = false;
@@ -108,17 +108,17 @@ dump_lut_account_and_contained_accounts(  fd_exec_slot_ctx_t const *     slot_ct
   FD_TXN_ACCOUNT_DECL( alut_account );
   fd_pubkey_t const * alut_pubkey = (fd_pubkey_t const *)((uchar *)txn_payload + lookup_table->addr_off);
   uchar account_exists = dump_account_if_not_already_dumped( slot_ctx, alut_pubkey, spad, out_account_states, out_account_states_count, alut_account );
-  if( !account_exists || alut_account->const_meta->dlen<FD_LOOKUP_TABLE_META_SIZE ) {
+  if( !account_exists || alut_account->vt->get_data_len( alut_account )<FD_LOOKUP_TABLE_META_SIZE ) {
     return;
   }
 
   /* Decode the ALUT account and find its referenced writable and readonly indices */
-  if( alut_account->const_meta->dlen & 0x1fUL ) {
+  if( alut_account->vt->get_data_len( alut_account ) & 0x1fUL ) {
     return;
   }
 
-  fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&alut_account->const_data[FD_LOOKUP_TABLE_META_SIZE];
-  ulong lookup_addrs_cnt     = ( alut_account->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE ) >> 5UL; // = (dlen - 56) / 32
+  fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&alut_account->vt->get_data( alut_account )[FD_LOOKUP_TABLE_META_SIZE];
+  ulong lookup_addrs_cnt     = ( alut_account->vt->get_data_len( alut_account ) - FD_LOOKUP_TABLE_META_SIZE ) >> 5UL; // = (dlen - 56) / 32
   for( ulong i=0UL; i<lookup_addrs_cnt; i++ ) {
     fd_pubkey_t const * referenced_pubkey = &lookup_addrs[i];
     dump_account_if_not_already_dumped( slot_ctx, referenced_pubkey, spad, out_account_states, out_account_states_count, NULL );
@@ -753,10 +753,11 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   // Dump executable accounts
   for( ulong i = 0; i < txn_ctx->executable_cnt; ++i ) {
-    if( !txn_ctx->executable_accounts[i].const_meta ) {
+    fd_txn_account_t * acc = &txn_ctx->executable_accounts[i];
+    if( !acc->vt->get_meta( acc ) ) {
       continue;
     }
-    dump_account_state( &txn_ctx->executable_accounts[i], &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
+    dump_account_state( acc, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
   }
 
   // Dump LUT accounts

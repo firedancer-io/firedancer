@@ -18,7 +18,6 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
-#include "../../flamenco/runtime/fd_borrowed_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/rewards/fd_rewards.h"

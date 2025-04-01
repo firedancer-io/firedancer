@@ -46,7 +46,7 @@ int fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t * slot_ctx,
   int err = fd_slot_history_encode( history, &ctx );
   if (0 != err)
     return err;
-  return fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_history_id, enc, sz, slot_ctx->slot_bank.slot );
+  return fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_slot_history_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -83,8 +83,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->const_data,
-    .dataend = rec->const_data + rec->const_meta->dlen
+    .data    = rec->vt->get_data( rec ),
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;
@@ -114,17 +114,17 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable(slot_history) failed: %d", err ));
 
   fd_bincode_encode_ctx_t e_ctx = {
-    .data    = rec->data,
-    .dataend = rec->data+sz
+    .data    = rec->vt->get_data_mut( rec ),
+    .dataend = rec->vt->get_data_mut( rec )+sz
   };
   if( fd_slot_history_encode( history, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  rec->meta->info.lamports = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sz );
+  rec->vt->set_lamports( rec, fd_rent_exempt_minimum_balance( &epoch_bank->rent, sz ) );
 
-  rec->meta->dlen = sz;
-  fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
+  rec->vt->set_data_len( rec, sz );
+  rec->vt->set_owner( rec, &fd_sysvar_owner_id );
 
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
@@ -149,8 +149,8 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
   }
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->const_data,
-    .dataend = rec->const_data + rec->const_meta->dlen
+    .data    = rec->vt->get_data( rec ),
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;

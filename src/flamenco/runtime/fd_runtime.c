@@ -245,7 +245,7 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "expected fee(%lu) to be >0UL", fee ));
   }
 
-  if( FD_UNLIKELY( memcmp( collector->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(collector->const_meta->info.owner) ) ) ) {
+  if( FD_UNLIKELY( memcmp( collector->vt->get_owner( collector ), fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
     FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", _out_key ));
     return fee;
@@ -273,8 +273,8 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
      We already know that the post deposit balance is >0 because we are paying a >0 amount.
      So TLDR we just check if the account is rent exempt.
    */
-  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->const_meta->dlen );
-  if( FD_UNLIKELY( collector->const_meta->info.lamports + fee < minbal ) ) {
+  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->vt->get_data_len( collector ) );
+  if( FD_UNLIKELY( collector->vt->get_lamports( collector ) + fee < minbal ) ) {
     FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
     FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
     return fee;
@@ -299,8 +299,8 @@ fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
     return -1;
   }
 
-  slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, rec->const_meta->info.lamports );
-  rec->meta->info.lamports           = 0UL;
+  slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, rec->vt->get_lamports( rec ) );
+  rec->vt->set_lamports( rec, 0UL );
 
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
@@ -397,7 +397,7 @@ fd_runtime_update_rent_epoch_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* If the account's rent epoch is correct, don't update it */
-  if( rec->const_meta->info.rent_epoch == FD_RENT_EXEMPT_RENT_EPOCH ) {
+  if( rec->vt->get_rent_epoch( rec ) == FD_RENT_EXEMPT_RENT_EPOCH ) {
     return;
   }
 
@@ -407,7 +407,7 @@ fd_runtime_update_rent_epoch_account( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_txn_account_init_from_funk_mutable failed (%d)", err ));
     return;
   }
-  rec->meta->info.rent_epoch = FD_RENT_EXEMPT_RENT_EPOCH;
+  rec->vt->set_rent_epoch( rec, FD_RENT_EXEMPT_RENT_EPOCH );
 
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 }
@@ -508,13 +508,14 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
         }
       }
 
-      rec->meta->info.lamports += fees;
-      rec->meta->slot = slot_ctx->slot_bank.slot;
+      /* TODO: is it ok to not check the overflow error here? */
+      rec->vt->checked_add_lamports( rec, fees );
+      rec->vt->set_slot( rec, slot_ctx->slot_bank.slot );
 
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
       slot_ctx->block_rewards.collected_fees = fees;
-      slot_ctx->block_rewards.post_balance = rec->meta->info.lamports;
+      slot_ctx->block_rewards.post_balance = rec->vt->get_lamports( rec );
       memcpy( slot_ctx->block_rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
     } while(0);
 
@@ -538,15 +539,12 @@ static long
 fd_runtime_get_rent_due( fd_epoch_schedule_t const * schedule,
                          fd_rent_t const *           rent,
                          double                      slots_per_year,
-                         fd_account_meta_t *         acc,
+                         fd_txn_account_t *          acc,
                          ulong                       epoch ) {
-
-  fd_solana_account_meta_t *info = &acc->info;
-
   /* Nothing due if account is rent-exempt
      https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L90 */
-  ulong min_balance = fd_rent_exempt_minimum_balance( rent, acc->dlen );
-  if( info->lamports>=min_balance ) {
+  ulong min_balance = fd_rent_exempt_minimum_balance( rent, acc->vt->get_data_len( acc ) );
+  if( acc->vt->get_lamports( acc )>=min_balance ) {
     return FD_RENT_EXEMPT;
   }
 
@@ -554,16 +552,16 @@ fd_runtime_get_rent_due( fd_epoch_schedule_t const * schedule,
      inlines the agave function get_slots_in_peohc
      https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L93-L98 */
   ulong slots_elapsed = 0UL;
-  if( FD_UNLIKELY( info->rent_epoch<schedule->first_normal_epoch ) ) {
+  if( FD_UNLIKELY( acc->vt->get_rent_epoch( acc )<schedule->first_normal_epoch ) ) {
     /* Count the slots before the first normal epoch separately */
-    for( ulong i=info->rent_epoch; i<schedule->first_normal_epoch && i<=epoch; i++ ) {
+    for( ulong i=acc->vt->get_rent_epoch( acc ); i<schedule->first_normal_epoch && i<=epoch; i++ ) {
       slots_elapsed += fd_epoch_slot_cnt( schedule, i+1UL );
     }
     slots_elapsed += fd_ulong_sat_sub( epoch+1UL, schedule->first_normal_epoch ) * schedule->slots_per_epoch;
   }
   // slots_elapsed should remain 0 if rent_epoch is greater than epoch
-  else if( info->rent_epoch<=epoch ) {
-    slots_elapsed = (epoch - info->rent_epoch + 1UL) * schedule->slots_per_epoch;
+  else if( acc->vt->get_rent_epoch( acc )<=epoch ) {
+    slots_elapsed = (epoch - acc->vt->get_rent_epoch( acc ) + 1UL) * schedule->slots_per_epoch;
   }
   /* Consensus-critical use of doubles :( */
 
@@ -574,7 +572,7 @@ fd_runtime_get_rent_due( fd_epoch_schedule_t const * schedule,
     years_elapsed = 0.0;
   }
 
-  ulong lamports_per_year = rent->lamports_per_uint8_year * (acc->dlen + 128UL);
+  ulong lamports_per_year = rent->lamports_per_uint8_year * (acc->vt->get_data_len( acc ) + 128UL);
   /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/src/rent_collector.rs#L108 */
   /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/program/src/rent.rs#L95 */
   return (long)fd_rust_cast_double_to_ulong(years_elapsed * (double)lamports_per_year);
@@ -587,8 +585,7 @@ fd_runtime_collect_from_existing_account( ulong                       slot,
                                           fd_epoch_schedule_t const * schedule,
                                           fd_rent_t const *           rent,
                                           double                      slots_per_year,
-                                          fd_account_meta_t *         acc,
-                                          fd_pubkey_t const *         pubkey,
+                                          fd_txn_account_t *          acc,
                                           ulong                       epoch ) {
   ulong collected_rent = 0UL;
   #define NO_RENT_COLLECTION_NOW (-1)
@@ -596,21 +593,21 @@ fd_runtime_collect_from_existing_account( ulong                       slot,
   #define COLLECT_RENT           (-3)
 
   /* An account must be hashed regardless of if rent is collected from it. */
-  acc->slot = slot;
+  acc->vt->set_slot( acc, slot );
 
   /* Inlining calculate_rent_result
      https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L153-184 */
   int calculate_rent_result = COLLECT_RENT;
 
   /* RentResult::NoRentCollectionNow */
-  if( FD_LIKELY( acc->info.rent_epoch==FD_RENT_EXEMPT_RENT_EPOCH || acc->info.rent_epoch>epoch ) ) {
+  if( FD_LIKELY( acc->vt->get_rent_epoch( acc )==FD_RENT_EXEMPT_RENT_EPOCH || acc->vt->get_rent_epoch( acc )>epoch ) ) {
     calculate_rent_result = NO_RENT_COLLECTION_NOW;
     goto rent_calculation;
   }
   /* RentResult::Exempt */
   /* Inlining should_collect_rent() */
-  int should_collect_rent = !( acc->info.executable ||
-                               !memcmp( pubkey, &fd_sysvar_incinerator_id, sizeof(fd_pubkey_t) ) );
+  int should_collect_rent = !( acc->vt->is_executable( acc ) ||
+                               !memcmp( acc->pubkey, &fd_sysvar_incinerator_id, sizeof(fd_pubkey_t) ) );
   if( !should_collect_rent ) {
     calculate_rent_result = EXEMPT;
     goto rent_calculation;
@@ -633,21 +630,23 @@ fd_runtime_collect_from_existing_account( ulong                       slot,
   rent_calculation:
   switch( calculate_rent_result ) {
     case EXEMPT:
-      acc->info.rent_epoch = FD_RENT_EXEMPT_RENT_EPOCH;
+      acc->vt->set_rent_epoch( acc, FD_RENT_EXEMPT_RENT_EPOCH );
       break;
     case NO_RENT_COLLECTION_NOW:
       break;
     case COLLECT_RENT:
-      if( FD_UNLIKELY( (ulong)rent_due>=acc->info.lamports ) ) {
+      if( FD_UNLIKELY( (ulong)rent_due>=acc->vt->get_lamports( acc ) ) ) {
         /* Reclaim account */
-        collected_rent += (ulong)acc->info.lamports;
-        acc->info.lamports                  = 0UL;
-        acc->dlen                           = 0UL;
-        fd_memset( acc->info.owner, 0, sizeof(acc->info.owner) );
+        collected_rent += (ulong)acc->vt->get_lamports( acc );
+        acc->vt->set_lamports( acc, 0UL );
+        acc->vt->set_data_len( acc, 0UL );
+        acc->vt->clear_owner( acc );
       } else {
         collected_rent += (ulong)rent_due;
-        acc->info.lamports                 -= (ulong)rent_due;
-        acc->info.rent_epoch                = epoch+1UL;
+        /* It's ok to not check the overflow error because
+           the rent_due value will always be less than the account's lamports here */
+        acc->vt->checked_sub_lamports( acc, (ulong)rent_due );
+        acc->vt->set_rent_epoch( acc, epoch+1UL );
       }
   }
 
@@ -671,8 +670,7 @@ fd_runtime_collect_rent_from_account( ulong                       slot,
                                       fd_rent_t const *           rent,
                                       double                      slots_per_year,
                                       fd_features_t *             features,
-                                      fd_account_meta_t *         acc,
-                                      fd_pubkey_t const *         key,
+                                      fd_txn_account_t *          acc,
                                       ulong                       epoch ) {
 
   if( !FD_FEATURE_ACTIVE( slot, *features, disable_rent_fees_collection ) ) {
@@ -681,16 +679,15 @@ fd_runtime_collect_rent_from_account( ulong                       slot,
                                                      rent,
                                                      slots_per_year,
                                                      acc,
-                                                     key,
                                                      epoch );
   } else {
-    if( FD_UNLIKELY( acc->info.rent_epoch!=FD_RENT_EXEMPT_RENT_EPOCH &&
+    if( FD_UNLIKELY( acc->vt->get_rent_epoch( acc )!=FD_RENT_EXEMPT_RENT_EPOCH &&
                      fd_runtime_get_rent_due( schedule,
                                               rent,
                                               slots_per_year,
                                               acc,
                                               epoch )==FD_RENT_EXEMPT ) ) {
-      acc->info.rent_epoch = ULONG_MAX;
+      acc->vt->set_rent_epoch( acc, ULONG_MAX );
     }
   }
   return 0UL;
@@ -828,8 +825,8 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
     ulong                    pre  = ( acct->starting_lamports == ULONG_MAX ? 0UL : acct->starting_lamports );
 
     pre_balances[idx]  = pre;
-    post_balances[idx] = ( acct->meta ? acct->meta->info.lamports :
-                           ( acct->const_meta ? acct->const_meta->info.lamports : pre ) );
+    post_balances[idx] = ( acct->vt->is_mutable( acct ) || acct->vt->is_readonly( acct ) ?
+                           acct->vt->get_lamports( acct ) : pre );
   }
 
   if( txn_ctx->return_data.len ) {
@@ -1219,20 +1216,20 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
     }
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L96-L114 */
-    if( FD_UNLIKELY( memcmp( addr_lut_rec->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( memcmp( addr_lut_rec->vt->get_owner( addr_lut_rec ), fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
     }
 
     /* Realistically impossible case, but need to make sure we don't cause an OOB data access
        https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
-    if( FD_UNLIKELY( addr_lut_rec->const_meta->dlen < FD_LOOKUP_TABLE_META_SIZE ) ) {
+    if( FD_UNLIKELY( addr_lut_rec->vt->get_data_len( addr_lut_rec ) < FD_LOOKUP_TABLE_META_SIZE ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
     }
 
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/accounts-db/src/accounts.rs#L141-L142 */
     fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = addr_lut_rec->const_data,
-      .dataend = &addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE]
+      .data    = addr_lut_rec->vt->get_data( addr_lut_rec ),
+      .dataend = &addr_lut_rec->vt->get_data( addr_lut_rec )[FD_LOOKUP_TABLE_META_SIZE]
     };
 
     ulong total_sz = 0UL;
@@ -1252,13 +1249,13 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
 
     /* Again probably an impossible case, but the ALUT data needs to be 32-byte aligned
        https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
-    if( FD_UNLIKELY( (addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
+    if( FD_UNLIKELY( (addr_lut_rec->vt->get_data_len( addr_lut_rec ) - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
     }
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L101-L112 */
-    fd_acct_addr_t * lookup_addrs  = (fd_acct_addr_t *)&addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE];
-    ulong         lookup_addrs_cnt = (addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
+    fd_acct_addr_t * lookup_addrs  = (fd_acct_addr_t *)&addr_lut_rec->vt->get_data( addr_lut_rec )[FD_LOOKUP_TABLE_META_SIZE];
+    ulong         lookup_addrs_cnt = (addr_lut_rec->vt->get_data_len( addr_lut_rec ) - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
     ulong active_addresses_len;
@@ -1868,7 +1865,10 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
     void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
     fd_txn_account_make_mutable( acct, acct_data, txn_ctx->spad_wksp );
-    acct->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
+    int err = acct->vt->checked_sub_lamports( acct, (txn_ctx->execution_fee + txn_ctx->priority_fee) );
+    if( FD_UNLIKELY ( err ) ) {
+      return err;
+    }
 
     fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
   } else {
@@ -1885,13 +1885,13 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
       fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
-      if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+      if( dirty_vote_acc && 0==memcmp( acc_rec->vt->get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         /* lock for inserting/modifying vote accounts in slot ctx. */
         fd_vote_store_account( slot_ctx, acc_rec );
         FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
           fd_bincode_decode_ctx_t decode_vsv = {
-            .data    = acc_rec->const_data,
-            .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
+            .data    = acc_rec->vt->get_data( acc_rec ),
+            .dataend = acc_rec->vt->get_data( acc_rec ) + acc_rec->vt->get_data_len( acc_rec ),
           };
 
           ulong total_sz = 0UL;
@@ -1931,14 +1931,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         } FD_SPAD_FRAME_END;
       }
 
-      if( dirty_stake_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+      if( dirty_stake_acc && 0==memcmp( acc_rec->vt->get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
         // TODO: does this correctly handle stake account close?
         fd_store_stake_delegation( slot_ctx, acc_rec );
       }
 
       fd_txn_account_save( &txn_ctx->accounts[i], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
-      int fresh_account = acc_rec->meta &&
-         acc_rec->meta->info.lamports && acc_rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH;
+      int fresh_account = acc_rec->vt->is_mutable( acc_rec ) &&
+         acc_rec->vt->get_lamports( acc_rec ) && acc_rec->vt->get_rent_epoch( acc_rec ) != FD_RENT_EXEMPT_RENT_EPOCH;
       if( FD_UNLIKELY( fresh_account ) ) {
         fd_runtime_register_new_fresh_account( slot_ctx, txn_ctx->accounts[0].pubkey );
       }
@@ -2291,7 +2291,7 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
                                fd_pubkey_t const *  target_program_data_address,
                                fd_txn_account_t *   out_rec ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/account/src/lib.rs#L471 */
-  out_rec->meta->info.rent_epoch = 0UL;
+  out_rec->vt->set_rent_epoch( out_rec, 0UL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L86-L88 */
   fd_bpf_upgradeable_loader_state_t state = {
@@ -2309,10 +2309,10 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  out_rec->meta->info.lamports = fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM );
+  out_rec->vt->set_lamports( out_rec, fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM ) );
   fd_bincode_encode_ctx_t ctx = {
-    .data = out_rec->data,
-    .dataend = out_rec->data + SIZE_OF_PROGRAM,
+    .data    = out_rec->vt->get_data_mut( out_rec ),
+    .dataend = out_rec->vt->get_data_mut( out_rec ) + SIZE_OF_PROGRAM,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L91-L9 */
@@ -2320,10 +2320,10 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
-  fd_memcpy( out_rec->meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) );
+  out_rec->vt->set_owner( out_rec, &fd_solana_bpf_loader_upgradeable_program_id );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L93-L94 */
-  out_rec->meta->info.executable = 1;
+  out_rec->vt->set_executable( out_rec, 1 );
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
@@ -2346,8 +2346,8 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L113-L116 */
   fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = buffer_acc_rec->const_data,
-    .dataend = buffer_acc_rec->const_data + buffer_acc_rec->const_meta->dlen,
+    .data    = buffer_acc_rec->vt->get_data( buffer_acc_rec ),
+    .dataend = buffer_acc_rec->vt->get_data( buffer_acc_rec ) + buffer_acc_rec->vt->get_data_len( buffer_acc_rec ),
   };
 
   ulong total_sz = 0UL;
@@ -2382,8 +2382,8 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  const uchar * elf = buffer_acc_rec->const_data + BUFFER_METADATA_SIZE;
-  ulong space = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + buffer_acc_rec->const_meta->dlen;
+  const uchar * elf = buffer_acc_rec->vt->get_data( buffer_acc_rec ) + BUFFER_METADATA_SIZE;
+  ulong space = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + buffer_acc_rec->vt->get_data_len( buffer_acc_rec );
   ulong lamports = fd_rent_exempt_minimum_balance( rent, space );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L134-L137 */
@@ -2398,20 +2398,20 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L139-L144 */
-  new_target_program_data_account->meta->info.lamports = lamports;
+  new_target_program_data_account->vt->set_lamports( new_target_program_data_account, lamports );
   fd_bincode_encode_ctx_t encode_ctx = {
-    .data = new_target_program_data_account->data,
-    .dataend = new_target_program_data_account->data + PROGRAMDATA_METADATA_SIZE,
+    .data    = new_target_program_data_account->vt->get_data_mut( new_target_program_data_account ),
+    .dataend = new_target_program_data_account->vt->get_data_mut( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE,
   };
   err = fd_bpf_upgradeable_loader_state_encode( &programdata_metadata, &encode_ctx );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
-  fd_memcpy( new_target_program_data_account->meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) );
+  new_target_program_data_account->vt->set_owner( new_target_program_data_account, &fd_solana_bpf_loader_upgradeable_program_id );
 
   /* Copy the ELF data over
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L145 */
-  fd_memcpy( new_target_program_data_account->data + PROGRAMDATA_METADATA_SIZE, elf, buffer_acc_rec->const_meta->dlen - BUFFER_METADATA_SIZE );
+  fd_memcpy( new_target_program_data_account->vt->get_data_mut( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE, elf, buffer_acc_rec->vt->get_data_len( buffer_acc_rec ) - BUFFER_METADATA_SIZE );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 
@@ -2460,7 +2460,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
     /* The program account should be owned by the native loader.
        https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L35-L38 */
-    if( FD_UNLIKELY( memcmp( target_program_account->const_meta->info.owner, fd_solana_native_loader_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( memcmp( target_program_account->vt->get_owner( target_program_account ), fd_solana_native_loader_id.uc, sizeof(fd_pubkey_t) ) ) ) {
       FD_LOG_WARNING(( "Builtin program %s is not owned by the native loader, skipping migration...", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
       return;
     }
@@ -2509,7 +2509,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
   /* The buffer account should be owned by the upgradeable loader.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L31-L34 */
-  if( FD_UNLIKELY( memcmp( source_buffer_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( source_buffer_account->vt->get_owner( source_buffer_account ), fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
     FD_LOG_WARNING(( "Buffer account %s is not owned by the upgradeable loader, skipping migration...", FD_BASE58_ENC_32_ALLOCA( source_buffer_address ) ));
     return;
   }
@@ -2522,7 +2522,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
      for stateless accounts because they don't yet exist.
 
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L277-L280 */
-  ulong lamports_to_burn = ( stateless ? 0UL : target_program_account->const_meta->info.lamports ) + source_buffer_account->const_meta->info.lamports;
+  ulong lamports_to_burn = ( stateless ? 0UL : target_program_account->vt->get_lamports( target_program_account ) ) + source_buffer_account->vt->get_lamports( source_buffer_account );
 
   /* Start a funk write txn */
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
@@ -2540,8 +2540,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Builtin program ID %s does not exist", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
     goto fail;
   }
-  new_target_program_account->meta->dlen = SIZE_OF_PROGRAM;
-  new_target_program_account->meta->slot = slot_ctx->slot_bank.slot;
+  new_target_program_account->vt->set_data_len( new_target_program_account, SIZE_OF_PROGRAM );
+  new_target_program_account->vt->set_slot( new_target_program_account, slot_ctx->slot_bank.slot );
 
   /* Create a new target program account. This modifies the existing record. */
   err = fd_new_target_program_account( slot_ctx, target_program_data_address, new_target_program_account );
@@ -2553,7 +2553,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   fd_txn_account_mutable_fini( new_target_program_account, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Create a new target program data account. */
-  ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + source_buffer_account->const_meta->dlen;
+  ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + source_buffer_account->vt->get_data_len( source_buffer_account );
   FD_TXN_ACCOUNT_DECL( new_target_program_data_account );
   err = fd_txn_account_init_from_funk_mutable( new_target_program_data_account,
                                                target_program_data_address,
@@ -2565,8 +2565,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     goto fail;
   }
-  new_target_program_data_account->meta->dlen = new_target_program_data_account_sz;
-  new_target_program_data_account->meta->slot = slot_ctx->slot_bank.slot;
+  new_target_program_data_account->vt->set_data_len( new_target_program_data_account, new_target_program_data_account_sz );
+  new_target_program_data_account->vt->set_slot( new_target_program_data_account, slot_ctx->slot_bank.slot );
 
   err = fd_new_target_program_data_account( slot_ctx,
                                             upgrade_authority_address,
@@ -2583,8 +2583,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
   err = fd_directly_invoke_loader_v3_deploy( slot_ctx,
-                                             new_target_program_data_account->const_data + PROGRAMDATA_METADATA_SIZE,
-                                             new_target_program_data_account->const_meta->dlen - PROGRAMDATA_METADATA_SIZE,
+                                             new_target_program_data_account->vt->get_data( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE,
+                                             new_target_program_account->vt->get_data_len( new_target_program_data_account ) - PROGRAMDATA_METADATA_SIZE,
                                              runtime_spad );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to deploy program %s", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
@@ -2592,7 +2592,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L281-L284 */
-  ulong lamports_to_fund = new_target_program_account->const_meta->info.lamports + new_target_program_data_account->const_meta->info.lamports;
+  ulong lamports_to_fund = new_target_program_account->vt->get_lamports( new_target_program_account ) + new_target_program_data_account->vt->get_lamports( new_target_program_data_account );
 
   /* Update capitalization.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L286-L297 */
@@ -2604,9 +2604,9 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Reclaim the source buffer account
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L305 */
-  source_buffer_account->meta->info.lamports = 0;
-  source_buffer_account->meta->dlen = 0;
-  fd_memset( source_buffer_account->meta->info.owner, 0, sizeof(fd_pubkey_t) );
+  source_buffer_account->vt->set_lamports( source_buffer_account, 0 );
+  source_buffer_account->vt->set_data_len( source_buffer_account, 0 );
+  source_buffer_account->vt->clear_owner( source_buffer_account );
 
   fd_txn_account_mutable_fini( source_buffer_account, slot_ctx->funk, slot_ctx->funk_txn );
 
@@ -2696,8 +2696,8 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_bincode_decode_ctx_t ctx = {
-      .data    = acct_rec->const_data,
-      .dataend = acct_rec->const_data + acct_rec->const_meta->dlen,
+      .data    = acct_rec->vt->get_data( acct_rec ),
+      .dataend = acct_rec->vt->get_data( acct_rec ) + acct_rec->vt->get_data_len( acct_rec ),
   };
 
   ulong total_sz   = 0UL;
@@ -2730,8 +2730,8 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
     feature->has_activated_at = 1;
     feature->activated_at     = slot_ctx->slot_bank.slot;
     fd_bincode_encode_ctx_t encode_ctx = {
-      .data    = modify_acct_rec->data,
-      .dataend = modify_acct_rec->data + modify_acct_rec->meta->dlen,
+      .data    = modify_acct_rec->vt->get_data_mut( modify_acct_rec ),
+      .dataend = modify_acct_rec->vt->get_data_mut( modify_acct_rec ) + modify_acct_rec->vt->get_data_len( modify_acct_rec ),
     };
     int encode_err = fd_feature_encode( feature, &encode_ctx );
     if( FD_UNLIKELY( encode_err != FD_BINCODE_SUCCESS ) ) {
@@ -3486,13 +3486,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       /* stake program account */
       fd_stake_state_v2_t   stake_state   = {0};
       fd_account_meta_t     meta          = { .dlen = acc->account.data_len };
-      fd_txn_account_t stake_account = {
-        .const_data = acc->account.data,
-        .const_meta = &meta,
-        .data = acc->account.data,
-        .meta = &meta
-      };
-      FD_TEST( fd_stake_get_state( &stake_account, &stake_state ) == 0 );
+      FD_TXN_ACCOUNT_DECL( stake_account );
+      fd_txn_account_init_from_meta_and_data_mutable( stake_account, &meta, acc->account.data );
+      FD_TEST( fd_stake_get_state( stake_account, &stake_state ) == 0 );
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;
       }
@@ -3726,14 +3722,11 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
       }
 
-      rec->meta->dlen            = a->account.data_len;
-      rec->meta->info.lamports   = a->account.lamports;
-      rec->meta->info.rent_epoch = a->account.rent_epoch;
-      rec->meta->info.executable = a->account.executable;
-      memcpy( rec->meta->info.owner, a->account.owner.key, sizeof(fd_hash_t));
-      if( a->account.data_len ) {
-        memcpy( rec->data, a->account.data, a->account.data_len );
-      }
+      rec->vt->set_data( rec, a->account.data, a->account.data_len );
+      rec->vt->set_lamports( rec, a->account.lamports );
+      rec->vt->set_rent_epoch( rec, a->account.rent_epoch );
+      rec->vt->set_executable( rec, a->account.executable );
+      rec->vt->set_owner( rec, &a->account.owner );
 
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
     }

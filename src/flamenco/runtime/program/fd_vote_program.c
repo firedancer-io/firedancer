@@ -154,8 +154,8 @@ get_state( fd_txn_account_t const * self,
            int *                    err ) {
 
   fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = self->const_data,
-    .dataend = &self->const_data[self->const_meta->dlen]
+    .data    = self->vt->get_data( self ),
+    .dataend = &self->vt->get_data( self )[ self->vt->get_data_len( self ) ]
   };
 
   ulong total_sz   = 0UL;
@@ -804,9 +804,9 @@ set_vote_account_state( fd_borrowed_account_t *     vote_account,
     ulong vsz = size_of_versioned( 1 );
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L175
-    int resize_needed      = vote_account->acct->const_meta->dlen < vsz;
+    int resize_needed      = fd_borrowed_account_get_data_len( vote_account ) < vsz;
     int resize_rent_exempt = fd_rent_exempt_minimum_balance( &ctx->txn_ctx->rent, vsz ) <=
-                                                             vote_account->acct->const_meta->info.lamports;
+                                                             fd_borrowed_account_get_lamports( vote_account );
 
     /* The resize operation itself is part of the horrible conditional,
        but behind a short-circuit operator. */
@@ -1644,9 +1644,9 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1016
-  if( FD_UNLIKELY( lamports > vote_account->acct->const_meta->info.lamports ) )
+  if( FD_UNLIKELY( lamports > fd_borrowed_account_get_lamports( vote_account ) ) )
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
-  ulong remaining_balance = vote_account->acct->const_meta->info.lamports - lamports;
+  ulong remaining_balance = fd_borrowed_account_get_lamports( vote_account ) - lamports;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1021
   if( FD_UNLIKELY( remaining_balance == 0 ) ) {
@@ -1682,7 +1682,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   } else {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1043
     ulong min_rent_exempt_balance =
-        fd_rent_exempt_minimum_balance( rent_sysvar, vote_account->acct->const_meta->dlen );
+        fd_rent_exempt_minimum_balance( rent_sysvar, fd_borrowed_account_get_data_len( vote_account ) );
     if( remaining_balance < min_rent_exempt_balance ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
@@ -1788,7 +1788,7 @@ initialize_account( fd_borrowed_account_t *       vote_account,
   int rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1067
-  ulong data_len = vote_account->acct->const_meta->dlen;
+  ulong data_len = fd_borrowed_account_get_data_len( vote_account );
   if( FD_UNLIKELY( data_len != size_of_versioned( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, vote_state_add_vote_latency ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -2208,14 +2208,12 @@ fd_vote_acc_credits( fd_exec_instr_ctx_t const * ctx,
   if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   /* Read vote account */
-  fd_txn_account_t vote_account = {
-    .const_meta = vote_acc_meta,
-    .const_data = vote_acc_data,
-  };
+  FD_TXN_ACCOUNT_DECL( vote_account );
+  fd_txn_account_init_from_meta_and_data_readonly( vote_account, vote_acc_meta, vote_acc_data );
 
   rc = 0;
 
-  fd_vote_state_versioned_t * vote_state_versioned = get_state( &vote_account,
+  fd_vote_state_versioned_t * vote_state_versioned = get_state( vote_account,
                                                                 ctx->txn_ctx->spad,
                                                                 &rc );
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -2347,20 +2345,20 @@ process_authorize_with_seed_instruction(
 static uint
 vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
-  uint data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V3_SZ;
+  uint data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
-    (uchar*)vote_account->const_data + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
+    vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
   if (data_check && data_len_check) {
     return 1;
   }
 
   // VoteState1_14_11::is_correct_size_and_initialized
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
-  data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V2_SZ;
+  data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
   data_check = memcmp(
-    ((uchar*)vote_account->const_data + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
+    (vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
   return data_check && data_len_check;
 }
 
@@ -2397,7 +2395,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L65
-  if( FD_UNLIKELY( 0 != memcmp( &me.acct->const_meta->info.owner,
+  if( FD_UNLIKELY( 0 != memcmp( fd_borrowed_account_get_owner( &me ),
                                 fd_solana_vote_program_id.key,
                                 sizeof( fd_pubkey_t ) ) ) ) {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L66
@@ -2452,8 +2450,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_from_instr_acct_rent( ctx, 1UL, &rc );
     if( FD_UNLIKELY( !rent ) ) return rc;
 
-    if( FD_UNLIKELY( me.acct->const_meta->info.lamports <
-                     fd_rent_exempt_minimum_balance( rent, me.acct->const_meta->dlen ) ) )
+    if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &me ) <
+                     fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &me ) ) ) )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L76
@@ -2986,12 +2984,12 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_vote_store_account( fd_exec_slot_ctx_t * slot_ctx,
                        fd_txn_account_t *   vote_account ) {
-  fd_pubkey_t const * owner = (fd_pubkey_t const *)vote_account->const_meta->info.owner;
+  fd_pubkey_t const * owner = vote_account->vt->get_owner( vote_account );
 
   if (memcmp(owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) != 0) {
       return;
   }
-  if (vote_account->const_meta->info.lamports == 0) {
+  if (vote_account->vt->get_lamports( vote_account ) == 0) {
     remove_vote_account( slot_ctx, vote_account );
   } else {
     upsert_vote_account( slot_ctx, vote_account );

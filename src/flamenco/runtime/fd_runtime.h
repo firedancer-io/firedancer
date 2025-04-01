@@ -330,8 +330,7 @@ fd_runtime_collect_rent_from_account( ulong                       slot,
                                       fd_rent_t const *           rent,
                                       double                      slots_per_year,
                                       fd_features_t *             features,
-                                      fd_account_meta_t *         acc,
-                                      fd_pubkey_t const *         key,
+                                      fd_txn_account_t *          acc,
                                       ulong                       epoch );
 
 void

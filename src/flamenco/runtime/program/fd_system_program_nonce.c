@@ -105,24 +105,22 @@ fd_system_program_set_nonce_state( fd_borrowed_account_t *           account,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L1021
      => https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L868 */
 
-  do {
-    int err = 99999;
-    if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_changed( account, &err ) ) ) {
-      return err;
-    }
-  } while(0);
+  uchar * data = NULL;
+  ulong   dlen = 0UL;
+  int err = fd_borrowed_account_get_data_mut( account, &data, &dlen );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L1024-L1026 */
 
-  if( FD_UNLIKELY( fd_nonce_state_versions_size( new_state ) > account->acct->meta->dlen ) )
+  if( FD_UNLIKELY( fd_nonce_state_versions_size( new_state ) > fd_borrowed_account_get_data_len( account ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L1027 */
 
   do {
     fd_bincode_encode_ctx_t encode =
-      { .data    = account->acct->data,
-        .dataend = account->acct->data + account->acct->meta->dlen };
+      { .data    = data,
+        .dataend = data + dlen };
     int err = fd_nonce_state_versions_encode( new_state, &encode );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -153,8 +151,8 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L34 */
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = account->acct->const_data,
-    .dataend = account->acct->const_data + account->acct->const_meta->dlen
+    .data    = fd_borrowed_account_get_data( account ),
+    .dataend = fd_borrowed_account_get_data( account ) + fd_borrowed_account_get_data_len( account )
   };
 
   ulong total_sz = 0UL;
@@ -332,8 +330,8 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L93 */
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = from.acct->const_data,
-    .dataend = from.acct->const_data + from.acct->const_meta->dlen
+    .data    = fd_borrowed_account_get_data( &from ),
+    .dataend = fd_borrowed_account_get_data( &from ) + fd_borrowed_account_get_data_len( &from )
   };
   ulong total_sz = 0UL;
   err = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
@@ -368,10 +366,10 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   case fd_nonce_state_enum_uninitialized: {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L95-L106 */
 
-    if( FD_UNLIKELY( requested_lamports > from.acct->const_meta->info.lamports ) ) {
+    if( FD_UNLIKELY( requested_lamports > fd_borrowed_account_get_lamports( &from ) ) ) {
       /* Max msg_sz: 59 - 6 + 20 + 20 = 93 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx,
-        "Withdraw nonce account: insufficient lamports %lu, need %lu", from.acct->const_meta->info.lamports, requested_lamports );
+        "Withdraw nonce account: insufficient lamports %lu, need %lu", fd_borrowed_account_get_lamports( &from ), requested_lamports );
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
@@ -386,7 +384,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L107-L132 */
     fd_nonce_data_t * data = &state->inner.initialized;
 
-    if( requested_lamports == from.acct->const_meta->info.lamports ) {
+    if( requested_lamports == fd_borrowed_account_get_lamports( &from ) ) {
         /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L108-L117 */
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L109 */
@@ -427,7 +425,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L120 */
 
-      ulong min_balance = fd_rent_exempt_minimum_balance( rent, from.acct->const_meta->dlen );
+      ulong min_balance = fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &from ) );
 
       ulong amount;
       if( FD_UNLIKELY( __builtin_uaddl_overflow( requested_lamports, min_balance, &amount ) ) )
@@ -435,10 +433,10 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L121-L129 */
 
-      if( FD_UNLIKELY( amount > from.acct->const_meta->info.lamports ) ) {
+      if( FD_UNLIKELY( amount > fd_borrowed_account_get_lamports( &from ) ) ) {
         /* Max msg_sz: 59 - 6 + 20 + 20 = 93 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "Withdraw nonce account: insufficient lamports %lu, need %lu", from.acct->const_meta->info.lamports, amount );
+          "Withdraw nonce account: insufficient lamports %lu, need %lu", fd_borrowed_account_get_lamports( &from ), amount );
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
       }
 
@@ -543,8 +541,8 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L168 */
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = account->acct->const_data,
-    .dataend = account->acct->const_data + account->acct->const_meta->dlen
+    .data    = fd_borrowed_account_get_data( account ),
+    .dataend = fd_borrowed_account_get_data( account ) + fd_borrowed_account_get_data_len( account )
   };
 
   ulong total_sz = 0UL;
@@ -580,14 +578,14 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L170 */
 
-    ulong min_balance = fd_rent_exempt_minimum_balance( rent, account->acct->const_meta->dlen );
+    ulong min_balance = fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( account ) );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L171-L179 */
 
-    if( FD_UNLIKELY( account->acct->const_meta->info.lamports < min_balance ) ) {
+    if( FD_UNLIKELY( fd_borrowed_account_get_lamports( account ) < min_balance ) ) {
       /* Max msg_sz: 61 - 6 + 20 + 20 = 95 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx,
-        "Initialize nonce account: insufficient lamports %lu, need %lu", account->acct->const_meta->info.lamports, min_balance );
+        "Initialize nonce account: insufficient lamports %lu, need %lu", fd_borrowed_account_get_lamports( account ), min_balance );
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
@@ -721,8 +719,8 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L214-L215 */
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = account->acct->const_data,
-    .dataend = account->acct->const_data + account->acct->const_meta->dlen
+    .data    = fd_borrowed_account_get_data( account ),
+    .dataend = fd_borrowed_account_get_data( account ) + fd_borrowed_account_get_data_len( account )
   };
 
   ulong total_sz = 0UL;
@@ -867,7 +865,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L492-L494 */
 
-  if( FD_UNLIKELY( 0!=memcmp( account.acct->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) )
+  if( FD_UNLIKELY( 0!=memcmp( fd_borrowed_account_get_owner( &account ), fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L495-L497 */
@@ -878,8 +876,8 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L498 */
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = account.acct->const_data,
-    .dataend = account.acct->const_data + account.acct->const_meta->dlen
+    .data    = fd_borrowed_account_get_data( &account ),
+    .dataend = fd_borrowed_account_get_data( &account ) + fd_borrowed_account_get_data_len( &account )
   };
 
   ulong total_sz = 0UL;
@@ -996,14 +994,14 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
-  uchar const * owner_pubkey = durable_nonce_rec->const_meta->info.owner;
+  fd_pubkey_t const * owner_pubkey = durable_nonce_rec->vt->get_owner( durable_nonce_rec );
   if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = durable_nonce_rec->const_data,
-    .dataend = durable_nonce_rec->const_data + durable_nonce_rec->const_meta->dlen,
+    .data    = durable_nonce_rec->vt->get_data( durable_nonce_rec ),
+    .dataend = durable_nonce_rec->vt->get_data( durable_nonce_rec )+ durable_nonce_rec->vt->get_data_len( durable_nonce_rec ),
   };
 
   ulong total_sz = 0UL;
@@ -1076,18 +1074,18 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
           FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        ulong old_tot_len = sizeof(fd_account_meta_t)+rollback_nonce_rec->const_meta->dlen;
+        ulong old_tot_len = sizeof(fd_account_meta_t)+rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec );
         void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
         fd_txn_account_make_mutable( rollback_nonce_rec,
                                      borrowed_account_data,
                                      txn_ctx->spad_wksp );
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->meta->dlen ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = rollback_nonce_rec->data,
-              .dataend = rollback_nonce_rec->data + rollback_nonce_rec->meta->dlen };
+            { .data    = rollback_nonce_rec->vt->get_data_mut( rollback_nonce_rec ),
+              .dataend = rollback_nonce_rec->vt->get_data_mut( rollback_nonce_rec ) + rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec ) };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;

@@ -26,7 +26,7 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TEST( err==FD_BINCODE_SUCCESS );
 
   fd_sysvar_set( slot_ctx,
-                 fd_sysvar_owner_id.key,
+                 &fd_sysvar_owner_id,
                  &fd_sysvar_last_restart_slot_id,
                  enc, sz,
                  slot_ctx->slot_bank.slot );
@@ -49,8 +49,8 @@ fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = acc->const_data,
-    .dataend = acc->const_data + acc->const_meta->dlen
+    .data    = acc->vt->get_data( acc ),
+    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
   };
 
   ulong total_sz = 0UL;
@@ -95,7 +95,7 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
   if( !has_current_last_restart_slot || current_last_restart_slot != last_restart_slot ) {
     fd_sysvar_set(
-        slot_ctx, fd_sysvar_owner_id.key,
+        slot_ctx, &fd_sysvar_owner_id,
         &fd_sysvar_last_restart_slot_id,
         &last_restart_slot, sizeof(ulong),
         slot_ctx->slot_bank.slot );
