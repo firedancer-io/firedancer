@@ -1150,7 +1150,6 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_pubkey_t * acc = &txn_ctx->account_keys[i];
 
     txn_ctx->nonce_account_idx_in_txn = ULONG_MAX;
-    txn_ctx->nonce_account_advanced   = 0U;
 
     fd_txn_account_t * txn_account = &txn_ctx->accounts[i];
     txn_account->const_data = NULL;

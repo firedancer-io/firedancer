@@ -122,7 +122,6 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
    */
   fd_txn_account_t                rollback_nonce_account[ 1 ];
   ulong                           nonce_account_idx_in_txn;                    /* If the transaction has a nonce account that must be advanced, this would be !=ULONG_MAX. */
-  uchar                           nonce_account_advanced;                      /* Nonce account has been advanced. */
   uint                            num_instructions;                            /* Counter for number of instructions in txn */
   fd_txn_return_data_t            return_data;                                 /* Data returned from `return_data` syscalls */
   fd_vote_account_cache_t *       vote_accounts_map;                           /* Cache of bank's deserialized vote accounts to support fork choice */
