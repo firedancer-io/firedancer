@@ -727,7 +727,7 @@
 
      ele->key = ... key associated with this element
 
-     int err = mymap_insert( join, err, FD_MAP_FLAG_BLOCKING );
+     int err = mymap_insert( join, ele, FD_MAP_FLAG_BLOCKING );
 
      if( FD_UNLIKELY( err ) ) { // Not possible in this example
 
