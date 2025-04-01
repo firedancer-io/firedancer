@@ -2244,7 +2244,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
            FIXME: This will go away when lower level account APIs exist to set data. */
         if( acct_state->data ) {
           if( acct_state->data->size > acct->const_meta->dlen ) {
-            fd_txn_account_resize( acct, acct_state->data->size );
+            acct->vt->resize( acct, acct_state->data->size );
           }
         }
 

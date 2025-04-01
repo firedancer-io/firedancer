@@ -641,7 +641,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       /* Allocate into the buffer to make sure that the original data len
          is still valid but don't change the dlen. Zero out the rest of the
          memory which is not used. */
-      fd_txn_account_resize( callee_acc, original_len );
+      callee_acc->vt->resize( callee_acc, original_len );
       callee_acc->meta->dlen = new_len;
       zero_all_mapped_spare_capacity = 1;
     }

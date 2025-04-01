@@ -80,7 +80,7 @@ fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_acct ) {
 
 static inline void const *
 fd_borrowed_account_get_data( fd_borrowed_account_t const * borrowed_acct ) {
-  return borrowed_acct->acct->const_data;
+  return borrowed_acct->acct->vt->get_data( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_get_data_mut mirrors Agave function
@@ -99,7 +99,7 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
 
 static inline fd_pubkey_t const *
 fd_borrowed_account_get_owner( fd_borrowed_account_t * borrowed_acct ) {
-  return (fd_pubkey_t const *) borrowed_acct->acct->const_meta->info.owner;
+  return borrowed_acct->acct->vt->get_owner( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_get_lamports mirrors Agave function
@@ -112,7 +112,7 @@ fd_borrowed_account_get_owner( fd_borrowed_account_t * borrowed_acct ) {
 
 static inline ulong
 fd_borrowed_account_get_lamports( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_lamports( borrowed_acct->acct );
+  return borrowed_acct->acct->vt->get_lamports( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_get_rent_epoch mirrors Agave function
@@ -122,9 +122,7 @@ fd_borrowed_account_get_lamports( fd_borrowed_account_t const * borrowed_acct ) 
 
 static inline ulong
 fd_borrowed_account_get_rent_epoch( fd_borrowed_account_t const * borrowed_acct ) {
-  FD_TEST( borrowed_acct->acct->const_meta != NULL );
-  /* TODO: rent_epoch should be a property of fd_txn_account_t */
-  return borrowed_acct->acct->const_meta->info.rent_epoch;
+  return borrowed_acct->acct->vt->get_rent_epoch( borrowed_acct->acct );
 }
 
 /* Setters */
@@ -203,7 +201,7 @@ static inline int
 fd_borrowed_account_checked_add_lamports( fd_borrowed_account_t * borrowed_acct,
                                           ulong                   lamports ) {
   ulong balance_post = 0UL;
-  int err = fd_ulong_checked_add( borrowed_acct->acct->const_meta->info.lamports,
+  int err = fd_ulong_checked_add( borrowed_acct->acct->vt->get_lamports( borrowed_acct->acct ),
                                   lamports,
                                   &balance_post );
   if( FD_UNLIKELY( err ) ) {
@@ -226,7 +224,7 @@ static inline int
 fd_borrowed_account_checked_sub_lamports( fd_borrowed_account_t * borrowed_acct,
                                           ulong                   lamports ) {
   ulong balance_post = 0UL;
-  int err = fd_ulong_checked_sub( borrowed_acct->acct->const_meta->info.lamports,
+  int err = fd_ulong_checked_sub( borrowed_acct->acct->vt->get_lamports( borrowed_acct->acct ),
                                   lamports,
                                   &balance_post );
   if( FD_UNLIKELY( err ) ) {
@@ -258,13 +256,13 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
 static inline int
 fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const * borrowed_acct ) {
   fd_txn_account_t * acct = borrowed_acct->acct;
-  FD_TEST( acct->const_meta != NULL );
+  if( FD_UNLIKELY( ( acct->vt->get_meta( acct ) == NULL ) ) ) FD_LOG_ERR(( "account is not setup" ));
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
   fd_rent_t rent    = borrowed_acct->instr_ctx->txn_ctx->rent;
-  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, acct->const_meta->dlen );
-  return acct->const_meta->info.lamports >= min_balance;
+  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, acct->vt->get_data_len( acct ) );
+  return acct->vt->get_lamports( acct ) >= min_balance;
 }
 
 /* fd_borrowed_account_is_executable mirrors Agave function
@@ -277,7 +275,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_is_executable( borrowed_acct->acct );
+  return borrowed_acct->acct->vt->is_executable( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_is_executable_internal is a private function for deprecating the `is_executable` flag.
@@ -347,7 +345,7 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
   }
 
   return memcmp( program_id_pubkey->key,
-                 borrowed_acct->acct->const_meta->info.owner, sizeof(fd_pubkey_t) ) == 0;
+                 borrowed_acct->acct->vt->get_owner( borrowed_acct->acct ), sizeof(fd_pubkey_t) ) == 0;
 }
 
 /* fd_borrowed_account_can_data_be changed mirrors Agave function
@@ -396,7 +394,7 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
   /* Only the owner can change the length of the data
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1095 */
-  if( FD_UNLIKELY( ( acct->const_meta->dlen != new_length ) &
+  if( FD_UNLIKELY( ( acct->vt->get_data_len( acct ) != new_length ) &
                    ( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
@@ -411,7 +409,7 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
   /* The resize can not exceed the per-transaction maximum
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1104-L1108 */
-  long length_delta = fd_long_sat_sub( (long)new_length, (long)acct->const_meta->dlen );
+  long length_delta = fd_long_sat_sub( (long)new_length, (long)acct->vt->get_data_len( acct ) );
   long new_accounts_resize_delta = fd_long_sat_add( (long)borrowed_acct->instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
@@ -426,8 +424,8 @@ FD_FN_PURE static inline int
 fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
   fd_txn_account_t * acct = borrowed_acct->acct;
   /* TODO: optimize this */
-  uchar const * data = ((uchar *) acct->const_meta) + acct->const_meta->hlen;
-  for( ulong i=0UL; i < acct->const_meta->dlen; i++ )
+  uchar const * data = acct->vt->get_data( acct );
+  for( ulong i=0UL; i < acct->vt->get_data_len( acct ); i++ )
     if( data[i] != 0 )
       return 0;
   return 1;
