@@ -106,14 +106,10 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
 
     /* Set the link tile ID correctly in the map */
-    if( !strcmp( link->name, "net_shred" ) ) {
+    if( !strcmp( link->name, "shred_storei" ) ) {
       ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_SHRED;
-    } else if( !strcmp( link->name, "net_gossip" ) ) {
-      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_GOSSIP;
-    } else if( !strcmp( link->name, "net_repair" ) ) {
+    } else if( !strcmp( link->name, "repair_store" ) ) {
       ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_REPAIR;
-    } else if( !strcmp( link->name, "net_quic" ) ) {
-      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_QUIC;
     } else {
       FD_LOG_ERR(( "unsupported input link" ));
     }
@@ -135,12 +131,12 @@ unprivileged_init( fd_topo_t *      topo,
 
 static inline void
 during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
-             ulong                    in_idx,
-             ulong                    seq,
-             ulong                    sig,
-             ulong                    tspub       FD_PARAM_UNUSED,
-             ulong                    chunk,
-             ulong                    sz ) {
+             ulong                           in_idx,
+             ulong                           seq,
+             ulong                           sig,
+             ulong                           chunk,
+             ulong                           sz,
+             ulong                           ctl FD_PARAM_UNUSED ) {
   /* TODO: filter by signature in before_credit */
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
