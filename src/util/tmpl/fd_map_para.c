@@ -578,7 +578,7 @@
      int mymap_txn_query ( mymap_t const * join, ulong const * key, myele_t const * sentinel, mymap_query_t * query );
 
      // mymap_txn_test returns FD_MAP_SUCCESS (zero) if the txn try
-     // succeeded and FD_MAP_AGAIN (negative) if it failed (e.g. the
+     // succeeded and FD_MAP_ERR_AGAIN (negative) if it failed (e.g. the
      // test detected a potentially conflicting concurrent operation
      // during the try).  On success, any results from processing of
      // keys marked as speculative can be trusted.  On failure, the
