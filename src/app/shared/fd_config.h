@@ -434,7 +434,7 @@ struct fd_config {
     } restart;
 
     struct {
-      int   playback;
+      int   enabled;
       char  archive_path[ PATH_MAX ];
     } archiver;
 

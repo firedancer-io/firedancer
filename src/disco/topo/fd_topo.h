@@ -407,7 +407,7 @@ typedef struct {
     } pktgen;
 
     struct {
-      int  playback;
+      int  enabled;
       char archive_path[ PATH_MAX ];
 
       /* Set internally by the archiver tile */

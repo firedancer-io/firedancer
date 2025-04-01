@@ -602,6 +602,21 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_gossi", 0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_store", 0UL                                                  );
 
+  if( config->tiles.archiver.enabled ) {
+    fd_topob_wksp( topo, "arch_f" );
+    fd_topob_wksp( topo, "arch_w" );
+    /**/ fd_topob_tile( topo, "arch_f", "arch_f", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    /**/ fd_topob_tile( topo, "arch_w", "arch_w", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    /* the links here need to be reliable, so the archive file does not miss any shred */
+    FOR(shred_tile_cnt) fd_topob_tile_in( topo, "arch_f", 0UL, "metric_in", "shred_storei", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/ fd_topob_tile_in( topo, "arch_f", 0UL, "metric_in", "repair_store", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_wksp( topo, "arch_f2w" );
+    fd_topob_link( topo, "arch_f2w", "arch_f2w", 128UL, 4UL*FD_SHRED_STORE_MTU, 1UL );
+    /**/ fd_topob_tile_out( topo, "arch_f", 0UL, "arch_f2w", 0UL );
+    /**/ fd_topob_tile_in( topo, "arch_w", 0UL, "metric_in", "arch_f2w", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
   if( enable_rpc ) {
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
@@ -830,6 +845,10 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->restart.identity_key_path, config->consensus.identity_path, sizeof(tile->restart.identity_key_path) );
       fd_memcpy( tile->restart.genesis_hash, config->tiles.restart.genesis_hash, FD_BASE58_ENCODED_32_SZ );
       fd_memcpy( tile->restart.restart_coordinator, config->tiles.restart.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
+                            !strcmp( tile->name, "arch_w" ) ) ) {
+      tile->archiver.enabled = config->tiles.archiver.enabled;
+      strncpy( tile->archiver.archive_path, config->tiles.archiver.archive_path, sizeof(tile->archiver.archive_path) );
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

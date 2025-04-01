@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 #include <linux/if_xdp.h>
 #include "generated/archiver_playback_seccomp.h"
-
+#include "../../disco/topo/fd_pod_format.h"
 /* The archiver playback tile consumes from the archive file, adds artificial delay
 to reproduce exactly the timing from the capture, and forwards these fragments to the
 receiver tiles (shred/quic/gossip/repair).
@@ -23,9 +23,7 @@ receiver tiles.
 */
 
 #define NET_SHRED_OUT_IDX  (0UL)
-#define NET_QUIC_OUT_IDX   (1UL)
-#define NET_GOSSIP_OUT_IDX (2UL)
-#define NET_REPAIR_OUT_IDX (3UL)
+#define NET_REPAIR_OUT_IDX (1UL)
 
 #define FD_ARCHIVER_PLAYBACK_ALLOC_TAG   (3UL)
 
@@ -63,6 +61,13 @@ struct fd_archiver_playback_tile_ctx {
 
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
+
+  ulong playback_cnt;
+  ulong playback_done;
+  ulong done_time;
+  ulong playback_started;
+
+  ulong * published_wmark; /* same as the one in replay tile */
 };
 typedef struct fd_archiver_playback_tile_ctx fd_archiver_playback_tile_ctx_t;
 
@@ -174,6 +179,20 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->out[ i ].wmark  = fd_dcache_compact_wmark( link_wksp->wksp, link->dcache, link->mtu );
     ctx->out[ i ].chunk  = ctx->out[ i ].chunk0;
   }
+
+  ctx->playback_cnt      = 0;
+  ctx->playback_done     = 0;
+  ctx->playback_started  = 0;
+  ctx->now               = 0;
+  ctx->prev_publish_time = 0;
+
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  FD_TEST( root_slot_obj_id!=ULONG_MAX );
+  ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
+
+  FD_LOG_WARNING(( "Playback tile finishes initialization" ));
 }
 
 static void
@@ -186,6 +205,25 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
               fd_stem_context_t *                   stem,
               int *                                 opt_poll_in FD_PARAM_UNUSED,
               int *                                 charge_busy FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( ctx->playback_done ) ) {
+    if( ctx->now>ctx->done_time+1000000000UL*5UL ) {
+      FD_LOG_ERR(( "Playback is done." ));
+    }
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->playback_started ) ) {
+    ulong wmark = fd_fseq_query( ctx->published_wmark );
+    if( wmark!=ULONG_MAX ) {
+      /* Replay tile has updated root_slot (aka. published_wmark), meaning
+       * (1) snapshot has been loaded; (2) blockstore has been initialized */
+      ctx->playback_started = 1;
+      FD_LOG_WARNING(( "playback starts with wmark=%lu", wmark ));
+    } else {
+      return;
+    }
+  }
+
   /* Peek the header without consuming anything, to see if we need to wait */
   char const * peek = fd_io_buffered_istream_peek( &ctx->istream );
   if( FD_UNLIKELY(( !peek )) ) {
@@ -195,13 +233,16 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   /* Consume the header */
   fd_archiver_frag_header_t * header = fd_type_pun( (char *)peek );
   if( FD_UNLIKELY( header->magic != FD_ARCHIVER_HEADER_MAGIC ) ) {
-    FD_LOG_ERR(( "bad magic in archive header: %lu", header->magic ));
+    FD_LOG_WARNING(( "bad magic in archive header: %lu", header->magic ));
+    ctx->playback_done = 1;
+    ctx->done_time     = ctx->now;
+    return;
   }
 
   /* Determine if we should wait before publishing this */
   /* need to delay if now > (when we should publish it)  */
   if( ctx->prev_publish_time != 0UL &&
-    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment - 500000000 ) )) {
+    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment ) )) {
     return;
   }
 
@@ -210,12 +251,6 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   switch ( header->tile_id ) {
     case FD_ARCHIVER_TILE_ID_SHRED:
     out_link_idx = NET_SHRED_OUT_IDX;
-    break;
-    case FD_ARCHIVER_TILE_ID_QUIC:
-    out_link_idx = NET_QUIC_OUT_IDX;
-    break;
-    case FD_ARCHIVER_TILE_ID_GOSSIP:
-    out_link_idx = NET_GOSSIP_OUT_IDX;
     break;
     case FD_ARCHIVER_TILE_ID_REPAIR:
     out_link_idx = NET_REPAIR_OUT_IDX;
@@ -227,12 +262,20 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   /* Consume the header from the stream */
   fd_archiver_frag_header_t header_tmp;
   if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, &header_tmp, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) )) {
-    FD_LOG_ERR(( "failed to consume header" ));
+    FD_LOG_WARNING(( "failed to consume header" ));
+    ctx->playback_done = 1;
+    ctx->done_time     = ctx->now;
+    return;
   }
 
   /* Consume the fragment from the stream */
   uchar       * dst      = (uchar *)fd_chunk_to_laddr( ctx->out[ out_link_idx ].mem, ctx->out[ out_link_idx ].chunk );
-  fd_io_buffered_istream_read( &ctx->istream, dst, header_tmp.sz );
+  if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, dst, header_tmp.sz ) ) ) {
+    FD_LOG_WARNING(( "failed to consume frag" ));
+    ctx->playback_done = 1;
+    ctx->done_time     = ctx->now;
+    return;
+  }
 
   fd_stem_publish( stem, out_link_idx, header->sig, ctx->out[ out_link_idx ].chunk, header->sz, 0UL, 0UL, 0UL);
   ctx->out[ out_link_idx ].chunk = fd_dcache_compact_next( ctx->out[ out_link_idx ].chunk,
