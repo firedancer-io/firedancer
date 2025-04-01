@@ -388,12 +388,12 @@ tpool_wrapper( fd_funk_rec_t const * * recs,
 }
 
 int
-fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                                      fd_funk_txn_t *      funk_txn,
-                                                      fd_spad_t *          runtime_spad,
-                                                      para_wrapper_func    wrapper_fn,
-                                                      int                  count,
-                                                      ... ) {
+fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *  slot_ctx,
+                                                     fd_funk_txn_t *       funk_txn,
+                                                     fd_spad_t *           runtime_spad,
+                                                     bpf_para_wrapper_func wrapper_fn,
+                                                     int                   count,
+                                                     ... ) {
   long        elapsed_ns = -fd_log_wallclock();
   fd_funk_t * funk       = slot_ctx->acc_mgr->funk;
   ulong       cached_cnt = 0UL;

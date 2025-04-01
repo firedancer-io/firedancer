@@ -9,11 +9,13 @@
 
 #include <stdarg.h>
 
-typedef void (*para_wrapper_func)( fd_funk_rec_t const * * recs,
-                                   uchar *                 is_bpf_program,
-                                   ulong                   rec_cnt,
-                                   fd_exec_slot_ctx_t *    slot_ctx,
-                                   va_list args );
+/* This is the wrapper type used to multithread snapshot loading.
+   See tpool_wrapper and tiles_wrapper (in fd_replay_tile.c) */
+typedef void (*bpf_para_wrapper_func)( fd_funk_rec_t const * * recs,
+                                       uchar *                 is_bpf_program,
+                                       ulong                   rec_cnt,
+                                       fd_exec_slot_ctx_t *    slot_ctx,
+                                       va_list                 args );
 
 struct fd_sbpf_validated_program {
   ulong magic;
@@ -49,7 +51,7 @@ tpool_wrapper( fd_funk_rec_t const * * recs,
                uchar *                 is_bpf_program,
                ulong                   rec_cnt,
                fd_exec_slot_ctx_t *    slot_ctx,
-               va_list args );
+               va_list                 args );
 
 fd_sbpf_validated_program_t *
 fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info );
@@ -82,12 +84,12 @@ fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
                        uchar *               is_bpf_program );
 
 int
-fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                                      fd_funk_txn_t *      funk_txn,
-                                                      fd_spad_t *          runtime_spad,
-                                                      para_wrapper_func    wrapper_fn,
-                                                      int                  count,
-                                                      ... );
+fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *  slot_ctx,
+                                                     fd_funk_txn_t *       funk_txn,
+                                                     fd_spad_t *           runtime_spad,
+                                                     bpf_para_wrapper_func wrapper_fn,
+                                                     int                   count,
+                                                     ... );
 
 int
 fd_bpf_load_cache_entry( fd_funk_t *                    funk,
