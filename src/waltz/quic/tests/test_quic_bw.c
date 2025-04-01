@@ -114,7 +114,7 @@ main( int     argc,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 1,
     .stream_pool_cnt    = 1,
-    .inflight_pkt_cnt   = 128,
+    .inflight_frame_cnt   = 128,
   };
   FD_LOG_NOTICE(( "Creating server QUIC (%lu bytes)", fd_quic_footprint( &server_limits ) ));
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
@@ -126,7 +126,7 @@ main( int     argc,
     .handshake_cnt      = 1,
     .stream_id_cnt      = client_burst,
     .stream_pool_cnt    = client_burst,
-    .inflight_pkt_cnt   = client_burst+16,
+    .inflight_frame_cnt = client_burst+16,
     .tx_buf_sz          = sz
   };
   FD_LOG_NOTICE(( "Creating client QUIC (%lu bytes)", fd_quic_footprint( &client_limits ) ));

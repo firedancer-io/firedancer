@@ -109,7 +109,7 @@ main( int argc, char ** argv ) {
     .handshake_cnt      = 10,
     .stream_id_cnt      = 10,
     .stream_pool_cnt    = 400,
-    .inflight_pkt_cnt   = 1024 * 10,
+    .inflight_frame_cnt = 1024 * 10,
     .tx_buf_sz          = 1<<14
   };
 

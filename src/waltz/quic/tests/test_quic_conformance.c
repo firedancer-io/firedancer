@@ -462,9 +462,9 @@ test_quic_send_streams( fd_quic_sandbox_t * sandbox,
     FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
 
     uchar buf[10];
-    fd_quic_pkt_meta_t pkt_meta = {0};
+    fd_quic_pkt_meta_t pkt_meta_tmpl = {.enc_level = fd_quic_enc_level_appdata_id};
 
-    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta, 10, 0 );
+    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta_tmpl, &conn->pkt_meta_tracker );
 
     FD_TEST( !in_stream_list( empty_stream, conn->send_streams ) );
     FD_TEST( in_stream_list( empty_stream, conn->used_streams ) );
@@ -484,7 +484,7 @@ test_quic_send_streams( fd_quic_sandbox_t * sandbox,
     uchar buf[FD_QUIC_MAX_FOOTPRINT( stream_e_frame ) + 2]; /* only 2 bytes for actual data*/
     fd_quic_pkt_meta_t pkt_meta = {0};
 
-    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta, 10, 0 );
+    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta, &conn->pkt_meta_tracker );
 
     FD_TEST( in_stream_list( big_stream, conn->send_streams ) );
     conn->send_streams->next->sentinel = 1; /* rm this one to reset for next test */
@@ -537,19 +537,19 @@ test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
   } while(0);
 
 
-  /* test conn_cnt*min_inflight_pkt_cnt_conn <= inflight_pkt_cnt */
+  /* test conn_cnt*min_inflight_frame_cnt_conn <= inflight_frame_cnt */
   do {
     fd_quic_limits_t quic_limits = {
-      .conn_cnt         =   2UL,
-      .inflight_pkt_cnt =   8UL,
-      .handshake_cnt    =   1UL,
-      .conn_id_cnt      =   4UL,
-      .stream_id_cnt    =   8UL,
-      .tx_buf_sz        = 512UL,
-      .stream_pool_cnt  =  32UL,
+      .conn_cnt           =   2UL,
+      .inflight_frame_cnt =   8UL,
+      .handshake_cnt      =   1UL,
+      .conn_id_cnt        =   4UL,
+      .stream_id_cnt      =   8UL,
+      .tx_buf_sz          = 512UL,
+      .stream_pool_cnt    =  32UL,
     };
 
-    quic_limits.min_inflight_pkt_cnt_conn = 5UL;
+    quic_limits.min_inflight_frame_cnt_conn = 5UL;
     FD_TEST( !fd_quic_footprint( &quic_limits ) );
   } while(0);
 
@@ -573,14 +573,14 @@ main( int     argc,
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   fd_quic_limits_t quic_limits = {
-    .conn_cnt         =   4UL,
-    .handshake_cnt    =   1UL,
-    .conn_id_cnt      =   4UL,
-    .stream_id_cnt    =   8UL,
-    .inflight_pkt_cnt =   8UL * 4,
-    .min_inflight_pkt_cnt_conn = 7UL, /* for test_quic_inflight_pkt_limit */
-    .tx_buf_sz        = 512UL,
-    .stream_pool_cnt  =  32UL,
+    .conn_cnt                    =  4UL,
+    .handshake_cnt               =  1UL,
+    .conn_id_cnt                 =  4UL,
+    .stream_id_cnt               =  8UL,
+    .inflight_frame_cnt          =  8UL * 4,
+    .min_inflight_frame_cnt_conn =  7UL, /* for test_quic_inflight_pkt_limit */
+    .tx_buf_sz                   =  512UL,
+    .stream_pool_cnt             =  32UL,
   };
 
   ulong const pkt_cnt = 128UL;
