@@ -64,7 +64,7 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
   uchar * enc = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
   fd_memset( enc, 0, sz );
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
 
   } FD_SPAD_FRAME_END;
 }
@@ -123,7 +123,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
 
   /* Set the sysvar from the encoded data */
   fd_sysvar_set( slot_ctx,
-                 fd_sysvar_owner_id.key,
+                 &fd_sysvar_owner_id,
                  &fd_sysvar_recent_block_hashes_id,
                  enc_start,
                  sz,

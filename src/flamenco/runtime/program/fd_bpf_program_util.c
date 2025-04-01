@@ -74,8 +74,8 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_txn_account_t      * pro
     return -1;
   }
 
-  *program_data     = program_acc->const_data + LOADER_V4_PROGRAM_DATA_OFFSET;
-  *program_data_len = program_acc->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET;
+  *program_data     = program_acc->vt->get_data( program_acc ) + LOADER_V4_PROGRAM_DATA_OFFSET;
+  *program_data_len = program_acc->vt->get_data_len( program_acc ) - LOADER_V4_PROGRAM_DATA_OFFSET;
   return 0;
 }
 
@@ -88,8 +88,8 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
   FD_TXN_ACCOUNT_DECL( programdata_acc );
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = program_acc->const_data,
-    .dataend = program_acc->const_data + program_acc->const_meta->dlen,
+    .data    = program_acc->vt->get_data( program_acc ),
+    .dataend = program_acc->vt->get_data( program_acc ) + program_acc->vt->get_data_len( program_acc ),
   };
 
   ulong total_sz = 0UL;
@@ -121,16 +121,16 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
   /* We don't actually need to decode here, just make sure that the account
      can be decoded successfully. */
   fd_bincode_decode_ctx_t ctx_programdata = {
-    .data    = programdata_acc->const_data,
-    .dataend = programdata_acc->const_data + programdata_acc->const_meta->dlen,
+    .data    = programdata_acc->vt->get_data( programdata_acc ),
+    .dataend = programdata_acc->vt->get_data( programdata_acc ) + programdata_acc->vt->get_data_len( programdata_acc ),
   };
 
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx_programdata, &total_sz ) ) ) {
     return -1;
   }
 
-  *program_data     = programdata_acc->const_data + PROGRAMDATA_METADATA_SIZE;
-  *program_data_len = programdata_acc->const_meta->dlen - PROGRAMDATA_METADATA_SIZE;
+  *program_data     = programdata_acc->vt->get_data( programdata_acc ) + PROGRAMDATA_METADATA_SIZE;
+  *program_data_len = programdata_acc->vt->get_data_len( programdata_acc ) - PROGRAMDATA_METADATA_SIZE;
   return 0;
 }
 
@@ -138,8 +138,8 @@ static int
 fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t * program_acc,
                                                          uchar const     ** program_data,
                                                          ulong            * program_data_len ) {
-  *program_data     = program_acc->const_data;
-  *program_data_len = program_acc->const_meta->dlen;
+  *program_data     = program_acc->vt->get_data( program_acc );
+  *program_data_len = program_acc->vt->get_data_len( program_acc );
   return 0;
 }
 
@@ -186,9 +186,9 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
        programdata account. Deserialize the programdata account. */
 
     int res;
-    if( !memcmp( program_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
       res = fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_acc, &program_data, &program_data_len, runtime_spad );
-    } else if( !memcmp( program_acc->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
       res = fd_bpf_get_executable_program_content_for_v4_loader( program_acc, &program_data, &program_data_len );
     } else {
       res = fd_bpf_get_executable_program_content_for_v1_v2_loaders( program_acc, &program_data, &program_data_len );
@@ -335,10 +335,10 @@ fd_bpf_scan_task( void * tpool,
     return;
   }
 
-  if( memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
+  if( memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
     *is_bpf_program = 0;
   } else {
     *is_bpf_program = 1;
@@ -487,10 +487,10 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  if( memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
+  if( memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
     return -1;
   }
 

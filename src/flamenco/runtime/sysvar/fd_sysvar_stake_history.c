@@ -18,7 +18,7 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_stake_history_id, enc, sizeof(enc), slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_stake_history_id, enc, sizeof(enc), slot_ctx->slot_bank.slot );
 }
 
 static fd_stake_history_t *
@@ -30,8 +30,8 @@ fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx,
     return NULL;
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = stake_rec->const_data,
-    .dataend = (char *)stake_rec->const_data + stake_rec->const_meta->dlen,
+    .data    = stake_rec->vt->get_data( stake_rec),
+    .dataend = stake_rec->vt->get_data( stake_rec) + stake_rec->vt->get_data_len( stake_rec),
   };
 
   ulong total_sz = 0UL;

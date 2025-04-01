@@ -28,8 +28,8 @@ fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
   }
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = rent_rec->const_data,
-    .dataend = rent_rec->const_data + rent_rec->const_meta->dlen
+    .data    = rent_rec->vt->get_data( rent_rec ),
+    .dataend = rent_rec->vt->get_data( rent_rec ) + rent_rec->vt->get_data_len( rent_rec )
   };
 
   ulong total_sz = 0UL;
@@ -63,7 +63,7 @@ write_rent( fd_exec_slot_ctx_t * slot_ctx,
   if( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
 void
