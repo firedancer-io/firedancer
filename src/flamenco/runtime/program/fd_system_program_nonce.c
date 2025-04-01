@@ -242,10 +242,6 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
       if( FD_UNLIKELY( err ) ) return err;
     } while(0);
 
-    /* So we don't re-do nonce advancement when we commit the transaction.
-     */
-    ctx->txn_ctx->nonce_account_advanced = 1U;
-
     break;
   }
 
@@ -1084,7 +1080,6 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->meta->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
-        rollback_nonce_rec->meta->dlen = fd_nonce_state_versions_size( &new_state );
         do {
           fd_bincode_encode_ctx_t encode_ctx =
             { .data    = rollback_nonce_rec->data,
