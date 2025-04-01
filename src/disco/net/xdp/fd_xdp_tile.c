@@ -484,6 +484,9 @@ net_tx_route( fd_net_ctx_t * ctx,
   if( if_idx==1 ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( ctx->tx_op.mac_addrs, 0, 12UL );
+    /* Set the src IP address as 127.0.0.1 */
+    ctx->tx_op.src_ip = 0x0100007f;
+
     ctx->tx_op.if_idx = 1;
     return 1;
   }
