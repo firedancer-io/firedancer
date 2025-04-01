@@ -178,9 +178,9 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   int is_dupe = 0;
 
   /* Check if account exists */
-  rec->const_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, &rec->const_rec, NULL, NULL );
-  if( rec->const_meta )
-    if( rec->const_meta->slot > restore->accv_slot )
+  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, &rec->const_rec, NULL, NULL );
+  if( rec_meta )
+    if( rec_meta->slot > restore->accv_slot )
       is_dupe = 1;
 
   /* Write account */

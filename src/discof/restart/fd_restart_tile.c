@@ -490,8 +490,8 @@ after_credit( fd_restart_tile_ctx_t * ctx,
         FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
       fd_bincode_decode_ctx_t sysvar_decode_ctx = {
-        .data    = rec->const_data,
-        .dataend = rec->const_data + rec->const_meta->dlen,
+        .data    = rec->vt->get_data( rec ),
+        .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec ),
       };
       ulong total_sz = 0UL;
       err = fd_slot_history_decode_footprint( &sysvar_decode_ctx, &total_sz );

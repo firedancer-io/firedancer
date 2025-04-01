@@ -49,8 +49,8 @@ fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = acc->const_data,
-    .dataend = acc->const_data + acc->const_meta->dlen
+    .data    = acc->vt->get_data( acc ),
+    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
   };
 
   ulong total_sz = 0UL;

@@ -29,7 +29,7 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   ulong                           starting_lamports;
 
   /* only used when obtaining a mutable fd_txn_account_t from funk */
-  fd_funk_rec_prepare_t       prepared_rec;
+  fd_funk_rec_prepare_t           prepared_rec;
 
   /* Provide read/write mutual exclusion semantics.
      Used for single-threaded logic only, thus not comparable to a
@@ -45,7 +45,7 @@ typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_ALIGN     (8UL)
 #define FD_TXN_ACCOUNT_MAGIC     (0xF15EDF1C51F51AA1UL)
 
-#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1];
+#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1]; fd_txn_account_init( _x );
 
 FD_PROTOTYPES_BEGIN
 
@@ -54,9 +54,24 @@ fd_txn_account_t *
 fd_txn_account_init( void * ptr );
 
 void
-fd_txn_account_setup_sentinel_meta( fd_txn_account_t * acct,
-                                    fd_spad_t *        spad,
-                                    fd_wksp_t *        spad_wksp );
+fd_txn_account_init_from_meta_and_data_mutable( fd_txn_account_t *  acct,
+                                                fd_account_meta_t * meta,
+                                                uchar *             data );
+
+void
+fd_txn_account_init_from_meta_and_data_readonly( fd_txn_account_t *       acct,
+                                                fd_account_meta_t const * meta,
+                                                uchar const *             data );
+
+void
+fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
+                                             fd_spad_t *        spad,
+                                             fd_wksp_t *        spad_wksp );
+
+void
+fd_txn_account_setup_meta_mutable( fd_txn_account_t * acct,
+                                   fd_spad_t *        spad,
+                                   ulong              sz );
 
 /* Accessors */
 

@@ -50,11 +50,11 @@ int
 fd_loader_v4_get_state( fd_txn_account_t const * program,
                         fd_loader_v4_state_t *   state ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L32 */
-  if( FD_UNLIKELY( program->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+  if( FD_UNLIKELY( program->vt->get_data_len( program )<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  fd_loader_v4_state_t const * in_state = fd_type_pun_const( program->const_data );
+  fd_loader_v4_state_t const * in_state = fd_type_pun_const( program->vt->get_data( program ) );
   *state = *in_state;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -69,7 +69,7 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
                        fd_loader_v4_state_t *        state ) {
   int err;
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L62-L65 */
-  if( FD_UNLIKELY( memcmp( program->acct->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( fd_borrowed_account_get_owner( program ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Program not owned by loader" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
@@ -206,12 +206,12 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L134C9-L135 */
-  uchar is_initialization = !!( new_size>0UL && program.acct->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET );
+  uchar is_initialization = !!( new_size>0UL && fd_borrowed_account_get_data_len( &program )<LOADER_V4_PROGRAM_DATA_OFFSET );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L136-L164 */
   if( is_initialization ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L137-L140 */
-    if( FD_UNLIKELY( memcmp( program.acct->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( memcmp( fd_borrowed_account_get_owner( &program ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program not owned by loader" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     }
@@ -262,12 +262,12 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
                                             1UL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L172-L193 */
-  if( FD_UNLIKELY( program.acct->const_meta->info.lamports<required_lamports ) ) {
+  if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &program )<required_lamports ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L174-L179 */
     fd_log_collector_printf_dangerous_max_127( instr_ctx,
       "Insufficient lamports, %lu are required", required_lamports );
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
-  } else if( program.acct->const_meta->info.lamports>required_lamports ) {
+  } else if( fd_borrowed_account_get_lamports( &program )>required_lamports ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L182-L183 */
     fd_guarded_borrowed_account_t recipient;
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &recipient );
@@ -279,7 +279,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L190 */
-    ulong lamports_to_receive = fd_ulong_sat_sub( program.acct->const_meta->info.lamports,
+    ulong lamports_to_receive = fd_ulong_sat_sub( fd_borrowed_account_get_lamports( &program ),
                                                   required_lamports );
     err = fd_borrowed_account_checked_sub_lamports( &program, lamports_to_receive );
     if( FD_UNLIKELY( err ) ) {
@@ -425,17 +425,17 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L261-L264 */
-  if( FD_UNLIKELY( buffer->acct->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+  if( FD_UNLIKELY( fd_borrowed_account_get_data_len( buffer )<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
-  uchar const * programdata = buffer->acct->const_data + LOADER_V4_PROGRAM_DATA_OFFSET;
+  uchar const * programdata = fd_borrowed_account_get_data( buffer ) + LOADER_V4_PROGRAM_DATA_OFFSET;
 
   /* Our program cache is fundamentally different from Agave's. Here, they would perform verifications and
       add the program to their cache, but we only perform verifications now and defer cache population to the
       end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
       https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L262-L269 */
-  err = fd_deploy_program( instr_ctx, programdata, buffer->acct->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
+  err = fd_deploy_program( instr_ctx, programdata, fd_borrowed_account_get_data_len( buffer ) - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -452,13 +452,13 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L297 */
-      ulong required_lamports = fd_rent_exempt_minimum_balance( rent, buffer->acct->const_meta->dlen );
+      ulong required_lamports = fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( buffer ) );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L298 */
-      ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program.acct->const_meta->info.lamports );
+      ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, fd_borrowed_account_get_lamports( &program ) );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L299 */
-      err = fd_borrowed_account_set_data_from_slice( &program, buffer->acct->const_data, buffer->acct->const_meta->dlen );
+      err = fd_borrowed_account_set_data_from_slice( &program, fd_borrowed_account_get_data( buffer ), fd_borrowed_account_get_data_len( buffer ) );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -672,7 +672,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK(instr_ctx, 2UL, &next_version );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L426-L429 */
-  if( FD_UNLIKELY( memcmp( next_version.acct->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( fd_borrowed_account_get_owner( &next_version ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Next version is not owned by loader" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }

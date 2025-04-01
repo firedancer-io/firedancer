@@ -543,13 +543,13 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
       FD_LOG_ERR(( "Failed to view vote account from stakes cache %s", FD_BASE58_ENC_32_ALLOCA(&n->elem.key) ));
     }
 
-    new_node->elem.value.lamports   = vote_acc->const_meta->info.lamports;
-    new_node->elem.value.data_len   = vote_acc->const_meta->dlen;
-    new_node->elem.value.data       = fd_spad_alloc( snapshot_ctx->spad, 8UL, vote_acc->const_meta->dlen );
-    fd_memcpy( new_node->elem.value.data, vote_acc->const_data, vote_acc->const_meta->dlen );
-    fd_memcpy( &new_node->elem.value.owner, &vote_acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
-    new_node->elem.value.executable = vote_acc->const_meta->info.executable;
-    new_node->elem.value.rent_epoch = vote_acc->const_meta->info.rent_epoch;
+    new_node->elem.value.lamports   = vote_acc->vt->get_lamports( vote_acc );
+    new_node->elem.value.data_len   = vote_acc->vt->get_data_len( vote_acc );
+    new_node->elem.value.data       = fd_spad_alloc( snapshot_ctx->spad, 8UL, vote_acc->vt->get_data_len( vote_acc ) );
+    fd_memcpy( new_node->elem.value.data, vote_acc->vt->get_data( vote_acc ), vote_acc->vt->get_data_len( vote_acc ) );
+    fd_memcpy( &new_node->elem.value.owner, vote_acc->vt->get_owner( vote_acc ), sizeof(fd_pubkey_t) );
+    new_node->elem.value.executable = (uchar)vote_acc->vt->is_executable( vote_acc );
+    new_node->elem.value.rent_epoch = vote_acc->vt->get_rent_epoch( vote_acc );
     fd_vote_accounts_pair_t_map_insert( new_stakes->vote_accounts.vote_accounts_pool, &new_stakes->vote_accounts.vote_accounts_root, new_node );
 
   }
@@ -575,8 +575,8 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
     } else {
       /* Otherwise, just update the delegation in case it is stale. */
       fd_bincode_decode_ctx_t ctx = {
-        .data    = stake_acc->const_data,
-        .dataend = stake_acc->const_data + stake_acc->const_meta->dlen,
+        .data    = stake_acc->vt->get_data( stake_acc ),
+        .dataend = stake_acc->vt->get_data( stake_acc ) + stake_acc->vt->get_data_len( stake_acc ),
       };
 
       ulong total_sz = 0UL;

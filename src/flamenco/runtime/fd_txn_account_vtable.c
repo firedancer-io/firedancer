@@ -18,6 +18,23 @@ fd_txn_account_get_acc_rec( fd_txn_account_t const * acct ) {
   return acct->const_rec;
 }
 
+uchar *
+fd_txn_account_get_acc_data_mut_writable( fd_txn_account_t const * acct ) {
+  return acct->data;
+}
+
+void
+fd_txn_account_set_meta_readonly( fd_txn_account_t *        acct,
+                                  fd_account_meta_t const * meta ) {
+  acct->const_meta = meta;
+}
+
+void
+fd_txn_account_set_meta_mutable_writable( fd_txn_account_t *  acct,
+                                 fd_account_meta_t * meta ) {
+  acct->const_meta = acct->meta = meta;
+}
+
 ulong
 fd_txn_account_get_data_len( fd_txn_account_t const * acct ) {
   return acct->const_meta->dlen;
@@ -26,11 +43,6 @@ fd_txn_account_get_data_len( fd_txn_account_t const * acct ) {
 int
 fd_txn_account_is_executable( fd_txn_account_t const * acct ) {
   return !!acct->const_meta->info.executable;
-}
-
-fd_pubkey_t const *
-fd_txn_account_get_pubkey( fd_txn_account_t const * acct ) {
-  return acct->pubkey;
 }
 
 fd_pubkey_t const *
@@ -96,12 +108,25 @@ fd_txn_account_checked_sub_lamports_writable( fd_txn_account_t * acct, ulong lam
 }
 
 void
+fd_txn_account_set_rent_epoch_writable( fd_txn_account_t * acct, ulong rent_epoch ) {
+  if( FD_UNLIKELY( !acct->meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  acct->meta->info.rent_epoch = rent_epoch;
+}
+
+void
 fd_txn_account_set_data_writable( fd_txn_account_t * acct,
                                   uchar const * data,
                                   ulong data_sz) {
   if( FD_UNLIKELY( !acct->meta ) ) FD_LOG_ERR(("account is not mutable" ));
   acct->meta->dlen = data_sz;
   fd_memcpy( acct->data, data, data_sz );
+}
+
+void
+fd_txn_account_set_data_len_writable( fd_txn_account_t * acct,
+                                      ulong              data_len ) {
+  if( FD_UNLIKELY( !acct->meta ) ) FD_LOG_ERR(("account is not mutable" ));
+  acct->meta->dlen = data_len;
 }
 
 void
@@ -119,49 +144,73 @@ fd_txn_account_resize_writable( fd_txn_account_t * acct,
   acct->meta->dlen = dlen;
 }
 
+uchar *
+fd_txn_account_get_acc_data_mut_readonly( fd_txn_account_t const * acct FD_PARAM_UNUSED ) {
+  FD_LOG_ERR(( "account is not mutable" ));
+  return NULL;
+}
+
 void
-fd_txn_account_set_executable_readable( fd_txn_account_t * acct FD_PARAM_UNUSED, 
+fd_txn_account_set_meta_mutable_readonly( fd_txn_account_t *  acct FD_PARAM_UNUSED,
+                                          fd_account_meta_t * meta FD_PARAM_UNUSED ) {
+  FD_LOG_ERR(( "cannot set meta as mutable in a readonly account!" ));
+}
+
+void
+fd_txn_account_set_executable_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                         int                is_executable FD_PARAM_UNUSED ) {
-    FD_LOG_ERR(( "cannot set executable in a readable account!" ));
+    FD_LOG_ERR(( "cannot set executable in a readonly account!" ));
 }
 
 void
-fd_txn_account_set_owner_readable( fd_txn_account_t * acct FD_PARAM_UNUSED,
+fd_txn_account_set_owner_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                    fd_pubkey_t const * owner FD_PARAM_UNUSED ) {
-    FD_LOG_ERR(( "cannot set owner in a readable account!" ));
+    FD_LOG_ERR(( "cannot set owner in a readonly account!" ));
 }
 
 void
-fd_txn_account_set_lamports_readable( fd_txn_account_t * acct FD_PARAM_UNUSED,
+fd_txn_account_set_lamports_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                       ulong lamports FD_PARAM_UNUSED ) {
-  FD_LOG_ERR(( "cannot set lamports in a readable account!" ));
+  FD_LOG_ERR(( "cannot set lamports in a readonly account!" ));
 }
 
 int
-fd_txn_account_checked_add_lamports_readable( fd_txn_account_t * acct FD_PARAM_UNUSED,
+fd_txn_account_checked_add_lamports_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                               ulong              lamports FD_PARAM_UNUSED ) {
-  FD_LOG_ERR(( "cannot do a checked add to lamports in a readable account!" ));
+  FD_LOG_ERR(( "cannot do a checked add to lamports in a readonly account!" ));
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 int
-fd_txn_account_checked_sub_lamports_readable( fd_txn_account_t * acct FD_PARAM_UNUSED,
+fd_txn_account_checked_sub_lamports_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                               ulong              lamports FD_PARAM_UNUSED ) {
-  FD_LOG_ERR(( "cannot do a checked sub to lamports in a readable account!" ));
+  FD_LOG_ERR(( "cannot do a checked sub to lamports in a readonly account!" ));
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 void
-fd_txn_account_set_data_readable( fd_txn_account_t * acct FD_PARAM_UNUSED,
+fd_txn_account_set_rent_epoch_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
+                                        ulong              rent_epoch FD_PARAM_UNUSED ) {
+  FD_LOG_ERR(( "cannot set rent epoch in a readonly account!" ));
+}
+
+void
+fd_txn_account_set_data_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                   uchar const * data FD_PARAM_UNUSED,
                                   ulong data_sz FD_PARAM_UNUSED ) {
-  FD_LOG_ERR(( "cannot set data in a readable account!" ));
+  FD_LOG_ERR(( "cannot set data in a readonly account!" ));
 }
 
 void
-fd_txn_account_resize_readable( fd_txn_account_t * acct FD_PARAM_UNUSED,
+fd_txn_account_set_data_len_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
+                                      ulong              data_len FD_PARAM_UNUSED ) {
+  FD_LOG_ERR(( "cannot set data_len in a readonly account!" ));
+}
+
+void
+fd_txn_account_resize_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                 ulong              dlen FD_PARAM_UNUSED ) {
-  FD_LOG_ERR(( "cannot resize a readable account!" ));
+  FD_LOG_ERR(( "cannot resize a readonly account!" ));
 }
 
 ushort
@@ -173,6 +222,12 @@ int
 fd_txn_account_is_mutable( fd_txn_account_t const * acct ) {
   /* A txn account is mutable if meta is non NULL */
   return acct->meta != NULL;
+}
+
+int
+fd_txn_account_is_readonly( fd_txn_account_t const * acct ) {
+  /* A txn account is readonly if only the const_meta field is non NULL */
+  return acct->const_meta!=NULL && acct->meta==NULL;
 }
 
 int
@@ -188,25 +243,31 @@ fd_txn_account_drop( fd_txn_account_t * acct ) {
 FD_PROTOTYPES_END
 
 const fd_txn_account_vtable_t
-fd_txn_account_readable_vtable = {
+fd_txn_account_readonly_vtable = {
   .get_meta             = fd_txn_account_get_acc_meta,
   .get_data             = fd_txn_account_get_acc_data,
   .get_rec              = fd_txn_account_get_acc_rec,
 
+  .get_data_mut         = fd_txn_account_get_acc_data_mut_readonly,
+
+  .set_meta_readonly    = fd_txn_account_set_meta_readonly,
+  .set_meta_mutable     = fd_txn_account_set_meta_mutable_readonly,
+
   .get_data_len         = fd_txn_account_get_data_len,
   .is_executable        = fd_txn_account_is_executable,
-  .get_pubkey           = fd_txn_account_get_pubkey,
   .get_owner            = fd_txn_account_get_owner,
   .get_lamports         = fd_txn_account_get_lamports,
   .get_rent_epoch       = fd_txn_account_get_rent_epoch,
 
-  .set_executable       = fd_txn_account_set_executable_readable,
-  .set_owner            = fd_txn_account_set_owner_readable,
-  .set_lamports         = fd_txn_account_set_lamports_readable,
-  .checked_add_lamports = fd_txn_account_checked_add_lamports_readable,
-  .checked_sub_lamports = fd_txn_account_checked_sub_lamports_readable,
-  .set_data             = fd_txn_account_set_data_readable,
-  .resize               = fd_txn_account_resize_readable,
+  .set_executable       = fd_txn_account_set_executable_readonly,
+  .set_owner            = fd_txn_account_set_owner_readonly,
+  .set_lamports         = fd_txn_account_set_lamports_readonly,
+  .checked_add_lamports = fd_txn_account_checked_add_lamports_readonly,
+  .checked_sub_lamports = fd_txn_account_checked_sub_lamports_readonly,
+  .set_rent_epoch       = fd_txn_account_set_rent_epoch_readonly,
+  .set_data             = fd_txn_account_set_data_readonly,
+  .set_data_len         = fd_txn_account_set_data_len_readonly,
+  .resize               = fd_txn_account_resize_readonly,
 
   .is_borrowed          = fd_txn_account_is_borrowed,
   .is_mutable           = fd_txn_account_is_mutable,
@@ -221,9 +282,13 @@ fd_txn_account_writable_vtable = {
   .get_data             = fd_txn_account_get_acc_data,
   .get_rec              = fd_txn_account_get_acc_rec,
 
+  .get_data_mut         = fd_txn_account_get_acc_data_mut_writable,
+
+  .set_meta_readonly    = fd_txn_account_set_meta_readonly,
+  .set_meta_mutable     = fd_txn_account_set_meta_mutable_writable,
+
   .get_data_len         = fd_txn_account_get_data_len,
   .is_executable        = fd_txn_account_is_executable,
-  .get_pubkey           = fd_txn_account_get_pubkey,
   .get_owner            = fd_txn_account_get_owner,
   .get_lamports         = fd_txn_account_get_lamports,
   .get_rent_epoch       = fd_txn_account_get_rent_epoch,
@@ -233,11 +298,14 @@ fd_txn_account_writable_vtable = {
   .set_lamports         = fd_txn_account_set_lamports_writable,
   .checked_add_lamports = fd_txn_account_checked_add_lamports_writable,
   .checked_sub_lamports = fd_txn_account_checked_sub_lamports_writable,
+  .set_rent_epoch       = fd_txn_account_set_rent_epoch_writable,
   .set_data             = fd_txn_account_set_data_writable,
+  .set_data_len         = fd_txn_account_set_data_len_writable,
   .resize               = fd_txn_account_resize_writable,
 
   .is_borrowed          = fd_txn_account_is_borrowed,
   .is_mutable           = fd_txn_account_is_mutable,
+  .is_readonly          = fd_txn_account_is_readonly,
 
   .try_borrow_mut       = fd_txn_account_try_borrow_mut,
   .drop                 = fd_txn_account_drop
