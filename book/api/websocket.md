@@ -928,7 +928,7 @@ on.
 **`RpcCount`**
 | Field     | Type     | Description
 |-----------|----------|------------
-| rpc_count | `number` | The number of rpc nodes currently on gossip. |
+| rpc_count | `number` | The number of rpc nodes currently on gossip. An rpc node is any unstaked node that is currently an active gossip peer. |
 
 ### slot
 Slots are opportunities for a leader to produce a block. A slot can be

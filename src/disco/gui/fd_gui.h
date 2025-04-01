@@ -42,9 +42,12 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
-#define FD_GUI_PEERS_ACTION_ADD    (0)
-#define FD_GUI_PEERS_ACTION_UPDATE (1)
-#define FD_GUI_PEERS_ACTION_REMOVE (2)
+#define FD_GUI_PEERS_ACTION_ADD    (0UL)
+#define FD_GUI_PEERS_ACTION_UPDATE (1UL)
+#define FD_GUI_PEERS_ACTION_REMOVE (2UL)
+
+#define FD_GUI_MAX_STAKED_PEERS (50000UL)
+#define FD_GUI_MAX_GOSSIP_PEERS (40200UL)
 
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
@@ -353,25 +356,29 @@ struct fd_gui {
     ulong end_slot;
     ulong excluded_stake;
     fd_epoch_leaders_t * lsched;
-    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(50000UL, 432000UL) ];
-    fd_stake_weight_t stakes[ 50000UL ]; /* All pubkeys with active stake, sorted by (stake, pubkey) */
-    fd_pubkey_t stakes_sorted[ 50000UL ]; /* All pubkeys in stakes, sorted by pubkey value ascending. */
+    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(FD_GUI_MAX_STAKED_PEERS, 432000UL) ];
+    fd_stake_weight_t stakes[ FD_GUI_MAX_STAKED_PEERS ]; /* All pubkeys with active stake, sorted by (stake, pubkey) */
+    fd_pubkey_t stakes_sorted[ FD_GUI_MAX_STAKED_PEERS ]; /* All pubkeys in stakes, sorted by pubkey value ascending. */
     } epochs[ 3 ];
   } epoch;
   struct {
     ulong                peer_cnt;
-    fd_gui_gossip_peer_t peers[ 40200 ];
+    fd_gui_gossip_peer_t peers[ FD_GUI_MAX_GOSSIP_PEERS ];
   } gossip;
 
   struct {
     ulong                 vote_account_cnt;
-    fd_gui_vote_account_t vote_accounts[ 40200 ];
+    fd_gui_vote_account_t vote_accounts[ FD_GUI_MAX_GOSSIP_PEERS ];
   } vote_account;
 
   struct {
     ulong                   info_cnt;
-    fd_gui_validator_info_t info[ 40200 ];
+    fd_gui_validator_info_t info[ FD_GUI_MAX_GOSSIP_PEERS ];
   } validator_info;
+
+  /* Tracks peers that have been added but not removed from the frontend */
+  fd_pubkey_t peers[ FD_GUI_MAX_STAKED_PEERS ];
+  ulong peers_cnt;
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -397,8 +404,8 @@ fd_gui_t *
 fd_gui_join( void * shmem );
 
 int
-fd_gui_staked_nodes_contains( fd_gui_t *    gui,
-                              uchar const * pubkey );
+fd_gui_staked_nodes_contains_current_epoch( fd_gui_t const * gui,
+                                            uchar const *    pubkey );
 
 void
 fd_gui_set_identity( fd_gui_t *    gui,

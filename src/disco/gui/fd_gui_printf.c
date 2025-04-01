@@ -696,8 +696,7 @@ fd_gui_printf_rpc_count( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "peers", "rpc" );
     jsonp_open_object( gui, "value" );
     ulong rpc_count = 0UL;
-    /* technically not precise, since we should only exclude nodes staked for the current epoch */
-    for( ulong i=0UL; i<gui->gossip.peer_cnt; i++) rpc_count += !fd_gui_staked_nodes_contains( gui, gui->gossip.peers[ i ].pubkey->uc );
+    for( ulong i=0UL; i<gui->gossip.peer_cnt; i++) rpc_count += !fd_gui_staked_nodes_contains_current_epoch( gui, gui->gossip.peers[ i ].pubkey->uc );
     jsonp_ulong( gui, "rpc_count", rpc_count );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
