@@ -294,20 +294,20 @@ main( int argc, char ** argv ) {
     .conn_cnt           =  2,
     .conn_id_cnt        =  4,
     .handshake_cnt      =  2,
-    .inflight_pkt_cnt   = 16 * 2
+    .inflight_frame_cnt = 16 * 2
   };
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );
 
   FD_LOG_INFO(( "Creating client QUIC" ));
   fd_quic_limits_t const client_limits = {
-    .conn_cnt         =   2,
-    .conn_id_cnt      =   4,
-    .handshake_cnt    =   2,
-    .inflight_pkt_cnt = 530 * 2,
-    .stream_id_cnt    = 512,
-    .stream_pool_cnt  = 512,
-    .tx_buf_sz        =  32,
+    .conn_cnt           =       2,
+    .conn_id_cnt        =       4,
+    .handshake_cnt      =       2,
+    .inflight_frame_cnt = 530 * 2,
+    .stream_id_cnt      =     512,
+    .stream_pool_cnt    =     512,
+    .tx_buf_sz          =      32,
   };
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );

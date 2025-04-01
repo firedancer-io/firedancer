@@ -16,7 +16,7 @@ $(call make-unit-test,test_quic_conformance,test_quic_conformance,$(QUIC_TEST_LI
 $(call make-unit-test,test_quic_ack_tx,     test_quic_ack_tx,     $(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_concurrency,test_quic_concurrency,$(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_svc_q,test_quic_svc_q,$(QUIC_TEST_LIBS))
-$(call make-unit-test,test_quic_adversarial_ack,test_quic_adversarial_ack,$(QUIC_TEST_LIBS))
+$(call make-unit-test,test_quic_pkt_meta,test_quic_pkt_meta,$(QUIC_TEST_LIBS))
 $(call run-unit-test,test_quic_proto)
 $(call run-unit-test,test_quic_hs)
 $(call run-unit-test,test_quic_streams)
@@ -26,7 +26,7 @@ $(call run-unit-test,test_quic_layout)
 $(call run-unit-test,test_quic_ack_tx)
 $(call run-unit-test,test_quic_concurrency)
 $(call run-unit-test,test_quic_svc_q)
-$(call run-unit-test,test_quic_adversarial_ack)
+$(call run-unit-test,test_quic_pkt_meta)
 
 # fd_quic_tls unit tests
 $(call make-unit-test,test_quic_tls_hs,test_quic_tls_hs,$(QUIC_TEST_LIBS))
