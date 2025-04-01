@@ -42,6 +42,11 @@ fd_blockstore_new( void * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( shred_max ) ) ) {
+    shred_max = fd_ulong_pow2_up( shred_max );
+    FD_LOG_WARNING(( "blockstore implementation requires shred_max to be a power of two, rounding it up to %lu", shred_max ));
+  }
+
   fd_memset( blockstore_shmem, 0, fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) );
 
   int   lg_idx_max   = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
@@ -51,7 +56,7 @@ fd_blockstore_new( void * shmem,
   void * shreds     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_buf_shred_t),        sizeof(fd_buf_shred_t) * shred_max );
   void * shred_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() );
   void * shred_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( shred_max ) );
-  void * blocks     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_info_t),        sizeof(fd_block_info_t) * block_max );
+  void * blocks     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_info_t),       sizeof(fd_block_info_t) * block_max );
   void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( block_max, lock_cnt, BLOCK_INFO_PROBE_CNT ) );
   void * block_idx  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) );
   void * slot_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) );
