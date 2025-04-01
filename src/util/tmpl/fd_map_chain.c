@@ -362,6 +362,12 @@
 #define MAP_INSERT_FENCE 0
 #endif
 
+#if MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
+#  ifndef MAP_PREV
+#    define MAP_PREV prev
+#  endif
+#endif
+
 /* Implementation *****************************************************/
 
 /* Constructors and verification log details on failure (rest only needs

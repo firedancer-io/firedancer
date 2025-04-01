@@ -7,5 +7,5 @@ $(warning ledger tool build disabled due to lack of secp256k1)
 endif
 
 else
-$(warning ledger tool build disabled due to lack of rocksdb)
+$(info ledger tool build disabled due to lack of rocksdb)
 endif
