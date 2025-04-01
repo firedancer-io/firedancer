@@ -61,6 +61,7 @@ fd_txn_account_setup_sentinel_meta( fd_txn_account_t * acct,
   acct->starting_lamports   = 0UL;
   acct->starting_dlen       = 0UL;
   acct->meta_gaddr          = fd_wksp_gaddr( spad_wksp, sentinel );
+  acct->vt                  = &fd_txn_account_readable_vtable;
 }
 
 
@@ -75,6 +76,7 @@ fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
      a transaction. */
   acct->const_meta = meta;
   acct->const_data = (uchar const *)meta + meta->hlen;
+  acct->vt         = &fd_txn_account_readable_vtable;
 
   fd_txn_account_setup_common( acct );
 }
@@ -88,25 +90,12 @@ fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
   acct->const_rec  = acct->rec;
   acct->const_meta = acct->meta = meta;
   acct->const_data = acct->data = (uchar *)meta + meta->hlen;
+  acct->vt         = &fd_txn_account_writable_vtable;
 
   fd_txn_account_setup_common( acct );
 }
 
 /* Operators impl */
-
-void
-fd_txn_account_resize( fd_txn_account_t * acct,
-                       ulong              dlen ) {
-  /* Because the memory for an account is preallocated for the transaction
-     up to the max account size, we only need to zero out bytes (for the case
-     where the account grew) and update the account dlen. */
-  ulong old_sz    = acct->meta->dlen;
-  ulong new_sz    = dlen;
-  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
-  fd_memset( acct->data+old_sz, 0, memset_sz );
-
-  acct->meta->dlen = dlen;
-}
 
 /* Internal helper to initialize account data */
 uchar *
@@ -143,6 +132,8 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
   /* update global addresses of meta and data after copying into buffer */
   acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta );
   acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data );
+
+  acct->vt = &fd_txn_account_writable_vtable;
 
   return acct;
 }

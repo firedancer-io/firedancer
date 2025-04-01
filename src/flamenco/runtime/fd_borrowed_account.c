@@ -52,7 +52,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
 
   /* Don't copy the account if the owner does not change
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L757 */
-  if( !memcmp( acct->const_meta->info.owner, owner, sizeof( fd_pubkey_t ) ) ) {
+  if( !memcmp( acct->vt->get_owner( acct ), owner, sizeof( fd_pubkey_t ) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
@@ -60,7 +60,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
 
   /* Copy into owner
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L761 */
-  memcpy( acct->meta->info.owner, owner, sizeof(fd_pubkey_t) );
+  acct->vt->set_owner( acct, owner );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -74,7 +74,7 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
   /* An account not owned by the program cannot have its blanace decrease
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L775 */
   if( FD_UNLIKELY( ( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) &&
-                   ( lamports < acct->const_meta->info.lamports ) ) ) {
+                   ( lamports < acct->vt->get_lamports( acct ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND;
   }
 
@@ -92,13 +92,13 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
 
   /* Don't copy the account if the lamports do not change
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L787 */
-  if( fd_txn_account_get_lamports( acct ) == lamports ) {
+  if( acct->vt->get_lamports( acct ) == lamports ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
   /* Agave self.touch() is a no-op */
 
-  fd_txn_account_set_lamports( acct, lamports );
+  acct->vt->set_lamports( acct, lamports );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -127,8 +127,7 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
   }
 
   /* AccountSharedData::set_data_from_slice() */
-  acct->meta->dlen = data_sz;
-  fd_memcpy( acct->data, data, data_sz );
+  acct->vt->set_data( acct, data, data_sz );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -149,7 +148,7 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
     return err;
   }
 
-  ulong old_len = acct->const_meta->dlen;
+  ulong old_len = acct->vt->get_data_len( acct );
 
   /* Don't copy the account if the length does not change
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L886 */
@@ -166,7 +165,7 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
 
   /* Resize the account
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L891 */
-  fd_txn_account_resize( acct, new_len );
+  acct->vt->resize( acct, new_len );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -178,7 +177,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
   /* To become executable an account must be rent exempt
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1003-L1006 */
   fd_rent_t const * rent = &borrowed_acct->instr_ctx->txn_ctx->rent;
-  if( FD_UNLIKELY( acct->const_meta->info.lamports < fd_rent_exempt_minimum_balance( rent, acct->const_meta->dlen ) ) ) {
+  if( FD_UNLIKELY( acct->vt->get_lamports( acct ) < fd_rent_exempt_minimum_balance( rent, acct->vt->get_data_len( acct ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
   }
 
@@ -209,7 +208,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
   /* Agave self.touch() is a no-op */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1027 */
-  fd_txn_account_set_executable( acct, is_executable );
+  acct->vt->set_executable( acct, is_executable );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -220,7 +219,7 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
                                                   int *                   err ) {
   fd_exec_instr_ctx_t const * instr_ctx  = borrowed_acct->instr_ctx;
   fd_txn_account_t *          acct       = borrowed_acct->acct;
-  ulong                       size_delta = fd_ulong_sat_sub( new_len, acct->const_meta->dlen );
+  ulong                       size_delta = fd_ulong_sat_sub( new_len, acct->vt->get_data_len( acct ) );
 
   /* TODO: The size delta should never exceed the value of ULONG_MAX so this
      could be replaced with a normal addition. However to match execution with

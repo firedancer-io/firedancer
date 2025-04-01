@@ -2,32 +2,31 @@
 #define HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 
 #include "../../ballet/txn/fd_txn.h"
-#include "../types/fd_types.h"
-#include "../../funk/fd_funk_rec.h"
 #include "program/fd_program_util.h"
+#include "fd_txn_account_vtable.h"
 
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 struct __attribute__((aligned(8UL))) fd_txn_account {
-  ulong                       magic;
+  ulong                           magic;
 
-  fd_pubkey_t                 pubkey[1];
+  fd_pubkey_t                     pubkey[1];
 
-  fd_account_meta_t const   * const_meta;
-  uchar             const   * const_data;
-  fd_funk_rec_t     const   * const_rec;
+  fd_account_meta_t const   *     const_meta;
+  uchar             const   *     const_data;
+  fd_funk_rec_t     const   *     const_rec;
 
-  fd_account_meta_t         * meta;
-  uchar                     * data;
-  fd_funk_rec_t             * rec;
+  fd_account_meta_t         *     meta;
+  uchar                     *     data;
+  fd_funk_rec_t             *     rec;
 
-  ulong                       meta_gaddr;
-  ulong                       data_gaddr;
+  ulong                           meta_gaddr;
+  ulong                           data_gaddr;
 
   /* consider making this a struct or removing entirely if not needed */
-  ulong                       starting_dlen;
-  ulong                       starting_lamports;
+  ulong                           starting_dlen;
+  ulong                           starting_lamports;
 
   /* only used when obtaining a mutable fd_txn_account_t from funk */
   fd_funk_rec_prepare_t       prepared_rec;
@@ -36,8 +35,10 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
      Used for single-threaded logic only, thus not comparable to a
      data synchronization lock. */
 
-  ushort                      refcnt_excl;
-  ushort                      refcnt_shared;
+  ushort                          refcnt_excl;
+  ushort                          refcnt_shared;
+
+  fd_txn_account_vtable_t const * vt;
 };
 typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_FOOTPRINT (sizeof(fd_txn_account_t))
@@ -66,28 +67,7 @@ fd_txn_account_raw_size( fd_txn_account_t const * acct ) {
   return sizeof(fd_account_meta_t) + dlen;
 }
 
-static inline int
-fd_txn_account_is_executable( fd_txn_account_t const * acct ) {
-  return !!acct->const_meta->info.executable;
-}
-
-static inline int
-fd_txn_account_is_mutable( fd_txn_account_t const * acct ) {
-  /* A txn account is mutable if meta is non NULL */
-  return acct->meta != NULL;
-}
-
 /* Setters */
-
-static inline void
-fd_txn_account_set_lamports( fd_txn_account_t * acct, ulong lamports ) {
-  acct->meta->info.lamports = lamports;
-}
-
-static inline void
-fd_txn_account_set_executable( fd_txn_account_t * acct, int is_executable ) {
-  acct->meta->info.executable = !!is_executable;
-}
 
 /* Resizes the account data */
 void
@@ -104,24 +84,6 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
                              void *             buf,
                              fd_wksp_t *        wksp );
 
-static inline int
-fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports ) {
-  ulong balance_post = 0UL;
-  int err = fd_ulong_checked_add( acct->const_meta->info.lamports, lamports, &balance_post );
-  if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
-  }
-
-  fd_txn_account_set_lamports( acct, balance_post );
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
-static inline ulong
-fd_txn_account_get_lamports( fd_txn_account_t const * acct ) {
-  /* (!meta) considered an internal error */
-  if( FD_UNLIKELY( !acct->const_meta ) ) return 0UL;
-  return acct->const_meta->info.lamports;
-}
 
 /* read/write mutual exclusion */
 
