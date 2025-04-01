@@ -1624,7 +1624,8 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
       fd_gossip_contact_info_v2_t * info = &crd->data.inner.contact_info_v2;
       fd_gossip_socket_addr_t socket_addr;
       if( fd_gossip_contact_info_v2_find_proto_ident( info, FD_GOSSIP_SOCKET_TAG_GOSSIP, &socket_addr ) ) {
-        if( fd_gossip_port_from_socketaddr( &socket_addr ) != 0) {
+        if( fd_gossip_port_from_socketaddr( &socket_addr )!=0 &&
+            fd_gossip_socket_addr_is_ip4( &socket_addr ) ) { /* Only support ipv4 */
           /* Remember the peer */
           fd_gossip_peer_addr_t pkey;
           fd_memset(&pkey, 0, sizeof(pkey));
