@@ -7,56 +7,55 @@ typedef struct fd_quic_pkt_meta         fd_quic_pkt_meta_t;
 typedef struct fd_quic_pkt_meta_list    fd_quic_pkt_meta_list_t;
 typedef struct fd_quic_pkt_meta_tracker fd_quic_pkt_meta_tracker_t;
 
-/* TODO convert to a union with various types of metadata overlaid */
-
-/* fd_quic_pkt_meta_var used for tracking max_data, max_stream_data and
- * max_streams
+/* fd_quic_pkt_meta_key used as key for tracking sent frames
  *
- * type:      FD_QUIC_PKT_META_TYPE_STREAM_DATA
- *            FD_QUIC_PKT_META_TYPE_OTHER
- * flags:     FD_QUIC_PKT_META_FLAGS_*
- * value:     max_data          number of bytes
- *            max_stream_data   number of bytes
- *            max_streams       number of streams
+ * pkt_num:    packet number that carried this data
+ * type:       type of data for retx (~frame type)
+ * stream_id:  if stream type, the stream id
  */
+
 union fd_quic_pkt_meta_key {
-  union {
-#define FD_QUIC_PKT_META_STREAM_MASK ((1UL<<62UL)-1UL)
+  struct {
+    /* does referenced packet contain:
+        FD_QUIC_PKT_META_TYPE_HS_DATA             handshake data
+        FD_QUIC_PKT_META_TYPE_STREAM              stream data
+        FD_QUIC_PKT_META_TYPE_HS_DONE             handshake-done frame
+        FD_QUIC_PKT_META_TYPE_MAX_DATA            max_data frame
+        FD_QUIC_PKT_META_TYPE_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
+        FD_QUIC_PKT_META_TYPE_CLOSE               close frame
+        FD_QUIC_PKT_META_TYPE_PING                set to send a PING frame
+
+      some of these flags are mutually exclusive */
+    # define          FD_QUIC_PKT_META_TYPE_HS_DATA            (0)
+    # define          FD_QUIC_PKT_META_TYPE_STREAM             (1)
+    # define          FD_QUIC_PKT_META_TYPE_HS_DONE            (2)
+    # define          FD_QUIC_PKT_META_TYPE_MAX_DATA           (3)
+    # define          FD_QUIC_PKT_META_TYPE_MAX_STREAMS_UNIDIR (4)
+    # define          FD_QUIC_PKT_META_TYPE_CLOSE              (5)
+    # define          FD_QUIC_PKT_META_TYPE_PING               (6)
+    uchar type: 4;
+
+    ulong pkt_num: 60;
+    #define FD_QUIC_PKT_META_SET_TYPE(PKT_META_PTR, TYPE) \
+      (PKT_META_PTR)->key.type = (uchar)((TYPE)&0x0f)
+
+    #define FD_QUIC_PKT_META_PKT_NUM_MASK ( (1UL<<60) - 1 )
+    #define FD_QUIC_PKT_META_SET_PKT_NUM(PKT_META_PTR, PKT_NUM) \
+      (PKT_META_PTR)->key.pkt_num = (PKT_NUM)&FD_QUIC_PKT_META_PKT_NUM_MASK
+
     ulong stream_id;
-    struct {
-      ulong flags:62;
-      ulong type:2;
-#define FD_QUIC_PKT_META_TYPE_OTHER           0UL
-#define FD_QUIC_PKT_META_TYPE_STREAM_DATA     1UL
-    };
-#define FD_QUIC_PKT_META_KEY( TYPE, FLAGS, STREAM_ID ) \
-    ((fd_quic_pkt_meta_key_t)                          \
-     { .stream_id = ( ( (ulong)(STREAM_ID) )    |      \
-                      ( (ulong)(TYPE) << 62UL ) |      \
-                      ( (ulong)(FLAGS) ) ) } )
-    /* FD_QUIC_PKT_META_STREAM_ID
-     * This is used to extract the stream_id, since some of the bits are used
-     * for "type".
-     * The more natural way "stream_id:62" caused compilation warnings and ugly
-     * work-arounds */
-#define FD_QUIC_PKT_META_STREAM_ID( KEY ) ( (KEY).stream_id & FD_QUIC_PKT_META_STREAM_MASK )
   };
+  ulong b[2];
 };
 typedef union fd_quic_pkt_meta_key fd_quic_pkt_meta_key_t;
+FD_STATIC_ASSERT( sizeof(fd_quic_pkt_meta_key_t) == 16, fd_quic_pkt_meta_key_t );
 
-struct fd_quic_pkt_meta_var {
-  fd_quic_pkt_meta_key_t key;
-  union {
-    ulong                value;
-    fd_quic_range_t      range;
-  };
+union fd_quic_pkt_meta_value {
+  ulong                scalar;
+  fd_quic_range_t      range;
 };
-typedef struct fd_quic_pkt_meta_var fd_quic_pkt_meta_var_t;
+typedef union fd_quic_pkt_meta_value fd_quic_pkt_meta_value_t;
 
-/* the max number of pkt_meta_var entries in pkt_meta
-   this limits the number of max_data, max_stream_data and max_streams
-   allowed in a single quic packet */
-#define FD_QUIC_PKT_META_VAR_MAX 16
 
 /* fd_quic_pkt_meta
 
@@ -64,38 +63,13 @@ typedef struct fd_quic_pkt_meta_var fd_quic_pkt_meta_var_t;
    used when acks arrive to determine what is being acked specifically */
 struct fd_quic_pkt_meta {
   /* stores metadata about what was sent in the identified packet */
-  ulong pkt_number;  /* packet number (in pn_space) */
-  uchar enc_level;   /* encryption level of packet */
-  uchar pn_space;    /* packet number space (derived from enc_level) */
-  uchar var_sz;      /* number of populated entries in var */
-
-  /* does/should the referenced packet contain:
-       FD_QUIC_PKT_META_FLAGS_HS_DATA             handshake data
-       FD_QUIC_PKT_META_FLAGS_STREAM              stream data
-       FD_QUIC_PKT_META_FLAGS_HS_DONE             handshake-done frame
-       FD_QUIC_PKT_META_FLAGS_MAX_DATA            max_data frame
-       FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
-       FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
-       FD_QUIC_PKT_META_FLAGS_PING                set to send a PING frame
-
-     some of these flags are mutually exclusive */
-  uint                   flags;       /* flags */
-# define          FD_QUIC_PKT_META_FLAGS_HS_DATA            (1u<<0u)
-# define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)
-# define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<4u)
-# define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<5u)
-# define          FD_QUIC_PKT_META_FLAGS_PING               (1u<<6u)
-  fd_quic_range_t        range;       /* CRYPTO data range; FIXME use pkt_meta var instead */
-  ulong                  stream_id;   /* if this contains stream data,
-                                         the stream id, else zero */
-
-  ulong                  tx_time;     /* transmit time */
-  ulong                  expiry;      /* time pkt_meta expires... this is the time the
+  fd_quic_pkt_meta_key_t   key;
+  fd_quic_pkt_meta_value_t val;
+  uchar                    enc_level: 2;
+  uchar                    pn_space;    /* packet number space (derived from key.enc_level) */
+  ulong                    tx_time;     /* transmit time */
+  ulong                    expiry;      /* time pkt_meta expires... this is the time the
                                          ack is expected by */
-
-  fd_quic_pkt_meta_var_t var[FD_QUIC_PKT_META_VAR_MAX];
 
   /* treap fields */
   ulong parent;
@@ -105,16 +79,46 @@ struct fd_quic_pkt_meta {
   ulong next;
   ulong prev;
 };
+typedef struct fd_quic_pkt_meta fd_quic_pkt_meta_t;
 
 #define     POOL_NAME                 fd_quic_pkt_meta_pool
 #define     POOL_T                    fd_quic_pkt_meta_t
 #include "../../util/tmpl/fd_pool.c"
 
+/* if <pkt_nums,type> are diff, returns sign of difference
+ *
+ * else, returns sign of difference in stream_id */
+static inline int
+fd_quic_pkt_meta_cmp( const fd_quic_pkt_meta_key_t   q,
+                      const fd_quic_pkt_meta_t     * e ) {
+  /* branchless implementation of:
+    diff = q.b[0] - e->key.b[0]
+    if( diff )
+      return diff
+    return q.stream_id - e->key.stream_id */
+  ulong q_b = q.b[0];
+  ulong e_b = e->key.b[0];
+  ulong q_s = q.stream_id;
+  ulong e_s = e->key.stream_id;
+
+  int pkt_num_type_cmp = -2*(q_b < e_b) + ((q_b > e_b)<<1);
+  int stream_id_cmp    = -1*(q_s < e_s) + (q_s > e_s);
+  return pkt_num_type_cmp + stream_id_cmp;
+}
+
+static inline int
+fd_quic_pkt_meta_lt( const fd_quic_pkt_meta_t * e1,
+                     const fd_quic_pkt_meta_t * e2 ) {
+  ulong e1_b0 = e1->key.b[0];
+  ulong e2_b0 = e2->key.b[0];
+  return e1_b0 < e2_b0 || (e1_b0 == e2_b0 && e1->key.stream_id < e2->key.stream_id);
+}
+
 #define     TREAP_NAME                fd_quic_pkt_meta_treap
 #define     TREAP_T                   fd_quic_pkt_meta_t
-#define     TREAP_QUERY_T             ulong
-#define     TREAP_CMP(q,e)            (int)((long)(q) - (long)(e)->pkt_number)
-#define     TREAP_LT(e0,e1)           ((e0)->pkt_number < (e1)->pkt_number)
+#define     TREAP_QUERY_T             fd_quic_pkt_meta_key_t
+#define     TREAP_CMP(q,e)            fd_quic_pkt_meta_cmp( q, e )
+#define     TREAP_LT(e0,e1)           fd_quic_pkt_meta_lt( e0, e1 )
 #define     TREAP_OPTIMIZE_ITERATION  1
 #include "../../util/tmpl/fd_treap.c"
 
@@ -180,7 +184,12 @@ static inline fd_quic_pkt_meta_ds_fwd_iter_t
 fd_quic_pkt_meta_ds_idx_ge( fd_quic_pkt_meta_ds_t * ds,
                             ulong                   pkt_number,
                             fd_quic_pkt_meta_t    * pool ) {
-  return fd_quic_pkt_meta_treap_idx_ge( ds, pkt_number, pool );
+  return fd_quic_pkt_meta_treap_idx_ge( ds,
+                                        (fd_quic_pkt_meta_key_t){
+                                          .pkt_num = pkt_number & FD_QUIC_PKT_META_PKT_NUM_MASK,
+                                          .type = 0,
+                                          .stream_id = 0},
+                                        pool );
 }
 
 /* fd_quic_pkt_meta_ds_ele_cnt returns count of elements in ds */
@@ -193,8 +202,9 @@ fd_quic_pkt_meta_ds_ele_cnt( fd_quic_pkt_meta_ds_t * ds ) {
 
 struct fd_quic_pkt_meta_tracker {
   fd_quic_pkt_meta_ds_t       sent_pkt_metas[4];
+  fd_quic_pkt_meta_t        * pool;
 };
-
+typedef struct fd_quic_pkt_meta_tracker fd_quic_pkt_meta_tracker_t;
 
 /* fd_quic_pkt_meta_ds_init_pool does any data structure-particular setup
    on the entire pool at once. Useful for e.g. treap randomness
@@ -205,16 +215,18 @@ void
 fd_quic_pkt_meta_ds_init_pool( fd_quic_pkt_meta_t * pool,
                                ulong                total_meta_cnt );
 
-/* fd_quic_pkt_meta_ds_init initializes the metadata tracker for each enc level
+/* fd_quic_pkt_meta_tracker_init initializes the metadata tracker for each enc level
   @arguments:
-  - sent_pkt_metas: pointer to ds array
+  - tracker: pointer to the tracker
   - total_meta_cnt: total number of max pkt_meta entries in this tracker
     (shared across all encoding levels)
+  - pool: pointer to the backing pool
   @returns:
-  - pointer to ds array if successful, NULL otherwise */
+  - pointer to tracker if successful, NULL otherwise */
 void *
-fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
-                          ulong                   total_meta_cnt );
+fd_quic_pkt_meta_tracker_init( fd_quic_pkt_meta_tracker_t * tracker,
+                               ulong                        total_meta_cnt,
+                               fd_quic_pkt_meta_t         * pool );
 
 /* fd_quic_pkt_meta_insert inserts a pkt_meta into the ds
   @arguments:

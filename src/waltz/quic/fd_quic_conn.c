@@ -119,8 +119,11 @@ fd_quic_conn_new( void *                   mem,
   }
 
   /* Initialize packet meta tracker */
-  fd_quic_pkt_meta_ds_init( conn->pkt_meta_tracker.sent_pkt_metas,
-                            fd_quic_get_state( quic )->max_inflight_pkt_cnt_conn );
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_pkt_meta_tracker_init( &conn->pkt_meta_tracker,
+                                quic->limits.inflight_frame_cnt,
+                                state->pkt_meta_pool );
+
 
   return conn;
 }

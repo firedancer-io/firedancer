@@ -74,7 +74,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   fd_quic_transport_params_t transport_params;
 
-  ulong max_inflight_pkt_cnt_conn; /* per-conn max, computed from limits */
+  ulong max_inflight_frame_cnt_conn; /* per-conn max, computed from limits */
 
   /* Various internal state */
 
@@ -467,12 +467,11 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
 }
 
 uchar *
-fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
-                           uchar *              payload_ptr,
-                           uchar *              payload_end,
-                           fd_quic_pkt_meta_t * pkt_meta,
-                           ulong                pkt_number,
-                           ulong                now );
+fd_quic_gen_stream_frames( fd_quic_conn_t *             conn,
+                           uchar *                      payload_ptr,
+                           uchar *                      payload_end,
+                           const fd_quic_pkt_meta_t   * pkt_meta_tmpl,
+                           fd_quic_pkt_meta_tracker_t * tracker );
 
 void
 fd_quic_process_ack_range( fd_quic_conn_t      *      conn,
