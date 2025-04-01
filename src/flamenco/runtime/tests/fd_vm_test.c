@@ -38,14 +38,14 @@ fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
   for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
     cur_region++;
 
-    ushort           idx_in_txn = instr_ctx->instr->accounts[i].index_in_transaction;
-    fd_txn_account_t acc        = instr_ctx->txn_ctx->accounts[idx_in_txn];
+    ushort                   idx_in_txn = instr_ctx->instr->accounts[i].index_in_transaction;
+    fd_txn_account_t const * acc        = &instr_ctx->txn_ctx->accounts[idx_in_txn];
 
     acc_regions_meta[i].region_idx          = cur_region;
-    acc_regions_meta[i].has_data_region     = acc.const_meta->dlen>0UL;
+    acc_regions_meta[i].has_data_region     = acc->vt->get_data_len( acc )>0UL;
     acc_regions_meta[i].has_resizing_region = !vm->is_deprecated;
 
-    if( acc.const_meta->dlen>0UL ) {
+    if( acc->vt->get_data_len( acc )>0UL ) {
       cur_region++;
     }
     if( vm->is_deprecated ) {
@@ -114,10 +114,12 @@ do{
   uint                    input_mem_regions_cnt   = 0U;
   int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
 
-  uchar * input_ptr      = NULL;
-  uchar   program_id_idx = instr_ctx->instr->program_id;
+  uchar *                  input_ptr      = NULL;
+  uchar                    program_id_idx = instr_ctx->instr->program_id;
+  fd_txn_account_t const * program_acc    = &instr_ctx->txn_ctx->accounts[program_id_idx];
+
   uchar   is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
-                           ( !memcmp( instr_ctx->txn_ctx->accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+                           ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* TODO: Check for an error code. Probably unlikely during fuzzing though */
   fd_bpf_loader_input_serialize_parameters( instr_ctx,

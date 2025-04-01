@@ -83,8 +83,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->const_data,
-    .dataend = rec->const_data + rec->const_meta->dlen
+    .data    = rec->vt->get_data( rec ),
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;
@@ -149,8 +149,8 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
   }
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->const_data,
-    .dataend = rec->const_data + rec->const_meta->dlen
+    .data    = rec->vt->get_data( rec ),
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;

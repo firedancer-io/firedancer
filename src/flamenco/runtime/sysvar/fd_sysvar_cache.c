@@ -75,56 +75,56 @@ FD_SYSVAR_CACHE_ITER(X)
 
 /* Restore sysvars */
 
-# define X( type, name )                                                        \
-void                                                                            \
-fd_sysvar_cache_restore_##name(                                                 \
-  fd_sysvar_cache_t * cache,                                                    \
-  fd_funk_t *          funk,                                                    \
-  fd_funk_txn_t *     funk_txn,                                                 \
-  fd_spad_t *         runtime_spad,                                             \
-  fd_wksp_t *         wksp ) {                                                  \
-  do {                                                                          \
-    fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                        \
-    FD_TXN_ACCOUNT_DECL( account );                                             \
-    int view_err = fd_txn_account_init_from_funk_readonly( account,             \
-                                                           pubkey,              \
-                                                           funk,                \
-                                                           funk_txn );          \
-    if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;                       \
-                                                                                \
-    if( view_err!=FD_ACC_MGR_SUCCESS ) {                                        \
-      char pubkey_cstr[ FD_BASE58_ENCODED_32_SZ ];                              \
-      FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(%s) failed (%d-%s)", \
-                  fd_acct_addr_cstr( pubkey_cstr, pubkey->key ),                \
-                  view_err, fd_acc_mgr_strerror( view_err ) ));                 \
-    }                                                                           \
-                                                                                \
-    if( account->const_meta->info.lamports == 0UL ) break;                      \
-                                                                                \
-    /* Decode new value                                                         \
-      type##_decode() does not do heap allocations on failure */                \
-    fd_bincode_decode_ctx_t decode = {                                          \
-      .data    = account->const_data,                                           \
-      .dataend = account->const_data + account->const_meta->dlen,               \
-      .wksp    = wksp                                                           \
-    };                                                                          \
-    ulong total_sz    = 0UL;                                                    \
-    int   err         = type##_decode_footprint( &decode, &total_sz );          \
-    cache->has_##name = (err==FD_BINCODE_SUCCESS);                              \
-    if( FD_UNLIKELY( err ) ) {                                                  \
-      FD_LOG_WARNING(( "failed to decode footprint" ));                         \
-      break;                                                                    \
-    }                                                                           \
-                                                                                \
-    type##_global_t * mem = fd_spad_alloc( runtime_spad,                        \
-                                           type##_align(),                      \
-                                           total_sz );                          \
-    if( FD_UNLIKELY( !mem ) ) {                                                 \
-      FD_LOG_ERR(( "memory allocation failed" ));                               \
-    }                                                                           \
-    type##_decode_global( mem, &decode );                                       \
-    fd_memcpy( cache->val_##name, mem, sizeof(type##_global_t) );               \
-  } while(0);                                                                   \
+# define X( type, name )                                                                  \
+void                                                                                      \
+fd_sysvar_cache_restore_##name(                                                           \
+  fd_sysvar_cache_t * cache,                                                              \
+  fd_funk_t *          funk,                                                              \
+  fd_funk_txn_t *     funk_txn,                                                           \
+  fd_spad_t *         runtime_spad,                                                       \
+  fd_wksp_t *         wksp ) {                                                            \
+  do {                                                                                    \
+    fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                                  \
+    FD_TXN_ACCOUNT_DECL( account );                                                       \
+    int view_err = fd_txn_account_init_from_funk_readonly( account,                       \
+                                                           pubkey,                        \
+                                                           funk,                          \
+                                                           funk_txn );                    \
+    if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;                                 \
+                                                                                          \
+    if( view_err!=FD_ACC_MGR_SUCCESS ) {                                                  \
+      char pubkey_cstr[ FD_BASE58_ENCODED_32_SZ ];                                        \
+      FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(%s) failed (%d-%s)",           \
+                  fd_acct_addr_cstr( pubkey_cstr, pubkey->key ),                          \
+                  view_err, fd_acc_mgr_strerror( view_err ) ));                           \
+    }                                                                                     \
+                                                                                          \
+    if( account->vt->get_lamports( account ) == 0UL ) break;                              \
+                                                                                          \
+    /* Decode new value                                                                   \
+      type##_decode() does not do heap allocations on failure */                          \
+    fd_bincode_decode_ctx_t decode = {                                                    \
+      .data    = account->vt->get_data( account ),                                        \
+      .dataend = account->vt->get_data( account ) + account->vt->get_data_len( account ), \
+      .wksp    = wksp                                                                     \
+    };                                                                                    \
+    ulong total_sz    = 0UL;                                                              \
+    int   err         = type##_decode_footprint( &decode, &total_sz );                    \
+    cache->has_##name = (err==FD_BINCODE_SUCCESS);                                        \
+    if( FD_UNLIKELY( err ) ) {                                                            \
+      FD_LOG_WARNING(( "failed to decode footprint" ));                                   \
+      break;                                                                              \
+    }                                                                                     \
+                                                                                          \
+    type##_global_t * mem = fd_spad_alloc( runtime_spad,                                  \
+                                           type##_align(),                                \
+                                           total_sz );                                    \
+    if( FD_UNLIKELY( !mem ) ) {                                                           \
+      FD_LOG_ERR(( "memory allocation failed" ));                                         \
+    }                                                                                     \
+    type##_decode_global( mem, &decode );                                                 \
+    fd_memcpy( cache->val_##name, mem, sizeof(type##_global_t) );                         \
+  } while(0);                                                                             \
 }
   FD_SYSVAR_CACHE_ITER(X)
 # undef X

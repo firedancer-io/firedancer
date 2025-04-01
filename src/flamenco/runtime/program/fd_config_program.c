@@ -68,15 +68,15 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
-  if( FD_UNLIKELY( 0!=memcmp( &config_acc_rec.acct->const_meta->info.owner, fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( 0!=memcmp( fd_borrowed_account_get_owner( &config_acc_rec ), fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
   fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-    .data    = config_acc_rec.acct->const_data,
-    .dataend = config_acc_rec.acct->const_data + config_acc_rec.acct->const_meta->dlen,
+    .data    = fd_borrowed_account_get_data( &config_acc_rec ),
+    .dataend = (uchar *)fd_borrowed_account_get_data( &config_acc_rec ) + fd_borrowed_account_get_data_len( &config_acc_rec ),
   };
   total_sz      = 0UL;
   decode_result = fd_config_keys_decode_footprint( &config_acc_state_decode_context, &total_sz );
@@ -228,7 +228,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   /* Upgrade to writable handle
     https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L130-L133 */
 
-  if( FD_UNLIKELY( config_acc_rec.acct->const_meta->dlen<ctx->instr->data_sz ) ) {
+  if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &config_acc_rec )<ctx->instr->data_sz ) ) {
     fd_log_collector_msg_literal( ctx, "instruction data too large" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

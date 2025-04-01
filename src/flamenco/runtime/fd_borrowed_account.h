@@ -15,6 +15,8 @@
 
 /* TODO: Not all Agave Borrowed Account API functions are implemented here */
 
+/* TODO: check that borrow is active when calling these APIs */
+
 struct fd_borrowed_account {
   ulong                       magic;
   fd_txn_account_t *          acct;
@@ -78,9 +80,14 @@ fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_acct ) {
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L817 */
 
-static inline void const *
+static inline uchar const *
 fd_borrowed_account_get_data( fd_borrowed_account_t const * borrowed_acct ) {
   return borrowed_acct->acct->vt->get_data( borrowed_acct->acct );
+}
+
+static inline ulong
+fd_borrowed_account_get_data_len( fd_borrowed_account_t const * borrowed_acct ) {
+  return borrowed_acct->acct->vt->get_data_len( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_get_data_mut mirrors Agave function
@@ -98,7 +105,7 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
                                   ulong *                 dlen_out );
 
 static inline fd_pubkey_t const *
-fd_borrowed_account_get_owner( fd_borrowed_account_t * borrowed_acct ) {
+fd_borrowed_account_get_owner( fd_borrowed_account_t const * borrowed_acct ) {
   return borrowed_acct->acct->vt->get_owner( borrowed_acct->acct );
 }
 

@@ -68,16 +68,16 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L193-L196 */
 
-  if( from.acct->const_meta->dlen != 0UL ) {
+  if( fd_borrowed_account_get_data_len( &from ) != 0UL ) {
     fd_log_collector_msg_literal( ctx, "Transfer: `from` must not carry data" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L197-L205 */
 
-  if( transfer_amount > from.acct->const_meta->info.lamports ) {
+  if( transfer_amount > fd_borrowed_account_get_lamports( &from ) ) {
     /* Max msg_sz: 45 - 6 + 20 + 20 = 79 < 127 => we can use printf */
-    fd_log_collector_printf_dangerous_max_127( ctx, "Transfer: insufficient lamports %lu, need %lu", from.acct->const_meta->info.lamports, transfer_amount );
+    fd_log_collector_printf_dangerous_max_127( ctx, "Transfer: insufficient lamports %lu, need %lu", fd_borrowed_account_get_lamports( &from ), transfer_amount );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -155,8 +155,8 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L87-L96 */
 
-  if( FD_UNLIKELY( ( account->acct->const_meta->dlen != 0UL ) |
-                   ( 0!=memcmp( account->acct->const_meta->info.owner, fd_solana_system_program_id.uc, 32UL ) ) ) ) {
+  if( FD_UNLIKELY( ( fd_borrowed_account_get_data_len( account ) != 0UL ) |
+                   ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
     /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Allocate: account %s already in use", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
@@ -198,7 +198,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L121-L123 */
 
-  if( 0==memcmp( account->acct->const_meta->info.owner, owner->uc, sizeof(fd_pubkey_t) ) )
+  if( 0==memcmp( fd_borrowed_account_get_owner( account ), owner->uc, sizeof(fd_pubkey_t) ) )
     return 0;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
@@ -258,7 +258,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
 
-    if( FD_UNLIKELY( to.acct->const_meta->info.lamports ) ) {
+    if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
       /* Max msg_sz: 41 - 2 + 45 = 84 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx,
         "Create Account: account %s already in use", FD_BASE58_ENC_32_ALLOCA( to.acct->pubkey ) );

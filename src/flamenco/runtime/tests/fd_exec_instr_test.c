@@ -186,15 +186,16 @@ _load_account( fd_txn_account_t *                acc,
                                                    /* do_create   */ 1,
                                                    /* min_data_sz */ size );
   assert( err==FD_ACC_MGR_SUCCESS );
-  if( state->data ) fd_memcpy( acc->data, state->data->bytes, size );
+  if( state->data ) {
+    acc->vt->set_data( acc, state->data->bytes, size );
+  }
 
   acc->starting_lamports     = state->lamports;
   acc->starting_dlen         = size;
-  acc->meta->info.lamports   = state->lamports;
-  acc->meta->info.executable = state->executable;
-  acc->meta->info.rent_epoch = state->rent_epoch;
-  acc->meta->dlen            = size;
-  memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
+  acc->vt->set_lamports( acc, state->lamports );
+  acc->vt->set_executable( acc, state->executable );
+  acc->vt->set_rent_epoch( acc, state->rent_epoch );
+  acc->vt->set_owner( acc, (fd_pubkey_t const *)state->owner );
 
   /* make the account read-only by default */
   acc->meta = NULL;
@@ -476,12 +477,14 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       return 0;
     }
 
-    if( accts[j].const_meta ) {
+    fd_txn_account_t * acc = &accts[j];
+    if( acc->vt->get_meta( acc ) ) {
       uchar * data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-      ulong   dlen = accts[j].const_meta->dlen;
-      fd_memcpy( data, accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
-      accts[j].const_meta = (fd_account_meta_t*)data;
-      accts[j].const_data = data + sizeof(fd_account_meta_t);
+      ulong   dlen = acc->vt->get_data_len( acc );
+      fd_memcpy( data, acc->vt->get_meta( acc ), sizeof(fd_account_meta_t)+dlen );
+      fd_txn_account_init_from_meta_and_data_readonly( acc,
+                                                       (fd_account_meta_t const *)data,
+                                                       data + sizeof(fd_account_meta_t) );
     }
 
     if( !memcmp( accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
@@ -493,31 +496,33 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* If the program id is not in the set of accounts it must be added to the set of accounts. */
   if( FD_UNLIKELY( !has_program_id ) ) {
     fd_txn_account_t * program_acc = &accts[ test_ctx->accounts_count ];
-    fd_pubkey_t *           program_key = &txn_ctx->account_keys[ txn_ctx->accounts_cnt ];
+    fd_pubkey_t *      program_key = &txn_ctx->account_keys[ txn_ctx->accounts_cnt ];
     fd_txn_account_init( program_acc );
     memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
     memcpy( program_acc->pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) );
-    program_acc->meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
-    program_acc->const_meta = program_acc->meta;
+    fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
     fd_account_meta_init( program_acc->meta );
+    program_acc->vt->set_meta_mutable( program_acc, meta );
     info->program_id = (uchar)txn_ctx->accounts_cnt;
     txn_ctx->accounts_cnt++;
   }
 
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    if ( memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
+    fd_txn_account_t * acc = &accts[i];
+    if ( memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
     ) {
       continue;
     }
 
-    fd_account_meta_t const * meta = accts[i].const_meta ? accts[i].const_meta : accts[i].meta;
+    /* TODO: just use setup_sentinel_meta here */
+    fd_account_meta_t const * meta = acc->vt->get_meta( acc );
     if (meta == NULL) {
       static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
-      accts[i].const_meta        = &sentinel;
+      acc->vt->set_meta_readonly( acc, &sentinel );
       accts[i].starting_lamports = 0UL;
       accts[i].starting_dlen     = 0UL;
       continue;
@@ -660,6 +665,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                        test_ctx->instr_accounts[j].is_writable,
                                        test_ctx->instr_accounts[j].is_signer );
 
+    /* this can be an upgrade helper */
     if( test_ctx->instr_accounts[j].is_writable ) {
       acc->meta = (void *)acc->const_meta;
       acc->data = (void *)acc->const_data;
@@ -1493,7 +1499,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
 
   for( ulong j=0UL; j < ctx->txn_ctx->accounts_cnt; j++ ) {
     fd_txn_account_t * acc = &ctx->txn_ctx->accounts[j];
-    if( !acc->const_meta ) {
+    if( !acc->vt->get_meta( acc ) ) {
       continue;
     }
 
@@ -1505,22 +1511,22 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     /* Copy over account content */
 
     memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
-    out_acct->lamports     = acc->const_meta->info.lamports;
-    if( acc->const_meta->dlen>0UL ) {
+    out_acct->lamports     = acc->vt->get_lamports( acc );
+    if( acc->vt->get_data_len( acc )>0UL ) {
       out_acct->data =
         FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                    PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
+                                    PB_BYTES_ARRAY_T_ALLOCSIZE( acc->vt->get_data_len( acc ) ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
         fd_exec_test_instr_context_destroy( runner, ctx );
         return 0UL;
       }
-      out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
-      fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
+      out_acct->data->size = (pb_size_t)acc->vt->get_data_len( acc );
+      fd_memcpy( out_acct->data->bytes, acc->const_data, acc->vt->get_data_len( acc ) );
     }
 
-    out_acct->executable     = acc->const_meta->info.executable;
-    out_acct->rent_epoch     = acc->const_meta->info.rent_epoch;
-    memcpy( out_acct->owner, acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
+    out_acct->executable     = acc->vt->is_executable( acc );
+    out_acct->rent_epoch     = acc->vt->get_rent_epoch( acc );
+    memcpy( out_acct->owner, acc->vt->get_owner( acc ), sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;
   }
@@ -1746,22 +1752,22 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
       memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
 
-      out_acct->lamports = acc->const_meta->info.lamports;
+      out_acct->lamports = acc->vt->get_lamports( acc );
 
-      if( acc->const_meta->dlen > 0 ) {
+      if( acc->vt->get_data_len( acc ) > 0 ) {
         out_acct->data =
           FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                      PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( acc->vt->get_data_len( acc ) ) );
         if( FD_UNLIKELY( _l > output_end ) ) {
           abort();
         }
-        out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
-        fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
+        out_acct->data->size = (pb_size_t)acc->vt->get_data_len( acc );
+        fd_memcpy( out_acct->data->bytes, acc->const_data, acc->vt->get_data_len( acc ) );
       }
 
-      out_acct->executable     = acc->const_meta->info.executable;
-      out_acct->rent_epoch     = acc->const_meta->info.rent_epoch;
-      memcpy( out_acct->owner, acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
+      out_acct->executable     = acc->vt->is_executable( acc );
+      out_acct->rent_epoch     = acc->vt->get_rent_epoch( acc );
+      memcpy( out_acct->owner, acc->vt->get_owner( acc ), sizeof(fd_pubkey_t) );
 
       txn_result->resulting_state.acct_states_count++;
     }
@@ -1986,10 +1992,11 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   uint                    input_mem_regions_cnt   = 0U;
   int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, bpf_account_data_direct_mapping );
 
-  uchar * input_ptr      = NULL;
-  uchar   program_id_idx = ctx->instr->program_id;
-  uchar   is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
-                           ( !memcmp( ctx->txn_ctx->accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar *            input_ptr      = NULL;
+  uchar              program_id_idx = ctx->instr->program_id;
+  fd_txn_account_t * program_acc    = &ctx->txn_ctx->accounts[program_id_idx];
+  uchar              is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
+                                      ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* TODO: Check for an error code. Probably unlikely during fuzzing though */
   fd_bpf_loader_input_serialize_parameters( ctx,
@@ -2243,7 +2250,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         /* resize manually
            FIXME: This will go away when lower level account APIs exist to set data. */
         if( acct_state->data ) {
-          if( acct_state->data->size > acct->const_meta->dlen ) {
+          if( acct_state->data->size > acct->vt->get_data_len( acct ) ) {
             acct->vt->resize( acct, acct_state->data->size );
           }
         }

@@ -193,8 +193,8 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
 
   // Deserialize the vote account and ensure its in the correct state
   fd_bincode_decode_ctx_t decode = {
-    .data    = vote_account->const_data,
-    .dataend = vote_account->const_data + vote_account->const_meta->dlen,
+    .data    = vote_account->vt->get_data( vote_account ),
+    .dataend = vote_account->vt->get_data( vote_account ) + vote_account->vt->get_data_len( vote_account ),
   };
 
   ulong total_sz = 0UL;
@@ -460,7 +460,7 @@ accumulate_stake_cache_delegations_tpool( void  *tpool,
                                                        &n->elem.account,
                                                        slot_ctx->funk,
                                                        slot_ctx->funk_txn );
-      if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports==0UL ) ) {
+      if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
         continue;
       }
 
@@ -564,7 +564,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
        n = fd_account_keys_pair_t_map_successor( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, n ) ) {
     FD_TXN_ACCOUNT_DECL( acc );
     int rc = fd_txn_account_init_from_funk_readonly(acc, &n->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
-    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports==0UL ) ) {
+    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
       continue;
     }
 
