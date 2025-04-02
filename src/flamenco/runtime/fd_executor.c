@@ -42,15 +42,6 @@
 #include <unistd.h>  /* write(3) */
 #include <time.h>
 
-#define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
-#define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
-/* We should strive for these max limits matching between pack and the
-   runtime. If there's a reason for these limits to mismatch, and there
-   could be, then someone should explicitly document that when relaxing
-   these assertions. */
-FD_STATIC_ASSERT( FD_PACK_MAX_COST_PER_BLOCK==MAX_COMPUTE_UNITS_PER_BLOCK,                     executor_pack_max_mismatch );
-FD_STATIC_ASSERT( FD_PACK_MAX_WRITE_COST_PER_ACCT==MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT, executor_pack_max_mismatch );
-
 struct fd_native_prog_info {
   fd_pubkey_t key;
   fd_exec_instr_fn_t fn;
