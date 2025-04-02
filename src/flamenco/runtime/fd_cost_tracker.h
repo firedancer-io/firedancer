@@ -39,6 +39,11 @@
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT ( 4 )
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT ( 5 )
 
+/* This is the reasonably tight upper bound for the number of writable
+   accounts in a slot. The block CU limit should always be highest
+   anticipated limit. */
+#define FD_WRITABLE_ACCS_IN_SLOT ((FD_MAX_BLOCK_UNITS_SIMD_0207 + FD_WRITE_LOCK_UNITS - 1UL) / FD_WRITE_LOCK_UNITS)
+
 FD_PROTOTYPES_BEGIN
 
 /* Initializes the cost tracker and allocates enough memory for the map */

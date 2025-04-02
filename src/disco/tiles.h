@@ -66,6 +66,15 @@ struct fd_became_leader {
   /* The epoch of the slot for which we are becoming leader. */
   ulong epoch;
 
+  /* Consensus-critical cost limits for the slot we are becoming leader.
+     These are typically unchanging, but may change after a feature
+     activation. */
+  struct {
+    ulong slot_max_cost;
+    ulong slot_max_vote_cost;
+    ulong slot_max_write_cost_per_acct;
+  } limits;
+
   /* Information from the accounts database as of the start of the slot
      determined by the bank above that is necessary to crank the bundle
      tip programs properly.  If bundles are not enabled (determined

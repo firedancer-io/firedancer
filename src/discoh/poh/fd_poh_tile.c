@@ -388,6 +388,13 @@ typedef struct {
      microblocks that the pack tile can publish in each slot. */
   ulong max_microblocks_per_slot;
 
+  /* Consensus-critical slot cost limits. */
+  struct {
+    ulong slot_max_cost;
+    ulong slot_max_vote_cost;
+    ulong slot_max_write_cost_per_acct;
+  } limits;
+
   /* The current slot and hashcnt within that slot of the proof of
      history, including hashes we have been producing in the background
      while waiting for our next leader slot. */
@@ -1002,6 +1009,10 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   leader->epoch                   = epoch;
   leader->bundle->config[0]       = config[0];
 
+  leader->limits.slot_max_cost                = ctx->limits.slot_max_cost;
+  leader->limits.slot_max_vote_cost           = ctx->limits.slot_max_vote_cost;
+  leader->limits.slot_max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
+
   memcpy( leader->bundle->last_blockhash,     ctx->reset_hash,    32UL );
   memcpy( leader->bundle->tip_receiver_owner, tip_receiver_owner, 32UL );
 
@@ -1023,7 +1034,10 @@ CALLED_FROM_RUST void
 fd_ext_poh_begin_leader( void const * bank,
                          ulong        slot,
                          ulong        epoch,
-                         ulong        hashcnt_per_tick ) {
+                         ulong        hashcnt_per_tick,
+                         ulong        cus_block_limit,
+                         ulong        cus_vote_cost_limit,
+                         ulong        cus_account_cost_limit ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   FD_TEST( !ctx->current_leader_bank );
@@ -1074,6 +1088,24 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
   ctx->expect_microblock_idx   = 0UL;
+
+  ctx->limits.slot_max_cost                = cus_block_limit;
+  ctx->limits.slot_max_vote_cost           = cus_vote_cost_limit;
+  ctx->limits.slot_max_write_cost_per_acct = cus_account_cost_limit;
+
+  /* clamp and warn if we are underutilizing CUs */
+  if( FD_UNLIKELY( ctx->limits.slot_max_cost > FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND ) ) {
+    FD_LOG_WARNING(( "Underutilizing protocol slot CU limit. protocol_limit=%lu validator_limit=%lu", ctx->limits.slot_max_cost, FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND ));
+    ctx->limits.slot_max_cost = FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND;
+  }
+  if( FD_UNLIKELY( ctx->limits.slot_max_vote_cost > FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ) ) {
+    FD_LOG_WARNING(( "Underutilizing protocol vote CU limit. protocol_limit=%lu validator_limit=%lu", ctx->limits.slot_max_vote_cost, FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ));
+    ctx->limits.slot_max_vote_cost = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
+  }
+  if( FD_UNLIKELY( ctx->limits.slot_max_write_cost_per_acct > FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ) ) {
+    FD_LOG_WARNING(( "Underutilizing protocol write CU limit. protocol_limit=%lu validator_limit=%lu", ctx->limits.slot_max_write_cost_per_acct, FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ));
+    ctx->limits.slot_max_write_cost_per_acct = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND;
+  }
 
   /* We are about to start publishing to the shred tile for this slot
      so update the highwater mark so we never republish in this slot
