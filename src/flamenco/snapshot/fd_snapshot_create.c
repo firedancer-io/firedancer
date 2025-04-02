@@ -3,6 +3,7 @@
 #include "../../ballet/zstd/fd_zstd.h"
 #include "../runtime/fd_hashes.h"
 #include "../runtime/fd_runtime.h"
+#include "../runtime/fd_cost_tracker.h"
 
 #include <errno.h>
 #include <stdio.h>

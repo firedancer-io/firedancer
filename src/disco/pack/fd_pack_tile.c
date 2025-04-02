@@ -47,9 +47,8 @@
 FD_STATIC_ASSERT( (ulong)LONG_MIN+TIME_OFFSET==0UL,       time_offset );
 FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 
-
 /* Optionally allow a larger limit for benchmarking */
-#define LARGER_MAX_COST_PER_BLOCK (18UL*48000000UL)
+#define LARGER_MAX_COST_PER_BLOCK (18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND)
 
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
@@ -144,9 +143,12 @@ typedef struct {
   ulong slot_max_data;
   int   larger_shred_limits_per_block;
 
-  /* Cost limit (in cost units) for each block.  Typically
-     FD_PACK_MAX_COST_PER_BLOCK or LARDER_MAX_COST_PER_BLOCK. */
-  ulong slot_max_cost;
+  /* Consensus critical slot cost limits. */
+  struct {
+    ulong slot_max_cost;
+    ulong slot_max_vote_cost;
+    ulong slot_max_write_cost_per_acct;
+  } limits;
 
   /* If drain_banks is non-zero, then the pack tile must wait until all
      banks are idle before scheduling any more microblocks.  This is
@@ -313,9 +315,9 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_pack_limits_t limits[1] = {{
-    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
-    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
-    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
+    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
+    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
     .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
     .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
@@ -729,8 +731,8 @@ during_frag( fd_pack_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  long now_ticks = fd_tickcount();
-  long now_ns    = fd_log_wallclock();
+    long now_ticks = fd_tickcount();
+    long now_ns    = fd_log_wallclock();
 
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
@@ -752,6 +754,11 @@ during_frag( fd_pack_ctx_t * ctx,
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
                                       - 48UL*(became_leader->ticks_per_slot+became_leader->total_skipped_ticks);
+
+    ctx->limits.slot_max_cost                = became_leader->limits.slot_max_cost;
+    ctx->limits.slot_max_vote_cost           = became_leader->limits.slot_max_vote_cost;
+    ctx->limits.slot_max_write_cost_per_acct = became_leader->limits.slot_max_write_cost_per_acct;
+
     /* ticks_per_ns is probably relatively stable over 400ms, but not
        over several hours, so we need to compute the slot duration in
        milliseconds first and then convert to ticks.  This doesn't need
@@ -759,7 +766,7 @@ during_frag( fd_pack_ctx_t * ctx,
     long end_ticks = now_ticks + (long)((double)fd_long_max( became_leader->slot_end_ns - now_ns, 1L )*ctx->ticks_per_ns);
     /* We may still get overrun, but then we'll never use this and just
        reinitialize it the next time when we actually become leader. */
-    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->slot_max_cost );
+    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->limits.slot_max_cost );
 
     if( FD_UNLIKELY( ctx->crank->enabled ) ) {
       /* If we get overrun, we'll just never use these values, but the
@@ -913,7 +920,14 @@ after_frag( fd_pack_ctx_t *     ctx,
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     ctx->slot_end_ns = ctx->_slot_end_ns;
-    fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
+    fd_pack_limits_t limits[ 1 ];
+    limits->max_cost_per_block = ctx->limits.slot_max_cost;
+    limits->max_data_bytes_per_block = ctx->slot_max_data;
+    limits->max_microblocks_per_block = ctx->slot_max_microblocks;
+    limits->max_vote_cost_per_block = ctx->limits.slot_max_vote_cost;
+    limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
+    limits->max_txn_per_microblock = ULONG_MAX; /* unused */
+    fd_pack_set_block_limits( ctx->pack, limits );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
 
     break;
@@ -990,27 +1004,36 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  fd_pack_limits_t limits[1] = {{
-    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
-    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
-    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
+
+  fd_pack_limits_t limits_upper[1] = {{
+    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
+    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
+    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
     .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
     .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
 
-  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
-
-  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count, limits );
+  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count, limits_upper );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
   fd_rng_t *      rng = fd_rng_join( fd_rng_new( FD_SCRATCH_ALLOC_APPEND( l, fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
+  fd_pack_limits_t limits_lower[1] = {{
+    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND,
+    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND,
+    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND,
+    .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
+    .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
+  }};
+
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
                                          tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count,
-                                         limits, rng ) );
+                                         limits_lower, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
@@ -1093,7 +1116,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_max_microblocks          = 0UL;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
-  ctx->slot_max_cost                 = limits->max_cost_per_block;
   ctx->drain_banks                   = 0;
   ctx->approx_wallclock_ns           = fd_log_wallclock();
   ctx->rng                           = rng;
@@ -1112,6 +1134,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->wait_duration_ticks[ i ]=(ulong)(fd_tempo_tick_per_ns( NULL )*(double)wait_duration[ i ] + 0.5);
   }
 
+  ctx->limits.slot_max_cost                = limits_lower->max_cost_per_block;
+  ctx->limits.slot_max_vote_cost           = limits_lower->max_vote_cost_per_block;
+  ctx->limits.slot_max_write_cost_per_acct = limits_lower->max_write_cost_per_acct;
 
   ctx->bank_cnt         = tile->pack.bank_tile_count;
   ctx->poll_cursor      = 0;

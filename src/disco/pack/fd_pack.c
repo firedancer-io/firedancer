@@ -544,6 +544,7 @@ struct fd_pack_private {
   fd_histf_t scheduled_cus_per_block[ 1 ];
   fd_histf_t rebated_cus_per_block  [ 1 ];
   fd_histf_t net_cus_per_block      [ 1 ];
+  fd_histf_t pct_cus_per_block      [ 1 ];
   ulong      cumulative_rebated_cus;
 
 
@@ -633,7 +634,7 @@ fd_pack_new( void                   * mem,
              ulong                    bundle_meta_sz,
              ulong                    bank_tile_cnt,
              fd_pack_limits_t const * limits,
-             fd_rng_t                * rng           ) {
+             fd_rng_t               * rng           ) {
 
   int enable_bundles = !!bundle_meta_sz;
   ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
@@ -749,6 +750,8 @@ fd_pack_new( void                   * mem,
                                                FD_MHIST_MAX( PACK, CUS_REBATED   ) );
   fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, CUS_NET       ),
                                                FD_MHIST_MAX( PACK, CUS_NET       ) );
+  fd_histf_new( pack->pct_cus_per_block,       FD_MHIST_MIN( PACK, CUS_PCT       ),
+                                               FD_MHIST_MAX( PACK, CUS_PCT       ) );
 
   pack->compressed_slot_number = (ushort)(FD_PACK_SKIP_CNT+1);
 
@@ -2337,11 +2340,16 @@ ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumula
 
 
 void
-fd_pack_set_block_limits( fd_pack_t * pack,
-                          ulong       max_microblocks_per_block,
-                          ulong       max_data_bytes_per_block ) {
-  pack->lim->max_microblocks_per_block = max_microblocks_per_block;
-  pack->lim->max_data_bytes_per_block  = max_data_bytes_per_block;
+fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits ) {
+  FD_TEST( limits->max_cost_per_block      >= FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      );
+  FD_TEST( limits->max_vote_cost_per_block >= FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND );
+  FD_TEST( limits->max_write_cost_per_acct >= FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND );
+
+  pack->lim->max_microblocks_per_block = limits->max_microblocks_per_block;
+  pack->lim->max_data_bytes_per_block  = limits->max_data_bytes_per_block;
+  pack->lim->max_cost_per_block        = limits->max_cost_per_block;
+  pack->lim->max_vote_cost_per_block   = limits->max_vote_cost_per_block;
+  pack->lim->max_write_cost_per_acct   = limits->max_write_cost_per_acct;
 }
 
 void
@@ -2391,6 +2399,9 @@ fd_pack_expire_before( fd_pack_t * pack,
 
 void
 fd_pack_end_block( fd_pack_t * pack ) {
+  /* rounded division */
+  ulong pct_cus_per_block = (pack->cumulative_block_cost*100UL + (pack->lim->max_cost_per_block>>1))/pack->lim->max_cost_per_block;
+  fd_histf_sample( pack->pct_cus_per_block,       pct_cus_per_block                                          );
   fd_histf_sample( pack->net_cus_per_block,       pack->cumulative_block_cost                                );
   fd_histf_sample( pack->rebated_cus_per_block,   pack->cumulative_rebated_cus                               );
   fd_histf_sample( pack->scheduled_cus_per_block, pack->cumulative_rebated_cus + pack->cumulative_block_cost );
@@ -2455,6 +2466,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   FD_MHIST_COPY( PACK, CUS_SCHEDULED,         pack->scheduled_cus_per_block );
   FD_MHIST_COPY( PACK, CUS_REBATED,           pack->rebated_cus_per_block   );
   FD_MHIST_COPY( PACK, CUS_NET,               pack->net_cus_per_block       );
+  FD_MHIST_COPY( PACK, CUS_PCT,               pack->pct_cus_per_block       );
 }
 
 static void

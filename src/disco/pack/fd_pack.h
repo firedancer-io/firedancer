@@ -17,9 +17,28 @@
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
    CHANGED WITHOUT COORDINATING WITH ANZA. */
-#define FD_PACK_MAX_COST_PER_BLOCK      (48000000UL)
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK (36000000UL)
-#define FD_PACK_MAX_WRITE_COST_PER_ACCT (12000000UL)
+
+/* These are bounds on known limits. Upper bound values are used to
+   calculate memory footprints while lower bounds are used for
+   initializing consensus-dependent logic and invariant checking.  As a
+   leader, it is OK to produce blocks using limits smaller than the
+   active on-chain limits. Replay should always use the correct
+   chain-derived limits.
+
+   The actual limits used by pack may be updated dynamically to some
+   in-bounds value. If there is an anticipated feature activation that
+   changes these limits, the upper bound should be the largest
+   anticipated value while the lower bound should be the current active
+   limit. For Frankendancer, the actual value used for consensus will be
+   retreived from Agave. */
+#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (48000000UL)
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
+
+#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (60000000UL) /* simd 0256 */
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND (36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND (12000000UL)
+
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 
 /* Each block is limited to 32k parity shreds.  We don't want pack to
@@ -202,20 +221,26 @@ FD_FN_PURE ulong fd_pack_current_block_cost( fd_pack_t const * pack );
 FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
 
 /* fd_pack_set_block_limits: Updates the limits provided fd_pack_new to
-   the new values.  Any future microblocks produced by this pack object
-   will not cause a block to have more than max_microblocks_per_block
-   non-empty microblocks or more than max_data_bytes_per_block data
-   bytes (counting microblock headers as before).  Limits are inclusive,
-   as per usual (i.e. a block may have exactly
-   max_microblocks_per_block microblocks, but not more).  pack must be
-   a valid local join.
+   these new values.  Any future microblocks produced by this pack
+   object will not cause a block to have more than
+   limits->max_microblocks_per_block non-empty microblocks or more than
+   limits->max_data_bytes_per_block data bytes (counting microblock
+   headers as before).  future microblocks will also exclude those that
+   cause the total block cost to exceed limits->max_cost_per_block.
+   Similarly those that cause the total vote-only cost to exceed
+   limits->max_vote_cost_per_block. Also, those that cause the total
+   per-account, per block write cost to exceed
+   limits->max_write_cost_per_acct.  Note that
+   limits->max_txn_per_microblock is ignored. Limits are inclusive, as
+   per usual (i.e. a block may have exactly max_microblocks_per_block
+   microblocks, but not more).  pack must be a valid local join.
 
    The typical place to call this is immediately after
    fd_pack_end_block; if this is called after some microblocks have been
    produced for the current block, and the current block already exceeds
    the limits, all the remaining microblocks in the block will be empty,
    but the call is valid. */
-void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block, ulong max_data_bytes_per_block );
+void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits );
 
 /* Return values for fd_pack_insert_txn_fini:  Non-negative values
    indicate the transaction was accepted and may be returned in a future
