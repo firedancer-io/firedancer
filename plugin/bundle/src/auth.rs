@@ -34,7 +34,9 @@ impl Interceptor for AuthInterceptor {
             "authorization",
             format!("Bearer {}", self.access_token.value)
                 .parse()
-                .unwrap(),
+                .map_err(|_| {
+                    Status::invalid_argument("Failed to parse authorization header")
+                })?,
         );
 
         Ok(request)
