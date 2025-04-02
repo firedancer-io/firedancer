@@ -2879,7 +2879,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   fd_update_next_epoch_stakes( slot_ctx );
 
   /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
-  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runtime_spad );
+  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->spad );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
 

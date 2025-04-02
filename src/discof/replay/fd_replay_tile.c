@@ -2039,7 +2039,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
                                               ctx->tpool,
                                               ctx->exec_spads,
                                               ctx->exec_spad_cnt,
-                                              ctx->runtime_spad );
+                                              ctx->epoch_ctx->spad );
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
