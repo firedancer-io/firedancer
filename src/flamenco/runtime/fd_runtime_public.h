@@ -2,8 +2,9 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_public_h
 
 #include "../fd_flamenco_base.h"
-#include "fd_runtime.h"
 #include "../features/fd_features.h"
+#include "../types/fd_types.h"
+#include "../../disco/pack/fd_microblock.h"
 
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
@@ -21,6 +22,55 @@
 #define FD_EXEC_STATE_TXN_DONE      (1<<4UL      )
 #define FD_EXEC_STATE_HASH_DONE     (1<<6UL      )
 #define FD_EXEC_STATE_BPF_SCAN_DONE (1<<7UL      )
+
+/* parallel execution apis ********************************************/
+
+/* If you need more than the current amount of arguments/ways to exec,
+   you need to update all uses of fd_exec_para_fn. */
+
+#define FD_EXEC_PARA_TPOOL (0UL)
+#define FD_EXEC_PARA_TILES (1UL)
+
+typedef void (*fd_exec_para_cb_fn_t)( void * para_arg_1,
+                                      void * para_arg_2,
+                                      void * arg_1,
+                                      void * arg_2,
+                                      void * arg_3,
+                                      void * arg_4 );
+
+struct fd_exec_para_cb_ctx {
+  uint                 num_args;
+  fd_exec_para_cb_fn_t func;
+  /* para_arg_{n} is used to pass arguments that are for the purpose of
+    multithreaded execution. fn_arg_{n} are used to pass arguments used
+    by the core business logic of the function. */
+  void *            para_arg_1;
+  void *            para_arg_2;
+  void *            fn_arg_1;
+  void *            fn_arg_2;
+  void *            fn_arg_3;
+  void *            fn_arg_4;
+};
+typedef struct fd_exec_para_cb_ctx fd_exec_para_cb_ctx_t;
+
+static void FD_FN_UNUSED
+fd_exec_para_call_func( fd_exec_para_cb_ctx_t * ctx ) {
+  ctx->func( ctx->para_arg_1,
+            ctx->para_arg_2,
+            ctx->fn_arg_1,
+            ctx->fn_arg_2,
+            ctx->fn_arg_3,
+            ctx->fn_arg_4 );
+}
+
+static int FD_FN_UNUSED
+fd_exec_para_cb_is_single_threaded( fd_exec_para_cb_ctx_t * ctx ) {
+  return ctx->para_arg_1==NULL && ctx->para_arg_2==NULL;
+}
+
+/**********************************************************************/
+
+/* exec fseq management apis ******************************************/
 
 static uint FD_FN_UNUSED
 fd_exec_fseq_get_state( ulong fseq ) {
@@ -160,7 +210,6 @@ fd_runtime_public_join( void * shmem );
 /* Returns a local join of the runtime spad */
 fd_spad_t *
 fd_runtime_public_join_and_get_runtime_spad( fd_runtime_public_t const * runtime_public );
-
 
 FD_PROTOTYPES_END
 

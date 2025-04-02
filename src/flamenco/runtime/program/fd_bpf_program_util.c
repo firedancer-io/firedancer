@@ -4,7 +4,6 @@
 #include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
-#include "../fd_runtime_public.h"
 
 #include <assert.h>
 
@@ -377,23 +376,29 @@ fd_bpf_scan_and_create_program_cache_entry_tpool_helper( fd_tpool_t *           
 }
 
 void
-tpool_wrapper( fd_funk_rec_t const * * recs,
-               uchar *                 is_bpf_program,
-               ulong                   rec_cnt,
-               fd_exec_slot_ctx_t *    slot_ctx,
-               va_list                 args ) {
-  fd_tpool_t * tpool = va_arg( args, fd_tpool_t * );
-  va_end( args );
+tpool_wrapper( void * para_arg_1,
+               void * para_arg_2 FD_PARAM_UNUSED,
+               void * fn_arg_1,
+               void * fn_arg_2,
+               void * fn_arg_3,
+               void * fn_arg_4 ) {
+
+  (void)para_arg_2; /* unused */
+
+  fd_tpool_t *            tpool          = (fd_tpool_t *)para_arg_1;
+  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const **)fn_arg_1;
+  uchar *                 is_bpf_program = (uchar *)fn_arg_2;
+  ulong                   rec_cnt        = (ulong)fn_arg_3;
+  fd_exec_slot_ctx_t *    slot_ctx       = (fd_exec_slot_ctx_t *)fn_arg_4;
+
   fd_bpf_scan_and_create_program_cache_entry_tpool_helper( tpool, recs, is_bpf_program, rec_cnt, slot_ctx );
 }
 
 int
-fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *  slot_ctx,
-                                                     fd_funk_txn_t *       funk_txn,
-                                                     fd_spad_t *           runtime_spad,
-                                                     bpf_para_wrapper_func wrapper_fn,
-                                                     int                   count,
-                                                     ... ) {
+fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slot_ctx,
+                                                     fd_funk_txn_t *         funk_txn,
+                                                     fd_spad_t *             runtime_spad,
+                                                     fd_exec_para_cb_ctx_t * exec_para_ctx ) {
   long        elapsed_ns = -fd_log_wallclock();
   fd_funk_t * funk       = slot_ctx->acc_mgr->funk;
   ulong       cached_cnt = 0UL;
@@ -429,13 +434,12 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *  slot_
         rec_cnt++;
       }
 
-      /* We need to pass in the var args into the wrapper function.
-         TODO: This is temporary and can be removed once we don't use
-         tpools in offline and live replay. */
-      va_list args;
-      va_start( args, count );
-      wrapper_fn( recs, is_bpf_program, rec_cnt, slot_ctx, args );
-      va_end( args );
+      /* Pass in args */
+      exec_para_ctx->fn_arg_1 = (void*)recs;
+      exec_para_ctx->fn_arg_2 = (void*)is_bpf_program;
+      exec_para_ctx->fn_arg_3 = (void*)rec_cnt;
+      exec_para_ctx->fn_arg_4 = (void*)slot_ctx;
+      fd_exec_para_call_func( exec_para_ctx );
 
       for( ulong i=0UL; i<rec_cnt; i++ ) {
         if( !is_bpf_program[ i ] ) {

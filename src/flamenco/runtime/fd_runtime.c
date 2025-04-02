@@ -7,6 +7,7 @@
 
 #include "fd_executor.h"
 #include "fd_cost_tracker.h"
+#include "fd_runtime_public.h"
 #include "fd_txncache.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
@@ -1600,11 +1601,16 @@ fd_account_hash_task( void * tpool,
 }
 
 void
-block_finalize_tpool_wrapper( fd_accounts_hash_task_data_t * task_data,
-                              ulong                          worker_cnt,
-                              fd_exec_slot_ctx_t *           slot_ctx,
-                              va_list                        args ) {
-  fd_tpool_t * tpool = va_arg( args, fd_tpool_t * );
+block_finalize_tpool_wrapper( void * para_arg_1,
+                              void * para_arg_2 FD_PARAM_UNUSED,
+                              void * arg_1,
+                              void * arg_2,
+                              void * arg_3,
+                              void * arg_4 FD_PARAM_UNUSED ) {
+  fd_tpool_t *                   tpool      = (fd_tpool_t *)para_arg_1;
+  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)arg_1;
+  ulong                          worker_cnt = (ulong)arg_2;
+  fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
 
   ulong cnt_per_worker = task_data->info_sz / (worker_cnt-1UL);
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
@@ -1620,7 +1626,6 @@ block_finalize_tpool_wrapper( fd_accounts_hash_task_data_t * task_data,
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     fd_tpool_wait( tpool, worker_idx );
   }
-
 }
 
 int
@@ -1629,18 +1634,16 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
                                         fd_runtime_block_info_t const *  block_info,
                                         ulong                            worker_cnt,
                                         fd_spad_t *                      runtime_spad,
-                                        block_finalize_para_wrapper_func block_finalize_wrapper,
-                                        int                              count,
-                                        ... ) {
+                                        fd_exec_para_cb_ctx_t *          exec_para_ctx ) {
 
   fd_accounts_hash_task_data_t * task_data = NULL;
 
   fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, worker_cnt );
 
-  va_list args;
-  va_start( args, count );
-  block_finalize_wrapper( task_data, worker_cnt, slot_ctx, args );
-  va_end( args );
+  exec_para_ctx->fn_arg_1 = (void*)task_data;
+  exec_para_ctx->fn_arg_2 = (void*)worker_cnt;
+  exec_para_ctx->fn_arg_3 = (void*)slot_ctx;
+  fd_exec_para_call_func( exec_para_ctx );
 
   fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, worker_cnt );
 
@@ -4008,7 +4011,19 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
       if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
         if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) {
-          fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &slot_ctx->slot_bank.epoch_account_hash, runtime_spad, 0, &slot_ctx->epoch_ctx->features );
+          (void)tpool;
+          fd_exec_para_cb_ctx_t exec_para_ctx = {
+            .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
+            .para_arg_1 = tpool
+          };
+
+          fd_accounts_hash( slot_ctx->acc_mgr->funk,
+                            &slot_ctx->slot_bank,
+                            &slot_ctx->slot_bank.epoch_account_hash,
+                            runtime_spad,
+                            0,
+                            &slot_ctx->epoch_ctx->features,
+                            &exec_para_ctx );
         }
         epoch_bank->eah_start_slot = ULONG_MAX;
       }
@@ -4080,7 +4095,18 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   }
 
   long block_finalize_time = -fd_log_wallclock();
-  res = fd_runtime_block_execute_finalize_para( slot_ctx, capture_ctx, block_info, fd_tpool_worker_cnt( tpool ), runtime_spad, block_finalize_tpool_wrapper, 1, tpool );
+
+  fd_exec_para_cb_ctx_t exec_para_ctx = {
+    .func       = block_finalize_tpool_wrapper,
+    .para_arg_1 = tpool
+  };
+
+  res = fd_runtime_block_execute_finalize_para( slot_ctx,
+                                                capture_ctx,
+                                                block_info,
+                                                fd_tpool_worker_cnt( tpool ),
+                                                runtime_spad,
+                                                &exec_para_ctx );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return res;
   }

@@ -25,6 +25,7 @@
 #include "info/fd_microblock_info.h"
 #include "../../ballet/bmtree/fd_wbmtree.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "fd_runtime_public.h"
 
 /* Various constant values used by the runtime. */
 
@@ -69,18 +70,13 @@
    can be up to 48M/300 writable accounts in a block. */
 #define FD_WRITABLE_ACCS_IN_SLOT (160000UL)
 
-/* This is the wrapper type used to multithread snapshot loading.
-   See tpool_wrapper and tiles_wrapper (in fd_replay_tile.c) */
-typedef void (*block_finalize_para_wrapper_func)( fd_accounts_hash_task_data_t * task_data,
-                                                  ulong                          worker_cnt,
-                                                  fd_exec_slot_ctx_t *           slot_ctx,
-                                                  va_list                        args );
-
 void
-block_finalize_tpool_wrapper( fd_accounts_hash_task_data_t * task_data,
-                              ulong                          worker_cnt,
-                              fd_exec_slot_ctx_t *           slot_ctx,
-                              va_list                        args );
+block_finalize_tpool_wrapper( void * para_arg_1,
+                              void * para_arg_2,
+                              void * arg_1,
+                              void * arg_2,
+                              void * arg_3,
+                              void * arg_4 );
 
 struct fd_execute_txn_task_info {
   fd_spad_t * *       spads;
@@ -546,9 +542,7 @@ fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ct
                                         fd_runtime_block_info_t const *  block_info,
                                         ulong                            worker_cnt,
                                         fd_spad_t *                      runtime_spad,
-                                        block_finalize_para_wrapper_func block_finalize_wrapper,
-                                        int                              count,
-                                        ... );
+                                        fd_exec_para_cb_ctx_t *          exec_para_ctx );
 
 /* Transaction Level Execution Management *************************************/
 

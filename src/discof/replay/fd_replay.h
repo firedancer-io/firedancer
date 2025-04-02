@@ -3,6 +3,7 @@
 
 #include "../../ballet/reedsol/fd_reedsol.h"
 
+
 /* This provides APIs for orchestrating replay of blocks as they are
    received from the cluster.
 

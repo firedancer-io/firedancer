@@ -451,7 +451,7 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
     FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done() );
   } else if( sig==EXEC_BPF_SCAN_SIG ) {
-    FD_LOG_NOTICE(( "Sending ack for bpf scan msg %u", ctx->bpf_id ));
+    FD_LOG_DEBUG(( "Sending ack for bpf scan msg %u", ctx->bpf_id ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_bpf_scan_done( ctx->bpf_id++ ) );
     if( FD_UNLIKELY( ctx->bpf_id==UINT_MAX ) ) {
       ctx->bpf_id = 0U;

@@ -453,7 +453,6 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
                                                          ulong                   rec_cnt,
                                                          fd_exec_slot_ctx_t *    slot_ctx ) {
 
-  FD_LOG_NOTICE(("STARTING LOOP NOW"));
   (void)slot_ctx; /* TODO: remove this */
   ulong cnt_per_worker = rec_cnt / ctx->exec_cnt;
 
@@ -518,7 +517,6 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
         ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
         uint  state = fd_exec_fseq_get_state( res );
         uint  id    = fd_exec_fseq_get_bpf_id( res );
-        FD_LOG_NOTICE(("tile=%lu, state=%u, id=%u prev_id=%u", i, state, id, prev_ids[i]));
         if( state==FD_EXEC_STATE_BPF_SCAN_DONE && id!=prev_ids[ i ] ) {
           scan_done[ i ] = 1;
           prev_ids[ i ]  = id;
@@ -534,28 +532,33 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
 }
 
 static void FD_FN_UNUSED
-bpf_tiles_wrapper( fd_funk_rec_t const * * recs,
-                   uchar *                 is_bpf_program,
-                   ulong                   rec_cnt,
-                   fd_exec_slot_ctx_t *    slot_ctx,
-                   va_list                 args ) {
-  FD_LOG_WARNING(("MAKE IT INTO THIS WRAPPER"));
-  fd_replay_tile_ctx_t * ctx  = va_arg( args, fd_replay_tile_ctx_t * );
-  fd_stem_context_t *    stem = va_arg( args, fd_stem_context_t * );
+bpf_tiles_cb( void * para_arg_1,
+              void * para_arg_2,
+              void * fn_arg_1,
+              void * fn_arg_2,
+              void * fn_arg_3,
+              void * fn_arg_4 ) {
+  fd_replay_tile_ctx_t *  ctx            = (fd_replay_tile_ctx_t *)para_arg_1;
+  fd_stem_context_t *     stem           = (fd_stem_context_t *)para_arg_2;
+  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const **)fn_arg_1;
+  uchar *                 is_bpf_program = (uchar *)fn_arg_2;
+  ulong                   rec_cnt        = (ulong)fn_arg_3;
+  fd_exec_slot_ctx_t *    slot_ctx       = (fd_exec_slot_ctx_t *)fn_arg_4;
   fd_bpf_scan_and_create_program_cache_entry_tiles_helper( ctx, stem, recs, is_bpf_program, rec_cnt, slot_ctx );
+
 }
 
 void
-block_finalize_tiles_wrapper( fd_accounts_hash_task_data_t * task_data,
-                              ulong                          worker_cnt,
-                              fd_exec_slot_ctx_t *           slot_ctx,
-                              va_list                        args ) {
+block_finalize_tiles_cb( void * para_arg_1,
+                         void * para_arg_2,
+                         void * fn_arg_1,
+                         void * fn_arg_2 FD_PARAM_UNUSED,
+                         void * fn_arg_3 FD_PARAM_UNUSED,
+                         void * fn_arg_4 FD_PARAM_UNUSED ) {
 
-  (void)worker_cnt;
-  (void)slot_ctx;
-
-  fd_replay_tile_ctx_t * ctx  = va_arg( args, fd_replay_tile_ctx_t * );
-  fd_stem_context_t *    stem = va_arg( args, fd_stem_context_t * );
+  fd_replay_tile_ctx_t *         ctx        = (fd_replay_tile_ctx_t *)para_arg_1;
+  fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
+  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
   ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
   ulong task_infos_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, task_data->info );
@@ -613,94 +616,6 @@ block_finalize_tiles_wrapper( fd_accounts_hash_task_data_t * task_data,
       break;
     }
   }
-
-}
-
-static void
-replay_block_finalize( fd_replay_tile_ctx_t *    ctx,
-                       fd_stem_context_t *       stem,
-                       fd_runtime_block_info_t * runtime_block_info ) {
-
-  // // /* TODO: Currently this is being done out of the exec tile. This
-  // //    should eventually be moved to the privleged writer tiles which have
-  // //    write access into the runtime spad. */
-
-  // //   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
-  // //   fd_accounts_hash_task_data_t * task_data = NULL;
-  // //   fd_runtime_block_execute_finalize_start( ctx->slot_ctx, ctx->runtime_spad, &task_data, ctx->exec_cnt );
-
-  //   ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
-  //   ulong task_infos_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, task_data->info );
-
-  //   for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
-
-  //     ulong lt_hash_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, &task_data->lthash_values[ worker_idx ] );
-  //     if( FD_UNLIKELY( !lt_hash_gaddr ) ) {
-  //       FD_LOG_ERR(( "lt_hash_gaddr is NULL" ));
-  //       return;
-  //     }
-
-  //     ulong start_idx = worker_idx * cnt_per_worker;
-  //     ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-  //                                                       fd_ulong_sat_sub( task_data->info_sz, 1UL );
-
-  //     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
-
-  //     fd_runtime_public_hash_bank_msg_t * hash_msg = (fd_runtime_public_hash_bank_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-  //     hash_msg->task_infos_gaddr = task_infos_gaddr;
-  //     hash_msg->lthash_gaddr     = lt_hash_gaddr;
-  //     hash_msg->start_idx        = start_idx;
-  //     hash_msg->end_idx          = end_idx;
-
-  //     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  //     fd_stem_publish( stem,
-  //                      exec_out->idx,
-  //                      EXEC_HASH_ACCS_SIG,
-  //                      exec_out->chunk,
-  //                      sizeof(fd_runtime_public_hash_bank_msg_t),
-  //                      0UL,
-  //                      tsorig,
-  //                      tspub );
-  //     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), exec_out->chunk0, exec_out->wmark );
-  //   }
-
-  //   /* Spins and blocks until all exec tiles are done hashing. */
-  //   uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
-  //   for( ;; ) {
-  //     uchar wait_cnt = 0;
-  //     for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-  //       if( !hash_done[ i ] ) {
-  //         ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-  //         uint  state = fd_exec_fseq_get_state( res );
-  //         if( state==FD_EXEC_STATE_HASH_DONE ) {
-  //           hash_done[ i ] = 1;
-  //         } else {
-  //           wait_cnt++;
-  //         }
-  //       }
-  //     }
-  //     if( !wait_cnt ) {
-  //       break;
-  //     }
-  //   }
-
-  //   fd_runtime_block_execute_finalize_finish( ctx->slot_ctx,
-  //                                             ctx->capture_ctx,
-  //                                             runtime_block_info,
-  //                                             ctx->runtime_spad,
-  //                                             task_data,
-  //                                             ctx->exec_cnt );
-
-  fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
-                                          ctx->capture_ctx,
-                                          runtime_block_info,
-                                          ctx->exec_cnt,
-                                          ctx->runtime_spad,
-                                          block_finalize_tiles_wrapper,
-                                          2,
-                                          ctx,
-                                          stem );
 
 }
 
@@ -1675,7 +1590,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   /* At this point we need to notify all of the exec tiles and tell them
     that a new slot is ready to be published. At this point, we should
     also mark the tile as not not being ready. */
-    send_exec_slot_msg( ctx, stem, ctx->slot_ctx );
+    send_exec_slot_msg( ctx, stem, fork->slot_ctx );
 
   /* We want to push on a spad frame before we start executing a block.
      Apart from allocations made at the epoch boundary, there should be no
@@ -2170,6 +2085,11 @@ read_snapshot( void *              _ctx,
                char const *        incremental ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
+  fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
+    .func = fd_accounts_hash_counter_and_gather_tpool_cb,
+    .para_arg_1 = ctx->tpool
+  };
+
   if( ctx->replay_plugin_out_mem ) {
     // ValidatorStartProgress::DownloadingSnapshot
     uchar msg[56];
@@ -2207,16 +2127,17 @@ read_snapshot( void *              _ctx,
     if( strlen( incremental )>0UL ) {
       uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
       /* TODO: enable snapshot verification */
+
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
                                                                     ctx->slot_ctx,
-                                                                    ctx->tpool,
                                                                     false,
                                                                     false,
                                                                     FD_SNAPSHOT_TYPE_FULL,
                                                                     ctx->exec_spads,
                                                                     ctx->exec_spad_cnt,
-                                                                    ctx->runtime_spad );
+                                                                    ctx->runtime_spad,
+                                                                    &exec_para_ctx_snap );
       /* Load the prefetch manifest, and initialize the status cache and slot context,
          so that we can use these to kick off repair. */
       fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
@@ -2234,13 +2155,13 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->slot_ctx,
-                                                              ctx->tpool,
-                                                              false,
+                                                              true,
                                                               false,
                                                               FD_SNAPSHOT_TYPE_FULL,
                                                               ctx->exec_spads,
                                                               ctx->exec_spad_cnt,
-                                                              ctx->runtime_spad );
+                                                              ctx->runtime_spad,
+                                                              &exec_para_ctx_snap );
 
     fd_snapshot_load_init( snap_ctx );
 
@@ -2305,13 +2226,16 @@ read_snapshot( void *              _ctx,
                              ctx->runtime_spad );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+
+  fd_exec_para_cb_ctx_t exec_para_ctx = {
+    .func       = bpf_tiles_cb,
+    .para_arg_1 = ctx,
+    .para_arg_2 = stem
+  };
   fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
                                                        ctx->slot_ctx->funk_txn,
                                                        ctx->runtime_spad,
-                                                       bpf_tiles_wrapper,
-                                                       2,
-                                                       ctx,
-                                                       stem );
+                                                       &exec_para_ctx );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
@@ -2356,23 +2280,36 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
-    /* TODO: replay_block_finalize() does a nested stem_publish that
-       should be unrolled into after_frag() or after_credit() */
-    replay_block_finalize( ctx, stem, &info );
+
+    fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
+      .func       = block_finalize_tiles_cb,
+      .para_arg_1 = ctx,
+      .para_arg_2 = stem,
+    };
+
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
+                                            ctx->capture_ctx,
+                                            &info,
+                                            ctx->exec_cnt,
+                                            ctx->runtime_spad,
+                                            &exec_para_ctx_block_finalize );
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot_bank.slot      = 1UL;
     snapshot_slot                      = 1UL;
+
+    fd_exec_para_cb_ctx_t exec_para_ctx_bpf = {
+      .func       = bpf_tiles_cb,
+      .para_arg_1 = ctx,
+      .para_arg_2 = stem
+    };
 
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
     fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
     fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
                                                          ctx->slot_ctx->funk_txn,
                                                          ctx->runtime_spad,
-                                                         bpf_tiles_wrapper,
-                                                         2,
-                                                         ctx,
-                                                         stem );
+                                                         &exec_para_ctx_bpf );
     fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
@@ -2689,9 +2626,18 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     ctx->block_finalizing = 0;
 
-    /* TODO: There is currently a nested stem_publish in
-       replay_block_finalize() that should be unrolled. */
-    replay_block_finalize( ctx, stem, runtime_block_info );
+    fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
+      .func       = block_finalize_tiles_cb,
+      .para_arg_1 = ctx,
+      .para_arg_2 = stem,
+    };
+
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
+                                            ctx->capture_ctx,
+                                            runtime_block_info,
+                                            ctx->exec_cnt,
+                                            ctx->runtime_spad,
+                                            &exec_para_ctx_block_finalize );
 
     fd_spad_pop( ctx->runtime_spad );
     FD_LOG_NOTICE(( "Spad memory after executing block %lu", ctx->runtime_spad->mem_used ));
