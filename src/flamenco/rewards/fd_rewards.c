@@ -325,7 +325,7 @@ calculate_points_tpool( void  *tpool,
   ulong                             minimum_stake_delegation       = task_args->minimum_stake_delegation;
 
   uint128 total_points = 0;
-  for( ulong i=m0; i<m1; i++ ) {
+  for( ulong i=m0; i<=m1; i++ ) {
     fd_epoch_info_pair_t const * stake_info = stake_infos + i;
     fd_stake_t const *           stake      = &stake_info->stake;
 
@@ -393,8 +393,20 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
     .total_points                   = &points,
   };
 
-  fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_points_tpool,
-                           temp_info->stake_infos, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
+  ulong wcnt           = fd_tpool_worker_cnt( tpool );
+  ulong cnt_per_worker = temp_info->stake_infos_len / (wcnt-1UL);
+  for( ulong worker_idx=1UL; worker_idx<fd_tpool_worker_cnt( tpool ); worker_idx++ ) {
+    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                             fd_ulong_sat_sub( temp_info->stake_infos_len, 1UL );
+    fd_tpool_exec( tpool, worker_idx, calculate_points_tpool, temp_info->stake_infos, 0UL, 0UL,
+                   &task_args, NULL, 0UL, 0UL, 0UL,
+                   start_idx, end_idx, 0UL, 0UL );
+  }
+
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    fd_tpool_wait( tpool, worker_idx );
+  }
 
   if( points > 0 ) {
     result->points  = points;
@@ -436,7 +448,7 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
                                                                                  m1-m0 ) );
   fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
 
-  for( ulong i=m0; i<m1; i++ ) {
+  for( ulong i=m0; i<=m1; i++ ) {
     fd_epoch_info_pair_t const * stake_info = stake_infos + i;
     fd_pubkey_t const *          stake_acc  = &stake_info->account;
     fd_stake_t const *           stake      = &stake_info->stake;
@@ -640,9 +652,21 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   };
 
   /* Loop over all the delegations
-     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L367  */
-  fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_stake_vote_rewards_account_tpool,
-                           temp_info, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
+     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L367 */
+  ulong wcnt           = fd_tpool_worker_cnt( tpool );
+  ulong cnt_per_worker = temp_info->stake_infos_len / (wcnt-1UL);
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+    ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                             fd_ulong_sat_sub( temp_info->stake_infos_len, 1UL );
+    fd_tpool_exec( tpool, worker_idx, calculate_stake_vote_rewards_account_tpool, temp_info, 0UL, 0UL,
+                    &task_args, NULL, 0UL, 0UL, 0UL, start_idx, end_idx, 0UL, 0UL );
+  }
+
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+    fd_tpool_wait( tpool, worker_idx );
+  }
+
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
