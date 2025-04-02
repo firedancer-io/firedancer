@@ -19,6 +19,9 @@ $(call add-objs,fd_h2_conn,fd_waltz)
 $(call add-hdrs,fd_h2_hdr_match.h)
 $(call add-objs,fd_h2_hdr_match,fd_waltz)
 
+$(call add-hdrs,fd_h2_tx.h)
+$(call add-objs,fd_h2_tx,fd_waltz)
+
 # Tests
 $(call make-unit-test,test_h2,test_h2,fd_waltz fd_ballet fd_util)
 $(call run-unit-test,test_h2)
