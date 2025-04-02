@@ -44,11 +44,11 @@ main( int     argc,
      traffic instead of running real QUIC clients. */
 
   fd_quic_limits_t quic_limits = {
-    .conn_cnt         = conn_cnt,
-    .handshake_cnt    =        1,
-    .conn_id_cnt      =        4,
-    .inflight_pkt_cnt =        4 * conn_cnt,
-    .tx_buf_sz        =        0
+    .conn_cnt           =     conn_cnt,
+    .handshake_cnt      =            1,
+    .conn_id_cnt        =            4,
+    .inflight_frame_cnt = 4 * conn_cnt,
+    .tx_buf_sz          =            0
   };
   quic_limits.stream_pool_cnt = quic_limits.conn_cnt;
   FD_LOG_INFO(( "fd_quic limits: conn_cnt=%lu conn_id_cnt=%lu stream_pool_cnt=%lu",

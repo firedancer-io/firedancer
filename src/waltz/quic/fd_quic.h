@@ -110,10 +110,10 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
   ulong  handshake_cnt;             /* instance-wide, max concurrent handshake count  */
   ulong  log_depth;                 /* instance-wide, depth of shm log cache          */
 
-  ulong  conn_id_cnt;               /* per-conn, max conn ID count (min 4UL)          */
-  ulong  stream_id_cnt;             /* per-conn, max concurrent stream ID count       */
-  ulong  inflight_pkt_cnt;          /* instance-wide, total max inflight packet count */
-  ulong  min_inflight_pkt_cnt_conn; /* per-conn, min inflight packet count            */
+  ulong  conn_id_cnt;                 /* per-conn, max conn ID count (min 4UL)          */
+  ulong  stream_id_cnt;               /* per-conn, max concurrent stream ID count       */
+  ulong  inflight_frame_cnt;          /* instance-wide, total max inflight frame count  */
+  ulong  min_inflight_frame_cnt_conn; /* per-conn, min inflight frame count             */
 
   ulong  tx_buf_sz;                 /* per-stream, tx buf sz in bytes                 */
   /* the user consumes rx directly from the network buffer */
