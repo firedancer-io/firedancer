@@ -90,7 +90,7 @@ fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
   return;
 }
 
-/* fd_h2_rbuf_peek_frag returns a pointer to the first contiguous
+/* fd_h2_rbuf_peek_used returns a pointer to the first contiguous
    fragment of unconsumed data.  *sz is set to the number of contiguous
    bytes starting at rbuf->lo.  *split_sz is set to the number of bytes
    that are unconsumed, but in a separate fragment.  The caller may
@@ -98,7 +98,7 @@ fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
    immediately afterwards. */
 
 static inline uchar *
-fd_h2_rbuf_peek_frag( fd_h2_rbuf_t * rbuf,
+fd_h2_rbuf_peek_used( fd_h2_rbuf_t * rbuf,
                       ulong *        sz,
                       ulong *        split_sz ) {
   ulong used_sz = fd_h2_rbuf_used_sz( rbuf );
@@ -118,6 +118,30 @@ fd_h2_rbuf_peek_frag( fd_h2_rbuf_t * rbuf,
   return lo;
 }
 
+/* fd_h2_rbuf_peek_free is like fd_h2_rbuf_peek_used, but refers to the
+   free region. */
+
+static inline uchar *
+fd_h2_rbuf_peek_free( fd_h2_rbuf_t * rbuf,
+                      ulong *        sz,
+                      ulong *        split_sz ) {
+  ulong free_sz = fd_h2_rbuf_free_sz( rbuf );
+  uchar * buf0 = rbuf->buf0;
+  uchar * buf1 = rbuf->buf1;
+  uchar * lo   = rbuf->lo;
+  uchar * hi   = rbuf->hi;
+  uchar * end  = hi+free_sz;
+  /* FIXME make this branchless */
+  if( end<=buf1 ) {
+    *sz       = (ulong)( buf1 - hi );
+    *split_sz = 0UL;
+  } else {
+    *sz       = (ulong)( buf1 - hi );
+    *split_sz = (ulong)( buf0 - lo );
+  }
+  return hi;
+}
+
 /* fd_h2_rbuf_skip frees n bytes from rbuf.  Freeing more bytes than
    returned by fd_h2_rbuf_used_sz corrupts the buffer state. */
 
@@ -133,6 +157,22 @@ fd_h2_rbuf_skip( fd_h2_rbuf_t * rbuf,
     lo -= bufsz;
   }
   rbuf->lo = lo;
+}
+
+/* fd_h2_rbuf_alloc marks the next n free bytes as used. */
+
+static inline void
+fd_h2_rbuf_alloc( fd_h2_rbuf_t * rbuf,
+                   ulong          n ) {
+  uchar * hi    = rbuf->hi;
+  ulong   bufsz = rbuf->bufsz;
+  uchar * buf1  = rbuf->buf1;
+  rbuf->hi_off += n;
+  hi += n;
+  if( FD_UNLIKELY( hi>=buf1 ) ) {
+    hi -= bufsz;
+  }
+  rbuf->hi = hi;
 }
 
 /* fd_h2_rbuf_pop consumes n bytes from rbuf.  n is the number of bytes
@@ -190,6 +230,11 @@ fd_h2_rbuf_pop_copy( fd_h2_rbuf_t * rbuf,
     fd_memcpy( out, lo, n );
   }
   rbuf->lo = end;
+}
+
+FD_FN_PURE static inline int
+fd_h2_rbuf_is_empty( fd_h2_rbuf_t const * rbuf ) {
+  return rbuf->lo_off==rbuf->hi_off;
 }
 
 FD_PROTOTYPES_END
