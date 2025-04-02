@@ -9,11 +9,12 @@
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
 
-#define EXEC_NEW_SLOT_SIG  (0xABC123UL)
-#define EXEC_NEW_EPOCH_SIG (0xDEF456UL)
-#define EXEC_NEW_TXN_SIG   (0x777777UL)
-#define EXEC_HASH_ACCS_SIG (0x888888UL)
-#define EXEC_BPF_SCAN_SIG  (0x999991UL)
+#define EXEC_NEW_SLOT_SIG       (0xABC123UL)
+#define EXEC_NEW_EPOCH_SIG      (0xDEF456UL)
+#define EXEC_NEW_TXN_SIG        (0x777777UL)
+#define EXEC_HASH_ACCS_SIG      (0x888888UL)
+#define EXEC_BPF_SCAN_SIG       (0x999991UL)
+#define EXEC_SNAP_HASH_ACCS_SIG (0x191992UL)
 
 #define FD_EXEC_STATE_NOT_BOOTED    (0xFFFFFFFFUL)
 #define FD_EXEC_STATE_BOOTED        (1<<1UL      )

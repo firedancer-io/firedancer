@@ -15,6 +15,22 @@ struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
 
+struct fd_pubkey_hash_pair_list {
+  fd_pubkey_hash_pair_t * pairs;
+  ulong pairs_len;
+};
+typedef struct fd_pubkey_hash_pair_list fd_pubkey_hash_pair_list_t;
+
+struct fd_subrange_task_info {
+  fd_features_t *              features;
+  fd_funk_t *                  funk;
+  ulong                        num_lists;
+  fd_pubkey_hash_pair_list_t * lists;
+  fd_lthash_value_t *          lthash_values;
+};
+typedef struct fd_subrange_task_info fd_subrange_task_info_t;
+
+
 struct fd_accounts_hash_task_info {
   fd_exec_slot_ctx_t *  slot_ctx;
   fd_pubkey_t           acc_pubkey[1];

@@ -445,15 +445,47 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-static void
-fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t *  ctx,
-                                                         fd_stem_context_t *     stem,
-                                                         fd_funk_rec_t const * * recs,
-                                                         uchar *                 is_bpf_program,
-                                                         ulong                   rec_cnt,
-                                                         fd_exec_slot_ctx_t *    slot_ctx ) {
+static void FD_FN_UNUSED
+snap_hash_tiles_cb( void * para_arg_1,
+                    void * para_arg_2,
+                    void * fn_arg_1,
+                    void * fn_arg_2 FD_PARAM_UNUSED,
+                    void * fn_arg_3 FD_PARAM_UNUSED,
+                    void * fn_arg_4 FD_PARAM_UNUSED ) {
 
-  (void)slot_ctx; /* TODO: remove this */
+  fd_replay_tile_ctx_t *    ctx       = (fd_replay_tile_ctx_t *)para_arg_1;
+  fd_stem_context_t *       stem      = (fd_stem_context_t *)para_arg_2;
+  fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)fn_arg_1;
+
+
+  ulong num_lists = ctx->exec_cnt;
+  FD_LOG_NOTICE(( "launching %lu hash tasks", num_lists ));
+  fd_pubkey_hash_pair_list_t * lists         = fd_spad_alloc( ctx->runtime_spad, alignof(fd_pubkey_hash_pair_list_t), num_lists * sizeof(fd_pubkey_hash_pair_list_t) );
+  fd_lthash_value_t *          lthash_values = fd_spad_alloc( ctx->runtime_spad, FD_LTHASH_VALUE_ALIGN, num_lists * FD_LTHASH_VALUE_FOOTPRINT );
+  for( ulong i = 0; i < num_lists; i++ ) {
+    fd_lthash_zero(&lthash_values[i] );
+  }
+
+  task_info->num_lists     = num_lists;
+  task_info->lists         = lists;
+  task_info->lthash_values = lthash_values;
+
+
+}
+
+static void FD_FN_UNUSED
+bpf_tiles_cb( void * para_arg_1,
+              void * para_arg_2,
+              void * fn_arg_1,
+              void * fn_arg_2,
+              void * fn_arg_3,
+              void * fn_arg_4 FD_PARAM_UNUSED ) {
+  fd_replay_tile_ctx_t *  ctx            = (fd_replay_tile_ctx_t *)para_arg_1;
+  fd_stem_context_t *     stem           = (fd_stem_context_t *)para_arg_2;
+  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const **)fn_arg_1;
+  uchar *                 is_bpf_program = (uchar *)fn_arg_2;
+  ulong                   rec_cnt        = (ulong)fn_arg_3;
+
   ulong cnt_per_worker = rec_cnt / ctx->exec_cnt;
 
   ulong recs_gaddr   = fd_wksp_gaddr( ctx->runtime_public_wksp, recs );
@@ -529,22 +561,6 @@ fd_bpf_scan_and_create_program_cache_entry_tiles_helper( fd_replay_tile_ctx_t * 
       break;
     }
   }
-}
-
-static void FD_FN_UNUSED
-bpf_tiles_cb( void * para_arg_1,
-              void * para_arg_2,
-              void * fn_arg_1,
-              void * fn_arg_2,
-              void * fn_arg_3,
-              void * fn_arg_4 ) {
-  fd_replay_tile_ctx_t *  ctx            = (fd_replay_tile_ctx_t *)para_arg_1;
-  fd_stem_context_t *     stem           = (fd_stem_context_t *)para_arg_2;
-  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const **)fn_arg_1;
-  uchar *                 is_bpf_program = (uchar *)fn_arg_2;
-  ulong                   rec_cnt        = (ulong)fn_arg_3;
-  fd_exec_slot_ctx_t *    slot_ctx       = (fd_exec_slot_ctx_t *)fn_arg_4;
-  fd_bpf_scan_and_create_program_cache_entry_tiles_helper( ctx, stem, recs, is_bpf_program, rec_cnt, slot_ctx );
 
 }
 
@@ -2122,27 +2138,28 @@ read_snapshot( void *              _ctx,
        stake weights. After this, repair will kick off concurrently with loading
        the rest of the snapshots. */
 
-    /* TODO: enable snapshot verification for all 3 snapshot loads */
+    /* TODO: enable snapshot verification for all 3 snapshot loads.
+       TODO: If prefetching the manifest is enabled it leads to
+       incorrect snapshot loads. This needs to be looked into. */
+    // if( strlen( incremental )>0UL ) {
+    //   uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+    //   /* TODO: enable snapshot verification */
 
-    if( strlen( incremental )>0UL ) {
-      uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-      /* TODO: enable snapshot verification */
-
-      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
-                                                                    incremental,
-                                                                    ctx->slot_ctx,
-                                                                    false,
-                                                                    false,
-                                                                    FD_SNAPSHOT_TYPE_FULL,
-                                                                    ctx->exec_spads,
-                                                                    ctx->exec_spad_cnt,
-                                                                    ctx->runtime_spad,
-                                                                    &exec_para_ctx_snap );
-      /* Load the prefetch manifest, and initialize the status cache and slot context,
-         so that we can use these to kick off repair. */
-      fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
-      kickoff_repair_orphans( ctx, stem );
-    }
+    //   fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
+    //                                                                 incremental,
+    //                                                                 ctx->slot_ctx,
+    //                                                                 false,
+    //                                                                 false,
+    //                                                                 FD_SNAPSHOT_TYPE_FULL,
+    //                                                                 ctx->exec_spads,
+    //                                                                 ctx->exec_spad_cnt,
+    //                                                                 ctx->runtime_spad,
+    //                                                                 &exec_para_ctx_snap );
+    //   /* Load the prefetch manifest, and initialize the status cache and slot context,
+    //      so that we can use these to kick off repair. */
+    //   fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
+    //   kickoff_repair_orphans( ctx, stem );
+    // }
 
     /* In order to kick off repair effectively we need the snapshot slot and
        the stake weights. These are both available in the manifest. We will

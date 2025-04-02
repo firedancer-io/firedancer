@@ -38,12 +38,6 @@ fd_pubkey_hash_pair_compare(fd_pubkey_hash_pair_t const * a, fd_pubkey_hash_pair
 #define FD_ACCOUNT_DELTAS_MERKLE_FANOUT (16UL)
 #define FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT (16UL)
 
-struct fd_pubkey_hash_pair_list {
-  fd_pubkey_hash_pair_t * pairs;
-  ulong pairs_len;
-};
-typedef struct fd_pubkey_hash_pair_list fd_pubkey_hash_pair_list_t;
-
 static void
 fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_hash_t * hash ) {
   fd_sha256_t shas[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT];
@@ -970,15 +964,6 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
   fd_lthash_add( &lthash_values_out[range_idx], &accum  );
 }
 
-struct fd_subrange_task_info {
-  fd_features_t *              features;
-  fd_funk_t *                  funk;
-  ulong                        num_lists;
-  fd_pubkey_hash_pair_list_t * lists;
-  fd_lthash_value_t *          lthash_values;
-};
-typedef struct fd_subrange_task_info fd_subrange_task_info_t;
-
 static void
 fd_accounts_sorted_subrange_count_task( void *tpool,
                                         ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
@@ -1015,9 +1000,9 @@ fd_accounts_hash_counter_and_gather_tpool_cb( void * para_arg_1,
                                               void * fn_arg_2,
                                               void * fn_arg_3 FD_PARAM_UNUSED,
                                               void * fn_arg_4 FD_PARAM_UNUSED ) {
-  fd_tpool_t *    tpool        = (fd_tpool_t *)para_arg_1;
-  fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)fn_arg_1;
-  fd_spad_t *     runtime_spad = (fd_spad_t *)fn_arg_2;
+  fd_tpool_t *              tpool        = (fd_tpool_t *)para_arg_1;
+  fd_subrange_task_info_t * task_info    = (fd_subrange_task_info_t *)fn_arg_1;
+  fd_spad_t *               runtime_spad = (fd_spad_t *)fn_arg_2;
 
   ulong num_lists = fd_tpool_worker_cnt( tpool ) - 1UL;
 
@@ -1303,7 +1288,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
                   fd_exec_para_cb_ctx_t * exec_para_ctx ) {
   (void)check_hash;
 
-  if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) || true) {
+  if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
     FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
     fd_sha256_t h;
     fd_hash_t   hash;
@@ -1314,23 +1299,21 @@ fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
                       FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash ),
                       &slot_ctx->epoch_ctx->features,
                       exec_para_ctx );
-    FD_LOG_NOTICE(("HASH INTER %s", FD_BASE58_ENC_32_ALLOCA( &hash)));
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, accounts_hash );
-    FD_LOG_NOTICE(("HASH INTER %s", FD_BASE58_ENC_32_ALLOCA( &accounts_hash)));
     return 0;
   }
 
-  // return fd_accounts_hash( slot_ctx->acc_mgr->funk,
-  //                          &slot_ctx->slot_bank,
-  //                          accounts_hash,
-  //                          runtime_spad,
-  //                          FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash ),
-  //                          &slot_ctx->epoch_ctx->features,
-  //                          exec_para_ctx );
+  return fd_accounts_hash( slot_ctx->acc_mgr->funk,
+                           &slot_ctx->slot_bank,
+                           accounts_hash,
+                           runtime_spad,
+                           FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash ),
+                           &slot_ctx->epoch_ctx->features,
+                           exec_para_ctx );
 }
 
 int
