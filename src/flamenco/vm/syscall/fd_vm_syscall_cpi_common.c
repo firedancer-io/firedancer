@@ -53,12 +53,13 @@ TODO: return codes/errors?
 */
 #define VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_instruction_to_instr_, VM_SYSCALL_CPI_ABI)
 static int
-VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
-                            VM_SYSCALL_CPI_INSTR_T const * cpi_instr,
-                            VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_metas,
-                            fd_pubkey_t const * program_id,
-                            uchar const * cpi_instr_data,
-                            fd_instr_info_t * out_instr ) {
+VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
+                                          VM_SYSCALL_CPI_INSTR_T const *    cpi_instr,
+                                          VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_metas,
+                                          fd_pubkey_t const *               program_id,
+                                          uchar const *                     cpi_instr_data,
+                                          fd_instr_info_t *                 out_instr,
+                                          fd_pubkey_t                       out_instr_acct_keys[ FD_INSTR_ACCT_MAX ] ) {
   out_instr->program_id = UCHAR_MAX;
   out_instr->data_sz    = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
   out_instr->data       = (uchar *)cpi_instr_data;
@@ -79,6 +80,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   for( ushort i=0; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
     fd_pubkey_t const * pubkey = fd_type_pun_const( VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta ) );
+    memcpy( &out_instr_acct_keys[i], pubkey, sizeof(fd_pubkey_t) );
 
     /* The parent flag(s) for is writable/signer is checked in
        fd_vm_prepare_instruction. Signer privilege is allowed iff the account
@@ -507,8 +509,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     }
 
     if( !found ) {
-      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L966
-       */
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L966 */
       FD_BASE58_ENCODE_32_BYTES( account_key->uc, id_b58 );
       fd_log_collector_msg_many( vm->instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
@@ -858,9 +859,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
+  fd_pubkey_t cpi_instr_acct_keys[ FD_INSTR_ACCT_MAX ];
   fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->cpi_instr_infos[ vm->instr_ctx->txn_ctx->cpi_instr_info_cnt++ ];
 
-  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
+  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute, cpi_instr_acct_keys );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -869,7 +871,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      before we can pass an instruction to the executor. */
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
-  err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, program_id, cpi_instr_acct_keys, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   /* Errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
 

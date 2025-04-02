@@ -60,7 +60,9 @@ This would allow us to make some of these algorithms more efficient.
 int
 fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
-                           fd_instruction_account_t instruction_accounts[256],
+                           fd_pubkey_t const *      callee_program_id_pubkey,
+                           fd_pubkey_t const        instr_acct_keys[ FD_INSTR_ACCT_MAX ],
+                           fd_instruction_account_t instruction_accounts[ FD_INSTR_ACCT_MAX ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt ) {
@@ -81,7 +83,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     if( index_in_transaction==USHORT_MAX ) {
       /* In this case the callee instruction is referencing an unknown account not listed in the
          transactions accounts. */
-      fd_log_collector_msg_many( instr_ctx, 1, "Instruction references an unknown account with instruction index ", 42UL, i );
+      FD_BASE58_ENCODE_32_BYTES( instr_acct_keys[i].uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -183,19 +186,6 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
-  }
-
-  /* Get the program id pubkey. Note that since we are using the callee instruction's program_id,
-     we directly call fd_exec_txn_ctx_get_key_of_account_at_index because the program_id index
-     is a transaction-wide index.
-     https://github.com/anza-xyz/agave/blob/v2.2.0/program-runtime/src/invoke_context.rs#L426 */
-  fd_pubkey_t const * callee_program_id_pubkey = NULL;
-  int err = fd_exec_txn_ctx_get_key_of_account_at_index(instr_ctx->txn_ctx,
-                                                        callee_instr->program_id,
-                                                        &callee_program_id_pubkey );
-  if( FD_UNLIKELY( err ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->instr_err_idx );
-    return err;
   }
 
   if( FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, lift_cpi_caller_restriction ) ) {
