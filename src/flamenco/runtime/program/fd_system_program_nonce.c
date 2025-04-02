@@ -311,8 +311,8 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
                                           ulong                 requested_lamports,
                                           fd_rent_t const *     rent ) {
   int err;
-  ulong const from_acct_idx = 0UL;
-  ulong const to_acct_idx   = 1UL;
+  ushort const from_acct_idx = 0UL;
+  ushort const to_acct_idx   = 1UL;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L82-L83 */
 
@@ -852,7 +852,7 @@ fd_system_program_exec_authorize_nonce_account( fd_exec_instr_ctx_t * ctx,
 int
 fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   int err;
-  ulong const nonce_acct_idx = 0UL;
+  ushort const nonce_acct_idx = 0UL;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L489 */
 
