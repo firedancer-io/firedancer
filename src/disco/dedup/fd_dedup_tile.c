@@ -183,6 +183,8 @@ after_frag( fd_dedup_ctx_t *    ctx,
     /* Make sure bundles don't contain a duplicate transaction inside
        the bundle, which would not be valid. */
 
+    if( FD_UNLIKELY( ctx->bundle_idx>4UL ) ) FD_LOG_ERR(( "bundle_idx %lu > 4", ctx->bundle_idx ));
+
     for( ulong i=0UL; i<ctx->bundle_idx; i++ ) {
       if( !memcmp( ctx->bundle_signatures[ i ], fd_txn_m_payload( txnm )+txn->signature_off, 64UL ) ) {
         is_dup = 1;
@@ -190,8 +192,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
       }
     }
 
-    if( FD_UNLIKELY( ctx->bundle_idx>4UL ) ) FD_LOG_ERR(( "bundle_idx %lu > 4", ctx->bundle_idx ));
-    else if( FD_UNLIKELY( ctx->bundle_idx==4UL ) ) ctx->bundle_idx++;
+    if( FD_UNLIKELY( ctx->bundle_idx==4UL ) ) ctx->bundle_idx++;
     else fd_memcpy( ctx->bundle_signatures[ ctx->bundle_idx++ ], fd_txn_m_payload( txnm )+txn->signature_off, 64UL );
   }
 
