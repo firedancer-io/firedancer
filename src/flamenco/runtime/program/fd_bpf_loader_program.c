@@ -1413,12 +1413,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L901-L906 */
+      /* Don't check the error here because the new_authority key is allowed to be NULL until further checks.
+         https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L901-L906 */
       fd_pubkey_t const * new_authority = NULL;
-      err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 2UL, &new_authority );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
+      fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 2UL, &new_authority );
 
       fd_bpf_upgradeable_loader_state_t * account_state = fd_bpf_loader_program_get_state( account.acct,
                                                                                            spad,
