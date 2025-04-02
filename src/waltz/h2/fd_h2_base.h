@@ -17,8 +17,17 @@
 
 /* Forward declarations for all objects */
 
+struct fd_h2_callbacks;
+typedef struct fd_h2_callbacks fd_h2_callbacks_t;
+
 struct fd_h2_rbuf;
 typedef struct fd_h2_rbuf fd_h2_rbuf_t;
+
+struct fd_h2_conn;
+typedef struct fd_h2_conn fd_h2_conn_t;
+
+struct fd_h2_stream;
+typedef struct fd_h2_stream fd_h2_stream_t;
 
 /* HTTP/2 error codes
    https://www.iana.org/assignments/http2-parameters/http2-parameters.xhtml#error-code */
@@ -37,5 +46,15 @@ typedef struct fd_h2_rbuf fd_h2_rbuf_t;
 #define FD_H2_ERR_ENHANCE_YOUR_CALM     0x0b
 #define FD_H2_ERR_INADEQUATE_SECURITY   0x0c
 #define FD_H2_ERR_HTTP_1_1_REQUIRED     0x0d
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_h2_strerror returns a static-lifetime cstr briefly describing the
+   given FD_H2_ERR_* code. */
+
+FD_FN_CONST char const *
+fd_h2_strerror( uint err );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_h2_fd_h2_base */
