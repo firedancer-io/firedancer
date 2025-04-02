@@ -3,7 +3,7 @@
 
 #include "fd_h2_rbuf.h"
 
-#if FD_HAS_HOSTED
+#if FD_H2_HAS_SOCKETS
 
 #include <errno.h>
 #include <sys/socket.h>
@@ -147,6 +147,6 @@ fd_h2_rbuf_sendmsg( fd_h2_rbuf_t * rbuf,
   return 0;
 }
 
-#endif /* FD_HAS_HOSTED */
+#endif /* FD_H2_HAS_SOCKETS */
 
 #endif /* HEADER_fd_src_waltz_h2_fd_h2_rbuf_sock_h */

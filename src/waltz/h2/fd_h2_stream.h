@@ -10,14 +10,14 @@ struct fd_h2_stream {
   uint  stream_id;
   uchar state;
   uchar hdrs_seq;
-};
 
-typedef struct fd_h2_stream fd_h2_stream_t;
+  uint tx_wnd; /* transmit quota available */
+};
 
 #define FD_H2_STREAM_STATE_IDLE       0
 #define FD_H2_STREAM_STATE_OPEN       1
-#define FD_H2_STREAM_STATE_CLOSING_TX 2
-#define FD_H2_STREAM_STATE_CLOSING_RX 3
+#define FD_H2_STREAM_STATE_CLOSING_TX 2 /* half-closed (local) */
+#define FD_H2_STREAM_STATE_CLOSING_RX 3 /* half-closed (remote) */
 #define FD_H2_STREAM_STATE_CLOSED     4
 #define FD_H2_STREAM_STATE_ILLEGAL    5
 
@@ -31,59 +31,83 @@ fd_h2_stream_init( fd_h2_stream_t * stream,
 }
 
 static inline void
-fd_h2_stream_close( fd_h2_stream_t * stream,
-                    fd_h2_conn_t *   conn ) {
-  if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_CLOSED ) ) return;
-  if( ( (stream->stream_id&1) == (conn->rx_stream_id&1) ) &
-      ( stream->state != FD_H2_STREAM_STATE_CLOSED      ) ) {
-    conn->rx_active--;
-  }
-  stream->state = FD_H2_STREAM_STATE_CLOSED;
+fd_h2_stream_private_deactivate( fd_h2_stream_t * stream,
+                                 fd_h2_conn_t *   conn ) {
+  conn->stream_active_cnt[ (stream->stream_id&1) ^ (conn->rx_stream_id&1) ]--;
 }
 
 static inline void
-fd_h2_stream_rx_end( fd_h2_stream_t * stream ) {
-  if( stream->state == FD_H2_STREAM_STATE_OPEN ) {
+fd_h2_stream_close_rx( fd_h2_stream_t * stream,
+                       fd_h2_conn_t *   conn ) {
+  switch( stream->state ) {
+  case FD_H2_STREAM_STATE_OPEN:
     stream->state = FD_H2_STREAM_STATE_CLOSING_RX;
-  } else if( stream->state == FD_H2_STREAM_STATE_CLOSING_TX ) {
+    break;
+  case FD_H2_STREAM_STATE_CLOSING_TX:
     stream->state = FD_H2_STREAM_STATE_CLOSED;
-  } else {
+    fd_h2_stream_private_deactivate( stream, conn );
+    break;
+  default:
     stream->state = FD_H2_STREAM_STATE_ILLEGAL;
-    return;
+    break;
+  }
+}
+
+static inline void
+fd_h2_stream_close_tx( fd_h2_stream_t * stream,
+                       fd_h2_conn_t *   conn ) {
+  switch( stream->state ) {
+  case FD_H2_STREAM_STATE_OPEN:
+    stream->state = FD_H2_STREAM_STATE_CLOSING_TX;
+    break;
+  case FD_H2_STREAM_STATE_CLOSING_RX:
+    stream->state = FD_H2_STREAM_STATE_CLOSED;
+    fd_h2_stream_private_deactivate( stream, conn );
+    break;
+  default:
+    stream->state = FD_H2_STREAM_STATE_ILLEGAL;
+    break;
+  }
+}
+
+static inline void
+fd_h2_stream_reset( fd_h2_stream_t * stream,
+                    fd_h2_conn_t *   conn ) {
+  switch( stream->state ) {
+  case FD_H2_STREAM_STATE_OPEN:
+  case FD_H2_STREAM_STATE_CLOSING_TX:
+  case FD_H2_STREAM_STATE_CLOSING_RX:
+    stream->state = FD_H2_STREAM_STATE_CLOSED;
+    fd_h2_stream_private_deactivate( stream, conn );
+    break;
+  default:
+    stream->state = FD_H2_STREAM_STATE_ILLEGAL;
+    break;
   }
 }
 
 static inline void
 fd_h2_stream_rx_headers( fd_h2_stream_t * stream,
+                         fd_h2_conn_t *   conn,
                          ulong            flags ) {
-
   if( stream->state == FD_H2_STREAM_STATE_IDLE ) {
     stream->state = FD_H2_STREAM_STATE_OPEN;
   }
-
   if( flags & FD_H2_FLAG_END_STREAM ) {
-    fd_h2_stream_rx_end( stream );
+    fd_h2_stream_close_rx( stream, conn );
   }
-
   if( flags & FD_H2_FLAG_END_HEADERS ) {
     stream->hdrs_seq = (uchar)( stream->hdrs_seq + 1 );
   }
-
 }
 
 static inline void
 fd_h2_stream_rx_data( fd_h2_stream_t * stream,
+                      fd_h2_conn_t *   conn,
                       ulong            flags ) {
-
-  if( FD_UNLIKELY( stream->state == FD_H2_STREAM_STATE_IDLE ) ) {
-    stream->state = FD_H2_STREAM_STATE_ILLEGAL;
-    return;
-  }
-
   if( flags & FD_H2_FLAG_END_STREAM ) {
-    fd_h2_stream_rx_end( stream );
+    fd_h2_stream_close_rx( stream, conn );
   }
-
 }
 
 FD_PROTOTYPES_END

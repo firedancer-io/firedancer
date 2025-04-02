@@ -14,6 +14,14 @@ static fd_h2_settings_t const fd_h2_settings_initial = {
   .max_header_list_size   = UINT_MAX
 };
 
+static void
+fd_h2_conn_init_window( fd_h2_conn_t * conn ) {
+  conn->rx_wnd_max   = conn->self_settings.initial_window_size;
+  conn->rx_wnd       = conn->rx_wnd_max;
+  conn->rx_wnd_wmark = (uint)( 0.7f * (float)conn->rx_wnd_max );
+  conn->tx_wnd       = conn->peer_settings.initial_window_size;
+}
+
 fd_h2_conn_t *
 fd_h2_conn_init_client( fd_h2_conn_t * conn ) {
   *conn = (fd_h2_conn_t) {
@@ -22,6 +30,7 @@ fd_h2_conn_init_client( fd_h2_conn_t * conn ) {
     .flags         = FD_H2_CONN_FLAGS_CLIENT_INITIAL,
     .rx_stream_min = 2U
   };
+  fd_h2_conn_init_window( conn );
   return conn;
 }
 
@@ -33,6 +42,7 @@ fd_h2_conn_init_server( fd_h2_conn_t * conn ) {
     .flags         = FD_H2_CONN_FLAGS_SERVER_INITIAL,
     .rx_stream_min = 1U
   };
+  fd_h2_conn_init_window( conn );
   return conn;
 }
 
@@ -92,10 +102,20 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   if( rbuf_avail<frame_rem ) fin_flag = 0;
 
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_UNLIKELY( !stream ) ) {
+  if( FD_UNLIKELY( !stream ||
+                   ( stream->state!=FD_H2_STREAM_STATE_OPEN        &&
+                     stream->state!=FD_H2_STREAM_STATE_CLOSING_TX ) ) ) {
     fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+    goto consume_frame;
+  }
+
+  if( FD_UNLIKELY( chunk_sz > conn->rx_wnd ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
     return;
   }
+  conn->rx_wnd -= chunk_sz;
+
+  fd_h2_stream_rx_data( stream, conn, fin_flag ? FD_H2_FLAG_END_STREAM : 0U );
 
   ulong sz0, sz1;
   uchar const * peek = fd_h2_rbuf_peek_frag( rbuf_rx, &sz0, &sz1 );
@@ -112,6 +132,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
   }
 
+consume_frame:
   conn->rx_frame_rem -= chunk_sz;
   fd_h2_rbuf_skip( rbuf_rx, chunk_sz );
 }
@@ -137,7 +158,7 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return 0;
     }
-    if( FD_UNLIKELY( conn->rx_active >= conn->self_settings.max_concurrent_streams ) ) {
+    if( FD_UNLIKELY( conn->stream_active_cnt[0] >= conn->self_settings.max_concurrent_streams ) ) {
       fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
       return 1;
     }
@@ -146,7 +167,8 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
       fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
       return 1;
     }
-    conn->rx_active++;
+    stream->tx_wnd = conn->peer_settings.initial_window_size;
+    conn->stream_active_cnt[0]++;
     conn->rx_stream_min = stream_id+2;
   }
 
@@ -165,7 +187,7 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
-  fd_h2_stream_rx_headers( stream, frame_flags );
+  fd_h2_stream_rx_headers( stream, conn, frame_flags );
   if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
@@ -217,7 +239,7 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
     return 1;
   }
 
-  fd_h2_stream_rx_headers( stream, frame_flags );
+  fd_h2_stream_rx_headers( stream, conn, frame_flags );
 
   cb->headers( conn, stream, payload, payload_sz, frame_flags );
 
@@ -242,8 +264,12 @@ fd_h2_rx_rst_stream( fd_h2_conn_t *            conn,
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
   }
-  uint error_code = fd_uint_bswap( FD_LOAD( uint, payload ) );
-  cb->rst_stream( conn, stream_id, error_code );
+  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+  if( FD_LIKELY( stream ) ) {
+    uint error_code = fd_uint_bswap( FD_LOAD( uint, payload ) );
+    cb->rst_stream( conn, stream, error_code );
+    fd_h2_stream_reset( stream, conn );
+  }
   return 1;
 }
 
@@ -372,11 +398,15 @@ fd_h2_rx_ping( fd_h2_conn_t * conn,
 
   if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_ACK ) ) {
 
-    /* Received an acknowledgement for a PING frame. */
-    /* fd_h2 is unable to generate PING frames, so this is always a
-       protocol error. */
-    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
-    return 0;
+    ///* Received an acknowledgement for a PING frame. */
+    ///* fd_h2 is unable to generate PING frames, so this is always a
+    //   protocol error. */
+    //fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    //return 0;
+
+    /* Note: Blindly ignoring ACK frames for now, since RFC 9113
+       technically doesn't forbid unsolicited PING ACK frames. */
+    return 1;
 
   } else {
 
@@ -434,23 +464,23 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
     fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
     return 0;
   }
-  int increment = FD_LOAD( int, payload ) & 0x7fffffff;
+  uint increment = FD_LOAD( uint, payload ) & 0x7fffffff;
 
   if( !stream_id ) {
 
     /* Connection-level window update */
-    int tx_wnd = conn->tx_wnd;
+    uint tx_wnd = conn->tx_wnd;
     if( FD_UNLIKELY( !increment ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return 0;
     }
-    int tx_wnd_new;
-    if( FD_UNLIKELY( __builtin_sadd_overflow( tx_wnd, increment, &tx_wnd_new ) ) ) {
+    uint tx_wnd_new;
+    if( FD_UNLIKELY( __builtin_uadd_overflow( tx_wnd, increment, &tx_wnd_new ) ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
       return 0;
     }
-    cb->window_update( conn, (uint)increment );
     conn->tx_wnd = tx_wnd_new;
+    cb->window_update( conn, (uint)increment );
 
   } else {
 
@@ -464,8 +494,20 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
       return 1;
     }
 
+    fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+    if( FD_UNLIKELY( !stream ) ) {
+      fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+      return 1;
+    }
+
     /* Stream-level window update */
-    cb->stream_window_update( conn, stream_id, (uint)increment );
+    uint tx_wnd_new;
+    if( FD_UNLIKELY( __builtin_uadd_overflow( stream->tx_wnd, increment, &tx_wnd_new ) ) ) {
+      fd_h2_stream_error( rbuf_tx, stream_id, FD_H2_ERR_FLOW_CONTROL );
+      return 1;
+    }
+    stream->tx_wnd += increment;
+    cb->stream_window_update( conn, stream, (uint)increment );
 
   }
 
@@ -575,6 +617,10 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     conn->rx_stream_id   = fd_h2_frame_stream_id( hdr.r_stream_id );
     conn->rx_pad_rem     = (uchar)pad_sz;
     *rbuf_rx = rx_peek;
+    if( FD_UNLIKELY( !conn->rx_stream_id ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+      return;
+    }
     fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb );
     return;
   }
@@ -586,10 +632,17 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     return;
   }
 
-  /* FIXME generate conn errors instead */
   uint payload_sz = rem_sz-pad_sz;
-  FD_TEST( payload_sz <= scratch_sz );
-  FD_TEST( payload_sz <= conn->self_settings.max_frame_size );
+  if( FD_UNLIKELY( scratch_sz < payload_sz ) ) {
+    if( FD_UNLIKELY( scratch_sz < conn->self_settings.max_frame_size ) ) {
+      FD_LOG_WARNING(( "scratch buffer too small: scratch_sz=%lu max_frame_size=%u)",
+                       scratch_sz, conn->self_settings.max_frame_size ));
+      fd_h2_conn_error( conn, FD_H2_ERR_INTERNAL );
+      return;
+    }
+    fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
+    return;
+  }
 
   *rbuf_rx = rx_peek;
   uchar * frame = fd_h2_rbuf_pop( rbuf_rx, scratch, payload_sz );
@@ -633,6 +686,9 @@ fd_h2_rx( fd_h2_conn_t *            conn,
     /* Terminate when the frame handler didn't make progress (e.g. due
        to rbuf_tx full, or due to incomplete read from rbuf_tx)*/
     if( FD_UNLIKELY( lo0==lo1 ) ) break;
+
+    /* Terminate if the conn died */
+    if( FD_UNLIKELY( conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) ) break;
   }
 }
 

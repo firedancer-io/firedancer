@@ -3,6 +3,7 @@
 
 /* fd_h2_rbuf.h provides a byte oriented unaligend ring buffer. */
 
+#include "fd_h2_base.h"
 #include "../../util/log/fd_log.h"
 
 struct fd_h2_rbuf {
@@ -14,8 +15,6 @@ struct fd_h2_rbuf {
   ulong   hi_off;
   ulong   bufsz;
 };
-
-typedef struct fd_h2_rbuf fd_h2_rbuf_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -34,14 +33,6 @@ fd_h2_rbuf_init( fd_h2_rbuf_t * rbuf,
     .hi    = (uchar *)buf,
     .bufsz = bufsz
   };
-  return rbuf;
-}
-
-/* fd_h2_rbuf_fini destroys an h2_rbuf and releases the read-write
-   interest in buf.  Returns rbuf. */
-
-static inline void *
-fd_h2_rbuf_fini( fd_h2_rbuf_t * rbuf ) {
   return rbuf;
 }
 

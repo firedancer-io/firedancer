@@ -84,6 +84,4 @@ test_h2_rbuf( fd_rng_t * rng ) {
     FD_TEST( fd_h2_rbuf_used_sz( rbuf )+fd_h2_rbuf_free_sz( rbuf )<=64 );
     FD_TEST( shadow_cons==rbuf->lo_off );
   }
-
-  fd_h2_rbuf_fini( rbuf );
 }

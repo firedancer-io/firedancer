@@ -52,9 +52,9 @@ struct fd_h2_conn {
   uint  rx_wnd_wmark;    /* receive window refill threshold */
   uint  rx_wnd_max;      /* receive window max size */
   uint  rx_wnd;          /* receive window bytes remaining */
-  int   tx_wnd;          /* transmit quota available */
-  uint  rx_active;       /* currently active receive streams */
-  uint  tx_active;       /* currently active transmit streams */
+  uint  tx_wnd;          /* transmit quota available */
+
+  uint  stream_active_cnt[2]; /* currently active {rx,tx} streams  */
 
   uchar flags;           /* bit set of FD_H2_CONN_FLAGS_* */
   uchar conn_error;
@@ -62,8 +62,6 @@ struct fd_h2_conn {
   uchar rx_frame_flags;  /* current RX frame: flags */
   uchar rx_pad_rem;      /* current RX frame: pad bytes remaining */
 };
-
-typedef struct fd_h2_conn fd_h2_conn_t;
 
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
 

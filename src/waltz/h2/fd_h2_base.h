@@ -3,10 +3,25 @@
 
 #include "../../util/bits/fd_bits.h"
 
+/* Enable sockets support? */
+
+#ifndef FD_H2_HAS_SOCKETS
+#if FD_HAS_HOSTED
+#define FD_H2_HAS_SOCKETS 1
+#endif
+#endif
+
+#ifndef FD_H2_HAS_SOCKETS
+#define FD_H2_HAS_SOCKETS 0
+#endif
+
 /* Forward declarations for all objects */
 
 struct fd_h2_callbacks;
 typedef struct fd_h2_callbacks fd_h2_callbacks_t;
+
+struct fd_h2_rbuf;
+typedef struct fd_h2_rbuf fd_h2_rbuf_t;
 
 struct fd_h2_conn;
 typedef struct fd_h2_conn fd_h2_conn_t;

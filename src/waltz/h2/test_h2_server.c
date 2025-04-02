@@ -9,6 +9,7 @@
 #include "fd_h2_rbuf.h"
 #include "fd_h2_stream.h"
 #include "fd_h2_rbuf_sock.h"
+#include "fd_h2_tx.h"
 #include "fd_hpack.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
@@ -18,27 +19,73 @@
 #include <netinet/in.h> /* IPPROTO_TCP */
 #include <sys/socket.h> /* socket(2) */
 
+/* App logic */
+
+struct test_h2_app {
+  fd_h2_rbuf_t   rbuf_tx[1];
+  fd_h2_conn_t   conn[1];
+  fd_h2_stream_t stream[1];
+  fd_h2_tx_op_t  tx_op[1];
+};
+
+typedef struct test_h2_app test_h2_app_t;
+
+static test_h2_app_t * g_app;
+
 static fd_h2_callbacks_t test_h2_callbacks;
-static fd_h2_rbuf_t rbuf_tx[1];
-static fd_h2_stream_t g_stream;
+
+static void
+test_response_continue( void ) {
+  fd_h2_stream_t * stream = g_app->stream;
+  if( !stream->stream_id ) return;
+  fd_h2_tx_op_copy( g_app->conn, stream, g_app->rbuf_tx, g_app->tx_op );
+  if( stream->state==FD_H2_STREAM_STATE_CLOSED ) {
+    FD_LOG_NOTICE(( "Request %u: Response complete", stream->stream_id ));
+    memset( g_app->tx_op,  0, sizeof(g_app->tx_op ) );
+    memset( g_app->stream, 0, sizeof(g_app->stream) );
+  }
+}
+
+static void
+test_response_init( fd_h2_conn_t *   conn,
+                    fd_h2_stream_t * stream ) {
+  (void)conn;
+  uint stream_id = stream->stream_id;
+  FD_LOG_NOTICE(( "Request %u: Done reading, sending response", stream_id ));
+
+  fd_h2_rbuf_t * rbuf_tx = g_app->rbuf_tx;
+  uchar hpack[] = { 0x88 /* :status: 200 */ };
+  fd_h2_tx( rbuf_tx, hpack, sizeof(hpack), FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, stream_id );
+
+  fd_h2_tx_op_t * tx_op = g_app->tx_op;
+  fd_h2_tx_op_init( tx_op, "Ok", 2UL, FD_H2_FLAG_END_STREAM );
+  test_response_continue();
+  if( stream->state!=FD_H2_STREAM_STATE_CLOSED ) {
+    FD_LOG_NOTICE(( "Request %u: Blocked trying to write response, wrote %lu bytes", stream_id, 2UL - tx_op->chunk_sz ));
+  } else {
+    FD_LOG_NOTICE(( "Request %u: Response complete", stream_id ));
+  }
+}
+
+/* fd_h2 callbacks */
 
 static fd_h2_stream_t *
 test_cb_stream_create( fd_h2_conn_t * conn,
                        uint           stream_id ) {
   (void)conn;
-  if( g_stream.stream_id ) {
-    fd_h2_stream_close( &g_stream, conn );
-  }
-  fd_h2_stream_init( &g_stream, stream_id );
-  return &g_stream;
+  fd_h2_stream_t * stream = g_app->stream;
+  if( FD_UNLIKELY( stream->stream_id ) ) return NULL;
+  fd_h2_stream_init( stream, stream_id );
+  return stream;
 }
 
 static fd_h2_stream_t *
 test_cb_stream_query( fd_h2_conn_t * conn,
                       uint           stream_id ) {
   (void)conn;
-  if( g_stream.stream_id!=stream_id ) return NULL;
-  return &g_stream;
+  fd_h2_stream_t * stream = g_app->stream;
+  if( stream->stream_id!=stream_id ) return NULL;
+  return stream;
 }
 
 static void
@@ -55,39 +102,27 @@ test_cb_conn_final( fd_h2_conn_t * conn,
 }
 
 static void
-test_cb_rst_stream( fd_h2_conn_t * conn,
-                    uint           stream_id,
-                    uint           error_code ) {
+test_cb_rst_stream( fd_h2_conn_t *   conn,
+                    fd_h2_stream_t * stream,
+                    uint             error_code ) {
   (void)conn;
-  FD_LOG_NOTICE(( "Request %u: received RST_STREAM (%u-%s)", stream_id, error_code, fd_h2_strerror( error_code ) ));
-  if( g_stream.stream_id==stream_id ) {
-    fd_h2_stream_close( &g_stream, conn );
-    memset( &g_stream, 0, sizeof(g_stream) );
-  }
+  FD_LOG_NOTICE(( "Request %u: received RST_STREAM (%u-%s)", stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+  memset( g_app->tx_op, 0, sizeof(fd_h2_tx_op_t) );
 }
 
 static void
-send_response( fd_h2_conn_t * conn ) {
-  FD_LOG_NOTICE(( "Request %u: Done reading", g_stream.stream_id ));
+test_cb_window_update( fd_h2_conn_t * conn,
+                       uint           delta ) {
+  (void)conn; (void)delta;
+  test_response_continue();
+}
 
-  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<9 ) ) {
-    FD_LOG_WARNING(( "Not enough space in rbuf_tx" ));
-    fd_h2_conn_error( conn, FD_H2_ERR_INTERNAL );
-    return;
-  }
-
-  fd_h2_tx_prepare( conn, rbuf_tx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, g_stream.stream_id );
-  uchar hpack[] = {
-    0x88, /* :status: 200 */
-  };
-  fd_h2_rbuf_push( rbuf_tx, hpack, sizeof(hpack) );
-  fd_h2_tx_commit( conn, rbuf_tx );
-
-  fd_h2_tx_prepare( conn, rbuf_tx, FD_H2_FRAME_TYPE_DATA, FD_H2_FLAG_END_STREAM, g_stream.stream_id );
-  fd_h2_rbuf_push( rbuf_tx, "Ok", 2UL );
-  fd_h2_tx_commit( conn, rbuf_tx );
-
-  FD_LOG_NOTICE(( "Request %u: Response sent", g_stream.stream_id ));
+static void
+test_cb_stream_window_update( fd_h2_conn_t *   conn,
+                              fd_h2_stream_t * stream,
+                              uint             delta ) {
+  (void)conn; (void)stream; (void)delta;
+  test_response_continue();
 }
 
 static void
@@ -120,7 +155,7 @@ test_cb_headers( fd_h2_conn_t *   conn,
     FD_LOG_NOTICE(( "Request %u: Headers complete", stream->stream_id ));
   }
   if( flags & FD_H2_FLAG_END_STREAM ) {
-    send_response( conn );
+    test_response_init( conn, stream );
   }
 }
 
@@ -130,17 +165,15 @@ test_cb_data( fd_h2_conn_t *   conn,
               void const *     data,
               ulong            data_sz,
               ulong            flags ) {
-  fd_h2_stream_rx_data( &g_stream, flags );
-  if( FD_UNLIKELY( g_stream.state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
-    FD_LOG_WARNING(( "Request %u in illegal state", stream->stream_id ));
+  if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return;
   }
 
-  FD_LOG_HEXDUMP_NOTICE(( "Request data", data, data_sz ));
+  FD_LOG_HEXDUMP_DEBUG(( "Request data", data, data_sz ));
 
   if( flags & FD_H2_FLAG_END_STREAM ) {
-    send_response( conn );
+    test_response_init( conn, stream );
   }
 }
 
@@ -171,17 +204,20 @@ read_preface( int tcp_sock ) {
 
 static void
 handle_conn( int tcp_sock ) {
-  if( FD_UNLIKELY( !read_preface( tcp_sock ) ) ) return;
-
-  fd_h2_conn_t conn[1];
-  fd_h2_conn_init_server( conn );
-  conn->self_settings.max_concurrent_streams = 1;
-  g_stream.stream_id = 0;
-
+  test_h2_app_t app[1] = {0};
   static uchar scratch[ 16384 ];
   static uchar rx_buf [ 16384 ];
   static uchar tx_buf [ 16384 ];
+
+  if( FD_UNLIKELY( !read_preface( tcp_sock ) ) ) return;
+
+  g_app = app;
+  fd_h2_conn_t * conn = g_app->conn;
+  fd_h2_conn_init_server( conn );
+  conn->self_settings.max_concurrent_streams = 1;
+
   fd_h2_rbuf_t rbuf_rx[1];
+  fd_h2_rbuf_t * rbuf_tx = g_app->rbuf_tx;
   fd_h2_rbuf_init( rbuf_rx, rx_buf, sizeof(rx_buf) );
   fd_h2_rbuf_init( rbuf_tx, tx_buf, sizeof(tx_buf) );
 
@@ -202,6 +238,10 @@ handle_conn( int tcp_sock ) {
     }
 
     int err = fd_h2_rbuf_recvmsg( rbuf_rx, tcp_sock, MSG_NOSIGNAL );
+    if( FD_UNLIKELY( err==EPIPE ) ) {
+      FD_LOG_NOTICE(( "Peer closed TCP connection" ));
+      return;
+    }
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "recvmsg failed (%i-%s)", err, fd_io_strerror( err ) ));
       return;
@@ -216,13 +256,15 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   fd_h2_callbacks_init( &test_h2_callbacks );
-  test_h2_callbacks.stream_create    = test_cb_stream_create;
-  test_h2_callbacks.stream_query     = test_cb_stream_query;
-  test_h2_callbacks.conn_established = test_cb_conn_established;
-  test_h2_callbacks.conn_final       = test_cb_conn_final;
-  test_h2_callbacks.headers          = test_cb_headers;
-  test_h2_callbacks.data             = test_cb_data;
-  test_h2_callbacks.rst_stream       = test_cb_rst_stream;
+  test_h2_callbacks.stream_create        = test_cb_stream_create;
+  test_h2_callbacks.stream_query         = test_cb_stream_query;
+  test_h2_callbacks.conn_established     = test_cb_conn_established;
+  test_h2_callbacks.conn_final           = test_cb_conn_final;
+  test_h2_callbacks.headers              = test_cb_headers;
+  test_h2_callbacks.data                 = test_cb_data;
+  test_h2_callbacks.rst_stream           = test_cb_rst_stream;
+  test_h2_callbacks.window_update        = test_cb_window_update;
+  test_h2_callbacks.stream_window_update = test_cb_stream_window_update;
 
   char const * bind_cstr = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bind", NULL, "0.0.0.0" );
   ushort       port      = fd_env_strip_cmdline_ushort( &argc, &argv, "--port", NULL, 8080      );

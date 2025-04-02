@@ -67,9 +67,9 @@ struct fd_h2_callbacks {
      should call fd_h2_stream_close on this stream. */
 
   void
-  (* rst_stream)( fd_h2_conn_t * conn,
-                  uint           stream_id,
-                  uint           error_code );
+  (* rst_stream)( fd_h2_conn_t *   conn,
+                  fd_h2_stream_t * stream,
+                  uint             error_code );
 
   /* window_update delivers a conn-level WINDOW_UPDATE frame. */
 
@@ -80,13 +80,11 @@ struct fd_h2_callbacks {
   /* stream_window_update delivers a stream-level WINDOW_UPDATE frame. */
 
   void
-  (* stream_window_update)( fd_h2_conn_t * conn,
-                            uint           stream_id,
-                            uint           increment );
+  (* stream_window_update)( fd_h2_conn_t *   conn,
+                            fd_h2_stream_t * stream,
+                            uint             increment );
 
 };
-
-typedef struct fd_h2_callbacks fd_h2_callbacks_t;
 
 FD_PROTOTYPES_BEGIN
 

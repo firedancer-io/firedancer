@@ -77,6 +77,18 @@ fd_hpack_rd_init( fd_hpack_rd_t * rd,
     .src     = src,
     .src_end = src+srcsz
   };
+  /* FIXME slow */
+  /* Skip over Dynamic Table Size Updates */
+  while( FD_LIKELY( rd->src < rd->src_end ) ) {
+    uint b0 = rd->src[0];
+    if( FD_UNLIKELY( (b0&0xe0)==0x20 ) ) {
+      ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
+      if( FD_UNLIKELY( max_sz!=0UL ) ) break; /* FIXME hacky */
+      rd->src++;
+    } else {
+      break;
+    }
+  }
   return rd;
 }
 
@@ -103,7 +115,6 @@ static uint
 fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
                       fd_h2_hdr_t *   hdr ) {
   uchar const * end = rd->src_end;
-next:
   if( FD_UNLIKELY( rd->src >= end ) ) FD_LOG_CRIT(( "fd_hpack_rd_next called out of bounds" ));
 
   uint b0 = *(rd->src++);
@@ -168,11 +179,17 @@ next:
     return fd_hpack_rd_indexed( hdr, idx );
   }
 
-  if( FD_UNLIKELY( (b0&0xe0)==0x20 ) ) {
-    /* Dynamic Table Size Update */
-    ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
-    if( FD_UNLIKELY( max_sz!=0UL ) ) return FD_H2_ERR_COMPRESSION;
-    goto next;
+  /* FIXME slow */
+  /* Skip over Dynamic Table Size Updates */
+  while( FD_LIKELY( rd->src < end ) ) {
+    b0 = rd->src[0];
+    if( FD_UNLIKELY( (b0&0xe0)==0x20 ) ) {
+      ulong max_sz = fd_hpack_rd_varint( rd, b0, 0x1f );
+      if( FD_UNLIKELY( max_sz!=0UL ) ) return FD_H2_ERR_COMPRESSION;
+      rd->src++;
+    } else {
+      break;
+    }
   }
 
   /* Unknown HPACK instruction */
