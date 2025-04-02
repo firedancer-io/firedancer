@@ -2,15 +2,8 @@
    It responds to GET and POST requests with status 200.
    The server uses single threaded blocking sockets without timeouts. */
 
-#include "fd_h2_base.h"
-#include "fd_h2_callback.h"
-#include "fd_h2_conn.h"
-#include "fd_h2_proto.h"
-#include "fd_h2_rbuf.h"
-#include "fd_h2_stream.h"
+#include "fd_h2.h"
 #include "fd_h2_rbuf_sock.h"
-#include "fd_h2_tx.h"
-#include "fd_hpack.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
 

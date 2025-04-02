@@ -34,10 +34,10 @@ fd_h2_tx_op_init( fd_h2_tx_op_t * tx_op,
    more tx_op bytes queued}. */
 
 void
-fd_h2_tx_op_copy( fd_h2_conn_t *     conn,
-                  fd_h2_stream_t *   stream,
-                  fd_h2_rbuf_t *     rbuf_tx,
-                  fd_h2_tx_op_t *    tx_op );
+fd_h2_tx_op_copy( fd_h2_conn_t *   conn,
+                  fd_h2_stream_t * stream,
+                  fd_h2_rbuf_t *   rbuf_tx,
+                  fd_h2_tx_op_t *  tx_op );
 
 /* FIXME Add sendmsg-gather API here for streamlined transmit of
    multiple frames via sockets? */

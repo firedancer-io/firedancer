@@ -3,10 +3,10 @@
 #include "fd_h2_stream.h"
 
 void
-fd_h2_tx_op_copy( fd_h2_conn_t *     conn,
-                  fd_h2_stream_t *   stream,
-                  fd_h2_rbuf_t *     rbuf_tx,
-                  fd_h2_tx_op_t *    tx_op ) {
+fd_h2_tx_op_copy( fd_h2_conn_t *   conn,
+                  fd_h2_stream_t * stream,
+                  fd_h2_rbuf_t *   rbuf_tx,
+                  fd_h2_tx_op_t *  tx_op ) {
   long quota = fd_long_min( conn->tx_wnd, stream->tx_wnd );
   if( FD_UNLIKELY( quota<0L ) ) return;
 
@@ -18,10 +18,9 @@ fd_h2_tx_op_copy( fd_h2_conn_t *     conn,
 
   do {
     /* Calculate how much we can send in this frame */
-    long const rem_sz     = (long)tx_op->chunk_sz;
-    long const buf_spc    = (long)fd_h2_rbuf_free_sz( rbuf_tx ) - (long)sizeof(fd_h2_frame_hdr_t);
-    long const frame_max  = (long)conn->peer_settings.max_frame_size;
-    if( FD_UNLIKELY( frame_max<=0L ) ) break; /* Prevent infinite loop */
+    long const rem_sz    = (long)tx_op->chunk_sz;
+    long const buf_spc   = (long)fd_h2_rbuf_free_sz( rbuf_tx ) - (long)sizeof(fd_h2_frame_hdr_t);
+    long const frame_max = (long)conn->peer_settings.max_frame_size;
 
     long payload_sz = fd_long_min( quota, rem_sz );
     /**/ payload_sz = fd_long_min( payload_sz, buf_spc   );

@@ -1,8 +1,6 @@
 /* fuzz_h2.c covers the fd_h2 connection-level APIs.  It attempts to
    find crashes, spinloops, and other bugs.  */
 
-#include "fd_h2_base.h"
-#include "fd_h2_rbuf.h"
 #if !FD_HAS_HOSTED
 #error "This target requires FD_HAS_HOSTED"
 #endif
@@ -10,11 +8,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include "fd_h2_callback.h"
-#include "fd_h2_conn.h"
-#include "fd_h2_stream.h"
-#include "fd_h2_tx.h"
-#include "fd_hpack.h"
+#include "fd_h2.h"
 #include "../../util/fd_util.h"
 
 struct fuzz_h2_ctx {
