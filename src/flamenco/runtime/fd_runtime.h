@@ -64,12 +64,6 @@
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */
 #define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
-/* This is the reasonably tight upper bound for the number of writable
-   accounts in a slot. This is because a block has a limit of 48 million
-   compute units. Each writable account lock costs 300 CUs. That means there
-   can be up to 48M/300 writable accounts in a block. */
-#define FD_WRITABLE_ACCS_IN_SLOT (160000UL)
-
 void
 block_finalize_tpool_wrapper( void * para_arg_1,
                               void * para_arg_2,
