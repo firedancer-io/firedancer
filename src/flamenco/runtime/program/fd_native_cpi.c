@@ -22,13 +22,15 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
     instr_info->program_id = (uchar)program_id;
   }
 
-  uchar acc_idx_seen[256];
+  fd_pubkey_t instr_acct_keys[ FD_INSTR_ACCT_MAX ];
+  uchar       acc_idx_seen[ FD_INSTR_ACCT_MAX ];
   memset( acc_idx_seen, 0, FD_INSTR_ACCT_MAX );
 
   instr_info->acct_cnt = (ushort)acct_metas_len;
   for ( ushort j=0; j<acct_metas_len; j++ ) {
     fd_vm_rust_account_meta_t const * acct_meta     = &acct_metas[j];
     fd_pubkey_t const *               acct_key      = fd_type_pun_const( acct_meta->pubkey );
+    memcpy( &instr_acct_keys[j], acct_key, sizeof(fd_pubkey_t) );
 
     int idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( ctx, acct_key );
 
@@ -54,7 +56,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
 
   instr_info->data = buf;
   instr_info->data_sz = sizeof(buf);
-  int exec_err = fd_vm_prepare_instruction( instr_info, ctx, instruction_accounts,
+  int exec_err = fd_vm_prepare_instruction( instr_info, ctx, &fd_solana_system_program_id, instr_acct_keys, instruction_accounts,
                                             &instruction_accounts_cnt, signers, signers_cnt );
   if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
     return exec_err;
