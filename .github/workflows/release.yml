@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/builds.yml
+    with:
+        # compiler,machine,target
+      gcc_exceptions: |
+        gcc-11.4.0,linux_gcc_x86_64,ALL;
+      verbose: false
+      build_arm: false
+      save_artifacts: true
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-binaries
+          path: binaries
+
+      - name: Package binaries into a .deb
+        run: |
+          set -e
+
+          version=$(git describe --tags --always --dirty | sed 's/^v//')
+          echo "Packaging version: $version"
+
+          mkdir -p deb_package/DEBIAN
+          mkdir -p deb_package/usr/local/bin
+
+          cp binaries/* deb_package/usr/local/bin/
+
+          cat <<EOF > deb_package/DEBIAN/control
+          Package: firedancer-tools
+          Version: ${version}
+          Section: net
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Dev Team <dev@example.com>
+          Depends: libc6 (>= 2.27), libstdc++6 (>= 9), libgcc-s1 (>= 4.2)
+          Description: Firedancer client tools for the Solana blockchain.
+            Includes firedancer binaries such as fdctl and solana.
+          EOF
+
+          dpkg-deb --build deb_package
+          mv deb_package.deb firedancer-tools_x86_64.deb
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-deb
+          path: firedancer-tools_x86_64.deb
+          retention-days: 7
+
+  create-release:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-deb
+          path: dist
+
+      - name: Create GitHub release with changelog
+        uses: softprops/action-gh-release@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: true
+          files: dist/firedancer-tools_x86_64.deb
+
+  bump-version:
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Parse current version, bump patch, and get Solana version
+        id: parse_info
+        run: |
+          version=${{ github.ref_name }}
+          version="${version#v}"
+
+          minor_patch=$(echo "$version" | cut -d'.' -f2)
+          solana_version=$(echo "$version" | cut -d'.' -f3)
+
+          prev_minor=$((minor_patch / 100))
+          prev_patch=$((minor_patch % 100))
+
+          new_patch=$((prev_patch + 1))
+          patch_padded=$(printf "%02d" "$new_patch")
+          new_minor_patch="${prev_minor}${patch_padded}"
+
+          version_string="v0.${new_minor_patch}.${solana_version}"
+          branch_name="version-bump-${version_string}"
+          target_branch="v0.${prev_minor}"
+
+          echo "version_string=$version_string" | tee -a $GITHUB_OUTPUT
+          echo "branch_name=$branch_name" | tee -a $GITHUB_OUTPUT
+          echo "target_branch=$target_branch" | tee -a $GITHUB_OUTPUT
+
+      - name: Create branch and bump version
+        run: |
+          git checkout -b ${{ steps.parse_info.outputs.branch_name }}
+          ./contrib/bump-version.sh patch
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git commit -am "Bump version to ${{ steps.parse_info.outputs.version_string }}"
+          git push origin ${{ steps.parse_info.outputs.branch_name }}
+
+      - name: Create Pull Request
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Bump version to ${{ steps.parse_info.outputs.version_string }}',
+              head: '${{ steps.parse_info.outputs.branch_name }}',
+              base: '${{ steps.parse_info.outputs.target_branch }}'
+            })

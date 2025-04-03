@@ -28,6 +28,10 @@ on:
         type: boolean
         description: Run arm builds
         default: false
+      save_artifacts:
+        type: boolean
+        description: Upload binaries as artifacts
+        default: false
       dry_run:
         type: boolean
         description: Print build matrix and exit
@@ -65,6 +69,10 @@ on:
       build_arm:
         type: boolean
         description: Run arm builds
+        default: false
+      save_artifacts:
+        type: boolean
+        description: Upload binaries as artifacts
         default: false
       dry_run:
         type: boolean
@@ -129,6 +137,20 @@ jobs:
         run: |
           contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
 
+      - name: Locate bin directory
+        id: locate_bin
+        run: |
+          bin_dir=$(find build -type d -name bin | head -n1)
+          echo "bin_dir=$bin_dir" | tee -a $GITHUB_OUTPUT
+
+      - name: Upload binaries as artifacts
+        if: ${{ inputs.save_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: ${{ steps.locate_bin.outputs.bin_dir }}/*
+          retention-days: 1
+
   build_clang:
     runs-on: 512G
     if: ${{ inputs.clang != 'none' }}
@@ -175,6 +197,20 @@ jobs:
       - name: Run clang builds
         run: |
           contrib/build.sh --no-rust --no-gcc ${{ env.BUILD_ARGS }}
+
+      - name: Locate bin directory
+        id: locate_bin
+        run: |
+          bin_dir=$(find build -type d -name bin | head -n1)
+          echo "bin_dir=$bin_dir" | tee -a $GITHUB_OUTPUT
+
+      - name: Upload binaries as artifacts
+        if: ${{ inputs.save_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: ${{ steps.locate_bin.outputs.bin_dir }}/*
+          retention-days: 1
 
   build_arm:
     runs-on: ARM64
