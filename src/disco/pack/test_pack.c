@@ -971,11 +971,14 @@ test_limits( void ) {
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
     /* The limit is based on cost units, which are determined by the cost model (i.e. fd_pack_compute_cost) */
-    ulong j;
-    ulong total_cus = 20334UL;
-    for( j=0UL; j<FD_PACK_MAX_WRITE_COST_PER_ACCT/total_cus; j++ ) {
-      make_transaction( j, 10000UL, 500U, 11.0, "A", "B", NULL, &total_cus );  /* transaction cost estimate = total_cus*/
-      FD_TEST( 20334UL==total_cus );
+    ulong j = 0UL;
+    ulong total_cus;
+    make_transaction( j, 20000UL, 500U, 11.0, "A", "B", NULL, &total_cus );  /* transaction cost estimate = total_cus*/
+    insert( j++, pack );
+    FD_TEST( 21334==total_cus );
+
+    for( ; j<FD_PACK_MAX_WRITE_COST_PER_ACCT/total_cus; j++ ) {
+      make_transaction( j, 20000UL, 500U, 11.0, "A", "B", NULL, &total_cus );  /* transaction cost estimate = total_cus*/
       insert( j, pack );
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
     }
@@ -983,7 +986,7 @@ test_limits( void ) {
        cost units, so this next one can't fit (due to
        FD_PACK_MAX_WRITE_COST_PER_ACCT) */
 
-    make_transaction( j, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );
+    make_transaction( j, 20000UL, 500U, 11.0, "A", "B", NULL, NULL );
     insert( j++, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
@@ -995,7 +998,7 @@ test_limits( void ) {
     /* Now consumed CUs is 12M - total_cus, so it just fits. */
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
-    make_transaction( j, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );
+    make_transaction( j, 20000UL, 500U, 11.0, "A", "B", NULL, NULL );
     insert( j++, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
@@ -1009,26 +1012,28 @@ test_limits( void ) {
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 512UL, &outcome );
     /* The limit is based on cost units, which are determined by the cost model (i.e. fd_pack_compute_cost). */
-    const ulong total_cus = 20334UL;
+    ulong total_cus;
+    make_transaction( 0UL, 20000UL, 500U, 11.0, "A", "B", NULL, &total_cus ); insert( 0UL, pack );
     const ulong almost_full_iter = (FD_PACK_MAX_COST_PER_BLOCK/( 8*total_cus ));
-    ulong i=0UL;
+
+    ulong i = 1UL;
     for( ulong j=0UL; j<almost_full_iter; j++ ) {
       /* We do it in batches of 8 so that the writer cost limit doesn't dominate */
-      make_transaction( i, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );     insert( i++, pack );
-      make_transaction( i, 10000UL, 500U, 11.0, "C", "D", NULL, NULL );     insert( i++, pack );
-      make_transaction( i, 10000UL, 500U, 11.0, "E", "F", NULL, NULL );     insert( i++, pack );
-      make_transaction( i, 10000UL, 500U, 11.0, "G", "H", NULL, NULL );     insert( i++, pack );
-      make_transaction( i, 10000UL, 500U, 11.0, "J", "K", NULL, NULL );     insert( i++, pack );
-      make_transaction( i, 10000UL, 500U, 11.0, "L", "M", NULL, NULL );     insert( i++, pack );
-      make_transaction( i, 10000UL, 500U, 11.0, "N", "O", NULL, NULL );     insert( i++, pack );
-      make_transaction( i, 10000UL, 500U, 11.0, "P", "Q", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "A", "B", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "C", "D", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "E", "F", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "G", "H", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "J", "K", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "L", "M", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "N", "O", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 20000UL, 500U, 11.0, "P", "Q", NULL, NULL );     insert( i++, pack );
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 8UL, 0UL, 0UL, &outcome );
       i = i%512UL;
     }
 
     /* We are at almost_full_iter*8*total_cus = 47988240
        The remaining 11760 will not be enough for any more txns */
-    make_transaction( i, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 20000UL, 500U, 11.0, "A", "B", NULL, NULL );     insert( i++, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
@@ -1041,10 +1046,10 @@ test_limits( void ) {
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
     fd_pack_end_block( pack );
-    make_transaction( i, 10000UL, 500U, 11.0, "J", "K", NULL, NULL );     insert( i++, pack );
-    make_transaction( i, 10000UL, 500U, 11.0, "L", "M", NULL, NULL );     insert( i++, pack );
-    make_transaction( i, 10000UL, 500U, 11.0, "N", "P", NULL, NULL );     insert( i++, pack );
-    make_transaction( i, 10000UL, 500U, 10.0, "Q", "R", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 20000UL, 500U, 11.0, "J", "K", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 20000UL, 500U, 11.0, "L", "M", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 20000UL, 500U, 11.0, "N", "P", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 20000UL, 500U, 10.0, "Q", "R", NULL, NULL );     insert( i++, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 4UL, 0UL, 0UL, &outcome );
   }
 

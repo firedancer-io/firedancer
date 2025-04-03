@@ -277,12 +277,12 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 
   non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
 
-  ulong non_builtin_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU) && (non_builtin_cnt>0UL),
-                                        (ulong)*compute,
-                                        non_builtin_cnt*FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT
-                                       ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */
+  ulong execution_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU) && (non_builtin_cnt>0UL),
+                                      (ulong)*compute,
+                                      builtin_cost + non_builtin_cnt*FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT
+                                    ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */
 
-  fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            builtin_cost + non_builtin_cost );
+  fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            execution_cost                );
   fd_ulong_store_if( !!opt_fee,                       opt_fee,                       *fee                          );
   fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        precompile_sig_cnt            );
   fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, *loaded_account_data_cost     );
@@ -294,7 +294,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #endif
 
   /* <= FD_PACK_MAX_COST, so no overflow concerns */
-  return signature_cost + writable_cost + builtin_cost + instr_data_cost + non_builtin_cost + *loaded_account_data_cost;
+  return signature_cost + writable_cost + execution_cost + instr_data_cost + *loaded_account_data_cost;
 }
 #undef MAP_PERFECT_HASH_PP
 #undef PERFECT_HASH
