@@ -605,8 +605,8 @@ fd_funk_txn_publish_funk_child( fd_funk_t *  funk,
 
 ulong
 fd_funk_txn_publish( fd_funk_t *     funk,
-                        fd_funk_txn_t * txn,
-                        int                verbose ) {
+                     fd_funk_txn_t * txn,
+                     int             verbose ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {

@@ -910,11 +910,7 @@ init_funk( fd_ledger_args_t * args ) {
   if( args->restore_funk ) {
     funk = fd_funk_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
   } else  {
-    //funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
-    //uchar * mem = fd_spad_alloc( args->runtime_spad, fd_funk_align(), fd_funk_footprint( 100UL, 5000000UL) );
-    uchar * mem = fd_wksp_alloc_laddr( args->wksp, fd_funk_align(), fd_funk_footprint( 100UL, 5000000UL), 1191UL );
-    funk = fd_funk_join( fd_funk_new( mem, 1191UL, 1191, 100UL, 5000000UL ) );
-    FD_TEST( funk );
+    funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
   }
   args->funk = funk;
   args->funk_wksp = fd_funk_wksp( funk );
@@ -1146,22 +1142,6 @@ ingest( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
   }
 
-  // struct fd_funk_all_iter {
-  //   fd_funk_rec_map_t rec_map;
-  //   ulong chain_cnt;
-  //   ulong chain_idx;
-  //   fd_funk_rec_map_iter_t rec_map_iter;
-  // };
-
-  // typedef struct fd_funk_all_iter fd_funk_all_iter_t;
-
-  // void fd_funk_all_iter_new( fd_funk_t * funk, fd_funk_all_iter_t * iter );
-
-  // int fd_funk_all_iter_done( fd_funk_all_iter_t * iter );
-
-  // void fd_funk_all_iter_next( fd_funk_all_iter_t * iter );
-
-
   if( args->genesis ) {
     fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
   }
@@ -1350,15 +1330,6 @@ replay( fd_ledger_args_t * args ) {
       FD_LOG_NOTICE(( "imported from snapshot" ));
     }
   }
-
-  fd_funk_all_iter_t iter;
-  fd_funk_all_iter_new( funk, &iter );
-  ulong rec_cnt = 0UL;
-  while( !fd_funk_all_iter_done( &iter ) ) {
-    fd_funk_all_iter_next( &iter );
-    rec_cnt++;
-  }
-  FD_LOG_NOTICE(("There are %lu records in funk", rec_cnt ));
 
   if( args->genesis ) {
     fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
