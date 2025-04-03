@@ -851,7 +851,7 @@ typedef struct accounts_hash accounts_hash_t;
 
    TODO: The common code in these functions could be factored out. */
 
-static void
+void
 fd_accounts_sorted_subrange_count( fd_funk_t * funk,
                                    uint        range_idx,
                                    uint        range_cnt,

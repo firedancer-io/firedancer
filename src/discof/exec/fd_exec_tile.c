@@ -372,6 +372,14 @@ bpf_scan_accounts( fd_exec_tile_ctx_t *               ctx,
   }
 }
 
+static void FD_FN_UNUSED
+snap_hash_accounts( fd_exec_tile_ctx_t *                ctx,
+                    fd_runtime_public_snap_hash_msg_t * msg ) {
+  (void)msg;
+  ulong pairs_len = 0UL;
+  fd_accounts_sorted_subrange_count( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt, &pairs_len );
+}
+
 static void
 during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                in_idx,

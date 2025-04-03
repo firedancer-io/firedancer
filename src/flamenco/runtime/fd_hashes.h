@@ -55,6 +55,12 @@ typedef union fd_features fd_features_t;
 FD_PROTOTYPES_BEGIN
 
 void
+fd_accounts_sorted_subrange_count( fd_funk_t * funk,
+                                   uint        range_idx,
+                                   uint        range_cnt,
+                                   ulong *     num_pairs_out );
+
+void
 fd_accounts_hash_counter_and_gather_tpool_cb( void * para_arg_1,
                                               void * para_arg_2 FD_PARAM_UNUSED,
                                               void * fn_arg_1,

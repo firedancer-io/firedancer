@@ -16,13 +16,14 @@
 #define EXEC_BPF_SCAN_SIG       (0x999991UL)
 #define EXEC_SNAP_HASH_ACCS_SIG (0x191992UL)
 
-#define FD_EXEC_STATE_NOT_BOOTED    (0xFFFFFFFFUL)
-#define FD_EXEC_STATE_BOOTED        (1<<1UL      )
-#define FD_EXEC_STATE_EPOCH_DONE    (1<<2UL      )
-#define FD_EXEC_STATE_SLOT_DONE     (1<<3UL      )
-#define FD_EXEC_STATE_TXN_DONE      (1<<4UL      )
-#define FD_EXEC_STATE_HASH_DONE     (1<<6UL      )
-#define FD_EXEC_STATE_BPF_SCAN_DONE (1<<7UL      )
+#define FD_EXEC_STATE_NOT_BOOTED     (0xFFFFFFFFUL)
+#define FD_EXEC_STATE_BOOTED         (1<<1UL      )
+#define FD_EXEC_STATE_EPOCH_DONE     (1<<2UL      )
+#define FD_EXEC_STATE_SLOT_DONE      (1<<3UL      )
+#define FD_EXEC_STATE_TXN_DONE       (1<<4UL      )
+#define FD_EXEC_STATE_HASH_DONE      (1<<6UL      )
+#define FD_EXEC_STATE_BPF_SCAN_DONE  (1<<7UL      )
+#define FD_EXEC_STATE_SNAP_HASH_DONE (1<<8UL      )
 
 /* parallel execution apis ********************************************/
 
@@ -129,6 +130,11 @@ fd_exec_fseq_get_bpf_id( ulong fseq ) {
   return (uint)(fseq >> 32UL);
 }
 
+static uint FD_FN_UNUSED
+fd_exec_fseq_set_snap_hash_done( void ) {
+  return FD_EXEC_STATE_SNAP_HASH_DONE;
+}
+
 /* FIXME: This will need to get reworked when we consolidate the
    slot/epoch ctx/bank. We will use zero-copy accesssors into a
    fork-aware funk record. This will allow us to have one object which
@@ -177,6 +183,11 @@ struct fd_runtime_public_bpf_scan_msg {
   ulong end_idx;
 };
 typedef struct fd_runtime_public_bpf_scan_msg fd_runtime_public_bpf_scan_msg_t;
+
+struct fd_runtime_public_snap_hash_msg {
+  ulong task_infos_gaddr;
+};
+typedef struct fd_runtime_public_snap_hash_msg fd_runtime_public_snap_hash_msg_t;
 
 struct fd_runtime_public {
   /* FIXME:  This is a non-fork-aware copy of the currently active

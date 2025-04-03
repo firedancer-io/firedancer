@@ -456,6 +456,7 @@ snap_hash_tiles_cb( void * para_arg_1,
   fd_replay_tile_ctx_t *    ctx       = (fd_replay_tile_ctx_t *)para_arg_1;
   fd_stem_context_t *       stem      = (fd_stem_context_t *)para_arg_2;
   fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)fn_arg_1;
+  (void)stem;
 
 
   ulong num_lists = ctx->exec_cnt;
