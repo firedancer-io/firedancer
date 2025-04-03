@@ -2860,7 +2860,6 @@ fd_quic_svc_poll( fd_quic_t *      quic,
       /* send PING */
       if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
         conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
-        conn->flags         &= ~FD_QUIC_CONN_FLAGS_PING_SENT;
         conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;     /* update to be sent in next packet */
       }
     }
