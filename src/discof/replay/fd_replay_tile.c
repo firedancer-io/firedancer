@@ -2148,25 +2148,25 @@ read_snapshot( void *              _ctx,
     /* TODO: enable snapshot verification for all 3 snapshot loads.
        TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
-    // if( strlen( incremental )>0UL ) {
-    //   uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-    //   /* TODO: enable snapshot verification */
+    if( strlen( incremental )>0UL ) {
+      uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+      /* TODO: enable snapshot verification */
 
-    //   fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
-    //                                                                 incremental,
-    //                                                                 ctx->slot_ctx,
-    //                                                                 false,
-    //                                                                 false,
-    //                                                                 FD_SNAPSHOT_TYPE_FULL,
-    //                                                                 ctx->exec_spads,
-    //                                                                 ctx->exec_spad_cnt,
-    //                                                                 ctx->runtime_spad,
-    //                                                                 &exec_para_ctx_snap );
-    //   /* Load the prefetch manifest, and initialize the status cache and slot context,
-    //      so that we can use these to kick off repair. */
-    //   fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
-    //   kickoff_repair_orphans( ctx, stem );
-    // }
+      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
+                                                                    incremental,
+                                                                    ctx->slot_ctx,
+                                                                    false,
+                                                                    false,
+                                                                    FD_SNAPSHOT_TYPE_FULL,
+                                                                    ctx->exec_spads,
+                                                                    ctx->exec_spad_cnt,
+                                                                    ctx->runtime_spad,
+                                                                    &exec_para_ctx_snap );
+      /* Load the prefetch manifest, and initialize the status cache and slot context,
+         so that we can use these to kick off repair. */
+      fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
+      kickoff_repair_orphans( ctx, stem );
+    }
 
     /* In order to kick off repair effectively we need the snapshot slot and
        the stake weights. These are both available in the manifest. We will
@@ -2179,7 +2179,7 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->slot_ctx,
-                                                              true,
+                                                              false,
                                                               false,
                                                               FD_SNAPSHOT_TYPE_FULL,
                                                               ctx->exec_spads,

@@ -325,7 +325,9 @@ calculate_points_tpool( void  *tpool,
   ulong                             minimum_stake_delegation       = task_args->minimum_stake_delegation;
 
   uint128 total_points = 0;
-  for( ulong i=m0; i<=m1; i++ ) {
+
+  FD_LOG_WARNING(("m0 %lu m1 %lu", m0, m1));
+  for( ulong i=m0; i<m1; i++ ) {
     fd_epoch_info_pair_t const * stake_info = stake_infos + i;
     fd_stake_t const *           stake      = &stake_info->stake;
 
@@ -395,10 +397,9 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
 
   ulong wcnt           = fd_tpool_worker_cnt( tpool );
   ulong cnt_per_worker = temp_info->stake_infos_len / (wcnt-1UL);
-  for( ulong worker_idx=1UL; worker_idx<fd_tpool_worker_cnt( tpool ); worker_idx++ ) {
+  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-    ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                             fd_ulong_sat_sub( temp_info->stake_infos_len, 1UL );
+    ulong end_idx   = worker_idx!=wcnt-1UL ? start_idx + cnt_per_worker : temp_info->stake_infos_len;
     fd_tpool_exec( tpool, worker_idx, calculate_points_tpool, temp_info->stake_infos, 0UL, 0UL,
                    &task_args, NULL, 0UL, 0UL, 0UL,
                    start_idx, end_idx, 0UL, 0UL );
@@ -448,7 +449,8 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
                                                                                  m1-m0 ) );
   fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
 
-  for( ulong i=m0; i<=m1; i++ ) {
+  for( ulong i=m0; i<m1; i++ ) {
+
     fd_epoch_info_pair_t const * stake_info = stake_infos + i;
     fd_pubkey_t const *          stake_acc  = &stake_info->account;
     fd_stake_t const *           stake      = &stake_info->stake;
@@ -505,7 +507,9 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
     // Find and update the vote reward node in the local map
     fd_vote_reward_t_mapnode_t vote_map_key[1];
     fd_memcpy( &vote_map_key->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
-    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
+    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool,
+                                                                               result->vote_reward_map_root,
+                                                                               vote_map_key );
     if( FD_UNLIKELY( vote_reward_node==NULL ) ) {
       FD_LOG_WARNING(( "vote account is missing from the vote rewards pool" ));
       continue;
@@ -657,8 +661,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   ulong cnt_per_worker = temp_info->stake_infos_len / (wcnt-1UL);
   for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-    ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                             fd_ulong_sat_sub( temp_info->stake_infos_len, 1UL );
+    ulong end_idx   = worker_idx!=wcnt-1UL ? start_idx + cnt_per_worker : temp_info->stake_infos_len;
     fd_tpool_exec( tpool, worker_idx, calculate_stake_vote_rewards_account_tpool, temp_info, 0UL, 0UL,
                     &task_args, NULL, 0UL, 0UL, 0UL, start_idx, end_idx, 0UL, 0UL );
   }

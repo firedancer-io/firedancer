@@ -57,10 +57,10 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t *               funk,
-                                 fd_funk_txn_t const *     txn,
-                                 fd_funk_rec_key_t const * key,
-                                 fd_funk_txn_t const **    txn_out,
-                                 fd_funk_rec_query_t *     query ) {
+                              fd_funk_txn_t const *     txn,
+                              fd_funk_rec_key_t const * key,
+                              fd_funk_txn_t const **    txn_out,
+                              fd_funk_rec_query_t *     query ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
     return NULL;
