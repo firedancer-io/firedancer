@@ -1,0 +1,2 @@
+packet.Meta.addr max_size:256
+packet.Packet.data max_size:2048
