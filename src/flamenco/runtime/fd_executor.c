@@ -514,13 +514,16 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L479-L522 */
-    for( ushort i=0; i<validated_loaders_cnt; i++ ) {
-      if( !memcmp( validated_loaders[i].key, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) {
+    uchar loader_seen = 0;
+    for( ushort j=0; j<validated_loaders_cnt; j++ ) {
+      if( !memcmp( validated_loaders[j].key, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) {
         /* If the owner account has already been seen, skip the owner checks
            and do not acccumulate the account size. */
-        continue;
+        loader_seen = 1;
+        break;
       }
     }
+    if( loader_seen ) continue;
 
     /* The agave client does checks on the program account's owners as well.
        However, it is important to not do these checks multiple times as the
