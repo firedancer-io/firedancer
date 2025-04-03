@@ -2,10 +2,12 @@
 #include "../fd_util.h"
 
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 /* fd_fuzz_stub.c is a stub fuzz harness for build targets without an
@@ -43,6 +45,35 @@ LLVMFuzzerMutate( uchar * data,
   return 0UL;
 }
 
+static int
+execute( int file ) {
+  struct stat st;
+  if( FD_UNLIKELY( 0!=fstat( file, &st ) ) ) {
+    FD_LOG_ERR(( "fstat(%d) failed (%d-%s)", file, errno, fd_io_strerror( errno ) ));
+    return errno;
+  }
+  if( st.st_mode & S_IFDIR ) return EISDIR;
+  if( !( st.st_mode & S_IFREG ) ) return EBADF;
+
+  ulong file_sz = (ulong)st.st_size;
+
+  uchar * buf = malloc( file_sz );
+  if( !buf ) {
+    FD_LOG_ERR(( "FAIL: Out of memory (failed to malloc %lu bytes)", file_sz ));
+  }
+
+  ulong actual_read_sz;
+  int read_err = fd_io_read( file, buf, file_sz, file_sz, &actual_read_sz );
+  if( FD_UNLIKELY( read_err ) ) {
+    FD_LOG_ERR(( "fd_io_read(%d,%lu) failed (%d-%s)", file, file_sz, errno, fd_io_strerror( errno ) ));
+    return 1;
+  }
+
+  LLVMFuzzerTestOneInput( buf, actual_read_sz );
+  free( buf );
+  return 0;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -55,41 +86,50 @@ main( int     argc,
   for( int i=1; i<argc; i++ ) {
     if( argv[i][0] == '-' ) continue;
 
-    fprintf( stderr, "Running: %s\n", argv[i] );
-
-    int file = open( argv[i], O_RDONLY );
-    if( FD_UNLIKELY( file<0 ) ) {
+    int file0 = open( argv[i], O_RDONLY );
+    if( FD_UNLIKELY( file0<0 ) ) {
       FD_LOG_ERR(( "open(%s) failed (%d-%s)", argv[i], errno, fd_io_strerror( errno ) ));
-      return 1;
     }
 
-    struct stat st;
-    if( FD_UNLIKELY( 0!=fstat( file, &st ) ) ) {
-      FD_LOG_ERR(( "fstat(%d) failed (%d-%s)", file, errno, fd_io_strerror( errno ) ));
-      return 1;
+    int err = execute( file0 );
+    if( err==EISDIR ) {
+
+      DIR * dir = fdopendir( file0 );
+      if( FD_UNLIKELY( !dir ) ) {
+        FD_LOG_ERR(( "fdopendir(%d) failed (%d-%s)", file0, errno, fd_io_strerror( errno ) ));
+      }
+      for(;;) {
+        errno = 0;
+        struct dirent * ent = readdir( dir );
+        if( !ent ) {
+          if( FD_UNLIKELY( errno ) ) {
+            FD_LOG_ERR(( "readdir(%d) failed (%d-%s)", file0, errno, fd_io_strerror( errno ) ));
+          }
+          break;
+        }
+        int file1 = openat( file0, ent->d_name, O_RDONLY );
+        if( FD_UNLIKELY( file1<0 ) ) {
+          FD_LOG_ERR(( "openat(%s/%s) failed (%d-%s)", argv[i], ent->d_name, errno, fd_io_strerror( errno ) ));
+        }
+        if( 0==execute( file1 ) ) {
+          fprintf( stderr, "Executed %s/%s\n", argv[i], ent->d_name );
+        }
+        close( file1 );
+      }
+      closedir( dir );
+      continue;
+
+    } else if( FD_UNLIKELY( err ) ) {
+
+      fprintf( stderr, "Failed to execute %s", argv[i] );
+
+    } else {
+
+      fprintf( stderr, "Executed %s\n", argv[i] );
+
     }
 
-    if( st.st_mode == S_IFDIR )
-      return i_am_a_stub();
-    ulong file_sz = (ulong)st.st_size;
-
-    uchar * buf = malloc( file_sz );
-    if( !buf )
-      FD_LOG_ERR(( "FAIL: Out of memory (failed to malloc %lu bytes)", file_sz ));
-
-    ulong actual_read_sz;
-    int read_err = fd_io_read( file, buf, file_sz, file_sz, &actual_read_sz );
-    close( file );
-    if( FD_UNLIKELY( read_err ) ) {
-      free( buf );
-      FD_LOG_ERR(( "fd_io_read(%d,%lu) failed (%d-%s)", file, file_sz, errno, fd_io_strerror( errno ) ));
-      return 1;
-    }
-
-    LLVMFuzzerTestOneInput( buf, actual_read_sz );
-    fprintf( stderr, "Executed %s\n", argv[i] );
-
-    free( buf );
+    close( file0 );
   }
 
   return 0;

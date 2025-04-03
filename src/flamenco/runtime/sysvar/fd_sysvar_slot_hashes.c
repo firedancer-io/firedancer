@@ -76,6 +76,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
   write_slot_hashes( slot_ctx, slot_hashes );
 }
 
+/* TODO: maybe use the sysvar cache? is there a reason why it doesn't? */
 fd_slot_hashes_t *
 fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
                             fd_spad_t *           runtime_spad ) {

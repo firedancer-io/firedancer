@@ -481,10 +481,15 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
+  ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
+
   if( if_idx==1 ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( ctx->tx_op.mac_addrs, 0, 12UL );
     ctx->tx_op.if_idx = 1;
+    /* Set preferred src address to 127.0.0.1 if no bind address is set */
+    if( !ip4_src ) ip4_src = FD_IP4_ADDR( 127,0,0,1 );
+    ctx->tx_op.src_ip = ip4_src;
     return 1;
   }
 
@@ -512,9 +517,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
-
-  ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address,    ip4_src );
-  ip4_src = fd_uint_if( !ip4_src,            ctx->default_address, ip4_src );
+  ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
   ctx->tx_op.src_ip = ip4_src;
   memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,   6 );
   memcpy( ctx->tx_op.mac_addrs+6, ctx->src_mac_addr, 6 );

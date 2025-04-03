@@ -90,9 +90,12 @@ fd_exec_instr_test_runner_align( void ) {
 
 ulong
 fd_exec_instr_test_runner_footprint( void ) {
+  ulong txn_max = 4+fd_tile_cnt();
+  ulong rec_max = 1024UL;
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
-  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                   fd_funk_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                   fd_funk_footprint( txn_max, rec_max)                 );
   return FD_LAYOUT_FINI( l, fd_exec_instr_test_runner_align() );
 }
 
@@ -100,13 +103,14 @@ fd_exec_instr_test_runner_t *
 fd_exec_instr_test_runner_new( void * mem,
                                void * spad_mem,
                                ulong  wksp_tag ) {
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
-  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                   fd_funk_footprint()                 );
-  FD_SCRATCH_ALLOC_FINI( l, fd_exec_instr_test_runner_align() );
-
   ulong txn_max = 4+fd_tile_cnt();
   ulong rec_max = 1024UL;
+
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
+  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                   fd_funk_footprint( txn_max, rec_max) );
+  FD_SCRATCH_ALLOC_FINI( l, fd_exec_instr_test_runner_align() );
+
   fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_mem, wksp_tag, (ulong)fd_tickcount(), txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) {
     FD_LOG_WARNING(( "fd_funk_new() failed" ));
@@ -175,7 +179,6 @@ _load_account( fd_txn_account_t *                acc,
 
   assert( acc_mgr->funk );
   assert( acc_mgr->funk->magic == FD_FUNK_MAGIC );
-  fd_funk_start_write( acc_mgr->funk );
   int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
                                /* txn         */ funk_txn,
                                /* pubkey      */ pubkey,
@@ -197,7 +200,6 @@ _load_account( fd_txn_account_t *                acc,
   acc->meta = NULL;
   acc->data = NULL;
   acc->rec  = NULL;
-  fd_funk_end_write( acc_mgr->funk );
 
   return 1;
 }
@@ -369,9 +371,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
-  fd_funk_start_write( funk );
+  fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_end_write( funk );
+  fd_funk_txn_end_write( funk );
 
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
@@ -457,8 +459,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     info->data_sz = (ushort)test_ctx->data->size;
     info->data    = test_ctx->data->bytes;
   }
-
-  memcpy( info->program_id_pubkey.uc, test_ctx->program_id, sizeof(fd_pubkey_t) );
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
@@ -556,9 +556,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   /* Add accounts to bpf program cache */
-  fd_funk_start_write( acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
-  fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, runtime_wksp );
@@ -650,7 +648,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     return 0;
   }
 
-  uchar acc_idx_seen[256] = {0};
+  uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
@@ -659,30 +657,26 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
 
     fd_txn_account_t * acc = &accts[ index ];
-    uint flags = 0;
-    flags |= test_ctx->instr_accounts[j].is_writable ? FD_INSTR_ACCT_FLAGS_IS_WRITABLE : 0;
-    flags |= test_ctx->instr_accounts[j].is_signer   ? FD_INSTR_ACCT_FLAGS_IS_SIGNER   : 0;
 
-    info->accounts[j] = acc;
-    info->acct_flags       [j] = (uchar)flags;
-    memcpy( info->acct_pubkeys[j].uc, acc->pubkey, sizeof(fd_pubkey_t) );
-    info->acct_txn_idxs[j]     = (uchar) index;
+    /* Setup instruction accounts */
+    fd_instr_info_setup_instr_account( info,
+                                       acc_idx_seen,
+                                       (ushort)index,
+                                       (ushort)j,
+                                       (ushort)j,
+                                       test_ctx->instr_accounts[j].is_writable,
+                                       test_ctx->instr_accounts[j].is_signer );
 
     if( test_ctx->instr_accounts[j].is_writable ) {
       acc->meta = (void *)acc->const_meta;
       acc->data = (void *)acc->const_data;
       acc->rec  = (void *)acc->const_rec;
     }
-
-    if (acc_idx_seen[index]) {
-      info->is_duplicate[j] = 1;
-    }
-    acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
 
   //  FIXME: Specifically for CPI syscalls, flag guard this?
-  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
+  fd_instr_info_sum_account_lamports( info, txn_ctx, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* The remaining checks enforce that the program is in the accounts list. */
   bool found_program_id = false;
@@ -715,7 +709,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                       funk_gaddr );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
-  fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( txn_ctx->account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
 
   return 1;
 }
@@ -734,9 +728,9 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Create temporary funk transaction and spad contexts */
 
-  fd_funk_start_write( runner->funk );
+  fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_end_write( runner->funk );
+  fd_funk_txn_end_write( funk );
 
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
@@ -771,9 +765,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
   /* Initialize builtin accounts */
-  fd_funk_start_write( runner->funk );
   fd_builtin_programs_init( slot_ctx );
-  fd_funk_end_write( runner->funk );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -789,7 +781,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* Add accounts to bpf program cache */
-  fd_funk_start_write( runner->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
 
   /* Default slot */
@@ -894,7 +885,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       ( rent->exemption_threshold     >    999.0 ) |
       ( rent->lamports_per_uint8_year > UINT_MAX ) |
       ( rent->burn_percent            >      100 ) ) {
-    fd_funk_end_write( runner->funk );
     return NULL;
   }
 
@@ -948,8 +938,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
   fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
-
-  fd_funk_end_write( runner->funk );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 1232 );
@@ -1012,9 +1000,9 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   xid[0] = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and slot / epoch contexts */
-  fd_funk_start_write( runner->funk );
+  fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_end_write( runner->funk );
+  fd_funk_txn_end_write( funk );
 
   /* Allocate contexts */
   ulong                 vote_acct_max = fd_ulong_max( 128UL,
@@ -1253,8 +1241,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );
   fd_memset( slot_bank->block_hash_queue.last_hash, 0, sizeof(fd_hash_t) );
 
-  fd_funk_start_write( runner->funk );
-
   // Use the latest lamports per signature
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   fd_recent_block_hashes_t rbh[1];
@@ -1285,7 +1271,9 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid[1] = {0};
   fork_xid[0] = fd_funk_generate_xid();
+  fd_funk_txn_start_write( funk );
   slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, fork_xid, 1 );
+  fd_funk_txn_end_write( funk );
 
   /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
@@ -1361,8 +1349,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   block_info->txn_cnt       = batch_info->txn_cnt       = batch_txn_cnt;
   block_info->account_cnt   = batch_info->account_cnt   = batch_account_cnt;
 
-  fd_funk_end_write( runner->funk );
-
   /* Initialize tpool and spad(s)
     TODO: We should decide how many workers to use for the execution tpool. We might have a bunch of
     transactions within a single block, but increasing the worker cnt increases the memory requirements by
@@ -1414,14 +1400,12 @@ void
 fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
                                     fd_exec_instr_ctx_t *         ctx ) {
   if( !ctx ) return;
-  fd_acc_mgr_t *        acc_mgr   = ctx->txn_ctx->acc_mgr;
-  fd_funk_txn_t *       funk_txn  = ctx->txn_ctx->funk_txn;
+  fd_acc_mgr_t *           acc_mgr = ctx->txn_ctx->acc_mgr;
+  fd_funk_txn_t *       funk_txn   = ctx->txn_ctx->funk_txn;
 
   fd_acc_mgr_delete( acc_mgr );
 
-  fd_funk_start_write( runner->funk );
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
-  fd_funk_end_write( runner->funk );
 }
 
 static void
@@ -1433,9 +1417,7 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
 
   fd_acc_mgr_delete( acc_mgr );
 
-  fd_funk_start_write( runner->funk );
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
-  fd_funk_end_write( runner->funk );
 }
 
 static void
@@ -1451,9 +1433,7 @@ _block_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   fd_wksp_detach( wksp );
 
-  fd_funk_start_write( runner->funk );
   fd_funk_txn_cancel_all( runner->funk, 1 );
-  fd_funk_end_write( runner->funk );
 }
 
 static fd_sbpf_syscalls_t *
@@ -1769,7 +1749,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     }
 
     /* Capture borrowed accounts */
-    for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
+    for( ushort j=0; j < txn_ctx->accounts_cnt; j++ ) {
       fd_txn_account_t * acc = &txn_ctx->accounts[j];
 
       /* For fees-only transactions, only save the fee payer (and potentially the nonce) only */
@@ -1779,7 +1759,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         }
       }
 
-      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( acc->meta );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
@@ -2252,9 +2232,9 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     // Iterate through instruction accounts
-    for( ushort i = 0UL; i < instr_info->acct_cnt; ++i ) {
-      uchar idx_in_txn = instr_info->acct_txn_idxs[i];
-      fd_pubkey_t * acct_pubkey = &instr_info->acct_pubkeys[i];
+    for( ushort i = 0; i < instr_info->acct_cnt; ++i ) {
+      ushort        idx_in_txn  = instr_info->accounts[i].index_in_transaction;
+      fd_pubkey_t * acct_pubkey = &txn_ctx->account_keys[ idx_in_txn ];
 
       fd_txn_account_t * acct = NULL;
       /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey */

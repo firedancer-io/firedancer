@@ -12,7 +12,7 @@
    element managed by that chain, the chain's version number is
    increased by one (atomic fetch-and-or based) such that other
    potential users of keys managed by that chain detect and react
-   appropriately to a potentially concurrent conflicting operation is in
+   appropriately to a potentially concurrent conflicting operation in
    progress.  When an operation completes, the chain version number is
    increased by one again to notify other users the operation is no
    longer in progress and that the set of keys managed by that chain
@@ -578,7 +578,7 @@
      int mymap_txn_query ( mymap_t const * join, ulong const * key, myele_t const * sentinel, mymap_query_t * query );
 
      // mymap_txn_test returns FD_MAP_SUCCESS (zero) if the txn try
-     // succeeded and FD_MAP_AGAIN (negative) if it failed (e.g. the
+     // succeeded and FD_MAP_ERR_AGAIN (negative) if it failed (e.g. the
      // test detected a potentially conflicting concurrent operation
      // during the try).  On success, any results from processing of
      // keys marked as speculative can be trusted.  On failure, the
@@ -727,7 +727,7 @@
 
      ele->key = ... key associated with this element
 
-     int err = mymap_insert( join, err, FD_MAP_FLAG_BLOCKING );
+     int err = mymap_insert( join, ele, FD_MAP_FLAG_BLOCKING );
 
      if( FD_UNLIKELY( err ) ) { // Not possible in this example
 
@@ -1163,8 +1163,10 @@
 //#define FD_MAP_ERR_FULL    (-5)
 #define FD_MAP_ERR_KEY     (-6)
 
+#ifndef FD_MAP_FLAG_BLOCKING
 #define FD_MAP_FLAG_BLOCKING (1)
 #define FD_MAP_FLAG_ADAPTIVE (2)
+#endif
 
 /* Implementation *****************************************************/
 

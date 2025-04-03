@@ -104,7 +104,7 @@
      // can be used by a mymap.  Will be a positive integer
      // power-of-two.
 
-     ulong mymap_lock_max();
+     ulong mymap_lock_max( void );
 
      // mymap_lock_cnt_est returns a reasonable number of locks to use
      // for a map backed by an ele_max capacity element store.  Assumes
@@ -116,7 +116,7 @@
      // mymap_probe_max_est returns a reasonable maximum probe sequence
      // length for a map backed by an ele_max capacity element store.
      // Assumes ele_max is an integer power-of-two.  Returns an integer
-     // power-of-two in [1,ele_max].
+     // in [1,ele_max].
 
      ulong mymap_probe_max_est( ulong ele_max );
 
@@ -726,8 +726,7 @@
        ... INCONSISTENT RESULTS.
        ...
        ... The simplest and most common form of speculative processing
-       ... is to copy the needed portions of ele into a local stack
-       ... temp.
+       ... is to copy the needed portions of ele into local stack temps.
        ...
        ... Note: concurrent operations include removing key from the
        ... mymap (and maybe multiple cycles of inserting and removing it
@@ -784,7 +783,7 @@
    Note that mymap_lock_range in this example might blocking the caller
    for a long time if the map is under heavy concurrent modification.
    To prioritize the snapshotting over these operations, the same API
-   can be used toprioritize the snapshot over ongoing concurrent
+   can be used to prioritize the snapshot over ongoing concurrent
    modifications:
 
      ulong version[ mymap_lock_max() ];
@@ -805,9 +804,9 @@
 
    Implementation overview:
 
-     A map basically a persistent shared array of version numbers named
-     lock.  lock[ lock_idx ] contains a version number that covers map
-     slots [lock_idx (ele_max/lock_cnt),(lock_idx+1)(ele_max/lock_cnt))
+     A map is basically a persistent shared array of version numbers
+     named lock.  lock[ lock_idx ] contains a version number that covers
+     map slots [lock_idx(ele_max/lock_cnt),(lock_idx+1)(ele_max/lock_cnt)).
 
      When trying an operation that could impact probe sequences passing
      through a lock's range of slots, the version number is atomically
@@ -827,14 +826,14 @@
      implies that the typical "read" operation (e.g.
      query_try/query_test) looks like:
 
-     - try:  observe lock version numbers covering all slots in
-             key's probe sequence, fail if any locked (typically 1
-             normal read that hits L1/L2 cache, especially in the
-             common case of reads more frequent than writes)
+     - try:  observe lock version numbers covering all slots in key's
+             probe sequence, fail if any locked (typically 1 normal read
+             that hits L1/L2 cache, especially in the common case of
+             reads more frequent than writes)
      - spec: speculatively process the element containing key
-     - test: check version numbers haven't changed (typically 1
-             normal read that even more likely L1/L2 cache hit),
-             fail if any changed
+     - test: check version numbers haven't changed (typically 1 normal
+             read that is an even more likely L1/L2 cache hit), fail if
+             any changed
 
      And the typical "write" operation (e.g. prepare/publish) looks
      like:
@@ -855,7 +854,7 @@
 
      For maps that are loaded to their capacity, probe sequences could
      be up to probe_max long and probe_max might be quite large.  This
-     implies that a more than one version lock might be needed.  Since
+     implies that more than one version lock might be needed.  Since
      this range is cyclic contiguous in memory, the locking operations
      are nice compact streaming access patterns.  And similarly for the
      element store access patterns. */
@@ -1727,6 +1726,7 @@ MAP_(prepare)( MAP_(t) *         join,
 
       ele_idx = (ele_idx+1UL) & (ele_max-1UL);
 
+      /* FIXME: FURTHER RESTRICT TO PROBE_REM>1? */
       ulong lock_next = ele_idx >> lock_shift;
       if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks that cover many contiguous slots */
         lock_idx = lock_next;
@@ -2091,6 +2091,7 @@ MAP_(query_try)( MAP_(t) const *   join,
 
       ele_idx = (ele_idx+1UL) & (ele_max-1UL);
 
+      /* FIXME: FURTHER RESTRICT TO PROBE_REM>1? */
       ulong lock_next = ele_idx >> lock_shift;
       if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks cover many contiguous slots */
         lock_idx = lock_next;

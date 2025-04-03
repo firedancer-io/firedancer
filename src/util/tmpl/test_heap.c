@@ -204,10 +204,7 @@ main( int     argc,
   FD_EXPECT_LOG_CRIT( heap_ele_insert( heap, &f, pool ) );
   ulong min = heap_idx_peek_min( heap );
   FD_TEST( heap_idx_null() != min );
-  FD_EXPECT_LOG_CRIT( heap_ele_insert( heap, &pool[ min ], pool ) );
-  while( heap_idx_peek_min( heap ) != heap_idx_null() ) {
-    heap_ele_remove_min( heap, pool );
-  }
+  while( heap_idx_peek_min( heap ) != heap_idx_null() ) heap_ele_remove_min( heap, pool );
   FD_EXPECT_LOG_CRIT( heap_ele_remove_min( heap, pool ) );
 #else
   FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));

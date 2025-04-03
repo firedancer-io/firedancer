@@ -1489,12 +1489,6 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
     tmp->crd = &crds[ i ];
 
     /* Setup fd_crds_value_processed_t entry */
-
-    if( FD_UNLIKELY( tmp->crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) ) {
-      INC_RECV_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
-    } else {
-      glob->metrics.recv_crds[ route ][ tmp->crd->data.discriminant ] += 1UL;
-    }
     switch (tmp->crd->data.discriminant) {
     case fd_crds_data_enum_contact_info_v1:
       tmp->pubkey = &tmp->crd->data.inner.contact_info_v1.id;
@@ -1553,9 +1547,12 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
       tmp->wallclock = tmp->crd->data.inner.restart_heaviest_fork.wallclock;
       break;
     default:
-      tmp->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
-      break;
+      INC_RECV_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
+      return;
     }
+
+    glob->metrics.recv_crds[ route ][ tmp->crd->data.discriminant ] += 1UL;
+
     if (memcmp(tmp->pubkey->uc, glob->public_key->uc, 32U) == 0) {
       /* skip my own messages */
       INC_RECV_CRDS_DROP_METRIC( OWN_MESSAGE );
@@ -1627,7 +1624,8 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
       fd_gossip_contact_info_v2_t * info = &crd->data.inner.contact_info_v2;
       fd_gossip_socket_addr_t socket_addr;
       if( fd_gossip_contact_info_v2_find_proto_ident( info, FD_GOSSIP_SOCKET_TAG_GOSSIP, &socket_addr ) ) {
-        if( fd_gossip_port_from_socketaddr( &socket_addr ) != 0) {
+        if( fd_gossip_port_from_socketaddr( &socket_addr )!=0 &&
+            fd_gossip_socket_addr_is_ip4( &socket_addr ) ) { /* Only support ipv4 */
           /* Remember the peer */
           fd_gossip_peer_addr_t pkey;
           fd_memset(&pkey, 0, sizeof(pkey));

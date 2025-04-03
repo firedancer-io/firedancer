@@ -8,6 +8,9 @@
 #include "../../features/fd_features.h"
 #include "../fd_runtime_public.h"
 
+#include "../fd_acc_mgr.h"
+#include "../context/fd_exec_slot_ctx.h"
+#include "../../vm/syscall/fd_vm_syscall.h"
 
 struct fd_sbpf_validated_program {
   ulong magic;

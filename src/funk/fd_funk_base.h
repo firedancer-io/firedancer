@@ -38,8 +38,9 @@
 
    - Critically, competing/parallel transaction histories are allowed.
 
-   - A user can to read / write all funk records for the most recently
-     published transactions and all transactions locally in preparation. */
+   - A user can update all funk records for the most recently
+     published transactions (if it is not frozen) or all transactions
+     in preparation (if they are not frozen). */
 
 #include "../util/fd_util.h"
 #include "../util/valloc/fd_valloc.h"
@@ -90,13 +91,14 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
 #define FD_FUNK_TXN_XID_ALIGN     (8UL)
 #define FD_FUNK_TXN_XID_FOOTPRINT (16UL)
 
-/* A fd_funk_txn_xid_t identifies a funk transaction.  Compact binary
-   identifiers are encouraged but a cstr can be used so long as it has
-   strlen(cstr)<FD_FUNK_TXN_XID_FOOTPRINT and characters c[i] for i in
-   [strlen(cstr),FD_FUNK_TXN_KEY_FOOTPRINT) zero.  (Also, if encoding a
-   cstr in a transaction id, recommend using first byte to encode the
-   strlen for accelerating cstr operations even further but this is more
-   up to the application.) */
+/* A fd_funk_txn_xid_t identifies a funk transaction currently in
+   preparation.  Compact binary identifiers are encouraged but a cstr
+   can be used so long as it has
+   strlen(cstr)<FD_FUNK_TXN_XID_FOOTPRINT and characters c[i] for i
+   in [strlen(cstr),FD_FUNK_TXN_KEY_FOOTPRINT) zero.  (Also, if
+   encoding a cstr in a transaction id, recommend using first byte to
+   encode the strlen for accelerating cstr operations even further but
+   this is more up to the application.) */
 
 union __attribute__((aligned(FD_FUNK_TXN_XID_ALIGN))) fd_funk_txn_xid {
   char  c [ FD_FUNK_TXN_XID_FOOTPRINT ];
@@ -140,7 +142,7 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_UNUSED FD_FN_PURE static ulong /* Workaround -Winline */
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
-                      ulong                     seed ) {
+                         ulong                     seed ) {
   return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
          (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) ) ^
          (fd_ulong_hash( seed ^ (1UL<<4) ^ k->ul[4] ) ); /* tons of ILP */
@@ -152,7 +154,7 @@ fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
 
 FD_FN_UNUSED FD_FN_PURE static int /* Workaround -Winline */
 fd_funk_rec_key_eq( fd_funk_rec_key_t const * ka,
-                    fd_funk_rec_key_t const * kb ) {
+                       fd_funk_rec_key_t const * kb ) {
   ulong const * a = ka->ul;
   ulong const * b = kb->ul;
   return !( ((a[0]^b[0]) | (a[1]^b[1])) | ((a[2]^b[2]) | (a[3]^b[3])) | (a[4]^b[4]) ) ;
@@ -164,7 +166,7 @@ fd_funk_rec_key_eq( fd_funk_rec_key_t const * ka,
 
 static inline fd_funk_rec_key_t *
 fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
-                      fd_funk_rec_key_t const * ks ) {
+                         fd_funk_rec_key_t const * ks ) {
   ulong *       d = kd->ul;
   ulong const * s = ks->ul;
   d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3]; d[4] = s[4];
@@ -180,7 +182,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
 
 FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
 fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
-                      ulong                     seed ) {
+                         ulong                     seed ) {
   return ( fd_ulong_hash( seed ^ (1UL<<0) ^ x->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ x->ul[1] ) ); /* tons of ILP */
 }
 
@@ -190,7 +192,7 @@ fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
 
 FD_FN_PURE static inline int
 fd_funk_txn_xid_eq( fd_funk_txn_xid_t const * xa,
-                    fd_funk_txn_xid_t const * xb ) {
+                       fd_funk_txn_xid_t const * xb ) {
   ulong const * a = xa->ul;
   ulong const * b = xb->ul;
   return !( (a[0]^b[0]) | (a[1]^b[1]) );
@@ -202,7 +204,7 @@ fd_funk_txn_xid_eq( fd_funk_txn_xid_t const * xa,
 
 static inline fd_funk_txn_xid_t *
 fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
-                      fd_funk_txn_xid_t const * xs ) {
+                         fd_funk_txn_xid_t const * xs ) {
   ulong *       d = xd->ul;
   ulong const * s = xs->ul;
   d[0] = s[0]; d[1] = s[1];
@@ -235,7 +237,7 @@ fd_funk_txn_xid_set_root( fd_funk_txn_xid_t * x ) {
 
 FD_FN_PURE static inline ulong
 fd_funk_xid_key_pair_hash( fd_funk_xid_key_pair_t const * p,
-                           ulong                          seed ) {
+                              ulong                          seed ) {
   /* We ignore the xid part of the key because we need all the instances
      of a given record key to appear in the same hash
      chain. fd_funk_rec_query_global depends on this. */
@@ -248,7 +250,7 @@ fd_funk_xid_key_pair_hash( fd_funk_xid_key_pair_t const * p,
 
 FD_FN_UNUSED FD_FN_PURE static int /* Work around -Winline */
 fd_funk_xid_key_pair_eq( fd_funk_xid_key_pair_t const * pa,
-                         fd_funk_xid_key_pair_t const * pb ) {
+                            fd_funk_xid_key_pair_t const * pb ) {
   return fd_funk_txn_xid_eq( pa->xid, pb->xid ) & fd_funk_rec_key_eq( pa->key, pb->key );
 }
 
@@ -258,7 +260,7 @@ fd_funk_xid_key_pair_eq( fd_funk_xid_key_pair_t const * pa,
 
 static inline fd_funk_xid_key_pair_t *
 fd_funk_xid_key_pair_copy( fd_funk_xid_key_pair_t *       pd,
-                           fd_funk_xid_key_pair_t const * ps ) {
+                              fd_funk_xid_key_pair_t const * ps ) {
   fd_funk_txn_xid_copy( pd->xid, ps->xid );
   fd_funk_rec_key_copy( pd->key, ps->key );
   return pd;
@@ -271,8 +273,8 @@ fd_funk_xid_key_pair_copy( fd_funk_xid_key_pair_t *       pd,
 
 static inline fd_funk_xid_key_pair_t *
 fd_funk_xid_key_pair_init( fd_funk_xid_key_pair_t *  p,
-                           fd_funk_txn_xid_t const * x,
-                           fd_funk_rec_key_t const * k ) {
+                              fd_funk_txn_xid_t const * x,
+                              fd_funk_rec_key_t const * k ) {
   fd_funk_txn_xid_copy( p->xid, x );
   fd_funk_rec_key_copy( p->key, k );
   return p;

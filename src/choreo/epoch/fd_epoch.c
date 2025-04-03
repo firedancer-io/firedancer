@@ -115,9 +115,9 @@ fd_epoch_init( fd_epoch_t * epoch, fd_epoch_bank_t const * epoch_bank ) {
            vote_accounts->vote_accounts_root );
        curr;
        curr = fd_vote_accounts_pair_t_map_successor( vote_accounts->vote_accounts_pool, curr ) ) {
-    
+
     if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
-      
+
       #if FD_EPOCH_USE_HANDHOLDING
       FD_TEST( !fd_epoch_voters_query( epoch_voters, curr->elem.key, NULL ) );
       FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );

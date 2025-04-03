@@ -143,8 +143,8 @@ main( int     argc,
       if( mypool_free( pool ) ) {
         ulong idx = mypool_idx_acquire( pool );
         FD_TEST( mypool_idx_test( pool, idx ) && idx<max );
-#       if FD_HAS_SENTINEL
-        FD_TEST( !idx );
+#       if HAS_SENTINEL
+        FD_TEST( !!idx );
 #       endif
         for( ulong acq=0UL; acq<acquired_cnt; acq++ ) FD_TEST( idx!=(ulong)acquired_idx[ acq ] );
         acquired_idx[ acquired_cnt++ ] = (ushort)idx;
@@ -163,7 +163,7 @@ main( int     argc,
       if( mypool_free( pool ) ) {
         myele_t * ele = mypool_ele_acquire( pool );
         FD_TEST( mypool_ele_test( pool, ele ) && ele );
-#       if FD_HAS_SENTINEL
+#       if HAS_SENTINEL
         FD_TEST( ele!=pool );
 #       endif
         ulong idx = mypool_idx( pool, ele );

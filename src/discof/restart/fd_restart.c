@@ -196,8 +196,8 @@ fd_restart_recv_gossip_msg( fd_restart_t * restart,
 
 void
 fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
-                                         fd_funk_t * funk,
-                                         ulong * out_need_repair ) {
+                                         fd_funk_t *    funk,
+                                         ulong *        out_need_repair ) {
   if( FD_UNLIKELY( restart->heaviest_fork_slot<restart->funk_root ) ) {
     FD_LOG_ERR(( "Halting wen-restart because heaviest_fork_slot(%lu) < funk_root(%lu)",
                  restart->heaviest_fork_slot, restart->funk_root ));
@@ -210,9 +210,9 @@ fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
     *out_need_repair = 0;
   } else {
     /* Cancel any leftover in-preparation transactions from funk */
-    fd_funk_start_write( funk );
+    fd_funk_txn_start_write( funk );
     fd_funk_txn_cancel_all( funk, 1 );
-    fd_funk_end_write( funk );
+    fd_funk_txn_end_write( funk );
 
     *out_need_repair = 1;
   }

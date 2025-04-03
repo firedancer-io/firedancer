@@ -409,17 +409,17 @@
    works by essentially threading a doubly-linked list through elements
    in iteration order. The default is sets this to 0, meaning that the
    next and prev fields are not required. */
+
 #ifndef TREAP_OPTIMIZE_ITERATION
 #define TREAP_OPTIMIZE_ITERATION 0
 #endif
 
 #if TREAP_OPTIMIZE_ITERATION
 # ifndef  TREAP_NEXT
-#  define TREAP_NEXT next
+#   define TREAP_NEXT next
 # endif
-
 # ifndef  TREAP_PREV
-#  define TREAP_PREV prev
+#   define TREAP_PREV prev
 # endif
 #endif
 
@@ -460,10 +460,10 @@
 struct TREAP_(private) {
   ulong       ele_max; /* Maximum number of elements in underlying storage, in [0,TREAP_IDX_NULL] */
   ulong       ele_cnt; /* Current number of elements in treap, in [0,ele_max] */
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   TREAP_IDX_T first;   /* Index of the left-most treap element, in [0,ele_max) or TREAP_IDX_NULL */
   TREAP_IDX_T last;    /* Index of the right-most treap element, in [0,ele_max) or TREAP_IDX_NULL */
-#endif
+# endif
   TREAP_IDX_T root;    /* Index of the root treap element, in [0,ele_max) or TREAP_IDX_NULL */
 };
 
@@ -633,10 +633,10 @@ TREAP_(new)( void * shmem,
   treap->ele_cnt = 0UL;
   treap->root    = (TREAP_IDX_T)TREAP_IDX_NULL;
 
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   treap->first   = (TREAP_IDX_T)TREAP_IDX_NULL;
   treap->last    = (TREAP_IDX_T)TREAP_IDX_NULL;
-#endif
+# endif
 
   return treap;
 }
@@ -701,18 +701,18 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
                     ulong       n,
                     TREAP_T *   pool ) {
 
-#if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( n>=treap->ele_max ) ) FD_LOG_CRIT(( "index out of bounds" ));
-  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (treap->ele_cnt+1>treap->ele_max) ) ) FD_LOG_CRIT(( "treap full" ));
-#endif
+# if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( n>=treap->ele_max              ) ) FD_LOG_CRIT(( "index out of bounds" ));
+  if( FD_UNLIKELY( treap->ele_cnt>=treap->ele_max ) ) FD_LOG_CRIT(( "treap full" ));
+# endif
 
   /* Find leaf where to insert n */
 
   TREAP_IDX_T * _p_child = &treap->root;
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   TREAP_IDX_T * _p_pnext = &treap->first; /* pointer to prev node's next idx */
   TREAP_IDX_T * _p_nprev = &treap->last;  /* pointer to next node's prev idx */
-#endif
+# endif
 
   ulong i = TREAP_IDX_NULL;
   for(;;) {
@@ -721,10 +721,10 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
     i = j;
     int lt = TREAP_(lt)( pool + n, pool + i );
     _p_child = fd_ptr_if( lt, &pool[ i ].TREAP_LEFT, &pool[ i ].TREAP_RIGHT );
-#if TREAP_OPTIMIZE_ITERATION
+#   if TREAP_OPTIMIZE_ITERATION
     _p_pnext = fd_ptr_if( lt, _p_pnext,              &pool[ i ].TREAP_NEXT  );
     _p_nprev = fd_ptr_if( lt, &pool[ i ].TREAP_PREV, _p_nprev               );
-#endif
+#   endif
   }
 
   /* Insert n.  This might momentarily break the heap property. */
@@ -734,12 +734,12 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   pool[ n ].TREAP_RIGHT  = (TREAP_IDX_T)TREAP_IDX_NULL;
   *_p_child = (TREAP_IDX_T)n;
 
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   pool[ n ].TREAP_PREV = *_p_nprev;
   pool[ n ].TREAP_NEXT = *_p_pnext;
   *_p_nprev = (TREAP_IDX_T)n;
   *_p_pnext = (TREAP_IDX_T)n;
-#endif
+# endif
 
   /* Bubble n up until the heap property is restored. */
 
@@ -785,9 +785,6 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt++;
-#if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111+1) && TREAP_(verify)( treap, pool )==-1 ) ) FD_LOG_CRIT(( "idx_insert: treap corrupt" ));
-#endif
   return treap;
 }
 
@@ -795,10 +792,10 @@ TREAP_(t) *
 TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
                     TREAP_T *   pool ) {
-#if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (d>=treap->ele_max) ) ) FD_LOG_CRIT(( "index out of bounds" ));
-  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (treap->ele_cnt<1)  ) ) FD_LOG_CRIT(( "index out of bounds" ));
-#endif
+# if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (d>=treap->ele_max) ) ) FD_LOG_CRIT(( "index out of bounds" ));
+  if( FD_UNLIKELY( (treap->ele_cnt<1)  ) ) FD_LOG_CRIT(( "index out of bounds" ));
+# endif
 
   /* Make a hole at d */
 
@@ -809,14 +806,14 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
   TREAP_IDX_T * _t0      = fd_ptr_if( TREAP_IDX_IS_NULL( p ), &treap->root, &pool[ p ].TREAP_LEFT  );
   TREAP_IDX_T * _p_child = fd_ptr_if( d==(ulong)*_t0,         _t0,          &pool[ p ].TREAP_RIGHT );
 
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   TREAP_IDX_T prev = pool[ d ].TREAP_PREV;
   TREAP_IDX_T next = pool[ d ].TREAP_NEXT;
   TREAP_IDX_T * _pnext = fd_ptr_if( TREAP_IDX_IS_NULL( prev ), &treap->first, &pool[ prev ].TREAP_NEXT );
   TREAP_IDX_T * _nprev = fd_ptr_if( TREAP_IDX_IS_NULL( next ), &treap->last,  &pool[ next ].TREAP_PREV );
   *_pnext = next;
   *_nprev = prev;
-#endif
+# endif
 
   for(;;) {
 
@@ -867,9 +864,6 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt--;
-#if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111-1) && TREAP_(verify)( treap, pool )==-1 ) ) FD_LOG_CRIT(( "idx_remove: treap corrupt" ));
-#endif
   return treap;
 }
 
@@ -1057,7 +1051,7 @@ TREAP_(merge)( TREAP_(t) * treap_a,
 # define STACK_IS_EMPTY (!stack_top)
 # define STACK_IS_FULL  (stack_top>=STACK_MAX)
 
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
 # define STACK_PUSH( imp, im, ia, ib, iaf, ial, ibf, ibl, mp, mn ) do { \
     stack[ stack_top ].idx_merge_parent = (imp);                        \
     stack[ stack_top ]._idx_merge       = (im);                         \
@@ -1084,7 +1078,7 @@ TREAP_(merge)( TREAP_(t) * treap_a,
     (mp)  = stack[ stack_top ].merged_prev;      \
     (mn)  = stack[ stack_top ].merged_next;      \
   } while(0)
-#else
+# else
 # define STACK_PUSH( imp, im, ia, ib ) do {      \
     stack[ stack_top ].idx_merge_parent = (imp); \
     stack[ stack_top ]._idx_merge       = (im);  \
@@ -1099,7 +1093,7 @@ TREAP_(merge)( TREAP_(t) * treap_a,
     (ia)  = stack[ stack_top ].idx_a;            \
     (ib)  = stack[ stack_top ].idx_b;            \
   } while(0)
-#endif
+# endif
 
   TREAP_IDX_T idx_merge_parent = TREAP_IDX_NULL;
 
@@ -1170,26 +1164,20 @@ TREAP_(merge)( TREAP_(t) * treap_a,
     if( FD_UNLIKELY( STACK_IS_FULL ) ) {
 
       /* Remove elements from B one-by-one and insert them into A.
-         O(B lg B) for the removes, O(B lg(A + B)) for the inserts. */
+         O(B lg B) for the removes, O(B lg(A + B)) for the inserts.  The
+         value for ele_cnt in temp_treap_b is a dummy value to avoid
+         handholding checks from spuriously firing. */
 
 #     if TREAP_OPTIMIZE_ITERATION
-      TREAP_(t) temp_treap_a = { .ele_max = treap_a->ele_max, .ele_cnt = 0UL, .root = idx_a, .first=idx_a_first, .last=idx_a_last };
-      TREAP_(t) temp_treap_b = { .ele_max = treap_b->ele_max, .ele_cnt = 0UL, .root = idx_b, .first=idx_b_first, .last=idx_b_last };
+      TREAP_(t) temp_treap_a = { .ele_max = treap_a->ele_max, .ele_cnt = 0UL,              .root = idx_a, .first=idx_a_first, .last=idx_a_last };
+      TREAP_(t) temp_treap_b = { .ele_max = treap_b->ele_max, .ele_cnt = treap_b->ele_max, .root = idx_b, .first=idx_b_first, .last=idx_b_last };
 #     else
-      TREAP_(t) temp_treap_a = { .ele_max = treap_a->ele_max, .ele_cnt = 0UL, .root = idx_a };
-      TREAP_(t) temp_treap_b = { .ele_max = treap_b->ele_max, .ele_cnt = 0UL, .root = idx_b };
+      TREAP_(t) temp_treap_a = { .ele_max = treap_a->ele_max, .ele_cnt = 0UL,              .root = idx_a };
+      TREAP_(t) temp_treap_b = { .ele_max = treap_b->ele_max, .ele_cnt = treap_b->ele_max, .root = idx_b };
 #     endif
       pool[ idx_a ].TREAP_PARENT = TREAP_IDX_NULL;
       pool[ idx_b ].TREAP_PARENT = TREAP_IDX_NULL;
       do {
-#if FD_TMPL_USE_HANDHOLDING
-        /* The temp treaps are not valid treaps, and are only used
-           internally.  The ele_cnt is never used.  To not trigger
-           handholding, we set it to a magic value, that signals
-           certain handholding checks to ignore it. */
-        temp_treap_a.ele_cnt = 0xf173da2ce7111111;
-        temp_treap_b.ele_cnt = 0xf173da2ce7111111;
-#endif
         TREAP_IDX_T idx_tmp = temp_treap_b.root;
         TREAP_(idx_remove)( &temp_treap_b, idx_tmp, pool );
         TREAP_(idx_insert)( &temp_treap_a, idx_tmp, pool );
@@ -1307,11 +1295,6 @@ TREAP_(merge)( TREAP_(t) * treap_a,
   treap_b->last     = TREAP_IDX_NULL;
 # endif
 
-#if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( TREAP_(verify)( treap_a, pool )==-1 ) ) FD_LOG_CRIT(( "merge: treap_a corrupt" ));
-  if( FD_UNLIKELY( TREAP_(verify)( treap_b, pool )==-1 ) ) FD_LOG_CRIT(( "merge: treap_b corrupt" ));
-#endif
-
   return treap_a;
 
 # undef STACK_POP
@@ -1324,37 +1307,37 @@ TREAP_(merge)( TREAP_(t) * treap_a,
 TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_init)( TREAP_(t) const * treap,
                        TREAP_T const *   pool ) {
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   (void)pool;
   return treap->first;
-#else
+# else
   ulong i = TREAP_IDX_NULL;
   ulong j = (ulong)treap->root;
   while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)pool[ j ].TREAP_LEFT; }
   return i;
-#endif
+# endif
 }
 
 TREAP_STATIC TREAP_(rev_iter_t)
 TREAP_(rev_iter_init)( TREAP_(t) const * treap,
                        TREAP_T const *   pool ) {
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   (void)pool;
   return treap->last;
-#else
+# else
   ulong i = TREAP_IDX_NULL;
   ulong j = (ulong)treap->root;
   while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)pool[ j ].TREAP_RIGHT; }
   return i;
-#endif
+# endif
 }
 
 TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
                        TREAP_T const *    pool ) {
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   return pool[ i ].TREAP_NEXT;
-#else
+# else
   ulong r = (ulong)pool[ i ].TREAP_RIGHT;
 
   if( TREAP_IDX_IS_NULL( r ) ) {
@@ -1375,13 +1358,13 @@ TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
   }
 
   return i;
-#endif
+# endif
 }
 
 TREAP_STATIC TREAP_(rev_iter_t)
 TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
                        TREAP_T const *    pool ) {
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   return pool[ i ].TREAP_PREV;
 #else
   ulong l = (ulong)pool[ i ].TREAP_LEFT;
@@ -1432,9 +1415,9 @@ TREAP_(verify)( TREAP_(t) const * treap,
     l = (ulong)pool[ l ].TREAP_LEFT;
     loop_cnt++;
   }
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   TREAP_TEST( treap->first==i );
-#endif
+# endif
 
   /* In-order traverse the treap starting from the leftmost */
 
@@ -1447,11 +1430,11 @@ TREAP_(verify)( TREAP_(t) const * treap,
        NULL if i is the first element we are visiting. */
 
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( !TREAP_(lt)( pool + i, pool + l ) ); /* Make sure ordering valid */
-#if TREAP_OPTIMIZE_ITERATION
+#   if TREAP_OPTIMIZE_ITERATION
     /* Check the l <-> i link */
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( pool[ l ].TREAP_NEXT==i );
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( i ) ) ) TREAP_TEST( pool[ i ].TREAP_PREV==l );
-#endif
+#   endif
 
 
     ulong p = (ulong)pool[ i ].TREAP_PARENT;
@@ -1506,9 +1489,9 @@ TREAP_(verify)( TREAP_(t) const * treap,
 
   }
 
-#if TREAP_OPTIMIZE_ITERATION
+# if TREAP_OPTIMIZE_ITERATION
   TREAP_TEST( treap->last==l );
-#endif
+# endif
 
   TREAP_TEST( cnt==ele_cnt ); /* Make sure we visited correct number of elements */
 

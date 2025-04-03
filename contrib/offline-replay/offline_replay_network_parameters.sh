@@ -20,7 +20,7 @@ case $network in
     export FD_CLUSTER_VERSION=2.1.11
     ;;
   "testnet")
-    export BUCKET_ENDPOINT="gs://testnet-ledger-asia-east1"
+    export BUCKET_ENDPOINT="gs://testnet-ledger-us-sv15"
     export GENESIS_FILE="https://api.testnet.solana.com/genesis.tar.bz2"
     export FUNK_PAGES=500
     export INDEX_MAX=200000000

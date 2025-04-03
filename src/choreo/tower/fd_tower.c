@@ -106,7 +106,7 @@ fd_tower_lockout_check( fd_tower_t const * tower,
      `slot`. If the previous vote slot is too old (ie. older than
      ghost->root), then we don't have ancestry information anymore and
      we just assume it is on the same fork.
-     
+
      FIXME discuss if it is safe to assume that? */
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_index_const( tower, cnt - 1 );
@@ -326,11 +326,11 @@ fd_tower_vote_slot( fd_tower_t *          tower,
   fd_ghost_node_t const * head = fd_ghost_head( ghost, root );
 
   /* Vote for the ghost head if any of the following is true:
-     
+
      1. haven't voted
      2. last vote < ghost root
      3. ghost root is not an ancestory of last vote
-       
+
      FIXME need to ensure lockout safety for case 2 and 3 */
 
   if( FD_UNLIKELY( !vote || vote->slot < root->slot ||
@@ -361,7 +361,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
                    fd_tower_switch_check( tower, epoch, ghost, head->slot ) ) ) {
     FD_LOG_DEBUG(( "[%s] success (lockout switch). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
     return head->slot;
-  } 
+  }
   FD_LOG_DEBUG(( "[%s] failure (lockout switch). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
   return FD_SLOT_NULL;
 }
@@ -414,7 +414,7 @@ fd_tower_vote( fd_tower_t * tower, ulong slot ) {
   fd_tower_votes_push_tail( tower, (fd_tower_vote_t){ .slot = slot, .conf = 1 } );
 
   /* Return the new root (FD_SLOT_NULL if there is none). */
-  
+
   return root;
 }
 
@@ -436,22 +436,44 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
   if( FD_UNLIKELY( !fd_tower_votes_empty( tower ) ) ) FD_LOG_ERR(( "[%s] cannot write to non-empty tower", __func__ ));
   #endif
 
-  fd_voter_state_t const * state = fd_voter_state( funk, txn, vote_acc );
-  if( FD_UNLIKELY(!state ) ) return;
+  ulong vote_cnt            = 0UL;
+  fd_tower_vote_t votes[32] = {0};
 
-  fd_tower_vote_t vote = { 0 };
-  ulong sz = sizeof(fd_voter_vote_old_t);
-  for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
-    if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-      memcpy( (uchar *)&vote, (uchar *)(state->v0_23_5.votes + i), sz );
-    } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
-      memcpy( (uchar *)&vote, (uchar *)(state->v1_14_11.votes + i), sz );
-    } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
-      memcpy( (uchar *)&vote, (uchar *)(state->votes + i) + sizeof(uchar) /* latency */, sz );
-    } else {
-      FD_LOG_ERR(( "[%s] unknown state->discriminant %u", __func__, state->discriminant ));
+  /* Speculatively query the vote state from Funk, until we succeed */
+  for( ; ; ) {
+    fd_funk_rec_query_t query[1];
+    fd_voter_state_t const * state = fd_voter_state( funk, query, txn, vote_acc );
+    if( FD_UNLIKELY( state == NULL ) ) return;
+    vote_cnt = fd_voter_state_cnt( state );
+
+    /* FIXME: note that this may cause a segfault, if the underlying memory-mapped page is
+       swapped out. If we see segfaults, then we should re-visit this.
+
+       This was not fixed yet, because Funk will be changed to not be memory mapped in the near future. */
+
+    fd_memset( votes, 0, sizeof(votes) );
+    ulong sz = sizeof(fd_voter_vote_old_t);
+    for( ulong i = 0; i < vote_cnt; i++ ) {
+      if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
+        memcpy( (uchar *)&votes[i], (uchar *)(state->v0_23_5.votes + i), sz );
+      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
+        memcpy( (uchar *)&votes[i], (uchar *)(state->v1_14_11.votes + i), sz );
+      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
+        memcpy( (uchar *)&votes[i], (uchar *)(state->votes + i) + sizeof(uchar) /* latency */, sz );
+      } else {
+        FD_LOG_ERR(( "[%s] unknown state->discriminant %u", __func__, state->discriminant ));
+      }
     }
-    fd_tower_votes_push_tail( tower, vote );
+
+    if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+      break;
+    }
+  }
+
+  /* Now we have read out of Funk and confirmed the speculative query was still valid,
+      it is safe for us to push to the tower. */
+  for( ulong i=0; i<vote_cnt; i++ ) {
+    fd_tower_votes_push_tail( tower, votes[i] );
   }
 }
 

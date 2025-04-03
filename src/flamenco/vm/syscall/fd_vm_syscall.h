@@ -707,27 +707,15 @@ FD_VM_SYSCALL_DECL( sol_try_find_program_address );
 
 /* fd_vm_syscall_cpi **************************************************/
 
-/* Represents an account for a CPI */
-/* FIXME: DOES THIS GO HERE?  MAYBE GROUP WITH ADMIN OR OUTSIDE SYSCALL? */
-
-struct fd_instruction_account {
-  ushort index_in_transaction;
-  ushort index_in_caller;
-  ushort index_in_callee;
-  uint is_signer;
-  uint is_writable;
-};
-
-typedef struct fd_instruction_account fd_instruction_account_t;
-
 /* Prepare instruction method */
 /* FIXME: DOES THIS GO HERE?  MAYBE GROUP WITH ADMIN OR OUTSIDE SYSCALL? */
 
 int
-fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
-                           fd_instr_info_t *        callee_instr,
+fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
-                           fd_instruction_account_t instruction_accounts[256],
+                           fd_pubkey_t const *      callee_program_id_pubkey,
+                           fd_pubkey_t const        instr_acct_keys[ FD_INSTR_ACCT_MAX ],
+                           fd_instruction_account_t instruction_accounts[ FD_INSTR_ACCT_MAX ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt );

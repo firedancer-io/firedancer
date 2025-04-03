@@ -115,7 +115,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
     return fd_dbl_buf_footprint( VAL("mtu") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    return fd_funk_footprint();
+    return fd_funk_footprint( VAL("txn_max"), VAL("rec_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
     return fd_neigh4_hmap_footprint( VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {

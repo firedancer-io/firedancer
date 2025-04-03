@@ -26,9 +26,9 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Reads the current value of the slot history sysvar */
 fd_slot_history_t *
-fd_sysvar_slot_history_read( fd_acc_mgr_t *  acc_mgr,
-                             fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad );
+fd_sysvar_slot_history_read( fd_acc_mgr_t *     acc_mgr,
+                             fd_funk_txn_t *    funk_txn,
+                             fd_spad_t *        spad );
 
 int
 fd_sysvar_slot_history_find_slot( fd_slot_history_t const * history,

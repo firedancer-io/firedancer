@@ -5,6 +5,7 @@ int main(int argc, char** argv) {
   srand(1234);
 
   fake_funk ff(&argc, &argv);
+  ff.verify();
   for (uint loop = 0; loop < 5000U; ++loop) {
     for (uint i = 0; i < 10; ++i)
       ff.random_insert();

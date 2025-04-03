@@ -1,3 +1,6 @@
+CPPFLAGS+=-DFD_FN_PURE="__attribute__((pure))"
+CPPFLAGS+=-DFD_FN_CONST="__attribute__((const))"
+
 ifdef FD_USING_CLANG
 
 CPPFLAGS+=-Winline

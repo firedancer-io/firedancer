@@ -887,12 +887,15 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_borrowed_account_drop( &authority_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L411 */
-  if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  err = fd_exec_instr_ctx_check_num_insn_accounts( ctx, 3 );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L412-L420 */
-  if( FD_UNLIKELY( ctx->instr->accounts[0]==ctx->instr->accounts[2] ) ) {
+  /* It's ok to directly access the instruction accounts because we already verified 3 expected instruction accounts.
+     https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L412-L420 */
+  if( FD_UNLIKELY( ctx->instr->accounts[0].index_in_transaction ==
+                   ctx->instr->accounts[2].index_in_transaction ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table cannot be the recipient of reclaimed lamports" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }

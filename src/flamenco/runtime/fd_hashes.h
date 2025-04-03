@@ -32,12 +32,12 @@ typedef struct fd_subrange_task_info fd_subrange_task_info_t;
 
 
 struct fd_accounts_hash_task_info {
-  fd_exec_slot_ctx_t *  slot_ctx;
-  fd_pubkey_t           acc_pubkey[1];
-  fd_hash_t             acc_hash[1];
-  fd_funk_rec_t const * rec;
-  uint                  should_erase;
-  uint                  hash_changed;
+  fd_exec_slot_ctx_t *     slot_ctx;
+  fd_pubkey_t              acc_pubkey[1];
+  fd_hash_t                acc_hash[1];
+  fd_funk_rec_t const *    rec;
+  uint                     should_erase;
+  uint                     hash_changed;
 };
 typedef struct fd_accounts_hash_task_info fd_accounts_hash_task_info_t;
 
@@ -54,11 +54,10 @@ typedef union fd_features fd_features_t;
 
 FD_PROTOTYPES_BEGIN
 
-void
+ulong
 fd_accounts_sorted_subrange_count( fd_funk_t * funk,
                                    uint        range_idx,
-                                   uint        range_cnt,
-                                   ulong *     num_pairs_out );
+                                   uint        range_cnt );
 
 void
 fd_accounts_hash_counter_and_gather_tpool_cb( void * para_arg_1,
