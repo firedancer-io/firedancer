@@ -143,9 +143,9 @@
      // space, shmap points in the caller's address space to the memory
      // region containing the mymap, shele points in the caller's
      // address space to mymap's element store and ele_max gives the
-     // element store's capacity.  Returns a handle to the caller's
-     // local join on success (join has ownership of the ljoin region)
-     // and NULL on failure (no changes, logs details).
+     // element store's capacity in [0,ele_max_max].  Returns a handle
+     // to the caller's local join on success (join has ownership of the
+     // ljoin region) and NULL on failure (no changes, logs details).
      //
      // mymap_leave leaves a mymap join.  join points to a current local
      // join.  Returns the memory region used for the join on success
@@ -243,7 +243,7 @@
      // mymap.  This is a non-blocking fast O(1) and supports highly
      // concurrent operation.
      //
-     // Returns FD_MAP_SUCCESS (0) on success and a FD_MAP_ERR
+     // Returns FD_MAP_SUCCESS (0) on success and an FD_MAP_ERR
      // (negative) on failure.  On success, ele was inserted into the
      // mymap at some point during the call (mymap took ownership of the
      // element at that time but the application is free to manage all
@@ -329,7 +329,7 @@
      // call.  Retains no interest in key, sentinel or query.  This is a
      // non-blocking fast O(1) and supports highly concurrent operation.
      //
-     // Returns FD_MAP_SUCCESS (0) on success and a FD_MAP_ERR
+     // Returns FD_MAP_SUCCESS (0) on success and an FD_MAP_ERR
      // (negative) on failure.  On success, mymap_query_ele( query )
      // will point in the caller's address space to the element to
      // modify and the chain that manages key will be locked.  The mymap
@@ -377,7 +377,7 @@
      // sentinel or query.  This is a non-blocking fast O(1) and
      // supports highly concurrent operation.
      //
-     // Returns FD_MAP_SUCCESS (0) on success and a FD_MAP_ERR
+     // Returns FD_MAP_SUCCESS (0) on success and an FD_MAP_ERR
      // (negative) on failure.  On success, key mapped to an element in
      // the element store at some point during the call.
      // mymap_query_ele( query ) will point in the caller's address
@@ -588,7 +588,7 @@
      // random exponential backoff) without needing to recreate it (e.g.
      // no need to fini then init/add again).  Assumes txn is in a try
      // and, for any txn speculative keys, no wrapping of txn version
-     // numbers has occurred since the try started..
+     // numbers has occurred since the try started.
      //
      // IMPORTANT SAFETY TIP!  This is guaranteed to succeed if no keys
      // were added to the transaction as speculative.
@@ -907,9 +907,9 @@
        ... unreliable and insecure Tower of Babel.  Had virtual memory
        ... been better abstracted and better implemented all levels of
        ... the stack, life would be much easier (and things like fast
-       ... persistent memories might have seen a lot more commerical
+       ... persistent memories might have seen a lot more commercial
        ... success).  In the meantime, dispelling the magical thinking
-       ... encourged by the conventional abstractions, the key lessons
+       ... encouraged by the conventional abstractions, the key lessons
        ... are:
        ...
        ... * Friends don't let friends malloc.
@@ -999,7 +999,7 @@
 
      ... basic mymap element snapshot (i.e. iterate over all elements in
      ... the mymap at a globally consistent point in time while
-     ... minimizing contension with other concurrent operations)
+     ... minimizing contention with other concurrent operations)
 
      ulong lock_cnt = mymap_chain_cnt( join );
 
@@ -1760,6 +1760,11 @@ MAP_(join)( void * ljoin,
     return NULL;
   }
 
+  if( FD_UNLIKELY( ele_max > MAP_(ele_max_max)() ) ) {
+    FD_LOG_WARNING(( "ele_max greater than ele_max_max" ));
+    return NULL;
+  }
+
   join->map     = map;
   join->ele     = ele;
   join->ele_max = ele_max;
@@ -2252,7 +2257,7 @@ MAP_(txn_try)( MAP_(txn_t) * txn,
 
         } MAP_CRIT_BLOCKED {
 
-          /* We hit contention for this lock.  Unlock the any chains
+          /* We hit contention for this lock.  Unlock the chains that
              we already locked to prevent possible deadlock (see
              iter_lock) */
 
