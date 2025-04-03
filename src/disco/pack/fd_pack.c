@@ -633,7 +633,7 @@ fd_pack_new( void                   * mem,
              ulong                    bundle_meta_sz,
              ulong                    bank_tile_cnt,
              fd_pack_limits_t const * limits,
-             fd_rng_t                * rng           ) {
+             fd_rng_t               * rng           ) {
 
   int enable_bundles = !!bundle_meta_sz;
   ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
@@ -2339,9 +2339,19 @@ ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumula
 void
 fd_pack_set_block_limits( fd_pack_t * pack,
                           ulong       max_microblocks_per_block,
-                          ulong       max_data_bytes_per_block ) {
+                          ulong       max_data_bytes_per_block,
+                          ulong       max_cost_per_block,
+                          ulong       max_vote_cost_per_block,
+                          ulong       max_write_cost_per_acct ) {
+  FD_TEST(max_cost_per_block      >= FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND     );
+  FD_TEST(max_vote_cost_per_block >= FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND);
+  FD_TEST(max_write_cost_per_acct >= FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND);
+
   pack->lim->max_microblocks_per_block = max_microblocks_per_block;
   pack->lim->max_data_bytes_per_block  = max_data_bytes_per_block;
+  pack->lim->max_cost_per_block        = max_cost_per_block;
+  pack->lim->max_vote_cost_per_block   = max_vote_cost_per_block;
+  pack->lim->max_write_cost_per_acct   = max_write_cost_per_acct;
 }
 
 void
