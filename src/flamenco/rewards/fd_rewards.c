@@ -430,15 +430,15 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
   fd_epoch_info_pair_t const *                        stake_infos                    = temp_info->stake_infos;
 
   fd_calculate_stake_vote_rewards_task_args_t const * task_args                      = (fd_calculate_stake_vote_rewards_task_args_t const *)args;
+  ulong                                               slot                           = task_args->slot;
+  fd_features_t *                                     features                       = task_args->features;
   fd_stake_history_t const *                          stake_history                  = task_args->stake_history;
   ulong                                               rewarded_epoch                 = task_args->rewarded_epoch;
-  ulong *                                             new_warmup_cooldown_rate_epoch = task_args->new_warmup_cooldown_rate_epoch;
+  ulong                                               new_warmup_cooldown_rate_epoch = task_args->new_warmup_cooldown_rate_epoch;
   fd_point_value_t *                                  point_value                    = task_args->point_value;
   fd_calculate_stake_vote_rewards_result_t *          result                         = task_args->result; // written to
   fd_spad_t *                                         spad                           = task_args->exec_spads[ fd_tile_idx() ];
 
-  ulong           slot     = task_args->slot_ctx->slot_bank.slot;
-  fd_features_t * features = &task_args->slot_ctx->epoch_ctx->features;
 
   fd_spad_push(spad);
 
@@ -484,7 +484,7 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
                               vote_state,
                               rewarded_epoch,
                               point_value,
-                              new_warmup_cooldown_rate_epoch,
+                              &new_warmup_cooldown_rate_epoch,
                               calculated_stake_rewards );
     if( FD_UNLIKELY( err!=0 ) ) {
       FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( stake_acc->key ), err ));
@@ -677,10 +677,11 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   }
 
   fd_calculate_stake_vote_rewards_task_args_t task_args = {
-    .slot_ctx                       = slot_ctx,
+    .slot                           = slot_ctx->slot_bank.slot,
+    .features                       = &slot_ctx->epoch_ctx->features,
     .stake_history                  = stake_history,
     .rewarded_epoch                 = rewarded_epoch,
-    .new_warmup_cooldown_rate_epoch = new_warmup_cooldown_rate_epoch,
+    .new_warmup_cooldown_rate_epoch = new_warmup_cooldown_rate_epoch_val,
     .point_value                    = point_value,
     .result                         = result,
     .exec_spads                     = exec_spads,
@@ -838,7 +839,9 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
 
   fd_slot_bank_t const * slot_bank = &slot_ctx->slot_bank;
 
-  fd_calculate_validator_rewards_result_t validator_result[1] = {0};
+  fd_calculate_validator_rewards_result_t * validator_result = fd_spad_alloc( runtime_spad,
+                                                                              alignof(fd_calculate_validator_rewards_result_t),
+                                                                              sizeof(fd_calculate_validator_rewards_result_t) );
   calculate_validator_rewards( slot_ctx,
                                prev_epoch,
                                rewards.validator_rewards,
@@ -1226,8 +1229,11 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
     }
 
-    fd_point_value_t point_value = { .points  = epoch_rewards->total_points,
-                                     .rewards = epoch_rewards->total_rewards };
+    fd_point_value_t * point_value = fd_spad_alloc( runtime_spad,
+                                                    alignof(fd_point_value_t),
+                                                    sizeof(fd_point_value_t) );
+    point_value->points  = epoch_rewards->total_points;
+    point_value->rewards = epoch_rewards->total_rewards;
 
     /* Populate vote and stake state info from vote and stakes cache for the stake vote rewards calculation */
     fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
@@ -1269,7 +1275,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     calculate_stake_vote_rewards( slot_ctx,
                                   stake_history,
                                   rewarded_epoch,
-                                  &point_value,
+                                  point_value,
                                   calculate_stake_vote_rewards_result,
                                   &epoch_info,
                                   tpool,

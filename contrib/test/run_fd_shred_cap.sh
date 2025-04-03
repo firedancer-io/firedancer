@@ -3,7 +3,7 @@
 DUMP_DIR=${DUMP_DIR:="./dump"}
 LOG="/tmp/ledger_log$$"
 
-DATA_DIR=${DATA_DIR:="/data/svc_firedancer"}
+DATA_DIR=${DATA_DIR:="/data/ibhatt/"}
 
 rm -rf $DATA_DIR/shredcap_testnet.blockstore
 rm -rf $DATA_DIR/shredcap_testnet.funk
@@ -85,38 +85,40 @@ echo "
     affinity = \"auto\"
     bank_tile_count = 1
     shred_tile_count = 1
+    exec_tile_count = 8
 [gossip]
 [blockstore]
-    shred_max = 1048576
-    block_max = 8192
+    shred_max = 16777216
+    block_max = 16384
     txn_max = 1048576
     idx_max = 8192
-    alloc_max = 1073741824
-    file = \"$DATA_DIR/shredcap_testnet.blockstore\"
+    alloc_max = 10737418240
+    file = \"/data/ibhatt/default.blockstore\"
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384
     [tiles.replay]
-        snapshot = \"$SNAPSHOT\"
-        incremental = \"$INCREMENTAL\"
-        tpool_thread_count = 10
-        funk_sz_gb = 100
-        funk_rec_max = 150000000
+        snapshot = \"/data/ibhatt/dump/mainnet-586-no-rent/snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst\"
+        tpool_thread_count = 8
+        funk_sz_gb = 40
+        funk_rec_max = 5000000
         funk_txn_max = 2000
-        funk_file = \"$DATA_DIR/shredcap_testnet.funk\"
-        replay_end_slot = 317018450
-        replay_type = \"shredcap\"
+        funk_file = \"/data/ibhatt/shredcap.funk\"
+        replay_end_slot = 253152090
+        replay_type = \"rocksdb\"
     [tiles.pack]
         use_consumed_cus = false
+    [tiles.metric]
+        prometheus_listen_address = \"0.0.0.0\"
+        prometheus_listen_port = 7999
     [tiles.store_int]
-        shred_cap_replay = \"$SHREDCAP\"
+        rocksdb = \"/data/ibhatt/dump/mainnet-586-no-rent/rocksdb\"
 [consensus]
     vote = false
     expected_shred_version = 64475
-    identity_path = \"fd-identity-keypair.json\"
-    vote_account_path = \"fd-vote-keypair.json\"
+    identity_path = \"/data/ibhatt/testnet/validator-1.json\"
 [log]
-    path = \"$LOG\"
+    path = \"/data/ibhatt/fddev.log\"
     level_stderr = \"INFO\"
     level_logfile = \"NOTICE\"
 " > $TOML
@@ -126,7 +128,7 @@ sudo $FD_DIR/$OBJDIR/bin/fddev configure init all
 
 set -x
 
-timeout 6m $FD_DIR/$OBJDIR/bin/fddev dev \
+sudo gdb -nx -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/fddev dev \
   --config "$(readlink -f "$TOML")" \
   --no-sandbox \
   --no-clone \
