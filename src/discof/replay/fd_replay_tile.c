@@ -620,6 +620,19 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_end_read( ctx->funk );
 }
 
+/* NOTE: Snapshot creation is currently not supported in Firedancer V1. We may add support
+         for this back in, after the initial release. For that reason, we want to keep around
+         the snapshot code, but we return early in this function so that snapshot creation
+         is never initiated.
+
+         We currently need double constipation so that we are able to support both snapshot
+         creation and epoch account hash calculation. After accounts_lt_hash has been activated,
+         we will no longer need to create the epoch account hash calculation. At that point, we
+         can remove all double constipation logic.
+
+         Technically, because we don't support snapshot creation, we could remove the double
+         constipation logic now. However to make the change easier to reason about, we will wait
+         until accounts_lt_hash has been activated before doing this. */
 static void
 snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
 
@@ -674,6 +687,11 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
      skipped slots. We just don't want to make a snapshot on an epoch boundary */
   if( (is_full_snapshot_ready || is_inc_snapshot_ready) &&
       !fd_runtime_is_epoch_boundary( epoch_bank, wmk, wmk-1UL ) ) {
+
+    /* NOTE: returning early to avoid triggering snapshot creation, as this is not yet supported.*/
+    FD_LOG_WARNING(( "snapshot creation not supported! skipping snapshot creation" ));
+    return;
+
     /* Constipate the status cache when a snapshot is ready to be created. */
     if( is_full_snapshot_ready ) {
       ctx->last_full_snap = wmk;
