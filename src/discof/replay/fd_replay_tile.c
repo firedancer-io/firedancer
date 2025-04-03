@@ -2039,7 +2039,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
                                               ctx->tpool,
                                               ctx->exec_spads,
                                               ctx->exec_spad_cnt,
-                                              ctx->runtime_spad );
+                                              ctx->epoch_ctx->spad );
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -2946,6 +2946,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
   }
   fd_features_enable_cleaned_up( &ctx->epoch_ctx->features, ctx->epoch_ctx->epoch_bank.cluster_version );
+
+  uchar * epoch_spad_mem = fd_spad_alloc( ctx->runtime_spad, FD_SPAD_ALIGN, fd_spad_footprint( FD_EPOCH_SPAD_SIZE ) );
+  ctx->epoch_ctx->spad = fd_spad_join( fd_spad_new( epoch_spad_mem, FD_EPOCH_SPAD_SIZE ) );
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
