@@ -458,7 +458,6 @@ snap_hash_tiles_cb( void * para_arg_1,
   fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)fn_arg_1;
   (void)stem;
 
-
   ulong num_lists = ctx->exec_cnt;
   FD_LOG_NOTICE(( "launching %lu hash tasks", num_lists ));
   fd_pubkey_hash_pair_list_t * lists         = fd_spad_alloc( ctx->runtime_spad, alignof(fd_pubkey_hash_pair_list_t), num_lists * sizeof(fd_pubkey_hash_pair_list_t) );
@@ -470,6 +469,38 @@ snap_hash_tiles_cb( void * para_arg_1,
   task_info->num_lists     = num_lists;
   task_info->lists         = lists;
   task_info->lthash_values = lthash_values;
+
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    fd_stem_publish( stem, ctx->exec_out[i].idx, EXEC_SNAP_HASH_ACCS_CNT_SIG, ctx->exec_out[i].chunk, 0UL, 0UL, 0UL, 0UL );
+    ctx->exec_out[i].chunk = fd_dcache_compact_next( ctx->exec_out[i].chunk, 0UL, ctx->exec_out[i].chunk0, ctx->exec_out[i].wmark );
+  }
+
+  uchar cnt_done[ FD_PACK_MAX_BANK_TILES ] = {0};
+  for( ;; ) {
+    uchar wait_cnt = 0;
+    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+      if( !cnt_done[ i ] ) {
+        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+        uint  state = fd_exec_fseq_get_state( res );
+        if( state==FD_EXEC_STATE_SNAP_CNT_DONE ) {
+          cnt_done[ i ] = 1;
+          task_info->lists[ i ].pairs = fd_spad_alloc( ctx->runtime_spad,
+                                                       FD_PUBKEY_HASH_PAIR_ALIGN,
+                                                       fd_exec_fseq_get_pairs_len( res ) * sizeof(fd_pubkey_hash_pair_t) );
+        } else {
+          wait_cnt++;
+        }
+      }
+    }
+    if( !wait_cnt ) {
+      break;
+    }
+  }
+
+  FD_LOG_ERR(("ASDF"));
+
+
+
 
 
 }
@@ -2108,8 +2139,14 @@ read_snapshot( void *              _ctx,
                char const *        incremental ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
+  // fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
+    // .func       = snap_hash_tiles_cb,
+    // .para_arg_1 = ctx,
+    // .para_arg_2 = stem,
+  // };
+
   fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
-    .func = fd_accounts_hash_counter_and_gather_tpool_cb,
+    .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
     .para_arg_1 = ctx->tpool
   };
 
@@ -2148,25 +2185,24 @@ read_snapshot( void *              _ctx,
     /* TODO: enable snapshot verification for all 3 snapshot loads.
        TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
-    if( strlen( incremental )>0UL ) {
-      uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-      /* TODO: enable snapshot verification */
+    // if( strlen( incremental )>0UL ) {
+    //   uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+    //   /* TODO: enable snapshot verification */
 
-      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
-                                                                    incremental,
-                                                                    ctx->slot_ctx,
-                                                                    false,
-                                                                    false,
-                                                                    FD_SNAPSHOT_TYPE_FULL,
-                                                                    ctx->exec_spads,
-                                                                    ctx->exec_spad_cnt,
-                                                                    ctx->runtime_spad,
-                                                                    &exec_para_ctx_snap );
-      /* Load the prefetch manifest, and initialize the status cache and slot context,
-         so that we can use these to kick off repair. */
-      fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
-      kickoff_repair_orphans( ctx, stem );
-    }
+    //   fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
+    //                                                                 incremental,
+    //                                                                 ctx->slot_ctx,
+    //                                                                 false,
+    //                                                                 false,
+    //                                                                 FD_SNAPSHOT_TYPE_FULL,
+    //                                                                 ctx->exec_spads,
+    //                                                                 ctx->exec_spad_cnt,
+    //                                                                 ctx->runtime_spad,
+    //                                                                 &exec_para_ctx_snap );
+    //   /* Load the prefetch manifest, and initialize the status cache and slot context,
+    //      so that we can use these to kick off repair. */
+    //   fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
+    // }
 
     /* In order to kick off repair effectively we need the snapshot slot and
        the stake weights. These are both available in the manifest. We will
@@ -2179,7 +2215,7 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->slot_ctx,
-                                                              false,
+                                                              true,
                                                               false,
                                                               FD_SNAPSHOT_TYPE_FULL,
                                                               ctx->exec_spads,
@@ -2191,7 +2227,7 @@ read_snapshot( void *              _ctx,
 
     /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize
          the objects because we don't have these from the incremental snapshot. */
-    if( strlen( incremental )<=0UL ) {
+    if( strlen( incremental )<=0UL || true ) {
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
         FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
 

@@ -9,12 +9,13 @@
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
 
-#define EXEC_NEW_SLOT_SIG       (0xABC123UL)
-#define EXEC_NEW_EPOCH_SIG      (0xDEF456UL)
-#define EXEC_NEW_TXN_SIG        (0x777777UL)
-#define EXEC_HASH_ACCS_SIG      (0x888888UL)
-#define EXEC_BPF_SCAN_SIG       (0x999991UL)
-#define EXEC_SNAP_HASH_ACCS_SIG (0x191992UL)
+#define EXEC_NEW_SLOT_SIG              (0xABC123UL)
+#define EXEC_NEW_EPOCH_SIG             (0xDEF456UL)
+#define EXEC_NEW_TXN_SIG               (0x777777UL)
+#define EXEC_HASH_ACCS_SIG             (0x888888UL)
+#define EXEC_BPF_SCAN_SIG              (0x999991UL)
+#define EXEC_SNAP_HASH_ACCS_CNT_SIG    (0x191992UL)
+#define EXEC_SNAP_HASH_ACCS_GATHER_SIG (0x193992UL)
 
 #define FD_EXEC_STATE_NOT_BOOTED     (0xFFFFFFFFUL)
 #define FD_EXEC_STATE_BOOTED         (1<<1UL      )
@@ -23,7 +24,7 @@
 #define FD_EXEC_STATE_TXN_DONE       (1<<4UL      )
 #define FD_EXEC_STATE_HASH_DONE      (1<<6UL      )
 #define FD_EXEC_STATE_BPF_SCAN_DONE  (1<<7UL      )
-#define FD_EXEC_STATE_SNAP_HASH_DONE (1<<8UL      )
+#define FD_EXEC_STATE_SNAP_CNT_DONE  (1<<8UL      )
 
 /* parallel execution apis ********************************************/
 
@@ -130,9 +131,16 @@ fd_exec_fseq_get_bpf_id( ulong fseq ) {
   return (uint)(fseq >> 32UL);
 }
 
+static ulong FD_FN_UNUSED
+fd_exec_fseq_set_snap_hash_cnt_done( uint pairs_len ) {
+  ulong state = ((ulong)pairs_len << 32UL);
+  state      |= FD_EXEC_STATE_SNAP_CNT_DONE;
+  return state;
+}
+
 static uint FD_FN_UNUSED
-fd_exec_fseq_set_snap_hash_done( void ) {
-  return FD_EXEC_STATE_SNAP_HASH_DONE;
+fd_exec_fseq_get_pairs_len( ulong fseq ) {
+  return (uint)(fseq >> 32UL);
 }
 
 /* FIXME: This will need to get reworked when we consolidate the

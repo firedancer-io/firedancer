@@ -131,6 +131,8 @@ struct fd_exec_tile_ctx {
 
   ulong *               exec_fseq;
 
+  /* Pairs */
+  ulong                 pairs_len;
 };
 typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
 
@@ -375,11 +377,8 @@ bpf_scan_accounts( fd_exec_tile_ctx_t *               ctx,
 }
 
 static void FD_FN_UNUSED
-snap_hash_accounts( fd_exec_tile_ctx_t *                ctx,
-                    fd_runtime_public_snap_hash_msg_t * msg ) {
-  (void)msg;
-  ulong pairs_len = fd_accounts_sorted_subrange_count( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt );
-  (void)pairs_len;
+snap_hash_count( fd_exec_tile_ctx_t * ctx ) {
+  ctx->pairs_len = fd_accounts_sorted_subrange_count( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt );
 }
 
 static void
@@ -425,6 +424,12 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       FD_LOG_NOTICE(( "bpf scan=%lu msg recvd", msg->end_idx - msg->start_idx ));
       bpf_scan_accounts( ctx, msg );
       return;
+    } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
+      FD_LOG_NOTICE(( "snap hash count msg recvd" ));
+      snap_hash_count( ctx );
+    } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
+      FD_LOG_NOTICE(( "snap hash gather msg recvd" ));
+      snap_hash_gather( ctx );
     } else {
       FD_LOG_ERR(( "Unknown signature" ));
     }
@@ -466,6 +471,9 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
     if( FD_UNLIKELY( ctx->bpf_id==UINT_MAX ) ) {
       ctx->bpf_id = 0U;
     }
+  } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
+    FD_LOG_NOTICE(( "Sending ack for snap hash count msg pairs_len=%lu", ctx->pairs_len ));
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_cnt_done( (uint)ctx->pairs_len ) );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }
