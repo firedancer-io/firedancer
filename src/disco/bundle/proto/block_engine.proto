@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+import "packet.proto";
+import "shared.proto";
+import "bundle.proto";
+
+package block_engine;
+
+message SubscribePacketsRequest {}
+message SubscribePacketsResponse {
+  shared.Header header = 1;
+  packet.PacketBatch batch = 2;
+}
+
+message SubscribeBundlesRequest {}
+message SubscribeBundlesResponse {
+  repeated bundle.BundleUuid bundles = 1;
+}
+
+message BlockBuilderFeeInfoRequest {}
+message BlockBuilderFeeInfoResponse {
+  string pubkey = 1;
+
+  // commission (0-100)
+  uint64 commission = 2;
+}
+
+/// Validators can connect to Block Engines to receive packets and bundles.
+service BlockEngineValidator {
+  /// Validators can subscribe to the block engine to receive a stream of packets
+  rpc SubscribePackets (SubscribePacketsRequest) returns (stream SubscribePacketsResponse) {}
+
+  /// Validators can subscribe to the block engine to receive a stream of simulated and profitable bundles
+  rpc SubscribeBundles (SubscribeBundlesRequest) returns (stream SubscribeBundlesResponse) {}
+
+  // Block builders can optionally collect fees. This returns fee information if a block builder wants to
+  // collect one.
+  rpc GetBlockBuilderFeeInfo (BlockBuilderFeeInfoRequest) returns (BlockBuilderFeeInfoResponse) {}
+}
