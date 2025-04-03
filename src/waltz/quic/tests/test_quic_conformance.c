@@ -183,7 +183,8 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
       state->tls,
       (void*)conn,
       1 /*is_server*/,
-      tp );
+      tp,
+      state->now );
   conn->tls_hs = tls_hs;
 
   /* Send the TLS handshake message */
