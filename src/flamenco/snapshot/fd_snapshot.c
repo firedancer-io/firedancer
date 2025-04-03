@@ -20,7 +20,6 @@ struct fd_snapshot_load_ctx {
   /* User-defined parameters. */
   const char *           snapshot_file;
   fd_exec_slot_ctx_t *   slot_ctx;
-  fd_tpool_t *           tpool;
   uint                   verify_hash;
   uint                   check_hash;
   int                    snapshot_type;
@@ -33,6 +32,8 @@ struct fd_snapshot_load_ctx {
   fd_snapshot_restore_t * restore;
 
   fd_spad_t *             runtime_spad;
+
+  fd_exec_para_cb_ctx_t * exec_para_ctx;
 };
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
@@ -99,25 +100,25 @@ fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_file,
                       fd_exec_slot_ctx_t *   slot_ctx,
-                      fd_tpool_t *           tpool,
                       uint                   verify_hash,
                       uint                   check_hash,
                       int                    snapshot_type,
                       fd_spad_t * *          exec_spads,
                       ulong                  exec_spad_cnt,
-                      fd_spad_t *            runtime_spad ) {
+                      fd_spad_t *            runtime_spad,
+                      fd_exec_para_cb_ctx_t * exec_para_ctx ) {
 
   (void)exec_spads;
   (void)exec_spad_cnt;
 
   fd_snapshot_load_ctx_t * ctx = (fd_snapshot_load_ctx_t *)mem;
-  ctx->snapshot_file = snapshot_file;
-  ctx->slot_ctx      = slot_ctx;
-  ctx->tpool         = tpool;
-  ctx->verify_hash   = verify_hash;
-  ctx->check_hash    = check_hash;
-  ctx->snapshot_type = snapshot_type;
-  ctx->runtime_spad  = runtime_spad;
+  ctx->snapshot_file  = snapshot_file;
+  ctx->slot_ctx       = slot_ctx;
+  ctx->verify_hash    = verify_hash;
+  ctx->check_hash     = check_hash;
+  ctx->snapshot_type  = snapshot_type;
+  ctx->runtime_spad   = runtime_spad;
+  ctx->exec_para_ctx  = exec_para_ctx;
   return ctx;
 }
 
@@ -259,7 +260,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
     if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
       fd_hash_t accounts_hash;
       FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-        fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash, ctx->runtime_spad );
+        fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx );
       } FD_SPAD_FRAME_END;
 
       if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
@@ -275,7 +276,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
         fd_snapshot_inc_hash( ctx->slot_ctx, &accounts_hash, ctx->child_txn, ctx->check_hash, ctx->runtime_spad );
       } else {
         FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
-        fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash, ctx->runtime_spad );
+        fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx );
       }
 
       if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
@@ -313,17 +314,22 @@ fd_snapshot_load_all( const char *         source_cstr,
                       ulong                exec_spad_cnt,
                       fd_spad_t *          runtime_spad ) {
 
+  fd_exec_para_cb_ctx_t exec_para_ctx = {
+    .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
+    .para_arg_1 = tpool
+  };
+
   uchar *                  mem = fd_spad_alloc( runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
   fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem,
                                                        source_cstr,
                                                        slot_ctx,
-                                                       tpool,
                                                        verify_hash,
                                                        check_hash,
                                                        snapshot_type,
                                                        exec_spads,
                                                        exec_spad_cnt,
-                                                       runtime_spad );
+                                                       runtime_spad,
+                                                       &exec_para_ctx );
 
   fd_snapshot_load_init( ctx );
   fd_runtime_update_slots_per_epoch( slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH );

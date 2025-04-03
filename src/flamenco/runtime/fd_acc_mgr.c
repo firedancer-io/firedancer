@@ -203,7 +203,6 @@ fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
   if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) ) {
-    FD_LOG_WARNING(( "WRONG MAGIC" ));
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
   }
 

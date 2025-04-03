@@ -5,6 +5,7 @@
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "fd_runtime_public.h"
 
 #define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
 struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
@@ -13,6 +14,22 @@ struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
 };
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
+
+struct fd_pubkey_hash_pair_list {
+  fd_pubkey_hash_pair_t * pairs;
+  ulong pairs_len;
+};
+typedef struct fd_pubkey_hash_pair_list fd_pubkey_hash_pair_list_t;
+
+struct fd_subrange_task_info {
+  fd_features_t *              features;
+  fd_funk_t *                  funk;
+  ulong                        num_lists;
+  fd_pubkey_hash_pair_list_t * lists;
+  fd_lthash_value_t *          lthash_values;
+};
+typedef struct fd_subrange_task_info fd_subrange_task_info_t;
+
 
 struct fd_accounts_hash_task_info {
   fd_exec_slot_ctx_t *     slot_ctx;
@@ -36,6 +53,28 @@ union fd_features;
 typedef union fd_features fd_features_t;
 
 FD_PROTOTYPES_BEGIN
+
+ulong
+fd_accounts_sorted_subrange_count( fd_funk_t * funk,
+                                   uint        range_idx,
+                                   uint        range_cnt );
+
+void
+fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
+                                    uint                    range_idx,
+                                    uint                    range_cnt,
+                                    ulong *                 num_pairs_out,
+                                    fd_lthash_value_t *     lthash_values_out,
+                                    fd_pubkey_hash_pair_t * pairs,
+                                    fd_features_t *         features );
+
+void
+fd_accounts_hash_counter_and_gather_tpool_cb( void * para_arg_1,
+                                              void * para_arg_2 FD_PARAM_UNUSED,
+                                              void * fn_arg_1,
+                                              void * fn_arg_2,
+                                              void * fn_arg_3 FD_PARAM_UNUSED,
+                                              void * fn_arg_4 FD_PARAM_UNUSED );
 
 int
 fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
@@ -103,32 +142,32 @@ fd_hash_account( uchar                     hash  [ static 32 ],
 #define FD_HASH_BOTH_HASHES         (3)
 
 void const *
-fd_hash_account_current( uchar                      hash  [ static 32 ],
-                         fd_lthash_value_t         *lthash,
-                         fd_account_meta_t const   *account,
-                         uchar const                pubkey[ static 32 ],
-                         uchar const *              data,
-                         int                        hash_needed,
-                         fd_features_t            *features );
+fd_hash_account_current( uchar                     hash  [ static 32 ],
+                         fd_lthash_value_t *       lthash,
+                         fd_account_meta_t const * account,
+                         uchar const               pubkey[ static 32 ],
+                         uchar const *             data,
+                         int                       hash_needed,
+                         fd_features_t *           features );
 
 /* Generate a complete accounts_hash of the entire account database. */
 
 int
-fd_accounts_hash( fd_funk_t *      funk,
-                  fd_slot_bank_t * slot_bank,
-                  fd_tpool_t *     tpool,
-                  fd_hash_t *      accounts_hash,
-                  fd_spad_t *      runtime_spad,
-                  int              lthash_enabled,
-                  fd_features_t   *features );
+fd_accounts_hash( fd_funk_t *             funk,
+                  fd_slot_bank_t *        slot_bank,
+                  fd_hash_t *             accounts_hash,
+                  fd_spad_t *             runtime_spad,
+                  int                     lthash_enabled,
+                  fd_features_t *         features,
+                  fd_exec_para_cb_ctx_t * exec_para_ctx );
 
 /* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
-                  fd_tpool_t *         tpool,
-                  fd_hash_t *          accounts_hash,
-                  uint                 check_hash,
-                  fd_spad_t *          runtime_spad );
+fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
+                  fd_hash_t *             accounts_hash,
+                  uint                    check_hash,
+                  fd_spad_t *             runtime_spad,
+                  fd_exec_para_cb_ctx_t * exec_para_ctx );
 
 /* Generate an incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int

@@ -35,10 +35,10 @@ fd_funk_footprint( ulong txn_max,
 
 void *
 fd_funk_new( void * shmem,
-                ulong  wksp_tag,
-                ulong  seed,
-                ulong  txn_max,
-                ulong  rec_max ) {
+             ulong  wksp_tag,
+             ulong  seed,
+             ulong  txn_max,
+             ulong  rec_max ) {
   fd_funk_t * funk = (fd_funk_t *)shmem;
   fd_wksp_t * wksp = fd_wksp_containing( funk );
 
@@ -80,6 +80,7 @@ fd_funk_new( void * shmem,
   void * rec_map = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_rec_map_align(), fd_funk_rec_map_footprint( rec_chain_cnt ) );
   void * rec_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_rec_pool_align(), fd_funk_rec_pool_footprint() );
   fd_funk_rec_t * rec_ele = (fd_funk_rec_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_funk_rec_t), sizeof(fd_funk_rec_t) * rec_max );
+  FD_LOG_NOTICE(("REC CHAIN CNT %lu", rec_chain_cnt));
 
   void * alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 

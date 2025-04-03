@@ -23,10 +23,11 @@ struct fd_calculate_points_task_args {
 typedef struct fd_calculate_points_task_args fd_calculate_points_task_args_t;
 
 struct fd_calculate_stake_vote_rewards_task_args {
-  fd_exec_slot_ctx_t *                       slot_ctx;
+  ulong                                      slot;
+  fd_features_t *                            features;
   fd_stake_history_t const *                 stake_history;
   ulong                                      rewarded_epoch;
-  ulong *                                    new_warmup_cooldown_rate_epoch;
+  ulong                                      new_warmup_cooldown_rate_epoch;
   fd_point_value_t *                         point_value;
   fd_calculate_stake_vote_rewards_result_t * result;
   fd_spad_t * *                              exec_spads;

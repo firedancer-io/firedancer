@@ -292,10 +292,10 @@ fd_funk_rec_is_full( fd_funk_t * funk );
 
 int
 fd_funk_rec_remove( fd_funk_t *               funk,
-                       fd_funk_txn_t *           txn,
-                       fd_funk_rec_key_t const * key,
-                       fd_funk_rec_t **          rec_out,
-                       ulong                        erase_data );
+                    fd_funk_txn_t *           txn,
+                    fd_funk_rec_key_t const * key,
+                    fd_funk_rec_t **          rec_out,
+                    ulong                     erase_data );
 
 /*
   fd_funk_rec_hard_remove completely removes the record from Funk,
@@ -310,8 +310,8 @@ fd_funk_rec_remove( fd_funk_t *               funk,
 */
 void
 fd_funk_rec_hard_remove( fd_funk_t *               funk,
-                            fd_funk_txn_t *           txn,
-                            fd_funk_rec_key_t const * key );
+                         fd_funk_txn_t *           txn,
+                         fd_funk_rec_key_t const * key );
 
 
 /* When a record is erased there is metadata stored in the five most
@@ -340,8 +340,8 @@ fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
 */
 int
 fd_funk_rec_forget( fd_funk_t *      funk,
-                       fd_funk_rec_t ** recs,
-                       ulong recs_cnt );
+                    fd_funk_rec_t ** recs,
+                    ulong            recs_cnt );
 
 /* Iterator which walks all records in all transactions. Usage is:
 

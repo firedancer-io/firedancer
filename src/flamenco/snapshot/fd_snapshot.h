@@ -6,6 +6,7 @@
 /* fd_snapshot.h provides high-level blocking APIs for Solana snapshots. */
 
 #include "fd_snapshot_base.h"
+#include "../runtime/fd_runtime_public.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -63,16 +64,16 @@ ulong
 fd_snapshot_load_ctx_footprint( void );
 
 fd_snapshot_load_ctx_t *
-fd_snapshot_load_new( uchar *                mem,
-                      const char *           snapshot_file,
-                      fd_exec_slot_ctx_t *   slot_ctx,
-                      fd_tpool_t *           tpool,
-                      uint                   verify_hash,
-                      uint                   check_hash,
-                      int                    snapshot_type,
-                      fd_spad_t * *          exec_spads,
-                      ulong                  spad_cnt,
-                      fd_spad_t *            runtime_spad );
+fd_snapshot_load_new( uchar *                 mem,
+                      const char *            snapshot_file,
+                      fd_exec_slot_ctx_t *    slot_ctx,
+                      uint                    verify_hash,
+                      uint                    check_hash,
+                      int                     snapshot_type,
+                      fd_spad_t * *           exec_spads,
+                      ulong                   spad_cnt,
+                      fd_spad_t *             runtime_spad,
+                      fd_exec_para_cb_ctx_t * exec_para_ctx );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );

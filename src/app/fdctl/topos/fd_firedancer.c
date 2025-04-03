@@ -267,7 +267,9 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "gossip_sign",  "gossip_sign",  128UL,                                    2048UL,                        1UL );
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
-  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",   128UL,                                   10240UL,                       1UL );
+  /* TODO: The MTU is currently relatively arbitrary and needs to be resized to the size of the largest
+     message that is outbound from the replay to exec. */
+  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",   128UL,                                   10240UL,                       exec_tile_cnt );
 
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_eqvoc", "gossip_eqvoc", 128UL,                                    FD_TPU_MTU,                    1UL );
@@ -426,8 +428,8 @@ fd_topo_initialize( config_t * config ) {
 
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
-    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, exec_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_fseq.%lu", i ) );
   }
 
@@ -689,7 +691,8 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( tile->store_int.slots_pending ) );
       strncpy( tile->store_int.shred_cap_archive, config->tiles.store_int.shred_cap_archive, sizeof(tile->store_int.shred_cap_archive) );
       strncpy( tile->store_int.shred_cap_replay, config->tiles.store_int.shred_cap_replay, sizeof(tile->store_int.shred_cap_replay) );
-      tile->store_int.shred_cap_end_slot     = config->tiles.store_int.shred_cap_end_slot;
+      strncpy( tile->store_int.rocksdb, config->tiles.store_int.rocksdb, sizeof(tile->store_int.rocksdb) );
+      tile->store_int.replay_end_slot        = config->tiles.replay.replay_end_slot;
       tile->store_int.expected_shred_version = config->consensus.expected_shred_version;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
@@ -750,6 +753,8 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.bank_tile_count = config->layout.bank_tile_count;
       tile->replay.exec_tile_count = config->layout.exec_tile_count;
       strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
+      strncpy( tile->replay.replay_type, config->tiles.replay.replay_type, sizeof(tile->replay.replay_type) );
+      tile->replay.replay_end_slot = config->tiles.replay.replay_end_slot;
 
       /* not specified by [tiles.replay] */
 
