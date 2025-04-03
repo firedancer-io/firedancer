@@ -898,7 +898,7 @@
 /* If MAP_MEMOIZE is defined to non-zero, elements have a field that
    can be used while in the map to hold the MAP_KEY_HASH for an
    element's key.  This is useful for accelerating user code that might
-   need a hash and accelerating various operations. */
+   need a hash and various map operations. */
 
 #ifndef MAP_MEMOIZE
 #define MAP_MEMOIZE 0
@@ -1851,7 +1851,7 @@ MAP_(remove)( MAP_(t) *             join,
       if( FD_LIKELY( !found ) ) { /* opt for first pass low collision */
         if( FD_UNLIKELY( contig_cnt>=probe_max ) ) break; /* opt for first pass low collision */
         found =
-  #       if MAP_MEMOMIZE && MAP_KEY_EQ_IS_SLOW
+  #       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
           FD_LIKELY( ele->MAP_MEMO==memo ) &&
   #       endif
           MAP_(key_eq)( &ele->MAP_KEY, key );
