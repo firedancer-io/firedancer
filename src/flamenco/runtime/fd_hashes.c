@@ -895,12 +895,12 @@ fd_accounts_sorted_subrange_count( fd_funk_t * funk,
   return num_pairs;
 }
 
-static void
+void
 fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
                                     uint                    range_idx,
                                     uint                    range_cnt,
                                     ulong *                 num_pairs_out,
-                                    fd_lthash_value_t *     lthash_values_out,
+                                    fd_lthash_value_t *     lthash_value_out,
                                     fd_pubkey_hash_pair_t * pairs,
                                     fd_features_t *         features ) {
 
@@ -962,7 +962,7 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
 
   *num_pairs_out = num_pairs;
 
-  fd_lthash_add( &lthash_values_out[range_idx], &accum  );
+  fd_lthash_add( lthash_value_out, &accum  );
 }
 
 static void
@@ -989,7 +989,7 @@ fd_accounts_sorted_subrange_gather_task( void *tpool,
                                          ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
   fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)tpool;
   fd_accounts_sorted_subrange_gather( task_info->funk, (uint)m0, (uint)task_info->num_lists,
-                                      &task_info->lists[m0].pairs_len, task_info->lthash_values,
+                                      &task_info->lists[m0].pairs_len, &task_info->lthash_values[m0],
                                       task_info->lists[m0].pairs, task_info->features );
 }
 

@@ -489,6 +489,7 @@ snap_hash_tiles_cb( void * para_arg_1,
         ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
         uint  state = fd_exec_fseq_get_state( res );
         if( state==FD_EXEC_STATE_SNAP_CNT_DONE ) {
+          FD_LOG_NOTICE(( "Acked hash cnt msg" ));
           cnt_done[ i ] = 1;
           task_info->lists[ i ].pairs = fd_spad_alloc( ctx->runtime_spad,
                                                        FD_PUBKEY_HASH_PAIR_ALIGN,
@@ -503,12 +504,40 @@ snap_hash_tiles_cb( void * para_arg_1,
     }
   }
 
-  FD_LOG_ERR(("ASDF"));
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+
+    fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
+
+    fd_runtime_public_snap_hash_msg_t * gather_msg = (fd_runtime_public_snap_hash_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+
+    gather_msg->lt_hash_value_out_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, &lthash_values[i] );
+    gather_msg->num_pairs_out_gaddr     = fd_wksp_gaddr( ctx->runtime_public_wksp, &task_info->lists[i].pairs_len );
+    gather_msg->pairs_gaddr             = fd_wksp_gaddr( ctx->runtime_public_wksp, task_info->lists[i].pairs );
+
+    fd_stem_publish( stem, ctx->exec_out[i].idx, EXEC_SNAP_HASH_ACCS_GATHER_SIG, ctx->exec_out[i].chunk, sizeof(fd_runtime_public_snap_hash_msg_t), 0UL, 0UL, 0UL );
+    ctx->exec_out[i].chunk = fd_dcache_compact_next( ctx->exec_out[i].chunk, sizeof(fd_runtime_public_snap_hash_msg_t), ctx->exec_out[i].chunk0, ctx->exec_out[i].wmark );
+  }
 
 
-
-
-
+  memset( cnt_done, 0, sizeof(cnt_done) );
+  for( ;; ) {
+    uchar wait_cnt = 0;
+    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+      if( !cnt_done[ i ] ) {
+        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+        uint  state = fd_exec_fseq_get_state( res );
+        if( state==FD_EXEC_STATE_SNAP_GATHER_DONE ) {
+          FD_LOG_NOTICE(( "Acked hash gather msg" ));
+          cnt_done[ i ] = 1;
+        } else {
+          wait_cnt++;
+        }
+      }
+    }
+    if( !wait_cnt ) {
+      break;
+    }
+  }
 }
 
 static void FD_FN_UNUSED
@@ -641,13 +670,13 @@ block_finalize_tiles_cb( void * para_arg_1,
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem,
-                      exec_out->idx,
-                      EXEC_HASH_ACCS_SIG,
-                      exec_out->chunk,
-                      sizeof(fd_runtime_public_hash_bank_msg_t),
-                      0UL,
-                      tsorig,
-                      tspub );
+                     exec_out->idx,
+                     EXEC_HASH_ACCS_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_hash_bank_msg_t),
+                     0UL,
+                     tsorig,
+                     tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 
@@ -670,7 +699,6 @@ block_finalize_tiles_cb( void * para_arg_1,
       break;
     }
   }
-
 }
 
 /* Receives from store tile (soon to be repair) newly completed slices
@@ -2046,16 +2074,16 @@ read_snapshot( void *              _ctx,
                char const *        incremental ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
-  // fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
-    // .func       = snap_hash_tiles_cb,
-    // .para_arg_1 = ctx,
-    // .para_arg_2 = stem,
-  // };
-
   fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
-    .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
-    .para_arg_1 = ctx->tpool
+    .func       = snap_hash_tiles_cb,
+    .para_arg_1 = ctx,
+    .para_arg_2 = stem,
   };
+
+  // fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
+  //   .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
+  //   .para_arg_1 = ctx->tpool
+  // };
 
   if( ctx->replay_plugin_out_mem ) {
     // ValidatorStartProgress::DownloadingSnapshot
@@ -2150,6 +2178,7 @@ read_snapshot( void *              _ctx,
 
     fd_snapshot_load_accounts( snap_ctx );
     fd_snapshot_load_fini( snap_ctx );
+    FD_LOG_WARNING(("MAKE IT HERE"));
   }
 
   /* Load incremental */

@@ -381,6 +381,28 @@ snap_hash_count( fd_exec_tile_ctx_t * ctx ) {
   ctx->pairs_len = fd_accounts_sorted_subrange_count( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt );
 }
 
+static void FD_FN_UNUSED
+snap_hash_gather( fd_exec_tile_ctx_t *                ctx,
+                  fd_runtime_public_snap_hash_msg_t * msg ) {
+
+  ulong * num_pairs = fd_wksp_laddr( ctx->runtime_public_wksp, msg->num_pairs_out_gaddr );
+  if( FD_UNLIKELY( !num_pairs ) ) {
+    FD_LOG_ERR(( "Unable to join num_pairs" ));
+  }
+  fd_pubkey_hash_pair_t * pairs = fd_wksp_laddr( ctx->runtime_public_wksp, msg->pairs_gaddr );
+  if( FD_UNLIKELY( !pairs ) ) {
+    FD_LOG_ERR(( "Unable to join pairs" ));
+  }
+  fd_lthash_value_t * lthash_value = fd_wksp_laddr( ctx->runtime_public_wksp, msg->lt_hash_value_out_gaddr );
+  if( FD_UNLIKELY( !lthash_value ) ) {
+    FD_LOG_ERR(( "Unable to join lthash values" ));
+  }
+
+  fd_accounts_sorted_subrange_gather( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt,
+                                      num_pairs, lthash_value,
+                                      pairs, &ctx->runtime_public->features );
+}
+
 static void
 during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                in_idx,
@@ -428,8 +450,9 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       FD_LOG_NOTICE(( "snap hash count msg recvd" ));
       snap_hash_count( ctx );
     } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
+      fd_runtime_public_snap_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
       FD_LOG_NOTICE(( "snap hash gather msg recvd" ));
-      snap_hash_gather( ctx );
+      snap_hash_gather( ctx, msg );
     } else {
       FD_LOG_ERR(( "Unknown signature" ));
     }
@@ -474,6 +497,9 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
   } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
     FD_LOG_NOTICE(( "Sending ack for snap hash count msg pairs_len=%lu", ctx->pairs_len ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_cnt_done( (uint)ctx->pairs_len ) );
+  } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
+    FD_LOG_NOTICE(("Sending ack for snap hash gather msg" ));
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_gather_done() );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }

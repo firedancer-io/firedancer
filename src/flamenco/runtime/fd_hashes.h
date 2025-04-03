@@ -60,6 +60,15 @@ fd_accounts_sorted_subrange_count( fd_funk_t * funk,
                                    uint        range_cnt );
 
 void
+fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
+                                    uint                    range_idx,
+                                    uint                    range_cnt,
+                                    ulong *                 num_pairs_out,
+                                    fd_lthash_value_t *     lthash_values_out,
+                                    fd_pubkey_hash_pair_t * pairs,
+                                    fd_features_t *         features );
+
+void
 fd_accounts_hash_counter_and_gather_tpool_cb( void * para_arg_1,
                                               void * para_arg_2 FD_PARAM_UNUSED,
                                               void * fn_arg_1,

@@ -2775,6 +2775,10 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   long start = fd_log_wallclock();
 
+  for( ulong i=0; i<exec_spad_cnt; i++ ) {
+    FD_LOG_NOTICE(("EXEC SPAD %lu %p", i, (void*)exec_spads[i]));
+  }
+
   ulong             slot;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong             epoch      = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot );

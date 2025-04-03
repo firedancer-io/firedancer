@@ -16,7 +16,7 @@ ifdef FD_HAS_SECP256K1
 ifdef FD_HAS_ROCKSDB
 $(call make-bin,fddev,main,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS) $(ROCKSDB_LIBS))
 else
-$(call make-bin,fddev,main,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+$(call make-bin,fddev,main,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS) $(ROCKSDB_LIBS))
 endif
 else
 $(call make-bin-rust,fddev,main,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discoh fd_disco agave_validator firedancer_plugin_bundle fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util)
@@ -49,7 +49,7 @@ monitor: bin
 
 ifdef FD_HAS_NO_AGAVE
 ifdef FD_HAS_SECP256K1
-$(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+$(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS) $(ROCKSDB_LIBS))
 endif
 else
 $(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discoh fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator firedancer_plugin_bundle)
