@@ -189,8 +189,14 @@ dynamic_port_range = "8900-9000"
 
     # Absolute directory path to place the accounts database in.  If
     # this is empty, it will default to the `accounts` subdirectory of
-    # the ledger `path` above.  This option is passed to the Agave
-    # client with the `--accounts` argument.
+    # the ledger `path` above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # This option is passed to the Agave client with the `--accounts` argument.
     accounts_path = ""
 
     # Maximum number of shreds to keep in root slots in the ledger

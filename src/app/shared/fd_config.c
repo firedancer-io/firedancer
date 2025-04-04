@@ -316,6 +316,11 @@ fdctl_cfg_from_env( int *      pargc,
     FD_TEST( fd_cstr_printf_check( config->ledger.path, sizeof(config->ledger.path), NULL, "%s/ledger", config->scratch_directory ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->ledger.accounts_path, "" ) ) ) {
+    replace( config->ledger.accounts_path, "{user}", config->user );
+    replace( config->ledger.accounts_path, "{name}", config->name );
+  }
+
   if( FD_UNLIKELY( strcmp( config->snapshots.path, "" ) ) ) {
     replace( config->snapshots.path, "{user}", config->user );
     replace( config->snapshots.path, "{name}", config->name );
