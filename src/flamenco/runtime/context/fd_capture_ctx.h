@@ -52,6 +52,20 @@ fd_capture_ctx_leave( fd_capture_ctx_t * ctx );
 void *
 fd_capture_ctx_delete( void * mem );
 
+/* Temporary locks to protect the blockstore txn_map. See comment in
+   fd_runtime_write_transaction_status. */
+void
+fd_capture_ctx_txn_status_start_read( void );
+
+void
+fd_capture_ctx_txn_status_end_read( void );
+
+void
+fd_capture_ctx_txn_status_start_write( void );
+
+void
+fd_capture_ctx_txn_status_end_write( void );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_capture_ctx_h */
