@@ -580,7 +580,7 @@ class VectorMember(TypeNode):
             if self.element in simpletypes:
                 print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( ({self.element}*)(cur_mem + sizeof({self.element}) * i), ctx );', file=body)
             else:
-                print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)(cur_mem + {el}_FOOTPRINT * i) );', file=body)
+                print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun(cur_mem + {el}_FOOTPRINT * i) );', file=body)
                 if self.element in flattypes:
                     print(f'      {namespace}_{self.element}_decode_inner( cur_mem + {el}_FOOTPRINT * i, alloc_mem, ctx ); //vecff', file=body)
                 else:
@@ -1073,7 +1073,7 @@ class DequeMember(TypeNode):
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( elem, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_new( ({namespace}_{self.element}_t*)elem ); // TODO: the global type should have its own _new() call', file=body)
+            print(f'    {namespace}_{self.element}_new( ({namespace}_{self.element}_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call', file=body)
             if self.element in flattypes:
                 print(f'    {namespace}_{self.element}_decode_inner( elem, alloc_mem, ctx );', file=body)
             else:
@@ -1384,7 +1384,7 @@ class MapMember(TypeNode):
         print(f'  self->{self.name}_root_gaddr = 0UL;', file=body)
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
         print(f'    {nodename} * node = {mapname}_acquire( {self.name}_pool );', file=body)
-        print(f'    {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)&node->elem );', file=body)
+        print(f'    {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun(&node->elem) );', file=body)
         if self.element in flattypes:
             print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
         else:

@@ -601,7 +601,7 @@ void fd_block_hash_vec_decode_inner_global( void * struct_mem, void * * alloc_me
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_HASH_HASH_AGE_PAIR_FOOTPRINT*self->ages_len;
     for( ulong i=0; i < self->ages_len; i++ ) {
-      fd_hash_hash_age_pair_new( (fd_hash_hash_age_pair_t *)(cur_mem + FD_HASH_HASH_AGE_PAIR_FOOTPRINT * i) );
+      fd_hash_hash_age_pair_new( (fd_hash_hash_age_pair_t *)fd_type_pun(cur_mem + FD_HASH_HASH_AGE_PAIR_FOOTPRINT * i) );
       fd_hash_hash_age_pair_decode_inner( cur_mem + FD_HASH_HASH_AGE_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -793,7 +793,7 @@ void fd_block_hash_queue_decode_inner_global( void * struct_mem, void * * alloc_
   self->ages_root_gaddr = 0UL;
   for( ulong i=0; i < ages_len; i++ ) {
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
-    fd_hash_hash_age_pair_new( (fd_hash_hash_age_pair_t *)&node->elem );
+    fd_hash_hash_age_pair_new( (fd_hash_hash_age_pair_t *)fd_type_pun(&node->elem) );
     fd_hash_hash_age_pair_decode_inner( &node->elem, alloc_mem, ctx );
     fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
   }
@@ -1069,7 +1069,7 @@ void fd_hard_forks_decode_inner_global( void * struct_mem, void * * alloc_mem, f
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_PAIR_FOOTPRINT*self->hard_forks_len;
     for( ulong i=0; i < self->hard_forks_len; i++ ) {
-      fd_slot_pair_new( (fd_slot_pair_t *)(cur_mem + FD_SLOT_PAIR_FOOTPRINT * i) );
+      fd_slot_pair_new( (fd_slot_pair_t *)fd_type_pun(cur_mem + FD_SLOT_PAIR_FOOTPRINT * i) );
       fd_slot_pair_decode_inner( cur_mem + FD_SLOT_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -1880,7 +1880,7 @@ void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem
   self->vote_accounts_root_gaddr = 0UL;
   for( ulong i=0; i < vote_accounts_len; i++ ) {
     fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( vote_accounts_pool );
-    fd_vote_accounts_pair_new( (fd_vote_accounts_pair_t *)&node->elem );
+    fd_vote_accounts_pair_new( (fd_vote_accounts_pair_t *)fd_type_pun(&node->elem) );
     fd_vote_accounts_pair_decode_inner( &node->elem, alloc_mem, ctx );
     fd_vote_accounts_pair_t_map_insert( vote_accounts_pool, &vote_accounts_root, node );
   }
@@ -2063,7 +2063,7 @@ void fd_account_keys_decode_inner_global( void * struct_mem, void * * alloc_mem,
   self->account_keys_root_gaddr = 0UL;
   for( ulong i=0; i < account_keys_len; i++ ) {
     fd_account_keys_pair_t_mapnode_t * node = fd_account_keys_pair_t_map_acquire( account_keys_pool );
-    fd_account_keys_pair_new( (fd_account_keys_pair_t *)&node->elem );
+    fd_account_keys_pair_new( (fd_account_keys_pair_t *)fd_type_pun(&node->elem) );
     fd_account_keys_pair_decode_inner( &node->elem, alloc_mem, ctx );
     fd_account_keys_pair_t_map_insert( account_keys_pool, &account_keys_root, node );
   }
@@ -2246,7 +2246,7 @@ void fd_stake_weights_decode_inner_global( void * struct_mem, void * * alloc_mem
   self->stake_weights_root_gaddr = 0UL;
   for( ulong i=0; i < stake_weights_len; i++ ) {
     fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_acquire( stake_weights_pool );
-    fd_stake_weight_new( (fd_stake_weight_t *)&node->elem );
+    fd_stake_weight_new( (fd_stake_weight_t *)fd_type_pun(&node->elem) );
     fd_stake_weight_decode_inner( &node->elem, alloc_mem, ctx );
     fd_stake_weight_t_map_insert( stake_weights_pool, &stake_weights_root, node );
   }
@@ -2700,7 +2700,7 @@ void fd_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bi
   self->stake_delegations_root_gaddr = 0UL;
   for( ulong i=0; i < stake_delegations_len; i++ ) {
     fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( stake_delegations_pool );
-    fd_delegation_pair_new( (fd_delegation_pair_t *)&node->elem );
+    fd_delegation_pair_new( (fd_delegation_pair_t *)fd_type_pun(&node->elem) );
     fd_delegation_pair_decode_inner( &node->elem, alloc_mem, ctx );
     fd_delegation_pair_t_map_insert( stake_delegations_pool, &stake_delegations_root, node );
   }
@@ -2857,7 +2857,7 @@ void fd_stakes_stake_decode_inner_global( void * struct_mem, void * * alloc_mem,
   self->stake_delegations_root_gaddr = 0UL;
   for( ulong i=0; i < stake_delegations_len; i++ ) {
     fd_stake_pair_t_mapnode_t * node = fd_stake_pair_t_map_acquire( stake_delegations_pool );
-    fd_stake_pair_new( (fd_stake_pair_t *)&node->elem );
+    fd_stake_pair_new( (fd_stake_pair_t *)fd_type_pun(&node->elem) );
     fd_stake_pair_decode_inner( &node->elem, alloc_mem, ctx );
     fd_stake_pair_t_map_insert( stake_delegations_pool, &stake_delegations_root, node );
   }
@@ -3354,7 +3354,7 @@ void fd_epoch_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem,
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len;
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)(cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i) );
+      fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i) );
       fd_pubkey_node_vote_accounts_pair_decode_inner( cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -3366,7 +3366,7 @@ void fd_epoch_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem,
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*self->epoch_authorized_voters_len;
     for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
-      fd_pubkey_pubkey_pair_new( (fd_pubkey_pubkey_pair_t *)(cur_mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT * i) );
+      fd_pubkey_pubkey_pair_new( (fd_pubkey_pubkey_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT * i) );
       fd_pubkey_pubkey_pair_decode_inner( cur_mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -3697,7 +3697,7 @@ void fd_unused_accounts_decode_inner_global( void * struct_mem, void * * alloc_m
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->unused1_len;
     for( ulong i=0; i < self->unused1_len; i++ ) {
-      fd_pubkey_new( (fd_pubkey_t *)(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
       fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -3709,7 +3709,7 @@ void fd_unused_accounts_decode_inner_global( void * struct_mem, void * * alloc_m
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->unused2_len;
     for( ulong i=0; i < self->unused2_len; i++ ) {
-      fd_pubkey_new( (fd_pubkey_t *)(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
       fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -3721,7 +3721,7 @@ void fd_unused_accounts_decode_inner_global( void * struct_mem, void * * alloc_m
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_U64_PAIR_FOOTPRINT*self->unused3_len;
     for( ulong i=0; i < self->unused3_len; i++ ) {
-      fd_pubkey_u64_pair_new( (fd_pubkey_u64_pair_t *)(cur_mem + FD_PUBKEY_U64_PAIR_FOOTPRINT * i) );
+      fd_pubkey_u64_pair_new( (fd_pubkey_u64_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_U64_PAIR_FOOTPRINT * i) );
       fd_pubkey_u64_pair_decode_inner( cur_mem + FD_PUBKEY_U64_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -4073,7 +4073,7 @@ void fd_versioned_bank_decode_inner_global( void * struct_mem, void * * alloc_me
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_PAIR_FOOTPRINT*self->ancestors_len;
     for( ulong i=0; i < self->ancestors_len; i++ ) {
-      fd_slot_pair_new( (fd_slot_pair_t *)(cur_mem + FD_SLOT_PAIR_FOOTPRINT * i) );
+      fd_slot_pair_new( (fd_slot_pair_t *)fd_type_pun(cur_mem + FD_SLOT_PAIR_FOOTPRINT * i) );
       fd_slot_pair_decode_inner( cur_mem + FD_SLOT_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -4124,7 +4124,7 @@ void fd_versioned_bank_decode_inner_global( void * struct_mem, void * * alloc_me
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT*self->epoch_stakes_len;
     for( ulong i=0; i < self->epoch_stakes_len; i++ ) {
-      fd_epoch_epoch_stakes_pair_new( (fd_epoch_epoch_stakes_pair_t *)(cur_mem + FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT * i) );
+      fd_epoch_epoch_stakes_pair_new( (fd_epoch_epoch_stakes_pair_t *)fd_type_pun(cur_mem + FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT * i) );
       fd_epoch_epoch_stakes_pair_decode_inner_global( cur_mem + FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -4645,7 +4645,7 @@ void fd_snapshot_slot_acc_vecs_decode_inner_global( void * struct_mem, void * * 
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SNAPSHOT_ACC_VEC_FOOTPRINT*self->account_vecs_len;
     for( ulong i=0; i < self->account_vecs_len; i++ ) {
-      fd_snapshot_acc_vec_new( (fd_snapshot_acc_vec_t *)(cur_mem + FD_SNAPSHOT_ACC_VEC_FOOTPRINT * i) );
+      fd_snapshot_acc_vec_new( (fd_snapshot_acc_vec_t *)fd_type_pun(cur_mem + FD_SNAPSHOT_ACC_VEC_FOOTPRINT * i) );
       fd_snapshot_acc_vec_decode_inner( cur_mem + FD_SNAPSHOT_ACC_VEC_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -5012,7 +5012,7 @@ void fd_solana_accounts_db_fields_decode_inner_global( void * struct_mem, void *
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT*self->storages_len;
     for( ulong i=0; i < self->storages_len; i++ ) {
-      fd_snapshot_slot_acc_vecs_new( (fd_snapshot_slot_acc_vecs_t *)(cur_mem + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT * i) );
+      fd_snapshot_slot_acc_vecs_new( (fd_snapshot_slot_acc_vecs_t *)fd_type_pun(cur_mem + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT * i) );
       fd_snapshot_slot_acc_vecs_decode_inner( cur_mem + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -5038,7 +5038,7 @@ void fd_solana_accounts_db_fields_decode_inner_global( void * struct_mem, void *
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_MAP_PAIR_FOOTPRINT*self->historical_roots_with_hash_len;
     for( ulong i=0; i < self->historical_roots_with_hash_len; i++ ) {
-      fd_slot_map_pair_new( (fd_slot_map_pair_t *)(cur_mem + FD_SLOT_MAP_PAIR_FOOTPRINT * i) );
+      fd_slot_map_pair_new( (fd_slot_map_pair_t *)fd_type_pun(cur_mem + FD_SLOT_MAP_PAIR_FOOTPRINT * i) );
       fd_slot_map_pair_decode_inner( cur_mem + FD_SLOT_MAP_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -5230,7 +5230,7 @@ void fd_versioned_epoch_stakes_current_decode_inner_global( void * struct_mem, v
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len;
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)(cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i) );
+      fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i) );
       fd_pubkey_node_vote_accounts_pair_decode_inner( cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -5242,7 +5242,7 @@ void fd_versioned_epoch_stakes_current_decode_inner_global( void * struct_mem, v
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*self->epoch_authorized_voters_len;
     for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
-      fd_pubkey_pubkey_pair_new( (fd_pubkey_pubkey_pair_t *)(cur_mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT * i) );
+      fd_pubkey_pubkey_pair_new( (fd_pubkey_pubkey_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT * i) );
       fd_pubkey_pubkey_pair_decode_inner( cur_mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -5893,7 +5893,7 @@ void fd_solana_manifest_decode_inner_global( void * struct_mem, void * * alloc_m
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT*self->versioned_epoch_stakes_len;
     for( ulong i=0; i < self->versioned_epoch_stakes_len; i++ ) {
-      fd_versioned_epoch_stakes_pair_new( (fd_versioned_epoch_stakes_pair_t *)(cur_mem + FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT * i) );
+      fd_versioned_epoch_stakes_pair_new( (fd_versioned_epoch_stakes_pair_t *)fd_type_pun(cur_mem + FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT * i) );
       fd_versioned_epoch_stakes_pair_decode_inner_global( cur_mem + FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -6586,7 +6586,7 @@ void fd_genesis_solana_decode_inner_global( void * struct_mem, void * * alloc_me
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->accounts_len;
     for( ulong i=0; i < self->accounts_len; i++ ) {
-      fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)(cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i) );
+      fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i) );
       fd_pubkey_account_pair_decode_inner( cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -6598,7 +6598,7 @@ void fd_genesis_solana_decode_inner_global( void * struct_mem, void * * alloc_me
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_STRING_PUBKEY_PAIR_FOOTPRINT*self->native_instruction_processors_len;
     for( ulong i=0; i < self->native_instruction_processors_len; i++ ) {
-      fd_string_pubkey_pair_new( (fd_string_pubkey_pair_t *)(cur_mem + FD_STRING_PUBKEY_PAIR_FOOTPRINT * i) );
+      fd_string_pubkey_pair_new( (fd_string_pubkey_pair_t *)fd_type_pun(cur_mem + FD_STRING_PUBKEY_PAIR_FOOTPRINT * i) );
       fd_string_pubkey_pair_decode_inner_global( cur_mem + FD_STRING_PUBKEY_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -6610,7 +6610,7 @@ void fd_genesis_solana_decode_inner_global( void * struct_mem, void * * alloc_me
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->rewards_pools_len;
     for( ulong i=0; i < self->rewards_pools_len; i++ ) {
-      fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)(cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i) );
+      fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i) );
       fd_pubkey_account_pair_decode_inner( cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -7744,7 +7744,7 @@ void fd_vote_state_0_23_5_decode_inner_global( void * struct_mem, void * * alloc
   fd_vote_lockout_t * votes = deq_fd_vote_lockout_t_join_new( alloc_mem, votes_max );
   for( ulong i=0; i < votes_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( votes );
-    fd_vote_lockout_new( (fd_vote_lockout_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_vote_lockout_new( (fd_vote_lockout_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_vote_lockout_decode_inner( elem, alloc_mem, ctx );
   }
   {
@@ -7763,7 +7763,7 @@ void fd_vote_state_0_23_5_decode_inner_global( void * struct_mem, void * * alloc
   fd_vote_epoch_credits_t * epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits );
-    fd_vote_epoch_credits_new( (fd_vote_epoch_credits_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_vote_epoch_credits_new( (fd_vote_epoch_credits_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_vote_epoch_credits_decode_inner( elem, alloc_mem, ctx );
   }
   fd_vote_block_timestamp_decode_inner( &self->last_timestamp, alloc_mem, ctx ); //fmem
@@ -8193,7 +8193,7 @@ void fd_vote_state_1_14_11_decode_inner_global( void * struct_mem, void * * allo
   fd_vote_lockout_t * votes = deq_fd_vote_lockout_t_join_new( alloc_mem, votes_max );
   for( ulong i=0; i < votes_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( votes );
-    fd_vote_lockout_new( (fd_vote_lockout_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_vote_lockout_new( (fd_vote_lockout_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_vote_lockout_decode_inner( elem, alloc_mem, ctx );
   }
   {
@@ -8214,7 +8214,7 @@ void fd_vote_state_1_14_11_decode_inner_global( void * struct_mem, void * * allo
   fd_vote_epoch_credits_t * epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits );
-    fd_vote_epoch_credits_new( (fd_vote_epoch_credits_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_vote_epoch_credits_new( (fd_vote_epoch_credits_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_vote_epoch_credits_decode_inner( elem, alloc_mem, ctx );
   }
   fd_vote_block_timestamp_decode_inner( &self->last_timestamp, alloc_mem, ctx ); //fmem
@@ -8497,7 +8497,7 @@ void fd_vote_state_decode_inner_global( void * struct_mem, void * * alloc_mem, f
   fd_landed_vote_t * votes = deq_fd_landed_vote_t_join_new( alloc_mem, votes_max );
   for( ulong i=0; i < votes_len; i++ ) {
     fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( votes );
-    fd_landed_vote_new( (fd_landed_vote_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_landed_vote_new( (fd_landed_vote_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_landed_vote_decode_inner( elem, alloc_mem, ctx );
   }
   {
@@ -8518,7 +8518,7 @@ void fd_vote_state_decode_inner_global( void * struct_mem, void * * alloc_mem, f
   fd_vote_epoch_credits_t * epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits );
-    fd_vote_epoch_credits_new( (fd_vote_epoch_credits_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_vote_epoch_credits_new( (fd_vote_epoch_credits_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_vote_epoch_credits_decode_inner( elem, alloc_mem, ctx );
   }
   fd_vote_block_timestamp_decode_inner( &self->last_timestamp, alloc_mem, ctx ); //fmem
@@ -8985,7 +8985,7 @@ void fd_vote_state_update_decode_inner_global( void * struct_mem, void * * alloc
   fd_vote_lockout_t * lockouts = deq_fd_vote_lockout_t_join_new( alloc_mem, lockouts_max );
   for( ulong i=0; i < lockouts_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( lockouts );
-    fd_vote_lockout_new( (fd_vote_lockout_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_vote_lockout_new( (fd_vote_lockout_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_vote_lockout_decode_inner( elem, alloc_mem, ctx );
   }
   {
@@ -9190,7 +9190,7 @@ void fd_compact_vote_state_update_decode_inner_global( void * struct_mem, void *
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_LOCKOUT_OFFSET_FOOTPRINT*self->lockouts_len;
     for( ulong i=0; i < self->lockouts_len; i++ ) {
-      fd_lockout_offset_new( (fd_lockout_offset_t *)(cur_mem + FD_LOCKOUT_OFFSET_FOOTPRINT * i) );
+      fd_lockout_offset_new( (fd_lockout_offset_t *)fd_type_pun(cur_mem + FD_LOCKOUT_OFFSET_FOOTPRINT * i) );
       fd_lockout_offset_decode_inner( cur_mem + FD_LOCKOUT_OFFSET_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -9452,7 +9452,7 @@ void fd_compact_tower_sync_decode_inner_global( void * struct_mem, void * * allo
   fd_lockout_offset_t * lockout_offsets = deq_fd_lockout_offset_t_join_new( alloc_mem, lockout_offsets_max );
   for( ulong i=0; i < lockout_offsets_len; i++ ) {
     fd_lockout_offset_t * elem = deq_fd_lockout_offset_t_push_tail_nocopy( lockout_offsets );
-    fd_lockout_offset_new( (fd_lockout_offset_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_lockout_offset_new( (fd_lockout_offset_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_lockout_offset_decode_inner( elem, alloc_mem, ctx );
   }
   fd_hash_decode_inner( &self->hash, alloc_mem, ctx ); //fmem
@@ -10120,7 +10120,7 @@ void fd_slot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, 
   fd_slot_hash_t * hashes = deq_fd_slot_hash_t_join_new( alloc_mem, hashes_max );
   for( ulong i=0; i < hashes_len; i++ ) {
     fd_slot_hash_t * elem = deq_fd_slot_hash_t_push_tail_nocopy( hashes );
-    fd_slot_hash_new( (fd_slot_hash_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_slot_hash_new( (fd_slot_hash_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_slot_hash_decode_inner( elem, alloc_mem, ctx );
   }
 }
@@ -10327,7 +10327,7 @@ void fd_recent_block_hashes_decode_inner_global( void * struct_mem, void * * all
   fd_block_block_hash_entry_t * hashes = deq_fd_block_block_hash_entry_t_join_new( alloc_mem, hashes_max );
   for( ulong i=0; i < hashes_len; i++ ) {
     fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy( hashes );
-    fd_block_block_hash_entry_new( (fd_block_block_hash_entry_t*)elem ); // TODO: the global type should have its own _new() call
+    fd_block_block_hash_entry_new( (fd_block_block_hash_entry_t*)fd_type_pun( elem ) ); // TODO: the global type should have its own _new() call
     fd_block_block_hash_entry_decode_inner( elem, alloc_mem, ctx );
   }
 }
@@ -10701,7 +10701,7 @@ void fd_clock_timestamp_votes_decode_inner_global( void * struct_mem, void * * a
   self->votes_root_gaddr = 0UL;
   for( ulong i=0; i < votes_len; i++ ) {
     fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( votes_pool );
-    fd_clock_timestamp_vote_new( (fd_clock_timestamp_vote_t *)&node->elem );
+    fd_clock_timestamp_vote_new( (fd_clock_timestamp_vote_t *)fd_type_pun(&node->elem) );
     fd_clock_timestamp_vote_decode_inner( &node->elem, alloc_mem, ctx );
     fd_clock_timestamp_vote_t_map_insert( votes_pool, &votes_root, node );
   }
@@ -11054,7 +11054,7 @@ void fd_stake_config_decode_inner_global( void * struct_mem, void * * alloc_mem,
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_CONFIG_KEYS_PAIR_FOOTPRINT*self->config_keys_len;
     for( ulong i=0; i < self->config_keys_len; i++ ) {
-      fd_config_keys_pair_new( (fd_config_keys_pair_t *)(cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i) );
+      fd_config_keys_pair_new( (fd_config_keys_pair_t *)fd_type_pun(cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i) );
       fd_config_keys_pair_decode_inner( cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -11814,7 +11814,7 @@ void fd_rent_fresh_accounts_decode_inner_global( void * struct_mem, void * * all
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_RENT_FRESH_ACCOUNT_FOOTPRINT*self->fresh_accounts_len;
     for( ulong i=0; i < self->fresh_accounts_len; i++ ) {
-      fd_rent_fresh_account_new( (fd_rent_fresh_account_t *)(cur_mem + FD_RENT_FRESH_ACCOUNT_FOOTPRINT * i) );
+      fd_rent_fresh_account_new( (fd_rent_fresh_account_t *)fd_type_pun(cur_mem + FD_RENT_FRESH_ACCOUNT_FOOTPRINT * i) );
       fd_rent_fresh_account_decode_inner( cur_mem + FD_RENT_FRESH_ACCOUNT_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -18664,7 +18664,7 @@ void fd_config_keys_decode_inner_global( void * struct_mem, void * * alloc_mem, 
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_CONFIG_KEYS_PAIR_FOOTPRINT*self->keys_len;
     for( ulong i=0; i < self->keys_len; i++ ) {
-      fd_config_keys_pair_new( (fd_config_keys_pair_t *)(cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i) );
+      fd_config_keys_pair_new( (fd_config_keys_pair_t *)fd_type_pun(cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i) );
       fd_config_keys_pair_decode_inner( cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -22924,7 +22924,7 @@ void fd_gossip_slot_hashes_decode_inner_global( void * struct_mem, void * * allo
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_HASH_FOOTPRINT*self->hashes_len;
     for( ulong i=0; i < self->hashes_len; i++ ) {
-      fd_slot_hash_new( (fd_slot_hash_t *)(cur_mem + FD_SLOT_HASH_FOOTPRINT * i) );
+      fd_slot_hash_new( (fd_slot_hash_t *)fd_type_pun(cur_mem + FD_SLOT_HASH_FOOTPRINT * i) );
       fd_slot_hash_decode_inner( cur_mem + FD_SLOT_HASH_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -23417,7 +23417,7 @@ void fd_gossip_epoch_slots_decode_inner_global( void * struct_mem, void * * allo
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_GOSSIP_SLOTS_ENUM_FOOTPRINT*self->slots_len;
     for( ulong i=0; i < self->slots_len; i++ ) {
-      fd_gossip_slots_enum_new( (fd_gossip_slots_enum_t *)(cur_mem + FD_GOSSIP_SLOTS_ENUM_FOOTPRINT * i) );
+      fd_gossip_slots_enum_new( (fd_gossip_slots_enum_t *)fd_type_pun(cur_mem + FD_GOSSIP_SLOTS_ENUM_FOOTPRINT * i) );
       fd_gossip_slots_enum_decode_inner_global( cur_mem + FD_GOSSIP_SLOTS_ENUM_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -24146,7 +24146,7 @@ void fd_gossip_incremental_snapshot_hashes_decode_inner_global( void * struct_me
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_HASH_FOOTPRINT*self->hashes_len;
     for( ulong i=0; i < self->hashes_len; i++ ) {
-      fd_slot_hash_new( (fd_slot_hash_t *)(cur_mem + FD_SLOT_HASH_FOOTPRINT * i) );
+      fd_slot_hash_new( (fd_slot_hash_t *)fd_type_pun(cur_mem + FD_SLOT_HASH_FOOTPRINT * i) );
       fd_slot_hash_decode_inner( cur_mem + FD_SLOT_HASH_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -24424,7 +24424,7 @@ void fd_gossip_contact_info_v2_decode_inner_global( void * struct_mem, void * * 
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_GOSSIP_IP_ADDR_FOOTPRINT*self->addrs_len;
     for( ulong i=0; i < self->addrs_len; i++ ) {
-      fd_gossip_ip_addr_new( (fd_gossip_ip_addr_t *)(cur_mem + FD_GOSSIP_IP_ADDR_FOOTPRINT * i) );
+      fd_gossip_ip_addr_new( (fd_gossip_ip_addr_t *)fd_type_pun(cur_mem + FD_GOSSIP_IP_ADDR_FOOTPRINT * i) );
       fd_gossip_ip_addr_decode_inner_global( cur_mem + FD_GOSSIP_IP_ADDR_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -24436,7 +24436,7 @@ void fd_gossip_contact_info_v2_decode_inner_global( void * struct_mem, void * * 
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT*self->sockets_len;
     for( ulong i=0; i < self->sockets_len; i++ ) {
-      fd_gossip_socket_entry_new( (fd_gossip_socket_entry_t *)(cur_mem + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT * i) );
+      fd_gossip_socket_entry_new( (fd_gossip_socket_entry_t *)fd_type_pun(cur_mem + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT * i) );
       fd_gossip_socket_entry_decode_inner( cur_mem + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -24660,7 +24660,7 @@ void fd_restart_run_length_encoding_decode_inner_global( void * struct_mem, void
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT*self->offsets_len;
     for( ulong i=0; i < self->offsets_len; i++ ) {
-      fd_restart_run_length_encoding_inner_new( (fd_restart_run_length_encoding_inner_t *)(cur_mem + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT * i) );
+      fd_restart_run_length_encoding_inner_new( (fd_restart_run_length_encoding_inner_t *)fd_type_pun(cur_mem + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT * i) );
       fd_restart_run_length_encoding_inner_decode_inner( cur_mem + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -26421,7 +26421,7 @@ void fd_gossip_pull_resp_decode_inner_global( void * struct_mem, void * * alloc_
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_CRDS_VALUE_FOOTPRINT*self->crds_len;
     for( ulong i=0; i < self->crds_len; i++ ) {
-      fd_crds_value_new( (fd_crds_value_t *)(cur_mem + FD_CRDS_VALUE_FOOTPRINT * i) );
+      fd_crds_value_new( (fd_crds_value_t *)fd_type_pun(cur_mem + FD_CRDS_VALUE_FOOTPRINT * i) );
       fd_crds_value_decode_inner_global( cur_mem + FD_CRDS_VALUE_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -26545,7 +26545,7 @@ void fd_gossip_push_msg_decode_inner_global( void * struct_mem, void * * alloc_m
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_CRDS_VALUE_FOOTPRINT*self->crds_len;
     for( ulong i=0; i < self->crds_len; i++ ) {
-      fd_crds_value_new( (fd_crds_value_t *)(cur_mem + FD_CRDS_VALUE_FOOTPRINT * i) );
+      fd_crds_value_new( (fd_crds_value_t *)fd_type_pun(cur_mem + FD_CRDS_VALUE_FOOTPRINT * i) );
       fd_crds_value_decode_inner_global( cur_mem + FD_CRDS_VALUE_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -30830,7 +30830,7 @@ void fd_status_value_decode_inner_global( void * struct_mem, void * * alloc_mem,
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_CACHE_STATUS_FOOTPRINT*self->statuses_len;
     for( ulong i=0; i < self->statuses_len; i++ ) {
-      fd_cache_status_new( (fd_cache_status_t *)(cur_mem + FD_CACHE_STATUS_FOOTPRINT * i) );
+      fd_cache_status_new( (fd_cache_status_t *)fd_type_pun(cur_mem + FD_CACHE_STATUS_FOOTPRINT * i) );
       fd_cache_status_decode_inner_global( cur_mem + FD_CACHE_STATUS_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -31035,7 +31035,7 @@ void fd_slot_delta_decode_inner_global( void * struct_mem, void * * alloc_mem, f
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_STATUS_PAIR_FOOTPRINT*self->slot_delta_vec_len;
     for( ulong i=0; i < self->slot_delta_vec_len; i++ ) {
-      fd_status_pair_new( (fd_status_pair_t *)(cur_mem + FD_STATUS_PAIR_FOOTPRINT * i) );
+      fd_status_pair_new( (fd_status_pair_t *)fd_type_pun(cur_mem + FD_STATUS_PAIR_FOOTPRINT * i) );
       fd_status_pair_decode_inner_global( cur_mem + FD_STATUS_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -31153,7 +31153,7 @@ void fd_bank_slot_deltas_decode_inner_global( void * struct_mem, void * * alloc_
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_DELTA_FOOTPRINT*self->slot_deltas_len;
     for( ulong i=0; i < self->slot_deltas_len; i++ ) {
-      fd_slot_delta_new( (fd_slot_delta_t *)(cur_mem + FD_SLOT_DELTA_FOOTPRINT * i) );
+      fd_slot_delta_new( (fd_slot_delta_t *)fd_type_pun(cur_mem + FD_SLOT_DELTA_FOOTPRINT * i) );
       fd_slot_delta_decode_inner_global( cur_mem + FD_SLOT_DELTA_FOOTPRINT * i, alloc_mem, ctx ); //vecnf
     }
   } else
@@ -31888,7 +31888,7 @@ void fd_epoch_info_decode_inner_global( void * struct_mem, void * * alloc_mem, f
     uchar * cur_mem = (uchar *)(*alloc_mem);
     *alloc_mem = (uchar *)(*alloc_mem) + FD_EPOCH_INFO_PAIR_FOOTPRINT*self->stake_infos_len;
     for( ulong i=0; i < self->stake_infos_len; i++ ) {
-      fd_epoch_info_pair_new( (fd_epoch_info_pair_t *)(cur_mem + FD_EPOCH_INFO_PAIR_FOOTPRINT * i) );
+      fd_epoch_info_pair_new( (fd_epoch_info_pair_t *)fd_type_pun(cur_mem + FD_EPOCH_INFO_PAIR_FOOTPRINT * i) );
       fd_epoch_info_pair_decode_inner( cur_mem + FD_EPOCH_INFO_PAIR_FOOTPRINT * i, alloc_mem, ctx ); //vecff
     }
   } else
@@ -31901,7 +31901,7 @@ void fd_epoch_info_decode_inner_global( void * struct_mem, void * * alloc_mem, f
   self->vote_states_root_gaddr = 0UL;
   for( ulong i=0; i < vote_states_len; i++ ) {
     fd_vote_info_pair_global_t_mapnode_t * node = fd_vote_info_pair_global_t_map_acquire( vote_states_pool );
-    fd_vote_info_pair_new( (fd_vote_info_pair_t *)&node->elem );
+    fd_vote_info_pair_new( (fd_vote_info_pair_t *)fd_type_pun(&node->elem) );
     fd_vote_info_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_vote_info_pair_global_t_map_insert( vote_states_pool, &vote_states_root, node );
   }
@@ -32355,7 +32355,7 @@ void fd_account_costs_decode_inner_global( void * struct_mem, void * * alloc_mem
   self->account_costs_root_gaddr = 0UL;
   for( ulong i=0; i < account_costs_len; i++ ) {
     fd_account_costs_pair_t_mapnode_t * node = fd_account_costs_pair_t_map_acquire( account_costs_pool );
-    fd_account_costs_pair_new( (fd_account_costs_pair_t *)&node->elem );
+    fd_account_costs_pair_new( (fd_account_costs_pair_t *)fd_type_pun(&node->elem) );
     fd_account_costs_pair_decode_inner( &node->elem, alloc_mem, ctx );
     fd_account_costs_pair_t_map_insert( account_costs_pool, &account_costs_root, node );
   }
