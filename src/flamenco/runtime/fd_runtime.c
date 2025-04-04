@@ -1,4 +1,5 @@
 #include "fd_runtime.h"
+#include "context/fd_capture_ctx.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "fd_acc_mgr.h"
 #include "fd_runtime_err.h"
@@ -702,6 +703,12 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
                                      fd_exec_slot_ctx_t * slot_ctx,
                                      fd_exec_txn_ctx_t * txn_ctx,
                                      int exec_txn_err) {
+  /* TODO: The blockstore txn_map is unsafe to write to from multiple threads,
+     so we use this lock to protect it. This function is the only place
+     we write to the txn_map in parallel, and when the ledger replay code
+     is ripped out we can also remove this lock. */
+  fd_capture_ctx_txn_status_start_write();
+
   /* Look up solana-side transaction status details */
   fd_blockstore_t * blockstore = slot_ctx->blockstore;
   uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
@@ -752,6 +759,8 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
       fd_solcap_write_transaction2( capture_ctx->capture, &txn );
     }
   }
+
+  fd_capture_ctx_txn_status_end_write();
 }
 
 static bool

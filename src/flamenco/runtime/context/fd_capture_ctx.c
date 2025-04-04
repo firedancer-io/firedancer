@@ -88,3 +88,26 @@ fd_capture_ctx_delete( void * mem ) {
 
   return mem;
 }
+
+#include "../../fd_rwlock.h"
+static fd_rwlock_t txn_status_lock[ 1 ] = {0};
+
+void
+fd_capture_ctx_txn_status_start_read( void ) {
+  fd_rwlock_read( txn_status_lock );
+}
+
+void
+fd_capture_ctx_txn_status_end_read( void ) {
+  fd_rwlock_unread( txn_status_lock );
+}
+
+void
+fd_capture_ctx_txn_status_start_write( void ) {
+  fd_rwlock_write( txn_status_lock );
+}
+
+void
+fd_capture_ctx_txn_status_end_write( void ) {
+  fd_rwlock_unwrite( txn_status_lock );
+}

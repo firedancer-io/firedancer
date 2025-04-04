@@ -460,6 +460,8 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_shmem {
   //ulong block_map_gaddr;  /* map of slot->(slot_meta, block) */
   ulong block_idx_gaddr;  /* map of slot->byte offset in archival file */
   ulong slot_deque_gaddr; /* deque of slot numbers */
+
+  /* IMPORTANT: the txn_map is not safe to write to from multiple threads. */
   ulong txn_map_gaddr;
   ulong alloc_gaddr;
 };

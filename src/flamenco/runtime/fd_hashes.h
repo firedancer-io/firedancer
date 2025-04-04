@@ -18,7 +18,6 @@ struct fd_accounts_hash_task_info {
   fd_exec_slot_ctx_t *     slot_ctx;
   fd_pubkey_t              acc_pubkey[1];
   fd_hash_t                acc_hash[1];
-  fd_funk_rec_t const *    rec;
   uint                     should_erase;
   uint                     hash_changed;
 };
@@ -69,11 +68,6 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_tpool_t *         tpool,
                            fd_spad_t *          runtime_spad );
 
-int
-fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool,
-                         fd_spad_t *          runtime_spad );
-
 /* fd_hash_account is the method to compute the account
    hash.  It includes the following content:
     - lamports
@@ -89,7 +83,7 @@ void const *
 fd_hash_account( uchar                     hash  [ static 32 ],
                  fd_lthash_value_t       * lthash,
                  fd_account_meta_t const * account,
-                 uchar const               pubkey[ static 32 ],
+                 fd_pubkey_t const       * pubkey,
                  uchar const             * data,
                  int                       hash_needed,
                  fd_features_t            *features
@@ -106,10 +100,10 @@ void const *
 fd_hash_account_current( uchar                      hash  [ static 32 ],
                          fd_lthash_value_t         *lthash,
                          fd_account_meta_t const   *account,
-                         uchar const                pubkey[ static 32 ],
+                         fd_pubkey_t       const   *pubkey,
                          uchar const *              data,
                          int                        hash_needed,
-                         fd_features_t            *features );
+                         fd_features_t             *features );
 
 /* Generate a complete accounts_hash of the entire account database. */
 
