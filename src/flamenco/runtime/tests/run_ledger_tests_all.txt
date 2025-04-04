@@ -75,3 +75,4 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-321168308 -s snapshot-3
 src/flamenco/runtime/tests/run_ledger_test.sh -l v208-zk-sdk-ledger-no-rent -s snapshot-1-GNxLdkaRgGzZSKj79d7yUXK8Nd7dv87WckoCdzQYH4X2.tar.zst -p 60 -y 16 -m 500000 -e 82 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-327324660 -s snapshot-327324659-85G1Hp5JsY1EiixLgFk1VRacP9bu1EGczBunvuJWgMDw.tar.zst -p 60 -y 16 -m 2000000 -e 327324660 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_test.sh -l devnet-370199634 -s snapshot-370199633-D8mrtzcNV8iNVarHs4mi55QHrCfmzDScYL8BBYXUHAwW.tar.zst -p 60 -y 16 -m 500000 -e 370199634 -c 2.1.14
+src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-330219081 -s snapshot-330219080-2QzJWhxjNohZR2xeeFDkxt2UcdvSKZ8HhXaFdRXwg8iC.tar.zst -p 60 -y 16 -m 2000000 -e 330219086 -c 2.1.14

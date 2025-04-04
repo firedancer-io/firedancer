@@ -306,6 +306,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
 
+  // FIXME: apply_cost_tracker_during_replay is disabled in offline replay for now, needs to be fixed
+  ledger_args->slot_ctx->epoch_ctx->features.apply_cost_tracker_during_replay = ULONG_MAX;
+
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
