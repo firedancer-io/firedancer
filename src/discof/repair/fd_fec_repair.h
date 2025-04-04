@@ -38,8 +38,8 @@
 
 #include "../../disco/fd_disco_base.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../tango/fseq/fd_fseq.h"
+#include "fd_fec_chainer.h"
 
 
 /* FD_REPAIR_USE_HANDHOLDING:  Define this to non-zero at compile time
@@ -71,7 +71,7 @@ struct fd_fec_intra {
   uint  fec_set_idx; /* index of the first data shred */
   long  ts;          /* timestamp upon receiving the first shred */
   ulong recv_cnt;    /* count of shreds received so far data + coding */
-  ulong data_cnt;    /* count of total data shreds in the FEC set */
+  uint  data_cnt;    /* count of total data shreds in the FEC set */
   fd_ed25519_sig_t sig; /* Ed25519 sig identifier of the FEC. */
 
   uint  buffered_idx;  /* wmk of shreds buffered contiguously, inclusive. Starts at 0 */
@@ -108,16 +108,6 @@ typedef struct fd_fec_order fd_fec_order_t;
 #define DLIST_ELE_T fd_fec_order_t
 #include "../../util/tmpl/fd_dlist.c"
 
-struct fd_fec_chainer {
-  ulong key; /* 32 msb slot, 32 lsb fec_set*/
-};
-typedef struct fd_fec_chainer fd_fec_chainer_t;
-
-#define MAP_NAME    fd_fec_chainer_map
-#define MAP_T       fd_fec_chainer_t
-#define MAP_MEMOIZE 0
-#include "../../util/tmpl/fd_map_dynamic.c"
-
 /* fd_fec_repair_t is the top-level structure that maintains an LRU cache
    (pool, dlist, map) of the outstanding block slices that need fec_repair.
 
@@ -147,8 +137,6 @@ struct __attribute__((aligned(128UL))) fd_fec_repair {
 
   /* fd_fec_order_t       * order_pool;
      fd_fec_order_dlist_t * order_dlist; */ /* Maintains insertion order of FEC sets in FEC resolver */
-
-  fd_fec_chainer_t   * fec_chainer_map; /* FIXME: drop in replacement for the fec chainer */
 };
 typedef struct fd_fec_repair fd_fec_repair_t;
 
@@ -168,7 +156,6 @@ fd_fec_repair_align( void ) {
 FD_FN_CONST static inline ulong
 fd_fec_repair_footprint( ulong fec_max, uint shred_tile_cnt ) {
   ulong total_fecs_pow2 = fd_ulong_pow2_up( fec_max * shred_tile_cnt );
-  int   lg_total_fecs   = fd_ulong_find_msb( total_fecs_pow2 );
 
   FD_TEST( fd_fec_intra_map_footprint( total_fecs_pow2 ) > 0 );
   FD_TEST( fd_fec_intra_pool_footprint( total_fecs_pow2 ) > 0 );
@@ -179,12 +166,10 @@ fd_fec_repair_footprint( ulong fec_max, uint shred_tile_cnt ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_fec_repair_t),   sizeof(fd_fec_repair_t) ),
       fd_fec_intra_pool_align (), fd_fec_intra_pool_footprint ( total_fecs_pow2 ) ),
       fd_fec_intra_map_align  (), fd_fec_intra_map_footprint  ( total_fecs_pow2 ) ),
-      fd_fec_chainer_map_align(), fd_fec_chainer_map_footprint( lg_total_fecs ) ),
       alignof(ulong),             sizeof(fd_fec_order_t*) * shred_tile_cnt ),
       alignof(ulong),             sizeof(fd_fec_order_dlist_t*) * shred_tile_cnt );
 
@@ -332,7 +317,7 @@ fd_fec_repair_ele_insert( fd_fec_repair_t * fec_repair,
 
   if( FD_UNLIKELY( is_code ) ) {
     fec->data_cnt = shred_idx_or_data_cnt;
-    fec->completes_idx = (uint)fec->data_cnt - 1;
+    fec->completes_idx = fec->data_cnt - 1;
   } else {
     uint shred_idx = shred_idx_or_data_cnt;
     fd_fec_intra_idxs_insert( fec->idxs, shred_idx - fec_set_idx );
@@ -356,60 +341,18 @@ fd_fec_repair_ele_insert( fd_fec_repair_t * fec_repair,
   return fec;
 }
 
-static inline int
-check_blind_fec_completed( fd_fec_repair_t const * fec_repair,
-                           ulong                   slot,
-                           uint                    fec_set_idx ) {
-  ulong fec_key = ( slot << 32 ) | ( fec_set_idx );
-  fd_fec_intra_t const * fec_intra = fd_fec_intra_map_ele_query_const( fec_repair->intra_map, &fec_key, NULL, fec_repair->intra_pool );
-  if( !fec_intra ) return 0; /* no fec set */
-  if( FD_LIKELY( fec_intra->data_cnt != 0 ) ) return 0; /* We have a coding shred for this FEC. Do not force complete. */
-  if( fec_intra->buffered_idx == UINT_MAX )   return 0; /* no buffered idx */
-  if( fec_intra->buffered_idx == fec_intra->completes_idx ) return 1; /* This happens when completes is populated by batch_complete flag or by the below */
 
-  ulong next_fec_key = ( slot << 32 ) | ( fec_set_idx + fec_intra->buffered_idx + 1 );
-  fd_fec_intra_t const * next_fec = fd_fec_intra_map_ele_query_const( fec_repair->intra_map, &next_fec_key, NULL, fec_repair->intra_pool );
-  if( !next_fec ) {
-    fd_fec_chainer_t * next_fec_c = fd_fec_chainer_map_query( fec_repair->fec_chainer_map, next_fec_key, NULL );
-    if( !next_fec_c ) {
-      return 0; /* no next fec set */
-    }
-  }
-  return 1;
-}
-
-static inline int
+int
+check_blind_fec_completed( fd_fec_repair_t  const * fec_repair,
+                           fd_fec_chainer_t       * fec_chainer,
+                           ulong                    slot,
+                           uint                     fec_set_idx );
+int
 check_set_blind_fec_completed( fd_fec_repair_t * fec_repair,
+                               fd_fec_chainer_t * fec_chainer,
                                ulong             slot,
-                               uint              fec_set_idx ) {
+                               uint              fec_set_idx );
 
-  ulong fec_key = ( slot << 32 ) | ( fec_set_idx );
-  fd_fec_intra_t * fec_intra = fd_fec_intra_map_ele_query( fec_repair->intra_map, &fec_key, NULL, fec_repair->intra_pool );
-
-  ulong next_fec_key = ( slot << 32 ) | ( fec_set_idx + fec_intra->buffered_idx + 1 );
-
-  /* speculate - is the next shred after this the next FEC set? */
-
-  if( FD_LIKELY( fec_intra->data_cnt != 0 ) ) return 0; /* We have a coding shred for this FEC. Do not force complete. */
-  if( fec_intra->buffered_idx == UINT_MAX ) return 0;
-  if( fec_intra->buffered_idx == fec_intra->completes_idx ) return 1; /* This happens when completes is populated by batch_complete flag or by the below */
-
-  fd_fec_intra_t * next_fec = fd_fec_intra_map_ele_query( fec_repair->intra_map, &next_fec_key, NULL, fec_repair->intra_pool );
-  if( !next_fec ) {
-    fd_fec_chainer_t * next_fec_c = fd_fec_chainer_map_query( fec_repair->fec_chainer_map, next_fec_key, NULL );
-    if( !next_fec_c ) {
-      return 0; /* no next fec set */
-    }
-  }
-
-  /* we have discovered the end of a fec_set. Now check if we've actually buffered that much */
-
-  if( fec_intra->completes_idx == UINT_MAX ) {
-    fec_intra->completes_idx = fec_intra->buffered_idx;
-  }
-
-  return ( fec_intra->buffered_idx != UINT_MAX && fec_intra->buffered_idx == fec_intra->completes_idx );
-}
 
 // /* fd_fec_repair_ele_query removes an in-progress FEC set from the map.
 //    Returns NULL if no fec set keyed by slot and fec_set_idx is found. */
