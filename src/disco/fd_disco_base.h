@@ -137,7 +137,7 @@ fd_disco_replay_old_sig( ulong slot,
 FD_FN_CONST static inline ulong fd_disco_replay_old_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
 FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { return (sig >> 8); }
 
-/* fd_disco_shred_repair_sig constructs a sig for the shred_repair link.
+/* fd_disco_shred_repair_shred_sig constructs a sig for the shred_repair link.
    The encoded fields vary depending on the type of the sig.  The
    diagram below describes the encoding.
 
@@ -149,14 +149,15 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    message. Since we have run out of bits, the reciever must look at the
    sz of the dcache entry to determine which type of message it is.
 
-   For the first message type:
+   For the first message type (SHRED):
 
-   The first bit [63] describes whether this shred contains either a
-   batch complete or data complete flag.
+   The first bit [63] describes whether this shred marks the end of a
+   batch and/or a slot, i.e. shred.flags & (DATA_COMPLETE | SLOT_COMPLETE)
 
-   The next 32 bits [31, 62] describe the slot number. Note if the slot
-   number saturates 32 bits (ie. slot >= UINT_MAX) then the reciever is
-   responsible for reading the slot number from the dcache entry.
+   The next 32 bits [31, 62] describe the slot number. Note: if the slot
+   number is >= UINT_MAX, the sender will store the value UINT_MAX in
+   this field. If the receiver sees a value of UINT_MAX in the field, it
+   must read the actual slot number from the dcache entry.
 
    The following 15 bits [16, 30] describe the fec_set_idx.  This is a
    15-bit value because shreds are bounded to 2^15 per slot, so in the
@@ -168,33 +169,61 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    [0, 14] encode the shred_idx.  If is_code = 1, the sig describes a
    coding shred, and the last 15 bits encode the data_cnt.
 
-   The frag will contain the full shred header of the last data shred in
-   the FEC set.
-
-   For the second message type:
+   For the second message type (FEC):
 
    Only the slot and fec_set_idx bits are populated. The data in the
    frag is the full shred header of the last data shred in the FEC set,
    the merkle root of the FEC set, and the chained merkle root of the
-   FEC. */
+   FEC. Each field immediately follows the other field. */
 
 /* TODO this shred_repair_sig can be greatly simplified when FEC sets
    are uniformly coding shreds and fixed size. */
 
 FD_FN_CONST static inline ulong
-fd_disco_shred_repair_sig( int completes, ulong slot, uint fec_set_idx, int is_code, uint shred_idx_or_data_cnt ) {
-  return (ulong)completes << 63 | slot << 31 | fec_set_idx << 16 | (ulong)is_code << 15 | shred_idx_or_data_cnt;
+fd_disco_shred_repair_shred_sig( int   completes,
+                                 ulong slot,
+                                 uint  fec_set_idx,
+                                 int   is_code,
+                                 uint  shred_idx_or_data_cnt ) {
+   ulong slot_ul                  = fd_ulong_min( slot, (ulong)UINT_MAX );
+   ulong shred_idx_or_data_cnt_ul = fd_ulong_min( (ulong)shred_idx_or_data_cnt, (ulong)FD_SHRED_MAX_PER_SLOT );
+   ulong fec_set_idx_ul           = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_MAX_PER_SLOT );
+   ulong completes_ul             = !!completes;
+   ulong is_code_ul               = !!is_code;
+
+  return completes_ul << 63 | slot_ul << 31 | fec_set_idx_ul << 16 | is_code_ul << 15 | shred_idx_or_data_cnt_ul;
 }
 
-/* fd_disco_shred_repair_sig_{...} are accessors for the fields encoded
+/* fd_disco_shred_repair_shred_sig_{...} are accessors for the fields encoded
    in the sig described above. */
 
-FD_FN_CONST static inline int    fd_disco_shred_repair_sig_completes     ( ulong sig ) { return         fd_ulong_extract_bit( sig, 63     ); }
-FD_FN_CONST static inline ulong  fd_disco_shred_repair_sig_slot          ( ulong sig ) { return         fd_ulong_extract    ( sig, 31, 62 ); }
-FD_FN_CONST static inline uint   fd_disco_shred_repair_sig_fec_set_idx   ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 16, 30 ); }
-FD_FN_CONST static inline int    fd_disco_shred_repair_sig_is_code       ( ulong sig ) { return         fd_ulong_extract_bit( sig, 15     ); }
-FD_FN_CONST static inline uint   fd_disco_shred_repair_sig_shred_idx     ( ulong sig ) { return (uint)  fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 0 */
-FD_FN_CONST static inline uint   fd_disco_shred_repair_sig_data_cnt      ( ulong sig ) { return (uint)  fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 1 */
+FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_completes  ( ulong sig ) { return       fd_ulong_extract_bit( sig, 63     ); }
+FD_FN_CONST static inline ulong fd_disco_shred_repair_shred_sig_slot       ( ulong sig ) { return       fd_ulong_extract    ( sig, 31, 62 ); }
+FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 16, 30 ); }
+FD_FN_CONST static inline int   fd_disco_shred_repair_shred_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 15     ); }
+FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_shred_idx  ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 0 */
+FD_FN_CONST static inline uint  fd_disco_shred_repair_shred_sig_data_cnt   ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 1 */
+
+/*
+   | slot (32) | fec_set_idx (15) | data_cnt (15) | is_data_complete (1) | is_batch_complete (1) |
+   | [32, 63]  | [17, 31]         | [2, 16]       | [1]                  | [0]                   |
+
+*/
+FD_FN_CONST static inline ulong
+fd_disco_shred_repair_fec_sig( ulong slot, uint fec_set_idx, uint data_cnt, int is_slot_complete, int is_batch_complete ) {
+  ulong slot_ul          = fd_ulong_min( slot, (ulong)UINT_MAX );
+  ulong fec_set_idx_ul   = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong data_cnt_ul      = fd_ulong_min( (ulong)data_cnt, (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong is_slot_complete_ul = !!is_slot_complete;
+  ulong is_batch_complete_ul = !!is_batch_complete;
+  return slot_ul << 32 | fec_set_idx_ul << 17 | data_cnt_ul << 2 | is_slot_complete_ul << 1 | is_batch_complete_ul;
+}
+
+FD_FN_CONST static inline ulong fd_disco_shred_repair_fec_sig_slot             ( ulong sig ) { return         fd_ulong_extract    ( sig, 32, 63 ); }
+FD_FN_CONST static inline uint  fd_disco_shred_repair_fec_sig_fec_set_idx      ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 17, 31 ); }
+FD_FN_CONST static inline uint  fd_disco_shred_repair_fec_sig_data_cnt         ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 2, 16  ); }
+FD_FN_CONST static inline int   fd_disco_shred_repair_fec_sig_is_slot_complete ( ulong sig ) { return         fd_ulong_extract_bit( sig, 1     ); }
+FD_FN_CONST static inline int   fd_disco_shred_repair_fec_sig_is_batch_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 0     ); }
 
 /* Exclusively used for force completion messages */
 
