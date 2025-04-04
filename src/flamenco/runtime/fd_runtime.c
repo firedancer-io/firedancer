@@ -1846,6 +1846,12 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
        any way, then the full account can be rolled back as it is done now.
        However, most of the time the account data is not changed, and only
        the lamport balance has to change. */
+
+    /* Rollback the nonce account first, as it could be the feepayer account, which will be updated next. */
+    if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
+      fd_txn_account_save( &txn_ctx->rollback_nonce_account[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
+    }
+
     fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
 
     fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], txn_ctx->funk, txn_ctx->funk_txn );
@@ -1856,10 +1862,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     acct->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
     fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
-
-    if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
-      fd_txn_account_save( &txn_ctx->rollback_nonce_account[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
-    }
   } else {
 
     int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
