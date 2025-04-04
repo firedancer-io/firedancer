@@ -119,8 +119,8 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
   }
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->const_data,
-    .dataend = rec->const_data + rec->const_meta->dlen,
+    .data    = rec->vt->get_data( rec ),
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec ),
   };
 
   ulong total_sz = 0UL;
@@ -295,10 +295,10 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
   }
 
   ulong write_offset = fd_ulong_sat_add( program_data_offset, bytes_len );
-  if( FD_UNLIKELY( program.acct->const_meta->dlen<write_offset ) ) {
+  if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &program )<write_offset ) ) {
     /* Max msg_sz: 24 - 6 + 2*20 = 58 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( instr_ctx,
-      "Write overflow %lu < %lu", program.acct->const_meta->dlen, write_offset );
+      "Write overflow %lu < %lu", fd_borrowed_account_get_data_len( &program ), write_offset );
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
@@ -318,8 +318,8 @@ fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
                                  fd_spad_t *              spad,
                                  int *                    err ) {
     fd_bincode_decode_ctx_t ctx = {
-      .data    = acct->const_data,
-      .dataend = acct->const_data + acct->const_meta->dlen,
+      .data    = acct->vt->get_data( acct ),
+      .dataend = acct->vt->get_data( acct ) + acct->vt->get_data_len( acct ),
     };
 
     ulong total_sz = 0UL;
@@ -405,7 +405,8 @@ common_close_account( fd_pubkey_t * authority_address,
   fd_guarded_borrowed_account_t recipient_account;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &recipient_account );
 
-  err = fd_borrowed_account_checked_add_lamports( &recipient_account, close_account.acct->const_meta->info.lamports );
+  err = fd_borrowed_account_checked_add_lamports( &recipient_account,
+                                                  fd_borrowed_account_get_lamports( &close_account ) );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -845,12 +846,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account already initialized" );
         return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
       }
-      if( FD_UNLIKELY( program.acct->const_meta->dlen<SIZE_OF_PROGRAM ) ) {
+      if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &program )<SIZE_OF_PROGRAM ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account too small" );
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
-      if( FD_UNLIKELY( program.acct->const_meta->info.lamports<fd_rent_exempt_minimum_balance( rent,
-                                                                                           program.acct->const_meta->dlen ) ) ) {
+      if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &program )<fd_rent_exempt_minimum_balance( rent,
+                                                                                                      fd_borrowed_account_get_data_len( &program ) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not rent-exempt" );
         return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
       }
@@ -892,12 +893,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
       buffer_key         = buffer.acct->pubkey;
       buffer_data_offset = BUFFER_METADATA_SIZE;
-      buffer_data_len    = fd_ulong_sat_sub( buffer.acct->const_meta->dlen, buffer_data_offset );
+      buffer_data_len    = fd_ulong_sat_sub( fd_borrowed_account_get_data_len( &buffer ), buffer_data_offset );
       /* UpgradeableLoaderState::size_of_program_data( max_data_len ) */
       programdata_len    = fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE,
                                              instruction->inner.deploy_with_max_data_len.max_data_len );
 
-      if( FD_UNLIKELY( buffer.acct->const_meta->dlen<BUFFER_METADATA_SIZE || buffer_data_len==0UL ) ) {
+      if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &buffer )<BUFFER_METADATA_SIZE || buffer_data_len==0UL ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Buffer account too small" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
@@ -948,7 +949,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_guarded_borrowed_account_t buffer;
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
-        err = fd_borrowed_account_checked_add_lamports( &payer, buffer.acct->const_meta->info.lamports );
+        err = fd_borrowed_account_checked_add_lamports( &payer, fd_borrowed_account_get_lamports( &buffer ) );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
@@ -999,11 +1000,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L648-L649 */
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
-      if( FD_UNLIKELY( buffer_data_offset>buffer.acct->const_meta->dlen ) ) {
+      if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
-      const uchar * buffer_data = buffer.acct->const_data + buffer_data_offset;
+      const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {
@@ -1033,10 +1034,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L675-L689 */
-        if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>programdata.acct->const_meta->dlen ) ) {
+        if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>fd_borrowed_account_get_data_len( &programdata ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
         }
-        if( FD_UNLIKELY( buffer_data_offset>buffer.acct->const_meta->dlen ) ) {
+        if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
         }
 
@@ -1054,10 +1055,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_guarded_borrowed_account_t buffer;
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
-        if( FD_UNLIKELY( buffer_data_offset>buffer.acct->const_meta->dlen ) ) {
+        if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
         }
-        const uchar * src_slice = buffer.acct->const_data + buffer_data_offset;
+        const uchar * src_slice = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
         fd_memcpy( dst_slice, src_slice, dst_slice_len );
         /* Update buffer data length.
           BUFFER_METADATA_SIZE == UpgradeableLoaderState::size_of_buffer(0) */
@@ -1148,7 +1149,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not writeable" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      if( FD_UNLIKELY( memcmp( &program.acct->const_meta->info.owner, program_id, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( memcmp( fd_borrowed_account_get_owner( &program ), program_id, sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
@@ -1198,10 +1199,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Invalid Buffer account" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      buffer_lamports    = buffer.acct->const_meta->info.lamports;
+      buffer_lamports    = fd_borrowed_account_get_lamports( &buffer );
       buffer_data_offset = BUFFER_METADATA_SIZE;
-      buffer_data_len    = fd_ulong_sat_sub( buffer.acct->const_meta->dlen, buffer_data_offset );
-      if( FD_UNLIKELY( buffer.acct->const_meta->dlen<BUFFER_METADATA_SIZE || buffer_data_len==0UL ) ) {
+      buffer_data_len    = fd_ulong_sat_sub( fd_borrowed_account_get_data_len( &buffer ), buffer_data_offset );
+      if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &buffer )<BUFFER_METADATA_SIZE || buffer_data_len==0UL ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Buffer account too small" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
@@ -1223,13 +1224,13 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_rent_t const * rent = &instr_ctx->txn_ctx->rent;
 
-      programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( rent, programdata.acct->const_meta->dlen ) );
+      programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &programdata ) ) );
 
-      if( FD_UNLIKELY( programdata.acct->const_meta->dlen<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
+      if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &programdata )<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData account not large enough" );
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
-      if( FD_UNLIKELY( fd_ulong_sat_add( programdata.acct->const_meta->info.lamports, buffer_lamports )<programdata_balance_required ) ) {
+      if( FD_UNLIKELY( fd_ulong_sat_add( fd_borrowed_account_get_lamports( &programdata ), buffer_lamports )<programdata_balance_required ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Buffer account balance too low to fund upgrade" );
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
       }
@@ -1276,11 +1277,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L827-L828 */
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &buffer );
 
-      if( FD_UNLIKELY( buffer_data_offset>buffer.acct->const_meta->dlen ) ) {
+      if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
-      const uchar * buffer_data = buffer.acct->const_data + buffer_data_offset;
+      const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {
         return err;
@@ -1305,7 +1306,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L846-L875 */
         /* We want to copy over the data and zero out the rest */
-        if( FD_UNLIKELY( programdata_data_offset+buffer_data_len>programdata.acct->const_meta->dlen ) ) {
+        if( FD_UNLIKELY( programdata_data_offset+buffer_data_len>fd_borrowed_account_get_data_len( &programdata ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
         }
 
@@ -1322,13 +1323,13 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_guarded_borrowed_account_t buffer;
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &buffer );
 
-        if( FD_UNLIKELY( buffer_data_offset>buffer.acct->const_meta->dlen ) ){
+        if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ){
           return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
         }
 
-        const uchar * src_slice = buffer.acct->const_data + buffer_data_offset;
+        const uchar * src_slice = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
         fd_memcpy( dst_slice, src_slice, dst_slice_len );
-        fd_memset( dst_slice + dst_slice_len, 0, programdata.acct->const_meta->dlen - programdata_data_offset - dst_slice_len );
+        fd_memset( dst_slice + dst_slice_len, 0, fd_borrowed_account_get_data_len( &programdata ) - programdata_data_offset - dst_slice_len );
 
         /* implicit drop of buffer */
       } while (0);
@@ -1343,7 +1344,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t spill;
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &spill );
 
-      ulong spill_addend = fd_ulong_sat_sub( fd_ulong_sat_add( programdata.acct->const_meta->info.lamports, buffer_lamports ),
+      ulong spill_addend = fd_ulong_sat_sub( fd_ulong_sat_add( fd_borrowed_account_get_lamports( &programdata ), buffer_lamports ),
                                             programdata_balance_required );
       err = fd_borrowed_account_checked_add_lamports( &spill, spill_addend );
       if( FD_UNLIKELY( err ) ) {
@@ -1593,7 +1594,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_guarded_borrowed_account_t recipient_account;
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &recipient_account );
 
-        err = fd_borrowed_account_checked_add_lamports( &recipient_account, close_account.acct->const_meta->info.lamports );
+        err = fd_borrowed_account_checked_add_lamports( &recipient_account, fd_borrowed_account_get_lamports( &close_account ) );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
@@ -1641,7 +1642,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account is not writable" );
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
-        if( FD_UNLIKELY( memcmp( program_account.acct->const_meta->info.owner, program_id, sizeof(fd_pubkey_t) ) ) ) {
+        if( FD_UNLIKELY( memcmp( fd_borrowed_account_get_owner( &program_account ), program_id, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
         }
@@ -1719,7 +1720,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_pubkey_t * programdata_key = programdata_account.acct->pubkey;
 
-      if( FD_UNLIKELY( memcmp( program_id, programdata_account.acct->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( memcmp( program_id, fd_borrowed_account_get_owner( &programdata_account ), sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData owner is invalid" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
       }
@@ -1736,7 +1737,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account is not writable" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      if( FD_UNLIKELY( memcmp( program_id, program_account.acct->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( memcmp( program_id, fd_borrowed_account_get_owner( &program_account ), sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
       }
@@ -1760,7 +1761,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_drop( &program_account );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1191-L1230 */
-      ulong old_len = programdata_account.acct->const_meta->dlen;
+      ulong old_len = fd_borrowed_account_get_data_len( &programdata_account );
       ulong new_len = fd_ulong_sat_add( old_len, additional_bytes );
       if( FD_UNLIKELY( new_len>MAX_PERMITTED_DATA_LENGTH ) ) {
         /* Max msg_sz: 85 - 6 + 2*20 = 119 < 127 => we can use printf */
@@ -1801,7 +1802,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1232-L1256 */
       fd_rent_t const * rent             = &instr_ctx->txn_ctx->rent;
-      ulong             balance          = programdata_account.acct->const_meta->info.lamports;
+      ulong             balance          = fd_borrowed_account_get_lamports( &programdata_account );
       ulong             min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
       ulong             required_payment = fd_ulong_sat_sub( min_balance, balance );
 
@@ -1853,7 +1854,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE>programdata_account.acct->const_meta->dlen ) ) {
+      if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE>fd_borrowed_account_get_data_len( &programdata_account ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
@@ -1922,7 +1923,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     /* Program management instruction */
-    if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, program_account.acct->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, fd_borrowed_account_get_owner( &program_account ), sizeof(fd_pubkey_t) ) ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.3/programs/bpf_loader/src/lib.rs#L416 */
       fd_borrowed_account_drop( &program_account );
 
@@ -1979,7 +1980,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
 
-    fd_account_meta_t const * metadata = program_account.acct->const_meta;
+    fd_account_meta_t const * metadata = program_account.acct->vt->get_meta( program_account.acct );
     uchar is_deprecated = !memcmp( metadata->info.owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
     if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
@@ -2015,7 +2016,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
-      if( FD_UNLIKELY( program_data_account->const_meta->dlen<PROGRAMDATA_METADATA_SIZE ) ) {
+      if( FD_UNLIKELY( program_data_account->vt->get_data_len( program_data_account )<PROGRAMDATA_METADATA_SIZE ) ) {
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

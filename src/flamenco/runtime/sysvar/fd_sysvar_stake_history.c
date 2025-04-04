@@ -30,8 +30,8 @@ fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx,
     return NULL;
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = stake_rec->const_data,
-    .dataend = (char *)stake_rec->const_data + stake_rec->const_meta->dlen,
+    .data    = stake_rec->vt->get_data( stake_rec),
+    .dataend = stake_rec->vt->get_data( stake_rec) + stake_rec->vt->get_data_len( stake_rec),
   };
 
   ulong total_sz = 0UL;

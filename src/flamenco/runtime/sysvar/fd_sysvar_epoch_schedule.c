@@ -66,8 +66,8 @@ fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t *     result,
     return NULL;
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = acc->const_data,
-    .dataend = acc->const_data + acc->const_meta->dlen
+    .data    = acc->vt->get_data( acc ),
+    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
   };
 
   ulong total_sz = 0UL;

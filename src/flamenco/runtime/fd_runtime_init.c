@@ -266,7 +266,7 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
   }
 
   /* Skip accounts that are not owned by the feature program */
-  if( FD_UNLIKELY( memcmp( acct_rec->const_meta->info.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( acct_rec->vt->get_owner( acct_rec ), fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return;
   }
 
@@ -278,8 +278,8 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
     fd_bincode_decode_ctx_t ctx = {
-      .data    = acct_rec->const_data,
-      .dataend = acct_rec->const_data + acct_rec->const_meta->dlen,
+      .data    = acct_rec->vt->get_data( acct_rec ),
+      .dataend = acct_rec->vt->get_data( acct_rec ) + acct_rec->vt->get_data_len( acct_rec ),
     };
 
     ulong total_sz   = 0UL;

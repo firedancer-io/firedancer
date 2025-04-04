@@ -246,8 +246,8 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L223-L228
      Note the length check is at the very end to fail after performing sufficient checks. */
-  const uchar * sysvar_buf     = sysvar_account->const_data;
-  ulong         sysvar_buf_len = sysvar_account->const_meta->dlen;
+  const uchar * sysvar_buf     = sysvar_account->vt->get_data( sysvar_account );
+  ulong         sysvar_buf_len = sysvar_account->vt->get_data_len( sysvar_account );
 
   if( FD_UNLIKELY( offset_length>sysvar_buf_len ) ) {
     *_ret = 1UL;

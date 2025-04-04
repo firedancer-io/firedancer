@@ -64,8 +64,8 @@ fd_sysvar_clock_read( fd_sol_sysvar_clock_t *   result,
     return NULL;
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = acc->const_data,
-    .dataend = acc->const_data + acc->const_meta->dlen,
+    .data    = acc->vt->get_data( acc ),
+    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc ),
   };
 
   ulong total_sz = 0UL;
@@ -355,8 +355,8 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
   }
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->const_data,
-    .dataend = rec->const_data + rec->const_meta->dlen
+    .data    = rec->vt->get_data( rec ),
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;

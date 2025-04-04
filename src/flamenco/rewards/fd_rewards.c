@@ -862,7 +862,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
 
     vote_rec->meta->slot = slot_ctx->slot_bank.slot;
 
-    if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
+    if( FD_UNLIKELY( vote_rec->vt->checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
@@ -916,7 +916,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     return 1;
   }
 
-  if( fd_txn_account_checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
+  if( stake_acc_rec->vt->checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
     FD_LOG_DEBUG(( "failed to add lamports to stake account" ));
     return 1;
   }
