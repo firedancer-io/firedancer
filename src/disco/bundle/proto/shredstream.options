@@ -1,0 +1,2 @@
+shredstream.Heartbeat.regions max_count:16
+shredstream.Heartbeat.regions max_length:15

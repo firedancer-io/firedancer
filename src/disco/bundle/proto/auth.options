@@ -1,0 +1,14 @@
+auth.GenerateAuthChallengeRequest.pubkey max_size:32
+
+auth.GenerateAuthChallengeResponse.challenge max_size:256
+
+auth.GenerateAuthTokensRequest.challenge max_size:256
+auth.GenerateAuthTokensRequest.client_pubkey max_size:32
+auth.GenerateAuthTokensRequest.signed_challenge max_size:64
+
+auth.GenerateAuthTokensResponse.access_token max_size:256
+auth.GenerateAuthTokensResponse.refresh_token max_size:256
+
+auth.RefreshAccessTokenRequest.refresh_token max_size:256
+
+auth.Token.value max_size:256
