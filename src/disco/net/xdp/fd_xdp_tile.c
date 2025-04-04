@@ -486,6 +486,8 @@ net_tx_route( fd_net_ctx_t * ctx,
   if( if_idx==1 ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( ctx->tx_op.mac_addrs, 0, 12UL );
+    /* FIXME: remove this later after Richie merges a nice fix */
+    ctx->tx_op.src_ip = ip4_src;
     ctx->tx_op.if_idx = 1;
     /* Set preferred src address to 127.0.0.1 if no bind address is set */
     if( !ip4_src ) ip4_src = FD_IP4_ADDR( 127,0,0,1 );

@@ -427,7 +427,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.restart.wen_restart_coordinator            );
   CFG_POP      ( cstr,   tiles.restart.genesis_hash                       );
 
-  CFG_POP      ( bool,   tiles.archiver.playback                          );
+  CFG_POP      ( bool,   tiles.archiver.enabled                           );
+  CFG_POP      ( cstr,   tiles.archiver.archive_path                      );
 
 # undef CFG_POP
 # undef CFG_ARRAY

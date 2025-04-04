@@ -61,6 +61,12 @@ void gossip_cmd_fn( args_t * args, config_t * config );
 
 void gossip_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 
+void playback_cmd_args( int * pargc, char *** pargv, args_t * args );
+
+void playback_cmd_fn( args_t * args, config_t * config );
+
+void playback_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
+
 #endif /* FD_HAS_NO_AGAVE */
 
 #endif /* HEADER_fd_src_app_fddev_fddev_h */
