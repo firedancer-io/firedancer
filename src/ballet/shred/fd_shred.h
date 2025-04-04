@@ -81,7 +81,7 @@
    This limit derives from the IPv6 MTU of 1280 bytes, minus 48 bytes
    for the UDP/IPv6 headers and another 4 bytes for good measure.  Most
    shreds are this size, but Merkle data shreds may be smaller. */
-#define FD_SHRED_MAX_SZ (1228UL)
+#define FD_SHRED_MAX_SZ (1228UL) /* AMAN TODO - change this */
 /* FD_SHRED_MIN_SZ: The minimum byte size of a shred.
    A code shred of the max size covers a data shred of the minimum size
    with no padding. */
