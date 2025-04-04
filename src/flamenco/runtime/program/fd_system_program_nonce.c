@@ -33,7 +33,7 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 

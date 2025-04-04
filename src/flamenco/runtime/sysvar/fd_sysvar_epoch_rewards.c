@@ -26,7 +26,7 @@ fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
                               fd_sysvar_cache_t const *   sysvar_cache,
                               fd_funk_t *                 funk,
                               fd_funk_txn_t *             funk_txn ) {
-  fd_sysvar_epoch_rewards_t const * ret = (fd_sysvar_epoch_rewards_t const *)fd_sysvar_cache_epoch_rewards( sysvar_cache );
+  fd_sysvar_epoch_rewards_t const * ret = fd_sysvar_cache_epoch_rewards( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_sysvar_epoch_rewards_t));
     return result;

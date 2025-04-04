@@ -439,7 +439,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   }
   txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
 
-  fd_epoch_schedule_t const * schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
@@ -804,7 +804,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Collect rent from the fee payer and set the starting lamports (to avoid unbalanced lamports issues in instruction execution)
      https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L438-L445 */
-  fd_epoch_schedule_t const * schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
   txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
                                                                    &txn_ctx->schedule,
@@ -1397,7 +1397,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
 int
 fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
 
   ulong starting_lamports_l = 0;
   ulong starting_lamports_h = 0;

@@ -612,7 +612,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* Override epoch bank rent setting */
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( rent ) {
     epoch_bank->rent = *rent;
   }
@@ -866,7 +866,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
       ( rent->exemption_threshold     <      0.0 ) |
       ( rent->exemption_threshold     >    999.0 ) |

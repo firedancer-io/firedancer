@@ -249,7 +249,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L165-L171 */
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -353,7 +353,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   /* These variables should exist outside of borrowed account scopes. */
   uchar                         source_program_present = !!( instr_ctx->instr->acct_cnt>2 );
   fd_loader_v4_state_t          program_state          = {0};
-  fd_sol_sysvar_clock_t const * clock                  = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
+  fd_sol_sysvar_clock_t const * clock                  = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L217-L219 */
   fd_pubkey_t const * authority_address = NULL;
@@ -446,7 +446,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
       https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L295-L303 */
   if( source_program_present ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L296 */
-      fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache );
+      fd_rent_t const * rent = fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache );
       if( FD_UNLIKELY( rent==NULL ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
@@ -529,7 +529,7 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L344 */
-  fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( clock==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
