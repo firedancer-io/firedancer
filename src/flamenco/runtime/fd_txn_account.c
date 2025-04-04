@@ -164,7 +164,7 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
   acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta );
   acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data );
 
-  acct->vt = &fd_txn_account_writable_vtable;
+  acct->vt         = &fd_txn_account_writable_vtable;
 
   return acct;
 }

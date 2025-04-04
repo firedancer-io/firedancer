@@ -142,12 +142,11 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
   int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz );
   FD_TEST( !err );
 
-  rec->meta->dlen            = sz;
-  rec->meta->info.lamports   = 1UL;
-  rec->meta->info.rent_epoch = 0UL;
-  rec->meta->info.executable = 1;
-  fd_memcpy( rec->meta->info.owner, fd_solana_native_loader_id.key, 32 );
-  memcpy( rec->data, data, sz );
+  rec->vt->set_data( rec, data, sz );
+  rec->vt->set_lamports( rec, 1UL );
+  rec->vt->set_rent_epoch( rec, 0UL );
+  rec->vt->set_executable( rec, 1 );
+  rec->vt->set_owner( rec, &fd_solana_native_loader_id );
 
   fd_txn_account_mutable_fini( rec, funk, txn );
 

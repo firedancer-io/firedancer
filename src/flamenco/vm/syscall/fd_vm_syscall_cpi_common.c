@@ -714,7 +714,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
         resizing_idx++;
       }
       uchar * to_slice   = (uchar*)vm->input_mem_regions[ resizing_idx ].haddr;
-      uchar * from_slice = callee_acc->data + original_len;
+      uchar * from_slice = callee_acc->vt->get_data_mut( callee_acc ) + original_len;
 
       fd_memcpy( to_slice, from_slice, realloc_bytes_used );
     }
