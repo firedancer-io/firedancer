@@ -21,7 +21,7 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
 fd_sysvar_fees_t *
 fd_sysvar_fees_read( fd_sysvar_fees_t *        result,
                      fd_sysvar_cache_t const * sysvar_cache,
-                     fd_acc_mgr_t *            acc_mgr,
+                     fd_funk_t *               funk,
                      fd_funk_txn_t *           funk_txn ) {
   fd_sysvar_fees_t const * ret = (fd_sysvar_fees_t const *)fd_sysvar_cache_fees( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
@@ -30,7 +30,7 @@ fd_sysvar_fees_read( fd_sysvar_fees_t *        result,
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_fees_id, acc );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_fees_id, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
@@ -117,7 +117,7 @@ fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_sysvar_fees_t fees;
   fd_sysvar_fees_read( &fees,
                        slot_ctx->sysvar_cache,
-                       slot_ctx->acc_mgr,
+                       slot_ctx->funk,
                        slot_ctx->funk_txn );
   /* todo: I need to the lamports_per_signature field */
   fees.fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;

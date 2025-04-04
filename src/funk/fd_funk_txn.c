@@ -157,7 +157,7 @@ fd_funk_txn_is_full( fd_funk_t * funk ) {
 
 static void
 fd_funk_txn_cancel_childless( fd_funk_t * funk,
-                                 ulong          txn_idx ) {
+                              ulong       txn_idx ) {
 
   /* Remove all records used by this transaction.  Note that we don't
      need to bother doing all the individual removal operations as we
@@ -242,8 +242,8 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
 
 static ulong
 fd_funk_txn_cancel_family( fd_funk_t *  funk,
-                              ulong           tag,
-                              ulong           txn_idx ) {
+                           ulong        tag,
+                           ulong        txn_idx ) {
   ulong cancel_cnt = 0UL;
 
   fd_wksp_t *     wksp    = fd_funk_wksp   ( funk );
@@ -312,7 +312,7 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
 
 static inline ulong
 fd_funk_txn_oldest_sibling( fd_funk_t *  funk,
-                               ulong           txn_idx ) {
+                            ulong        txn_idx ) {
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
@@ -381,8 +381,8 @@ fd_funk_txn_cancel_sibling_list( fd_funk_t * funk,
 
 ulong
 fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
-                                fd_funk_txn_t * txn,
-                                int             verbose ) {
+                             fd_funk_txn_t * txn,
+                             int             verbose ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {
@@ -408,8 +408,8 @@ fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
 
 ulong
 fd_funk_txn_cancel_children( fd_funk_t *     funk,
-                                fd_funk_txn_t * txn,
-                                int             verbose ) {
+                             fd_funk_txn_t * txn,
+                             int             verbose ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {
@@ -443,7 +443,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
 
 ulong
 fd_funk_txn_cancel_all( fd_funk_t *     funk,
-                           int             verbose ) {
+                        int             verbose ) {
   return fd_funk_txn_cancel_children( funk, NULL, verbose );
 }
 
@@ -475,7 +475,7 @@ fd_funk_txn_cancel_all( fd_funk_t *     funk,
    changing the order of existing values. */
 
 static void
-fd_funk_txn_update( fd_funk_t *            funk,
+fd_funk_txn_update( fd_funk_t *                  funk,
                        ulong *                   _dst_rec_head_idx, /* Pointer to the dst list head */
                        ulong *                   _dst_rec_tail_idx, /* Pointer to the dst list tail */
                        ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
@@ -559,8 +559,8 @@ fd_funk_txn_update( fd_funk_t *            funk,
 
 static int
 fd_funk_txn_publish_funk_child( fd_funk_t *  funk,
-                                   ulong           tag,
-                                   ulong           txn_idx ) {
+                                ulong        tag,
+                                ulong        txn_idx ) {
 
   /* Apply the updates in txn to the last published transactions */
 
@@ -605,8 +605,8 @@ fd_funk_txn_publish_funk_child( fd_funk_t *  funk,
 
 ulong
 fd_funk_txn_publish( fd_funk_t *     funk,
-                        fd_funk_txn_t * txn,
-                        int                verbose ) {
+                     fd_funk_txn_t * txn,
+                     int             verbose ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {
@@ -672,8 +672,8 @@ fd_funk_txn_publish( fd_funk_t *     funk,
 
 int
 fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
-                                    fd_funk_txn_t * txn,
-                                    int                verbose ) {
+                                 fd_funk_txn_t * txn,
+                                 int             verbose ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
@@ -730,7 +730,7 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
 
 fd_funk_rec_t const *
 fd_funk_txn_first_rec( fd_funk_t *           funk,
-                          fd_funk_txn_t const * txn ) {
+                       fd_funk_txn_t const * txn ) {
   ulong rec_idx;
   if( FD_UNLIKELY( NULL == txn ))
     rec_idx = funk->rec_head_idx;
@@ -744,7 +744,7 @@ fd_funk_txn_first_rec( fd_funk_t *           funk,
 
 fd_funk_rec_t const *
 fd_funk_txn_last_rec( fd_funk_t *           funk,
-                         fd_funk_txn_t const * txn ) {
+                      fd_funk_txn_t const * txn ) {
   ulong rec_idx;
   if( FD_UNLIKELY( NULL == txn ))
     rec_idx = funk->rec_tail_idx;
@@ -761,7 +761,7 @@ fd_funk_txn_last_rec( fd_funk_t *           funk,
 
 fd_funk_rec_t const *
 fd_funk_txn_next_rec( fd_funk_t *           funk,
-                         fd_funk_rec_t const * rec ) {
+                      fd_funk_rec_t const * rec ) {
   ulong rec_idx = rec->next_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -771,7 +771,7 @@ fd_funk_txn_next_rec( fd_funk_t *           funk,
 
 fd_funk_rec_t const *
 fd_funk_txn_prev_rec( fd_funk_t *           funk,
-                         fd_funk_rec_t const * rec ) {
+                      fd_funk_rec_t const * rec ) {
   ulong rec_idx = rec->prev_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
   fd_wksp_t * wksp = fd_funk_wksp( funk );

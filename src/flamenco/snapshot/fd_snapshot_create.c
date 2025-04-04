@@ -67,7 +67,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
      iterate through funk and accumulate the size of all of the records
      from all slots before the snapshot_slot. */
 
-  fd_funk_t * funk           = snapshot_ctx->acc_mgr->funk;
+  fd_funk_t * funk           = snapshot_ctx->funk;
   ulong       prev_sz        = 0UL;
   ulong       tombstones_cnt = 0UL;
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, NULL ); NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
@@ -191,7 +191,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
                                     &snapshot_ctx->snap_hash,
                                     &snapshot_ctx->slot_bank,
                                     &snapshot_ctx->epoch_bank,
-                                    snapshot_ctx->acc_mgr->funk,
+                                    snapshot_ctx->funk,
                                     snapshot_ctx->tpool,
                                     snapshot_ctx->spad,
                                     snapshot_ctx->features );
@@ -201,7 +201,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
                                         &snapshot_ctx->snap_hash,
                                         &snapshot_ctx->slot_bank,
                                         &snapshot_ctx->epoch_bank,
-                                        snapshot_ctx->acc_mgr->funk,
+                                        snapshot_ctx->funk,
                                         incremental_keys,
                                         incremental_key_cnt,
                                         snapshot_ctx->spad,
@@ -418,7 +418,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
   for( ulong i=0UL; i<snapshot_slot_key_cnt; i++ ) {
 
     fd_pubkey_t const * pubkey = snapshot_slot_keys[i];
-    fd_funk_rec_key_t key = fd_acc_funk_key( pubkey );
+    fd_funk_rec_key_t key = fd_funk_acc_key( pubkey );
 
     fd_funk_rec_query_t query[1];
     fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, NULL, &key, query );
@@ -538,7 +538,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
     new_node->elem.stake = n->elem.stake;
     /* Now to populate the value, lookup the account using the acc mgr */
     FD_TXN_ACCOUNT_DECL( vote_acc );
-    int err = fd_acc_mgr_view( snapshot_ctx->acc_mgr, NULL, &n->elem.key, vote_acc );
+    int err = fd_txn_account_init_from_funk_readonly( vote_acc, &n->elem.key, snapshot_ctx->funk, NULL );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Failed to view vote account from stakes cache %s", FD_BASE58_ENC_32_ALLOCA(&n->elem.key) ));
     }
@@ -566,7 +566,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
 
     nn = fd_delegation_pair_t_map_successor( old_stakes->stake_delegations_pool, n );
 
-    int err = fd_acc_mgr_view( snapshot_ctx->acc_mgr, NULL, &n->elem.account, stake_acc );
+    int err = fd_txn_account_init_from_funk_readonly( stake_acc, &n->elem.account, snapshot_ctx->funk, NULL );
     if( FD_UNLIKELY( err ) ) {
       /* If the stake account doesn't exist, the cache is stale and the entry
          just needs to be evicted. */
@@ -724,14 +724,6 @@ static inline void
 fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   fd_funk_t * funk = snapshot_ctx->funk;
-
-  /* Initialize the account manager. */
-
-  uchar * mem = fd_spad_alloc( snapshot_ctx->spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
-  snapshot_ctx->acc_mgr = fd_acc_mgr_new( mem, funk );
-  if( FD_UNLIKELY( !snapshot_ctx->acc_mgr ) ) {
-    FD_LOG_ERR(( "Failed to initialize account manager" ));
-  }
 
   /* First the epoch bank. */
 

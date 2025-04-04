@@ -91,7 +91,7 @@ int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
 
 void
-fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );

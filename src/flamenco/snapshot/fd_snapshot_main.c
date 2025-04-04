@@ -26,7 +26,6 @@
 struct fd_snapshot_dumper {
   fd_alloc_t *   alloc;
   fd_funk_t *    funk;
-  fd_acc_mgr_t * acc_mgr;
 
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
@@ -81,11 +80,6 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
   if( dumper->epoch_ctx ) {
     fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( dumper->epoch_ctx ) );
     dumper->epoch_ctx = NULL;
-  }
-
-  if( dumper->acc_mgr ) {
-    fd_acc_mgr_delete( dumper->acc_mgr );
-    dumper->acc_mgr = NULL;
   }
 
   if( dumper->funk ) {
@@ -224,7 +218,7 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
   fd_funk_txn_t *      funk_txn = d->restore->funk_txn;
   fd_funk_txn_xid_t    txn_xid  = funk_txn->xid;
   fd_funk_t *          funk     = d->funk;
-  fd_wksp_t *             wksp     = fd_funk_wksp( funk );
+  fd_wksp_t *          wksp     = fd_funk_wksp( funk );
 
   /* Dump all the records */
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
@@ -335,9 +329,6 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Create a new processing context */
 
-  d->acc_mgr = fd_acc_mgr_new( fd_spad_alloc( spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), d->funk );
-  if( FD_UNLIKELY( !d->acc_mgr ) ) { FD_LOG_WARNING(( "Failed to create fd_acc_mgr_t" )); return EXIT_FAILURE; }
-
   ulong const vote_acct_max = 1UL;  /* fd_snapshot doesn't retain epoch stakes */
   d->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( fd_spad_alloc( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) ), vote_acct_max ) );
   if( FD_UNLIKELY( !d->epoch_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_epoch_ctx_t" )); return EXIT_FAILURE; }
@@ -345,7 +336,6 @@ do_dump( fd_snapshot_dumper_t *    d,
   d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ), spad ) );
   if( FD_UNLIKELY( !d->slot_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_slot_ctx_t" )); return EXIT_FAILURE; }
 
-  d->slot_ctx->acc_mgr   = d->acc_mgr;
   d->slot_ctx->epoch_ctx = d->epoch_ctx;
 
   /* funk_txn is destroyed automatically when deleting fd_funk_t. */
@@ -357,7 +347,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
 
-  d->restore = fd_snapshot_restore_new( restore_mem, d->acc_mgr, funk_txn, spad, d, fd_snapshot_dumper_on_manifest, NULL, NULL );
+  d->restore = fd_snapshot_restore_new( restore_mem, d->funk, funk_txn, spad, d, fd_snapshot_dumper_on_manifest, NULL, NULL );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
   /* Set up the snapshot loader */

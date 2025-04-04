@@ -270,7 +270,7 @@ fd_funk_align( void );
 
 FD_FN_CONST ulong
 fd_funk_footprint( ulong txn_max,
-                      ulong rec_max );
+                   ulong rec_max );
 
 /* fd_wksp_new formats an unused wksp allocation with the appropriate
    alignment and footprint as a funk.  Caller is not joined on return.
@@ -287,10 +287,10 @@ fd_funk_footprint( ulong txn_max,
 
 void *
 fd_funk_new( void * shmem,
-                ulong  wksp_tag,
-                ulong  seed,
-                ulong  txn_max,
-                ulong  rec_max );
+             ulong  wksp_tag,
+             ulong  seed,
+             ulong  txn_max,
+             ulong  rec_max );
 
 /* fd_funk_join joins the caller to a funk instance.  shfunk points to
    the first byte of the memory region backing the funk in the caller's
@@ -437,7 +437,7 @@ FD_FN_PURE static inline ulong fd_funk_rec_max( fd_funk_t * funk ) { return funk
 
 static inline fd_funk_rec_map_t
 fd_funk_rec_map( fd_funk_t * funk,    /* Assumes current local join */
-                    fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+                 fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
   fd_funk_rec_map_t join;
   fd_funk_rec_map_join(
     &join,
@@ -452,7 +452,7 @@ fd_funk_rec_map( fd_funk_t * funk,    /* Assumes current local join */
 
 static inline fd_funk_rec_pool_t
 fd_funk_rec_pool( fd_funk_t * funk,    /* Assumes current local join */
-                     fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+                  fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
   fd_funk_rec_pool_t join;
   fd_funk_rec_pool_join(
     &join,
@@ -467,7 +467,7 @@ fd_funk_rec_pool( fd_funk_t * funk,    /* Assumes current local join */
 
 FD_FN_PURE static inline fd_alloc_t *     /* Lifetime is that of the local join */
 fd_funk_alloc( fd_funk_t * funk,    /* Assumes current local join */
-                  fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+               fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
   return fd_alloc_join_cgroup_hint_set( (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), fd_tile_idx() );
 }
 

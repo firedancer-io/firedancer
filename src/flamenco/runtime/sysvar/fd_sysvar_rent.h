@@ -20,8 +20,8 @@ fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx );
 
 fd_rent_t *
 fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
-                     fd_acc_mgr_t *            acc_mgr,
-                     fd_funk_txn_t *        funk_txn,
+                     fd_funk_t *               funk,
+                     fd_funk_txn_t *           funk_txn,
                      fd_spad_t *               spad );
 
 /* fd_rent_exempt_minimum_balance returns the minimum balance needed

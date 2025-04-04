@@ -82,7 +82,7 @@ dump_account_if_not_already_dumped( fd_exec_slot_ctx_t const *  slot_ctx,
                                     pb_size_t *                 out_acct_states_cnt,
                                     fd_txn_account_t *          opt_out_borrowed_account ) {
   FD_TXN_ACCOUNT_DECL( account );
-  if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, account_key, account ) ) {
+  if( fd_txn_account_init_from_funk_readonly( account, account_key, slot_ctx->funk, slot_ctx->funk_txn ) ) {
     return 1;
   }
 
@@ -205,8 +205,8 @@ dump_vote_accounts( fd_exec_slot_ctx_t const *     slot_ctx,
 /** TRANSACTION DUMPING **/
 
 static void
-dump_sanitized_transaction( fd_acc_mgr_t *                         acc_mgr,
-                            fd_funk_txn_t const *               funk_txn,
+dump_sanitized_transaction( fd_funk_t *                            funk,
+                            fd_funk_txn_t const *                  funk_txn,
                             fd_txn_t const *                       txn_descriptor,
                             uchar const *                          txn_payload,
                             fd_spad_t *                            spad,
@@ -291,7 +291,7 @@ dump_sanitized_transaction( fd_acc_mgr_t *                         acc_mgr,
 
       // Access ALUT account data to access its keys
       FD_TXN_ACCOUNT_DECL(addr_lut_rec);
-      int err = fd_acc_mgr_view( acc_mgr, funk_txn, alut_key, addr_lut_rec);
+      int err = fd_txn_account_init_from_funk_readonly( addr_lut_rec, alut_key, funk, funk_txn );
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "addr lut not found" ));
       }
@@ -499,7 +499,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
     // Verify the stake state before dumping
     FD_TXN_ACCOUNT_DECL( account );
-    int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &curr->elem.key, account );
+    int rc = fd_txn_account_init_from_funk_readonly( account, &curr->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
     if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
       continue;
     }
@@ -526,7 +526,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
        curr;
        curr = fd_delegation_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.stake_delegations_pool, curr ) ) {
     FD_TXN_ACCOUNT_DECL( account );
-    if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &curr->elem.account, account ) ) {
+    if( fd_txn_account_init_from_funk_readonly( account, &curr->elem.account, slot_ctx->funk, slot_ctx->funk_txn ) ) {
       continue;
     }
 
@@ -561,7 +561,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
     // Verify the vote account before dumping
     FD_TXN_ACCOUNT_DECL( account );
-    int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &curr->elem.key, account );
+    int rc = fd_txn_account_init_from_funk_readonly( account, &curr->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
     if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
       continue;
     }
@@ -642,7 +642,7 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
       for( ulong k=0UL; k<txn_cnt; k++ ) {
         fd_txn_p_t const * txn_ptr      = &microblock_info->txns[k];
         fd_txn_t const * txn_descriptor = TXN( txn_ptr );
-        dump_sanitized_transaction( slot_ctx->acc_mgr, slot_ctx->funk_txn, txn_descriptor, txn_ptr->payload, spad, &out_block->txns[k] );
+        dump_sanitized_transaction( slot_ctx->funk, slot_ctx->funk_txn, txn_descriptor, txn_ptr->payload, spad, &out_block->txns[k] );
 
         /* BlockContext -> acct_states */
         /* Dump account + alut + programdata accounts (if applicable). There's a lot more brute force work since none of the borrowed accounts are set up yet. We have to:
@@ -733,7 +733,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                         (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[i], txn_account );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_ctx->account_keys[i], txn_ctx->funk, txn_ctx->funk_txn );
     if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
       continue;
     }
@@ -764,7 +764,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + address_lookup_tables[i].addr_off);
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, alut_key, txn_account );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, txn_ctx->funk, txn_ctx->funk_txn );
     if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
       continue;
     }
@@ -774,7 +774,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   // Dump sysvars
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_relevant_sysvar_ids[i], txn_account );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &fd_relevant_sysvar_ids[i], txn_ctx->funk, txn_ctx->funk_txn );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -796,7 +796,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   /* Transaction Context -> tx */
   txn_context_msg->has_tx = true;
   fd_exec_test_sanitized_transaction_t * sanitized_transaction = &txn_context_msg->tx;
-  dump_sanitized_transaction( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_descriptor, txn_payload, spad, sanitized_transaction );
+  dump_sanitized_transaction( txn_ctx->funk, txn_ctx->funk_txn, txn_descriptor, txn_payload, spad, sanitized_transaction );
 
   /* Transaction Context -> blockhash_queue
      NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
@@ -855,7 +855,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add sysvar cache variables */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_relevant_sysvar_ids[i], txn_account );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &fd_relevant_sysvar_ids[i], txn_ctx->funk, txn_ctx->funk_txn );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -878,7 +878,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add executable accounts */
   for( ulong i = 0; i < txn_ctx->executable_cnt; i++ ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->executable_accounts[i].pubkey, txn_account );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->executable_accounts[i].pubkey, txn_ctx->funk, txn_ctx->funk_txn );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }

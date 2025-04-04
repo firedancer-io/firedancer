@@ -230,7 +230,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_wksp_t const *          funk_wksp,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
-                                    ulong                      acc_mgr_gaddr,
                                     ulong                      sysvar_cache_gaddr,
                                     ulong                      funk_gaddr ) {
 
@@ -241,13 +240,9 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
 
-  ctx->acc_mgr = fd_wksp_laddr( runtime_pub_wksp, acc_mgr_gaddr );
-  if( FD_UNLIKELY( !ctx->acc_mgr ) ) {
-    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
-  }
-  ctx->acc_mgr->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
-  if( FD_UNLIKELY( !ctx->acc_mgr->funk ) ) {
-    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
+  ctx->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
+  if( FD_UNLIKELY( !ctx->funk ) ) {
+    FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
   }
 
   ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
@@ -362,7 +357,7 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
                              ushort                    idx ) {
   (void) ctx;
   (void) idx;
-  return fd_acc_exists( acc->const_meta );
+  return fd_account_meta_exists( acc->const_meta );
 }
 
 int

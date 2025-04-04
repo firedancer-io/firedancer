@@ -135,11 +135,11 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           char const *         data,
                           ulong                sz ) {
 
-  fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_txn_t *  txn        = slot_ctx->funk_txn;
+  fd_funk_t *         funk = slot_ctx->funk;
+  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
   FD_TXN_ACCOUNT_DECL( rec );
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, &pubkey, 1, sz, rec);
+  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz );
   FD_TEST( !err );
 
   rec->meta->dlen            = sz;
@@ -148,6 +148,8 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
   rec->meta->info.executable = 1;
   fd_memcpy( rec->meta->info.owner, fd_solana_native_loader_id.key, 32 );
   memcpy( rec->data, data, sz );
+
+  fd_txn_account_mutable_fini( rec, funk, txn );
 
   slot_ctx->slot_bank.capitalization++;
 
@@ -164,9 +166,9 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   if( epoch_bank->cluster_type != 3)
     return;
 
-  fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_txn_t *  txn        = slot_ctx->funk_txn;
-  fd_pubkey_t const * key     = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
+  fd_funk_t *         funk = slot_ctx->funk;
+  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
+  fd_pubkey_t const * key  = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
   FD_TXN_ACCOUNT_DECL( rec );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
@@ -175,7 +177,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sizeof(data), rec );
+  int err = fd_txn_account_init_from_funk_mutable( rec, key, funk, txn, 1, sizeof(data) );
   FD_TEST( !err );
 
   rec->meta->dlen            = sizeof(data);
@@ -184,6 +186,8 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   rec->meta->info.executable = 0;
   fd_memcpy( rec->meta->info.owner, fd_solana_spl_token_id.key, 32 );
   memcpy( rec->data, data, sizeof(data) );
+
+  fd_txn_account_mutable_fini( rec, funk, txn );
 
   FD_TEST( !err );
 }

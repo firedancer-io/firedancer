@@ -842,7 +842,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       /* See note in `fd_bpf_loader_program_execute()` as to why we must tie the cache into consensus :(
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L496-L502 */
       fd_sbpf_validated_program_t * prog = NULL;
-      if( FD_UNLIKELY( fd_bpf_load_cache_entry( instr_ctx->txn_ctx->acc_mgr->funk,
+      if( FD_UNLIKELY( fd_bpf_load_cache_entry( instr_ctx->txn_ctx->funk,
                                                 instr_ctx->txn_ctx->funk_txn,
                                                 program_id,
                                                 &prog )!=0 ) ) {

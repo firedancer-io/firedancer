@@ -10,8 +10,8 @@
 
 fd_rent_t *
 fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
-                     fd_acc_mgr_t *            acc_mgr,
-                     fd_funk_txn_t *        funk_txn,
+                     fd_funk_t *               funk,
+                     fd_funk_txn_t *           funk_txn,
                      fd_spad_t *               spad ) {
 
   fd_rent_t const * ret = (fd_rent_t const *)fd_sysvar_cache_rent( sysvar_cache );
@@ -21,7 +21,7 @@ fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
 
   FD_TXN_ACCOUNT_DECL( rent_rec );
 
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_rent_id, rent_rec );
+  int err = fd_txn_account_init_from_funk_readonly( rent_rec, &fd_sysvar_rent_id, funk, funk_txn );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to read rent sysvar: %d", err ));
     return NULL;

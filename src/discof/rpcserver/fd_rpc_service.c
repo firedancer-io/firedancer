@@ -345,7 +345,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
 
     ulong val_sz;
-    fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
+    fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
@@ -413,7 +413,7 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     ulong val_sz;
-    fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
+    fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
@@ -1208,7 +1208,7 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
       FD_SCRATCH_SCOPE_BEGIN {
         ulong val_sz;
-        fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
+        fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
         const void * val        = read_account(ctx, &recid, &val_sz);
         if (val == NULL) {
           fd_web_reply_sprintf(ws, "null");
@@ -2318,7 +2318,7 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
 
   FD_SCRATCH_SCOPE_BEGIN {
     ulong val_sz;
-    fd_funk_rec_key_t recid = fd_acc_funk_key(&sub->acct_subscribe.acct);
+    fd_funk_rec_key_t recid = fd_funk_acc_key(&sub->acct_subscribe.acct);
     const void * val = read_account_with_xid(ctx, &recid, &msg->accts.funk_xid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"subscription\":%lu}" CRLF,

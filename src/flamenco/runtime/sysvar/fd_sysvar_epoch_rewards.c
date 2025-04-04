@@ -24,7 +24,7 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
 fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
                               fd_sysvar_cache_t const *   sysvar_cache,
-                              fd_acc_mgr_t *              acc_mgr,
+                              fd_funk_t *                 funk,
                               fd_funk_txn_t *             funk_txn ) {
   fd_sysvar_epoch_rewards_t const * ret = (fd_sysvar_epoch_rewards_t const *)fd_sysvar_cache_epoch_rewards( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
@@ -33,7 +33,7 @@ fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_epoch_rewards_id, acc );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_rewards_id, funk, funk_txn );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }
@@ -67,7 +67,7 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
     if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
                                                     slot_ctx->sysvar_cache,
-                                                    slot_ctx->acc_mgr,
+                                                    slot_ctx->funk,
                                                     slot_ctx->funk_txn ) == NULL ) ) {
       FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
     }
@@ -81,7 +81,7 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Sync the epoch rewards sysvar cache entry with the account */
     fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
-                                           slot_ctx->acc_mgr,
+                                           slot_ctx->funk,
                                            slot_ctx->funk_txn,
                                            runtime_spad,
                                            slot_ctx->runtime_wksp );
@@ -93,7 +93,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
     if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
                                                     slot_ctx->sysvar_cache,
-                                                    slot_ctx->acc_mgr,
+                                                    slot_ctx->funk,
                                                     slot_ctx->funk_txn ) == NULL ) ) {
       FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
     }
@@ -111,7 +111,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Sync the epoch rewards sysvar cache entry with the account */
     fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
-                                           slot_ctx->acc_mgr,
+                                           slot_ctx->funk,
                                            slot_ctx->funk_txn,
                                            runtime_spad,
                                            slot_ctx->runtime_wksp );

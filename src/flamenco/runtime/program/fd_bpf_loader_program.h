@@ -78,7 +78,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
 fd_bpf_upgradeable_loader_state_t *
 read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *                 txn_ctx,
-                                               uchar                               program_id,
+                                               ushort                              program_id,
                                                int *                               opt_err );
 
 /* Public APIs */

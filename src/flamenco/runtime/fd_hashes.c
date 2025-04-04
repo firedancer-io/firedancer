@@ -309,7 +309,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
 }
 
 void
-fd_account_hash( fd_acc_mgr_t *                 acc_mgr,
+fd_account_hash( fd_funk_t *                    funk,
                  fd_funk_txn_t *                funk_txn,
                  fd_accounts_hash_task_info_t * task_info,
                  fd_lthash_value_t *            lt_hash,
@@ -317,12 +317,12 @@ fd_account_hash( fd_acc_mgr_t *                 acc_mgr,
                  fd_features_t *                features ) {
   int err = 0;
   fd_funk_txn_t const *     txn_out  = NULL;
-  fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr,
-                                                            funk_txn,
-                                                            task_info->acc_pubkey,
-                                                            &task_info->rec,
-                                                            &err,
-                                                            &txn_out );
+  fd_account_meta_t const * acc_meta = fd_funk_get_acc_meta_readonly( funk,
+                                                                      funk_txn,
+                                                                      task_info->acc_pubkey,
+                                                                      &task_info->rec,
+                                                                      &err,
+                                                                      &txn_out );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || !acc_meta ) ) {
     FD_LOG_WARNING(( "failed to view account during bank hash" ));
     return;
@@ -330,16 +330,15 @@ fd_account_hash( fd_acc_mgr_t *                 acc_mgr,
 
   fd_account_meta_t * acc_meta_parent = NULL;
   if( txn_out ) {
-    fd_funk_t * funk            = acc_mgr->funk;
     fd_wksp_t * wksp            = fd_funk_wksp( funk );
     fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
     txn_out                     = fd_funk_txn_parent( (fd_funk_txn_t *) txn_out, &txn_pool );
-    acc_meta_parent             = (fd_account_meta_t *)fd_acc_mgr_view_raw( acc_mgr,
-                                                                        txn_out,
-                                                                        task_info->acc_pubkey,
-                                                                        NULL,
-                                                                        &err,
-                                                                        NULL );
+    acc_meta_parent             = (fd_account_meta_t *)fd_funk_get_acc_meta_readonly( funk,
+                                                                                  txn_out,
+                                                                                  task_info->acc_pubkey,
+                                                                                  NULL,
+                                                                                  &err,
+                                                                                  NULL );
   }
 
   if( FD_UNLIKELY( !acc_meta->info.lamports ) ) {
@@ -413,7 +412,7 @@ fd_account_hash_task( void * tpool,
   for( ulong i=start_idx; i<=stop_idx; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
     fd_exec_slot_ctx_t *           slot_ctx  = task_info->slot_ctx;
-    fd_account_hash( slot_ctx->acc_mgr,
+    fd_account_hash( slot_ctx->funk,
                      slot_ctx->funk_txn,
                      task_info,
                      lthash,
@@ -426,10 +425,8 @@ void
 fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
                               fd_accounts_hash_task_data_t * task_data,
                               fd_spad_t *                    runtime_spad ) {
-
-  fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *     funk    = acc_mgr->funk;
-  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  fd_funk_t *     funk = slot_ctx->funk;
+  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
 
   ulong rec_cnt = 0;
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
@@ -488,10 +485,8 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                                fd_spad_t *                    runtime_spad ) {
   ulong dirty_key_cnt = 0;
 
-
-  fd_acc_mgr_t *     acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *     funk    = acc_mgr->funk;
-  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  fd_funk_t *     funk = slot_ctx->funk;
+  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
 
   // Apply the lthash changes to the bank lthash
   fd_lthash_value_t * lt_hash = (fd_lthash_value_t *)fd_type_pun( slot_ctx->slot_bank.lthash.lthash );
@@ -518,7 +513,7 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
       acc_rec->const_rec = task_info->rec;
 
       fd_pubkey_t const * acc_key = fd_funk_key_to_acc( task_info->rec->pair.key );
-      int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
+      int err = fd_txn_account_init_from_funk_mutable( acc_rec, acc_key, funk, txn, 0, 0UL);
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "failed to modify account during bank hash" ));
       }
@@ -527,6 +522,8 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
 
       memcpy( acc_rec->meta->hash, task_info->acc_hash->hash, sizeof(fd_hash_t) );
       acc_rec->meta->slot = slot_ctx->slot_bank.slot;
+
+      fd_txn_account_mutable_fini( acc_rec, funk, txn );
 
       /* Add account to "dirty keys" list, which will be added to the
         bank hash. */
@@ -556,12 +553,12 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                     acc_rec->meta->dlen ));
 
       if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
-        fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr,
-                                                                  slot_ctx->funk_txn,
-                                                                  task_info->acc_pubkey,
-                                                                  &task_info->rec,
-                                                                  &err,
-                                                                  NULL);
+        fd_account_meta_t const * acc_meta = fd_funk_get_acc_meta_readonly( slot_ctx->funk,
+                                                                            slot_ctx->funk_txn,
+                                                                            task_info->acc_pubkey,
+                                                                            &task_info->rec,
+                                                                            &err,
+                                                                            NULL);
         if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
           FD_LOG_WARNING(( "failed to view account during capture" ));
           continue;
@@ -745,7 +742,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
     // char encoded_owner[50];
     // fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
     int err = FD_ACC_MGR_SUCCESS;
-    uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, dirty_keys[i].pubkey, NULL, &err, NULL);
+    uchar * raw_acc_data = (uchar*) fd_funk_get_acc_meta_readonly(slot_ctx->funk, slot_ctx->funk_txn, dirty_keys[i].pubkey, NULL, &err, NULL);
     if (NULL != raw_acc_data) {
 
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
@@ -948,7 +945,7 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
 
     fd_hash_t * h = (fd_hash_t *)metadata->hash;
     if( FD_LIKELY( (h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) != 0 ) ) {
-      if( FD_UNLIKELY( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) ) {
+      if( FD_UNLIKELY( fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) ) {
         FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
       }
     } else {
@@ -973,7 +970,7 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
 
 struct fd_subrange_task_info {
   fd_features_t *              features;
-  fd_funk_t *               funk;
+  fd_funk_t *                  funk;
   ulong                        num_lists;
   fd_pubkey_hash_pair_list_t * lists;
   fd_lthash_value_t *          lthash_values;
@@ -1110,8 +1107,8 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
-  fd_funk_t *  funk    = slot_ctx->acc_mgr->funk;
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
+  fd_funk_t * funk = slot_ctx->funk;
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
 
   // How many total records are we dealing with?
   ulong                   num_pairs         = 0UL;
@@ -1161,7 +1158,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
         // slot_ctx->slot_bank.slot = metadata->slot;
         fd_hash_account_current( (uchar *) &hash, NULL, metadata, rec->pair.key->uc, fd_account_meta_get_data(metadata), FD_HASH_JUST_ACCOUNT_HASH, &slot_ctx->epoch_ctx->features );
         // slot_ctx->slot_bank.slot = old_slot;
-        if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
+        if ( fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
         }
       }
@@ -1246,7 +1243,7 @@ fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
       } else if( do_hash_verify ) {
         uchar hash[ FD_HASH_FOOTPRINT ];
         fd_hash_account_current( (uchar*)&hash, NULL, metadata, rec->pair.key->uc, fd_account_meta_get_data( metadata ), FD_HASH_JUST_ACCOUNT_HASH, features );
-        if( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, FD_HASH_FOOTPRINT ) ) {
+        if( fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, FD_HASH_FOOTPRINT ) ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA(metadata->hash), FD_BASE58_ENC_32_ALLOCA(&hash) ));
         }
       }
@@ -1286,7 +1283,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
     fd_sha256_t h;
     fd_hash_t   hash;
-    fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &hash, runtime_spad, FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash), &slot_ctx->epoch_ctx->features );
+    fd_accounts_hash( slot_ctx->funk, &slot_ctx->slot_bank, tpool, &hash, runtime_spad, FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash), &slot_ctx->epoch_ctx->features );
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -1295,7 +1292,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
 
     return 0;
   }
-  return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, accounts_hash, runtime_spad, FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash), &slot_ctx->epoch_ctx->features );
+  return fd_accounts_hash( slot_ctx->funk, &slot_ctx->slot_bank, tpool, accounts_hash, runtime_spad, FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash), &slot_ctx->epoch_ctx->features );
 }
 
 int
@@ -1460,7 +1457,7 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
         fd_hash_account_current( hash, &new_lthash_value, metadata, slot->key->pair.key[0].uc, acc_data, FD_HASH_BOTH_HASHES, features );
         fd_lthash_add( &acc_lthash, &new_lthash_value );
 
-        if (fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
+        if (fd_account_meta_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
         }
       }

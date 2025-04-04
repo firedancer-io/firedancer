@@ -851,7 +851,12 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
     fd_pubkey_t const * vote_pubkey = &vote_reward_node->elem.pubkey;
     FD_TXN_ACCOUNT_DECL( vote_rec );
 
-    if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, 1, 0UL, vote_rec ) != FD_ACC_MGR_SUCCESS ) ) {
+    if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( vote_rec,
+                                                            vote_pubkey,
+                                                            slot_ctx->funk,
+                                                            slot_ctx->funk_txn,
+                                                            1,
+                                                            0UL ) != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "Unable to modify vote account" ));
     }
 
@@ -860,6 +865,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
     if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
+
+    fd_txn_account_mutable_fini( vote_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
     result->distributed_rewards = fd_ulong_sat_add( result->distributed_rewards, vote_reward_node->elem.vote_rewards );
   }
@@ -887,8 +894,12 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong                new_credits_observed ) {
 
   FD_TXN_ACCOUNT_DECL( stake_acc_rec );
-
-  if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_pubkey, 0, 0UL, stake_acc_rec ) != FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( stake_acc_rec,
+                                                          stake_pubkey,
+                                                          slot_ctx->funk,
+                                                          slot_ctx->funk_txn,
+                                                          0,
+                                                          0UL ) != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_ERR(( "Unable to modify stake account" ));
   }
 
@@ -917,6 +928,8 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( write_stake_state( stake_acc_rec, stake_state ) != 0 ) ) {
     FD_LOG_ERR(( "write_stake_state failed" ));
   }
+
+  fd_txn_account_mutable_fini( stake_acc_rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
 }
@@ -1129,7 +1142,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
   if( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
                                                  slot_ctx->sysvar_cache,
-                                                 slot_ctx->acc_mgr,
+                                                 slot_ctx->funk,
                                                  slot_ctx->funk_txn )==NULL ) ) {
     FD_LOG_NOTICE(( "failed to read sysvar epoch rewards - the sysvar may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx, runtime_spad );

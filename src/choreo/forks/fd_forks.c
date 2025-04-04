@@ -143,7 +143,7 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 // fd_forks_advance( fd_forks_t *          forks,
 //                   fd_fork_t *           fork,
 //                   ulong                 slot,
-//                   fd_acc_mgr_t *        acc_mgr,
+//                   fd_funk_t *           funk,
 //                   fd_blockstore_t *     blockstore,
 //                   fd_exec_epoch_ctx_t * epoch_ctx,
 //                   fd_funk_t *           funk,
@@ -188,10 +188,9 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 
 static void
 slot_ctx_restore( ulong                 slot,
-                  fd_acc_mgr_t *        acc_mgr,
+                  fd_funk_t *           funk,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *        funk,
                   fd_spad_t *           runtime_spad,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
@@ -236,7 +235,7 @@ slot_ctx_restore( ulong                 slot,
     FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );
 
     slot_ctx_out->funk_txn   = txn;
-    slot_ctx_out->acc_mgr    = acc_mgr;
+    slot_ctx_out->funk       = funk;
     slot_ctx_out->blockstore = blockstore;
     slot_ctx_out->epoch_ctx  = epoch_ctx;
 
@@ -292,10 +291,9 @@ slot_ctx_restore( ulong                 slot,
 fd_fork_t *
 fd_forks_prepare( fd_forks_t const *    forks,
                   ulong                 parent_slot,
-                  fd_acc_mgr_t *        acc_mgr,
+                  fd_funk_t *           funk,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *           funk,
                   fd_spad_t *           runtime_spad ) {
 
   /* Check the parent block is present in the blockstore and executed. */
@@ -334,7 +332,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
     /* Restore and decode w/ funk */
 
-    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, runtime_spad, slot_ctx );
+    slot_ctx_restore( fork->slot, funk, blockstore, epoch_ctx, runtime_spad, slot_ctx );
 
 
     /* Add to frontier */

@@ -189,7 +189,6 @@ struct fd_replay_tile_ctx {
   fd_alloc_t *          alloc;
   fd_valloc_t           valloc;
   fd_funk_t *           funk;
-  fd_acc_mgr_t *        acc_mgr;
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_epoch_t *          epoch;
   fd_forks_t *          forks;
@@ -1198,10 +1197,9 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   int is_new_epoch_in_new_block = 0;
   fd_fork_t * fork = fd_forks_prepare( ctx->forks,
                                        ctx->parent_slot,
-                                       ctx->acc_mgr,
+                                       ctx->funk,
                                        ctx->blockstore,
                                        ctx->epoch_ctx,
-                                       ctx->funk,
                                        ctx->runtime_spad );
   // Remove slot ctx from frontier
   fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
@@ -1295,7 +1293,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Read slot history into slot ctx */
-  fork->slot_ctx->slot_history = fd_sysvar_slot_history_read( fork->slot_ctx->acc_mgr, fork->slot_ctx->funk_txn, ctx->runtime_spad );
+  fork->slot_ctx->slot_history = fd_sysvar_slot_history_read( fork->slot_ctx->funk, fork->slot_ctx->funk_txn, ctx->runtime_spad );
 
   if( is_new_epoch_in_new_block ) {
     publish_stake_weights( ctx, stem, fork->slot_ctx );
@@ -2029,7 +2027,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   uchar * slot_ctx_mem        = fd_spad_alloc( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, ctx->runtime_spad ) );
-  ctx->slot_ctx->acc_mgr      = ctx->acc_mgr;
+  ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->blockstore   = ctx->blockstore;
   ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;
   ctx->slot_ctx->status_cache = ctx->status_cache;
@@ -2328,8 +2326,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
     if( reset_fork->lock ) {
       FD_LOG_WARNING(("RESET FORK FROZEN: %lu", reset_fork->slot ));
-      fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx->slot_bank.prev_slot, ctx->acc_mgr,
-                                                     ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->runtime_spad );
+      fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx->slot_bank.prev_slot, ctx->funk,
+                                                     ctx->blockstore, ctx->epoch_ctx, ctx->runtime_spad );
       new_reset_fork->lock = 0;
       reset_fork = new_reset_fork;
     }
@@ -2829,12 +2827,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* joins                                                              */
   /**********************************************************************/
 
-  uchar * acc_mgr_shmem = fd_spad_alloc( ctx->runtime_spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
-  ctx->acc_mgr       = fd_acc_mgr_new( acc_mgr_shmem, ctx->funk );
-
   uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
-
   ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {

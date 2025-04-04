@@ -78,9 +78,9 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec);
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->funk, slot_ctx->funk_txn );
   if (err)
-    FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
+    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = rec->const_data,
@@ -109,9 +109,9 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   if( sz < slot_history_min_account_size )
     sz = slot_history_min_account_size;
 
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, 1, sz, rec );
+  err = fd_txn_account_init_from_funk_mutable( rec, key, slot_ctx->funk, slot_ctx->funk_txn, 1, sz );
   if (err)
-    FD_LOG_CRIT(( "fd_acc_mgr_modify(slot_history) failed: %d", err ));
+    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable(slot_history) failed: %d", err ));
 
   fd_bincode_encode_ctx_t e_ctx = {
     .data    = rec->data,
@@ -126,6 +126,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   rec->meta->dlen = sz;
   fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
 
+  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
+
   fd_slot_history_destroy( history );
 
   return 0;
@@ -133,7 +135,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
 
 /* TODO: maybe use the sysvar cache? is there a reason why it doesn't? */
 fd_slot_history_t *
-fd_sysvar_slot_history_read( fd_acc_mgr_t *  acc_mgr,
+fd_sysvar_slot_history_read( fd_funk_t *     funk,
                              fd_funk_txn_t * funk_txn,
                              fd_spad_t *     spad ) {
   /* Set current_slot, and update next_slot */
@@ -141,9 +143,9 @@ fd_sysvar_slot_history_read( fd_acc_mgr_t *  acc_mgr,
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_acc_mgr_view( acc_mgr, funk_txn, key, rec );
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, funk_txn );
   if( err ) {
-    FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
+    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
   }
 
   fd_bincode_decode_ctx_t ctx = {
