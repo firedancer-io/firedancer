@@ -1674,6 +1674,23 @@ void *fd_partitioned_stake_rewards_generate( void *mem, void **alloc_mem, fd_rng
   fd_partitioned_stake_rewards_t *self = (fd_partitioned_stake_rewards_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_partitioned_stake_rewards_t);
   fd_partitioned_stake_rewards_new(mem);
+  self->partitions_len = fd_rng_ulong( rng ) % 8;
+  ulong total_count = 0UL;
+  for( ulong i=0; i < 4096; i++ ) {
+    self->partitions_lengths[i] = fd_rng_ulong( rng ) % 8;
+    total_count += self->partitions_lengths[ i ];
+  }
+  self->pool = fd_partitioned_stake_rewards_pool_join_new( alloc_mem, total_count );
+  self->partitions = fd_partitioned_stake_rewards_dlist_join_new( alloc_mem, self->partitions_len );
+  for( ulong i=0; i < self->partitions_len; i++ ) {
+    fd_partitioned_stake_rewards_dlist_new( &self->partitions[ i ] );
+    for( ulong j=0; j < self->partitions_lengths[ i ]; j++ ) {
+      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_pool_ele_acquire( self->pool );
+      fd_stake_reward_new( ele );
+      fd_stake_reward_generate( ele, alloc_mem, rng );
+      fd_partitioned_stake_rewards_dlist_ele_push_tail( &self->partitions[ i ], ele, self->pool );
+    }
+  }
   return mem;
 }
 
@@ -1690,6 +1707,16 @@ void *fd_stake_reward_calculation_generate( void *mem, void **alloc_mem, fd_rng_
   fd_stake_reward_calculation_t *self = (fd_stake_reward_calculation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_reward_calculation_t);
   fd_stake_reward_calculation_new(mem);
+  self->stake_rewards_len = fd_rng_ulong( rng ) % 8;
+  self->pool = fd_stake_reward_calculation_pool_join_new( alloc_mem, self->stake_rewards_len );
+  self->stake_rewards = fd_stake_reward_calculation_dlist_join_new( alloc_mem, self->stake_rewards_len );
+  fd_stake_reward_calculation_dlist_new( &self->stake_rewards );
+  for( ulong i=0; i < self->stake_rewards_len; i++ ) {
+    fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( self->pool );
+    fd_stake_reward_new( ele );
+    fd_stake_reward_generate( ele, alloc_mem, rng );
+    fd_stake_reward_calculation_dlist_ele_push_tail( self->stake_rewards, ele, self->pool );
+  }
   self->total_stake_rewards_lamports = fd_rng_ulong( rng );
   return mem;
 }

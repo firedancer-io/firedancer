@@ -340,6 +340,41 @@ class MapMember(TypeNode):
         print(f'    {mapname}_insert( self->{self.name}_pool, &self->{self.name}_root, node );', file=body)
         print('  }', file=body)
 
+class PartitionMember(TypeNode):
+    def __init__(self, container, json):
+        super().__init__(json)
+        self.dlist_t = json["dlist_t"]
+        self.dlist_n = json["dlist_n"]
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
+        self.dlist_max = (int(json["dlist_max"]) if "dlist_max" in json else 0)
+
+    def emitGenerate(self):
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+        pool_name = self.dlist_n + "_pool"
+
+        print(f'  self->{self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
+        print(f'  ulong total_count = 0UL;', file=body)
+        print(f'  for( ulong i=0; i < {self.dlist_max}; i++ ) {{', file=body)
+        print(f'    self->{self.name}_lengths[i] = fd_rng_ulong( rng ) % 8;', file=body)
+        print(f'    total_count += self->{self.name}_lengths[ i ];', file=body)
+        print('  }', file=body)
+
+        print(f'  self->pool = {pool_name}_join_new( alloc_mem, total_count );', file=body)
+        print(f'  self->{self.name} = {dlist_name}_join_new( alloc_mem, self->{self.name}_len );', file=body)
+
+        print(f'  for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
+        # print(f'    fd_partitioned_stake_rewards_dlist_t * partition = {dlist_name}_join_new( alloc_mem, self->{self.name}_len );')
+        # print(f'    self->{self.name}[ i ] = partition;', file=body)
+        print(f'    {dlist_name}_new( &self->{self.name}[ i ] );', file=body)
+        print(f'    for( ulong j=0; j < self->{self.name}_lengths[ i ]; j++ ) {{', file=body)
+        print(f'      {dlist_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
+        print(f'      {dlist_t.rstrip("_t")}_new( ele );', file=body)
+        print(f'      {dlist_t.rstrip("_t")}_generate( ele, alloc_mem, rng );', file=body)
+        print(f'      {dlist_name}_ele_push_tail( &self->{self.name}[ i ], ele, self->pool );', file=body)
+        print('    }', file=body)
+        print('  }', file=body)
+
 class TreapMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
@@ -379,23 +414,6 @@ class TreapMember(TypeNode):
         print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
         print('  }', file=body)
 
-class DlistMember(TypeNode):
-    def __init__(self, container, json):
-        # TODO: implement this
-        pass
-
-    def emitGenerate(self):
-        # TODO: implement this
-        pass
-
-class PartitionMember(TypeNode):
-    def __init__(self, container, json):
-        # TODO: implement this
-        pass
-
-    def emitGenerate(self):
-        # TODO: implement this
-        pass
 class OptionMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
@@ -433,6 +451,30 @@ class OptionMember(TypeNode):
             print(f'    else {{', file=body)
             print(f'    self->{self.name} = NULL;', file=body)
             print('    }', file=body)
+        print('  }', file=body)
+
+class DlistMember(TypeNode):
+    def __init__(self, container, json):
+        super().__init__(json)
+        self.dlist_t = json["dlist_t"]
+        self.dlist_n = json["dlist_n"]
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
+
+    def emitGenerate(self):
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+        pool_name = self.dlist_n + "_pool"
+
+        print(f'  self->{self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
+
+        print(f'  self->pool = {pool_name}_join_new( alloc_mem, self->{self.name}_len );', file=body)
+        print(f'  self->{self.name} = {dlist_name}_join_new( alloc_mem, self->{self.name}_len );', file=body)
+        print(f'  {dlist_name}_new( &self->{self.name} );', file=body)
+        print(f'  for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
+        print(f'    {dlist_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
+        print(f'    {dlist_t.rstrip("_t")}_new( ele );', file=body)
+        print(f'    {dlist_t.rstrip("_t")}_generate( ele, alloc_mem, rng );', file=body)
+        print(f'    {dlist_name}_ele_push_tail( self->{self.name}, ele, self->pool );', file=body)
         print('  }', file=body)
 
 class ArrayMember(TypeNode):
@@ -475,7 +517,6 @@ memberTypeMap = {
     "treap" :     TreapMember,
     "dlist" :     DlistMember,
     "partition" : PartitionMember
-
 }
 
 def parseMember(namespace, json):
