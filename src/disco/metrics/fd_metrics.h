@@ -9,7 +9,7 @@
 
 /* fd_metrics mostly defines way of laying out metrics in shared
    memory so that a producer and consumer can agree on where they
-   are, and can read and wite them quickly and with little to no
+   are, and can read and write them quickly and with little to no
    boilerplate.
 
    At initialization time, a thread can call fd_metrics_register
@@ -68,9 +68,9 @@ extern FD_TL volatile ulong * fd_metrics_tl;
 
 /* The following macros are convenience helpers for updating tile metric
    values in shared memory, and can be used like
-     
+
      FD_MGAUGE_SET( QUIC, CONNECTIONS_CREATED_COUNT, conn_cnt );
-     
+
    This compiles to a single write to an offset of the metrics pointer
    above. */
 
