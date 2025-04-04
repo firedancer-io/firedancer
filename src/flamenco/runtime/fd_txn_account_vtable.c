@@ -115,8 +115,8 @@ fd_txn_account_set_rent_epoch_writable( fd_txn_account_t * acct, ulong rent_epoc
 
 void
 fd_txn_account_set_data_writable( fd_txn_account_t * acct,
-                                  uchar const * data,
-                                  ulong data_sz) {
+                                  void const *       data,
+                                  ulong              data_sz) {
   if( FD_UNLIKELY( !acct->meta ) ) FD_LOG_ERR(("account is not mutable" ));
   acct->meta->dlen = data_sz;
   fd_memcpy( acct->data, data, data_sz );
@@ -196,8 +196,8 @@ fd_txn_account_set_rent_epoch_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
 
 void
 fd_txn_account_set_data_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
-                                  uchar const * data FD_PARAM_UNUSED,
-                                  ulong data_sz FD_PARAM_UNUSED ) {
+                                  void const *       data FD_PARAM_UNUSED,
+                                  ulong              data_sz FD_PARAM_UNUSED ) {
   FD_LOG_ERR(( "cannot set data in a readonly account!" ));
 }
 

@@ -33,7 +33,7 @@ typedef void                      (* fd_txn_account_set_lamports_fn_t)         (
 typedef int                       (* fd_txn_account_checked_add_lamports_fn_t) ( fd_txn_account_t * acct, ulong lamports );
 typedef int                       (* fd_txn_account_checked_sub_lamports_fn_t) ( fd_txn_account_t * acct, ulong lamports );
 typedef void                      (* fd_txn_account_set_rent_epoch_fn_t)       ( fd_txn_account_t * acct, ulong rent_epoch );
-typedef void                      (* fd_txn_account_set_data_fn_t)             ( fd_txn_account_t * acct, uchar const * new_data, ulong data_sz );
+typedef void                      (* fd_txn_account_set_data_fn_t)             ( fd_txn_account_t * acct, void const * new_data, ulong data_sz );
 typedef void                      (* fd_txn_account_set_data_len_fn_t)         ( fd_txn_account_t * acct, ulong data_len );
 typedef void                      (* fd_txn_account_resize_fn_t)               ( fd_txn_account_t * acct, ulong data_len );
 

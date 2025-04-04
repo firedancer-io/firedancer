@@ -2311,8 +2311,8 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
 
   out_rec->meta->info.lamports = fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM );
   fd_bincode_encode_ctx_t ctx = {
-    .data = out_rec->data,
-    .dataend = out_rec->data + SIZE_OF_PROGRAM,
+    .data    = out_rec->vt->get_data_mut( out_rec ),
+    .dataend = out_rec->vt->get_data_mut( out_rec ) + SIZE_OF_PROGRAM,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L91-L9 */
@@ -2400,8 +2400,8 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L139-L144 */
   new_target_program_data_account->meta->info.lamports = lamports;
   fd_bincode_encode_ctx_t encode_ctx = {
-    .data = new_target_program_data_account->data,
-    .dataend = new_target_program_data_account->data + PROGRAMDATA_METADATA_SIZE,
+    .data    = new_target_program_data_account->vt->get_data_mut( new_target_program_data_account ),
+    .dataend = new_target_program_data_account->vt->get_data_mut( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE,
   };
   err = fd_bpf_upgradeable_loader_state_encode( &programdata_metadata, &encode_ctx );
   if( FD_UNLIKELY( err ) ) {
@@ -2730,8 +2730,8 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
     feature->has_activated_at = 1;
     feature->activated_at     = slot_ctx->slot_bank.slot;
     fd_bincode_encode_ctx_t encode_ctx = {
-      .data    = modify_acct_rec->data,
-      .dataend = modify_acct_rec->data + modify_acct_rec->meta->dlen,
+      .data    = modify_acct_rec->vt->get_data_mut( modify_acct_rec ),
+      .dataend = modify_acct_rec->vt->get_data_mut( modify_acct_rec ) + modify_acct_rec->vt->get_data_len( modify_acct_rec ),
     };
     int encode_err = fd_feature_encode( feature, &encode_ctx );
     if( FD_UNLIKELY( encode_err != FD_BINCODE_SUCCESS ) ) {
@@ -3722,14 +3722,11 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
       }
 
-      rec->meta->dlen            = a->account.data_len;
-      rec->meta->info.lamports   = a->account.lamports;
-      rec->meta->info.rent_epoch = a->account.rent_epoch;
-      rec->meta->info.executable = a->account.executable;
-      memcpy( rec->meta->info.owner, a->account.owner.key, sizeof(fd_hash_t));
-      if( a->account.data_len ) {
-        memcpy( rec->data, a->account.data, a->account.data_len );
-      }
+      rec->vt->set_data( rec, a->account.data, a->account.data_len );
+      rec->vt->set_lamports( rec, a->account.lamports );
+      rec->vt->set_rent_epoch( rec, a->account.rent_epoch );
+      rec->vt->set_executable( rec, a->account.executable );
+      rec->vt->set_owner( rec, &a->account.owner );
 
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
     }
