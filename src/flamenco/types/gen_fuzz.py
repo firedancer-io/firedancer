@@ -379,6 +379,23 @@ class TreapMember(TypeNode):
         print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
         print('  }', file=body)
 
+class DlistMember(TypeNode):
+    def __init__(self, container, json):
+        # TODO: implement this
+        pass
+
+    def emitGenerate(self):
+        # TODO: implement this
+        pass
+
+class PartitionMember(TypeNode):
+    def __init__(self, container, json):
+        # TODO: implement this
+        pass
+
+    def emitGenerate(self):
+        # TODO: implement this
+        pass
 class OptionMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
@@ -455,7 +472,10 @@ memberTypeMap = {
     "array" :     ArrayMember,
     "option" :    OptionMember,
     "map" :       MapMember,
-    "treap" :     TreapMember
+    "treap" :     TreapMember,
+    "dlist" :     DlistMember,
+    "partition" : PartitionMember
+
 }
 
 def parseMember(namespace, json):
