@@ -27,7 +27,6 @@
   X( txn_vote,                         flamenco_txn, 0         )   \
   X( vote_account,                     vote_state_versioned, 1 )   \
   X( vote_account_two,                 vote_state_versioned, 1 )   \
-  X( slot_bank,                        slot_bank, 1            )   \
   X( gossip_pull_req,                  gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info,    gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info_v2, gossip_msg, 0           )   \
@@ -127,7 +126,6 @@ static const test_fixture_t test_vector[] = {
     .align            = ( fd_types_align_vfn_t )fd_##type##_align,                       \
     .footprint        = ( fd_types_footprint_vfn_t )fd_##type##_footprint,               \
     .walk             = ( fd_types_walk_vfn_t )fd_##type##_walk,                         \
-    .convert          = ( fd_types_convert_vfn_t )fd_##type##_convert_global_to_local },
 TEST_VECTOR( X )
 # undef X
   {0}
