@@ -848,9 +848,8 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
 
-    fd_slot_hashes_t slot_hashes[1];
-    fd_bincode_decode_ctx_t decode = { .wksp = txn_ctx->runtime_pub_wksp };
-    fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( txn_ctx->runtime_pub_wksp,
+                                                          slot_hashes_global->hashes_gaddr ) );
 
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
@@ -858,7 +857,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
                                                          txn_ctx->acc_mgr,
                                                          txn_ctx->funk_txn,
                                                          txn_ctx->slot,
-                                                         slot_hashes->hashes,
+                                                         slot_hash,
                                                          accts_alt );
     txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;

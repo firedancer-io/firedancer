@@ -120,6 +120,26 @@ fd_hash_hash_age_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_hash_hash_age_pair_t_map_footprint( len );
   return fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( map_mem, len ) );
 }
+typedef struct fd_hash_hash_age_pair_global_t_mapnode fd_hash_hash_age_pair_global_t_mapnode_t;
+#define REDBLK_T fd_hash_hash_age_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_hash_hash_age_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_hash_hash_age_pair_global_t_mapnode {
+    fd_hash_hash_age_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_hash_hash_age_pair_global_t_mapnode_t *
+fd_hash_hash_age_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_hash_hash_age_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_hash_hash_age_pair_global_t_map_footprint( len );
+  return fd_hash_hash_age_pair_global_t_map_join( fd_hash_hash_age_pair_global_t_map_new( map_mem, len ) );
+}
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_block_hash_queue {
   ulong last_hash_index;
@@ -486,6 +506,26 @@ fd_vote_accounts_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_vote_accounts_pair_t_map_footprint( len );
   return fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( map_mem, len ) );
 }
+typedef struct fd_vote_accounts_pair_global_t_mapnode fd_vote_accounts_pair_global_t_mapnode_t;
+#define REDBLK_T fd_vote_accounts_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_vote_accounts_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_vote_accounts_pair_global_t_mapnode {
+    fd_vote_accounts_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_vote_accounts_pair_global_t_mapnode_t *
+fd_vote_accounts_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_accounts_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_vote_accounts_pair_global_t_map_footprint( len );
+  return fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( map_mem, len ) );
+}
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_vote_accounts {
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool;
@@ -539,6 +579,26 @@ fd_account_keys_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   void * map_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + fd_account_keys_pair_t_map_footprint( len );
   return fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( map_mem, len ) );
+}
+typedef struct fd_account_keys_pair_global_t_mapnode fd_account_keys_pair_global_t_mapnode_t;
+#define REDBLK_T fd_account_keys_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_account_keys_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_account_keys_pair_global_t_mapnode {
+    fd_account_keys_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_account_keys_pair_global_t_mapnode_t *
+fd_account_keys_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_account_keys_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_account_keys_pair_global_t_map_footprint( len );
+  return fd_account_keys_pair_global_t_map_join( fd_account_keys_pair_global_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_account_keys {
@@ -594,6 +654,26 @@ fd_stake_weight_t_map_join_new( void * * alloc_mem, ulong len ) {
   void * map_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + fd_stake_weight_t_map_footprint( len );
   return fd_stake_weight_t_map_join( fd_stake_weight_t_map_new( map_mem, len ) );
+}
+typedef struct fd_stake_weight_global_t_mapnode fd_stake_weight_global_t_mapnode_t;
+#define REDBLK_T fd_stake_weight_global_t_mapnode_t
+#define REDBLK_NAME fd_stake_weight_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_stake_weight_global_t_mapnode {
+    fd_stake_weight_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_stake_weight_global_t_mapnode_t *
+fd_stake_weight_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_weight_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_stake_weight_global_t_map_footprint( len );
+  return fd_stake_weight_global_t_map_join( fd_stake_weight_global_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_stake_weights {
@@ -708,6 +788,26 @@ fd_delegation_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_delegation_pair_t_map_footprint( len );
   return fd_delegation_pair_t_map_join( fd_delegation_pair_t_map_new( map_mem, len ) );
 }
+typedef struct fd_delegation_pair_global_t_mapnode fd_delegation_pair_global_t_mapnode_t;
+#define REDBLK_T fd_delegation_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_delegation_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_delegation_pair_global_t_mapnode {
+    fd_delegation_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_delegation_pair_global_t_mapnode_t *
+fd_delegation_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_delegation_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_delegation_pair_global_t_map_footprint( len );
+  return fd_delegation_pair_global_t_map_join( fd_delegation_pair_global_t_map_new( map_mem, len ) );
+}
 /* https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_stakes {
@@ -753,6 +853,26 @@ fd_stake_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   void * map_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + fd_stake_pair_t_map_footprint( len );
   return fd_stake_pair_t_map_join( fd_stake_pair_t_map_new( map_mem, len ) );
+}
+typedef struct fd_stake_pair_global_t_mapnode fd_stake_pair_global_t_mapnode_t;
+#define REDBLK_T fd_stake_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_stake_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_stake_pair_global_t_mapnode {
+    fd_stake_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_stake_pair_global_t_mapnode_t *
+fd_stake_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_stake_pair_global_t_map_footprint( len );
+  return fd_stake_pair_global_t_map_join( fd_stake_pair_global_t_map_new( map_mem, len ) );
 }
 /* https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202 */
 /* Encoded Size: Dynamic */
@@ -1674,6 +1794,21 @@ deq_fd_vote_lockout_t_join_new( void * * alloc_mem, ulong max ) {
   *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_lockout_t_footprint( max );
   return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( deque_mem, max ) );
 }
+
+#define DEQUE_NAME deq_fd_vote_lockout_global_t
+#define DEQUE_T fd_vote_lockout_global_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_vote_lockout_global_t *
+deq_fd_vote_lockout_global_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_lockout_global_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_lockout_global_t_footprint( max );
+  return deq_fd_vote_lockout_global_t_join( deq_fd_vote_lockout_global_t_new( deque_mem, max ) );
+}
 #define DEQUE_NAME deq_fd_vote_epoch_credits_t
 #define DEQUE_T fd_vote_epoch_credits_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
@@ -1687,6 +1822,21 @@ deq_fd_vote_epoch_credits_t_join_new( void * * alloc_mem, ulong max ) {
   void * deque_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_epoch_credits_t_footprint( max );
   return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( deque_mem, max ) );
+}
+
+#define DEQUE_NAME deq_fd_vote_epoch_credits_global_t
+#define DEQUE_T fd_vote_epoch_credits_global_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_vote_epoch_credits_global_t *
+deq_fd_vote_epoch_credits_global_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_epoch_credits_global_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_epoch_credits_global_t_footprint( max );
+  return deq_fd_vote_epoch_credits_global_t_join( deq_fd_vote_epoch_credits_global_t_new( deque_mem, max ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
 /* Encoded Size: Dynamic */
@@ -1816,6 +1966,21 @@ deq_fd_landed_vote_t_join_new( void * * alloc_mem, ulong max ) {
   void * deque_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + deq_fd_landed_vote_t_footprint( max );
   return deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, max ) );
+}
+
+#define DEQUE_NAME deq_fd_landed_vote_global_t
+#define DEQUE_T fd_landed_vote_global_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_landed_vote_global_t *
+deq_fd_landed_vote_global_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_landed_vote_global_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_landed_vote_global_t_footprint( max );
+  return deq_fd_landed_vote_global_t_join( deq_fd_landed_vote_global_t_new( deque_mem, max ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
@@ -1963,6 +2128,21 @@ deq_fd_lockout_offset_t_join_new( void * * alloc_mem, ulong max ) {
   void * deque_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + deq_fd_lockout_offset_t_footprint( max );
   return deq_fd_lockout_offset_t_join( deq_fd_lockout_offset_t_new( deque_mem, max ) );
+}
+
+#define DEQUE_NAME deq_fd_lockout_offset_global_t
+#define DEQUE_T fd_lockout_offset_global_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_lockout_offset_global_t *
+deq_fd_lockout_offset_global_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_lockout_offset_global_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_lockout_offset_global_t_footprint( max );
+  return deq_fd_lockout_offset_global_t_join( deq_fd_lockout_offset_global_t_new( deque_mem, max ) );
 }
 /* https://github.com/anza-xyz/agave/blob/20ee70cd1829cd414d09040460defecf9792a370/sdk/program/src/vote/state/mod.rs#L990 */
 /* Encoded Size: Dynamic */
@@ -2122,6 +2302,21 @@ deq_fd_slot_hash_t_join_new( void * * alloc_mem, ulong max ) {
   *alloc_mem = (uchar *)*alloc_mem + deq_fd_slot_hash_t_footprint( max );
   return deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( deque_mem, max ) );
 }
+
+#define DEQUE_NAME deq_fd_slot_hash_global_t
+#define DEQUE_T fd_slot_hash_global_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_slot_hash_global_t *
+deq_fd_slot_hash_global_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_slot_hash_global_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_slot_hash_global_t_footprint( max );
+  return deq_fd_slot_hash_global_t_join( deq_fd_slot_hash_global_t_new( deque_mem, max ) );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_slot_hashes {
@@ -2168,6 +2363,21 @@ deq_fd_block_block_hash_entry_t_join_new( void * * alloc_mem, ulong max ) {
   void * deque_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + deq_fd_block_block_hash_entry_t_footprint( max );
   return deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( deque_mem, max ) );
+}
+
+#define DEQUE_NAME deq_fd_block_block_hash_entry_global_t
+#define DEQUE_T fd_block_block_hash_entry_global_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_block_block_hash_entry_global_t *
+deq_fd_block_block_hash_entry_global_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_block_block_hash_entry_global_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_block_block_hash_entry_global_t_footprint( max );
+  return deq_fd_block_block_hash_entry_global_t_join( deq_fd_block_block_hash_entry_global_t_new( deque_mem, max ) );
 }
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_recent_block_hashes {
@@ -2258,6 +2468,26 @@ fd_clock_timestamp_vote_t_map_join_new( void * * alloc_mem, ulong len ) {
   void * map_mem = *alloc_mem;
   *alloc_mem = (uchar *)*alloc_mem + fd_clock_timestamp_vote_t_map_footprint( len );
   return fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new( map_mem, len ) );
+}
+typedef struct fd_clock_timestamp_vote_global_t_mapnode fd_clock_timestamp_vote_global_t_mapnode_t;
+#define REDBLK_T fd_clock_timestamp_vote_global_t_mapnode_t
+#define REDBLK_NAME fd_clock_timestamp_vote_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_clock_timestamp_vote_global_t_mapnode {
+    fd_clock_timestamp_vote_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_clock_timestamp_vote_global_t_mapnode_t *
+fd_clock_timestamp_vote_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_clock_timestamp_vote_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_clock_timestamp_vote_global_t_map_footprint( len );
+  return fd_clock_timestamp_vote_global_t_map_join( fd_clock_timestamp_vote_global_t_map_new( map_mem, len ) );
 }
 /* Validator timestamp oracle votes received from voting nodes. TODO: make this a map */
 /* Encoded Size: Dynamic */
@@ -2658,6 +2888,7 @@ deq_ulong_join_new( void * * alloc_mem, ulong max ) {
   *alloc_mem = (uchar *)*alloc_mem + deq_ulong_footprint( max );
   return deq_ulong_join( deq_ulong_new( deque_mem, max ) );
 }
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_vote {
@@ -5576,6 +5807,26 @@ fd_vote_info_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_vote_info_pair_t_map_footprint( len );
   return fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( map_mem, len ) );
 }
+typedef struct fd_vote_info_pair_global_t_mapnode fd_vote_info_pair_global_t_mapnode_t;
+#define REDBLK_T fd_vote_info_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_vote_info_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_vote_info_pair_global_t_mapnode {
+    fd_vote_info_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_vote_info_pair_global_t_mapnode_t *
+fd_vote_info_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_info_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_vote_info_pair_global_t_map_footprint( len );
+  return fd_vote_info_pair_global_t_map_join( fd_vote_info_pair_global_t_map_new( map_mem, len ) );
+}
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_epoch_info {
   ulong stake_infos_len;
@@ -5688,6 +5939,26 @@ fd_account_costs_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_account_costs_pair_t_map_footprint( len );
   return fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( map_mem, len ) );
 }
+typedef struct fd_account_costs_pair_global_t_mapnode fd_account_costs_pair_global_t_mapnode_t;
+#define REDBLK_T fd_account_costs_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_account_costs_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_account_costs_pair_global_t_mapnode {
+    fd_account_costs_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_account_costs_pair_global_t_mapnode_t *
+fd_account_costs_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_account_costs_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_account_costs_pair_global_t_map_footprint( len );
+  return fd_account_costs_pair_global_t_map_join( fd_account_costs_pair_global_t_map_new( map_mem, len ) );
+}
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_account_costs {
   fd_account_costs_pair_t_mapnode_t * account_costs_pool;
@@ -5759,7 +6030,6 @@ void * fd_hash_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_hash_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_hash_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_hash_convert_global_to_local( void const * global_self, fd_hash_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_signature_new( fd_signature_t * self );
 int fd_signature_encode( fd_signature_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5774,7 +6044,6 @@ void * fd_signature_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_signature_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_signature_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_signature_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_signature_convert_global_to_local( void const * global_self, fd_signature_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_ip4_addr_new( fd_gossip_ip4_addr_t * self );
 int fd_gossip_ip4_addr_encode( fd_gossip_ip4_addr_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5789,7 +6058,6 @@ void * fd_gossip_ip4_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ip4_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_ip4_addr_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ip4_addr_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_ip4_addr_convert_global_to_local( void const * global_self, fd_gossip_ip4_addr_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_ip6_addr_new( fd_gossip_ip6_addr_t * self );
 int fd_gossip_ip6_addr_encode( fd_gossip_ip6_addr_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5804,7 +6072,6 @@ void * fd_gossip_ip6_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ip6_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_ip6_addr_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ip6_addr_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_ip6_addr_convert_global_to_local( void const * global_self, fd_gossip_ip6_addr_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_feature_new( fd_feature_t * self );
 int fd_feature_encode( fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5819,7 +6086,6 @@ void * fd_feature_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_feature_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_feature_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_feature_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_feature_convert_global_to_local( void const * global_self, fd_feature_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_fee_calculator_new( fd_fee_calculator_t * self );
 int fd_fee_calculator_encode( fd_fee_calculator_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5834,7 +6100,6 @@ void * fd_fee_calculator_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_fee_calculator_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_fee_calculator_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_fee_calculator_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_fee_calculator_convert_global_to_local( void const * global_self, fd_fee_calculator_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_hash_age_new( fd_hash_age_t * self );
 int fd_hash_age_encode( fd_hash_age_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5849,7 +6114,6 @@ void * fd_hash_age_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_hash_age_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_hash_age_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_hash_age_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_hash_age_convert_global_to_local( void const * global_self, fd_hash_age_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_hash_hash_age_pair_new( fd_hash_hash_age_pair_t * self );
 int fd_hash_hash_age_pair_encode( fd_hash_hash_age_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5864,7 +6128,6 @@ void * fd_hash_hash_age_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_hash_hash_age_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_hash_hash_age_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_hash_hash_age_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_hash_hash_age_pair_convert_global_to_local( void const * global_self, fd_hash_hash_age_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_block_hash_vec_new( fd_block_hash_vec_t * self );
 int fd_block_hash_vec_encode( fd_block_hash_vec_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5879,7 +6142,6 @@ void * fd_block_hash_vec_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_block_hash_vec_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_block_hash_vec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_block_hash_vec_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_block_hash_vec_convert_global_to_local( void const * global_self, fd_block_hash_vec_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_block_hash_queue_new( fd_block_hash_queue_t * self );
 int fd_block_hash_queue_encode( fd_block_hash_queue_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5894,7 +6156,6 @@ void * fd_block_hash_queue_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_block_hash_queue_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_block_hash_queue_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_block_hash_queue_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_block_hash_queue_convert_global_to_local( void const * global_self, fd_block_hash_queue_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_fee_rate_governor_new( fd_fee_rate_governor_t * self );
 int fd_fee_rate_governor_encode( fd_fee_rate_governor_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5909,7 +6170,6 @@ void * fd_fee_rate_governor_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_fee_rate_governor_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_fee_rate_governor_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_fee_rate_governor_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_fee_rate_governor_convert_global_to_local( void const * global_self, fd_fee_rate_governor_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_pair_new( fd_slot_pair_t * self );
 int fd_slot_pair_encode( fd_slot_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5924,7 +6184,6 @@ void * fd_slot_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_pair_convert_global_to_local( void const * global_self, fd_slot_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_hard_forks_new( fd_hard_forks_t * self );
 int fd_hard_forks_encode( fd_hard_forks_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5939,7 +6198,6 @@ void * fd_hard_forks_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_hard_forks_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_hard_forks_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_hard_forks_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_hard_forks_convert_global_to_local( void const * global_self, fd_hard_forks_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_inflation_new( fd_inflation_t * self );
 int fd_inflation_encode( fd_inflation_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5954,7 +6212,6 @@ void * fd_inflation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_inflation_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_inflation_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_inflation_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_inflation_convert_global_to_local( void const * global_self, fd_inflation_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_rent_new( fd_rent_t * self );
 int fd_rent_encode( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5969,7 +6226,6 @@ void * fd_rent_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rent_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_rent_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rent_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rent_convert_global_to_local( void const * global_self, fd_rent_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_epoch_schedule_new( fd_epoch_schedule_t * self );
 int fd_epoch_schedule_encode( fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5984,7 +6240,6 @@ void * fd_epoch_schedule_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_schedule_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_epoch_schedule_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_schedule_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_schedule_convert_global_to_local( void const * global_self, fd_epoch_schedule_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_rent_collector_new( fd_rent_collector_t * self );
 int fd_rent_collector_encode( fd_rent_collector_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5999,7 +6254,6 @@ void * fd_rent_collector_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rent_collector_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_rent_collector_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rent_collector_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rent_collector_convert_global_to_local( void const * global_self, fd_rent_collector_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_history_entry_new( fd_stake_history_entry_t * self );
 int fd_stake_history_entry_encode( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6014,7 +6268,6 @@ void * fd_stake_history_entry_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_stake_history_entry_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_history_entry_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_history_entry_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_history_entry_convert_global_to_local( void const * global_self, fd_stake_history_entry_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_history_new( fd_stake_history_t * self );
 int fd_stake_history_encode( fd_stake_history_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6029,7 +6282,6 @@ void * fd_stake_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_history_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_history_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_history_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_history_convert_global_to_local( void const * global_self, fd_stake_history_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_solana_account_new( fd_solana_account_t * self );
 int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6044,7 +6296,6 @@ void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_solana_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_solana_account_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_solana_account_convert_global_to_local( void const * global_self, fd_solana_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_accounts_pair_new( fd_vote_accounts_pair_t * self );
 int fd_vote_accounts_pair_encode( fd_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6059,7 +6310,6 @@ void * fd_vote_accounts_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_vote_accounts_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_accounts_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_accounts_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_accounts_pair_convert_global_to_local( void const * global_self, fd_vote_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_accounts_new( fd_vote_accounts_t * self );
 int fd_vote_accounts_encode( fd_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6074,7 +6324,6 @@ void * fd_vote_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_accounts_convert_global_to_local( void const * global_self, fd_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_account_keys_pair_new( fd_account_keys_pair_t * self );
 int fd_account_keys_pair_encode( fd_account_keys_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6089,7 +6338,6 @@ void * fd_account_keys_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_keys_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_account_keys_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_keys_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_account_keys_pair_convert_global_to_local( void const * global_self, fd_account_keys_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_account_keys_new( fd_account_keys_t * self );
 int fd_account_keys_encode( fd_account_keys_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6104,7 +6352,6 @@ void * fd_account_keys_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_keys_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_account_keys_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_keys_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_account_keys_convert_global_to_local( void const * global_self, fd_account_keys_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_weight_new( fd_stake_weight_t * self );
 int fd_stake_weight_encode( fd_stake_weight_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6119,7 +6366,6 @@ void * fd_stake_weight_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_weight_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_weight_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_weight_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_weight_convert_global_to_local( void const * global_self, fd_stake_weight_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_weights_new( fd_stake_weights_t * self );
 int fd_stake_weights_encode( fd_stake_weights_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6134,7 +6380,6 @@ void * fd_stake_weights_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_weights_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_weights_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_weights_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_weights_convert_global_to_local( void const * global_self, fd_stake_weights_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_delegation_new( fd_delegation_t * self );
 int fd_delegation_encode( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6149,7 +6394,6 @@ void * fd_delegation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_delegation_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_delegation_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_delegation_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_delegation_convert_global_to_local( void const * global_self, fd_delegation_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_delegation_pair_new( fd_delegation_pair_t * self );
 int fd_delegation_pair_encode( fd_delegation_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6164,7 +6408,6 @@ void * fd_delegation_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_delegation_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_delegation_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_delegation_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_delegation_pair_convert_global_to_local( void const * global_self, fd_delegation_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_new( fd_stake_t * self );
 int fd_stake_encode( fd_stake_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6179,7 +6422,6 @@ void * fd_stake_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_convert_global_to_local( void const * global_self, fd_stake_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_pair_new( fd_stake_pair_t * self );
 int fd_stake_pair_encode( fd_stake_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6194,7 +6436,6 @@ void * fd_stake_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_pair_convert_global_to_local( void const * global_self, fd_stake_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stakes_new( fd_stakes_t * self );
 int fd_stakes_encode( fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6209,7 +6450,6 @@ void * fd_stakes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stakes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stakes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stakes_convert_global_to_local( void const * global_self, fd_stakes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stakes_stake_new( fd_stakes_stake_t * self );
 int fd_stakes_stake_encode( fd_stakes_stake_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6224,7 +6464,6 @@ void * fd_stakes_stake_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stakes_stake_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stakes_stake_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stakes_stake_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stakes_stake_convert_global_to_local( void const * global_self, fd_stakes_stake_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bank_incremental_snapshot_persistence_new( fd_bank_incremental_snapshot_persistence_t * self );
 int fd_bank_incremental_snapshot_persistence_encode( fd_bank_incremental_snapshot_persistence_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6239,7 +6478,6 @@ void * fd_bank_incremental_snapshot_persistence_decode( void * mem, fd_bincode_d
 void fd_bank_incremental_snapshot_persistence_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bank_incremental_snapshot_persistence_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bank_incremental_snapshot_persistence_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bank_incremental_snapshot_persistence_convert_global_to_local( void const * global_self, fd_bank_incremental_snapshot_persistence_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_node_vote_accounts_new( fd_node_vote_accounts_t * self );
 int fd_node_vote_accounts_encode( fd_node_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6254,7 +6492,6 @@ void * fd_node_vote_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_node_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_node_vote_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_node_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_node_vote_accounts_convert_global_to_local( void const * global_self, fd_node_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_pubkey_node_vote_accounts_pair_new( fd_pubkey_node_vote_accounts_pair_t * self );
 int fd_pubkey_node_vote_accounts_pair_encode( fd_pubkey_node_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6269,7 +6506,6 @@ void * fd_pubkey_node_vote_accounts_pair_decode( void * mem, fd_bincode_decode_c
 void fd_pubkey_node_vote_accounts_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_pubkey_node_vote_accounts_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_pubkey_node_vote_accounts_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_pubkey_node_vote_accounts_pair_convert_global_to_local( void const * global_self, fd_pubkey_node_vote_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_pubkey_pubkey_pair_new( fd_pubkey_pubkey_pair_t * self );
 int fd_pubkey_pubkey_pair_encode( fd_pubkey_pubkey_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6284,7 +6520,6 @@ void * fd_pubkey_pubkey_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_pubkey_pubkey_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_pubkey_pubkey_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_pubkey_pubkey_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_pubkey_pubkey_pair_convert_global_to_local( void const * global_self, fd_pubkey_pubkey_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_epoch_stakes_new( fd_epoch_stakes_t * self );
 int fd_epoch_stakes_encode( fd_epoch_stakes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6299,7 +6534,6 @@ void * fd_epoch_stakes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_stakes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_epoch_stakes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_stakes_convert_global_to_local( void const * global_self, fd_epoch_stakes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_epoch_epoch_stakes_pair_new( fd_epoch_epoch_stakes_pair_t * self );
 int fd_epoch_epoch_stakes_pair_encode( fd_epoch_epoch_stakes_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6314,7 +6548,6 @@ void * fd_epoch_epoch_stakes_pair_decode( void * mem, fd_bincode_decode_ctx_t * 
 void fd_epoch_epoch_stakes_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_epoch_epoch_stakes_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_epoch_stakes_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_epoch_stakes_pair_convert_global_to_local( void const * global_self, fd_epoch_epoch_stakes_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_pubkey_u64_pair_new( fd_pubkey_u64_pair_t * self );
 int fd_pubkey_u64_pair_encode( fd_pubkey_u64_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6329,7 +6562,6 @@ void * fd_pubkey_u64_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_pubkey_u64_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_pubkey_u64_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_pubkey_u64_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_pubkey_u64_pair_convert_global_to_local( void const * global_self, fd_pubkey_u64_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_unused_accounts_new( fd_unused_accounts_t * self );
 int fd_unused_accounts_encode( fd_unused_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6344,7 +6576,6 @@ void * fd_unused_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_unused_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_unused_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_unused_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_unused_accounts_convert_global_to_local( void const * global_self, fd_unused_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_versioned_bank_new( fd_versioned_bank_t * self );
 int fd_versioned_bank_encode( fd_versioned_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6359,7 +6590,6 @@ void * fd_versioned_bank_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_versioned_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_versioned_bank_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_versioned_bank_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_versioned_bank_convert_global_to_local( void const * global_self, fd_versioned_bank_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bank_hash_stats_new( fd_bank_hash_stats_t * self );
 int fd_bank_hash_stats_encode( fd_bank_hash_stats_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6374,7 +6604,6 @@ void * fd_bank_hash_stats_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bank_hash_stats_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bank_hash_stats_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bank_hash_stats_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bank_hash_stats_convert_global_to_local( void const * global_self, fd_bank_hash_stats_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bank_hash_info_new( fd_bank_hash_info_t * self );
 int fd_bank_hash_info_encode( fd_bank_hash_info_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6389,7 +6618,6 @@ void * fd_bank_hash_info_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bank_hash_info_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bank_hash_info_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bank_hash_info_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bank_hash_info_convert_global_to_local( void const * global_self, fd_bank_hash_info_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_map_pair_new( fd_slot_map_pair_t * self );
 int fd_slot_map_pair_encode( fd_slot_map_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6404,7 +6632,6 @@ void * fd_slot_map_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_map_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_map_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_map_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_map_pair_convert_global_to_local( void const * global_self, fd_slot_map_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_snapshot_acc_vec_new( fd_snapshot_acc_vec_t * self );
 int fd_snapshot_acc_vec_encode( fd_snapshot_acc_vec_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6419,7 +6646,6 @@ void * fd_snapshot_acc_vec_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_snapshot_acc_vec_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_snapshot_acc_vec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_snapshot_acc_vec_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_snapshot_acc_vec_convert_global_to_local( void const * global_self, fd_snapshot_acc_vec_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_snapshot_slot_acc_vecs_new( fd_snapshot_slot_acc_vecs_t * self );
 int fd_snapshot_slot_acc_vecs_encode( fd_snapshot_slot_acc_vecs_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6434,7 +6660,6 @@ void * fd_snapshot_slot_acc_vecs_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_snapshot_slot_acc_vecs_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_snapshot_slot_acc_vecs_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_snapshot_slot_acc_vecs_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_snapshot_slot_acc_vecs_convert_global_to_local( void const * global_self, fd_snapshot_slot_acc_vecs_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_reward_type_new_disc( fd_reward_type_t * self, uint discriminant );
 void fd_reward_type_new( fd_reward_type_t * self );
@@ -6450,7 +6675,6 @@ void * fd_reward_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_reward_type_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_reward_type_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_reward_type_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_reward_type_convert_global_to_local( void const * global_self, fd_reward_type_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_reward_type_is_fee( fd_reward_type_t const * self );
 FD_FN_PURE uchar fd_reward_type_is_rent( fd_reward_type_t const * self );
@@ -6475,7 +6699,6 @@ void * fd_solana_accounts_db_fields_decode( void * mem, fd_bincode_decode_ctx_t 
 void fd_solana_accounts_db_fields_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_solana_accounts_db_fields_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_solana_accounts_db_fields_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_solana_accounts_db_fields_convert_global_to_local( void const * global_self, fd_solana_accounts_db_fields_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_versioned_epoch_stakes_current_new( fd_versioned_epoch_stakes_current_t * self );
 int fd_versioned_epoch_stakes_current_encode( fd_versioned_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6490,7 +6713,6 @@ void * fd_versioned_epoch_stakes_current_decode( void * mem, fd_bincode_decode_c
 void fd_versioned_epoch_stakes_current_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_versioned_epoch_stakes_current_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_versioned_epoch_stakes_current_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_versioned_epoch_stakes_current_convert_global_to_local( void const * global_self, fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_versioned_epoch_stakes_new_disc( fd_versioned_epoch_stakes_t * self, uint discriminant );
 void fd_versioned_epoch_stakes_new( fd_versioned_epoch_stakes_t * self );
@@ -6506,7 +6728,6 @@ void * fd_versioned_epoch_stakes_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_versioned_epoch_stakes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_versioned_epoch_stakes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_versioned_epoch_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_versioned_epoch_stakes_convert_global_to_local( void const * global_self, fd_versioned_epoch_stakes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_versioned_epoch_stakes_is_Current( fd_versioned_epoch_stakes_t const * self );
 enum {
@@ -6525,7 +6746,6 @@ void * fd_versioned_epoch_stakes_pair_decode( void * mem, fd_bincode_decode_ctx_
 void fd_versioned_epoch_stakes_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_versioned_epoch_stakes_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_versioned_epoch_stakes_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_versioned_epoch_stakes_pair_convert_global_to_local( void const * global_self, fd_versioned_epoch_stakes_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_reward_info_new( fd_reward_info_t * self );
 int fd_reward_info_encode( fd_reward_info_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6540,7 +6760,6 @@ void * fd_reward_info_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_reward_info_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_reward_info_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_reward_info_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_reward_info_convert_global_to_local( void const * global_self, fd_reward_info_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_lthash_new( fd_slot_lthash_t * self );
 int fd_slot_lthash_encode( fd_slot_lthash_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6555,7 +6774,6 @@ void * fd_slot_lthash_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_lthash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_lthash_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_lthash_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_lthash_convert_global_to_local( void const * global_self, fd_slot_lthash_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_solana_manifest_new( fd_solana_manifest_t * self );
 int fd_solana_manifest_encode( fd_solana_manifest_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6570,7 +6788,6 @@ void * fd_solana_manifest_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_solana_manifest_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_solana_manifest_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_solana_manifest_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_solana_manifest_convert_global_to_local( void const * global_self, fd_solana_manifest_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_rust_duration_new( fd_rust_duration_t * self );
 int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6585,7 +6802,6 @@ void * fd_rust_duration_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rust_duration_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_rust_duration_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rust_duration_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rust_duration_convert_global_to_local( void const * global_self, fd_rust_duration_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_poh_config_new( fd_poh_config_t * self );
 int fd_poh_config_encode( fd_poh_config_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6600,7 +6816,6 @@ void * fd_poh_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_poh_config_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_poh_config_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_poh_config_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_poh_config_convert_global_to_local( void const * global_self, fd_poh_config_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_string_pubkey_pair_new( fd_string_pubkey_pair_t * self );
 int fd_string_pubkey_pair_encode( fd_string_pubkey_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6615,7 +6830,6 @@ void * fd_string_pubkey_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_string_pubkey_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_string_pubkey_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_string_pubkey_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_string_pubkey_pair_convert_global_to_local( void const * global_self, fd_string_pubkey_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_pubkey_account_pair_new( fd_pubkey_account_pair_t * self );
 int fd_pubkey_account_pair_encode( fd_pubkey_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6630,7 +6844,6 @@ void * fd_pubkey_account_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_pubkey_account_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_pubkey_account_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_pubkey_account_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_pubkey_account_pair_convert_global_to_local( void const * global_self, fd_pubkey_account_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_genesis_solana_new( fd_genesis_solana_t * self );
 int fd_genesis_solana_encode( fd_genesis_solana_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6645,7 +6858,6 @@ void * fd_genesis_solana_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_genesis_solana_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_genesis_solana_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_genesis_solana_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_genesis_solana_convert_global_to_local( void const * global_self, fd_genesis_solana_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_sol_sysvar_clock_new( fd_sol_sysvar_clock_t * self );
 int fd_sol_sysvar_clock_encode( fd_sol_sysvar_clock_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6660,7 +6872,6 @@ void * fd_sol_sysvar_clock_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_sol_sysvar_clock_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_sol_sysvar_clock_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_sol_sysvar_clock_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_sol_sysvar_clock_convert_global_to_local( void const * global_self, fd_sol_sysvar_clock_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_sol_sysvar_last_restart_slot_new( fd_sol_sysvar_last_restart_slot_t * self );
 int fd_sol_sysvar_last_restart_slot_encode( fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6675,7 +6886,6 @@ void * fd_sol_sysvar_last_restart_slot_decode( void * mem, fd_bincode_decode_ctx
 void fd_sol_sysvar_last_restart_slot_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_sol_sysvar_last_restart_slot_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_sol_sysvar_last_restart_slot_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_sol_sysvar_last_restart_slot_convert_global_to_local( void const * global_self, fd_sol_sysvar_last_restart_slot_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_lockout_new( fd_vote_lockout_t * self );
 int fd_vote_lockout_encode( fd_vote_lockout_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6690,7 +6900,6 @@ void * fd_vote_lockout_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_lockout_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_lockout_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_lockout_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_lockout_convert_global_to_local( void const * global_self, fd_vote_lockout_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_lockout_offset_new( fd_lockout_offset_t * self );
 int fd_lockout_offset_encode( fd_lockout_offset_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6705,7 +6914,6 @@ void * fd_lockout_offset_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_lockout_offset_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_lockout_offset_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_lockout_offset_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_lockout_offset_convert_global_to_local( void const * global_self, fd_lockout_offset_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_authorized_voter_new( fd_vote_authorized_voter_t * self );
 int fd_vote_authorized_voter_encode( fd_vote_authorized_voter_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6720,7 +6928,6 @@ void * fd_vote_authorized_voter_decode( void * mem, fd_bincode_decode_ctx_t * ct
 void fd_vote_authorized_voter_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_authorized_voter_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_authorized_voter_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_authorized_voter_convert_global_to_local( void const * global_self, fd_vote_authorized_voter_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_prior_voter_new( fd_vote_prior_voter_t * self );
 int fd_vote_prior_voter_encode( fd_vote_prior_voter_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6735,7 +6942,6 @@ void * fd_vote_prior_voter_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_prior_voter_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_prior_voter_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_prior_voter_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_prior_voter_convert_global_to_local( void const * global_self, fd_vote_prior_voter_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_prior_voter_0_23_5_new( fd_vote_prior_voter_0_23_5_t * self );
 int fd_vote_prior_voter_0_23_5_encode( fd_vote_prior_voter_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6750,7 +6956,6 @@ void * fd_vote_prior_voter_0_23_5_decode( void * mem, fd_bincode_decode_ctx_t * 
 void fd_vote_prior_voter_0_23_5_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_prior_voter_0_23_5_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_prior_voter_0_23_5_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_prior_voter_0_23_5_convert_global_to_local( void const * global_self, fd_vote_prior_voter_0_23_5_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_epoch_credits_new( fd_vote_epoch_credits_t * self );
 int fd_vote_epoch_credits_encode( fd_vote_epoch_credits_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6765,7 +6970,6 @@ void * fd_vote_epoch_credits_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_vote_epoch_credits_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_epoch_credits_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_epoch_credits_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_epoch_credits_convert_global_to_local( void const * global_self, fd_vote_epoch_credits_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_block_timestamp_new( fd_vote_block_timestamp_t * self );
 int fd_vote_block_timestamp_encode( fd_vote_block_timestamp_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6780,7 +6984,6 @@ void * fd_vote_block_timestamp_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_vote_block_timestamp_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_block_timestamp_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_block_timestamp_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_block_timestamp_convert_global_to_local( void const * global_self, fd_vote_block_timestamp_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_prior_voters_new( fd_vote_prior_voters_t * self );
 int fd_vote_prior_voters_encode( fd_vote_prior_voters_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6795,7 +6998,6 @@ void * fd_vote_prior_voters_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_prior_voters_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_prior_voters_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_prior_voters_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_prior_voters_convert_global_to_local( void const * global_self, fd_vote_prior_voters_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_prior_voters_0_23_5_new( fd_vote_prior_voters_0_23_5_t * self );
 int fd_vote_prior_voters_0_23_5_encode( fd_vote_prior_voters_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6810,7 +7012,6 @@ void * fd_vote_prior_voters_0_23_5_decode( void * mem, fd_bincode_decode_ctx_t *
 void fd_vote_prior_voters_0_23_5_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_prior_voters_0_23_5_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_prior_voters_0_23_5_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_prior_voters_0_23_5_convert_global_to_local( void const * global_self, fd_vote_prior_voters_0_23_5_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_landed_vote_new( fd_landed_vote_t * self );
 int fd_landed_vote_encode( fd_landed_vote_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6825,7 +7026,6 @@ void * fd_landed_vote_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_landed_vote_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_landed_vote_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_landed_vote_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_landed_vote_convert_global_to_local( void const * global_self, fd_landed_vote_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_state_0_23_5_new( fd_vote_state_0_23_5_t * self );
 int fd_vote_state_0_23_5_encode( fd_vote_state_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6840,7 +7040,6 @@ void * fd_vote_state_0_23_5_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_0_23_5_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_state_0_23_5_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_0_23_5_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_state_0_23_5_convert_global_to_local( void const * global_self, fd_vote_state_0_23_5_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_authorized_voters_new( fd_vote_authorized_voters_t * self );
 int fd_vote_authorized_voters_encode( fd_vote_authorized_voters_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6855,7 +7054,6 @@ void * fd_vote_authorized_voters_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_vote_authorized_voters_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_authorized_voters_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_authorized_voters_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_authorized_voters_convert_global_to_local( void const * global_self, fd_vote_authorized_voters_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_state_1_14_11_new( fd_vote_state_1_14_11_t * self );
 int fd_vote_state_1_14_11_encode( fd_vote_state_1_14_11_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6870,7 +7068,6 @@ void * fd_vote_state_1_14_11_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_vote_state_1_14_11_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_state_1_14_11_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_1_14_11_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_state_1_14_11_convert_global_to_local( void const * global_self, fd_vote_state_1_14_11_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_state_new( fd_vote_state_t * self );
 int fd_vote_state_encode( fd_vote_state_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6885,7 +7082,6 @@ void * fd_vote_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_state_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_state_convert_global_to_local( void const * global_self, fd_vote_state_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_state_versioned_new_disc( fd_vote_state_versioned_t * self, uint discriminant );
 void fd_vote_state_versioned_new( fd_vote_state_versioned_t * self );
@@ -6901,7 +7097,6 @@ void * fd_vote_state_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_vote_state_versioned_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_state_versioned_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_versioned_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_state_versioned_convert_global_to_local( void const * global_self, fd_vote_state_versioned_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5( fd_vote_state_versioned_t const * self );
 FD_FN_PURE uchar fd_vote_state_versioned_is_v1_14_11( fd_vote_state_versioned_t const * self );
@@ -6924,7 +7119,6 @@ void * fd_vote_state_update_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_update_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_state_update_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_state_update_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_state_update_convert_global_to_local( void const * global_self, fd_vote_state_update_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_compact_vote_state_update_new( fd_compact_vote_state_update_t * self );
 int fd_compact_vote_state_update_encode( fd_compact_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6939,7 +7133,6 @@ void * fd_compact_vote_state_update_decode( void * mem, fd_bincode_decode_ctx_t 
 void fd_compact_vote_state_update_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_compact_vote_state_update_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_compact_vote_state_update_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_compact_vote_state_update_convert_global_to_local( void const * global_self, fd_compact_vote_state_update_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_compact_vote_state_update_switch_new( fd_compact_vote_state_update_switch_t * self );
 int fd_compact_vote_state_update_switch_encode( fd_compact_vote_state_update_switch_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6954,7 +7147,6 @@ void * fd_compact_vote_state_update_switch_decode( void * mem, fd_bincode_decode
 void fd_compact_vote_state_update_switch_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_compact_vote_state_update_switch_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_compact_vote_state_update_switch_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_compact_vote_state_update_switch_convert_global_to_local( void const * global_self, fd_compact_vote_state_update_switch_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_compact_tower_sync_new( fd_compact_tower_sync_t * self );
 int fd_compact_tower_sync_encode( fd_compact_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6969,7 +7161,6 @@ void * fd_compact_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_compact_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_compact_tower_sync_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_compact_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_compact_tower_sync_convert_global_to_local( void const * global_self, fd_compact_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_tower_sync_new( fd_tower_sync_t * self );
 int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6984,7 +7175,6 @@ void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_tower_sync_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_tower_sync_convert_global_to_local( void const * global_self, fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_tower_sync_switch_new( fd_tower_sync_switch_t * self );
 int fd_tower_sync_switch_encode( fd_tower_sync_switch_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6999,7 +7189,6 @@ void * fd_tower_sync_switch_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_tower_sync_switch_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_tower_sync_switch_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_tower_sync_switch_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_tower_sync_switch_convert_global_to_local( void const * global_self, fd_tower_sync_switch_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_history_inner_new( fd_slot_history_inner_t * self );
 int fd_slot_history_inner_encode( fd_slot_history_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7014,7 +7203,6 @@ void * fd_slot_history_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_slot_history_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_history_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_history_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_history_inner_convert_global_to_local( void const * global_self, fd_slot_history_inner_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_history_bitvec_new( fd_slot_history_bitvec_t * self );
 int fd_slot_history_bitvec_encode( fd_slot_history_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7029,7 +7217,6 @@ void * fd_slot_history_bitvec_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_slot_history_bitvec_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_history_bitvec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_history_bitvec_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_history_bitvec_convert_global_to_local( void const * global_self, fd_slot_history_bitvec_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_history_new( fd_slot_history_t * self );
 int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7044,7 +7231,6 @@ void * fd_slot_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_history_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_history_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_history_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_history_convert_global_to_local( void const * global_self, fd_slot_history_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_hash_new( fd_slot_hash_t * self );
 int fd_slot_hash_encode( fd_slot_hash_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7059,7 +7245,6 @@ void * fd_slot_hash_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_hash_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_hash_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_hash_convert_global_to_local( void const * global_self, fd_slot_hash_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_hashes_new( fd_slot_hashes_t * self );
 int fd_slot_hashes_encode( fd_slot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7074,7 +7259,6 @@ void * fd_slot_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_hashes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_hashes_convert_global_to_local( void const * global_self, fd_slot_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_block_block_hash_entry_new( fd_block_block_hash_entry_t * self );
 int fd_block_block_hash_entry_encode( fd_block_block_hash_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7089,7 +7273,6 @@ void * fd_block_block_hash_entry_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_block_block_hash_entry_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_block_block_hash_entry_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_block_block_hash_entry_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_block_block_hash_entry_convert_global_to_local( void const * global_self, fd_block_block_hash_entry_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_recent_block_hashes_new( fd_recent_block_hashes_t * self );
 int fd_recent_block_hashes_encode( fd_recent_block_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7104,7 +7287,6 @@ void * fd_recent_block_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_recent_block_hashes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_recent_block_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_recent_block_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_recent_block_hashes_convert_global_to_local( void const * global_self, fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_meta_new( fd_slot_meta_t * self );
 int fd_slot_meta_encode( fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7119,7 +7301,6 @@ void * fd_slot_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_meta_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_meta_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_meta_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_meta_convert_global_to_local( void const * global_self, fd_slot_meta_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_clock_timestamp_vote_new( fd_clock_timestamp_vote_t * self );
 int fd_clock_timestamp_vote_encode( fd_clock_timestamp_vote_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7134,7 +7315,6 @@ void * fd_clock_timestamp_vote_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_clock_timestamp_vote_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_clock_timestamp_vote_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_clock_timestamp_vote_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_clock_timestamp_vote_convert_global_to_local( void const * global_self, fd_clock_timestamp_vote_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_clock_timestamp_votes_new( fd_clock_timestamp_votes_t * self );
 int fd_clock_timestamp_votes_encode( fd_clock_timestamp_votes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7149,7 +7329,6 @@ void * fd_clock_timestamp_votes_decode( void * mem, fd_bincode_decode_ctx_t * ct
 void fd_clock_timestamp_votes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_clock_timestamp_votes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_clock_timestamp_votes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_clock_timestamp_votes_convert_global_to_local( void const * global_self, fd_clock_timestamp_votes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_sysvar_fees_new( fd_sysvar_fees_t * self );
 int fd_sysvar_fees_encode( fd_sysvar_fees_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7164,7 +7343,6 @@ void * fd_sysvar_fees_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_sysvar_fees_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_sysvar_fees_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_sysvar_fees_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_sysvar_fees_convert_global_to_local( void const * global_self, fd_sysvar_fees_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_sysvar_epoch_rewards_new( fd_sysvar_epoch_rewards_t * self );
 int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7179,7 +7357,6 @@ void * fd_sysvar_epoch_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_sysvar_epoch_rewards_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_sysvar_epoch_rewards_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_sysvar_epoch_rewards_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_sysvar_epoch_rewards_convert_global_to_local( void const * global_self, fd_sysvar_epoch_rewards_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_config_keys_pair_new( fd_config_keys_pair_t * self );
 int fd_config_keys_pair_encode( fd_config_keys_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7194,7 +7371,6 @@ void * fd_config_keys_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_config_keys_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_config_keys_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_config_keys_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_config_keys_pair_convert_global_to_local( void const * global_self, fd_config_keys_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_config_new( fd_stake_config_t * self );
 int fd_stake_config_encode( fd_stake_config_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7209,7 +7385,6 @@ void * fd_stake_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_config_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_config_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_config_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_config_convert_global_to_local( void const * global_self, fd_stake_config_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_feature_entry_new( fd_feature_entry_t * self );
 int fd_feature_entry_encode( fd_feature_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7224,7 +7399,6 @@ void * fd_feature_entry_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_feature_entry_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_feature_entry_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_feature_entry_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_feature_entry_convert_global_to_local( void const * global_self, fd_feature_entry_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_firedancer_bank_new( fd_firedancer_bank_t * self );
 int fd_firedancer_bank_encode( fd_firedancer_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7239,7 +7413,6 @@ void * fd_firedancer_bank_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_firedancer_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_firedancer_bank_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_firedancer_bank_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_firedancer_bank_convert_global_to_local( void const * global_self, fd_firedancer_bank_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_cluster_type_new_disc( fd_cluster_type_t * self, uint discriminant );
 void fd_cluster_type_new( fd_cluster_type_t * self );
@@ -7255,7 +7428,6 @@ void * fd_cluster_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_cluster_type_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_cluster_type_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_cluster_type_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_cluster_type_convert_global_to_local( void const * global_self, fd_cluster_type_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_cluster_type_is_Testnet( fd_cluster_type_t const * self );
 FD_FN_PURE uchar fd_cluster_type_is_MainnetBeta( fd_cluster_type_t const * self );
@@ -7280,7 +7452,6 @@ void * fd_rent_fresh_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_rent_fresh_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_rent_fresh_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rent_fresh_account_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rent_fresh_account_convert_global_to_local( void const * global_self, fd_rent_fresh_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_rent_fresh_accounts_new( fd_rent_fresh_accounts_t * self );
 int fd_rent_fresh_accounts_encode( fd_rent_fresh_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7295,7 +7466,6 @@ void * fd_rent_fresh_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_rent_fresh_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_rent_fresh_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_rent_fresh_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rent_fresh_accounts_convert_global_to_local( void const * global_self, fd_rent_fresh_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_epoch_bank_new( fd_epoch_bank_t * self );
 int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7310,7 +7480,6 @@ void * fd_epoch_bank_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_epoch_bank_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_bank_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_bank_convert_global_to_local( void const * global_self, fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_bank_new( fd_slot_bank_t * self );
 int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7325,7 +7494,6 @@ void * fd_slot_bank_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_bank_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_bank_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_bank_convert_global_to_local( void const * global_self, fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_prev_epoch_inflation_rewards_new( fd_prev_epoch_inflation_rewards_t * self );
 int fd_prev_epoch_inflation_rewards_encode( fd_prev_epoch_inflation_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7340,7 +7508,6 @@ void * fd_prev_epoch_inflation_rewards_decode( void * mem, fd_bincode_decode_ctx
 void fd_prev_epoch_inflation_rewards_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_prev_epoch_inflation_rewards_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_prev_epoch_inflation_rewards_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_prev_epoch_inflation_rewards_convert_global_to_local( void const * global_self, fd_prev_epoch_inflation_rewards_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_new( fd_vote_t * self );
 int fd_vote_encode( fd_vote_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7355,7 +7522,6 @@ void * fd_vote_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_convert_global_to_local( void const * global_self, fd_vote_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_init_new( fd_vote_init_t * self );
 int fd_vote_init_encode( fd_vote_init_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7370,7 +7536,6 @@ void * fd_vote_init_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_init_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_init_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_init_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_init_convert_global_to_local( void const * global_self, fd_vote_init_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_authorize_new_disc( fd_vote_authorize_t * self, uint discriminant );
 void fd_vote_authorize_new( fd_vote_authorize_t * self );
@@ -7386,7 +7551,6 @@ void * fd_vote_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_authorize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_authorize_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_authorize_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_authorize_convert_global_to_local( void const * global_self, fd_vote_authorize_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_vote_authorize_is_voter( fd_vote_authorize_t const * self );
 FD_FN_PURE uchar fd_vote_authorize_is_withdrawer( fd_vote_authorize_t const * self );
@@ -7407,7 +7571,6 @@ void * fd_vote_authorize_pubkey_decode( void * mem, fd_bincode_decode_ctx_t * ct
 void fd_vote_authorize_pubkey_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_authorize_pubkey_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_authorize_pubkey_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_authorize_pubkey_convert_global_to_local( void const * global_self, fd_vote_authorize_pubkey_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_switch_new( fd_vote_switch_t * self );
 int fd_vote_switch_encode( fd_vote_switch_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7422,7 +7585,6 @@ void * fd_vote_switch_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_switch_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_switch_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_switch_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_switch_convert_global_to_local( void const * global_self, fd_vote_switch_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_update_vote_state_switch_new( fd_update_vote_state_switch_t * self );
 int fd_update_vote_state_switch_encode( fd_update_vote_state_switch_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7437,7 +7599,6 @@ void * fd_update_vote_state_switch_decode( void * mem, fd_bincode_decode_ctx_t *
 void fd_update_vote_state_switch_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_update_vote_state_switch_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_update_vote_state_switch_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_update_vote_state_switch_convert_global_to_local( void const * global_self, fd_update_vote_state_switch_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_authorize_with_seed_args_new( fd_vote_authorize_with_seed_args_t * self );
 int fd_vote_authorize_with_seed_args_encode( fd_vote_authorize_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7452,7 +7613,6 @@ void * fd_vote_authorize_with_seed_args_decode( void * mem, fd_bincode_decode_ct
 void fd_vote_authorize_with_seed_args_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_authorize_with_seed_args_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_authorize_with_seed_args_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_authorize_with_seed_args_convert_global_to_local( void const * global_self, fd_vote_authorize_with_seed_args_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_authorize_checked_with_seed_args_new( fd_vote_authorize_checked_with_seed_args_t * self );
 int fd_vote_authorize_checked_with_seed_args_encode( fd_vote_authorize_checked_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7467,7 +7627,6 @@ void * fd_vote_authorize_checked_with_seed_args_decode( void * mem, fd_bincode_d
 void fd_vote_authorize_checked_with_seed_args_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_authorize_checked_with_seed_args_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_authorize_checked_with_seed_args_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_authorize_checked_with_seed_args_convert_global_to_local( void const * global_self, fd_vote_authorize_checked_with_seed_args_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_instruction_new_disc( fd_vote_instruction_t * self, uint discriminant );
 void fd_vote_instruction_new( fd_vote_instruction_t * self );
@@ -7483,7 +7642,6 @@ void * fd_vote_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_instruction_convert_global_to_local( void const * global_self, fd_vote_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_vote_instruction_is_initialize_account( fd_vote_instruction_t const * self );
 FD_FN_PURE uchar fd_vote_instruction_is_authorize( fd_vote_instruction_t const * self );
@@ -7532,7 +7690,6 @@ void * fd_system_program_instruction_create_account_decode( void * mem, fd_binco
 void fd_system_program_instruction_create_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_system_program_instruction_create_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_program_instruction_create_account_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_system_program_instruction_create_account_convert_global_to_local( void const * global_self, fd_system_program_instruction_create_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_system_program_instruction_create_account_with_seed_new( fd_system_program_instruction_create_account_with_seed_t * self );
 int fd_system_program_instruction_create_account_with_seed_encode( fd_system_program_instruction_create_account_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7547,7 +7704,6 @@ void * fd_system_program_instruction_create_account_with_seed_decode( void * mem
 void fd_system_program_instruction_create_account_with_seed_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_system_program_instruction_create_account_with_seed_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_program_instruction_create_account_with_seed_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_system_program_instruction_create_account_with_seed_convert_global_to_local( void const * global_self, fd_system_program_instruction_create_account_with_seed_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_system_program_instruction_allocate_with_seed_new( fd_system_program_instruction_allocate_with_seed_t * self );
 int fd_system_program_instruction_allocate_with_seed_encode( fd_system_program_instruction_allocate_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7562,7 +7718,6 @@ void * fd_system_program_instruction_allocate_with_seed_decode( void * mem, fd_b
 void fd_system_program_instruction_allocate_with_seed_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_system_program_instruction_allocate_with_seed_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_program_instruction_allocate_with_seed_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_system_program_instruction_allocate_with_seed_convert_global_to_local( void const * global_self, fd_system_program_instruction_allocate_with_seed_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_system_program_instruction_assign_with_seed_new( fd_system_program_instruction_assign_with_seed_t * self );
 int fd_system_program_instruction_assign_with_seed_encode( fd_system_program_instruction_assign_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7577,7 +7732,6 @@ void * fd_system_program_instruction_assign_with_seed_decode( void * mem, fd_bin
 void fd_system_program_instruction_assign_with_seed_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_system_program_instruction_assign_with_seed_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_program_instruction_assign_with_seed_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_system_program_instruction_assign_with_seed_convert_global_to_local( void const * global_self, fd_system_program_instruction_assign_with_seed_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_system_program_instruction_transfer_with_seed_new( fd_system_program_instruction_transfer_with_seed_t * self );
 int fd_system_program_instruction_transfer_with_seed_encode( fd_system_program_instruction_transfer_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7592,7 +7746,6 @@ void * fd_system_program_instruction_transfer_with_seed_decode( void * mem, fd_b
 void fd_system_program_instruction_transfer_with_seed_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_system_program_instruction_transfer_with_seed_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_program_instruction_transfer_with_seed_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_system_program_instruction_transfer_with_seed_convert_global_to_local( void const * global_self, fd_system_program_instruction_transfer_with_seed_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_system_program_instruction_new_disc( fd_system_program_instruction_t * self, uint discriminant );
 void fd_system_program_instruction_new( fd_system_program_instruction_t * self );
@@ -7608,7 +7761,6 @@ void * fd_system_program_instruction_decode( void * mem, fd_bincode_decode_ctx_t
 void fd_system_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_system_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_system_program_instruction_convert_global_to_local( void const * global_self, fd_system_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_system_program_instruction_is_create_account( fd_system_program_instruction_t const * self );
 FD_FN_PURE uchar fd_system_program_instruction_is_assign( fd_system_program_instruction_t const * self );
@@ -7652,7 +7804,6 @@ void * fd_system_error_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_error_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_system_error_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_system_error_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_system_error_convert_global_to_local( void const * global_self, fd_system_error_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_system_error_is_account_already_in_use( fd_system_error_t const * self );
 FD_FN_PURE uchar fd_system_error_is_result_with_negative_lamports( fd_system_error_t const * self );
@@ -7687,7 +7838,6 @@ void * fd_stake_authorized_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_authorized_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_authorized_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_authorized_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_authorized_convert_global_to_local( void const * global_self, fd_stake_authorized_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_lockup_new( fd_stake_lockup_t * self );
 int fd_stake_lockup_encode( fd_stake_lockup_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7702,7 +7852,6 @@ void * fd_stake_lockup_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_lockup_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_lockup_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_lockup_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_lockup_convert_global_to_local( void const * global_self, fd_stake_lockup_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_instruction_initialize_new( fd_stake_instruction_initialize_t * self );
 int fd_stake_instruction_initialize_encode( fd_stake_instruction_initialize_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7717,7 +7866,6 @@ void * fd_stake_instruction_initialize_decode( void * mem, fd_bincode_decode_ctx
 void fd_stake_instruction_initialize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_instruction_initialize_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_instruction_initialize_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_instruction_initialize_convert_global_to_local( void const * global_self, fd_stake_instruction_initialize_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_lockup_custodian_args_new( fd_stake_lockup_custodian_args_t * self );
 int fd_stake_lockup_custodian_args_encode( fd_stake_lockup_custodian_args_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7732,7 +7880,6 @@ void * fd_stake_lockup_custodian_args_decode( void * mem, fd_bincode_decode_ctx_
 void fd_stake_lockup_custodian_args_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_lockup_custodian_args_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_lockup_custodian_args_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_lockup_custodian_args_convert_global_to_local( void const * global_self, fd_stake_lockup_custodian_args_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_authorize_new_disc( fd_stake_authorize_t * self, uint discriminant );
 void fd_stake_authorize_new( fd_stake_authorize_t * self );
@@ -7748,7 +7895,6 @@ void * fd_stake_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_authorize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_authorize_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_authorize_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_authorize_convert_global_to_local( void const * global_self, fd_stake_authorize_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_stake_authorize_is_staker( fd_stake_authorize_t const * self );
 FD_FN_PURE uchar fd_stake_authorize_is_withdrawer( fd_stake_authorize_t const * self );
@@ -7769,7 +7915,6 @@ void * fd_stake_instruction_authorize_decode( void * mem, fd_bincode_decode_ctx_
 void fd_stake_instruction_authorize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_instruction_authorize_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_instruction_authorize_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_instruction_authorize_convert_global_to_local( void const * global_self, fd_stake_instruction_authorize_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_authorize_with_seed_args_new( fd_authorize_with_seed_args_t * self );
 int fd_authorize_with_seed_args_encode( fd_authorize_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7784,7 +7929,6 @@ void * fd_authorize_with_seed_args_decode( void * mem, fd_bincode_decode_ctx_t *
 void fd_authorize_with_seed_args_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_authorize_with_seed_args_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_authorize_with_seed_args_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_authorize_with_seed_args_convert_global_to_local( void const * global_self, fd_authorize_with_seed_args_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_authorize_checked_with_seed_args_new( fd_authorize_checked_with_seed_args_t * self );
 int fd_authorize_checked_with_seed_args_encode( fd_authorize_checked_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7799,7 +7943,6 @@ void * fd_authorize_checked_with_seed_args_decode( void * mem, fd_bincode_decode
 void fd_authorize_checked_with_seed_args_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_authorize_checked_with_seed_args_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_authorize_checked_with_seed_args_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_authorize_checked_with_seed_args_convert_global_to_local( void const * global_self, fd_authorize_checked_with_seed_args_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_lockup_checked_args_new( fd_lockup_checked_args_t * self );
 int fd_lockup_checked_args_encode( fd_lockup_checked_args_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7814,7 +7957,6 @@ void * fd_lockup_checked_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_lockup_checked_args_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_lockup_checked_args_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_lockup_checked_args_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_lockup_checked_args_convert_global_to_local( void const * global_self, fd_lockup_checked_args_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_lockup_args_new( fd_lockup_args_t * self );
 int fd_lockup_args_encode( fd_lockup_args_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7829,7 +7971,6 @@ void * fd_lockup_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_lockup_args_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_lockup_args_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_lockup_args_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_lockup_args_convert_global_to_local( void const * global_self, fd_lockup_args_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_instruction_new_disc( fd_stake_instruction_t * self, uint discriminant );
 void fd_stake_instruction_new( fd_stake_instruction_t * self );
@@ -7845,7 +7986,6 @@ void * fd_stake_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_instruction_convert_global_to_local( void const * global_self, fd_stake_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_stake_instruction_is_initialize( fd_stake_instruction_t const * self );
 FD_FN_PURE uchar fd_stake_instruction_is_authorize( fd_stake_instruction_t const * self );
@@ -7898,7 +8038,6 @@ void * fd_stake_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_meta_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_meta_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_meta_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_meta_convert_global_to_local( void const * global_self, fd_stake_meta_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_flags_new( fd_stake_flags_t * self );
 int fd_stake_flags_encode( fd_stake_flags_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7913,7 +8052,6 @@ void * fd_stake_flags_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_flags_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_flags_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_flags_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_flags_convert_global_to_local( void const * global_self, fd_stake_flags_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_state_v2_initialized_new( fd_stake_state_v2_initialized_t * self );
 int fd_stake_state_v2_initialized_encode( fd_stake_state_v2_initialized_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7928,7 +8066,6 @@ void * fd_stake_state_v2_initialized_decode( void * mem, fd_bincode_decode_ctx_t
 void fd_stake_state_v2_initialized_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_state_v2_initialized_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_state_v2_initialized_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_state_v2_initialized_convert_global_to_local( void const * global_self, fd_stake_state_v2_initialized_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_state_v2_stake_new( fd_stake_state_v2_stake_t * self );
 int fd_stake_state_v2_stake_encode( fd_stake_state_v2_stake_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -7943,7 +8080,6 @@ void * fd_stake_state_v2_stake_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_stake_state_v2_stake_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_state_v2_stake_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_state_v2_stake_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_state_v2_stake_convert_global_to_local( void const * global_self, fd_stake_state_v2_stake_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_state_v2_new_disc( fd_stake_state_v2_t * self, uint discriminant );
 void fd_stake_state_v2_new( fd_stake_state_v2_t * self );
@@ -7959,7 +8095,6 @@ void * fd_stake_state_v2_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_state_v2_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_stake_state_v2_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_state_v2_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_state_v2_convert_global_to_local( void const * global_self, fd_stake_state_v2_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_stake_state_v2_is_uninitialized( fd_stake_state_v2_t const * self );
 FD_FN_PURE uchar fd_stake_state_v2_is_initialized( fd_stake_state_v2_t const * self );
@@ -7984,7 +8119,6 @@ void * fd_nonce_data_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_nonce_data_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_nonce_data_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_nonce_data_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_nonce_data_convert_global_to_local( void const * global_self, fd_nonce_data_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_nonce_state_new_disc( fd_nonce_state_t * self, uint discriminant );
 void fd_nonce_state_new( fd_nonce_state_t * self );
@@ -8000,7 +8134,6 @@ void * fd_nonce_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_nonce_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_nonce_state_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_nonce_state_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_nonce_state_convert_global_to_local( void const * global_self, fd_nonce_state_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_nonce_state_is_uninitialized( fd_nonce_state_t const * self );
 FD_FN_PURE uchar fd_nonce_state_is_initialized( fd_nonce_state_t const * self );
@@ -8022,7 +8155,6 @@ void * fd_nonce_state_versions_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_nonce_state_versions_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_nonce_state_versions_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_nonce_state_versions_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_nonce_state_versions_convert_global_to_local( void const * global_self, fd_nonce_state_versions_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_nonce_state_versions_is_legacy( fd_nonce_state_versions_t const * self );
 FD_FN_PURE uchar fd_nonce_state_versions_is_current( fd_nonce_state_versions_t const * self );
@@ -8043,7 +8175,6 @@ void * fd_compute_budget_program_instruction_request_units_deprecated_decode( vo
 void fd_compute_budget_program_instruction_request_units_deprecated_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_compute_budget_program_instruction_request_units_deprecated_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_compute_budget_program_instruction_request_units_deprecated_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_compute_budget_program_instruction_request_units_deprecated_convert_global_to_local( void const * global_self, fd_compute_budget_program_instruction_request_units_deprecated_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_compute_budget_program_instruction_new_disc( fd_compute_budget_program_instruction_t * self, uint discriminant );
 void fd_compute_budget_program_instruction_new( fd_compute_budget_program_instruction_t * self );
@@ -8059,7 +8190,6 @@ void * fd_compute_budget_program_instruction_decode( void * mem, fd_bincode_deco
 void fd_compute_budget_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_compute_budget_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_compute_budget_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_compute_budget_program_instruction_convert_global_to_local( void const * global_self, fd_compute_budget_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_units_deprecated( fd_compute_budget_program_instruction_t const * self );
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_heap_frame( fd_compute_budget_program_instruction_t const * self );
@@ -8086,7 +8216,6 @@ void * fd_config_keys_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_config_keys_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_config_keys_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_config_keys_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_config_keys_convert_global_to_local( void const * global_self, fd_config_keys_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_loader_program_instruction_write_new( fd_bpf_loader_program_instruction_write_t * self );
 int fd_bpf_loader_program_instruction_write_encode( fd_bpf_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8101,7 +8230,6 @@ void * fd_bpf_loader_program_instruction_write_decode( void * mem, fd_bincode_de
 void fd_bpf_loader_program_instruction_write_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_loader_program_instruction_write_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_loader_program_instruction_write_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_loader_program_instruction_write_convert_global_to_local( void const * global_self, fd_bpf_loader_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_loader_program_instruction_new_disc( fd_bpf_loader_program_instruction_t * self, uint discriminant );
 void fd_bpf_loader_program_instruction_new( fd_bpf_loader_program_instruction_t * self );
@@ -8117,7 +8245,6 @@ void * fd_bpf_loader_program_instruction_decode( void * mem, fd_bincode_decode_c
 void fd_bpf_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_loader_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_loader_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_loader_program_instruction_convert_global_to_local( void const * global_self, fd_bpf_loader_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_bpf_loader_program_instruction_is_write( fd_bpf_loader_program_instruction_t const * self );
 FD_FN_PURE uchar fd_bpf_loader_program_instruction_is_finalize( fd_bpf_loader_program_instruction_t const * self );
@@ -8138,7 +8265,6 @@ void * fd_loader_v4_program_instruction_write_decode( void * mem, fd_bincode_dec
 void fd_loader_v4_program_instruction_write_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_loader_v4_program_instruction_write_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_loader_v4_program_instruction_write_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_loader_v4_program_instruction_write_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_loader_v4_program_instruction_truncate_new( fd_loader_v4_program_instruction_truncate_t * self );
 int fd_loader_v4_program_instruction_truncate_encode( fd_loader_v4_program_instruction_truncate_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8153,7 +8279,6 @@ void * fd_loader_v4_program_instruction_truncate_decode( void * mem, fd_bincode_
 void fd_loader_v4_program_instruction_truncate_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_loader_v4_program_instruction_truncate_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_loader_v4_program_instruction_truncate_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_loader_v4_program_instruction_truncate_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_truncate_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_loader_v4_program_instruction_new_disc( fd_loader_v4_program_instruction_t * self, uint discriminant );
 void fd_loader_v4_program_instruction_new( fd_loader_v4_program_instruction_t * self );
@@ -8169,7 +8294,6 @@ void * fd_loader_v4_program_instruction_decode( void * mem, fd_bincode_decode_ct
 void fd_loader_v4_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_loader_v4_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_loader_v4_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_loader_v4_program_instruction_convert_global_to_local( void const * global_self, fd_loader_v4_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_write( fd_loader_v4_program_instruction_t const * self );
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_truncate( fd_loader_v4_program_instruction_t const * self );
@@ -8198,7 +8322,6 @@ void * fd_bpf_upgradeable_loader_program_instruction_write_decode( void * mem, f
 void fd_bpf_upgradeable_loader_program_instruction_write_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_program_instruction_write_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_program_instruction_write_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_program_instruction_write_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_new( fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t * self );
 int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_encode( fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8213,7 +8336,6 @@ void * fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_de
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_new( fd_bpf_upgradeable_loader_program_instruction_extend_program_t * self );
 int fd_bpf_upgradeable_loader_program_instruction_extend_program_encode( fd_bpf_upgradeable_loader_program_instruction_extend_program_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8228,7 +8350,6 @@ void * fd_bpf_upgradeable_loader_program_instruction_extend_program_decode( void
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_program_instruction_extend_program_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_program_instruction_extend_program_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_upgradeable_loader_program_instruction_new_disc( fd_bpf_upgradeable_loader_program_instruction_t * self, uint discriminant );
 void fd_bpf_upgradeable_loader_program_instruction_new( fd_bpf_upgradeable_loader_program_instruction_t * self );
@@ -8244,7 +8365,6 @@ void * fd_bpf_upgradeable_loader_program_instruction_decode( void * mem, fd_binc
 void fd_bpf_upgradeable_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_program_instruction_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_program_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_initialize_buffer( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_write( fd_bpf_upgradeable_loader_program_instruction_t const * self );
@@ -8277,7 +8397,6 @@ void * fd_bpf_upgradeable_loader_state_buffer_decode( void * mem, fd_bincode_dec
 void fd_bpf_upgradeable_loader_state_buffer_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_state_buffer_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_state_buffer_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_state_buffer_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_state_buffer_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_upgradeable_loader_state_program_new( fd_bpf_upgradeable_loader_state_program_t * self );
 int fd_bpf_upgradeable_loader_state_program_encode( fd_bpf_upgradeable_loader_state_program_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8292,7 +8411,6 @@ void * fd_bpf_upgradeable_loader_state_program_decode( void * mem, fd_bincode_de
 void fd_bpf_upgradeable_loader_state_program_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_state_program_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_state_program_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_state_program_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_state_program_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_upgradeable_loader_state_program_data_new( fd_bpf_upgradeable_loader_state_program_data_t * self );
 int fd_bpf_upgradeable_loader_state_program_data_encode( fd_bpf_upgradeable_loader_state_program_data_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8307,7 +8425,6 @@ void * fd_bpf_upgradeable_loader_state_program_data_decode( void * mem, fd_binco
 void fd_bpf_upgradeable_loader_state_program_data_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_state_program_data_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_state_program_data_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_state_program_data_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_state_program_data_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bpf_upgradeable_loader_state_new_disc( fd_bpf_upgradeable_loader_state_t * self, uint discriminant );
 void fd_bpf_upgradeable_loader_state_new( fd_bpf_upgradeable_loader_state_t * self );
@@ -8323,7 +8440,6 @@ void * fd_bpf_upgradeable_loader_state_decode( void * mem, fd_bincode_decode_ctx
 void fd_bpf_upgradeable_loader_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bpf_upgradeable_loader_state_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bpf_upgradeable_loader_state_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bpf_upgradeable_loader_state_convert_global_to_local( void const * global_self, fd_bpf_upgradeable_loader_state_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_state_is_uninitialized( fd_bpf_upgradeable_loader_state_t const * self );
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_state_is_buffer( fd_bpf_upgradeable_loader_state_t const * self );
@@ -8348,7 +8464,6 @@ void * fd_loader_v4_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_loader_v4_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_loader_v4_state_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_loader_v4_state_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_loader_v4_state_convert_global_to_local( void const * global_self, fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_frozen_hash_status_new( fd_frozen_hash_status_t * self );
 int fd_frozen_hash_status_encode( fd_frozen_hash_status_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8363,7 +8478,6 @@ void * fd_frozen_hash_status_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_frozen_hash_status_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_frozen_hash_status_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_frozen_hash_status_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_frozen_hash_status_convert_global_to_local( void const * global_self, fd_frozen_hash_status_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_frozen_hash_versioned_new_disc( fd_frozen_hash_versioned_t * self, uint discriminant );
 void fd_frozen_hash_versioned_new( fd_frozen_hash_versioned_t * self );
@@ -8379,7 +8493,6 @@ void * fd_frozen_hash_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ct
 void fd_frozen_hash_versioned_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_frozen_hash_versioned_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_frozen_hash_versioned_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_frozen_hash_versioned_convert_global_to_local( void const * global_self, fd_frozen_hash_versioned_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_frozen_hash_versioned_is_current( fd_frozen_hash_versioned_t const * self );
 enum {
@@ -8398,7 +8511,6 @@ void * fd_lookup_table_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_lookup_table_meta_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_lookup_table_meta_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_lookup_table_meta_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_lookup_table_meta_convert_global_to_local( void const * global_self, fd_lookup_table_meta_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_address_lookup_table_new( fd_address_lookup_table_t * self );
 int fd_address_lookup_table_encode( fd_address_lookup_table_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8413,7 +8525,6 @@ void * fd_address_lookup_table_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_address_lookup_table_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_address_lookup_table_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_address_lookup_table_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_address_lookup_table_convert_global_to_local( void const * global_self, fd_address_lookup_table_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_address_lookup_table_state_new_disc( fd_address_lookup_table_state_t * self, uint discriminant );
 void fd_address_lookup_table_state_new( fd_address_lookup_table_state_t * self );
@@ -8429,7 +8540,6 @@ void * fd_address_lookup_table_state_decode( void * mem, fd_bincode_decode_ctx_t
 void fd_address_lookup_table_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_address_lookup_table_state_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_address_lookup_table_state_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_address_lookup_table_state_convert_global_to_local( void const * global_self, fd_address_lookup_table_state_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_address_lookup_table_state_is_uninitialized( fd_address_lookup_table_state_t const * self );
 FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table( fd_address_lookup_table_state_t const * self );
@@ -8450,7 +8560,6 @@ void * fd_gossip_bitvec_u8_inner_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_bitvec_u8_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_bitvec_u8_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u8_inner_convert_global_to_local( void const * global_self, fd_gossip_bitvec_u8_inner_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_bitvec_u8_new( fd_gossip_bitvec_u8_t * self );
 int fd_gossip_bitvec_u8_encode( fd_gossip_bitvec_u8_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8465,7 +8574,6 @@ void * fd_gossip_bitvec_u8_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_bitvec_u8_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_bitvec_u8_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_bitvec_u8_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u8_convert_global_to_local( void const * global_self, fd_gossip_bitvec_u8_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_bitvec_u64_inner_new( fd_gossip_bitvec_u64_inner_t * self );
 int fd_gossip_bitvec_u64_inner_encode( fd_gossip_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8480,7 +8588,6 @@ void * fd_gossip_bitvec_u64_inner_decode( void * mem, fd_bincode_decode_ctx_t * 
 void fd_gossip_bitvec_u64_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_bitvec_u64_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_bitvec_u64_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u64_inner_convert_global_to_local( void const * global_self, fd_gossip_bitvec_u64_inner_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_bitvec_u64_new( fd_gossip_bitvec_u64_t * self );
 int fd_gossip_bitvec_u64_encode( fd_gossip_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8495,7 +8602,6 @@ void * fd_gossip_bitvec_u64_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_bitvec_u64_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_bitvec_u64_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_bitvec_u64_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u64_convert_global_to_local( void const * global_self, fd_gossip_bitvec_u64_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_ping_new( fd_gossip_ping_t * self );
 int fd_gossip_ping_encode( fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8510,7 +8616,6 @@ void * fd_gossip_ping_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ping_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_ping_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ping_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_ping_convert_global_to_local( void const * global_self, fd_gossip_ping_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_ip_addr_new_disc( fd_gossip_ip_addr_t * self, uint discriminant );
 void fd_gossip_ip_addr_new( fd_gossip_ip_addr_t * self );
@@ -8526,7 +8631,6 @@ void * fd_gossip_ip_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ip_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_ip_addr_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_ip_addr_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_ip_addr_convert_global_to_local( void const * global_self, fd_gossip_ip_addr_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_gossip_ip_addr_is_ip4( fd_gossip_ip_addr_t const * self );
 FD_FN_PURE uchar fd_gossip_ip_addr_is_ip6( fd_gossip_ip_addr_t const * self );
@@ -8547,7 +8651,6 @@ void * fd_gossip_prune_data_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_prune_data_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_prune_data_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_prune_data_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_prune_data_convert_global_to_local( void const * global_self, fd_gossip_prune_data_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_prune_sign_data_new( fd_gossip_prune_sign_data_t * self );
 int fd_gossip_prune_sign_data_encode( fd_gossip_prune_sign_data_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8562,7 +8665,6 @@ void * fd_gossip_prune_sign_data_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_prune_sign_data_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_prune_sign_data_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_prune_sign_data_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_prune_sign_data_convert_global_to_local( void const * global_self, fd_gossip_prune_sign_data_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_prune_sign_data_with_prefix_new( fd_gossip_prune_sign_data_with_prefix_t * self );
 int fd_gossip_prune_sign_data_with_prefix_encode( fd_gossip_prune_sign_data_with_prefix_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8577,7 +8679,6 @@ void * fd_gossip_prune_sign_data_with_prefix_decode( void * mem, fd_bincode_deco
 void fd_gossip_prune_sign_data_with_prefix_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_prune_sign_data_with_prefix_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_prune_sign_data_with_prefix_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_prune_sign_data_with_prefix_convert_global_to_local( void const * global_self, fd_gossip_prune_sign_data_with_prefix_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_socket_addr_old_new( fd_gossip_socket_addr_old_t * self );
 int fd_gossip_socket_addr_old_encode( fd_gossip_socket_addr_old_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8592,7 +8693,6 @@ void * fd_gossip_socket_addr_old_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_socket_addr_old_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_socket_addr_old_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_socket_addr_old_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_addr_old_convert_global_to_local( void const * global_self, fd_gossip_socket_addr_old_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_socket_addr_ip4_new( fd_gossip_socket_addr_ip4_t * self );
 int fd_gossip_socket_addr_ip4_encode( fd_gossip_socket_addr_ip4_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8607,7 +8707,6 @@ void * fd_gossip_socket_addr_ip4_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_socket_addr_ip4_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_socket_addr_ip4_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_socket_addr_ip4_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_addr_ip4_convert_global_to_local( void const * global_self, fd_gossip_socket_addr_ip4_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_socket_addr_ip6_new( fd_gossip_socket_addr_ip6_t * self );
 int fd_gossip_socket_addr_ip6_encode( fd_gossip_socket_addr_ip6_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8622,7 +8721,6 @@ void * fd_gossip_socket_addr_ip6_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_socket_addr_ip6_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_socket_addr_ip6_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_socket_addr_ip6_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_addr_ip6_convert_global_to_local( void const * global_self, fd_gossip_socket_addr_ip6_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_socket_addr_new_disc( fd_gossip_socket_addr_t * self, uint discriminant );
 void fd_gossip_socket_addr_new( fd_gossip_socket_addr_t * self );
@@ -8638,7 +8736,6 @@ void * fd_gossip_socket_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_gossip_socket_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_socket_addr_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_socket_addr_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_addr_convert_global_to_local( void const * global_self, fd_gossip_socket_addr_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_gossip_socket_addr_is_ip4( fd_gossip_socket_addr_t const * self );
 FD_FN_PURE uchar fd_gossip_socket_addr_is_ip6( fd_gossip_socket_addr_t const * self );
@@ -8659,7 +8756,6 @@ void * fd_gossip_contact_info_v1_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_contact_info_v1_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_contact_info_v1_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_contact_info_v1_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_contact_info_v1_convert_global_to_local( void const * global_self, fd_gossip_contact_info_v1_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_vote_new( fd_gossip_vote_t * self );
 int fd_gossip_vote_encode( fd_gossip_vote_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8674,7 +8770,6 @@ void * fd_gossip_vote_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_vote_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_vote_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_vote_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_vote_convert_global_to_local( void const * global_self, fd_gossip_vote_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_lowest_slot_new( fd_gossip_lowest_slot_t * self );
 int fd_gossip_lowest_slot_encode( fd_gossip_lowest_slot_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8689,7 +8784,6 @@ void * fd_gossip_lowest_slot_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_gossip_lowest_slot_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_lowest_slot_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_lowest_slot_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_lowest_slot_convert_global_to_local( void const * global_self, fd_gossip_lowest_slot_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_slot_hashes_new( fd_gossip_slot_hashes_t * self );
 int fd_gossip_slot_hashes_encode( fd_gossip_slot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8704,7 +8798,6 @@ void * fd_gossip_slot_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_gossip_slot_hashes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_slot_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_slot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_slot_hashes_convert_global_to_local( void const * global_self, fd_gossip_slot_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_slots_new( fd_gossip_slots_t * self );
 int fd_gossip_slots_encode( fd_gossip_slots_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8719,7 +8812,6 @@ void * fd_gossip_slots_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_slots_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_slots_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_slots_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_slots_convert_global_to_local( void const * global_self, fd_gossip_slots_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_flate2_slots_new( fd_gossip_flate2_slots_t * self );
 int fd_gossip_flate2_slots_encode( fd_gossip_flate2_slots_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8734,7 +8826,6 @@ void * fd_gossip_flate2_slots_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_gossip_flate2_slots_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_flate2_slots_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_flate2_slots_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_flate2_slots_convert_global_to_local( void const * global_self, fd_gossip_flate2_slots_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_slots_enum_new_disc( fd_gossip_slots_enum_t * self, uint discriminant );
 void fd_gossip_slots_enum_new( fd_gossip_slots_enum_t * self );
@@ -8750,7 +8841,6 @@ void * fd_gossip_slots_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_slots_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_slots_enum_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_slots_enum_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_slots_enum_convert_global_to_local( void const * global_self, fd_gossip_slots_enum_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_gossip_slots_enum_is_flate2( fd_gossip_slots_enum_t const * self );
 FD_FN_PURE uchar fd_gossip_slots_enum_is_uncompressed( fd_gossip_slots_enum_t const * self );
@@ -8771,7 +8861,6 @@ void * fd_gossip_epoch_slots_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_gossip_epoch_slots_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_epoch_slots_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_epoch_slots_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_epoch_slots_convert_global_to_local( void const * global_self, fd_gossip_epoch_slots_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_version_v1_new( fd_gossip_version_v1_t * self );
 int fd_gossip_version_v1_encode( fd_gossip_version_v1_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8786,7 +8875,6 @@ void * fd_gossip_version_v1_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_version_v1_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_version_v1_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_version_v1_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_version_v1_convert_global_to_local( void const * global_self, fd_gossip_version_v1_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_version_v2_new( fd_gossip_version_v2_t * self );
 int fd_gossip_version_v2_encode( fd_gossip_version_v2_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8801,7 +8889,6 @@ void * fd_gossip_version_v2_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_version_v2_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_version_v2_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_version_v2_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_version_v2_convert_global_to_local( void const * global_self, fd_gossip_version_v2_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_version_v3_new( fd_gossip_version_v3_t * self );
 int fd_gossip_version_v3_encode( fd_gossip_version_v3_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8816,7 +8903,6 @@ void * fd_gossip_version_v3_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_version_v3_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_version_v3_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_version_v3_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_version_v3_convert_global_to_local( void const * global_self, fd_gossip_version_v3_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_node_instance_new( fd_gossip_node_instance_t * self );
 int fd_gossip_node_instance_encode( fd_gossip_node_instance_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8831,7 +8917,6 @@ void * fd_gossip_node_instance_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_gossip_node_instance_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_node_instance_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_node_instance_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_node_instance_convert_global_to_local( void const * global_self, fd_gossip_node_instance_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_duplicate_shred_new( fd_gossip_duplicate_shred_t * self );
 int fd_gossip_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8846,7 +8931,6 @@ void * fd_gossip_duplicate_shred_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_duplicate_shred_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_duplicate_shred_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_duplicate_shred_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_duplicate_shred_convert_global_to_local( void const * global_self, fd_gossip_duplicate_shred_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_incremental_snapshot_hashes_new( fd_gossip_incremental_snapshot_hashes_t * self );
 int fd_gossip_incremental_snapshot_hashes_encode( fd_gossip_incremental_snapshot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8861,7 +8945,6 @@ void * fd_gossip_incremental_snapshot_hashes_decode( void * mem, fd_bincode_deco
 void fd_gossip_incremental_snapshot_hashes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_incremental_snapshot_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_incremental_snapshot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_incremental_snapshot_hashes_convert_global_to_local( void const * global_self, fd_gossip_incremental_snapshot_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_socket_entry_new( fd_gossip_socket_entry_t * self );
 int fd_gossip_socket_entry_encode( fd_gossip_socket_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8876,7 +8959,6 @@ void * fd_gossip_socket_entry_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_gossip_socket_entry_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_socket_entry_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_socket_entry_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_socket_entry_convert_global_to_local( void const * global_self, fd_gossip_socket_entry_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_contact_info_v2_new( fd_gossip_contact_info_v2_t * self );
 int fd_gossip_contact_info_v2_encode( fd_gossip_contact_info_v2_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8891,7 +8973,6 @@ void * fd_gossip_contact_info_v2_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_gossip_contact_info_v2_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_contact_info_v2_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_contact_info_v2_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_contact_info_v2_convert_global_to_local( void const * global_self, fd_gossip_contact_info_v2_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_restart_run_length_encoding_inner_new( fd_restart_run_length_encoding_inner_t * self );
 int fd_restart_run_length_encoding_inner_encode( fd_restart_run_length_encoding_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8906,7 +8987,6 @@ void * fd_restart_run_length_encoding_inner_decode( void * mem, fd_bincode_decod
 void fd_restart_run_length_encoding_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_restart_run_length_encoding_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_restart_run_length_encoding_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_run_length_encoding_inner_convert_global_to_local( void const * global_self, fd_restart_run_length_encoding_inner_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_restart_run_length_encoding_new( fd_restart_run_length_encoding_t * self );
 int fd_restart_run_length_encoding_encode( fd_restart_run_length_encoding_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8921,7 +9001,6 @@ void * fd_restart_run_length_encoding_decode( void * mem, fd_bincode_decode_ctx_
 void fd_restart_run_length_encoding_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_restart_run_length_encoding_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_restart_run_length_encoding_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_run_length_encoding_convert_global_to_local( void const * global_self, fd_restart_run_length_encoding_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_restart_raw_offsets_bitvec_u8_inner_new( fd_restart_raw_offsets_bitvec_u8_inner_t * self );
 int fd_restart_raw_offsets_bitvec_u8_inner_encode( fd_restart_raw_offsets_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8936,7 +9015,6 @@ void * fd_restart_raw_offsets_bitvec_u8_inner_decode( void * mem, fd_bincode_dec
 void fd_restart_raw_offsets_bitvec_u8_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_restart_raw_offsets_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_restart_raw_offsets_bitvec_u8_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_raw_offsets_bitvec_u8_inner_convert_global_to_local( void const * global_self, fd_restart_raw_offsets_bitvec_u8_inner_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_restart_raw_offsets_bitvec_new( fd_restart_raw_offsets_bitvec_t * self );
 int fd_restart_raw_offsets_bitvec_encode( fd_restart_raw_offsets_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8951,7 +9029,6 @@ void * fd_restart_raw_offsets_bitvec_decode( void * mem, fd_bincode_decode_ctx_t
 void fd_restart_raw_offsets_bitvec_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_restart_raw_offsets_bitvec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_restart_raw_offsets_bitvec_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_raw_offsets_bitvec_convert_global_to_local( void const * global_self, fd_restart_raw_offsets_bitvec_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_restart_raw_offsets_new( fd_restart_raw_offsets_t * self );
 int fd_restart_raw_offsets_encode( fd_restart_raw_offsets_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -8966,7 +9043,6 @@ void * fd_restart_raw_offsets_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_restart_raw_offsets_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_restart_raw_offsets_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_restart_raw_offsets_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_raw_offsets_convert_global_to_local( void const * global_self, fd_restart_raw_offsets_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_restart_slots_offsets_new_disc( fd_restart_slots_offsets_t * self, uint discriminant );
 void fd_restart_slots_offsets_new( fd_restart_slots_offsets_t * self );
@@ -8982,7 +9058,6 @@ void * fd_restart_slots_offsets_decode( void * mem, fd_bincode_decode_ctx_t * ct
 void fd_restart_slots_offsets_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_restart_slots_offsets_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_restart_slots_offsets_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_slots_offsets_convert_global_to_local( void const * global_self, fd_restart_slots_offsets_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_restart_slots_offsets_is_run_length_encoding( fd_restart_slots_offsets_t const * self );
 FD_FN_PURE uchar fd_restart_slots_offsets_is_raw_offsets( fd_restart_slots_offsets_t const * self );
@@ -9003,7 +9078,6 @@ void * fd_gossip_restart_last_voted_fork_slots_decode( void * mem, fd_bincode_de
 void fd_gossip_restart_last_voted_fork_slots_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_restart_last_voted_fork_slots_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_restart_last_voted_fork_slots_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_restart_last_voted_fork_slots_convert_global_to_local( void const * global_self, fd_gossip_restart_last_voted_fork_slots_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_restart_heaviest_fork_new( fd_gossip_restart_heaviest_fork_t * self );
 int fd_gossip_restart_heaviest_fork_encode( fd_gossip_restart_heaviest_fork_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9018,7 +9092,6 @@ void * fd_gossip_restart_heaviest_fork_decode( void * mem, fd_bincode_decode_ctx
 void fd_gossip_restart_heaviest_fork_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_restart_heaviest_fork_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_restart_heaviest_fork_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_restart_heaviest_fork_convert_global_to_local( void const * global_self, fd_gossip_restart_heaviest_fork_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_crds_data_new_disc( fd_crds_data_t * self, uint discriminant );
 void fd_crds_data_new( fd_crds_data_t * self );
@@ -9034,7 +9107,6 @@ void * fd_crds_data_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_data_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_crds_data_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_data_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_crds_data_convert_global_to_local( void const * global_self, fd_crds_data_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_crds_data_is_contact_info_v1( fd_crds_data_t const * self );
 FD_FN_PURE uchar fd_crds_data_is_vote( fd_crds_data_t const * self );
@@ -9079,7 +9151,6 @@ void * fd_crds_bloom_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_bloom_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_crds_bloom_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_bloom_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_crds_bloom_convert_global_to_local( void const * global_self, fd_crds_bloom_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_crds_filter_new( fd_crds_filter_t * self );
 int fd_crds_filter_encode( fd_crds_filter_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9094,7 +9165,6 @@ void * fd_crds_filter_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_filter_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_crds_filter_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_filter_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_crds_filter_convert_global_to_local( void const * global_self, fd_crds_filter_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_crds_value_new( fd_crds_value_t * self );
 int fd_crds_value_encode( fd_crds_value_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9109,7 +9179,6 @@ void * fd_crds_value_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_value_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_crds_value_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_crds_value_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_crds_value_convert_global_to_local( void const * global_self, fd_crds_value_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_pull_req_new( fd_gossip_pull_req_t * self );
 int fd_gossip_pull_req_encode( fd_gossip_pull_req_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9124,7 +9193,6 @@ void * fd_gossip_pull_req_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_pull_req_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_pull_req_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_pull_req_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_pull_req_convert_global_to_local( void const * global_self, fd_gossip_pull_req_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_pull_resp_new( fd_gossip_pull_resp_t * self );
 int fd_gossip_pull_resp_encode( fd_gossip_pull_resp_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9139,7 +9207,6 @@ void * fd_gossip_pull_resp_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_pull_resp_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_pull_resp_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_pull_resp_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_pull_resp_convert_global_to_local( void const * global_self, fd_gossip_pull_resp_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_push_msg_new( fd_gossip_push_msg_t * self );
 int fd_gossip_push_msg_encode( fd_gossip_push_msg_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9154,7 +9221,6 @@ void * fd_gossip_push_msg_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_push_msg_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_push_msg_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_push_msg_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_push_msg_convert_global_to_local( void const * global_self, fd_gossip_push_msg_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_prune_msg_new( fd_gossip_prune_msg_t * self );
 int fd_gossip_prune_msg_encode( fd_gossip_prune_msg_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9169,7 +9235,6 @@ void * fd_gossip_prune_msg_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_prune_msg_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_prune_msg_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_prune_msg_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_prune_msg_convert_global_to_local( void const * global_self, fd_gossip_prune_msg_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_msg_new_disc( fd_gossip_msg_t * self, uint discriminant );
 void fd_gossip_msg_new( fd_gossip_msg_t * self );
@@ -9185,7 +9250,6 @@ void * fd_gossip_msg_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_msg_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_gossip_msg_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_gossip_msg_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_msg_convert_global_to_local( void const * global_self, fd_gossip_msg_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_gossip_msg_is_pull_req( fd_gossip_msg_t const * self );
 FD_FN_PURE uchar fd_gossip_msg_is_pull_resp( fd_gossip_msg_t const * self );
@@ -9214,7 +9278,6 @@ void * fd_addrlut_create_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_addrlut_create_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_addrlut_create_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_addrlut_create_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_addrlut_create_convert_global_to_local( void const * global_self, fd_addrlut_create_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_addrlut_extend_new( fd_addrlut_extend_t * self );
 int fd_addrlut_extend_encode( fd_addrlut_extend_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9229,7 +9292,6 @@ void * fd_addrlut_extend_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_addrlut_extend_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_addrlut_extend_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_addrlut_extend_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_addrlut_extend_convert_global_to_local( void const * global_self, fd_addrlut_extend_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_addrlut_instruction_new_disc( fd_addrlut_instruction_t * self, uint discriminant );
 void fd_addrlut_instruction_new( fd_addrlut_instruction_t * self );
@@ -9245,7 +9307,6 @@ void * fd_addrlut_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_addrlut_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_addrlut_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_addrlut_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_addrlut_instruction_convert_global_to_local( void const * global_self, fd_addrlut_instruction_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_addrlut_instruction_is_create_lut( fd_addrlut_instruction_t const * self );
 FD_FN_PURE uchar fd_addrlut_instruction_is_freeze_lut( fd_addrlut_instruction_t const * self );
@@ -9272,7 +9333,6 @@ void * fd_repair_request_header_decode( void * mem, fd_bincode_decode_ctx_t * ct
 void fd_repair_request_header_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_repair_request_header_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_request_header_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_repair_request_header_convert_global_to_local( void const * global_self, fd_repair_request_header_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_repair_window_index_new( fd_repair_window_index_t * self );
 int fd_repair_window_index_encode( fd_repair_window_index_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9287,7 +9347,6 @@ void * fd_repair_window_index_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void fd_repair_window_index_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_repair_window_index_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_window_index_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_repair_window_index_convert_global_to_local( void const * global_self, fd_repair_window_index_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_repair_highest_window_index_new( fd_repair_highest_window_index_t * self );
 int fd_repair_highest_window_index_encode( fd_repair_highest_window_index_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9302,7 +9361,6 @@ void * fd_repair_highest_window_index_decode( void * mem, fd_bincode_decode_ctx_
 void fd_repair_highest_window_index_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_repair_highest_window_index_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_highest_window_index_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_repair_highest_window_index_convert_global_to_local( void const * global_self, fd_repair_highest_window_index_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_repair_orphan_new( fd_repair_orphan_t * self );
 int fd_repair_orphan_encode( fd_repair_orphan_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9317,7 +9375,6 @@ void * fd_repair_orphan_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_orphan_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_repair_orphan_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_orphan_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_repair_orphan_convert_global_to_local( void const * global_self, fd_repair_orphan_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_repair_ancestor_hashes_new( fd_repair_ancestor_hashes_t * self );
 int fd_repair_ancestor_hashes_encode( fd_repair_ancestor_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9332,7 +9389,6 @@ void * fd_repair_ancestor_hashes_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_repair_ancestor_hashes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_repair_ancestor_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_ancestor_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_repair_ancestor_hashes_convert_global_to_local( void const * global_self, fd_repair_ancestor_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_repair_protocol_new_disc( fd_repair_protocol_t * self, uint discriminant );
 void fd_repair_protocol_new( fd_repair_protocol_t * self );
@@ -9348,7 +9404,6 @@ void * fd_repair_protocol_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_protocol_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_repair_protocol_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_protocol_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_repair_protocol_convert_global_to_local( void const * global_self, fd_repair_protocol_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex( fd_repair_protocol_t const * self );
 FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndex( fd_repair_protocol_t const * self );
@@ -9390,7 +9445,6 @@ void * fd_repair_response_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_response_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_repair_response_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_repair_response_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_repair_response_convert_global_to_local( void const * global_self, fd_repair_response_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_repair_response_is_ping( fd_repair_response_t const * self );
 enum {
@@ -9410,7 +9464,6 @@ void * fd_instr_error_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_instr_error_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_instr_error_enum_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_instr_error_enum_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_instr_error_enum_convert_global_to_local( void const * global_self, fd_instr_error_enum_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_instr_error_enum_is_generic_error( fd_instr_error_enum_t const * self );
 FD_FN_PURE uchar fd_instr_error_enum_is_invalid_argument( fd_instr_error_enum_t const * self );
@@ -9535,7 +9588,6 @@ void * fd_txn_instr_error_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_txn_instr_error_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_txn_instr_error_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_txn_instr_error_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_txn_instr_error_convert_global_to_local( void const * global_self, fd_txn_instr_error_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_txn_error_enum_new_disc( fd_txn_error_enum_t * self, uint discriminant );
 void fd_txn_error_enum_new( fd_txn_error_enum_t * self );
@@ -9551,7 +9603,6 @@ void * fd_txn_error_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_txn_error_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_txn_error_enum_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_txn_error_enum_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_txn_error_enum_convert_global_to_local( void const * global_self, fd_txn_error_enum_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_txn_error_enum_is_account_in_use( fd_txn_error_enum_t const * self );
 FD_FN_PURE uchar fd_txn_error_enum_is_account_loaded_twice( fd_txn_error_enum_t const * self );
@@ -9643,7 +9694,6 @@ void * fd_txn_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_txn_result_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_txn_result_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_txn_result_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_txn_result_convert_global_to_local( void const * global_self, fd_txn_result_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_txn_result_is_ok( fd_txn_result_t const * self );
 FD_FN_PURE uchar fd_txn_result_is_error( fd_txn_result_t const * self );
@@ -9664,7 +9714,6 @@ void * fd_cache_status_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_cache_status_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_cache_status_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_cache_status_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_cache_status_convert_global_to_local( void const * global_self, fd_cache_status_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_status_value_new( fd_status_value_t * self );
 int fd_status_value_encode( fd_status_value_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9679,7 +9728,6 @@ void * fd_status_value_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_status_value_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_status_value_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_status_value_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_status_value_convert_global_to_local( void const * global_self, fd_status_value_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_status_pair_new( fd_status_pair_t * self );
 int fd_status_pair_encode( fd_status_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9694,7 +9742,6 @@ void * fd_status_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_status_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_status_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_status_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_status_pair_convert_global_to_local( void const * global_self, fd_status_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_delta_new( fd_slot_delta_t * self );
 int fd_slot_delta_encode( fd_slot_delta_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9709,7 +9756,6 @@ void * fd_slot_delta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_delta_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_slot_delta_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_slot_delta_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_delta_convert_global_to_local( void const * global_self, fd_slot_delta_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_bank_slot_deltas_new( fd_bank_slot_deltas_t * self );
 int fd_bank_slot_deltas_encode( fd_bank_slot_deltas_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9724,7 +9770,6 @@ void * fd_bank_slot_deltas_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bank_slot_deltas_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_bank_slot_deltas_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_bank_slot_deltas_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_bank_slot_deltas_convert_global_to_local( void const * global_self, fd_bank_slot_deltas_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_pubkey_rewardinfo_pair_new( fd_pubkey_rewardinfo_pair_t * self );
 int fd_pubkey_rewardinfo_pair_encode( fd_pubkey_rewardinfo_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9739,7 +9784,6 @@ void * fd_pubkey_rewardinfo_pair_decode( void * mem, fd_bincode_decode_ctx_t * c
 void fd_pubkey_rewardinfo_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_pubkey_rewardinfo_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_pubkey_rewardinfo_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_pubkey_rewardinfo_pair_convert_global_to_local( void const * global_self, fd_pubkey_rewardinfo_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_optional_account_new( fd_optional_account_t * self );
 int fd_optional_account_encode( fd_optional_account_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9754,7 +9798,6 @@ void * fd_optional_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_optional_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_optional_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_optional_account_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_optional_account_convert_global_to_local( void const * global_self, fd_optional_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_calculated_stake_points_new( fd_calculated_stake_points_t * self );
 int fd_calculated_stake_points_encode( fd_calculated_stake_points_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9769,7 +9812,6 @@ void * fd_calculated_stake_points_decode( void * mem, fd_bincode_decode_ctx_t * 
 void fd_calculated_stake_points_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_calculated_stake_points_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_calculated_stake_points_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_calculated_stake_points_convert_global_to_local( void const * global_self, fd_calculated_stake_points_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_calculated_stake_rewards_new( fd_calculated_stake_rewards_t * self );
 int fd_calculated_stake_rewards_encode( fd_calculated_stake_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9784,7 +9826,6 @@ void * fd_calculated_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t *
 void fd_calculated_stake_rewards_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_calculated_stake_rewards_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_calculated_stake_rewards_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_calculated_stake_rewards_convert_global_to_local( void const * global_self, fd_calculated_stake_rewards_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_duplicate_slot_proof_new( fd_duplicate_slot_proof_t * self );
 int fd_duplicate_slot_proof_encode( fd_duplicate_slot_proof_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9799,7 +9840,6 @@ void * fd_duplicate_slot_proof_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 void fd_duplicate_slot_proof_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_duplicate_slot_proof_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_duplicate_slot_proof_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_duplicate_slot_proof_convert_global_to_local( void const * global_self, fd_duplicate_slot_proof_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_epoch_info_pair_new( fd_epoch_info_pair_t * self );
 int fd_epoch_info_pair_encode( fd_epoch_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9814,7 +9854,6 @@ void * fd_epoch_info_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_info_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_epoch_info_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_info_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_pair_convert_global_to_local( void const * global_self, fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_info_pair_new( fd_vote_info_pair_t * self );
 int fd_vote_info_pair_encode( fd_vote_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9829,7 +9868,6 @@ void * fd_vote_info_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_info_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_info_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_vote_info_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_vote_info_pair_convert_global_to_local( void const * global_self, fd_vote_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_epoch_info_new( fd_epoch_info_t * self );
 int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9844,7 +9882,6 @@ void * fd_epoch_info_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_info_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_epoch_info_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_info_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_convert_global_to_local( void const * global_self, fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_usage_cost_details_new( fd_usage_cost_details_t * self );
 int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9859,7 +9896,6 @@ void * fd_usage_cost_details_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_usage_cost_details_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_usage_cost_details_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_usage_cost_details_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_usage_cost_details_convert_global_to_local( void const * global_self, fd_usage_cost_details_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_transaction_cost_new_disc( fd_transaction_cost_t * self, uint discriminant );
 void fd_transaction_cost_new( fd_transaction_cost_t * self );
@@ -9875,7 +9911,6 @@ void * fd_transaction_cost_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_transaction_cost_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_transaction_cost_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_transaction_cost_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_transaction_cost_convert_global_to_local( void const * global_self, fd_transaction_cost_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_transaction_cost_is_simple_vote( fd_transaction_cost_t const * self );
 FD_FN_PURE uchar fd_transaction_cost_is_transaction( fd_transaction_cost_t const * self );
@@ -9896,7 +9931,6 @@ void * fd_account_costs_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
 void fd_account_costs_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_account_costs_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_costs_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_account_costs_pair_convert_global_to_local( void const * global_self, fd_account_costs_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_account_costs_new( fd_account_costs_t * self );
 int fd_account_costs_encode( fd_account_costs_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9911,7 +9945,6 @@ void * fd_account_costs_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_costs_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_account_costs_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_costs_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_account_costs_convert_global_to_local( void const * global_self, fd_account_costs_t * self, fd_bincode_decode_ctx_t * ctx );
 
 void fd_cost_tracker_new( fd_cost_tracker_t * self );
 int fd_cost_tracker_encode( fd_cost_tracker_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -9926,7 +9959,6 @@ void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_cost_tracker_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_cost_tracker_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_cost_tracker_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_cost_tracker_convert_global_to_local( void const * global_self, fd_cost_tracker_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 
