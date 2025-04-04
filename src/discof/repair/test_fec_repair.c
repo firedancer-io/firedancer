@@ -7,6 +7,11 @@ test_regular_fec( fd_wksp_t * wksp ){
   void * mem = fd_wksp_alloc_laddr( wksp, fd_fec_repair_align(), fd_fec_repair_footprint( fec_max, 1 ), 1UL );
   FD_TEST( mem );
   fd_fec_repair_t * fec_repair = fd_fec_repair_join( fd_fec_repair_new( mem, fec_max, 1, 0UL ) );
+
+  mem = fd_wksp_alloc_laddr( wksp, fd_fec_chainer_align(), fd_fec_chainer_footprint( fec_max ), 1UL );
+  FD_TEST( mem );
+  fd_fec_chainer_t * fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( mem, fec_max, 0UL ) );
+  FD_TEST( fec_chainer );
   FD_TEST( fec_repair );
 
   /*
@@ -23,20 +28,20 @@ test_regular_fec( fd_wksp_t * wksp ){
   ulong key5 = ( 1UL << 32 ) | ( 5UL );
   ulong key0 = ( 1UL << 32 ) | ( 0UL );
   FD_TEST( fd_fec_intra_map_ele_query( fec_repair->intra_map, &key5, NULL, fec_repair->intra_pool ) );
-  FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 5 ) );
+  FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 5 ) );
 
   fd_fec_repair_ele_insert( fec_repair, 1, 0, 4, 0, 0, 0 );
   FD_TEST( fd_fec_intra_map_ele_query( fec_repair->intra_map, &key0, NULL, fec_repair->intra_pool ) );
-  FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+  FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
 
   fd_fec_repair_ele_insert( fec_repair, 1, 0, 3, 0, 0, 0 );
-  FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+  FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
   fd_fec_repair_ele_insert( fec_repair, 1, 0, 2, 0, 0, 0 );
-  FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+  FD_TEST( !check_set_blind_fec_completed( fec_repair,fec_chainer,  1, 0 ) );
   fd_fec_repair_ele_insert( fec_repair, 1, 0, 1, 0, 0, 0 );
-  FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+  FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
   fd_fec_repair_ele_insert( fec_repair, 1, 0, 0, 0, 0, 0 );
-  FD_TEST( check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+  FD_TEST( check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
 
   fd_wksp_free_laddr( fd_fec_repair_delete( fd_fec_repair_leave( fec_repair ) ) );
 }
@@ -48,6 +53,12 @@ test_completing_fec( fd_wksp_t * wksp ) {
     void * mem = fd_wksp_alloc_laddr( wksp, fd_fec_repair_align(), fd_fec_repair_footprint( fec_max, 1 ), 1UL );
     FD_TEST( mem );
     fd_fec_repair_t * fec_repair = fd_fec_repair_join( fd_fec_repair_new( mem, fec_max, 1, 0UL ) );
+
+    mem = fd_wksp_alloc_laddr( wksp, fd_fec_chainer_align(), fd_fec_chainer_footprint( fec_max ), 1UL );
+    FD_TEST( mem );
+    fd_fec_chainer_t * fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( mem, fec_max, 0UL ) );
+    FD_TEST( fec_chainer );
+
     FD_TEST( fec_repair );
 
     /* inserting data shreds only:
@@ -61,18 +72,18 @@ test_completing_fec( fd_wksp_t * wksp ) {
 
     ulong key0 = ( 1UL << 32 ) | ( 0UL );
     fd_fec_repair_ele_insert( fec_repair, 1, 0, 2, 0, 0, 0 );
-    FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+    FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
     fd_fec_repair_ele_insert( fec_repair, 1, 0, 4, 1, 0, 0 );
     FD_LOG_WARNING(("completes idx: %u", fd_fec_intra_map_ele_query( fec_repair->intra_map, &key0, NULL, fec_repair->intra_pool )->completes_idx ));
-    FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+    FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
     FD_LOG_WARNING(("completes idx: %u", fd_fec_intra_map_ele_query( fec_repair->intra_map, &key0, NULL, fec_repair->intra_pool )->completes_idx ));
 
     fd_fec_repair_ele_insert( fec_repair, 1, 0, 3, 0, 0, 0 );
-    FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+    FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
     fd_fec_repair_ele_insert( fec_repair, 1, 0, 1, 0, 0, 0 );
-    FD_TEST( !check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+    FD_TEST( !check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
     fd_fec_repair_ele_insert( fec_repair, 1, 0, 0, 0, 0, 0 );
-    FD_TEST( check_set_blind_fec_completed( fec_repair, 1, 0 ) );
+    FD_TEST( check_set_blind_fec_completed( fec_repair, fec_chainer, 1, 0 ) );
 
     fd_wksp_free_laddr( fd_fec_repair_delete( fd_fec_repair_leave( fec_repair ) ) );
 

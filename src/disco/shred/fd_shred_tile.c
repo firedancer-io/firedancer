@@ -646,7 +646,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         int  completes             = 0;
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
         else  completes = shred->data.flags & ( FD_SHRED_DATA_FLAG_SLOT_COMPLETE | FD_SHRED_DATA_FLAG_DATA_COMPLETE );
-        ulong sig = fd_disco_shred_repair_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
+        ulong sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
 
@@ -729,11 +729,11 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ data_shred_cnt - 1 ] );
 
     /* Copy the last shred and merkle root of the FEC set into the frag. */
-    ulong   sig   =  fd_disco_shred_repair_sig( 0, last->slot, last->fec_set_idx, 0, 0 );
+    ulong   sig   =  fd_disco_shred_repair_fec_sig( last->slot, last->fec_set_idx, (uint)data_shred_cnt, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
     uchar * chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
-    memcpy( chunk, last, FD_SHRED_CODE_HEADER_SZ );
+    memcpy( chunk, last, FD_SHRED_DATA_HEADER_SZ );
     memcpy( chunk, out_merkle_root.hash, FD_SHRED_MERKLE_ROOT_SZ );
-    ulong sz    = FD_SHRED_CODE_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ;
+    ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ;
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
     ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
