@@ -65,7 +65,7 @@ void
 fd_txn_account_init_from_meta_and_data_readonly( fd_txn_account_t *        acct,
                                                  fd_account_meta_t const * meta,
                                                  uchar const *             data ) {
-  fd_txn_account_init( &acct );
+  fd_txn_account_init( acct );
   acct->const_data = data;
   acct->const_meta = meta;
 }
