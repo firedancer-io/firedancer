@@ -2673,6 +2673,8 @@ typedef struct fd_partitioned_stake_rewards fd_partitioned_stake_rewards_t;
 #define FD_PARTITIONED_STAKE_REWARDS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards_global {
+  ulong partitions_len;
+  ulong partitions_lengths[4096];
   ulong pool_gaddr;
   ulong dlist_gaddr;
 };
@@ -2751,6 +2753,7 @@ typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
 #define FD_STAKE_REWARD_CALCULATION_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_global {
+  ulong stake_rewards_len;
   ulong pool_gaddr;
   ulong dlist_gaddr;
   ulong total_stake_rewards_lamports;

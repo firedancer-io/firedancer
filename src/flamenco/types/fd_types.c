@@ -14162,7 +14162,27 @@ void * fd_partitioned_stake_rewards_decode_global( void * mem, fd_bincode_decode
 }
 void fd_partitioned_stake_rewards_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_partitioned_stake_rewards_global_t * self = (fd_partitioned_stake_rewards_global_t *)struct_mem;
-  FD_LOG_ERR(( "Global Types not implemnted in dlists" ));
+  fd_bincode_uint64_decode_unsafe( &self->partitions_len, ctx );
+  ulong total_count = 0UL;
+  for( ulong i=0; i < 4096; i++ ) {
+    fd_bincode_uint64_decode_unsafe( self->partitions_lengths + i, ctx );
+    total_count += self->partitions_lengths[ i ];
+  }
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_partitioned_stake_rewards_pool_align() );
+  self->pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+  fd_stake_reward_t * pool = fd_partitioned_stake_rewards_pool_join_new( alloc_mem, total_count );
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_partitioned_stake_rewards_dlist_align() );
+  self->dlist_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+  fd_partitioned_stake_rewards_dlist_t * partitions = fd_partitioned_stake_rewards_dlist_join_new( alloc_mem, self->partitions_len );
+  for( ulong i=0; i < self->partitions_len; i++ ) {
+    fd_partitioned_stake_rewards_dlist_new( &partitions[ i ] );
+    for( ulong j=0; j < self->partitions_lengths[ i ]; j++ ) {
+      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_pool_ele_acquire( pool );
+      fd_stake_reward_new( ele );
+      fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
+      fd_partitioned_stake_rewards_dlist_ele_push_tail( &partitions[ i ], ele, pool );
+    }
+  }
 }
 int fd_partitioned_stake_rewards_convert_global_to_local( void const * global_self, fd_partitioned_stake_rewards_t * self, fd_bincode_decode_ctx_t * ctx ) {
   int err = 0;
@@ -14380,7 +14400,19 @@ void * fd_stake_reward_calculation_decode_global( void * mem, fd_bincode_decode_
 }
 void fd_stake_reward_calculation_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_stake_reward_calculation_global_t * self = (fd_stake_reward_calculation_global_t *)struct_mem;
-  FD_LOG_ERR(( "Global Types not implemnted in dlists" ));
+  fd_bincode_uint64_decode_unsafe( &self->stake_rewards_len, ctx );
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_reward_calculation_pool_align() );
+  self->pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+  fd_stake_reward_t * pool = fd_stake_reward_calculation_pool_join_new( alloc_mem, self->stake_rewards_len );
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_reward_calculation_dlist_align() );
+  self->dlist_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+  fd_stake_reward_calculation_dlist_t * stake_rewards = fd_stake_reward_calculation_dlist_join_new( alloc_mem, self->stake_rewards_len );
+  for( ulong i=0; i < self->stake_rewards_len; i++ ) {
+    fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( pool );
+    fd_stake_reward_new( ele );
+    fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
+    fd_stake_reward_calculation_dlist_ele_push_tail( stake_rewards, ele, pool );
+  }
   fd_bincode_uint64_decode_unsafe( &self->total_stake_rewards_lamports, ctx );
 }
 int fd_stake_reward_calculation_convert_global_to_local( void const * global_self, fd_stake_reward_calculation_t * self, fd_bincode_decode_ctx_t * ctx ) {
