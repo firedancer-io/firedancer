@@ -32,6 +32,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
 #else
   &fd_cfg_stage_blockstore,
 #endif
+  &fd_cfg_stage_ledger,
   NULL,
 };
 

@@ -71,6 +71,7 @@ following stages to each configure command:
  - `ethtool-gro` Disables generic receive offload (GRO) on the network
     device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
+ - `ledger` Ensures correct ownership and permissions for ledger directories.
 
 | Arguments         | Description |
 |-------------------|-------------|
