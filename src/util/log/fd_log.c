@@ -46,6 +46,7 @@
 #endif /* defined(__FreeBSD__) */
 
 #include "../tile/fd_tile_private.h"
+#include "../../app/fdctl/version.h"
 
 #ifdef FD_BUILD_INFO
 FD_IMPORT_CSTR( fd_log_build_info, FD_BUILD_INFO );
@@ -1027,7 +1028,7 @@ fd_log_private_open_path( int          cmdline,
     fd_log_wallclock_cstr( fd_log_wallclock(), tag );
     for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
     ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
-                              FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH,
+                              FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION,
                               fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
     if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
   }
