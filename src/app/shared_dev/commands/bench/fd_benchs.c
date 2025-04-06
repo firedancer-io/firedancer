@@ -83,7 +83,6 @@ typedef struct {
   fd_quic_t *      quic;
   ushort           quic_port;
   fd_quic_conn_t * quic_conn;
-  const fd_aio_t * quic_rx_aio;
   ulong            no_stream;
   uint             service_ratio_idx;
 
@@ -92,8 +91,8 @@ typedef struct {
   struct mmsghdr tx_msgs[IO_VEC_CNT];
   struct iovec   rx_iovecs[IO_VEC_CNT];
   struct iovec   tx_iovecs[IO_VEC_CNT];
-  char           rx_bufs[IO_VEC_CNT][2048];
-  char           tx_bufs[IO_VEC_CNT][2048];
+  uchar          rx_bufs[IO_VEC_CNT][2048];
+  uchar          tx_bufs[IO_VEC_CNT][2048];
 
   ulong tx_idx;
 
@@ -128,18 +127,13 @@ service_quic( fd_benchs_ctx_t * ctx ) {
           FD_LOG_ERR(( "Error occurred on recvmmsg: %d %s", errno, strerror( errno ) ));
         }
         /* pass buffers to QUIC */
-        fd_aio_pkt_info_t pkt[IO_VEC_CNT];
-        ulong hdr_sz = 20 + 8;
         for( ulong k = 0; k < (ulong)retval; k++ ) {
-          pkt[j].buf    = ctx->rx_bufs[k];
-          pkt[j].buf_sz = (ushort)( ctx->rx_msgs[k].msg_len + hdr_sz );
+          uchar * buf = ctx->rx_bufs[k];
 
           /* set some required values */
           uint payload_len = ctx->rx_msgs[k].msg_len;
           uint udp_len     = payload_len + 8;
           uint ip_len      = udp_len + 20;
-
-          uchar * buf = pkt[k].buf;
 
           /* set ver and len */
           buf[0] = 0x45;
@@ -154,8 +148,9 @@ service_quic( fd_benchs_ctx_t * ctx ) {
           /* set ip length */
           buf[2] = (uchar)( ip_len >> 8 );
           buf[3] = (uchar)( ip_len      );
+
+          fd_quic_process_packet( ctx->quic, buf, ip_len );
         }
-        fd_aio_send( ctx->quic_rx_aio, pkt, (ulong)retval, NULL, 1 );
       } else if( FD_UNLIKELY( revents & POLLERR ) ) {
         int error = 0;
         socklen_t errlen = sizeof(error);
@@ -403,9 +398,7 @@ privileged_init( fd_topo_t *      topo,
     fd_memcpy( quic->config.identity_public_key, ctx->signer_ctx.public_key, 32UL );
 
     /* store the pointer to quic and quic_rx_aio for later use */
-    ctx->quic        = quic;
-    ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
-
+    ctx->quic      = quic;
     ctx->quic_conn = NULL;
     ctx->stream    = NULL;
     ctx->tx_idx    = 0UL;
@@ -571,7 +564,7 @@ quic_tx_aio_send( void *                    _ctx,
     for( ulong j = 0; j < cnt; ++j ) {
       if( FD_UNLIKELY( batch[j].buf_sz < hdr_sz ) ) continue;
 
-      char * tx_buf = ctx->tx_bufs[tx_idx];
+      uchar * tx_buf = ctx->tx_bufs[tx_idx];
 
       /* copy, stripping the header */
       fd_memcpy( tx_buf, (uchar*)batch[j].buf + hdr_sz, batch[j].buf_sz - hdr_sz );
