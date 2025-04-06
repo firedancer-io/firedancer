@@ -46,9 +46,8 @@ else
 $(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator firedancer_plugin_bundle)
 endif
 
-$(OBJDIR)/obj/app/shared/config_parse.o: src/app/fdctl/config/default.toml
-$(OBJDIR)/obj/app/shared/config_parse.o: src/app/fdctl/config/default-firedancer.toml
-$(OBJDIR)/obj/app/fdctl/commands/run/tiles/fd_gui.o: book/public/fire.svg
+$(OBJDIR)/obj/app/shared/fd_config_parse.o: src/app/fdctl/config/default.toml
+$(OBJDIR)/obj/app/shared/fd_config_parse.o: src/app/fdctl/config/default-firedancer.toml
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
