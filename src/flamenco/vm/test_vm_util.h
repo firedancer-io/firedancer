@@ -10,7 +10,9 @@
 #define TEST_VM_DEFAULT_SBPF_VERSION FD_SBPF_V0
 
 fd_exec_instr_ctx_t *
-test_vm_minimal_exec_instr_ctx( fd_valloc_t valloc );
+test_vm_minimal_exec_instr_ctx( fd_valloc_t valloc,
+                                fd_exec_epoch_ctx_t * epoch_ctx,
+                                fd_exec_slot_ctx_t * slot_ctx );
 
 void
 test_vm_exec_instr_ctx_delete( fd_exec_instr_ctx_t * ctx,
