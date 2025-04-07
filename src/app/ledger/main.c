@@ -1248,7 +1248,6 @@ replay( fd_ledger_args_t * args ) {
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
-
   /* Setup slot_ctx */
   fd_funk_t * funk = args->funk;
 
@@ -1256,6 +1255,10 @@ replay( fd_ledger_args_t * args ) {
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
+
+  // Should this be configurable?
+  uchar * epoch_spad_mem = fd_spad_alloc( spad, FD_SPAD_ALIGN, fd_spad_footprint( FD_EPOCH_SPAD_SIZE ) );
+  args->epoch_ctx->spad = fd_spad_join( fd_spad_new( epoch_spad_mem, FD_EPOCH_SPAD_SIZE ) );
 
   /* TODO: This is very hacky, needs to be cleaned up */
   args->epoch_ctx->epoch_bank.cluster_version[0] = args->cluster_version[0];
