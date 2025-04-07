@@ -310,7 +310,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L200-L205 */
     if( is_initialization ) {
       /* https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L197 */
-      program.acct->meta->info.executable = true;
+      fd_borrowed_account_set_executable( &program, 1 );
 
       /* Serialize into the program account directly. Note that an error is impossible
           because `new_program_dlen` > `LOADER_V4_PROGRAM_DATA_OFFSET`.

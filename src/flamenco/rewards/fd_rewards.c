@@ -860,7 +860,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
       FD_LOG_ERR(( "Unable to modify vote account" ));
     }
 
-    vote_rec->meta->slot = slot_ctx->slot_bank.slot;
+    vote_rec->vt->set_slot( vote_rec, slot_ctx->slot_bank.slot );
 
     if( FD_UNLIKELY( vote_rec->vt->checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
@@ -903,7 +903,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Unable to modify stake account" ));
   }
 
-  stake_acc_rec->meta->slot = slot_ctx->slot_bank.slot;
+  stake_acc_rec->vt->set_slot( stake_acc_rec, slot_ctx->slot_bank.slot );
 
   fd_stake_state_v2_t stake_state[1] = {0};
   if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {

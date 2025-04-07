@@ -73,7 +73,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   rec->vt->set_data_len( rec, serialized_sz );
   rec->starting_lamports     = 0UL;
 
-  uchar * serialized_instructions = rec->data;
+  uchar * serialized_instructions = rec->vt->get_data_mut( rec );
   ulong offset = 0;
 
   // TODO: do we needs bounds checking?
@@ -144,7 +144,7 @@ fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
 
   /* Store the current instruction index
      https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L58-L61 */
-  uchar * serialized_current_instr_idx = rec->data + (rec->meta->dlen - sizeof(ushort));
+  uchar * serialized_current_instr_idx = rec->vt->get_data_mut( rec ) + (rec->vt->get_data_len( rec ) - sizeof(ushort));
   FD_STORE( ushort, serialized_current_instr_idx, current_instr_idx );
 
   fd_txn_account_release_write( rec );

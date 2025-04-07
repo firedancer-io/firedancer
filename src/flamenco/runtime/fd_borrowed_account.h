@@ -298,6 +298,11 @@ fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrow
           fd_borrowed_account_is_executable( borrowed_acct );
 }
 
+FD_FN_PURE static inline int
+fd_borrowed_account_is_mutable( fd_borrowed_account_t const * borrowed_acct ) {
+  return borrowed_acct->acct->vt->is_mutable( borrowed_acct->acct );
+}
+
 /* fd_borrowed_account_is_signer mirrors the Agave function
    solana_sdk::transaction_context::BorrowedAccount::is_signer.
    Returns 1 if the account is a signer or is writable and 0 otherwise.

@@ -153,12 +153,12 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
     return FD_VM_SUCCESS;
   }
 
-  if( FD_UNLIKELY( !callee_acc.acct->meta ) ) {
+  if( FD_UNLIKELY( !fd_borrowed_account_is_mutable( &callee_acc ) ) ) {
     /* If the account is not modifiable, we can't change it (and it can't have been changed by the callee) */
     return FD_VM_SUCCESS;
   }
 
-  if( callee_acc.acct->meta->info.lamports!=*(caller_account->lamports) ) {
+  if( fd_borrowed_account_get_lamports( &callee_acc )!=*(caller_account->lamports) ) {
     err = fd_borrowed_account_set_lamports( &callee_acc, *(caller_account->lamports) );
     if( FD_UNLIKELY( err ) ) {
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
@@ -238,7 +238,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
     }
   }
 
-  if( FD_UNLIKELY( memcmp( callee_acc.acct->meta->info.owner, caller_account->owner, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( fd_borrowed_account_get_owner( &callee_acc ), caller_account->owner, sizeof(fd_pubkey_t) ) ) ) {
     err = fd_borrowed_account_set_owner( &callee_acc, caller_account->owner );
     if( FD_UNLIKELY( err ) ) {
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
@@ -642,15 +642,15 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
          is still valid but don't change the dlen. Zero out the rest of the
          memory which is not used. */
       callee_acc->vt->resize( callee_acc, original_len );
-      callee_acc->meta->dlen = new_len;
+      callee_acc->vt->set_data_len( callee_acc, new_len );
       zero_all_mapped_spare_capacity = 1;
     }
 
     /* Update the account data region if an account data region exists. We
        know that one exists iff the original len was non-zero. */
     ulong acc_region_idx = vm->acc_region_metas[instr_acc_idx].region_idx;
-    if( original_len && vm->input_mem_regions[ acc_region_idx ].haddr!=(ulong)callee_acc->data ) {
-      vm->input_mem_regions[ acc_region_idx ].haddr = (ulong)callee_acc->data;
+    if( original_len && vm->input_mem_regions[ acc_region_idx ].haddr!=(ulong)callee_acc->vt->get_data_mut( callee_acc ) ) {
+      vm->input_mem_regions[ acc_region_idx ].haddr = (ulong)callee_acc->vt->get_data_mut( callee_acc );
       zero_all_mapped_spare_capacity = 1;
     }
 

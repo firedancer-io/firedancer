@@ -104,24 +104,22 @@ fd_system_program_set_nonce_state( fd_borrowed_account_t *           account,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L1021
      => https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L868 */
 
-  do {
-    int err = 99999;
-    if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_changed( account, &err ) ) ) {
-      return err;
-    }
-  } while(0);
+  uchar * data = NULL;
+  ulong   dlen = 0UL;
+  int err = fd_borrowed_account_get_data_mut( account, &data, &dlen );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L1024-L1026 */
 
-  if( FD_UNLIKELY( fd_nonce_state_versions_size( new_state ) > account->acct->meta->dlen ) )
+  if( FD_UNLIKELY( fd_nonce_state_versions_size( new_state ) > fd_borrowed_account_get_data_len( account ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/transaction_context.rs#L1027 */
 
   do {
     fd_bincode_encode_ctx_t encode =
-      { .data    = account->acct->data,
-        .dataend = account->acct->data + account->acct->meta->dlen };
+      { .data    = data,
+        .dataend = data + fd_borrowed_account_get_data_len( account ) };
     int err = fd_nonce_state_versions_encode( new_state, &encode );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -1080,13 +1078,13 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         fd_txn_account_make_mutable( rollback_nonce_rec,
                                      borrowed_account_data,
                                      txn_ctx->spad_wksp );
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->meta->dlen ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = rollback_nonce_rec->data,
-              .dataend = rollback_nonce_rec->data + rollback_nonce_rec->meta->dlen };
+            { .data    = rollback_nonce_rec->vt->get_data_mut( rollback_nonce_rec ),
+              .dataend = rollback_nonce_rec->vt->get_data_mut( rollback_nonce_rec ) + rollback_nonce_rec->vt->get_data_len( rollback_nonce_rec ) };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;

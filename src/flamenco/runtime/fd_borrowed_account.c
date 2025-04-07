@@ -14,9 +14,9 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
   }
 
   if ( data_out != NULL )
-    *data_out = acct->data;
+    *data_out = acct->vt->get_data_mut( acct );
   if ( dlen_out != NULL )
-    *dlen_out = acct->meta->dlen;
+    *dlen_out = acct->vt->get_data_len( acct );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

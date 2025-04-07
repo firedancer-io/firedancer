@@ -1858,8 +1858,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
-      uchar * programdata_data = programdata_account.acct->data + PROGRAMDATA_METADATA_SIZE;
-      ulong   programdata_size = new_len                   - PROGRAMDATA_METADATA_SIZE;
+      uchar const * programdata_data = fd_borrowed_account_get_data( &programdata_account ) + PROGRAMDATA_METADATA_SIZE;
+      ulong         programdata_size = new_len - PROGRAMDATA_METADATA_SIZE;
 
       err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {

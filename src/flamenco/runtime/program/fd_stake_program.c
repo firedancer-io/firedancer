@@ -162,8 +162,8 @@ set_state( fd_borrowed_account_t *     borrowed_acct,
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
 
   fd_bincode_encode_ctx_t encode = {
-    .data    = borrowed_acct->acct->data,
-    .dataend = borrowed_acct->acct->data + serialized_size,
+    .data    = data,
+    .dataend = data + serialized_size,
   };
   do {
     int err = fd_stake_state_v2_encode( state, &encode );
@@ -3192,27 +3192,22 @@ static void
 write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * stake_config ) {
   ulong                   data_sz  = fd_stake_config_size( stake_config );
   fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
-  fd_account_meta_t *     acc_meta = NULL;
-  uchar *                 acc_data = NULL;
+
   FD_TXN_ACCOUNT_DECL(rec);
   int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->funk, slot_ctx->funk_txn, 1, data_sz );
   FD_TEST( !err );
 
-  acc_meta                  = rec->meta;
-  acc_data                  = rec->data;
-  acc_meta->dlen            = data_sz;
-  acc_meta->info.lamports   = 960480UL;
-  acc_meta->info.rent_epoch = 0UL;
-  acc_meta->info.executable = 0;
+  rec->vt->set_lamports( rec, 960480UL );
+  rec->vt->set_rent_epoch( rec, 0UL );
+  rec->vt->set_executable( rec, 0 );
 
   fd_bincode_encode_ctx_t ctx3;
-  ctx3.data    = acc_data;
-  ctx3.dataend = acc_data + data_sz;
+  ctx3.data    = rec->vt->get_data_mut( rec );
+  ctx3.dataend = rec->vt->get_data_mut( rec ) + data_sz;
   if( fd_stake_config_encode( stake_config, &ctx3 ) )
     FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
 
-  fd_memset( acc_data, 0, data_sz );
-  fd_memcpy( acc_data, stake_config, sizeof( fd_stake_config_t ) );
+  rec->vt->set_data( rec, stake_config, data_sz );
 
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 }

@@ -9,8 +9,6 @@ typedef struct fd_txn_account fd_txn_account_t;
 
 /* Low-level API function defs */
 
-/* downgrade / promotion */
-
 /* const getters */
 typedef fd_account_meta_t const * (* fd_txn_account_get_acc_meta_fn_t)         ( fd_txn_account_t const * acct );
 typedef uchar             const * (* fd_txn_account_get_acc_data_fn_t)         ( fd_txn_account_t const * acct );
@@ -25,6 +23,7 @@ typedef int                       (* fd_txn_account_is_executable_fn_t)        (
 typedef fd_pubkey_t       const * (* fd_txn_account_get_owner_fn_t)            ( fd_txn_account_t const * acct );
 typedef ulong                     (* fd_txn_account_get_lamports_fn_t)         ( fd_txn_account_t const * acct );
 typedef ulong                     (* fd_txn_account_get_rent_epoch_fn_t)       ( fd_txn_account_t const * acct );
+typedef fd_hash_t         const * (* fd_txn_account_get_hash_fn_t)             ( fd_txn_account_t const * acct );
 
 /* setters */
 typedef void                      (* fd_txn_account_set_executable_fn_t)       ( fd_txn_account_t * acct, int is_executable );
@@ -35,6 +34,10 @@ typedef int                       (* fd_txn_account_checked_sub_lamports_fn_t) (
 typedef void                      (* fd_txn_account_set_rent_epoch_fn_t)       ( fd_txn_account_t * acct, ulong rent_epoch );
 typedef void                      (* fd_txn_account_set_data_fn_t)             ( fd_txn_account_t * acct, void const * new_data, ulong data_sz );
 typedef void                      (* fd_txn_account_set_data_len_fn_t)         ( fd_txn_account_t * acct, ulong data_len );
+typedef void                      (* fd_txn_account_set_slot_fn_t)             ( fd_txn_account_t * acct, ulong slot );
+typedef void                      (* fd_txn_account_set_hash_fn_t)             ( fd_txn_account_t * acct, fd_hash_t const * hash );
+typedef void                      (* fd_txn_account_clear_owner_fn_t)          ( fd_txn_account_t * acct );
+typedef void                      (* fd_txn_account_set_meta_info_fn_t)        ( fd_txn_account_t * acct, fd_solana_account_meta_t const * info );
 typedef void                      (* fd_txn_account_resize_fn_t)               ( fd_txn_account_t * acct, ulong data_len );
 
 /* Attribute Accessors */
@@ -45,6 +48,10 @@ typedef int                       (* fd_txn_account_is_readonly_fn_t)          (
 /* Borrow */
 typedef int                       (* fd_txn_account_try_borrow_mut_fn_t)       ( fd_txn_account_t * acct );
 typedef void                      (* fd_txn_account_drop_fn_t)                 ( fd_txn_account_t * acct );
+
+/* permissions mutators */
+typedef void                      (* fd_txn_account_set_readonly_fn_t)         ( fd_txn_account_t * acct );
+typedef void                      (* fd_txn_account_set_mutable_fn_t)          ( fd_txn_account_t * acct );
 
 struct fd_txn_account_vtable {
   /* const getters */
@@ -62,6 +69,7 @@ struct fd_txn_account_vtable {
   fd_txn_account_get_owner_fn_t            get_owner;
   fd_txn_account_get_lamports_fn_t         get_lamports;
   fd_txn_account_get_rent_epoch_fn_t       get_rent_epoch;
+  fd_txn_account_get_hash_fn_t             get_hash;
 
   /* setters */
   fd_txn_account_set_executable_fn_t       set_executable;
@@ -72,6 +80,10 @@ struct fd_txn_account_vtable {
   fd_txn_account_set_rent_epoch_fn_t       set_rent_epoch;
   fd_txn_account_set_data_fn_t             set_data;
   fd_txn_account_set_data_len_fn_t         set_data_len;
+  fd_txn_account_set_slot_fn_t             set_slot;
+  fd_txn_account_set_hash_fn_t             set_hash;
+  fd_txn_account_clear_owner_fn_t          clear_owner;
+  fd_txn_account_set_meta_info_fn_t        set_info;
   fd_txn_account_resize_fn_t               resize;
 
   /* attribute accessors */
@@ -82,6 +94,10 @@ struct fd_txn_account_vtable {
   /* borrow */
   fd_txn_account_try_borrow_mut_fn_t        try_borrow_mut;
   fd_txn_account_drop_fn_t                  drop;
+
+  /* permissions mutators */
+  fd_txn_account_set_readonly_fn_t          set_readonly;
+  fd_txn_account_set_mutable_fn_t           set_mutable;
 };
 typedef struct fd_txn_account_vtable fd_txn_account_vtable_t;
 

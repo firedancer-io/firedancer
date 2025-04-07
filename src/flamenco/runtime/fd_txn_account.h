@@ -13,13 +13,13 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
 
   fd_pubkey_t                     pubkey[1];
 
-  fd_account_meta_t const   *     const_meta;
-  uchar             const   *     const_data;
-  fd_funk_rec_t     const   *     const_rec;
+  fd_account_meta_t const   *     const_meta_;
+  uchar             const   *     const_data_;
+  fd_funk_rec_t     const   *     const_rec_;
 
-  fd_account_meta_t         *     meta;
-  uchar                     *     data;
-  fd_funk_rec_t             *     rec;
+  fd_account_meta_t         *     meta_;
+  uchar                     *     data_;
+  fd_funk_rec_t             *     rec_;
 
   ulong                           meta_gaddr;
   ulong                           data_gaddr;
@@ -78,7 +78,7 @@ fd_txn_account_setup_meta_mutable( fd_txn_account_t * acct,
 /* Returns the total size of the account shared data */
 FD_FN_PURE static inline ulong
 fd_txn_account_raw_size( fd_txn_account_t const * acct ) {
-  ulong dlen = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;
+  ulong dlen = ( acct->const_meta_ != NULL ) ? acct->const_meta_->dlen : 0;
   return sizeof(fd_account_meta_t) + dlen;
 }
 

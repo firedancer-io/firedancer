@@ -669,8 +669,8 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
   ulong encoded_stake_state_size = fd_stake_state_v2_size(stake_state);
 
   fd_bincode_encode_ctx_t ctx = {
-    .data = stake_acc_rec->data,
-    .dataend = stake_acc_rec->data + encoded_stake_state_size,
+    .data    = stake_acc_rec->vt->get_data_mut( stake_acc_rec ),
+    .dataend = stake_acc_rec->vt->get_data_mut( stake_acc_rec ) + encoded_stake_state_size,
   };
   if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx ) != FD_BINCODE_SUCCESS ) ) {
     FD_LOG_ERR(( "fd_stake_state_encode failed" ));

@@ -17,15 +17,17 @@ fd_txn_account_init( void * ptr ) {
   memset( ptr, 0, FD_TXN_ACCOUNT_FOOTPRINT );
 
   fd_txn_account_t * ret = (fd_txn_account_t *)ptr;
-  ret->const_data        = NULL;
-  ret->const_meta        = NULL;
-  ret->meta              = NULL;
-  ret->data              = NULL;
+  ret->const_data_        = NULL;
+  ret->const_meta_        = NULL;
+  ret->meta_              = NULL;
+  ret->data_              = NULL;
   ret->meta_gaddr        = 0UL;
   ret->data_gaddr        = 0UL;
   ret->starting_dlen     = ULONG_MAX;
   ret->starting_lamports = ULONG_MAX;
-  ret->vt                = &fd_txn_account_readonly_vtable;
+
+  /* TODO: should this be defaulting to readonly or writable? */
+  ret->vt                = &fd_txn_account_writable_vtable;
 
   FD_COMPILER_MFENCE();
   ret->magic = FD_TXN_ACCOUNT_MAGIC;
@@ -38,8 +40,8 @@ fd_txn_account_init( void * ptr ) {
    default values for the txn account */
 void
 fd_txn_account_setup_common( fd_txn_account_t * acct ) {
-  fd_account_meta_t const * meta = acct->const_meta ?
-                                   acct->const_meta : acct->meta;
+  fd_account_meta_t const * meta = acct->const_meta_ ?
+                                   acct->const_meta_ : acct->meta_;
 
   if( ULONG_MAX == acct->starting_dlen ) {
     acct->starting_dlen = meta->dlen;
@@ -54,20 +56,20 @@ void
 fd_txn_account_init_from_meta_and_data_mutable( fd_txn_account_t *  acct,
                                                 fd_account_meta_t * meta,
                                                 uchar *             data ) {
-  fd_txn_account_init( acct );
-  acct->const_data = data;
-  acct->const_meta = meta;
-  acct->data = data;
-  acct->meta = meta;
+  acct->const_data_ = data;
+  acct->const_meta_ = meta;
+  acct->data_ = data;
+  acct->meta_ = meta;
+  acct->vt   = &fd_txn_account_writable_vtable;
 }
 
 void
 fd_txn_account_init_from_meta_and_data_readonly( fd_txn_account_t *        acct,
                                                  fd_account_meta_t const * meta,
                                                  uchar const *             data ) {
-  fd_txn_account_init( acct );
-  acct->const_data = data;
-  acct->const_meta = meta;
+  acct->const_data_ = data;
+  acct->const_meta_ = meta;
+  acct->vt         = &fd_txn_account_readonly_vtable;
 }
 
 void
@@ -78,7 +80,7 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
   fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
   sentinel->magic           = FD_ACCOUNT_META_MAGIC;
   sentinel->info.rent_epoch = ULONG_MAX;
-  acct->const_meta          = sentinel;
+  acct->const_meta_          = sentinel;
   acct->starting_lamports   = 0UL;
   acct->starting_dlen       = 0UL;
   acct->meta_gaddr          = fd_wksp_gaddr( spad_wksp, sentinel );
@@ -91,8 +93,8 @@ fd_txn_account_setup_meta_mutable( fd_txn_account_t * acct,
   fd_account_meta_t * meta = fd_spad_alloc( spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) + sz );
   void * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
-  acct->const_meta = acct->meta = meta;
-  acct->const_data = acct->data = data;
+  acct->const_meta_ = acct->meta_ = meta;
+  acct->const_data_ = acct->data_ = data;
   acct->vt         = &fd_txn_account_writable_vtable;
 }
 
@@ -105,8 +107,8 @@ fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
   /* We don't copy the metadata into a buffer here, because we assume
      that we are holding read locks on the account, because we are inside
      a transaction. */
-  acct->const_meta = meta;
-  acct->const_data = (uchar const *)meta + meta->hlen;
+  acct->const_meta_ = meta;
+  acct->const_data_ = (uchar const *)meta + meta->hlen;
   acct->vt         = &fd_txn_account_readonly_vtable;
 
   fd_txn_account_setup_common( acct );
@@ -118,9 +120,9 @@ fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
                               fd_account_meta_t *       meta ) {
   fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
 
-  acct->const_rec  = acct->rec;
-  acct->const_meta = acct->meta = meta;
-  acct->const_data = acct->data = (uchar *)meta + meta->hlen;
+  acct->const_rec_  = acct->rec_;
+  acct->const_meta_ = acct->meta_ = meta;
+  acct->const_data_ = acct->data_ = (uchar *)meta + meta->hlen;
   acct->vt         = &fd_txn_account_writable_vtable;
 
   fd_txn_account_setup_common( acct );
@@ -133,10 +135,10 @@ uchar *
 fd_txn_account_init_data( fd_txn_account_t * acct, void * buf ) {
   /* Assumes that buf is pointing to account data */
   uchar * new_raw_data = (uchar *)buf;
-  ulong   dlen         = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;
+  ulong   dlen         = ( acct->const_meta_ != NULL ) ? acct->const_meta_->dlen : 0;
 
-  if( acct->const_meta != NULL ) {
-    fd_memcpy( new_raw_data, (uchar *)acct->const_meta, sizeof(fd_account_meta_t)+dlen );
+  if( acct->const_meta_ != NULL ) {
+    fd_memcpy( new_raw_data, (uchar *)acct->const_meta_, sizeof(fd_account_meta_t)+dlen );
   } else {
     /* Account did not exist, set up metadata */
     fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
@@ -149,20 +151,20 @@ fd_txn_account_t *
 fd_txn_account_make_mutable( fd_txn_account_t * acct,
                              void *             buf,
                              fd_wksp_t *        wksp ) {
-  if( FD_UNLIKELY( acct->data != NULL ) ) {
+  if( FD_UNLIKELY( acct->data_ != NULL ) ) {
     FD_LOG_ERR(( "borrowed account is already mutable" ));
   }
 
-  ulong   dlen         = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0UL;
+  ulong   dlen         = ( acct->const_meta_ != NULL ) ? acct->const_meta_->dlen : 0UL;
   uchar * new_raw_data = fd_txn_account_init_data( acct, buf );
 
-  acct->const_meta = acct->meta = (fd_account_meta_t *)new_raw_data;
-  acct->const_data = acct->data = new_raw_data + sizeof(fd_account_meta_t);
-  acct->meta->dlen = dlen;
+  acct->const_meta_ = acct->meta_ = (fd_account_meta_t *)new_raw_data;
+  acct->const_data_ = acct->data_ = new_raw_data + sizeof(fd_account_meta_t);
+  acct->meta_->dlen = dlen;
 
   /* update global addresses of meta and data after copying into buffer */
-  acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta );
-  acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data );
+  acct->meta_gaddr = fd_wksp_gaddr( wksp, acct->meta_ );
+  acct->data_gaddr = fd_wksp_gaddr( wksp, acct->data_ );
 
   acct->vt         = &fd_txn_account_writable_vtable;
 
@@ -182,7 +184,7 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( funk,
                                                                   funk_txn,
                                                                   pubkey,
-                                                                  &acct->const_rec,
+                                                                  &acct->const_rec_,
                                                                   &err,
                                                                   NULL );
 
@@ -200,8 +202,8 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
 
   /* setup global addresses of meta and data for exec and replay tile sharing */
   fd_wksp_t * funk_wksp = fd_funk_wksp( funk );
-  acct->meta_gaddr = fd_wksp_gaddr( funk_wksp, acct->const_meta );
-  acct->data_gaddr = fd_wksp_gaddr( funk_wksp, acct->const_data );
+  acct->meta_gaddr = fd_wksp_gaddr( funk_wksp, acct->const_meta_ );
+  acct->data_gaddr = fd_wksp_gaddr( funk_wksp, acct->const_data_ );
 
   fd_txn_account_setup_readonly( acct, pubkey, meta );
 
@@ -224,7 +226,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
                                                            pubkey,
                                                            do_create,
                                                            min_data_sz,
-                                                           &acct->rec,
+                                                           &acct->rec_,
                                                            &prepare,
                                                            &err );
 
@@ -244,7 +246,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
 
   /* trigger a segfault if the exec tile calls this function,
      as funk will be mapped read-only */
-  acct->data[0] = acct->data[0];
+  acct->data_[0] = acct->data_[0];
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -254,14 +256,14 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
 int
 fd_txn_account_save_internal( fd_txn_account_t * acct,
                               fd_funk_t *        funk ) {
-  if( acct->rec == NULL ) {
+  if( acct->rec_ == NULL ) {
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  ulong reclen = sizeof(fd_account_meta_t)+acct->const_meta->dlen;
-  uchar * raw = fd_funk_val( acct->rec, wksp );
-  fd_memcpy( raw, acct->meta, reclen );
+  ulong reclen = sizeof(fd_account_meta_t)+acct->const_meta_->dlen;
+  uchar * raw = fd_funk_val( acct->rec_, wksp );
+  fd_memcpy( raw, acct->meta_, reclen );
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -271,17 +273,17 @@ fd_txn_account_save( fd_txn_account_t * acct,
                      fd_funk_t *        funk,
                      fd_funk_txn_t *    txn,
                      fd_wksp_t *        acc_data_wksp ) {
-  acct->meta = fd_wksp_laddr( acc_data_wksp, acct->meta_gaddr );
-  acct->data = fd_wksp_laddr( acc_data_wksp, acct->data_gaddr );
+  acct->meta_ = fd_wksp_laddr( acc_data_wksp, acct->meta_gaddr );
+  acct->data_ = fd_wksp_laddr( acc_data_wksp, acct->data_gaddr );
 
-  if( acct->meta == NULL ) {
+  if( acct->meta_ == NULL ) {
     /* The meta is NULL so the account is not writable. */
     FD_LOG_DEBUG(( "fd_txn_account_save: account is not writable: %s", FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
 
-  acct->const_meta = acct->meta;
-  acct->const_data = acct->data;
+  acct->const_meta_ = acct->meta_;
+  acct->const_data_ = acct->data_;
 
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
@@ -293,8 +295,8 @@ fd_txn_account_save( fd_txn_account_t * acct,
   fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, txn, &key, prepare, &err );
   if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
 
-  acct->rec = rec;
-  ulong reclen = sizeof(fd_account_meta_t)+acct->const_meta->dlen;
+  acct->rec_ = rec;
+  ulong reclen = sizeof(fd_account_meta_t)+acct->const_meta_->dlen;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, wksp ), wksp, &err ) == NULL ) {
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));

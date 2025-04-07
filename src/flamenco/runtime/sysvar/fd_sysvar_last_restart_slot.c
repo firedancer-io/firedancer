@@ -26,7 +26,7 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TEST( err==FD_BINCODE_SUCCESS );
 
   fd_sysvar_set( slot_ctx,
-                 fd_sysvar_owner_id.key,
+                 &fd_sysvar_owner_id,
                  &fd_sysvar_last_restart_slot_id,
                  enc, sz,
                  slot_ctx->slot_bank.slot );
@@ -95,7 +95,7 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
   if( !has_current_last_restart_slot || current_last_restart_slot != last_restart_slot ) {
     fd_sysvar_set(
-        slot_ctx, fd_sysvar_owner_id.key,
+        slot_ctx, &fd_sysvar_owner_id,
         &fd_sysvar_last_restart_slot_id,
         &last_restart_slot, sizeof(ulong),
         slot_ctx->slot_bank.slot );

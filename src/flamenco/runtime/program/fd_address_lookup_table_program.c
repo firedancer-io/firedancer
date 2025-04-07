@@ -648,26 +648,25 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/address-lookup-table/src/processor.rs#L302
   new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/address-lookup-table/src/processor.rs#L308
-  if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_changed( &lut_acct, &err ) ) ) {
-    return err;
-  }
-
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/address-lookup-table/src/processor.rs#L286 */
+  uchar * lut_data_mut = NULL;
+  ulong   lut_data_mut_len = 0;
+  err = fd_borrowed_account_get_data_mut( &lut_acct, &lut_data_mut, &lut_data_mut_len );
   lut_acct.acct->vt->resize( lut_acct.acct, new_table_data_sz );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L307-L310 */
-  err = fd_addrlut_serialize_meta( &lut->state, lut_acct.acct->data, lut_acct.acct->meta->dlen );
+  err = fd_addrlut_serialize_meta( &lut->state, lut_data_mut, lut_data_mut_len );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L311-L313 */
   do {
-    uchar * new_keys = lut_acct.acct->data + FD_ADDRLUT_META_SZ + old_addr_cnt * sizeof(fd_pubkey_t);
+    uchar * new_keys = lut_data_mut + FD_ADDRLUT_META_SZ + old_addr_cnt * sizeof(fd_pubkey_t);
     fd_memcpy( new_keys, extend->new_addrs, extend->new_addrs_len * sizeof(fd_pubkey_t) );
   } while(0);
-  lut_acct.acct->meta->dlen = new_table_data_sz;
-  lut->addr            = (fd_pubkey_t *)(lut_acct.acct->data + FD_ADDRLUT_META_SZ);
+  fd_borrowed_account_set_data_length( &lut_acct, new_table_data_sz );
+  lut->addr            = (fd_pubkey_t *)(lut_data_mut + FD_ADDRLUT_META_SZ);
   lut->addr_cnt        = new_addr_cnt;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L316 */

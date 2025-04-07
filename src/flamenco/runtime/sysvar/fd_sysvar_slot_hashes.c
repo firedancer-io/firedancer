@@ -25,7 +25,7 @@ static void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t *
   if( fd_slot_hashes_encode( slot_hashes, &ctx ) )
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_slot_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
 void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t * slot_hashes ) {

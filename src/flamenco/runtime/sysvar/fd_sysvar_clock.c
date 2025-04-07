@@ -43,7 +43,7 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
   if( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
 
@@ -447,20 +447,20 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
   }
 
   fd_bincode_encode_ctx_t e_ctx = {
-    .data    = acc->data,
-    .dataend = acc->data+sz,
+    .data    = acc->vt->get_data_mut( acc ),
+    .dataend = acc->vt->get_data_mut( acc )+sz,
   };
   if( fd_sol_sysvar_clock_encode( clock, &e_ctx ) ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   ulong lamps = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sz );
-  if( acc->meta->info.lamports < lamps ) {
-    acc->meta->info.lamports = lamps;
+  if( acc->vt->get_lamports( acc ) < lamps ) {
+    acc->vt->set_lamports( acc, lamps );
   }
 
-  acc->meta->dlen = sz;
-  fd_memcpy( acc->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
+  acc->vt->set_data_len( acc, sz );
+  acc->vt->set_owner( acc, &fd_sysvar_owner_id );
 
   fd_txn_account_mutable_fini( acc, slot_ctx->funk, slot_ctx->funk_txn );
 
