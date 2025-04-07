@@ -2676,7 +2676,11 @@ class EnumType:
         print("}", file=body)
 
         print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
-        print(f'  int err = fd_bincode_{self.repr_codec_stem}_encode( self->discriminant, ctx );', file=body)
+        if self.compact:
+            print('  ushort discriminant = (ushort) self->discriminant;', file=body)
+            print('  int err = fd_bincode_compact_u16_encode( &discriminant, ctx );', file=body)
+        else:
+            print(f'  int err = fd_bincode_{self.repr_codec_stem}_encode( self->discriminant, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'  return {n}_inner_encode( &self->inner, self->discriminant, ctx );', file=body)
         print("}", file=body)
