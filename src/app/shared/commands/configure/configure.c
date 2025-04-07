@@ -22,14 +22,12 @@ configure_cmd_args( int *    pargc,
     if( FD_UNLIKELY( !strcmp( (*pargv)[ i ], "all" ) ) ) {
       (*pargc) -= i + 1;
       (*pargv) += i + 1;
-      for( int j=0; j<CONFIGURE_STAGE_COUNT; j++) args->configure.stages[ j ] = STAGES[ j ];
+      for( int j=0UL; STAGES[ j ]; j++) args->configure.stages[ j ] = STAGES[ j ];
       return;
     }
   }
 
-  if( FD_UNLIKELY( *pargc >= CONFIGURE_STAGE_COUNT ) ) FD_LOG_ERR(( "too many stages specified" ));
-
-  ulong nstage = 0;
+  ulong nstage = 0UL;
   while( *pargc ) {
     int found = 0;
     for( configure_stage_t ** stage = STAGES; *stage; stage++ ) {
@@ -219,3 +217,19 @@ check_file( const char * path,
             uint         mode ) {
   return check_path( path, uid, gid, mode, 0 );
 }
+
+action_t fd_action_configure = {
+  .name           = "configure",
+  .args           = configure_cmd_args,
+  .fn             = configure_cmd_fn,
+  .perm           = configure_cmd_perm,
+  .description    = "Configure the local host so it can run Firedancer correctly",
+  .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
+                    "to configure Firedancer as the root user. Firedancer configuration requires "
+                    "root because it does privileged operating system actions like mounting huge page filesystems. "
+                    "Configuration is a local action that does not access the network, and the process "
+                    "exits immediately once configuration completes. The user that Firedancer runs "
+                    "as is specified in your configuration file, and although configuration runs as root "
+                    "it will permission the relevant resources for the user in your configuration file, "
+                    "which can be an anonymous maximally restrictive account with no privileges.",
+};

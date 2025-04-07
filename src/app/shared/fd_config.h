@@ -445,8 +445,12 @@ typedef struct fd_config fd_config_t;
 typedef struct fd_config config_t;
 
 struct fd_action {
-  const char * name;
-  const char * description;
+  char const * name;
+  char const * description;
+  char const * permission_err;
+
+  int          is_help;
+  int          is_immediate;
   uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
@@ -466,10 +470,14 @@ FD_PROTOTYPES_BEGIN
    configuration. This exits the program if it encounters any issue
    while loading or parsing the configuration. */
 
-void
-fdctl_cfg_from_env( int *      pargc,
-                    char ***   pargv,
-                    config_t * config );
+   void
+   fdctl_cfg_from_env( int *        pargc,
+                       char ***     pargv,
+                       config_t *   config,
+                       char const * default_config1,
+                       ulong        default_config1_sz,
+                       char const * default_config2,
+                       ulong        default_config2_sz );
 
 /* Create a memfd and write the contents of the config struct into it.
    Used when execve() a child process so that it can read back in the

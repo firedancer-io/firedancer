@@ -8,16 +8,6 @@ FD_PROTOTYPES_BEGIN
 void *
 create_clone_stack( void );
 
-#if !FD_HAS_NO_AGAVE
-
-void
-agave_boot( config_t const * config );
-
-int
-agave_main( void * args );
-
-#endif /* !FD_HAS_NO_AGAVE */
-
 int
 clone_firedancer( config_t const * config,
                   int              close_fd,
@@ -48,6 +38,13 @@ run_firedancer( config_t * config,
 void run_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 void run_cmd_fn  ( args_t * args, config_t * config );
 
+
+void run1_cmd_args( int * pargc, char *** pargv, args_t * args );
+void run1_cmd_fn  ( args_t * args, config_t * config );
+
 FD_PROTOTYPES_END
+
+extern action_t fd_action_run1;
+extern action_t fd_action_run;
 
 #endif /* HEADER_fd_src_app_shared_commands_run_run_h */

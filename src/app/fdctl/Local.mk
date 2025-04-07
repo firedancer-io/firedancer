@@ -25,29 +25,20 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash
 
+$(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
+
 # fdctl core
-$(call add-objs,main1 config,fd_fdctl)
-$(call add-objs,version,fd_util)
+$(call add-objs,topology,fd_fdctl)
+$(call add-objs,config,fd_fdctl)
 
-# fdctl topologies
-ifdef FD_HAS_NO_AGAVE
-$(call add-objs,topos/fd_firedancer,fd_fdctl)
-else
-$(call add-objs,topos/fd_frankendancer,fd_fdctl)
-endif
+# fdctl comands
+$(call add-objs,commands/run_agave,fd_fdctl)
 
-ifdef FD_HAS_NO_AGAVE
-ifdef FD_HAS_SECP256K1
-$(call make-lib,external_functions)
-$(call add-objs,external_functions,external_functions)
-$(call make-bin,fdctl,main,fd_fdctl fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
-endif
-else
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator firedancer_plugin_bundle)
-endif
+# version
+$(call make-lib,fdctl_version)
+$(call add-objs,version,fdctl_version)
 
-$(OBJDIR)/obj/app/shared/fd_config_parse.o: src/app/fdctl/config/default.toml
-$(OBJDIR)/obj/app/shared/fd_config_parse.o: src/app/fdctl/config/default-firedancer.toml
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco agave_validator firedancer_plugin_bundle fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util fdctl_version)
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))

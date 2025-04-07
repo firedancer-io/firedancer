@@ -18,7 +18,7 @@ typedef enum {
 void
 keys_cmd_args( int *    pargc,
                char *** pargv,
-               args_t * args) {
+               args_t * args ) {
   if( FD_UNLIKELY( *pargc < 2 ) ) goto err;
 
   if( FD_LIKELY( !strcmp( *pargv[ 0 ], "new" ) ) ) {
@@ -141,3 +141,11 @@ keys_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "unknown key type `%lu`", args->keys.cmd ));
   }
 }
+
+action_t fd_action_keys = {
+  .name        = "keys",
+  .args        = keys_cmd_args,
+  .fn          = keys_cmd_fn,
+  .perm        = NULL,
+  .description = "Generate new keypairs for use with the validator or print a public key",
+};

@@ -619,3 +619,11 @@ monitor_cmd_fn( args_t *   args,
 
   exit( 0 ); /* gracefully exit */
 }
+
+action_t fd_action_monitor = {
+  .name        = "monitor",
+  .args        = monitor_cmd_args,
+  .fn          = monitor_cmd_fn,
+  .perm        = monitor_cmd_perm,
+  .description = "Monitor a locally running Firedancer instance with a terminal GUI",
+};

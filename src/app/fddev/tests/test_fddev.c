@@ -1,11 +1,16 @@
 #define _GNU_SOURCE
-#include "../fddev.h"
-#include "../../fdctl/fdctl.h"
-#include "../../fdctl/topos/topos.h"
 #include "../../shared/commands/configure/configure.h"
 
+#include "../../fdctl/config.h"
+#include "../../fdctl/topology.h"
 #include "../../shared/fd_sys_util.h"
+#include "../../shared/commands/ready.h"
+#include "../../shared_dev/commands/wksp.h"
+#include "../../shared_dev/commands/dev.h"
+#include "../../shared_dev/boot/fd_dev_boot.h"
 
+#include <errno.h>
+#include <unistd.h>
 #include <poll.h>
 #include <fcntl.h>
 #include <sched.h>
@@ -30,8 +35,7 @@ fddev_configure( config_t * config,
   };
 
   ulong stage_idx = 0UL;
-  for( ulong i=0UL; i<CONFIGURE_STAGE_COUNT; i++ ) {
-    if( FD_UNLIKELY( !STAGES[ i ] ) ) break;
+  for( ulong i=0UL; STAGES[i]; i++ ) {
     /* We can't run the kill stage, else it would kill the currently running
        tests. */
     if( FD_UNLIKELY( !strcmp( "kill", STAGES[ i ]->name ) ) ) continue;
@@ -74,6 +78,9 @@ fddev_ready( config_t * config,
   return 0;
 }
 
+void
+spawn_agave( config_t const * config );
+
 static int
 fddev_dev( config_t * config,
            int        pipefd ) {
@@ -91,7 +98,7 @@ fddev_dev( config_t * config,
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
   FD_LOG_WARNING(( "waitpid %lu", fd_sandbox_getpid() ));
   // sleep(15);
-  dev_cmd_fn( &args, config );
+  dev_cmd_fn( &args, config, spawn_agave );
   return 0;
 }
 
@@ -170,7 +177,7 @@ fddev_test_run( int     argc,
       fd_log_thread_set( "supervisor" );
 
       static config_t config[1];
-      fdctl_cfg_from_env( &argc, &argv, config );
+      fdctl_cfg_from_env( &argc, &argv, config, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, 0UL );
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();
@@ -192,7 +199,7 @@ fddev_test_run( int     argc,
       else if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) return WEXITSTATUS( wstatus );
     }
   } else {
-    return fddev_main( argc, argv );
+    return fd_dev_main( argc, argv, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, 0UL, fd_topo_initialize );
   }
 
   return 0;

@@ -4,6 +4,9 @@ ifdef FD_HAS_SSE
 
 $(call make-lib,fddev_shared)
 
+# fddev boot
+$(call add-objs,boot/fd_dev_boot,fddev_shared)
+
 # fddev actions
 $(call add-objs,commands/bench/bench,fddev_shared)
 $(call add-objs,commands/dev,fddev_shared)
@@ -12,7 +15,6 @@ $(call add-objs,commands/flame,fddev_shared)
 $(call add-objs,commands/load,fddev_shared)
 $(call add-objs,commands/pktgen/pktgen,fddev_shared)
 $(call add-objs,commands/txn,fddev_shared)
-$(call add-objs,commands/help,fddev_shared)
 $(call add-objs,commands/wksp,fddev_shared)
 
 # fddev tiles
@@ -26,7 +28,6 @@ $(call add-objs,commands/configure/netns,fddev_shared)
 $(call add-objs,commands/configure/keys,fddev_shared)
 $(call add-objs,commands/configure/kill,fddev_shared)
 $(call add-objs,commands/configure/genesis,fddev_shared)
-$(call add-objs,commands/configure/blockstore,fddev_shared)
 
 endif
 endif

@@ -10,9 +10,7 @@
    Consult /book/guide/netlink.md for more information.
    Web mirror: https://docs.firedancer.io/guide/netlink.html */
 
-FD_PROTOTYPES_BEGIN
 extern fd_topo_run_tile_t fd_tile_netlnk;
-FD_PROTOTYPES_END
 
 /* fd_netlink_neigh4_solicit_link_t holds information required to send
    neighbor solicitation requests to the netlink tile. */

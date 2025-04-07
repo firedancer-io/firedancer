@@ -17,12 +17,10 @@ load_cmd_perm( args_t *         args FD_PARAM_UNUSED,
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
-  FD_TEST( CONFIGURE_STAGE_COUNT>2 );
-  for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ ) {
-    if( FD_LIKELY( STAGES[ i ] ) ) {
-      if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "hugetlbfs" ) ) )
-        configure_args.configure.stages[ 0 ] = STAGES[ i ];
-    }
+
+  for( ulong i=0UL; STAGES[ i ]; i++ ) {
+    if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "hugetlbfs" ) ) )
+      configure_args.configure.stages[ 0 ] = STAGES[ i ];
   }
   configure_args.configure.stages[ 2 ] = NULL;
   configure_cmd_perm( &configure_args, chk, config );
@@ -121,7 +119,7 @@ load_cmd_fn( args_t *   args,
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
-  for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ ) {
+  for( ulong i=0UL; STAGES[ i ]; i++ ) {
     if( FD_LIKELY( STAGES[ i ] ) ) {
       if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "hugetlbfs" ) ) )
         configure_args.configure.stages[ 0 ] = STAGES[ i ];
@@ -153,3 +151,11 @@ load_cmd_fn( args_t *   args,
   /* Sleep parent thread forever, Ctrl+C will terminate. */
   for(;;) pause();
 }
+
+action_t fd_action_load = {
+  .name        = "load",
+  .args        = load_cmd_args,
+  .perm        = load_cmd_perm,
+  .fn          = load_cmd_fn,
+  .description = "Load test an external validator"
+};

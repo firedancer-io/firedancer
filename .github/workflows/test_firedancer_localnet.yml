@@ -13,7 +13,6 @@ jobs:
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
-      EXTRAS: no-agave
       AGAVE_VERSION: v2.0.3
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +30,7 @@ jobs:
 
       - name: build
         run: |
-          make -j fddev
+          make -j firedancer-dev
 
       - name: find OBJDIR
         run: |
@@ -54,6 +53,7 @@ jobs:
         run: |
           sudo killall -9 -q solana-validator || true
           sudo killall -9 -q agave-validator || true
+          sudo killall -9 -q firedancer-dev || true
           sudo killall -9 -q fddev || true
 
       - name: remove ledger and cluster artifacts if they exist
@@ -167,6 +167,7 @@ jobs:
 
           sudo killall -9 -q solana-validator || true
           sudo killall -9 -q agave-validator || true
+          sudo killall -9 -q firedancer-dev || true
           sudo killall -9 -q fddev || true
           sudo rm -rf ../*.so
           sudo rm -rf ../test-ledger

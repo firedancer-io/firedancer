@@ -845,7 +845,7 @@ metrics_write( fd_store_tile_ctx_t * ctx ) {
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_store_int = {
+fd_topo_run_tile_t fd_tile_storei = {
   .name                     = "storei",
   .loose_footprint          = loose_footprint,
   .populate_allowed_seccomp = populate_allowed_seccomp,

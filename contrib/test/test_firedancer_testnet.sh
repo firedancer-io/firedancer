@@ -12,8 +12,8 @@ mkdir -p $TMPDIR
 cd $TMPDIR
 
 cleanup() {
-  sudo killall fddev || true
-  fddev configure fini all >/dev/null 2>&1 || true
+  sudo killall firedancer-dev || true
+  firedancer-dev configure fini all >/dev/null 2>&1 || true
   # rm -rf "$TMPDIR"
 }
 
@@ -44,10 +44,10 @@ is_ip() {
 }
 
 trap cleanup EXIT SIGINT SIGTERM
-sudo killall fddev || true
+sudo killall firedancer-dev || true
 
-# if fddev is not on path then use the one in the home directory
-if ! command -v fddev > /dev/null; then
+# if firedancer-dev is not on path then use the one in the home directory
+if ! command -v firedancer-dev > /dev/null; then
   PATH="$FD_DIR/build/native/gcc/bin":$PATH
 fi
 
@@ -87,14 +87,11 @@ echo "
 [consensus]
     expected_shred_version = 35459
 [log]
-    path = \"fddev.log\"
+    path = \"firedancer-dev.log\"
     level_stderr = \"NOTICE\"
-[development]
-    sandbox = false
-    no_agave = true
 [development.bench]
     affinity = \"1-32\"
-" > fddev.toml
+" > firedancer-dev.toml
 
 # JOB_URL is potentially set by the github workflow
 # This will be written to a file so that we can link the files in the google cloud bucket back to the github run.
@@ -103,12 +100,12 @@ if [ -n "${JOB_URL-}" ]; then
   echo "$JOB_URL" > github_job_url.txt
 fi
 
-fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-sandbox --no-clone --no-agave &
+firedancer-dev --log-path $(readlink -f firedancer-dev.log) --config $(readlink -f firedancer-dev.toml) &
 
 CAUGHT_UP=0
 set +x
 for _ in $(seq 1 600); do
-  if grep -q "caught up: 1" $(readlink -f fddev.log); then
+  if grep -q "caught up: 1" $(readlink -f firedancer-dev.log); then
     CAUGHT_UP=1
     break
   fi
@@ -116,17 +113,17 @@ for _ in $(seq 1 600); do
 done
 set -x
 
-grep -q "Bank hash match" $(readlink -f fddev.log)
+grep -q "Bank hash match" $(readlink -f firedancer-dev.log)
 
-if grep -q "Bank hash mismatch" $(readlink -f fddev.log); then
-  BAD_SLOT=$( grep "Bank hash mismatch" fddev.log | awk 'NR==1 {for (i=1; i<=NF; i++) if ($i == "slot:") {gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit}}' )
+if grep -q "Bank hash mismatch" $(readlink -f firedancer-dev.log); then
+  BAD_SLOT=$( grep "Bank hash mismatch" firedancer-dev.log | awk 'NR==1 {for (i=1; i<=NF; i++) if ($i == "slot:") {gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit}}' )
   echo "*** BANK HASH MISMATCH $BAD_SLOT ***"
   mkdir -p $BAD_SLOT
-  cp fddev.log fddev.solcap github_job_url.txt $BAD_SLOT
+  cp firedancer-dev.log firedancer-dev.solcap github_job_url.txt $BAD_SLOT
   mv $BAD_SLOT ~/bad-slots
 fi
 
-if grep -P "ERR.*incremental accounts_hash [^ ]+ != [^ ]+$" $(readlink -f fddev.log); then
+if grep -P "ERR.*incremental accounts_hash [^ ]+ != [^ ]+$" $(readlink -f firedancer-dev.log); then
   echo "*** INCREMENTAL ACCOUNTS_HASH MISMATCH ***"
   NEW_DIR=incremental-accounts-hash-mismatch-$(TZ='America/Chicago' date "+%Y-%m-%d-%H:%M:%S")
   mkdir -p $NEW_DIR
@@ -136,6 +133,6 @@ if grep -P "ERR.*incremental accounts_hash [^ ]+ != [^ ]+$" $(readlink -f fddev.
 fi
 
 if [ $CAUGHT_UP -eq 0 ]; then
-  echo "fddev failed to catch up"
+  echo "firedancer-dev failed to catch up"
   exit 1
 fi

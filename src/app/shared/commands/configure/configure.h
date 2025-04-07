@@ -109,4 +109,6 @@ void configure_cmd_args( int * pargc, char *** pargv, args_t * args );
 void configure_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 void configure_cmd_fn  ( args_t * args, config_t * config );
 
+extern action_t fd_action_configure;
+
 #endif /* HEADER_fd_src_app_shared_commands_configure_configure_h */

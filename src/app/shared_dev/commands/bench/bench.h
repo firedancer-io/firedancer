@@ -3,6 +3,11 @@
 
 #include "../../../shared/fd_config.h"
 
+FD_PROTOTYPES_BEGIN
+
+void bench_cmd_fn( args_t * args, config_t * config );
+void bench_cmd_args( int * pargc, char *** pargv, args_t * args );
+
 void
 add_bench_topo( fd_topo_t  * topo,
                 char const * affinity,
@@ -18,5 +23,7 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
                 int          no_quic );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_dev_commands_bench_bench_h */

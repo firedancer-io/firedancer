@@ -8,18 +8,18 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd ../test-ledger/
 
 cleanup() {
-  sudo killall -9 -q fddev || true
-  sudo $FD_DIR/build/native/$CC/bin/fddev configure fini all --config $(readlink -f fddev.toml) || true
+  sudo killall -9 -q firedancer-dev || true
+  sudo $FD_DIR/build/native/$CC/bin/firedancer-dev configure fini all --config $(readlink -f firedancer-dev.toml) || true
 }
 
 trap cleanup EXIT SIGINT SIGTERM
 
 FD_DIR="$SCRIPT_DIR/../.."
 
-sudo killall -9 -q fddev || true
+sudo killall -9 -q firedancer-dev || true
 
 # if fd_frank_ledger is not on path then use the one in the home directory
-if ! command -v fddev > /dev/null; then
+if ! command -v firedancer-dev > /dev/null; then
   PATH="$FD_DIR/build/native/$CC/bin":$PATH
 fi
 
@@ -51,8 +51,8 @@ name = \"fd1\"
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
     [tiles.replay]
-        # capture = \"fddev.solcap\"
-        # blockstore_checkpt = \"fddev-blockstore.checkpt\"
+        # capture = \"firedancer-dev.solcap\"
+        # blockstore_checkpt = \"firedancer-dev-blockstore.checkpt\"
         blockstore_publish = true
         snapshot = \"$(ls snapshot-* | head -n1)\"
         tpool_thread_count = 5
@@ -65,7 +65,7 @@ name = \"fd1\"
     [tiles.verify]
         receive_buffer_size = 16384
 [log]
-    path = \"fddev.log\"
+    path = \"firedancer-dev.log\"
     level_stderr = \"INFO\"
     level_flush = \"ERR\"
 [development]
@@ -80,10 +80,10 @@ name = \"fd1\"
         larger_max_cost_per_block = true
         larger_shred_limits_per_block = true
 
-" > fddev.toml
+" > firedancer-dev.toml
 
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init kill --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init hugetlbfs --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init keys --config $(readlink -f fddev.toml)
+sudo $FD_DIR/build/native/$CC/bin/firedancer-dev configure init kill --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/build/native/$CC/bin/firedancer-dev configure init hugetlbfs --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/build/native/$CC/bin/firedancer-dev configure init keys --config $(readlink -f firedancer-dev.toml)
 
-sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/build/native/$CC/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone
+sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/build/native/$CC/bin/firedancer-dev dev --no-configure --log-path $(readlink -f firedancer-dev.log) --config $(readlink -f firedancer-dev.toml)

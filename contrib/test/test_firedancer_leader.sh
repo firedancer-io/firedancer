@@ -11,15 +11,15 @@ AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 cd ../test-ledger/
 
 cleanup() {
-  sudo killall -9 -q fddev || true
-#   $FD_DIR/$OBJDIR/bin/fddev configure fini all --config fddev.toml
+  sudo killall -9 -q firedancer-dev || true
+#   $FD_DIR/$OBJDIR/bin/firedancer-dev configure fini all --config firedancer-dev.toml
 }
 trap cleanup EXIT SIGINT SIGTERM
 
-sudo killall -9 -q fddev || true
+sudo killall -9 -q firedancer-dev || true
 
 # if fd_frank_ledger is not on path then use the one in the home directory
-if ! command -v fddev > /dev/null; then
+if ! command -v firedancer-dev > /dev/null; then
   PATH="$FD_DIR/$OBJDIR/bin":$PATH
 fi
 
@@ -35,7 +35,7 @@ SHRED_VERS=`grep shred_version: validator.log | sed -e 's@.*shred_version: \([0-
 
 sudo rm -f /tmp/localnet.funk
 sudo rm -f /tmp/localnet.blockstore
-sudo rm -f fddev.log
+sudo rm -f firedancer-dev.log
 
 echo "
 name = \"fd1\"
@@ -52,7 +52,7 @@ name = \"fd1\"
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
     [tiles.replay]
-        capture = \"fddev.solcap\"
+        capture = \"firedancer-dev.solcap\"
         snapshot = \"$FULL_SNAPSHOT\"
         tpool_thread_count = 8
         funk_sz_gb = 32
@@ -79,23 +79,21 @@ name = \"fd1\"
     alloc_max = 10737418240
     file = \"/tmp/localnet.blockstore\"
 [development]
-    sandbox = false
-    no_agave = true
     no_clone = true
 [log]
-    path = \"fddev.log\"
+    path = \"firedancer-dev.log\"
     level_stderr = \"INFO\"
     level_logfile = \"NOTICE\"
     level_flush = \"ERR\"
 [rpc]
     port = 8123
     extended_tx_metadata_storage = true
-" > fddev.toml
+" > firedancer-dev.toml
 
-sudo $FD_DIR/$OBJDIR/bin/fddev configure init kill --config $(readlink -f fddev.toml)
-sudo $FD_DIR/$OBJDIR/bin/fddev configure init hugetlbfs --config $(readlink -f fddev.toml)
-sudo $FD_DIR/$OBJDIR/bin/fddev configure init ethtool-channels --config $(readlink -f fddev.toml)
-sudo $FD_DIR/$OBJDIR/bin/fddev configure init ethtool-gro ethtool-loopback --config $(readlink -f fddev.toml)
-sudo $FD_DIR/$OBJDIR/bin/fddev configure init keys --config $(readlink -f fddev.toml)
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init kill --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init hugetlbfs --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-channels --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-gro ethtool-loopback --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init keys --config $(readlink -f firedancer-dev.toml)
 
-sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone
+sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/firedancer-dev dev --no-configure --log-path $(readlink -f firedancer-dev.log) --config $(readlink -f firedancer-dev.toml)

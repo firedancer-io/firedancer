@@ -3,7 +3,7 @@
 set -euxo pipefail
 IFS=$'\n\t'
 
-#TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-fddev.XXXXXX)
+#TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-firedancer-dev.XXXXXX)
 TMPDIR=$(pwd)/../test-ledger
 cd $TMPDIR
 

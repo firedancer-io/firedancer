@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
 #define HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
 
+#include "../../../shared/fd_config.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
 
 /* fd_quic_trace_ctx is the relocated fd_quic_ctx_t of the target quic
@@ -55,5 +56,7 @@ FD_PROTOTYPES_END
     ulong laddr = (ulong)fd_quic_trace_ctx_remote + rel;  \
     (__typeof__(ptr))(laddr);                             \
   })
+
+extern action_t fd_action_quic_trace;
 
 #endif /* HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h */

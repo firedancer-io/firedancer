@@ -24,13 +24,13 @@ jobs:
           - linux_clang_x86_64
           - linux_clang_icelake
           - native
-          - native-no-agave
         # Attach additional params to machine types
         include:
           - test-case: linux_gcc_noarch64
             machine: linux_gcc_noarch64
             label: X64
             extras: "rpath handholding"
+            deps-extras: "+dev"
             targets: "all"
             compiler: gcc
             compiler-version: 8.5.0
@@ -40,7 +40,8 @@ jobs:
             machine: linux_gcc_x86_64
             label: X64
             extras: "rpath handholding"
-            targets: "all integration-test fdctl"
+            deps-extras: "+dev"
+            targets: "all integration-test fdctl firedancer"
             compiler: gcc
             compiler-version: 8.5.0
             run-unit-tests: true
@@ -49,7 +50,8 @@ jobs:
             machine: linux_gcc_icelake
             label: icelake
             extras: "rpath handholding"
-            targets: "all integration-test fdctl"
+            deps-extras: "+dev"
+            targets: "all integration-test fdctl firedancer"
             compiler: gcc
             compiler-version: 12.4.0
             run-unit-tests: true
@@ -58,7 +60,8 @@ jobs:
             machine: linux_clang_x86_64
             label: X64
             extras: "rpath handholding"
-            targets: "all integration-test fdctl"
+            deps-extras: "+dev"
+            targets: "all integration-test fdctl firedancer"
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
@@ -67,7 +70,8 @@ jobs:
             machine: linux_clang_icelake
             label: icelake
             extras: "asan ubsan rpath handholding"
-            targets: "all integration-test fdctl"
+            deps-extras: "+dev"
+            targets: "all integration-test fdctl firedancer"
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
@@ -75,22 +79,13 @@ jobs:
           - test-case: native
             machine: native
             label: 512G
-            extras: "rpath handholding"
-            targets: "all integration-test fdctl"
+            extras: "rpath handholding fuzz-stubs"
+            deps-extras: "+dev"
+            targets: "all integration-test fdctl firedancer"
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
             run-integration-tests: true
-          - test-case: native-no-agave
-            machine: native
-            label: 512G
-            extras: "no-agave rpath handholding fuzz-stubs"
-            deps-extras: "+dev"
-            targets: "all integration-test fdctl"
-            compiler: clang
-            compiler-version: 15.0.6
-            run-unit-tests: true
-            run-integration-tests: false
     runs-on: ${{ matrix.label }}
     env:
       MACHINE: ${{ matrix.machine }}
@@ -120,7 +115,7 @@ jobs:
           machine: ${{ matrix.machine }}
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-        if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
+        if: ${{ contains(matrix.targets, 'fdctl') }}
 
       - name: build targets
         run: |
@@ -149,7 +144,7 @@ jobs:
           make run-fuzz-test
 
       - name: run test-vector tests
-        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native-no-agave' }}
+        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate

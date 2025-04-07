@@ -18,9 +18,6 @@
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
 
-extern uchar const fdctl_default_firedancer_config[];
-extern ulong const fdctl_default_firedancer_config_sz;
-
 /* FD_TOML_POD_SZ sets the buffer size of the fd_pod that will hold the
    parsed config file content.
 
@@ -204,15 +201,19 @@ fdctl_cfg_load_file( config_t *   out,
 }
 
 void
-fdctl_cfg_from_env( int *      pargc,
-                    char ***   pargv,
-                    config_t * config ) {
+fdctl_cfg_from_env( int *        pargc,
+                    char ***     pargv,
+                    config_t *   config,
+                    char const * default_config1,
+                    ulong        default_config1_sz,
+                    char const * default_config2,
+                    ulong        default_config2_sz ) {
 
   memset( config, 0, sizeof(config_t) );
-  fdctl_cfg_load_buf( config, (char const *)fdctl_default_config, fdctl_default_config_sz, "default" );
-#if FD_HAS_NO_AGAVE
-  fdctl_cfg_load_buf( config, (char const *)fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, "default_firedancer" );
-#endif
+  fdctl_cfg_load_buf( config, default_config1, default_config1_sz, "default1" );
+  if( FD_LIKELY( default_config2 ) ) {
+    fdctl_cfg_load_buf( config, default_config2, default_config2_sz, "default2" );
+  }
 
   const char * user_config = fd_env_strip_cmdline_cstr(
       pargc,
@@ -339,15 +340,16 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.identity_path, "{name}", config->name );
   }
 
-#if FD_HAS_NO_AGAVE
-  if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
-    FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
-                                   sizeof(config->consensus.vote_account_path),
-                                   NULL,
-                                   "%s/vote-account.json",
-                                   config->scratch_directory ) );
+  if( FD_LIKELY( config->topo.firedancer ) ) {
+    if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
+      FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
+                                    sizeof(config->consensus.vote_account_path),
+                                    NULL,
+                                    "%s/vote-account.json",
+                                    config->scratch_directory ) );
+    }
   }
-#endif
+
   replace( config->consensus.vote_account_path, "{user}", config->user );
   replace( config->consensus.vote_account_path, "{name}", config->name );
 
@@ -358,8 +360,7 @@ fdctl_cfg_from_env( int *      pargc,
 
   strcpy( config->cluster, fd_genesis_cluster_name( cluster ) );
 
-#if FD_HAS_NO_AGAVE
-  if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
+  if( FD_UNLIKELY( config->topo.firedancer && config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
                  "missing consensus critical functionality. Joining a live Solana "
@@ -367,7 +368,6 @@ fdctl_cfg_from_env( int *      pargc,
                  "can start against the testnet cluster by specifying the testnet "
                  "entrypoints from https://docs.solana.com/clusters under "
                  "[gossip.entrypoints] in your configuration file.", fd_genesis_cluster_name( cluster ) ));
-#endif /* FD_HAS_NO_AGAVE */
 
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )

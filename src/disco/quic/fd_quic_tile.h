@@ -3,8 +3,11 @@
 
 #include "fd_tpu.h"
 #include "../stem/fd_stem.h"
+#include "../topo/fd_topo.h"
 #include "../net/fd_net_tile.h"
 #include "../../waltz/quic/fd_quic.h"
+
+extern fd_topo_run_tile_t fd_tile_quic;
 
 typedef struct {
   fd_tpu_reasm_t * reasm;
