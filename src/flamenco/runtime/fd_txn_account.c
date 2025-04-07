@@ -23,8 +23,8 @@ fd_txn_account_init( void * ptr ) {
   ret->data_              = NULL;
   ret->meta_gaddr         = 0UL;
   ret->data_gaddr         = 0UL;
-  ret->starting_dlen      = ULONG_MAX;
-  ret->starting_lamports  = ULONG_MAX;
+  ret->starting_dlen_      = ULONG_MAX;
+  ret->starting_lamports_  = ULONG_MAX;
 
   /* TODO: should this be defaulting to readonly or writable? */
   ret->vt                = &fd_txn_account_writable_vtable;
@@ -43,12 +43,12 @@ fd_txn_account_setup_common( fd_txn_account_t * acct ) {
   fd_account_meta_t const * meta = acct->const_meta_ ?
                                    acct->const_meta_ : acct->meta_;
 
-  if( ULONG_MAX == acct->starting_dlen ) {
-    acct->starting_dlen = meta->dlen;
+  if( ULONG_MAX == acct->starting_dlen_ ) {
+    acct->starting_dlen_ = meta->dlen;
   }
 
-  if( ULONG_MAX == acct->starting_lamports ) {
-    acct->starting_lamports = meta->info.lamports;
+  if( ULONG_MAX == acct->starting_lamports_ ) {
+    acct->starting_lamports_ = meta->info.lamports;
   }
 }
 
@@ -81,8 +81,8 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
   sentinel->magic           = FD_ACCOUNT_META_MAGIC;
   sentinel->info.rent_epoch = ULONG_MAX;
   acct->const_meta_          = sentinel;
-  acct->starting_lamports   = 0UL;
-  acct->starting_dlen       = 0UL;
+  acct->starting_lamports_   = 0UL;
+  acct->starting_dlen_       = 0UL;
   acct->meta_gaddr          = fd_wksp_gaddr( spad_wksp, sentinel );
 }
 

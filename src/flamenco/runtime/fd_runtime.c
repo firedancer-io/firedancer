@@ -819,7 +819,8 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
 
   for (ulong idx = 0; idx < acct_cnt; idx++) {
     fd_txn_account_t const * acct = &txn_ctx->accounts[idx];
-    ulong                    pre  = ( acct->starting_lamports == ULONG_MAX ? 0UL : acct->starting_lamports );
+    ulong                    pre  = ( acct->vt->get_starting_lamports( acct ) == ULONG_MAX ? 0UL :
+                                                                                             acct->vt->get_starting_lamports( acct ) );
 
     pre_balances[idx]  = pre;
     post_balances[idx] = ( acct->vt->is_mutable( acct ) || acct->vt->is_readonly( acct ) ?
@@ -920,8 +921,10 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
   ulong tot_meta_sz = 2*sizeof(ulong);
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
     /* Prebalance compensation */
-    fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-    txn_ctx->accounts[0].starting_lamports += (txn_ctx->execution_fee + txn_ctx->priority_fee);
+    fd_exec_txn_ctx_t * txn_ctx               = task_info[txn_idx].txn_ctx;
+    fd_txn_account_t *  acc                   = &txn_ctx->accounts[0];
+    ulong               new_starting_lamports = acc->vt->get_starting_lamports( acc ) + (txn_ctx->execution_fee + txn_ctx->priority_fee);
+    acc->vt->set_starting_lamports( acc, new_starting_lamports );
     /* Get the size without the copy */
     tot_meta_sz += fd_txn_copy_meta( txn_ctx, NULL, 0 );
   }

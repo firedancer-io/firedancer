@@ -71,7 +71,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   rec->vt->set_executable( rec, 0 );
   rec->vt->set_rent_epoch( rec, 0UL );
   rec->vt->set_data_len( rec, serialized_sz );
-  rec->starting_lamports     = 0UL;
+  rec->vt->set_starting_lamports( rec, 0UL );
 
   uchar * serialized_instructions = rec->vt->get_data_mut( rec );
   ulong offset = 0;

@@ -190,8 +190,8 @@ _load_account( fd_txn_account_t *                acc,
     acc->vt->set_data( acc, state->data->bytes, size );
   }
 
-  acc->starting_lamports     = state->lamports;
-  acc->starting_dlen         = size;
+  acc->vt->set_starting_lamports( acc, state->lamports );
+  acc->vt->set_starting_data_len( acc, size );
   acc->vt->set_lamports( acc, state->lamports );
   acc->vt->set_executable( acc, state->executable );
   acc->vt->set_rent_epoch( acc, state->rent_epoch );
@@ -521,8 +521,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     if (meta == NULL) {
       static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
       acc->vt->set_meta_readonly( acc, &sentinel );
-      accts[i].starting_lamports = 0UL;
-      accts[i].starting_dlen     = 0UL;
+      acc->vt->set_starting_lamports( acc, 0UL );
+      acc->vt->set_starting_data_len( acc, 0UL );
       continue;
     }
 

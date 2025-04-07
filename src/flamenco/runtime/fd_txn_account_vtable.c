@@ -79,6 +79,16 @@ fd_txn_account_get_hash( fd_txn_account_t const * acct ) {
   return (fd_hash_t const *)acct->const_meta_->hash;
 }
 
+ulong
+fd_txn_account_get_starting_lamports( fd_txn_account_t const * acct ) {
+  return acct->starting_lamports_;
+}
+
+ulong
+fd_txn_account_get_starting_data_len( fd_txn_account_t const * acct ) {
+  return acct->starting_dlen_;
+}
+
 void
 fd_txn_account_set_executable_writable( fd_txn_account_t * acct, int is_executable ) {
   if( FD_UNLIKELY( !acct->meta_ ) ) FD_LOG_ERR(("account is not mutable" ));
@@ -176,6 +186,18 @@ void
 fd_txn_account_set_pubkey_writable( fd_txn_account_t *  acct,
                                     fd_pubkey_t const * pubkey ) {
   fd_memcpy( acct->pubkey_->key, pubkey, sizeof(fd_pubkey_t) );
+}
+
+void
+fd_txn_account_set_starting_lamports( fd_txn_account_t * acct,
+                                      ulong starting_lamports ) {
+  acct->starting_lamports_ = starting_lamports;
+}
+
+void
+fd_txn_account_set_starting_data_len( fd_txn_account_t * acct,
+                                      ulong starting_data_len ) {
+  acct->starting_dlen_ = starting_data_len;
 }
 
 void
@@ -338,91 +360,99 @@ FD_PROTOTYPES_END
 
 const fd_txn_account_vtable_t
 fd_txn_account_readonly_vtable = {
-  .get_meta             = fd_txn_account_get_acc_meta,
-  .get_data             = fd_txn_account_get_acc_data,
-  .get_rec              = fd_txn_account_get_acc_rec,
+  .get_meta              = fd_txn_account_get_acc_meta,
+  .get_data              = fd_txn_account_get_acc_data,
+  .get_rec               = fd_txn_account_get_acc_rec,
 
-  .get_data_mut         = fd_txn_account_get_acc_data_mut_readonly,
+  .get_data_mut          = fd_txn_account_get_acc_data_mut_readonly,
 
-  .set_meta_readonly    = fd_txn_account_set_meta_readonly,
-  .set_meta_mutable     = fd_txn_account_set_meta_mutable_readonly,
+  .set_meta_readonly     = fd_txn_account_set_meta_readonly,
+  .set_meta_mutable      = fd_txn_account_set_meta_mutable_readonly,
 
-  .get_pubkey           = fd_txn_account_get_pubkey,
-  .get_pubkey_unsafe    = fd_txn_account_get_pubkey_unsafe,
-  .get_data_len         = fd_txn_account_get_data_len,
-  .is_executable        = fd_txn_account_is_executable,
-  .get_owner            = fd_txn_account_get_owner,
-  .get_lamports         = fd_txn_account_get_lamports,
-  .get_rent_epoch       = fd_txn_account_get_rent_epoch,
-  .get_hash             = fd_txn_account_get_hash,
+  .get_pubkey            = fd_txn_account_get_pubkey,
+  .get_pubkey_unsafe     = fd_txn_account_get_pubkey_unsafe,
+  .get_data_len          = fd_txn_account_get_data_len,
+  .is_executable         = fd_txn_account_is_executable,
+  .get_owner             = fd_txn_account_get_owner,
+  .get_lamports          = fd_txn_account_get_lamports,
+  .get_rent_epoch        = fd_txn_account_get_rent_epoch,
+  .get_hash              = fd_txn_account_get_hash,
+  .get_starting_lamports = fd_txn_account_get_starting_lamports,
+  .get_starting_data_len = fd_txn_account_get_starting_data_len,
 
-  .set_executable       = fd_txn_account_set_executable_readonly,
-  .set_owner            = fd_txn_account_set_owner_readonly,
-  .set_lamports         = fd_txn_account_set_lamports_readonly,
-  .checked_add_lamports = fd_txn_account_checked_add_lamports_readonly,
-  .checked_sub_lamports = fd_txn_account_checked_sub_lamports_readonly,
-  .set_rent_epoch       = fd_txn_account_set_rent_epoch_readonly,
-  .set_data             = fd_txn_account_set_data_readonly,
-  .set_data_len         = fd_txn_account_set_data_len_readonly,
-  .set_slot             = fd_txn_account_set_slot_readonly,
-  .set_hash             = fd_txn_account_set_hash_readonly,
-  .clear_owner          = fd_txn_account_clear_owner_readonly,
-  .set_info             = fd_txn_account_set_meta_info_readonly,
-  .set_pubkey           = fd_txn_account_set_pubkey_readonly,
-  .resize               = fd_txn_account_resize_readonly,
+  .set_executable        = fd_txn_account_set_executable_readonly,
+  .set_owner             = fd_txn_account_set_owner_readonly,
+  .set_lamports          = fd_txn_account_set_lamports_readonly,
+  .checked_add_lamports  = fd_txn_account_checked_add_lamports_readonly,
+  .checked_sub_lamports  = fd_txn_account_checked_sub_lamports_readonly,
+  .set_rent_epoch        = fd_txn_account_set_rent_epoch_readonly,
+  .set_data              = fd_txn_account_set_data_readonly,
+  .set_data_len          = fd_txn_account_set_data_len_readonly,
+  .set_slot              = fd_txn_account_set_slot_readonly,
+  .set_hash              = fd_txn_account_set_hash_readonly,
+  .clear_owner           = fd_txn_account_clear_owner_readonly,
+  .set_info              = fd_txn_account_set_meta_info_readonly,
+  .set_pubkey            = fd_txn_account_set_pubkey_readonly,
+  .set_starting_lamports = fd_txn_account_set_starting_lamports,
+  .set_starting_data_len = fd_txn_account_set_starting_data_len,
+  .resize                = fd_txn_account_resize_readonly,
 
-  .is_borrowed          = fd_txn_account_is_borrowed,
-  .is_mutable           = fd_txn_account_is_mutable,
+  .is_borrowed           = fd_txn_account_is_borrowed,
+  .is_mutable            = fd_txn_account_is_mutable,
 
-  .try_borrow_mut       = fd_txn_account_try_borrow_mut,
-  .drop                 = fd_txn_account_drop,
+  .try_borrow_mut        = fd_txn_account_try_borrow_mut,
+  .drop                  = fd_txn_account_drop,
 
-  .set_readonly         = fd_txn_account_set_readonly,
-  .set_mutable          = fd_txn_account_set_mutable
+  .set_readonly          = fd_txn_account_set_readonly,
+  .set_mutable           = fd_txn_account_set_mutable
 };
 
 const fd_txn_account_vtable_t
 fd_txn_account_writable_vtable = {
-  .get_meta             = fd_txn_account_get_acc_meta,
-  .get_data             = fd_txn_account_get_acc_data,
-  .get_rec              = fd_txn_account_get_acc_rec,
+  .get_meta              = fd_txn_account_get_acc_meta,
+  .get_data              = fd_txn_account_get_acc_data,
+  .get_rec               = fd_txn_account_get_acc_rec,
 
-  .get_data_mut         = fd_txn_account_get_acc_data_mut_writable,
+  .get_data_mut          = fd_txn_account_get_acc_data_mut_writable,
 
-  .set_meta_readonly    = fd_txn_account_set_meta_readonly,
-  .set_meta_mutable     = fd_txn_account_set_meta_mutable_writable,
+  .set_meta_readonly     = fd_txn_account_set_meta_readonly,
+  .set_meta_mutable      = fd_txn_account_set_meta_mutable_writable,
 
-  .get_pubkey           = fd_txn_account_get_pubkey,
-  .get_pubkey_unsafe    = fd_txn_account_get_pubkey_unsafe,
-  .get_data_len         = fd_txn_account_get_data_len,
-  .is_executable        = fd_txn_account_is_executable,
-  .get_owner            = fd_txn_account_get_owner,
-  .get_lamports         = fd_txn_account_get_lamports,
-  .get_rent_epoch       = fd_txn_account_get_rent_epoch,
-  .get_hash             = fd_txn_account_get_hash,
+  .get_pubkey            = fd_txn_account_get_pubkey,
+  .get_pubkey_unsafe     = fd_txn_account_get_pubkey_unsafe,
+  .get_data_len          = fd_txn_account_get_data_len,
+  .is_executable         = fd_txn_account_is_executable,
+  .get_owner             = fd_txn_account_get_owner,
+  .get_lamports          = fd_txn_account_get_lamports,
+  .get_rent_epoch        = fd_txn_account_get_rent_epoch,
+  .get_hash              = fd_txn_account_get_hash,
+  .get_starting_lamports = fd_txn_account_get_starting_lamports,
+  .get_starting_data_len = fd_txn_account_get_starting_data_len,
 
-  .set_executable       = fd_txn_account_set_executable_writable,
-  .set_owner            = fd_txn_account_set_owner_writable,
-  .set_lamports         = fd_txn_account_set_lamports_writable,
-  .checked_add_lamports = fd_txn_account_checked_add_lamports_writable,
-  .checked_sub_lamports = fd_txn_account_checked_sub_lamports_writable,
-  .set_rent_epoch       = fd_txn_account_set_rent_epoch_writable,
-  .set_data             = fd_txn_account_set_data_writable,
-  .set_data_len         = fd_txn_account_set_data_len_writable,
-  .set_slot             = fd_txn_account_set_slot_writable,
-  .set_hash             = fd_txn_account_set_hash_writable,
-  .clear_owner          = fd_txn_account_clear_owner_writable,
-  .set_info             = fd_txn_account_set_meta_info_writable,
-  .set_pubkey           = fd_txn_account_set_pubkey_writable,
-  .resize               = fd_txn_account_resize_writable,
+  .set_executable        = fd_txn_account_set_executable_writable,
+  .set_owner             = fd_txn_account_set_owner_writable,
+  .set_lamports          = fd_txn_account_set_lamports_writable,
+  .checked_add_lamports  = fd_txn_account_checked_add_lamports_writable,
+  .checked_sub_lamports  = fd_txn_account_checked_sub_lamports_writable,
+  .set_rent_epoch        = fd_txn_account_set_rent_epoch_writable,
+  .set_data              = fd_txn_account_set_data_writable,
+  .set_data_len          = fd_txn_account_set_data_len_writable,
+  .set_slot              = fd_txn_account_set_slot_writable,
+  .set_hash              = fd_txn_account_set_hash_writable,
+  .clear_owner           = fd_txn_account_clear_owner_writable,
+  .set_info              = fd_txn_account_set_meta_info_writable,
+  .set_pubkey            = fd_txn_account_set_pubkey_writable,
+  .set_starting_lamports = fd_txn_account_set_starting_lamports,
+  .set_starting_data_len = fd_txn_account_set_starting_data_len,
+  .resize                = fd_txn_account_resize_writable,
 
-  .is_borrowed          = fd_txn_account_is_borrowed,
-  .is_mutable           = fd_txn_account_is_mutable,
-  .is_readonly          = fd_txn_account_is_readonly,
+  .is_borrowed           = fd_txn_account_is_borrowed,
+  .is_mutable            = fd_txn_account_is_mutable,
+  .is_readonly           = fd_txn_account_is_readonly,
 
-  .try_borrow_mut       = fd_txn_account_try_borrow_mut,
-  .drop                 = fd_txn_account_drop,
+  .try_borrow_mut        = fd_txn_account_try_borrow_mut,
+  .drop                  = fd_txn_account_drop,
 
-  .set_readonly         = fd_txn_account_set_readonly,
-  .set_mutable          = fd_txn_account_set_mutable
+  .set_readonly          = fd_txn_account_set_readonly,
+  .set_mutable           = fd_txn_account_set_mutable
 };

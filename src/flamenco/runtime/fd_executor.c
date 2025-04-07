@@ -407,7 +407,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
                                                                        &txn_ctx->features,
                                                                        acct,
                                                                        epoch );
-      acct->starting_lamports = acct->vt->get_lamports( acct );
+      acct->vt->set_starting_lamports( acct, acct->vt->get_lamports( acct ) );
     }
     return;
   }
@@ -770,7 +770,7 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx, fd_txn_account_t * fee_pa
 
   ulong fee_payer_lamports = fee_payer_rec->vt->get_lamports( fee_payer_rec ) - total_fee;
   fee_payer_rec->vt->set_lamports( fee_payer_rec, fee_payer_lamports );
-  fee_payer_rec->starting_lamports    = fee_payer_rec->vt->get_lamports( fee_payer_rec );
+  fee_payer_rec->vt->set_starting_lamports( fee_payer_rec, fee_payer_rec->vt->get_lamports( fee_payer_rec ) );
 
   /* Update the fee payer's rent epoch to ULONG_MAX if it is rent exempt. */
   if( fd_should_set_exempt_rent_epoch_max( txn_ctx, fee_payer_rec ) ) {
@@ -813,7 +813,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
                                                                    &txn_ctx->features,
                                                                    fee_payer_rec,
                                                                    epoch );
-  fee_payer_rec->starting_lamports = fee_payer_rec->vt->get_lamports( fee_payer_rec );
+  fee_payer_rec->vt->set_starting_lamports( fee_payer_rec, fee_payer_rec->vt->get_lamports( fee_payer_rec ) );
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L488 */
   err = fd_executor_collect_fees( txn_ctx, fee_payer_rec );
@@ -1431,41 +1431,41 @@ fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
           // no-op
         } else {
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
-          uchar before_uninitialized = b->starting_dlen == ULONG_MAX || b->starting_lamports == 0;
-          uchar before_rent_exempt   = b->starting_dlen != ULONG_MAX && b->starting_lamports >= fd_rent_exempt_minimum_balance( rent, b->starting_dlen );
+          uchar before_uninitialized = b->vt->get_starting_data_len( b ) == ULONG_MAX || b->vt->get_starting_lamports( b ) == 0;
+          uchar before_rent_exempt   = b->vt->get_starting_data_len( b ) != ULONG_MAX && b->vt->get_starting_lamports( b ) >= fd_rent_exempt_minimum_balance( rent, b->vt->get_starting_data_len( b ) );
 
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
           if( before_uninitialized || before_rent_exempt ) {
             FD_LOG_DEBUG(( "Rent exempt error for %s Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu",
                            FD_BASE58_ENC_32_ALLOCA( b->vt->get_pubkey( b )->uc ),
                            b->vt->get_data_len( b ),
-                           b->starting_dlen,
+                           b->vt->get_starting_data_len( b ),
                            b->vt->get_lamports( b ),
-                           b->starting_lamports,
+                           b->vt->get_starting_lamports( b ),
                            fd_rent_exempt_minimum_balance( rent, b->vt->get_data_len( b ) ),
-                           fd_rent_exempt_minimum_balance( rent, b->starting_dlen ) ));
+                           fd_rent_exempt_minimum_balance( rent, b->vt->get_starting_data_len( b ) ) ));
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
-          } else if( (b->vt->get_data_len( b ) == b->starting_dlen) && b->vt->get_lamports( b ) <= b->starting_lamports ) {
+          } else if( (b->vt->get_data_len( b ) == b->vt->get_starting_data_len( b )) && b->vt->get_lamports( b ) <= b->vt->get_starting_lamports( b ) ) {
             // no-op
           } else {
             FD_LOG_DEBUG(( "Rent exempt error for %s Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu",
                            FD_BASE58_ENC_32_ALLOCA( b->vt->get_pubkey( b )->uc ),
                            b->vt->get_data_len( b ),
-                           b->starting_dlen,
+                           b->vt->get_starting_data_len( b ),
                            b->vt->get_lamports( b ),
-                           b->starting_lamports,
+                           b->vt->get_starting_lamports( b ),
                            fd_rent_exempt_minimum_balance( rent, b->vt->get_data_len( b ) ),
-                           fd_rent_exempt_minimum_balance( rent, b->starting_dlen ) ));
+                           fd_rent_exempt_minimum_balance( rent, b->vt->get_starting_data_len( b ) ) ));
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
           }
         }
       }
 
-      if( b->starting_lamports != ULONG_MAX ) {
-        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, b->starting_lamports );
+      if( b->vt->get_starting_lamports( b ) != ULONG_MAX ) {
+        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, b->vt->get_starting_lamports( b ) );
       }
     }
   }

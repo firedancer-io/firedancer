@@ -25,8 +25,8 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   ulong                           data_gaddr;
 
   /* consider making this a struct or removing entirely if not needed */
-  ulong                           starting_dlen;
-  ulong                           starting_lamports;
+  ulong                           starting_dlen_;
+  ulong                           starting_lamports_;
 
   /* only used when obtaining a mutable fd_txn_account_t from funk */
   fd_funk_rec_prepare_t           prepared_rec;
