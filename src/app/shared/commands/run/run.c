@@ -13,21 +13,6 @@
 #include "../../fd_file_util.h"
 #include "../../fd_net_util.h"
 
-#include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/topo/fd_pod_format.h"
-#include "../../../../disco/keyguard/fd_keyswitch.h"
-#include "../../../../waltz/xdp/fd_xdp1.h"
-#if FD_HAS_NO_AGAVE
-#include "../../../../flamenco/runtime/fd_blockstore.h"
-#include "../../../../flamenco/runtime/fd_txncache.h"
-#include "../../../../flamenco/runtime/fd_runtime.h"
-#include "../../../../flamenco/runtime/fd_runtime_public.h"
-#endif
-#include "../../../../funk/fd_funk.h"
-#include "../../../../waltz/ip/fd_fib4.h"
-#include "../../../../waltz/mib/fd_dbl_buf.h"
-#undef FD_MAP_FLAG_BLOCKING
-#include "../../../../waltz/neigh/fd_neigh4_map.h"
 #include "../configure/configure.h"
 
 #include <dirent.h>
@@ -46,6 +31,8 @@
 #include <linux/unistd.h>
 
 #include "../../../../util/tile/fd_tile_private.h"
+
+extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
 #define NAME "run"
 
@@ -278,7 +265,7 @@ main_pid_namespace( void * _args ) {
   }
 
   ulong child_cnt = 0UL;
-  if( FD_LIKELY( !config->development.no_agave ) ) {
+  if( FD_LIKELY( !config->topo.firedancer && !config->development.no_agave ) ) {
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
@@ -415,7 +402,7 @@ main_pid_namespace( void * _args ) {
 
         char * tile_name = child_names[ i ];
         ulong  tile_idx = 0UL;
-        if( FD_LIKELY( i>0UL ) ) tile_idx = config->development.no_agave ? i : i-1UL;
+        if( FD_LIKELY( i>0UL ) ) tile_idx = (!config->topo.firedancer && config->development.no_agave) ? i : i-1UL;
         ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
         /* Child process died, reap it to figure out exit code. */
@@ -546,58 +533,6 @@ warn_unknown_files( config_t const * config,
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
 }
 
-static void
-fdctl_obj_new( fd_topo_t const *     topo,
-               fd_topo_obj_t const * obj ) {
-  #define VAL(name) (__extension__({                                                               \
-      ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
-      if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
-      __x; }))
-
-  void * laddr = fd_topo_obj_laddr( topo, obj->id );
-
-  if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
-    /* No need to do anything, tiles don't have a new. */
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "mcache" ) ) ) {
-    FD_TEST( fd_mcache_new( laddr, VAL("depth"), 0UL, 0UL ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "dcache" ) ) ) {
-    FD_TEST( fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
-    FD_TEST( fd_cnc_new( laddr, 0UL, 0, fd_tickcount() ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
-    FD_TEST( fd_fseq_new( laddr, ULONG_MAX ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
-    FD_TEST( fd_metrics_new( laddr, VAL("in_cnt"), VAL("cons_cnt") ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "opaque" ) ) ) {
-    fd_memset( laddr, 0, VAL("footprint") );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
-    *(ulong*)laddr = 0;
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
-    FD_TEST( fd_dbl_buf_new( laddr, VAL("mtu"), 1UL ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) )  {
-    FD_TEST( fd_neigh4_hmap_new( laddr, VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max"), VAL("seed") ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
-    FD_TEST( fd_fib4_new( laddr, VAL("route_max") ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
-    FD_TEST( fd_keyswitch_new( laddr, FD_KEYSWITCH_STATE_UNLOCKED ) );
-#if FD_HAS_NO_AGAVE
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "runtime_pub" ) ) ) {
-    FD_TEST( fd_runtime_public_new( laddr ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "exec_spad" ) ) ) {
-    FD_TEST( fd_spad_new( laddr, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-#endif /* FD_HAS_NO_AGAVE */
-  } else {
-    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
-  }
-#undef VAL
-}
-
 void
 initialize_workspaces( config_t * config ) {
   /* Switch to non-root uid/gid for workspace creation.  Permissions
@@ -657,7 +592,7 @@ initialize_workspaces( config_t * config ) {
                    wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
     }
     fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topo_wksp_apply( &config->topo, wksp, fdctl_obj_new );
+    fd_topo_wksp_new( &config->topo, wksp, CALLBACKS );
     fd_topo_leave_workspace( &config->topo, wksp );
   }
 
@@ -934,3 +869,28 @@ run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   run_firedancer( config, -1, 1 );
 }
+
+action_t fd_action_run1 = {
+  .name        = "run1",
+  .args        = run1_cmd_args,
+  .fn          = run1_cmd_fn,
+  .perm        = NULL,
+  .description = "Start up a single Firedancer tile"
+};
+
+action_t fd_action_run = {
+  .name           = "run",
+  .args           = NULL,
+  .fn             = run_cmd_fn,
+  .perm           = run_cmd_perm,
+  .description    = "Start up a Firedancer validator",
+  .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
+                    "to start Firedancer as the root user, but you can also start it "
+                    "with the missing capabilities listed above. The program only needs "
+                    "to start with elevated permissions to do privileged operations at "
+                    "boot, and will immediately drop permissions and switch to the user "
+                    "specified in your configuration file once they are complete. Firedancer "
+                    "will not execute outside of the boot process as root, and will refuse "
+                    "to start if it cannot drop privileges. Firedancer needs to be started "
+                    "privileged to configure high performance networking with XDP.",
+};

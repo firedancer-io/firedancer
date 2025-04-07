@@ -42,3 +42,11 @@ ready_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_topo_leave_workspaces( &config->topo );
   FD_LOG_NOTICE(( "all tiles ready" ));
 }
+
+action_t fd_action_ready = {
+  .name        = "ready",
+  .args        = NULL,
+  .fn          = ready_cmd_fn,
+  .perm        = NULL,
+  .description = "Wait for all tiles to be running",
+};

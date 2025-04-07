@@ -12,8 +12,8 @@ mkdir -p $TMPDIR
 cd $TMPDIR
 
 cleanup() {
-  sudo killall fddev || true
-  fddev configure fini all >/dev/null 2>&1 || true
+  sudo killall firedancer-dev || true
+  firedancer-dev configure fini all >/dev/null 2>&1 || true
   # rm -rf "$TMPDIR"
 }
 
@@ -44,10 +44,10 @@ is_ip() {
 }
 
 trap cleanup EXIT SIGINT SIGTERM
-sudo killall fddev || true
+sudo killall firedancer-dev || true
 
-# if fddev is not on path then use the one in the home directory
-if ! command -v fddev > /dev/null; then
+# if firedancer-dev is not on path then use the one in the home directory
+if ! command -v firedancer-dev > /dev/null; then
   PATH="$FD_DIR/build/native/gcc/bin":$PATH
 fi
 
@@ -85,11 +85,11 @@ echo "
     expected_shred_version = 50093
     vote_account_path = \"/home/$USER/.firedancer/fd1/vote-account.json\"
 [log]
-  path = \"fddev.log\"
+  path = \"firedancer-dev.log\"
   level_stderr = \"NOTICE\"
 [development]
     topology = \"firedancer\"
-" > fddev.toml
+" > firedancer-dev.toml
 
 # JOB_URL is potentially set by the github workflow
 # This will be written to a file so that we can link the files in the google cloud bucket back to the github run.
@@ -98,5 +98,5 @@ if [ -n "${JOB_URL-}" ]; then
   echo "$JOB_URL" > github_job_url.txt
 fi
 
-fddev configure fini all
-fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-sandbox --no-clone --no-agave
+firedancer-dev configure fini all
+firedancer-dev --log-path $(readlink -f firedancer-dev.log) --config $(readlink -f firedancer-dev.toml)

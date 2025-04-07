@@ -7,6 +7,8 @@
 #define FD_TXN_VERIFY_FAILED  -1
 #define FD_TXN_VERIFY_DEDUP   -2
 
+extern fd_topo_run_tile_t fd_tile_verify;
+
 /* fd_verify_in_ctx_t is a context object for each in (producer) mcache
    connected to the verify tile. */
 

@@ -1,8 +1,5 @@
 #include "fd_config_parse.h"
 
-FD_IMPORT_BINARY( fdctl_default_config, "src/app/fdctl/config/default.toml" );
-FD_IMPORT_BINARY( fdctl_default_firedancer_config, "src/app/fdctl/config/default-firedancer.toml" );
-
 /* Pod query utils ****************************************************/
 
 static int

@@ -26,3 +26,11 @@ wksp_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   initialize_workspaces( config );
   fd_sys_util_exit_group( 0 );
 }
+
+action_t fd_action_wksp = {
+  .name = "wksp",
+  .args = NULL,
+  .fn   = wksp_cmd_fn,
+  .perm = wksp_cmd_perm,
+  .description = "Initialize workspaces"
+};

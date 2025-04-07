@@ -125,13 +125,18 @@ fd_topo_create_workspace( fd_topo_t *      topo,
 }
 
 void
-fd_topo_wksp_apply( fd_topo_t const *      topo,
-                    fd_topo_wksp_t const * wksp,
-                    void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) ) {
+fd_topo_wksp_new( fd_topo_t const *          topo,
+                  fd_topo_wksp_t const *     wksp,
+                  fd_topo_obj_callbacks_t ** callbacks ) {
   for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
     fd_topo_obj_t const * obj = &topo->objs[ i ];
     if( FD_LIKELY( obj->wksp_id!=wksp->id ) ) continue;
-    fn( topo, obj );
+
+    for( ulong j=0UL; callbacks[ j ]; j++ ) {
+      if( FD_LIKELY( strcmp( callbacks[ j ]->name, obj->name ) ) ) continue;
+      if( FD_LIKELY( callbacks[ j ]->new ) ) callbacks[ j ]->new( topo, obj );
+      break;
+    }
   }
 }
 
@@ -376,8 +381,7 @@ fd_topo_print_log( int         stdout,
     PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
   }
 
-# if !FD_HAS_NO_AGAVE
-  if( topo->agave_affinity_cnt > 0 ) {
+  if( FD_UNLIKELY( topo->agave_affinity_cnt>0UL ) ) {
     char agave_affinity[4096];
     ulong offset = 0UL;
     for ( ulong i = 0UL; i < topo->agave_affinity_cnt; i++ ) {
@@ -388,7 +392,6 @@ fd_topo_print_log( int         stdout,
     }
     PRINT( "  %23s: %s\n", "Agave Affinity", agave_affinity );
   }
-# endif
 
   PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {

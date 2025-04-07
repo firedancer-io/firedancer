@@ -455,7 +455,7 @@ unprivileged_init( fd_topo_t *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_poh_int = {
+fd_topo_run_tile_t fd_tile_pohi = {
   .name                     = "pohi",
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,

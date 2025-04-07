@@ -26,9 +26,9 @@ rm -f $BLOCK_FILE
 # FIXME: after Agave releases wen-restart in v2.2.*, and FD suppors v2.2.*, we should change this
 CLUSTER_VERSION=2.0.3
 
-# Compile fddev and cleanup memory
-EXTRAS=no-agave make -j fddev
-sudo ./build/native/gcc/bin/fddev configure fini all || true
+# Compile firedancer-dev and cleanup memory
+make -j firedancer-dev
+sudo ./build/native/gcc/bin/firedancer-dev configure fini all || true
 
 # Write the toml config to wen_restart.toml
 echo "
@@ -76,4 +76,4 @@ echo "
     file = \"$BLOCK_FILE\"
 " > wen_restart.toml
 
-sudo gdb --args build/native/gcc/bin/fddev dev --no-solana --no-clone --no-sandbox --config wen_restart.toml
+sudo gdb --args build/native/gcc/bin/firedancer-dev dev --config wen_restart.toml

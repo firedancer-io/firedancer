@@ -8,7 +8,6 @@
 
 #include "../../ballet/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
-#include "../../app/fdctl/version.h"
 
 static void
 jsonp_strip_trailing_comma( fd_gui_t * gui ) {

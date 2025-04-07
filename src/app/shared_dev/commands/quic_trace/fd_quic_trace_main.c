@@ -143,3 +143,11 @@ quic_trace_cmd_fn( args_t *   args,
 
   fd_quic_log_rx_leave( log_rx );
 }
+
+action_t fd_action_quic_trace = {
+  .name          = "quic-trace",
+  .args          = quic_trace_cmd_args,
+  .fn            = quic_trace_cmd_fn,
+  .description   = "Trace quic tile",
+  .is_diagnostic = 1
+};

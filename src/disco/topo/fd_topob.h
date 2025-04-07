@@ -141,10 +141,8 @@ fd_topob_auto_layout( fd_topo_t * topo );
    This must be called to finish creating the topology. */
 
 void
-fd_topob_finish( fd_topo_t * topo,
-                 ulong (* align    )( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
-                 ulong (* footprint)( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
-                 ulong (* loose    )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) );
+fd_topob_finish( fd_topo_t *                topo,
+                 fd_topo_obj_callbacks_t ** callbacks );
 
 FD_PROTOTYPES_END
 

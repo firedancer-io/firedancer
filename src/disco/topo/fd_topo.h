@@ -443,10 +443,9 @@ struct fd_topo {
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
 
+  int            firedancer;
   ulong          agave_affinity_cnt;
-# if !FD_HAS_NO_AGAVE
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
-# endif
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
@@ -473,6 +472,16 @@ typedef struct {
   void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile );
   ulong (*rlimit_file_cnt_fn      )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
 } fd_topo_run_tile_t;
+
+struct fd_topo_obj_callbacks {
+  char const * name;
+  ulong (* footprint )( fd_topo_t const * topo, fd_topo_obj_t const * obj );
+  ulong (* align     )( fd_topo_t const * topo, fd_topo_obj_t const * obj );
+  ulong (* loose     )( fd_topo_t const * topo, fd_topo_obj_t const * obj );
+  void  (* new       )( fd_topo_t const * topo, fd_topo_obj_t const * obj );
+};
+
+typedef struct fd_topo_obj_callbacks fd_topo_obj_callbacks_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -701,13 +710,13 @@ void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp );
 
-/* Apply a function to every object that is resident in the given
+/* Apply a new function to every object that is resident in the given
    workspace in the topology. */
 
 void
-fd_topo_wksp_apply( fd_topo_t const *      topo,
-                    fd_topo_wksp_t const * wksp,
-                    void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) );
+fd_topo_wksp_new( fd_topo_t const *          topo,
+                  fd_topo_wksp_t const *     wksp,
+                  fd_topo_obj_callbacks_t ** callbacks );
 
 /* Same as fd_topo_fill_tile but fills in all tiles in the topology. */
 

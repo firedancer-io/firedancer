@@ -220,3 +220,11 @@ txn_cmd_fn( args_t *   args,
   send_quic_transactions( quic, udpsock, args->txn.count, dst_ip, dst_port, pkt );
   fd_sys_util_exit_group( 0 );
 }
+
+action_t fd_action_txn = {
+  .name = "txn",
+  .args = txn_cmd_args,
+  .fn   = txn_cmd_fn,
+  .perm = txn_cmd_perm,
+  .description = "Send a transaction to an fddev instance"
+};

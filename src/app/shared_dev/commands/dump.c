@@ -107,3 +107,12 @@ dump_cmd_fn( args_t *   args,
   fclose( out );
   fd_topo_leave_workspaces( &config->topo );
 }
+
+action_t fd_action_dump = {
+  .name          = "dump",
+  .args          = dump_cmd_args,
+  .fn            = dump_cmd_fn,
+  .perm          = NULL,
+  .description   = "Dump tango links to a packet capture file",
+  .is_diagnostic = 1
+};

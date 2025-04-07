@@ -40,7 +40,7 @@ dev_cmd_perm( args_t *         args,
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,
     };
-    for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
+    for( ulong i=0UL; STAGES[ i ]; i++ )
       configure_args.configure.stages[ i ] = STAGES[ i ];
     configure_cmd_perm( &configure_args, chk, config );
   }
@@ -149,21 +149,13 @@ update_config_for_dev( config_t * config ) {
   }
 }
 
-#if !FD_HAS_NO_AGAVE
-
-static void *
-agave_main1( void * args ) {
-  agave_boot( args );
-  return NULL;
-}
-
-#endif
-
 /* Run Firedancer entirely in a single process for development and
    debugging convenience. */
 
 static void
-run_firedancer_threaded( config_t * config , int init_workspaces) {
+run_firedancer_threaded( config_t * config,
+                         int        init_workspaces,
+                         void ( * agave_main )( config_t const * ) ) {
   install_parent_signals();
 
   fd_topo_print_log( 0, &config->topo );
@@ -188,13 +180,9 @@ run_firedancer_threaded( config_t * config , int init_workspaces) {
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
-#if !FD_HAS_NO_AGAVE
-  if( FD_LIKELY( !config->development.no_agave ) ) {
-    pthread_t pthread;
-    if( FD_UNLIKELY( pthread_create( &pthread, NULL, agave_main1, config ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( pthread_setname_np( pthread, "fdSolMain" ) ) ) FD_LOG_ERR(( "pthread_setname_np() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( agave_main && !config->development.no_agave ) ) {
+    agave_main( config );
   }
-#endif
 
   /* None of the threads will ever exit, they just abort the process, so sleep forever. */
   for(;;) pause();
@@ -202,12 +190,13 @@ run_firedancer_threaded( config_t * config , int init_workspaces) {
 
 void
 dev_cmd_fn( args_t *   args,
-            config_t * config ) {
+            config_t * config,
+            void ( * agave_main )( config_t const * ) ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,
     };
-    for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
+    for( ulong i=0UL; STAGES[ i ]; i++ )
       configure_args.configure.stages[ i ] = STAGES[ i ];
     configure_cmd_fn( &configure_args, config );
   }
@@ -233,7 +222,7 @@ dev_cmd_fn( args_t *   args,
 
   if( FD_LIKELY( !args->dev.monitor ) ) {
     if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
-    else                                             run_firedancer_threaded( config , !args->dev.no_init_workspaces);
+    else                                             run_firedancer_threaded( config , !args->dev.no_init_workspaces, agave_main );
   } else {
     install_parent_signals();
 
@@ -249,7 +238,7 @@ dev_cmd_fn( args_t *   args,
       if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", "always", 1 ) ) ) /* otherwise RUST_LOG will not be colorized to the pipe */
         FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1, 0 );
-      else                                             run_firedancer_threaded( config , 0);
+      else                                             run_firedancer_threaded( config , 0, agave_main );
     } else {
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }

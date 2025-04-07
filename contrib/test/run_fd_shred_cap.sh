@@ -15,13 +15,13 @@ FD_DIR="$SCRIPT_DIR/../.."
 OBJDIR=${OBJDIR:-build/native/${CC}}
 
 cleanup() {
-  sudo killall fddev || true
-  sudo $FD_DIR/$OBJDIR/bin/fddev configure fini all   --config "$(readlink -f "$TOML")"  || true
+  sudo killall firedancer-dev || true
+  sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure fini all --config "$(readlink -f "$TOML")"  || true
   exit $status
 }
 
 trap cleanup EXIT SIGINT SIGTERM
-sudo killall fddev || true
+sudo killall firedancer-dev || true
 
 # check to make sure theres 120 GB of space in the data directory
 if [ "$(df -k --output=avail $DATA_DIR | tail -n1)" -lt 120000000 ]; then
@@ -120,16 +120,13 @@ echo "
     level_logfile = \"NOTICE\"
 " > $TOML
 
-sudo $FD_DIR/$OBJDIR/bin/fddev configure fini all
-sudo $FD_DIR/$OBJDIR/bin/fddev configure init all
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure fini all
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init all
 
 set -x
 
-timeout 6m $FD_DIR/$OBJDIR/bin/fddev dev \
-  --config "$(readlink -f "$TOML")" \
-  --no-sandbox \
-  --no-clone \
-  --no-agave
+timeout 6m $FD_DIR/$OBJDIR/bin/firedancer-dev dev \
+  --config "$(readlink -f "$TOML")"
 
 status=$?
 

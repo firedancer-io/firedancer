@@ -18,7 +18,7 @@ jobs:
           compiler: clang
           machine: linux_clang_x86_64
           compiler-version: 15.0.6
-          extras: rpath no-agave
+          extras: rpath
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: ${{ matrix.extras || '' }}
@@ -42,7 +42,7 @@ jobs:
           machine: ${{ matrix.machine }}
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-        if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
+        if: ${{ contains(matrix.targets, 'fdctl') }}
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:

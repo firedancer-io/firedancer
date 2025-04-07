@@ -10,7 +10,6 @@ jobs:
     runs-on: [self-hosted, 512G]
     env:
       CC: gcc
-      EXTRAS: no-agave
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +26,7 @@ jobs:
 
       - name: build
         run: |
-          ./contrib/make-j fddev all
+          ./contrib/make-j all
       - name: test firedancer - testnet
         run: |
           sudo prlimit --pid=$$ --nofile=1048576

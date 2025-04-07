@@ -182,3 +182,12 @@ flame_cmd_fn( args_t *   args,
 
   fd_sys_util_exit_group( 0 );
 }
+
+action_t fd_action_flame = {
+  .name          = "flame",
+  .args          = flame_cmd_args,
+  .fn            = flame_cmd_fn,
+  .perm          = flame_cmd_perm,
+  .description   = "Capture a perf flamegraph",
+  .is_diagnostic = 1
+};

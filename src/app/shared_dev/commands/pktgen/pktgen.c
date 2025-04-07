@@ -1,3 +1,4 @@
+#include "../dev.h"
 #include "../../../shared/commands/configure/configure.h" /* CONFIGURE_CMD_INIT */
 #include "../../../shared/commands/run/run.h" /* fdctl_check_configure */
 #include "../../../../disco/net/fd_net_tile.h"
@@ -12,17 +13,7 @@
 #include <sys/ioctl.h>
 #include <poll.h>
 
-ulong
-fdctl_obj_align( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj );
-
-ulong
-fdctl_obj_footprint( fd_topo_t const *     topo,
-                     fd_topo_obj_t const * obj );
-
-ulong
-fdctl_obj_loose( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj );
+extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
@@ -83,7 +74,7 @@ pktgen_topo( config_t * config ) {
   fd_topos_net_tile_finish( topo, 0UL );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo );
   topo->agave_affinity_cnt = 0;
-  fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
+  fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
 }
 
@@ -294,3 +285,11 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   }
   puts( "Exiting" );
 }
+
+action_t fd_action_pktgen = {
+  .name        = "pktgen",
+  .args        = pktgen_cmd_args,
+  .fn          = pktgen_cmd_fn,
+  .perm        = dev_cmd_perm,
+  .description = "Flood interface with invalid Ethernet frames"
+};

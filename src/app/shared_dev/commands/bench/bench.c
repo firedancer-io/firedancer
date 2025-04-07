@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "../dev.h"
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 
@@ -19,17 +20,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-ulong
-fdctl_obj_align( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj );
-
-ulong
-fdctl_obj_footprint( fd_topo_t const *     topo,
-                     fd_topo_obj_t const * obj );
-
-ulong
-fdctl_obj_loose( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj );
+extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
@@ -43,18 +34,6 @@ bench_cmd_args( int *    pargc,
                 args_t * args ) {
   args->load.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
 }
-
-#if !FD_HAS_NO_AGAVE
-static void *
-agave_thread_main( void * _args ) {
-  config_t * config = _args;
-  agave_boot( config );
-
-  /* Agave will never exit, we never set exit flag to true */
-  FD_LOG_ERR(( "agave_boot() exited" ));
-  return NULL;
-}
-#endif
 
 void
 add_bench_topo( fd_topo_t  * topo,
@@ -137,7 +116,7 @@ add_bench_topo( fd_topo_t  * topo,
 
   /* This will blow away previous auto topology layouts and recompute an auto topology. */
   if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo );
-  fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
+  fd_topob_finish( topo, CALLBACKS );
 }
 
 extern int * fd_log_private_shared_lock;
@@ -179,7 +158,7 @@ bench_cmd_fn( args_t *   args,
     .configure.command = CONFIGURE_CMD_INIT,
   };
 
-  for( ulong i=0UL; i<CONFIGURE_STAGE_COUNT; i++ )
+  for( ulong i=0UL; STAGES[ i ]; i++ )
     configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
 
@@ -198,12 +177,4 @@ bench_cmd_fn( args_t *   args,
 
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
-
-# if !FD_HAS_NO_AGAVE
-  pthread_t agave;
-  pthread_create( &agave, NULL, agave_thread_main, config );
-# endif
-
-  /* Sleep parent thread forever, Ctrl+C will terminate. */
-  for(;;) pause();
 }
