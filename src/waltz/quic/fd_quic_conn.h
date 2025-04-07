@@ -201,9 +201,7 @@ struct fd_quic_conn {
   ulong             unacked_sz;  /* Number of received stream frame payload bytes pending ACK */
                                  /* Resets to zero when conn is rescheduled or ACKs are sent */
 
-  /* TODO find better name than pool */
-  fd_quic_pkt_meta_pool_t pkt_meta_pool;
-  fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
+  fd_quic_pkt_meta_tracker_t pkt_meta_tracker;
 
   /* flow control */
   ulong                tx_max_data;        /* the limit on the number of bytes we are allowed
@@ -245,6 +243,8 @@ struct fd_quic_conn {
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
 
   fd_quic_conn_stream_rx_t srx[1];
+
+  ulong used_pkt_meta;
 };
 
 inline static void
@@ -252,7 +252,6 @@ fd_quic_set_conn_state( fd_quic_conn_t * conn,
                         uint             state ) {
   conn->state = state;
 }
-
 
 FD_PROTOTYPES_BEGIN
 

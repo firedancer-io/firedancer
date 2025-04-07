@@ -114,7 +114,7 @@ main( int     argc,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 1,
     .stream_pool_cnt    = 1,
-    .inflight_pkt_cnt   = 128,
+    .inflight_frame_cnt   = 128,
   };
   FD_LOG_NOTICE(( "Creating server QUIC (%lu bytes)", fd_quic_footprint( &server_limits ) ));
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
@@ -126,7 +126,7 @@ main( int     argc,
     .handshake_cnt      = 1,
     .stream_id_cnt      = client_burst,
     .stream_pool_cnt    = client_burst,
-    .inflight_pkt_cnt   = client_burst+16,
+    .inflight_frame_cnt = client_burst+16,
     .tx_buf_sz          = sz
   };
   FD_LOG_NOTICE(( "Creating client QUIC (%lu bytes)", fd_quic_footprint( &client_limits ) ));
@@ -214,7 +214,11 @@ main( int     argc,
     service_server( server_quic );
 
     client_stream = fd_quic_conn_new_stream( client_conn );
-    if( !client_stream ) continue;
+    if( client_conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
+      FD_LOG_NOTICE(( "Early break due to inactive connection"));
+      break;
+    }
+    else if( !client_stream ) continue;
     fd_quic_stream_send( client_stream, buf, sz, 1 );
 
     long t = fd_log_wallclock();
@@ -222,12 +226,12 @@ main( int     argc,
       FD_TEST( client_quic->metrics.conn_closed_cnt==0 );
       FD_TEST( server_quic->metrics.conn_closed_cnt==0 );
 
-      long  dt        = t - last_ts;
+      long  dt            = t - last_ts;
       float net_rx_gbps   = (float)(8UL*server_quic->metrics.net_rx_byte_cnt) / (float)dt;
       float net_rx_gpps   = (float)server_quic->metrics.net_rx_pkt_cnt        / (float)dt;
       float net_tx_gbps   = (float)(8UL*server_quic->metrics.net_tx_byte_cnt) / (float)dt;
       float net_tx_gpps   = (float)server_quic->metrics.net_tx_pkt_cnt        / (float)dt;
-      float data_rate = (8 * (float)rx_tot_sz) / (float)dt;
+      float data_rate     = (8 * (float)rx_tot_sz) / (float)dt;
       FD_LOG_NOTICE(( "data=%6.4g Gbps  net_rx=(%6.4g Gbps %6.4g Mpps)  net_tx=(%6.4g Gbps %6.4g Mpps)  bytes=%g",
                       (double)data_rate,
                       (double)net_rx_gbps, (double)net_rx_gpps * 1e3,

@@ -166,7 +166,7 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
     .conn_cnt           = 1UL,
     .handshake_cnt      = 1UL,
     .conn_id_cnt        = 4UL,
-    .inflight_pkt_cnt   = 64UL,
+    .inflight_frame_cnt = 64UL,
     .tx_buf_sz          = 1UL<<15UL,
     .stream_pool_cnt    = 1024
   };
