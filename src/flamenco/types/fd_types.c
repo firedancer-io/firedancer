@@ -11496,7 +11496,7 @@ void fd_slot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, 
 int fd_slot_hashes_convert_global_to_local( void const * global_self, fd_slot_hashes_t * self, fd_bincode_decode_ctx_t * ctx ) {
   int err = 0;
   fd_slot_hashes_global_t const * mem = (fd_slot_hashes_global_t const *)global_self;
-  self->hashes = deq_fd_slot_hash_t_join( fd_wksp_laddr( ctx->wksp, mem->hashes_gaddr ) );
+  self->hashes = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->wksp, mem->hashes_gaddr ) );
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_hashes_new(fd_slot_hashes_t * self) {
@@ -21111,7 +21111,8 @@ int fd_compute_budget_program_instruction_inner_encode( fd_compute_budget_progra
   return FD_BINCODE_SUCCESS;
 }
 int fd_compute_budget_program_instruction_encode( fd_compute_budget_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  ushort discriminant = (ushort) self->discriminant;
+  int err = fd_bincode_compact_u16_encode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return fd_compute_budget_program_instruction_inner_encode( &self->inner, self->discriminant, ctx );
 }
