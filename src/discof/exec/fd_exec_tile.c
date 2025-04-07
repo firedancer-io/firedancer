@@ -217,6 +217,8 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     .txn_sz = (ushort)task_info.txn->payload_sz
   };
 
+  task_info.txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+
   fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
 
   int err = fd_executor_setup_accessed_accounts_for_txn( ctx->txn_ctx );
