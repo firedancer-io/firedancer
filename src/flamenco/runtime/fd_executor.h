@@ -45,8 +45,10 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
    processor for the given native program ID.  Returns NULL if given ID
    is not a recognized native program. */
 
-fd_exec_instr_fn_t
-fd_executor_lookup_native_program( fd_txn_account_t const * account );
+int
+fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
+                                   fd_exec_txn_ctx_t *      txn_ctx,
+                                   fd_exec_instr_fn_t *     native_prog_fn );
 
 fd_exec_instr_fn_t
 fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc );

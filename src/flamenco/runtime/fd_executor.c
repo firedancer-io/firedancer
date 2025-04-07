@@ -113,15 +113,27 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
 
-/* https://github.com/anza-xyz/agave/blob/9efdd74b1b65ecfd85b0db8ad341c6bd4faddfef/program-runtime/src/invoke_context.rs#L461-L488 */
-fd_exec_instr_fn_t
-fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc ) {
+/* https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L520-L544 */
+int
+fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
+                                   fd_exec_txn_ctx_t *      txn_ctx,
+                                   fd_exec_instr_fn_t *     native_prog_fn ) {
   fd_pubkey_t const * pubkey        = prog_acc->pubkey;
   fd_pubkey_t const * owner         = (fd_pubkey_t const *)prog_acc->const_meta->info.owner;
 
   /* Native programs should be owned by the native loader...
      This will not be the case though once core programs are migrated to BPF. */
   int is_native_program = !memcmp( owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) );
+
+  if( !is_native_program && FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
+    if ( FD_UNLIKELY( memcmp( owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) &&
+                      memcmp( owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) &&
+                      memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+                      memcmp( owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    }
+  }
+
   if( FD_UNLIKELY( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t) ) &&
                    !memcmp( owner,  fd_solana_system_program_id.key,             sizeof(fd_pubkey_t) ) ) ) {
     /* ... except for the special case for testnet ed25519, which is
@@ -130,7 +142,8 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc ) {
   }
   fd_pubkey_t const * lookup_pubkey         = is_native_program ? pubkey : owner;
   const fd_native_prog_info_t null_function = {0};
-  return fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
+  *native_prog_fn = fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
+  return 0;
 }
 
 fd_exec_instr_fn_t
@@ -1065,7 +1078,12 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     if( FD_LIKELY( native_prog_fn == NULL ) ) {
       /* Lookup a native builtin program if the program is not a precompiled program */
-      native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->accounts[ instr->program_id ] );
+      int err = fd_executor_lookup_native_program( &txn_ctx->accounts[ instr->program_id ], txn_ctx, &native_prog_fn );
+      if( FD_UNLIKELY( err ) ) {
+        FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
+        return err;
+      }
       /* Only reset the return data when executing a native builtin program (not a precompile)
          https://github.com/anza-xyz/agave/blob/v2.1.6/program-runtime/src/invoke_context.rs#L536-L537 */
       fd_exec_txn_ctx_reset_return_data( txn_ctx );
