@@ -211,7 +211,7 @@ union fd_features {
     /* 0x0b9047b5bb9ef961 */ ulong move_stake_and_move_lamports_ixs;
     /* 0xa5a66405d0ab6309 */ ulong deprecate_legacy_vote_ixs;
     /* 0x81fcbfa0d0f6b105 */ ulong partitioned_epoch_rewards_superfeature;
-    /* 0x0757d3be218c070d */ ulong enable_secp256r1_precompile;
+    /* 0xa3a6f94db269070d */ ulong enable_secp256r1_precompile;
     /* 0x829062f252ef5ba8 */ ulong get_sysvar_syscall_enabled;
     /* 0x1db51f609c8fcd07 */ ulong disable_sbpf_v0_execution;
     /* 0xe5937c9dd5edd306 */ ulong reenable_sbpf_v0_execution;
@@ -224,7 +224,7 @@ union fd_features {
     /* 0xd30c04a5f2586e4f */ ulong migrate_stake_program_to_core_bpf;
     /* 0xef8ea76db306cad4 */ ulong enable_get_epoch_stake_syscall;
     /* 0x7f29632535392bc7 */ ulong disable_account_loader_special_case;
-    /* 0x8c012a2071caecd9 */ ulong remove_accounts_executable_flag_checks;
+    /* 0x7864cf278798ebd7 */ ulong remove_accounts_executable_flag_checks;
     /* 0x54c5c5132eaae808 */ ulong fix_alt_bn128_multiplication_input_length;
     /* 0x9e65a24bcb41d3f6 */ ulong lift_cpi_caller_restriction;
     /* 0xdaaca2a2c8c1fb04 */ ulong accounts_lt_hash;
