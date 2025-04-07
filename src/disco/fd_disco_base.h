@@ -168,6 +168,22 @@ FD_FN_CONST static inline uint   fd_disco_repair_replay_sig_data_cnt     ( ulong
 FD_FN_CONST static inline ushort fd_disco_repair_replay_sig_parent_off   ( ulong sig ) { return (ushort)fd_ulong_extract    ( sig, 1, 16  ); }
 FD_FN_CONST static inline int    fd_disco_repair_replay_sig_slot_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 0     ); }
 
+FD_FN_CONST static inline ulong
+fd_disco_replay_arxiv_sig( ulong slot, uint start_idx, uint end_idx ){
+   /*
+    | slot (32) | start_idx (16) | end_idx (16) |
+    | [32, 63]  | [16, 31]       | [0, 15]      |
+   */
+   ulong slot_ul      = fd_ulong_min( slot, (ulong)UINT_MAX );
+   ulong start_idx_ul = (ulong)start_idx;
+   ulong end_idx_ul   = (ulong)end_idx;
+   return slot_ul << 32 | start_idx_ul << 16 | end_idx_ul;
+}
+
+FD_FN_CONST static inline ulong fd_disco_replay_arxiv_sig_slot     ( ulong sig ) { return       fd_ulong_extract( sig, 32, 63 ); }
+FD_FN_CONST static inline uint  fd_disco_replay_arxiv_sig_start_idx( ulong sig ) { return (uint)fd_ulong_extract( sig, 16, 31 ); }
+FD_FN_CONST static inline uint  fd_disco_replay_arxiv_sig_end_idx  ( ulong sig ) { return (uint)fd_ulong_extract( sig, 0, 15  ); }
+
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
   return (((struct fd_wksp_private *)wksp)->gaddr_lo) >> FD_CHUNK_LG_SZ;
