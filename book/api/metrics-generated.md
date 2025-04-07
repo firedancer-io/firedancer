@@ -692,3 +692,17 @@
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | What types of client messages are we sending (Need Orphans) |
 
 </div>
+
+## Sender Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">sender_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader</span> | counter | Total count of transactions sent to leader |
+| <span class="metrics-name">sender_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found</span> | counter | Total count of times leader schedule not found |
+| <span class="metrics-name">sender_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total count of times leader not found for given slot |
+| <span class="metrics-name">sender_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found</span> | counter | Total count of times leader contact info not found |
+| <span class="metrics-name">sender_&#8203;leader_&#8203;contact_&#8203;nonroutable</span> | counter | Total count of times leader contact is nonroutable |
+
+</div>

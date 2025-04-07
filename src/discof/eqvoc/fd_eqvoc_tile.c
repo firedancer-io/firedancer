@@ -67,23 +67,20 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static inline void
-handle_new_cluster_contact_info( fd_eqvoc_tile_ctx_t * ctx, uchar const * buf, ulong buf_sz ) {
+handle_new_cluster_contact_info( fd_eqvoc_tile_ctx_t * ctx,
+                                 uchar const *         buf,
+                                 ulong                 buf_sz ) {
   ulong const * header = (ulong const *)fd_type_pun_const( buf );
 
-  ulong dest_cnt = buf_sz;
-
-  if( dest_cnt >= MAX_SHRED_DESTS )
-    FD_LOG_ERR(( "Cluster nodes had %lu destinations, which was more than the max of %lu",
-                  dest_cnt,
-                  MAX_SHRED_DESTS ));
+  ulong dest_cnt = buf_sz / sizeof(fd_shred_dest_wire_t);
 
   fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header );
-  fd_shred_dest_weighted_t *   dests    = fd_stake_ci_dest_add_init( ctx->stake_ci );
+  fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( ctx->stake_ci );
 
   ctx->new_dest_ptr = dests;
   ctx->new_dest_cnt = dest_cnt;
 
-  for( ulong i = 0UL; i < dest_cnt; i++ ) {
+  for( ulong i=0UL; i<dest_cnt; i++ ) {
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
     dests[i].ip4  = in_dests[i].ip4_addr;
     dests[i].port = in_dests[i].udp_port;
@@ -228,7 +225,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( stake_ci_mem, ctx->identity_key ) );
   ctx->eqvoc    = fd_eqvoc_join( fd_eqvoc_new( eqvoc_mem, 1 << 10, 1 << 10, 0 ) );
 
-  ctx->contact_in_idx = fd_topo_find_tile_in_link( topo, tile, "gossip_voter", 0 );
+  ctx->contact_in_idx = fd_topo_find_tile_in_link( topo, tile, "gossip_send", 0 );
   FD_TEST( ctx->contact_in_idx != ULONG_MAX );
   fd_topo_link_t * contact_in_link = &topo->links[tile->in_link_id[ctx->contact_in_idx]];
   ctx->contact_in_mem = topo->workspaces[topo->objs[contact_in_link->dcache_obj_id].wksp_id].wksp;
