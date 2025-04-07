@@ -17,8 +17,7 @@
    them out. */
 
 #define IN_KIND_GOSSIP (0UL)
-#define IN_KIND_VOTER  (1UL)
-#define IN_KIND_VERIFY (2UL)
+#define IN_KIND_VERIFY (1UL)
 
 /* fd_dedup_in_ctx_t is a context object for each in (producer) mcache
    connected to the dedup tile. */
@@ -113,8 +112,8 @@ during_frag( fd_dedup_ctx_t * ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_VOTER ) ) {
-    if( FD_UNLIKELY( sz>FD_TPU_MTU ) ) FD_LOG_ERR(( "received a gossip or voter transaction that was too large" ));
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
+    if( FD_UNLIKELY( sz>FD_TPU_MTU ) ) FD_LOG_ERR(( "received a gossip transaction that was too large" ));
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dst;
     txnm->payload_sz = (ushort)sz;
@@ -161,7 +160,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx]==IN_KIND_VOTER ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     /* Transactions coming in from these links are not parsed.
 
        We'll need to parse it so it's ready for downstream consumers.
@@ -170,7 +169,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
     txnm->txn_t_sz = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, txn, NULL );
     if( FD_UNLIKELY( !txnm->txn_t_sz ) ) FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
 
-    if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL );
+    FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL );
   }
 
   int is_dup = 0;
@@ -251,8 +250,6 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( !strcmp( link->name, "gossip_dedup" ) ) {
       ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    } else if( !strcmp( link->name, "voter_dedup" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_VOTER;
     } else if( !strcmp( link->name, "verify_dedup" ) ) {
       ctx->in_kind[ i ] = IN_KIND_VERIFY;
     } else {

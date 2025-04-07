@@ -218,6 +218,13 @@ metric introduced.
     <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
+<tile name="sender">
+    <counter name="TxnsSentToLeader" summary="Total count of transactions sent to leader" />
+    <counter name="LeaderSchedNotFound" summary="Total count of times leader schedule not found" />
+    <counter name="LeaderNotFound" summary="Total count of times leader not found for given slot" />
+    <counter name="LeaderContactNotFound" summary="Total count of times leader contact info not found" />
+</tile>
+
 <enum name="BundleError">
     <int value="1" name="Protobuf" label="Protobuf decode/encode error" />
     <int value="2" name="Transport" label="Transport error" />

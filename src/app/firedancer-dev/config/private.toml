@@ -26,7 +26,7 @@
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999
 [consensus]
-    vote = false
+    vote = true
     expected_shred_version = 20896
 [paths]
     identity_key = "{keys}/fd-identity-keypair.json"
