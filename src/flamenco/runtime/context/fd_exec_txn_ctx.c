@@ -142,7 +142,8 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
   }
 
   for( ushort i=0; i<ctx->executable_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
+    fd_txn_account_t * acc = &ctx->executable_accounts[i];
+    if( memcmp( pubkey->uc, acc->vt->get_pubkey( acc ), sizeof(fd_pubkey_t) )==0 ) {
       fd_txn_account_t * txn_account = &ctx->executable_accounts[i];
       *account = txn_account;
 

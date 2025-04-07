@@ -1394,7 +1394,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
   if( FD_UNLIKELY( memcmp( fd_borrowed_account_get_owner( &vote_account ), fd_solana_vote_program_id.key, 32UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L3326
-  vote_pubkey = vote_account.acct->pubkey;
+  vote_pubkey = fd_borrowed_account_get_pubkey( &vote_account );
   // https://github.com/anza-xyz/agave/blob/a60fbc2288d626a4f1846052c8fcb98d3f9ea58d/programs/stake/src/stake_state.rs#L327
   vote_get_state_rc = fd_vote_get_state( vote_account.acct, ctx->txn_ctx->spad, &vote_state );
 
@@ -1935,7 +1935,9 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L163
-    if( FD_UNLIKELY( !memcmp( &source_account->acct->pubkey, &destination_account->acct->pubkey, sizeof(fd_pubkey_t) ) ) )
+    if( FD_UNLIKELY( !memcmp( fd_borrowed_account_get_pubkey( source_account ),
+                              fd_borrowed_account_get_pubkey( destination_account ),
+                              sizeof(fd_pubkey_t) ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L168
@@ -2299,7 +2301,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   }
   case fd_stake_state_v2_enum_uninitialized: {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L846
-    if( FD_UNLIKELY( !fd_signers_contains( signers, stake_account.acct->pubkey ) ) ) {
+    if( FD_UNLIKELY( !fd_signers_contains( signers, fd_borrowed_account_get_pubkey( &stake_account ) ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L850
@@ -3241,7 +3243,7 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
 static void
 fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t * stake_account ) {
   fd_account_keys_pair_t_mapnode_t key;
-  fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+  fd_memcpy( key.elem.key.uc, stake_account->vt->get_pubkey( stake_account )->uc, sizeof(fd_pubkey_t) );
   if( FD_UNLIKELY( slot_ctx->slot_bank.stake_account_keys.account_keys_pool==NULL ) ) {
     FD_LOG_DEBUG(("Stake accounts pool does not exist"));
     return;
@@ -3261,7 +3263,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
   fd_stakes_t * stakes = &epoch_bank->stakes;
 
   fd_delegation_pair_t_mapnode_t key;
-  fd_memcpy(&key.elem.account, stake_account->pubkey->uc, sizeof(fd_pubkey_t));
+  fd_memcpy(&key.elem.account, stake_account->vt->get_pubkey( stake_account )->uc, sizeof(fd_pubkey_t));
 
   if( FD_UNLIKELY( stakes->stake_delegations_pool==NULL ) ) {
     FD_LOG_DEBUG(("Stake delegations pool does not exist"));
@@ -3271,7 +3273,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
   fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key);
   if( FD_UNLIKELY( !entry ) ) {
     fd_account_keys_pair_t_mapnode_t key;
-    fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+    fd_memcpy( key.elem.key.uc, stake_account->vt->get_pubkey( stake_account )->uc, sizeof(fd_pubkey_t) );
     if( slot_ctx->slot_bank.stake_account_keys.account_keys_pool==NULL) {
       FD_LOG_DEBUG(("Stake accounts pool does not exist"));
       return;
@@ -3287,7 +3289,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
         FD_LOG_ERR(("Stake accounts keys map full %lu", size));
       }
       new_node->elem.exists = 1;
-      fd_memcpy( new_node->elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+      fd_memcpy( new_node->elem.key.uc, stake_account->vt->get_pubkey( stake_account )->uc, sizeof(fd_pubkey_t) );
       fd_account_keys_pair_t_map_insert( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, &slot_ctx->slot_bank.stake_account_keys.account_keys_root, new_node );
     }
   }

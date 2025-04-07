@@ -302,7 +302,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     fd_guarded_borrowed_account_t callee_acct;
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, instruction_accounts[i].index_in_caller, &callee_acct );
 
-    fd_pubkey_t const *       account_key = callee_acct.acct->pubkey;
+    fd_pubkey_t const *       account_key = fd_borrowed_account_get_pubkey( &callee_acct );
     fd_account_meta_t const * acc_meta    = callee_acct.acct->vt->get_meta( callee_acct.acct );
 
     /* If the account is known and executable, we only need to consume the compute units.

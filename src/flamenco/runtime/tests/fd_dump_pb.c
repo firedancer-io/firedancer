@@ -37,7 +37,7 @@ dump_account_state( fd_txn_account_t const *    txn_account,
                     fd_exec_test_acct_state_t * output_account,
                     fd_spad_t *                 spad ) {
     // Address
-    fd_memcpy(output_account->address, txn_account->pubkey, sizeof(fd_pubkey_t));
+    fd_memcpy(output_account->address, txn_account->vt->get_pubkey( txn_account ), sizeof(fd_pubkey_t));
 
     // Lamports
     output_account->lamports = (uint64_t) txn_account->vt->get_lamports( txn_account );
@@ -879,14 +879,15 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add executable accounts */
   for( ulong i = 0; i < txn_ctx->executable_cnt; i++ ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->executable_accounts[i].pubkey, txn_ctx->funk, txn_ctx->funk_txn );
+    fd_txn_account_t const * exec_acc = &txn_ctx->executable_accounts[i];
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, exec_acc->vt->get_pubkey( exec_acc ), txn_ctx->funk, txn_ctx->funk_txn );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
     // Make sure the account doesn't exist in the output accounts yet
     bool account_exists = false;
     for( ulong j = 0; j < instr_context->accounts_count; j++ ) {
-      if( 0 == memcmp( instr_context->accounts[j].address, txn_ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) ) ) {
+      if( 0 == memcmp( instr_context->accounts[j].address, exec_acc->vt->get_pubkey( exec_acc )->uc, sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }

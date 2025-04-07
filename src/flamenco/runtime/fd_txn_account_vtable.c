@@ -31,8 +31,18 @@ fd_txn_account_set_meta_readonly( fd_txn_account_t *        acct,
 
 void
 fd_txn_account_set_meta_mutable_writable( fd_txn_account_t *  acct,
-                                 fd_account_meta_t * meta ) {
+                                          fd_account_meta_t * meta ) {
   acct->const_meta_ = acct->meta_ = meta;
+}
+
+fd_pubkey_t const *
+fd_txn_account_get_pubkey( fd_txn_account_t const * acct ) {
+  return acct->pubkey_;
+}
+
+fd_pubkey_t *
+fd_txn_account_get_pubkey_unsafe( fd_txn_account_t * acct ) {
+  return acct->pubkey_;
 }
 
 ulong
@@ -163,6 +173,12 @@ fd_txn_account_set_meta_info_writable( fd_txn_account_t *               acct,
 }
 
 void
+fd_txn_account_set_pubkey_writable( fd_txn_account_t *  acct,
+                                    fd_pubkey_t const * pubkey ) {
+  fd_memcpy( acct->pubkey_->key, pubkey, sizeof(fd_pubkey_t) );
+}
+
+void
 fd_txn_account_resize_writable( fd_txn_account_t * acct,
                                 ulong              dlen ) {
   if( FD_UNLIKELY( !acct->meta_ ) ) FD_LOG_ERR(("account is not mutable" ));
@@ -264,6 +280,12 @@ fd_txn_account_set_meta_info_readonly( fd_txn_account_t *               acct FD_
 }
 
 void
+fd_txn_account_set_pubkey_readonly( fd_txn_account_t *  acct FD_PARAM_UNUSED,
+                                    fd_pubkey_t const * pubkey FD_PARAM_UNUSED ) {
+  FD_LOG_WARNING(("cannot set pubkey in a readonly account!"));
+}
+
+void
 fd_txn_account_resize_readonly( fd_txn_account_t * acct FD_PARAM_UNUSED,
                                 ulong              dlen FD_PARAM_UNUSED ) {
   FD_LOG_ERR(( "cannot resize a readonly account!" ));
@@ -325,6 +347,8 @@ fd_txn_account_readonly_vtable = {
   .set_meta_readonly    = fd_txn_account_set_meta_readonly,
   .set_meta_mutable     = fd_txn_account_set_meta_mutable_readonly,
 
+  .get_pubkey           = fd_txn_account_get_pubkey,
+  .get_pubkey_unsafe    = fd_txn_account_get_pubkey_unsafe,
   .get_data_len         = fd_txn_account_get_data_len,
   .is_executable        = fd_txn_account_is_executable,
   .get_owner            = fd_txn_account_get_owner,
@@ -344,6 +368,7 @@ fd_txn_account_readonly_vtable = {
   .set_hash             = fd_txn_account_set_hash_readonly,
   .clear_owner          = fd_txn_account_clear_owner_readonly,
   .set_info             = fd_txn_account_set_meta_info_readonly,
+  .set_pubkey           = fd_txn_account_set_pubkey_readonly,
   .resize               = fd_txn_account_resize_readonly,
 
   .is_borrowed          = fd_txn_account_is_borrowed,
@@ -367,6 +392,8 @@ fd_txn_account_writable_vtable = {
   .set_meta_readonly    = fd_txn_account_set_meta_readonly,
   .set_meta_mutable     = fd_txn_account_set_meta_mutable_writable,
 
+  .get_pubkey           = fd_txn_account_get_pubkey,
+  .get_pubkey_unsafe    = fd_txn_account_get_pubkey_unsafe,
   .get_data_len         = fd_txn_account_get_data_len,
   .is_executable        = fd_txn_account_is_executable,
   .get_owner            = fd_txn_account_get_owner,
@@ -386,6 +413,7 @@ fd_txn_account_writable_vtable = {
   .set_hash             = fd_txn_account_set_hash_writable,
   .clear_owner          = fd_txn_account_clear_owner_writable,
   .set_info             = fd_txn_account_set_meta_info_writable,
+  .set_pubkey           = fd_txn_account_set_pubkey_writable,
   .resize               = fd_txn_account_resize_writable,
 
   .is_borrowed          = fd_txn_account_is_borrowed,

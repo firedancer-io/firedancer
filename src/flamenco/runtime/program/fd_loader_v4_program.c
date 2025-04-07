@@ -697,7 +697,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/loader-v4/src/lib.rs#L463 */
-  fd_pubkey_t * address_of_next_version = next_version.acct->pubkey;
+  fd_pubkey_t const * address_of_next_version = fd_borrowed_account_get_pubkey( &next_version );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/loader-v4/src/lib.rs#L464 */
   fd_borrowed_account_drop( &next_version );

@@ -23,7 +23,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_OWNER ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
-    fd_memcpy( owner_pubkey, owner_acc.acct->pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( owner_pubkey, fd_borrowed_account_get_pubkey( &owner_acc ), sizeof(fd_pubkey_t) );
     /* implicit drop of borrowed owner_acc */
   } while (0);
 
@@ -34,13 +34,13 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   /* Obtain the proof account pubkey by borrowing the proof account.
      https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L143-L145 */
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK(ctx, ACC_IDX_PROOF, &proof_acc );
-  fd_memcpy( proof_pubkey, proof_acc.acct->pubkey, sizeof(fd_pubkey_t) );
+  fd_memcpy( proof_pubkey, fd_borrowed_account_get_pubkey( &proof_acc ), sizeof(fd_pubkey_t) );
   fd_borrowed_account_drop( &proof_acc );
 
   /* Obtain the dest account pubkey by borrowing the dest account.
      https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L146-L148*/
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_DEST, &dest_acc );
-  fd_memcpy( dest_pubkey, dest_acc.acct->pubkey, sizeof(fd_pubkey_t) );
+  fd_memcpy( dest_pubkey, fd_borrowed_account_get_pubkey( &dest_acc ), sizeof(fd_pubkey_t) );
   fd_borrowed_account_drop( &dest_acc );
 
   if( FD_UNLIKELY( fd_memeq( proof_pubkey, dest_pubkey, sizeof(fd_pubkey_t) ) ) ) {
@@ -221,7 +221,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     do {
       fd_guarded_borrowed_account_t _acc;
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, (ushort)(accessed_accounts+1), &_acc );
-      fd_memcpy( context_state_authority, _acc.acct->pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( context_state_authority, fd_borrowed_account_get_pubkey( &_acc ), sizeof(fd_pubkey_t) );
     } while(0);
 
     /* Borrow the proof context account

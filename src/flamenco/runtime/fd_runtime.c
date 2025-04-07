@@ -246,7 +246,7 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   if( FD_UNLIKELY( memcmp( collector->vt->get_owner( collector ), fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
+    FD_BASE58_ENCODE_32_BYTES( collector->vt->get_pubkey( collector )->key, _out_key );
     FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", _out_key ));
     return fee;
   }
@@ -275,7 +275,7 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
    */
   ulong minbal = fd_rent_exempt_minimum_balance( (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->vt->get_data_len( collector ) );
   if( FD_UNLIKELY( collector->vt->get_lamports( collector ) + fee < minbal ) ) {
-    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
+    FD_BASE58_ENCODE_32_BYTES( collector->vt->get_pubkey( collector )->key, _out_key );
     FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
     return fee;
   }
@@ -606,7 +606,7 @@ fd_runtime_collect_from_existing_account( ulong                       slot,
   /* RentResult::Exempt */
   /* Inlining should_collect_rent() */
   int should_collect_rent = !( acc->vt->is_executable( acc ) ||
-                               !memcmp( acc->pubkey, &fd_sysvar_incinerator_id, sizeof(fd_pubkey_t) ) );
+                               !memcmp( acc->vt->get_pubkey( acc ), &fd_sysvar_incinerator_id, sizeof(fd_pubkey_t) ) );
   if( !should_collect_rent ) {
     calculate_rent_result = EXEMPT;
     goto rent_calculation;
@@ -1858,7 +1858,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
 
     fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], txn_ctx->funk, txn_ctx->funk_txn );
-    memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
+    acct->vt->set_pubkey( acct, &txn_ctx->account_keys[0] );
 
     void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
     fd_txn_account_make_mutable( acct, acct_data, txn_ctx->spad_wksp );
@@ -1919,7 +1919,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
           }
 
           fd_vote_record_timestamp_vote_with_slot( slot_ctx,
-                                                   acc_rec->pubkey,
+                                                   acc_rec->vt->get_pubkey( acc_rec ),
                                                    ts->timestamp,
                                                    ts->slot );
         } FD_SPAD_FRAME_END;
@@ -1934,7 +1934,8 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       int fresh_account = acc_rec->vt->get_meta( acc_rec ) &&
          acc_rec->vt->get_lamports( acc_rec ) && acc_rec->vt->get_rent_epoch( acc_rec ) != FD_RENT_EXEMPT_RENT_EPOCH;
       if( FD_UNLIKELY( fresh_account ) ) {
-        fd_runtime_register_new_fresh_account( slot_ctx, txn_ctx->accounts[0].pubkey );
+        fd_txn_account_t * acc = &txn_ctx->accounts[0];
+        fd_runtime_register_new_fresh_account( slot_ctx, acc->vt->get_pubkey( acc ) );
       }
     }
   }

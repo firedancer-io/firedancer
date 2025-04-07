@@ -11,7 +11,7 @@ typedef struct fd_acc_mgr fd_acc_mgr_t;
 struct __attribute__((aligned(8UL))) fd_txn_account {
   ulong                           magic;
 
-  fd_pubkey_t                     pubkey[1];
+  fd_pubkey_t                     pubkey_[1];
 
   fd_account_meta_t const   *     const_meta_;
   uchar             const   *     const_data_;

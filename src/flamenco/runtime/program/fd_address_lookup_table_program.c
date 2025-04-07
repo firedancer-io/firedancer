@@ -206,7 +206,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L60-L62 */
   lut_lamports = fd_borrowed_account_get_lamports( &lut_acct );
-  lut_key      = lut_acct.acct->pubkey;
+  lut_key      = fd_borrowed_account_get_pubkey( &lut_acct );
   lut_owner    = fd_borrowed_account_get_owner( &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L63-L70 */
@@ -227,7 +227,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L75 */
-  authority_key = authority_acct.acct->pubkey;
+  authority_key = fd_borrowed_account_get_pubkey( &authority_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L76-L83 */
   if( !FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, relax_authority_signer_check_for_lookup_table_creation )
@@ -245,7 +245,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   fd_guarded_borrowed_account_t payer_acct;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_PAYER, &payer_acct );
 
-  payer_key = payer_acct.acct->pubkey;
+  payer_key = fd_borrowed_account_get_pubkey( &payer_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L89-L92 */
   if( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_PAYER ) ) {
@@ -451,7 +451,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_guarded_borrowed_account_t authority_acct;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
-  authority_key = authority_acct.acct->pubkey;
+  authority_key = fd_borrowed_account_get_pubkey( &authority_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L186-L189 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
@@ -542,7 +542,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   fd_guarded_borrowed_account_t lut_acct;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_LUT, &lut_acct );
 
-  lut_key = lut_acct.acct->pubkey;
+  lut_key = fd_borrowed_account_get_pubkey( &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L233-235 */
   if( FD_UNLIKELY( 0!=memcmp( fd_borrowed_account_get_owner( &lut_acct ), fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) )
@@ -559,7 +559,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   fd_guarded_borrowed_account_t authority_acct;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
-  authority_key = authority_acct.acct->pubkey;
+  authority_key = fd_borrowed_account_get_pubkey( &authority_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L241-L244 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
@@ -687,7 +687,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     fd_guarded_borrowed_account_t payer_acct;
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_PAYER, &payer_acct );
 
-    payer_key = payer_acct.acct->pubkey;
+    payer_key = fd_borrowed_account_get_pubkey( &payer_acct );
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L327-L330 */
     if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_PAYER ) ) ) {
       fd_log_collector_msg_literal( ctx, "Payer account must be a signer" );
@@ -764,7 +764,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_guarded_borrowed_account_t authority_acct;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
-  authority_key = authority_acct.acct->pubkey;
+  authority_key = fd_borrowed_account_get_pubkey( &authority_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L356-L359 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
@@ -874,7 +874,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_guarded_borrowed_account_t authority_acct;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
-  authority_key = authority_acct.acct->pubkey;
+  authority_key = fd_borrowed_account_get_pubkey( &authority_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L405-L408 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {

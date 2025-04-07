@@ -18,6 +18,8 @@ typedef uchar *                   (* fd_txn_account_get_acc_data_mut_fn_t)     (
 typedef void                      (* fd_txn_account_set_meta_readonly_fn_t)    ( fd_txn_account_t * acct, fd_account_meta_t const * meta );
 typedef void                      (* fd_txn_account_set_meta_mutable_fn_t)     ( fd_txn_account_t * acct, fd_account_meta_t * meta );
 
+typedef fd_pubkey_t       const * (* fd_txn_account_get_pubkey_fn_t)           ( fd_txn_account_t const * acct );
+typedef fd_pubkey_t *             (* fd_txn_account_get_pubkey_unsafe_fn_t)    ( fd_txn_account_t * acct );
 typedef ulong                     (* fd_txn_account_get_data_len_fn_t)         ( fd_txn_account_t const * acct );
 typedef int                       (* fd_txn_account_is_executable_fn_t)        ( fd_txn_account_t const * acct );
 typedef fd_pubkey_t       const * (* fd_txn_account_get_owner_fn_t)            ( fd_txn_account_t const * acct );
@@ -38,6 +40,7 @@ typedef void                      (* fd_txn_account_set_slot_fn_t)             (
 typedef void                      (* fd_txn_account_set_hash_fn_t)             ( fd_txn_account_t * acct, fd_hash_t const * hash );
 typedef void                      (* fd_txn_account_clear_owner_fn_t)          ( fd_txn_account_t * acct );
 typedef void                      (* fd_txn_account_set_meta_info_fn_t)        ( fd_txn_account_t * acct, fd_solana_account_meta_t const * info );
+typedef void                      (* fd_txn_account_set_pubkey_fn_t)           ( fd_txn_account_t * acct, fd_pubkey_t const * pubkey );
 typedef void                      (* fd_txn_account_resize_fn_t)               ( fd_txn_account_t * acct, ulong data_len );
 
 /* Attribute Accessors */
@@ -64,6 +67,8 @@ struct fd_txn_account_vtable {
   fd_txn_account_set_meta_readonly_fn_t    set_meta_readonly;
   fd_txn_account_set_meta_mutable_fn_t     set_meta_mutable;
 
+  fd_txn_account_get_pubkey_fn_t           get_pubkey;
+  fd_txn_account_get_pubkey_unsafe_fn_t    get_pubkey_unsafe;
   fd_txn_account_get_data_len_fn_t         get_data_len;
   fd_txn_account_is_executable_fn_t        is_executable;
   fd_txn_account_get_owner_fn_t            get_owner;
@@ -84,6 +89,7 @@ struct fd_txn_account_vtable {
   fd_txn_account_set_hash_fn_t             set_hash;
   fd_txn_account_clear_owner_fn_t          clear_owner;
   fd_txn_account_set_meta_info_fn_t        set_info;
+  fd_txn_account_set_pubkey_fn_t           set_pubkey;
   fd_txn_account_resize_fn_t               resize;
 
   /* attribute accessors */

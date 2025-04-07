@@ -21,10 +21,10 @@ fd_txn_account_init( void * ptr ) {
   ret->const_meta_        = NULL;
   ret->meta_              = NULL;
   ret->data_              = NULL;
-  ret->meta_gaddr        = 0UL;
-  ret->data_gaddr        = 0UL;
-  ret->starting_dlen     = ULONG_MAX;
-  ret->starting_lamports = ULONG_MAX;
+  ret->meta_gaddr         = 0UL;
+  ret->data_gaddr         = 0UL;
+  ret->starting_dlen      = ULONG_MAX;
+  ret->starting_lamports  = ULONG_MAX;
 
   /* TODO: should this be defaulting to readonly or writable? */
   ret->vt                = &fd_txn_account_writable_vtable;
@@ -102,7 +102,7 @@ void
 fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
                                fd_pubkey_t const *       pubkey,
                                fd_account_meta_t const * meta ) {
-  fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
+  fd_memcpy(acct->pubkey_, pubkey, sizeof(fd_pubkey_t));
 
   /* We don't copy the metadata into a buffer here, because we assume
      that we are holding read locks on the account, because we are inside
@@ -118,7 +118,7 @@ void
 fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
                               fd_pubkey_t const *       pubkey,
                               fd_account_meta_t *       meta ) {
-  fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
+  fd_memcpy(acct->pubkey_, pubkey, sizeof(fd_pubkey_t));
 
   acct->const_rec_  = acct->rec_;
   acct->const_meta_ = acct->meta_ = meta;
@@ -278,14 +278,14 @@ fd_txn_account_save( fd_txn_account_t * acct,
 
   if( acct->meta_ == NULL ) {
     /* The meta is NULL so the account is not writable. */
-    FD_LOG_DEBUG(( "fd_txn_account_save: account is not writable: %s", FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+    FD_LOG_DEBUG(( "fd_txn_account_save: account is not writable: %s", FD_BASE58_ENC_32_ALLOCA( acct->pubkey_ ) ));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
 
   acct->const_meta_ = acct->meta_;
   acct->const_data_ = acct->data_;
 
-  fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
+  fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey_ );
 
   /* Remove previous incarnation of the account's record from the transaction, so that we don't hash it twice */
   fd_funk_rec_hard_remove( funk, txn, &key );
@@ -314,7 +314,7 @@ fd_txn_account_mutable_fini( fd_txn_account_t * acct,
                              fd_funk_txn_t *    txn ) {
   fd_funk_rec_query_t query[1];
 
-  fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
+  fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey_ );
   fd_funk_rec_t *   rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, txn, &key, query );
 
   /* Check that the prepared record is still valid -
@@ -323,20 +323,20 @@ fd_txn_account_mutable_fini( fd_txn_account_t * acct,
     /* Check that the prepared record is not the Funk null value */
     if( !acct->prepared_rec.rec->val_gaddr ) {
       FD_LOG_ERR(( "invalid prepared record for %s: unexpected NULL funk record value. the record might have been modified by another thread",
-                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey_ ) ));
     }
 
     /* Ensure that the prepared record key still matches our key. */
     if( FD_UNLIKELY( memcmp( acct->prepared_rec.rec->pair.key, &key, sizeof(fd_funk_rec_key_t) )!=0 ) ) {
       FD_LOG_ERR(( "invalid prepared record for %s: the record might have been modified by another thread",
-                  FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+                  FD_BASE58_ENC_32_ALLOCA( acct->pubkey_ ) ));
     }
   }
 
   /* We have a prepared record, but a record already exists funk */
   if( rec!=NULL && acct->prepared_rec.rec!=NULL ) {
     FD_LOG_ERR(( "invalid prepared record for %s: trying to publish new record that is already present",
-                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey_ ) ));
   }
 
   /* Publish the record if the record is not in the current funk transaction

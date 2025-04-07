@@ -132,6 +132,16 @@ fd_borrowed_account_get_rent_epoch( fd_borrowed_account_t const * borrowed_acct 
   return borrowed_acct->acct->vt->get_rent_epoch( borrowed_acct->acct );
 }
 
+static inline fd_pubkey_t const *
+fd_borrowed_account_get_pubkey( fd_borrowed_account_t const * borrowed_acct ) {
+  return borrowed_acct->acct->vt->get_pubkey( borrowed_acct->acct );
+}
+
+static inline fd_pubkey_t *
+fd_borrowed_account_get_pubkey_unsafe( fd_borrowed_account_t * borrowed_acct ) {
+  return borrowed_acct->acct->vt->get_pubkey_unsafe( borrowed_acct->acct );
+}
+
 /* Setters */
 
 /* fd_borrowed_account_set_owner mirrors Agave function

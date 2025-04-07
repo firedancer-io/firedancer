@@ -485,7 +485,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                                        data + sizeof(fd_account_meta_t) );
     }
 
-    if( !memcmp( accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
+    if( !memcmp( acc->vt->get_pubkey( acc ), test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id = 1;
       info->program_id = (uchar)txn_ctx->accounts_cnt;
     }
@@ -497,7 +497,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     fd_pubkey_t *      program_key = &txn_ctx->account_keys[ txn_ctx->accounts_cnt ];
     fd_txn_account_init( program_acc );
     memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
-    memcpy( program_acc->pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) );
+    program_acc->vt->set_pubkey( program_acc, (fd_pubkey_t const *)test_ctx->program_id );
     fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
     fd_account_meta_init( meta );
     program_acc->vt->set_meta_mutable( program_acc, meta );
@@ -1506,7 +1506,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
     /* Copy over account content */
 
-    memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
+    memcpy( out_acct->address, acc->vt->get_pubkey( acc ), sizeof(fd_pubkey_t) );
     out_acct->lamports     = acc->vt->get_lamports( acc );
     if( acc->vt->get_data_len( acc )>0UL ) {
       out_acct->data =
@@ -1746,7 +1746,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
       /* Copy over account content */
 
-      memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
+      memcpy( out_acct->address, acc->vt->get_pubkey( acc ), sizeof(fd_pubkey_t) );
 
       out_acct->lamports = acc->vt->get_lamports( acc );
 

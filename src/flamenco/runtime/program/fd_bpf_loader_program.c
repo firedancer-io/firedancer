@@ -827,9 +827,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L542-L560 */
       /* Verify Program account */
 
-      fd_bpf_upgradeable_loader_state_t * loader_state   = NULL;
-      fd_pubkey_t *                       new_program_id = NULL;
-      fd_rent_t const *                   rent           = &instr_ctx->txn_ctx->rent;
+      fd_bpf_upgradeable_loader_state_t * loader_state    = NULL;
+      fd_pubkey_t *                        new_program_id = NULL;
+      fd_rent_t const *                   rent            = &instr_ctx->txn_ctx->rent;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L545 */
       fd_guarded_borrowed_account_t program;
@@ -855,7 +855,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not rent-exempt" );
         return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
       }
-      new_program_id = program.acct->pubkey;
+      new_program_id = fd_borrowed_account_get_pubkey_unsafe( &program );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L560 */
       fd_borrowed_account_drop( &program );
@@ -863,7 +863,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L561-L600 */
       /* Verify Buffer account */
 
-      fd_pubkey_t * buffer_key       = NULL;
+      fd_pubkey_t const * buffer_key = NULL;
       ulong buffer_data_offset       = 0UL;
       ulong buffer_data_len          = 0UL;
       ulong programdata_len          = 0UL;
@@ -891,7 +891,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Invalid Buffer account" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      buffer_key         = buffer.acct->pubkey;
+      buffer_key         = fd_borrowed_account_get_pubkey( &buffer );
       buffer_data_offset = BUFFER_METADATA_SIZE;
       buffer_data_len    = fd_ulong_sat_sub( fd_borrowed_account_get_data_len( &buffer ), buffer_data_offset );
       /* UpgradeableLoaderState::size_of_program_data( max_data_len ) */
@@ -1088,7 +1088,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      FD_LOG_INFO(( "Program deployed %s", FD_BASE58_ENC_32_ALLOCA( program.acct->pubkey ) ));
+      FD_LOG_INFO(( "Program deployed %s", FD_BASE58_ENC_32_ALLOCA( fd_borrowed_account_get_pubkey( &program ) ) ));
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L700 */
       fd_borrowed_account_drop( &program );
@@ -1576,7 +1576,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t close_account;
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &close_account );
 
-      fd_pubkey_t * close_key = close_account.acct->pubkey;
+      fd_pubkey_t const * close_key = fd_borrowed_account_get_pubkey( &close_account );
       fd_bpf_upgradeable_loader_state_t * close_account_state = fd_bpf_loader_program_get_state( close_account.acct, spad, &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
@@ -1718,7 +1718,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t programdata_account;
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata_account );
 
-      fd_pubkey_t * programdata_key = programdata_account.acct->pubkey;
+      fd_pubkey_t const * programdata_key = fd_borrowed_account_get_pubkey( &programdata_account );
 
       if( FD_UNLIKELY( memcmp( program_id, fd_borrowed_account_get_owner( &programdata_account ), sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData owner is invalid" );

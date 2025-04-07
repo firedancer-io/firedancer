@@ -159,7 +159,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
                    ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
     /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: account %s already in use", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Allocate: account %s already in use", FD_BASE58_ENC_32_ALLOCA( fd_borrowed_account_get_pubkey( account ) ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -261,7 +261,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
       /* Max msg_sz: 41 - 2 + 45 = 84 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx,
-        "Create Account: account %s already in use", FD_BASE58_ENC_32_ALLOCA( to.acct->pubkey ) );
+        "Create Account: account %s already in use", FD_BASE58_ENC_32_ALLOCA( fd_borrowed_account_get_pubkey( &to ) ) );
       ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
@@ -338,7 +338,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L392 */
 
-  err = fd_system_program_assign( ctx, &account, owner, account.acct->pubkey );
+  err = fd_system_program_assign( ctx, &account, owner, fd_borrowed_account_get_pubkey( &account ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -432,7 +432,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L515
      Authorization check is lifted out from 'allocate' to here. */
 
-  err = fd_system_program_allocate( ctx, &account, space, account.acct->pubkey );
+  err = fd_system_program_allocate( ctx, &account, space, fd_borrowed_account_get_pubkey( &account ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -463,7 +463,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
 
   err = verify_seed_address(
     ctx,
-    account.acct->pubkey,
+    fd_borrowed_account_get_pubkey( &account ),
     &args->base,
     (char const *)args->seed,
     args->seed_len,
@@ -509,7 +509,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
 
   err = verify_seed_address(
     ctx,
-    account.acct->pubkey,
+    fd_borrowed_account_get_pubkey( &account ),
     &args->base,
     (char const *)args->seed,
     args->seed_len,

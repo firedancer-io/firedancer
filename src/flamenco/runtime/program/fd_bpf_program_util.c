@@ -173,7 +173,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
                                        fd_spad_t *             runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-    fd_pubkey_t * program_pubkey = program_acc->pubkey;
+    fd_pubkey_t const * program_pubkey = program_acc->vt->get_pubkey( program_acc );
 
     fd_funk_t     *   funk             = slot_ctx->funk;
     fd_funk_txn_t *   funk_txn         = slot_ctx->funk_txn;
