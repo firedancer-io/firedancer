@@ -584,3 +584,18 @@
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;window | `counter` | What types of client messages are we sending (Need Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;highest_&#8203;window | `counter` | What types of client messages are we sending (Need Highest Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;orphan | `counter` | What types of client messages are we sending (Need Orphans) |
+
+## Sender Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| sender_&#8203;txns_&#8203;signed | `counter` | Total count of transactions signed |
+| sender_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader | `counter` | Total count of transactions sent to leader |
+| sender_&#8203;txns_&#8203;sprayed | `counter` | Total count of transactions sprayed to gossip and dedup |
+| sender_&#8203;txns_&#8203;rcvd | `counter` | Total count of transactions received from replay |
+| sender_&#8203;contact_&#8203;updates | `counter` | Total count of contact info updates |
+| sender_&#8203;contact_&#8203;update_&#8203;indiv_&#8203;cnt | `counter` | Total count of individual processed contacts (with duplication) |
+| sender_&#8203;stake_&#8203;update_&#8203;init | `counter` | Total count of stake updates started |
+| sender_&#8203;stake_&#8203;update_&#8203;fini | `counter` | Total count of stake updates finished |
+| sender_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found | `counter` | Total count of times leader schedule not found |
+| sender_&#8203;leader_&#8203;not_&#8203;found | `counter` | Total count of times leader not found for given slot |
+| sender_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found | `counter` | Total count of times leader contact info not found |
