@@ -71,7 +71,7 @@
    work? */
 
 #ifndef FD_HAS_ATOMIC
-#define FD_HAS_ATOMIC 0
+#define FD_HAS_ATOMIC 1
 #endif
 
 /* FD_HAS_THREADS:  If the build target supports a POSIX-ish notion of
@@ -83,7 +83,7 @@
    and FD_HAS_ATOMIC. */
 
 #ifndef FD_HAS_THREADS
-#define FD_HAS_THREADS 0
+#define FD_HAS_THREADS 1
 #endif
 
 /* FD_HAS_INT128:  If the build target supports reasonably efficient
@@ -91,7 +91,7 @@
    use of them in implementations. */
 
 #ifndef FD_HAS_INT128
-#define FD_HAS_INT128 0
+#define FD_HAS_INT128 1
 #endif
 
 /* FD_HAS_DOUBLE:  If the build target supports reasonably efficient
@@ -106,7 +106,7 @@
    list handling. */
 
 #ifndef FD_HAS_DOUBLE
-#define FD_HAS_DOUBLE 0
+#define FD_HAS_DOUBLE 1
 #endif
 
 /* FD_HAS_ALLOCA:  If the build target supports fast alloca-style
@@ -115,7 +115,7 @@
    of it in implementations. */
 
 #ifndef FD_HAS_ALLOCA
-#define FD_HAS_ALLOCA 0
+#define FD_HAS_ALLOCA 1
 #endif
 
 /* FD_HAS_X86:  If the build target supports x86 specific features and

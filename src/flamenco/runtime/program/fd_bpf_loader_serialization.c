@@ -1,6 +1,7 @@
 #include "fd_bpf_loader_serialization.h"
 #include "../fd_borrowed_account.h"
 #include "../fd_runtime.h"
+#include <stdio.h>
 
 /* As a general note, copy_account_data implies that direct mapping is not being
    used/is inactive. This file is responsible for serializing and deserializing
@@ -114,6 +115,11 @@ write_account( fd_borrowed_account_t *   account,
     acc_region_metas[instr_acc_idx].has_data_region     = !!dlen;
     acc_region_metas[instr_acc_idx].has_resizing_region = (uchar)is_aligned;
 
+    /* Store the pubkey and host address of the account data */
+    printf( "Pubkey and host addr: %s %lx, empty? : %s\n",
+            FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey->key ),
+            (ulong)data,
+            dlen == 0UL ? "true" : "false" );
     if( dlen ) {
       new_input_mem_region( input_mem_regions, input_mem_regions_cnt, data, dlen, is_writable, 1U );
     }

@@ -22,7 +22,7 @@
   /* Include the jump table */
 
 # include "fd_vm_interp_jump_table.c"
-
+#include "stdio.h"
   /* Update the jump table based on SBPF version */
 
   ulong sbpf_version = vm->sbpf_version;
@@ -144,6 +144,7 @@
   uint  imm;
   ulong reg_dst;
   ulong reg_src;
+  ulong remaining_cus;
 
 /* These mimic the exact Rust semantics for wrapping_shl and wrapping_shr. */
 
@@ -182,6 +183,10 @@
   imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
   reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
   reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
+  remaining_cus = cu - (pc - pc0 + 1UL - ic_correction); \
+  if(false) printf("opc: %lu, remaining cus: %lu\n", opcode, remaining_cus); \
+  if(false) printf("reg0: %lu, reg1: %lu, reg2: %lu, reg3: %lu, reg4: %lu, reg5: %lu, reg6: %lu, reg7: %lu, reg8: %lu, reg9: %lu, reg10: %lu\n", reg[0], reg[1], reg[2], reg[3], reg[4], reg[5], reg[6], reg[7], reg[8], reg[9], reg[10]); \
+  if(false && remaining_cus==122757) __asm__("int $3"); \
   goto *interp_jump_table[ opcode ]      /* Guaranteed in-bounds */
 
 /* FD_VM_INTERP_SYSCALL_EXEC
@@ -814,8 +819,43 @@ interp_exec:
 
     } else {
 
-      FD_VM_INTERP_SYSCALL_EXEC;
+      // printf("\n\nBEFORE SYSCALL (depth=%hhu):\n\n\n", vm->instr_ctx->txn_ctx->instr_stack_sz);
+      // printf("remaining cus: %lu\n", remaining_cus);
+      // for (uint i = 0; i < vm->input_mem_regions_cnt; i++) {
+      //   ulong haddr = vm->input_mem_regions[i].haddr;
+      //   printf("[");
+      //   for( ulong j = 0; j<vm->input_mem_regions[i].region_sz; j++) {
+      //     if (j+1 != vm->input_mem_regions[i].region_sz) {
+      //       printf("%hhu, ", ((uchar*)haddr)[j]);
+      //     } else {
+      //       printf("%hhu", ((uchar*)haddr)[j]);
+      //     }
+      //   }
+      //   printf("]\n");
+      //   printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset, (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset + vm->input_mem_regions[i].region_sz);
+      //   printf("Region writable? %s\n", vm->input_mem_regions[i].is_writable ? "true" : "false");
+      // }
+      // printf("\n");
 
+      FD_VM_INTERP_SYSCALL_EXEC;
+      // printf("\n\nAFTER SYSCALL (depth=%hhu):\n\n\n", vm->instr_ctx->txn_ctx->instr_stack_sz);
+      // printf("remaining cus: %lu\n", remaining_cus);
+      // // if (remaining_cus==128125) __asm__("int $3");
+      // for (uint i = 0; i < vm->input_mem_regions_cnt; i++) {
+      //   ulong haddr = vm->input_mem_regions[i].haddr;
+      //   printf("[");
+      //   for( ulong j = 0; j<vm->input_mem_regions[i].region_sz; j++) {
+      //     if (j+1 != vm->input_mem_regions[i].region_sz) {
+      //       printf("%hhu, ", ((uchar*)haddr)[j]);
+      //     } else {
+      //       printf("%hhu", ((uchar*)haddr)[j]);
+      //     }
+      //   }
+      //   printf("]\n");
+      //   printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset, (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset + vm->input_mem_regions[i].region_sz);
+      //   printf("Region writable? %s\n", vm->input_mem_regions[i].is_writable ? "true" : "false");
+      // }
+      // printf("\n");
     }
   } FD_VM_INTERP_BRANCH_END;
 
@@ -1008,7 +1048,49 @@ interp_exec:
 
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    if (remaining_cus == 122757 || remaining_cus == 122635) {
+      printf("TIME FOR THE OP!\n");
+      printf("%lu\n", remaining_cus);
+      for (uint i = 0; i < vm->input_mem_regions_cnt; i++) {
+        ulong hahaddr = vm->input_mem_regions[i].haddr;
+        printf("[");
+        for( ulong j = 0; j<vm->input_mem_regions[i].region_sz; j++) {
+          if (j+1 != vm->input_mem_regions[i].region_sz) {
+            printf("%hhu, ", ((uchar*)hahaddr)[j]);
+          } else {
+            printf("%hhu", ((uchar*)hahaddr)[j]);
+          }
+        }
+        printf("]\n");
+        printf("haddr start, end: %lx %lx\n", vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].haddr + vm->input_mem_regions[i].region_sz);
+        printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset, (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset + vm->input_mem_regions[i].region_sz);
+        printf("Region writable? %s\n", vm->input_mem_regions[i].is_writable ? "true" : "false");
+      }
+      printf("\n");
+    }
+
     fd_vm_mem_st_8( vm, vaddr, haddr, reg_src, is_multi_region );
+    if (remaining_cus == 122757 || remaining_cus == 122635) {
+      printf("AND NOW THE SECOND OP\n");
+      for (uint i = 0; i < vm->input_mem_regions_cnt; i++) {
+        ulong hahaddr = vm->input_mem_regions[i].haddr;
+        printf("[");
+        for( ulong j = 0; j<vm->input_mem_regions[i].region_sz; j++) {
+          if (j+1 != vm->input_mem_regions[i].region_sz) {
+            printf("%hhu, ", ((uchar*)hahaddr)[j]);
+          } else {
+            printf("%hhu", ((uchar*)hahaddr)[j]);
+          }
+        }
+        printf("]\n");
+        printf("haddr start, end: %lx %lx\n", vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].haddr + vm->input_mem_regions[i].region_sz);
+        printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset, (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset + vm->input_mem_regions[i].region_sz);
+        printf("Region writable? %s\n", vm->input_mem_regions[i].is_writable ? "true" : "false");
+        // if (0x60 == vm->input_mem_regions[i].vaddr_offset) __asm__("int $3");
+      }
+      printf("\n");
+      printf("AND WE'RE DONE\n");
+    }
   }
   FD_VM_INTERP_INSTR_END;
 

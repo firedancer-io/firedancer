@@ -22,6 +22,7 @@
    Field name length is restricted to 54 because
    127 - (37 + 18 + 18) leaves 54 characters for the field name
  */
+#include <string.h>
 #define VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, vm_addr, expected_vm_addr, field_name) \
   if( FD_UNLIKELY( vm_addr!=expected_vm_addr )) {                                                         \
     fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,                                             \
@@ -650,6 +651,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
        know that one exists iff the original len was non-zero. */
     ulong acc_region_idx = vm->acc_region_metas[instr_acc_idx].region_idx;
     if( original_len && vm->input_mem_regions[ acc_region_idx ].haddr!=(ulong)callee_acc->data ) {
+      printf("Changing region haddr from %lx to %lx\n", vm->input_mem_regions[ acc_region_idx ].haddr, (ulong)callee_acc->data );
       vm->input_mem_regions[ acc_region_idx ].haddr = (ulong)callee_acc->data;
       zero_all_mapped_spare_capacity = 1;
     }
@@ -947,9 +949,99 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
 
+  printf("\n\nBEFORE CPI (depth=%hhu):\n\n\n", vm->instr_ctx->txn_ctx->instr_stack_sz);
+  for (uint i = 0; i < vm->input_mem_regions_cnt; i++) {
+    ulong haddr = vm->input_mem_regions[i].haddr;
+    printf("[");
+    for( ulong j = 0; j<vm->input_mem_regions[i].region_sz; j++) {
+      if (j+1 != vm->input_mem_regions[i].region_sz) {
+        printf("%hhu, ", ((uchar*)haddr)[j]);
+      } else {
+        printf("%hhu", ((uchar*)haddr)[j]);
+      }
+    }
+    printf("]\n");
+    printf("haddr start, end: %lx %lx\n", vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].haddr + vm->input_mem_regions[i].region_sz);
+    printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset, (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset + vm->input_mem_regions[i].region_sz);
+    printf("Region writable? %s\n", vm->input_mem_regions[i].is_writable ? "true" : "false");
+
+    for (uint j = 0; j < vm->instr_ctx->instr->acct_cnt; j++) {
+      uint region_idx = vm->acc_region_metas[j].region_idx;
+      if (i == region_idx) {
+        printf("Pubkey: %s\n", FD_BASE58_ENC_32_ALLOCA( vm->instr_ctx->txn_ctx->account_keys[ vm->instr_ctx->instr->accounts[ j ].index_in_transaction ].key ));
+        break;
+      }
+    }
+  }
+  printf("\n");
+  printf("---\n");
+
+  uchar * orig_datas[FD_INSTR_ACCT_MAX];
+  for( ushort i=0U; i<vm->instr_ctx->instr->acct_cnt; i++ ) {
+    fd_guarded_borrowed_account_t account;
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, i, &account );
+
+    uint data_region_idx = vm->acc_region_metas[ i ].region_idx;
+    if( FD_UNLIKELY( !vm->input_mem_regions[ data_region_idx ].is_writable ) ) {
+      printf("Special casing for %s\n", FD_BASE58_ENC_32_ALLOCA(account.acct->pubkey->key));
+      orig_datas[i] = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 1UL, account.acct->const_meta->dlen );
+      fd_memcpy( orig_datas[i], account.acct->const_data, account.acct->const_meta->dlen );
+    } else {
+      orig_datas[i] = NULL;
+    }
+  }
+
   /* Execute the CPI instruction in the runtime */
   int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
+
+  for( ushort i=0U; i<vm->instr_ctx->instr->acct_cnt; i++ ) {
+    if( !orig_datas[i] ) continue;
+
+    fd_guarded_borrowed_account_t account;
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, i, &account );
+    fd_memcpy( (uchar*)account.acct->const_data, orig_datas[i], account.acct->const_meta->dlen );
+  }
+
+  printf("\n\nBETWEEN CPI (depth=%hhu):\n\n\n", vm->instr_ctx->txn_ctx->instr_stack_sz);
+  bool goat = false;
+  for (uint i = 0; i < vm->input_mem_regions_cnt; i++) {
+    ulong haddr = vm->input_mem_regions[i].haddr;
+    printf("[");
+    for( ulong j = 0; j<vm->input_mem_regions[i].region_sz; j++) {
+      if (j+1 != vm->input_mem_regions[i].region_sz) {
+        printf("%hhu, ", ((uchar*)haddr)[j]);
+      } else {
+        printf("%hhu", ((uchar*)haddr)[j]);
+      }
+    }
+    printf("]\n");
+    printf("haddr start, end: %lx %lx\n", vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].haddr + vm->input_mem_regions[i].region_sz);
+    printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset, (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset + vm->input_mem_regions[i].region_sz);
+    // printf("haddr start, end: %lx %lx\n", haddr, haddr + vm->input_mem_regions[i].region_sz);
+    printf("Region writable? %s\n", vm->input_mem_regions[i].is_writable ? "true" : "false");
+
+    for (uint j = 0; j < vm->instr_ctx->instr->acct_cnt; j++) {
+      uint region_idx = vm->acc_region_metas[j].region_idx;
+      if (i == region_idx) {
+        printf("Pubkey: %s\n", FD_BASE58_ENC_32_ALLOCA( vm->instr_ctx->txn_ctx->account_keys[ vm->instr_ctx->instr->accounts[ j ].index_in_transaction ].key ));
+        break;
+      }
+    }
+
+    // if (vm->input_mem_regions[i].vaddr_offset == 0x329c8 && *((uchar*)haddr+64)==200) {
+    //   goat=true;
+    //   __asm__("int $3");
+    // }
+    if (vm->input_mem_regions[i].vaddr_offset == 0x2d7b8 && *((uchar*)haddr+64)==133) {
+      goat=true;
+      // __asm__("int $3");
+    }
+  }
+  // if(goat) __asm__("int $3");
+  (void)goat;
+  printf("\n");
+  printf("---\n");
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,
      so that the caller can't use compute units that the callee has already used. */
@@ -978,6 +1070,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
         fd_guarded_borrowed_account_t callee_acc;
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, acc_instr_idx, &callee_acc );
 
+        printf("We're updating perms for %s now\n", FD_BASE58_ENC_32_ALLOCA( callee_acc.acct->pubkey->key ));
+
         /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1298 */
         uchar is_writable = !!fd_borrowed_account_can_data_be_changed( &callee_acc, &err );
         /* Lookup memory regions for the account data and the realloc region. */
@@ -989,9 +1083,11 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
         if( data_region_idx ) {
           vm->input_mem_regions[ data_region_idx ].is_writable = is_writable;
+          printf("Region is writable? %s\n", is_writable ? "true" : "false");
         }
         if( FD_LIKELY( realloc_region_idx ) ) { /* Unless is deprecated loader */
           vm->input_mem_regions[ realloc_region_idx ].is_writable = is_writable;
+          printf("Realloc region is writable? %s\n", is_writable ? "true" : "false");
         }
       }
     }
@@ -1005,12 +1101,41 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, callee_account_keys[i] ) ) {
       ushort              idx_in_txn = vm->instr_ctx->instr->accounts[ callee_account_keys[i] ].index_in_transaction;
       fd_pubkey_t const * callee     = &vm->instr_ctx->txn_ctx->account_keys[ idx_in_txn ];
+      printf("We're updating %s now\n", FD_BASE58_ENC_32_ALLOCA( callee->key ));
       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[ caller_accounts_to_update[i] ], caller_accounts + i, (uchar)callee_account_keys[i], callee);
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
     }
   }
+  printf("We're updating------\n");
+
+  printf("\n\nAFTER CPI (depth=%hhu):\n\n\n", vm->instr_ctx->txn_ctx->instr_stack_sz);
+  for (uint i = 0; i < vm->input_mem_regions_cnt; i++) {
+    ulong haddr = vm->input_mem_regions[i].haddr;
+    printf("[");
+    for( ulong j = 0; j<vm->input_mem_regions[i].region_sz; j++) {
+      if (j+1 != vm->input_mem_regions[i].region_sz) {
+        printf("%hhu, ", ((uchar*)haddr)[j]);
+      } else {
+        printf("%hhu", ((uchar*)haddr)[j]);
+      }
+    }
+    printf("]\n");
+    printf("haddr start, end: %lx %lx\n", vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].haddr + vm->input_mem_regions[i].region_sz);
+    printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset, (4UL<<32UL) + vm->input_mem_regions[i].vaddr_offset + vm->input_mem_regions[i].region_sz);
+    printf("Region writable? %s\n", vm->input_mem_regions[i].is_writable ? "true" : "false");
+
+    for (uint j = 0; j < vm->instr_ctx->instr->acct_cnt; j++) {
+      uint region_idx = vm->acc_region_metas[j].region_idx;
+      if (i == region_idx) {
+        printf("Pubkey: %s\n", FD_BASE58_ENC_32_ALLOCA( vm->instr_ctx->txn_ctx->account_keys[ vm->instr_ctx->instr->accounts[ j ].index_in_transaction ].key ));
+        break;
+      }
+    }
+  }
+  printf("\n");
+  printf("---\n");
 
   return FD_VM_SUCCESS;
 }

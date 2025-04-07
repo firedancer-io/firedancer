@@ -459,6 +459,32 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
     return err;
   }
 
+  printf("\n\nIN BPF LOADER\n\n\n");
+  for (uint i = 0; i < input_mem_regions_cnt; i++) {
+    ulong haddr = input_mem_regions[i].haddr;
+    printf("[");
+    for( ulong j = 0; j<input_mem_regions[i].region_sz; j++) {
+      if (j+1 != input_mem_regions[i].region_sz) {
+        printf("%hhu, ", ((uchar*)haddr)[j]);
+      } else {
+        printf("%hhu", ((uchar*)haddr)[j]);
+      }
+    }
+    printf("]\n");
+    printf("haddr start, end: %lx %lx\n", input_mem_regions[i].haddr, input_mem_regions[i].haddr + input_mem_regions[i].region_sz);
+    printf("vm addr start, end: %lx %lx\n", (4UL<<32UL) + input_mem_regions[i].vaddr_offset, (4UL<<32UL) + input_mem_regions[i].vaddr_offset + input_mem_regions[i].region_sz);
+    printf("Region writable? %s\n", input_mem_regions[i].is_writable ? "true" : "false");
+  }
+  printf("\n");
+
+  printf("Account metadatas\n");
+  for (ushort i = 0; i < instr_ctx->instr->acct_cnt; i++) {
+    ulong region_idx = acc_region_metas[i].region_idx;
+    fd_vm_input_region_t * region = &input_mem_regions[region_idx];
+    printf("Pubkey: %s\n", FD_BASE58_ENC_32_ALLOCA( instr_ctx->txn_ctx->accounts[ instr_ctx->instr->accounts[i].index_in_transaction ].pubkey->key ));
+    printf("vm_data_addr: %lx, original_data_len: %u\n", (4UL<<32UL) + region->vaddr_offset, region->region_sz);
+  }
+
   if( FD_UNLIKELY( input==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
