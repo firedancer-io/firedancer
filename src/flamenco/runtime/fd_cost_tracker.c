@@ -225,8 +225,6 @@ static inline int
 would_fit( fd_cost_tracker_t const *     self,
            fd_exec_txn_ctx_t const *     txn_ctx,
            fd_transaction_cost_t const * tx_cost ) {
-  fd_txn_t const * txn_descriptor = txn_ctx->txn_descriptor;
-  void const *     payload        = txn_ctx->_txn_raw->raw;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L281 */
   ulong cost = transaction_cost_sum( tx_cost );
@@ -258,14 +256,13 @@ would_fit( fd_cost_tracker_t const *     self,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L308-L319 */
-  fd_account_costs_pair_t_mapnode_t * pool         = self->cost_by_writable_accounts.account_costs_pool;
-  fd_account_costs_pair_t_mapnode_t * root         = self->cost_by_writable_accounts.account_costs_root;
-  fd_acct_addr_t const *              account_keys = fd_txn_get_acct_addrs( txn_descriptor, payload );
+  fd_account_costs_pair_t_mapnode_t * pool = self->cost_by_writable_accounts.account_costs_pool;
+  fd_account_costs_pair_t_mapnode_t * root = self->cost_by_writable_accounts.account_costs_root;
 
-  for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
-                          i!=fd_txn_acct_iter_end();
-                          i=fd_txn_acct_iter_next( i ) ) {
-    fd_acct_addr_t const * writable_acc = &account_keys[ fd_txn_acct_iter_idx( i ) ];
+  for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
+
+    fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
     fd_account_costs_pair_t_mapnode_t elem;
     fd_memcpy( &elem.elem.key, writable_acc, sizeof(fd_pubkey_t) );
 
@@ -287,16 +284,13 @@ add_transaction_execution_cost( fd_cost_tracker_t *           self,
                                 fd_transaction_cost_t const * tx_cost,
                                 ulong                         adjustment ) {
 
-  fd_txn_t const *                     txn_descriptor = txn_ctx->txn_descriptor;
-  void const *                         payload        = txn_ctx->_txn_raw->raw;
-  fd_account_costs_pair_t_mapnode_t *  pool           = self->cost_by_writable_accounts.account_costs_pool;
-  fd_account_costs_pair_t_mapnode_t ** root           = &self->cost_by_writable_accounts.account_costs_root;
-  fd_acct_addr_t const *               account_keys   = fd_txn_get_acct_addrs( txn_descriptor, payload );
+  fd_account_costs_pair_t_mapnode_t *  pool = self->cost_by_writable_accounts.account_costs_pool;
+  fd_account_costs_pair_t_mapnode_t ** root = &self->cost_by_writable_accounts.account_costs_root;
 
-  for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
-                          i!=fd_txn_acct_iter_end();
-                          i=fd_txn_acct_iter_next( i ) ) {
-    fd_acct_addr_t const * writable_acc = &account_keys[ fd_txn_acct_iter_idx( i ) ];
+  for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
+
+    fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
     fd_account_costs_pair_t_mapnode_t elem;
     fd_memcpy( &elem.elem.key, writable_acc, sizeof(fd_pubkey_t) );
 
