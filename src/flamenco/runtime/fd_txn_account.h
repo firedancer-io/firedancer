@@ -8,44 +8,14 @@
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
-struct __attribute__((aligned(8UL))) fd_txn_account {
-  ulong                           magic;
-
-  fd_pubkey_t                     pubkey_[1];
-
-  fd_account_meta_t const   *     const_meta_;
-  uchar             const   *     const_data_;
-  fd_funk_rec_t     const   *     const_rec_;
-
-  fd_account_meta_t         *     meta_;
-  uchar                     *     data_;
-  fd_funk_rec_t             *     rec_;
-
-  ulong                           meta_gaddr;
-  ulong                           data_gaddr;
-
-  /* consider making this a struct or removing entirely if not needed */
-  ulong                           starting_dlen_;
-  ulong                           starting_lamports_;
-
-  /* only used when obtaining a mutable fd_txn_account_t from funk */
-  fd_funk_rec_prepare_t           prepared_rec;
-
-  /* Provide read/write mutual exclusion semantics.
-     Used for single-threaded logic only, thus not comparable to a
-     data synchronization lock. */
-
-  ushort                          refcnt_excl;
-  ushort                          refcnt_shared;
-
-  fd_txn_account_vtable_t const * vt;
-};
+struct __attribute__((aligned(8UL))) fd_txn_account;
 typedef struct fd_txn_account fd_txn_account_t;
+
 #define FD_TXN_ACCOUNT_FOOTPRINT (sizeof(fd_txn_account_t))
 #define FD_TXN_ACCOUNT_ALIGN     (8UL)
 #define FD_TXN_ACCOUNT_MAGIC     (0xF15EDF1C51F51AA1UL)
 
-#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1]; fd_txn_account_init( _x );
+#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x; fd_txn_account_init( &_x );
 
 FD_PROTOTYPES_BEGIN
 
@@ -76,11 +46,11 @@ fd_txn_account_setup_meta_mutable( fd_txn_account_t * acct,
 /* Accessors */
 
 /* Returns the total size of the account shared data */
-FD_FN_PURE static inline ulong
-fd_txn_account_raw_size( fd_txn_account_t const * acct ) {
-  ulong dlen = ( acct->const_meta_ != NULL ) ? acct->const_meta_->dlen : 0;
-  return sizeof(fd_account_meta_t) + dlen;
-}
+// FD_FN_PURE static inline ulong
+// fd_txn_account_raw_size( fd_txn_account_t const * acct ) {
+//   ulong dlen = ( acct->const_meta_ != NULL ) ? acct->const_meta_->dlen : 0;
+//   return sizeof(fd_account_meta_t) + dlen;
+// }
 
 /* Setters */
 
@@ -102,46 +72,28 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
 
 /* read/write mutual exclusion */
 
-FD_FN_PURE static inline int
-fd_txn_account_acquire_write_is_safe( fd_txn_account_t const * acct ) {
-  return (!acct->refcnt_excl) & (!acct->refcnt_shared);
-}
+FD_FN_PURE int
+fd_txn_account_acquire_write_is_safe( fd_txn_account_t const * acct );
 
-FD_FN_PURE static inline int
-fd_txn_account_acquire_read_is_safe( fd_txn_account_t const * acct ) {
-  return (!acct->refcnt_excl);
-}
+FD_FN_PURE int
+fd_txn_account_acquire_read_is_safe( fd_txn_account_t const * acct );
 
 /* fd_txn_account_acquire_write acquires write/exclusive access.
    Causes all other write or read acquire attempts will fail.  Returns 1
    on success, 0 on failure.
 
    Mirrors a try_borrow_mut() call in Agave. */
-static inline int
-fd_txn_account_acquire_write( fd_txn_account_t * acct ) {
-  if( FD_UNLIKELY( !fd_txn_account_acquire_write_is_safe( acct ) ) ) {
-    return 0;
-  }
-  acct->refcnt_excl = (ushort)1;
-  return 1;
-}
+int
+fd_txn_account_acquire_write( fd_txn_account_t * acct );
 
 /* fd_txn_account_release_write{_private} releases a write/exclusive
    access handle. The private version should only be used by fd_borrowed_account_drop
    and fd_borrowed_account_destroy. */
-static inline void
-fd_txn_account_release_write( fd_txn_account_t * acct ) {
-  FD_TEST( acct->refcnt_excl==1U );
-  acct->refcnt_excl = (ushort)0;
-}
+void
+fd_txn_account_release_write( fd_txn_account_t * acct );
 
-static inline void
-fd_txn_account_release_write_private( fd_txn_account_t * acct ) {
-  /* Only release if it is not yet released */
-  if( !fd_txn_account_acquire_write_is_safe( acct ) ) {
-    fd_txn_account_release_write( acct );
-  }
-}
+void
+fd_txn_account_release_write_private( fd_txn_account_t * acct );
 
 /* Factory constructors from funk (Accounts DB) */
 
