@@ -116,8 +116,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
       fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[duplicate_index];
-      instruction_account->is_signer   |= !!(callee_instr->accounts[i].is_signer);
-      instruction_account->is_writable |= !!(callee_instr->accounts[i].is_writable);
+      instruction_account->is_signer   = !!(instruction_account->is_signer   | callee_instr->accounts[i].is_signer);
+      instruction_account->is_writable = !!(instruction_account->is_writable | callee_instr->accounts[i].is_writable);
     } else {
       /* In the case where the callee instruction is NOT a duplicate, we need to
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
