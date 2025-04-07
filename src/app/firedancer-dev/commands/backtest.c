@@ -266,20 +266,20 @@ backtest_topo( config_t * config ) {
   /* Setup replay->stake/sender/poh links in topo w/o consumers         */
   /**********************************************************************/
   fd_topob_wksp( topo, "stake_out"    );
-  fd_topob_wksp( topo, "replay_voter" );
+  fd_topob_wksp( topo, "replay_send"  );
   fd_topob_wksp( topo, "replay_poh"   );
 
-  fd_topob_link( topo, "stake_out", "stake_out", 128UL, 40UL + 40200UL * 40UL, 1UL );
-  fd_topob_link( topo, "replay_voter", "replay_voter", 128UL, sizeof(fd_txn_p_t), 1UL );
+  fd_topob_link( topo, "stake_out",   "stake_out",   128UL, 40UL + 40200UL * 40UL, 1UL );
+  fd_topob_link( topo, "replay_send", "replay_send", 128UL, sizeof(fd_txn_p_t),    1UL );
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
   FOR(bank_tile_cnt) fd_topob_link( topo, "replay_poh", "replay_poh", 128UL, (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL );
 
-  fd_topob_tile_out( topo, "replay", 0UL, "stake_out", 0UL );
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_voter", 0UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "stake_out",   0UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_send", 0UL );
   FOR(bank_tile_cnt) fd_topob_tile_out( topo, "replay", 0UL, "replay_poh", i );
 
-  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "stake_out", 0 ) ] ].permit_no_consumers = 1;
-  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_voter", 0 ) ] ].permit_no_consumers = 1;
+  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "stake_out",   0 ) ] ].permit_no_consumers = 1;
+  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_send", 0 ) ] ].permit_no_consumers = 1;
   FOR(bank_tile_cnt) topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_poh", i ) ] ].permit_no_consumers = 1;
 
   /**********************************************************************/
