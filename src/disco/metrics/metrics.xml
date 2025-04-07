@@ -210,6 +210,13 @@ metric introduced.
     <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
+<tile name="sender">
+    <counter name="TxnsSentToLeader" summary="Total count of transactions sent to leader" />
+    <counter name="LeaderSchedNotFound" summary="Total count of times leader schedule not found" />
+    <counter name="LeaderNotFound" summary="Total count of times leader not found for given slot" />
+    <counter name="LeaderContactNotFound" summary="Total count of times leader contact info not found" />
+</tile>
+
 <tile name="bundle">
     <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
     <counter name="PacketReceived" summary="Total count of packets received" />
