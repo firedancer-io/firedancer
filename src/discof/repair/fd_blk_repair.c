@@ -213,9 +213,6 @@ static void
 link_sibling( fd_blk_repair_t * blk_repair, fd_blk_ele_t * sibling, fd_blk_ele_t * ele ) {
   fd_blk_ele_t * pool        = fd_blk_pool( blk_repair );
   ulong          null        = fd_blk_pool_idx_null( pool );
-  while( FD_UNLIKELY( sibling->sibling != null ) ) {
-    sibling = fd_blk_pool_ele( pool, sibling->sibling );
-  }
   while( FD_UNLIKELY( sibling->sibling != null )) sibling = fd_blk_pool_ele( pool, sibling->sibling );
   sibling->sibling = fd_blk_pool_idx( pool, ele );
 }
@@ -277,12 +274,14 @@ link_orphans( fd_blk_repair_t * blk_repair, fd_blk_ele_t * head ) {
 static void
 advance_frontier( fd_blk_repair_t * blk_repair, ulong slot ) {
   fd_blk_ele_t *      pool     = fd_blk_pool( blk_repair );
+  ulong               null     = fd_blk_pool_idx_null( pool );
   fd_blk_ancestry_t * ancestry = fd_blk_ancestry( blk_repair );
   fd_blk_frontier_t * frontier = fd_blk_frontier( blk_repair );
   fd_blk_ele_t *      head     = fd_blk_frontier_ele_query( fd_blk_frontier( blk_repair ), &slot, NULL, pool );
   fd_blk_ele_t *      tail     = head;
+  fd_blk_ele_t *      prev     = NULL;
   while( FD_LIKELY( head ) ) {
-    if( FD_LIKELY( head->consumed_idx == head->complete_idx ) ) {
+    if( FD_LIKELY( head->complete_idx != UINT_MAX && head->consumed_idx == head->complete_idx ) ) {
       fd_blk_frontier_ele_remove( frontier, &head->slot, NULL, pool );
       fd_blk_ancestry_ele_insert( ancestry, head, pool );
       fd_blk_ele_t * child = fd_blk_pool_ele( pool, head->child );
@@ -295,7 +294,9 @@ advance_frontier( fd_blk_repair_t * blk_repair, ulong slot ) {
         child          = fd_blk_pool_ele( pool, child->sibling );
       }
     }
-    head = fd_blk_pool_ele( pool, head->prev );
+    prev       = head;
+    head       = fd_blk_pool_ele( pool, head->prev );
+    prev->prev = null;
   }
 }
 
@@ -340,7 +341,7 @@ ele_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint sh
 }
 
 fd_blk_ele_t *
-fd_blk_repair_shred_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx ) {
+fd_blk_repair_data_shred_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx ) {
   VER_INC;
   fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
   if( FD_UNLIKELY( slot < fd_blk_pool_ele( pool, blk_repair->root )->slot ) ) return NULL;
@@ -444,7 +445,8 @@ print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, int space, 
 
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ ) printf( " " );
-  printf( "%s%lu", prefix, ele->slot );
+  if ( ele->complete_idx == 0 ) printf( "%s%lu (%u/?)", prefix, ele->slot, ele->consumed_idx + 1 );
+  else printf( "%s%lu (%u/%u)", prefix, ele->slot, ele->consumed_idx + 1, ele->complete_idx + 1 );
 
   fd_blk_ele_t const * curr = fd_blk_pool_ele_const( pool, ele->child );
 
@@ -465,7 +467,6 @@ print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, int space, 
 
 void
 fd_blk_repair_frontier_print( FD_PARAM_UNUSED fd_blk_repair_t const * blk_repair ) {
-  #if PRINT
   printf( "\n\n[Frontier]\n" );
   fd_blk_frontier_t const * frontier = fd_blk_frontier_const( blk_repair );
   fd_blk_ele_t const * pool = fd_blk_pool_const( blk_repair );
@@ -475,7 +476,7 @@ fd_blk_repair_frontier_print( FD_PARAM_UNUSED fd_blk_repair_t const * blk_repair
     fd_blk_ele_t const * ele = fd_blk_frontier_iter_ele_const( iter, frontier, pool );
     printf( "%lu ", ele->slot );
   }
-  #endif
+  printf("\n\n");
 }
 
 void

@@ -255,7 +255,7 @@ typedef struct fd_block_rewards fd_block_rewards_t;
    ie. `fd_uchar_set_bit`, `fd_uchar_extract_bit`. */
 
 #define SET_NAME fd_block_set
-#define SET_MAX  FD_SHRED_MAX_PER_SLOT
+#define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
 struct fd_block_info {
@@ -308,7 +308,7 @@ struct fd_block_info {
      corresponds to the shred's index. Note shreds can be received
      out-of-order so higher bits might be set before lower bits. */
 
-  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+  fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)];
 
   /* Helpers for batching tick verification */
 

@@ -66,12 +66,14 @@ struct fd_fec_intra {
   ulong prev; /* internal use by dlist */
   ulong next; /* internal use by map_chain */
 
-  ulong slot;        /* slot of the block this fec set is part of  */
-  ulong parent_slot; /* parent slot of `slot` */
-  uint  fec_set_idx; /* index of the first data shred */
-  long  ts;          /* timestamp upon receiving the first shred */
-  ulong recv_cnt;    /* count of shreds received so far data + coding */
-  uint  data_cnt;    /* count of total data shreds in the FEC set */
+  ulong  slot; /* slot of the block this fec set is part of  */
+  ushort parent_off;
+  ulong  parent_slot; /* parent slot of `slot` */
+  uint   fec_set_idx; /* index of the first data shred */
+  long   ts;          /* timestamp upon receiving the first shred */
+  ulong  recv_cnt;    /* count of shreds received so far data + coding */
+  uint   data_cnt;    /* count of total data shreds in the FEC set */
+
   fd_ed25519_sig_t sig; /* Ed25519 sig identifier of the FEC. */
 
   uint  buffered_idx;  /* wmk of shreds buffered contiguously, inclusive. Starts at 0 */

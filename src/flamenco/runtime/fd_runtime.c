@@ -1097,7 +1097,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
     an error.
    */
   ulong slot_complete_idx = FD_SHRED_IDX_NULL;
-  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+  fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)];
   int err = FD_MAP_ERR_AGAIN;
   while( err == FD_MAP_ERR_AGAIN ) {
     fd_block_map_query_t quer[1] = {0};

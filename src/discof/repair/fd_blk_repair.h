@@ -33,7 +33,7 @@
 #define FD_BLK_REPAIR_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) fd_fseq_update( *ver, fd_fseq_query( *ver ) + 1 ); FD_LOG_ERR(( "FAIL: %s", #c )); } while(0)
 
 #define SET_NAME fd_blk_ele_idxs
-#define SET_MAX  FD_SHRED_MAX_PER_SLOT
+#define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
 
@@ -296,7 +296,7 @@ fd_blk_repair_root_slot( fd_blk_repair_t const * blk_repair ) {
    Returns the inserted blk_repair ele. */
 
 fd_blk_ele_t *
-fd_blk_repair_shred_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx );
+fd_blk_repair_data_shred_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx );
 
 /* fd_blk_repair_shred_complete marks the complete_idx of the ele keyed
    by slot.  Assumes ele with key slot is already in blk_repair. */
