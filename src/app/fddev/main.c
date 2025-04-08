@@ -1,4 +1,5 @@
 #include "../fdctl/config.h"
+#include "../fdctl/topology.h"
 #include "../shared_dev/boot/fd_dev_boot.h"
 
 int
