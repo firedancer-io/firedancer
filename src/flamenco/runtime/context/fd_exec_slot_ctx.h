@@ -33,9 +33,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       slots_per_epoch;
   ulong                       part_width;
 
-  /* TODO figure out what to do with this */
-  fd_epoch_reward_status_t    epoch_reward_status;
-
   /* TODO remove this stuff */
   ulong                       signature_cnt;
   fd_hash_t                   account_delta_hash;

@@ -1112,6 +1112,140 @@
       ]
     },
     {
+      "name": "stake_reward",
+      "type": "struct",
+      "alignment": "8",
+      "fields": [
+        { "name": "prev",             "type": "ulong" },
+        { "name": "next",             "type": "ulong" },
+        { "name": "parent",           "type": "ulong" },
+        { "name": "stake_pubkey",     "type": "pubkey"},
+        { "name": "credits_observed", "type": "ulong" },
+        { "name": "lamports",         "type": "ulong" },
+        { "name": "valid",            "type": "uchar" }
+
+      ]
+    },
+    {
+      "name": "vote_reward",
+      "type": "struct",
+      "alignment": "8",
+      "fields": [
+        { "name": "pubkey",       "type": "pubkey" },
+        { "name": "vote_rewards", "type": "ulong" },
+        { "name": "commission",   "type": "uchar" },
+        { "name": "needs_store",  "type": "uchar" }
+      ]
+    },
+    {
+      "name": "point_value",
+      "type": "struct",
+      "alignment": "8",
+      "fields": [
+          { "name": "rewards", "type": "ulong" },
+          { "name": "points",  "type": "uint128" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21"
+    },
+    {
+      "name": "partitioned_stake_rewards",
+      "type": "struct",
+      "alignment": "8",
+      "fields": [
+          { "name": "partitions", "type": "partition", "dlist_t": "fd_stake_reward_t", "dlist_n": "fd_partitioned_stake_rewards", "dlist_max": "4096" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L56"
+    },
+    {
+      "name": "stake_reward_calculation_partitioned",
+      "type": "struct",
+      "alignment": "8",
+      "fields": [
+          { "name": "partitioned_stake_rewards",    "type": "partitioned_stake_rewards" },
+          { "name": "total_stake_rewards_lamports", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L131"
+    },
+    {
+      "name": "stake_reward_calculation",
+      "type": "struct",
+      "alignment": "8",
+      "fields": [
+          { "name": "stake_rewards",  "type": "dlist", "dlist_t": "fd_stake_reward_t", "dlist_n": "fd_stake_reward_calculation" },
+          { "name": "total_stake_rewards_lamports", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L94"
+    },
+    {
+      "name": "calculate_stake_vote_rewards_result",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_reward_calculation", "type": "stake_reward_calculation" },
+        { "name": "vote_reward_map", "type": "map", "element": "vote_reward", "key": "pubkey", "minalloc":15000 }
+      ]
+    },
+    {
+      "name": "calculate_validator_rewards_result",
+      "type": "struct",
+      "fields": [
+        { "name": "calculate_stake_vote_rewards_result", "type": "calculate_stake_vote_rewards_result" },
+        { "name": "point_value", "type": "point_value" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102"
+    },
+    {
+      "name": "calculate_rewards_and_distribute_vote_rewards_result",
+      "type": "struct",
+      "fields": [
+        {"name": "total_rewards",               "type": "ulong" },
+        {"name": "distributed_rewards",         "type": "ulong" },
+        { "name": "point_value",                "type": "point_value" },
+        { "name": "stake_rewards_by_partition", "type": "stake_reward_calculation_partitioned" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L138"
+    },
+    {
+      "name": "partitioned_rewards_calculation",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_reward_map",              "type": "map", "element": "vote_reward", "key": "key", "minalloc":15000 },
+        { "name": "stake_rewards_by_partition",   "type": "stake_reward_calculation_partitioned" },
+        { "name": "old_vote_balance_and_staked",  "type": "ulong" },
+        { "name": "validator_rewards",            "type": "ulong" },
+        { "name": "validator_rate",               "type": "double" },
+        { "name": "foundation_rate",              "type": "double" },
+        { "name": "prev_epoch_duration_in_years", "type": "double" },
+        { "name": "capitalization",               "type": "ulong" },
+        { "name": "point_value",                  "type": "point_value" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118"
+    },
+    {
+      "name": "start_block_height_and_rewards",
+      "type": "struct",
+      "fields": [
+        { "name": "distribution_starting_block_height", "type": "ulong" },
+        { "name": "partitioned_stake_rewards",          "type": "partitioned_stake_rewards" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L60"
+    },
+    {
+      "name": "fd_epoch_reward_status_inner",
+      "type": "struct",
+      "fields": [
+        { "name": "Active", "type": "start_block_height_and_rewards" }
+      ]
+    },
+    {
+      "name": "epoch_reward_status",
+      "type": "enum",
+      "variants": [
+        { "name": "Active", "type": "start_block_height_and_rewards" },
+        { "name": "Inactive" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L70"
+    },
+    {
       "name": "slot_bank",
       "type": "struct",
       "archival": "true",
@@ -1143,7 +1277,8 @@
         { "name": "tick_height",                 "type": "ulong" },
         { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." },
         { "name": "hard_forks",                  "type": "hard_forks" },
-        { "name": "rent_fresh_accounts",   "type": "rent_fresh_accounts", "comment": "TODO: remove this after disable_partitioned_rent_collection is activated everywhere." }
+        { "name": "rent_fresh_accounts",   "type": "rent_fresh_accounts", "comment": "TODO: remove this after disable_partitioned_rent_collection is activated everywhere." },
+        { "name": "epoch_reward_status",         "type": "epoch_reward_status" }
       ]
     },
     {
