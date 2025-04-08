@@ -658,7 +658,7 @@ after_credit( fd_pack_ctx_t *     ctx,
        pacing_bank_cnt is 0, then pack won't schedule normal
        transactions to any bank tile. */
     int flags = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( (!pause_votes_okay) | vote_only_period, FD_PACK_SCHEDULE_VOTE, 0 ) |
-                                          fd_int_if( allow_regular & (i<pacing_bank_cnt),    FD_PACK_SCHEDULE_TXN,  0 );
+                                          fd_int_if( allow_regular & (0<pacing_bank_cnt),    FD_PACK_SCHEDULE_TXN,  0 );
 
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
