@@ -77,7 +77,6 @@ echo "
     [tiles.replay]
         snapshot = \"$snapshot\"
         incremental = \"$incremental\"
-        tpool_thread_count = 13
         funk_sz_gb = 600
         funk_txn_max = 1024
         funk_rec_max = 600000000

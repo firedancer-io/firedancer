@@ -1363,8 +1363,9 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
-    ulong spad_frame_ct = fd_spad_frame_used( runtime_spad );
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, exec_spads, exec_spads_cnt, runtime_spad );
+    ulong spad_frame_ct     = fd_spad_frame_used( runtime_spad );
+    int   is_epoch_boundary = 0;
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, exec_spads, exec_spads_cnt, runtime_spad, &is_epoch_boundary );
     while( fd_spad_frame_used( runtime_spad )>spad_frame_ct ) {
       fd_spad_pop( runtime_spad );
     }

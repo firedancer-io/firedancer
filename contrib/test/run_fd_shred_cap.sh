@@ -85,6 +85,7 @@ echo "
     affinity = \"auto\"
     bank_tile_count = 1
     shred_tile_count = 1
+    exec_tile_count = 8
 [gossip]
 [blockstore]
     shred_max = 1048576
@@ -99,7 +100,6 @@ echo "
     [tiles.replay]
         snapshot = \"$SNAPSHOT\"
         incremental = \"$INCREMENTAL\"
-        tpool_thread_count = 10
         funk_sz_gb = 100
         funk_rec_max = 150000000
         funk_txn_max = 2000

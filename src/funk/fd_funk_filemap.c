@@ -57,7 +57,7 @@ fd_funk_open_file( const char * filename,
   /* Open the file */
 
   int open_flags, can_resize, can_create, do_new;
-  switch (mode) {
+  switch( mode ) {
   case FD_FUNK_READONLY:
     if( filename == NULL  || filename[0] == '\0' ) {
       FD_LOG_WARNING(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace, funk file required" ));

@@ -408,7 +408,6 @@ struct fd_config {
       char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
-      ulong tpool_thread_count;
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
     } replay;
@@ -424,7 +423,6 @@ struct fd_config {
       ulong full_interval;
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
-      ulong hash_tpool_thread_count;
     } batch;
 
     struct {

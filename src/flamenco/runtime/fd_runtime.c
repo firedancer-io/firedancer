@@ -8,7 +8,7 @@
 
 #include "fd_executor.h"
 #include "fd_cost_tracker.h"
-#include "fd_hashes.h"
+#include "fd_runtime_public.h"
 #include "fd_txncache.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
@@ -1609,23 +1609,22 @@ fd_account_hash_task( void * tpool,
   }
 }
 
-int
-fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *            slot_ctx,
-                                         fd_capture_ctx_t *              capture_ctx,
-                                         fd_runtime_block_info_t const * block_info,
-                                         fd_tpool_t *                    tpool,
-                                         fd_spad_t *                     runtime_spad ) {
+void
+block_finalize_tpool_wrapper( void * para_arg_1,
+                              void * para_arg_2 FD_PARAM_UNUSED,
+                              void * arg_1,
+                              void * arg_2,
+                              void * arg_3,
+                              void * arg_4 FD_PARAM_UNUSED ) {
+  fd_tpool_t *                   tpool      = (fd_tpool_t *)para_arg_1;
+  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)arg_1;
+  ulong                          worker_cnt = (ulong)arg_2;
+  fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
 
-  fd_accounts_hash_task_data_t * task_data = NULL;
-
-  ulong wcnt = fd_tpool_worker_cnt( tpool );
-
-  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, wcnt );
-
-  ulong cnt_per_worker = task_data->info_sz / (wcnt-1UL);
-  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+  ulong cnt_per_worker = task_data->info_sz / (worker_cnt-1UL);
+  for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-    ulong end_idx   = worker_idx!=wcnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+    ulong end_idx   = worker_idx!=worker_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
                                              fd_ulong_sat_sub( task_data->info_sz, 1UL );
     fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
                    task_data, start_idx, end_idx,
@@ -1633,11 +1632,29 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *            slot_ct
                    0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
   }
 
-  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+  for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     fd_tpool_wait( tpool, worker_idx );
   }
+}
 
-  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, wcnt );
+int
+fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
+                                        fd_capture_ctx_t *               capture_ctx,
+                                        fd_runtime_block_info_t const *  block_info,
+                                        ulong                            worker_cnt,
+                                        fd_spad_t *                      runtime_spad,
+                                        fd_exec_para_cb_ctx_t *          exec_para_ctx ) {
+
+  fd_accounts_hash_task_data_t * task_data = NULL;
+
+  fd_runtime_block_execute_finalize_start( slot_ctx, runtime_spad, &task_data, worker_cnt );
+
+  exec_para_ctx->fn_arg_1 = (void*)task_data;
+  exec_para_ctx->fn_arg_2 = (void*)worker_cnt;
+  exec_para_ctx->fn_arg_3 = (void*)slot_ctx;
+  fd_exec_para_call_func( exec_para_ctx );
+
+  fd_runtime_block_execute_finalize_finish( slot_ctx, capture_ctx, block_info, runtime_spad, task_data, worker_cnt );
 
   return 0;
 }
@@ -4018,13 +4035,18 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Do the EAH calculation after we have released the Funk lock, to avoid a deadlock */
   if( FD_UNLIKELY( do_eah ) ) {
+    fd_exec_para_cb_ctx_t exec_para_ctx = {
+      .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
+      .para_arg_1 = tpool
+    };
+
     fd_accounts_hash( slot_ctx->funk,
-      &slot_ctx->slot_bank,
-      tpool,
-      &slot_ctx->slot_bank.epoch_account_hash,
-      runtime_spad,
-      0,
-      &slot_ctx->epoch_ctx->features );
+                      &slot_ctx->slot_bank,
+                      &slot_ctx->slot_bank.epoch_account_hash,
+                      runtime_spad,
+                      0,
+                      &slot_ctx->epoch_ctx->features,
+                      &exec_para_ctx );
   }
 
   return 0;
@@ -4088,7 +4110,18 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   }
 
   long block_finalize_time = -fd_log_wallclock();
-  res = fd_runtime_block_execute_finalize_tpool( slot_ctx, capture_ctx, block_info, tpool, runtime_spad );
+
+  fd_exec_para_cb_ctx_t exec_para_ctx = {
+    .func       = block_finalize_tpool_wrapper,
+    .para_arg_1 = tpool
+  };
+
+  res = fd_runtime_block_execute_finalize_para( slot_ctx,
+                                                capture_ctx,
+                                                block_info,
+                                                fd_tpool_worker_cnt( tpool ),
+                                                runtime_spad,
+                                                &exec_para_ctx );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return res;
   }
@@ -4112,7 +4145,8 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_tpool_t *         tpool,
                                                 fd_spad_t * *        exec_spads,
                                                 ulong                exec_spad_cnt,
-                                                fd_spad_t *          runtime_spad ) {
+                                                fd_spad_t *          runtime_spad,
+                                                int *                is_epoch_boundary ) {
 
   /* Update block height. */
   slot_ctx->slot_bank.block_height += 1UL;
@@ -4137,6 +4171,9 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                     exec_spad_cnt,
                                     runtime_spad );
     }
+    *is_epoch_boundary = 1;
+  } else {
+    *is_epoch_boundary = 0;
   }
 
   if( slot_ctx->slot_bank.slot != 0UL && (
@@ -4194,11 +4231,13 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_dump_block_to_protobuf( slot_ctx, capture_ctx, runtime_spad, block_ctx );
     }
 
+    int is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                     tpool,
                                                     exec_spads,
                                                     exec_spad_cnt,
-                                                    runtime_spad );
+                                                    runtime_spad,
+                                                    &is_epoch_boundary );
 
     /* All runtime allocations here are scoped to the end of a block. */
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {

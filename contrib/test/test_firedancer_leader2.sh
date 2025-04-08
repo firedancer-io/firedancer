@@ -55,7 +55,6 @@ name = \"fd1\"
         # blockstore_checkpt = \"firedancer-dev-blockstore.checkpt\"
         blockstore_publish = true
         snapshot = \"$(ls snapshot-* | head -n1)\"
-        tpool_thread_count = 5
         funk_sz_gb = 16
         funk_rec_max = 10000000
         funk_txn_max = 1024

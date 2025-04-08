@@ -134,7 +134,6 @@ name = \"fd1test\"
         capture = \"firedancer-dev.solcap\"
         blockstore_checkpt = \"firedancer-dev-blockstore.checkpt\"
         snapshot = \"$FULL_SNAPSHOT\"
-        tpool_thread_count = 8
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024

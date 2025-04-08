@@ -151,9 +151,6 @@ fd_topo_initialize( config_t * config ) {
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
   ulong exec_tile_cnt   = config->layout.exec_tile_count;
 
-  ulong replay_tpool_thread_count = config->tiles.replay.tpool_thread_count;
-  ulong batch_tpool_thread_count  = config->tiles.batch.hash_tpool_thread_count;
-
   int enable_rpc = ( config->rpc.port != 0 );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
@@ -232,7 +229,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay"      );
   fd_topob_wksp( topo, "runtime_pub" );
   fd_topob_wksp( topo, "exec"        );
-  fd_topob_wksp( topo, "rtpool"      );
   fd_topob_wksp( topo, "bhole"       );
   fd_topob_wksp( topo, "bstore"      );
   fd_topob_wksp( topo, "tcache"      );
@@ -241,7 +237,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "eqvoc"       );
   fd_topob_wksp( topo, "batch"       );
-  fd_topob_wksp( topo, "btpool"      );
   fd_topob_wksp( topo, "constipate"  );
   fd_topob_wksp( topo, "restart"     );
   fd_topob_wksp( topo, "exec_spad"   );
@@ -268,7 +263,9 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "gossip_sign",  "gossip_sign",  128UL,                                    2048UL,                        1UL );
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
-  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",   128UL,                                   10240UL,                       1UL );
+  /* TODO: The MTU is currently relatively arbitrary and needs to be resized to the size of the largest
+     message that is outbound from the replay to exec. */
+  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",   128UL,                                   10240UL,                       exec_tile_cnt );
 
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_eqvoc", "gossip_eqvoc", 128UL,                                    FD_TPU_MTU,                    1UL );
@@ -357,13 +354,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                             fd_topob_tile( topo, "eqvoc",   "eqvoc",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /* These thread tiles must be defined immediately after the replay tile.  We subtract one because the replay tile acts as a thread in the tpool as well. */
-  FOR(replay_tpool_thread_count-1) fd_topob_tile( topo, "rtpool", "rtpool", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 );
   FOR(exec_tile_cnt)               fd_topob_tile( topo, "exec",    "exec",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "batch",   "batch",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /* These thread tiles must be defined immediately after the snapshot tile. */
-  FOR(batch_tpool_thread_count-1)  fd_topob_tile( topo, "btpool",  "btpool",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-
   /* TODO: not launching the restart tile if in_wen_restart is false */
   //if( FD_UNLIKELY( config->tiles.restart.in_wen_restart ) ) {
   /**/                             fd_topob_tile( topo, "rstart",  "restart", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
@@ -427,8 +419,8 @@ fd_topo_initialize( config_t * config ) {
 
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
-    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, exec_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_fseq.%lu", i ) );
   }
 
@@ -743,10 +735,6 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       strncpy( tile->replay.status_cache, config->tiles.replay.status_cache, sizeof(tile->replay.status_cache) );
-      tile->replay.tpool_thread_count = config->tiles.replay.tpool_thread_count;
-      if( FD_UNLIKELY( tile->replay.tpool_thread_count == 0 || tile->replay.tpool_thread_count>=FD_TILE_MAX-1 ) ) {
-        FD_LOG_ERR(( "bad tpool_thread_count %lu", tile->replay.tpool_thread_count ));
-      }
       strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
       tile->replay.bank_tile_count = config->layout.bank_tile_count;
       tile->replay.exec_tile_count = config->layout.exec_tile_count;
@@ -770,9 +758,6 @@ fd_topo_initialize( config_t * config ) {
       if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
         FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
-
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "rtpool" ) ) ) {
-      /* Nothing for now */
     } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
       tile->pack.max_pending_transactions      = config->tiles.pack.max_pending_transactions;
       tile->pack.bank_tile_count               = config->layout.bank_tile_count;
@@ -805,10 +790,7 @@ fd_topo_initialize( config_t * config ) {
       tile->batch.full_interval        = config->tiles.batch.full_interval;
       tile->batch.incremental_interval = config->tiles.batch.incremental_interval;
       strncpy( tile->batch.out_dir, config->tiles.batch.out_dir, sizeof(tile->batch.out_dir) );
-      tile->batch.hash_tpool_thread_count = config->tiles.batch.hash_tpool_thread_count;
       strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "btpool" ) ) ) {
-      /* Nothing for now */
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
       if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )
         FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));

@@ -13,15 +13,12 @@
         repair_serve_listen_port = 8702
 
     [tiles.replay]
-        tpool_thread_count = 2
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024
         cluster_version =  "1.18.0"
     [tiles.pack]
         use_consumed_cus = false
-    [tiles.batch]
-        hash_tpool_thread_count = 3
     [tiles.restart]
         in_wen_restart = false
 
