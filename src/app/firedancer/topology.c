@@ -504,6 +504,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in",  "repair_shred", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED  );
 
+
   /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",     0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",  0UL,          FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "rstart_store",  0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );

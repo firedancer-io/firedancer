@@ -737,12 +737,12 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
 
   ulong idx_in_set = last_shred->idx - last_shred->fec_set_idx;
 
-  if( FD_UNLIKELY( idx_in_set >= FD_REEDSOL_DATA_SHREDS_MAX ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( idx_in_set >= FD_REEDSOL_DATA_SHREDS_MAX ) ) __asm__("int $3");
 
   /* Error if can't find the last_shred's FEC set. */
 
   wrapped_sig_t * w_sig = (wrapped_sig_t *)last_shred->signature;
-  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) __asm__("int $3");
 
   /* Error if already done. */
 
@@ -752,26 +752,26 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
   /* Error if FEC associated with last_shred not found. */
 
   set_ctx_t * ctx = ctx_map_query( resolver->curr_map, *w_sig, NULL );
-  if( FD_UNLIKELY( !ctx ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( !ctx ) ) __asm__("int $3");
 
   /* Error if already received parity shred (cnts are only knowable from
      receiving a coding shred). */
 
-  if( FD_UNLIKELY( ctx->set->data_shred_cnt   != SHRED_CNT_NOT_SET ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( ctx->set->parity_shred_cnt != SHRED_CNT_NOT_SET ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( ctx->set->data_shred_cnt   != SHRED_CNT_NOT_SET ) ) __asm__("int $3");
+  if( FD_UNLIKELY( ctx->set->parity_shred_cnt != SHRED_CNT_NOT_SET ) ) __asm__("int $3");
 
   /* Error if gaps in receives to last data shred. Implies that the FEC
      set is still incomplete. */
 
   for( ulong i=0UL; i<=idx_in_set; i++ ) if( !d_rcvd_test( ctx->set->data_shred_rcvd, i ) ) {
-    return FD_FEC_RESOLVER_SHRED_REJECTED;
+    __asm__("int $3");
   }
 
   /* Error if last shred is not in fact last shred and FEC resolver has
      seen a shred with a higher idx. */
 
   for( ulong i=idx_in_set + 1; i<FD_REEDSOL_DATA_SHREDS_MAX; i++ ) if( d_rcvd_test( ctx->set->data_shred_rcvd, i ) ) {
-    return FD_FEC_RESOLVER_SHRED_REJECTED;
+    __asm__("int $3");
   }
 
   /* Now we know the caller has provided a FEC set that is not obviously
@@ -802,7 +802,7 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
     freelist_push_tail( resolver->free_list,        ctx->set  );
     bmtrlist_push_tail( resolver->bmtree_free_list, ctx->tree );
     FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
-    return FD_FEC_RESOLVER_SHRED_REJECTED;
+    __asm__("int $3");
   }
 
   /* Don't need to populate merkle proofs or retransmitter signatures

@@ -43,6 +43,7 @@ fd_blk_repair_new( void * shmem, ulong ele_max, ulong seed ) {
   void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, fd_blk_orphaned_align(), fd_blk_orphaned_footprint( ele_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_blk_repair_align() ) == (ulong)shmem + footprint );
 
+  blk_repair->root           = ULONG_MAX;
   blk_repair->wksp_gaddr     = fd_wksp_gaddr_fast( wksp, blk_repair );
   blk_repair->ver_gaddr      = fd_wksp_gaddr_fast( wksp, fd_fseq_join        ( fd_fseq_new        ( ver, FD_BLK_REPAIR_VER_UNINIT ) ) );
   blk_repair->pool_gaddr     = fd_wksp_gaddr_fast( wksp, fd_blk_pool_join    ( fd_blk_pool_new    ( pool, ele_max                 ) ) );
@@ -128,6 +129,10 @@ fd_blk_repair_init( fd_blk_repair_t * blk_repair, ulong root_slot ) {
   root_ele->parent        = null;
   root_ele->child         = null;
   root_ele->sibling       = null;
+
+  root_ele->consumed_idx = 0;
+  root_ele->complete_idx = 0;
+
   fd_blk_ele_idxs_null( root_ele->idxs );
 
   blk_repair->root = fd_blk_pool_idx( pool, root_ele );
@@ -213,9 +218,6 @@ static void
 link_sibling( fd_blk_repair_t * blk_repair, fd_blk_ele_t * sibling, fd_blk_ele_t * ele ) {
   fd_blk_ele_t * pool        = fd_blk_pool( blk_repair );
   ulong          null        = fd_blk_pool_idx_null( pool );
-  while( FD_UNLIKELY( sibling->sibling != null ) ) {
-    sibling = fd_blk_pool_ele( pool, sibling->sibling );
-  }
   while( FD_UNLIKELY( sibling->sibling != null )) sibling = fd_blk_pool_ele( pool, sibling->sibling );
   sibling->sibling = fd_blk_pool_idx( pool, ele );
 }
@@ -275,14 +277,23 @@ link_orphans( fd_blk_repair_t * blk_repair, fd_blk_ele_t * head ) {
    are received ie. consumed_idx = complete_idx. */
 
 static void
-advance_frontier( fd_blk_repair_t * blk_repair, ulong slot ) {
+advance_frontier( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off ) {
   fd_blk_ele_t *      pool     = fd_blk_pool( blk_repair );
+  ulong               null     = fd_blk_pool_idx_null( pool );
   fd_blk_ancestry_t * ancestry = fd_blk_ancestry( blk_repair );
   fd_blk_frontier_t * frontier = fd_blk_frontier( blk_repair );
-  fd_blk_ele_t *      head     = fd_blk_frontier_ele_query( fd_blk_frontier( blk_repair ), &slot, NULL, pool );
-  fd_blk_ele_t *      tail     = head;
+
+  fd_blk_ele_t * ele;
+  ele = fd_blk_frontier_ele_query( fd_blk_frontier( blk_repair ), &slot, NULL, pool );
+  ulong parent_slot = slot - parent_off;
+  ele = fd_ptr_if( !ele, fd_blk_frontier_ele_query( fd_blk_frontier( blk_repair ), &parent_slot, NULL, pool ), ele );
+
+  fd_blk_ele_t * head = ele;
+  fd_blk_ele_t * tail = head;
+  fd_blk_ele_t * prev = NULL;
+
   while( FD_LIKELY( head ) ) {
-    if( FD_LIKELY( head->consumed_idx == head->complete_idx ) ) {
+    if( FD_LIKELY( head->complete_idx != UINT_MAX && head->consumed_idx == head->complete_idx ) ) {
       fd_blk_frontier_ele_remove( frontier, &head->slot, NULL, pool );
       fd_blk_ancestry_ele_insert( ancestry, head, pool );
       fd_blk_ele_t * child = fd_blk_pool_ele( pool, head->child );
@@ -295,13 +306,32 @@ advance_frontier( fd_blk_repair_t * blk_repair, ulong slot ) {
         child          = fd_blk_pool_ele( pool, child->sibling );
       }
     }
-    head = fd_blk_pool_ele( pool, head->prev );
+    prev       = head;
+    head       = fd_blk_pool_ele( pool, head->prev );
+    prev->prev = null;
   }
 }
 
 static fd_blk_ele_t *
-ele_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx ) {
+query( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off ) {
+  fd_blk_ele_t *      pool        = fd_blk_pool( blk_repair );
+  fd_blk_ancestry_t * ancestry    = fd_blk_ancestry( blk_repair );
+  fd_blk_frontier_t * frontier    = fd_blk_frontier( blk_repair );
+  fd_blk_orphaned_t * orphaned    = fd_blk_orphaned( blk_repair );
+  ulong               parent_slot = slot - parent_off;
+
+  fd_blk_ele_t * ele;
+  ele =                  fd_blk_ancestry_ele_query( ancestry, &slot, NULL, pool );
+  ele = fd_ptr_if( !ele, fd_blk_frontier_ele_query( frontier, &slot, NULL, pool ), ele );
+  ele = fd_ptr_if( !ele, fd_blk_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ), ele );
+  return ele;
+}
+
+
+static fd_blk_ele_t *
+insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx ) {
   fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
+  if( FD_UNLIKELY( parent_off == 0 ) ) __asm__( "int $3" );
 
 # if FD_BLK_REPAIR_USE_HANDHOLDING
   FD_TEST( parent_off <= slot ); /* inval - caller bug */
@@ -330,8 +360,11 @@ ele_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint sh
 
   fd_blk_orphaned_t * orphaned = fd_blk_orphaned( blk_repair );
   fd_blk_ele_t *      orphan   = fd_blk_orphaned_ele_query( orphaned, &ele->parent, NULL, pool );
-  if( FD_UNLIKELY( orphan ) ) link_sibling( blk_repair, orphan, ele );
+  if( FD_UNLIKELY( orphan ) ) {
+    link_sibling( blk_repair, orphan, ele );
+  }
   else {
+    if( ele->parent == ele->slot ) __asm__( "int $3" );
     fd_blk_orphaned_ele_insert( orphaned, ele, pool );
     orphan = ele;
   }
@@ -340,25 +373,20 @@ ele_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint sh
 }
 
 fd_blk_ele_t *
-fd_blk_repair_shred_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx ) {
+fd_blk_repair_data_shred_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, uint complete_idx ) {
   VER_INC;
   fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
   if( FD_UNLIKELY( slot < fd_blk_pool_ele( pool, blk_repair->root )->slot ) ) return NULL;
-  fd_blk_ele_t * ele = tree_query( blk_repair, slot );
-  if( FD_UNLIKELY( !ele ) ) ele = ele_insert( blk_repair, slot, parent_off, shred_idx ); /* cannot fail */
+
+  fd_blk_ele_t * ele = query( blk_repair, slot, parent_off );
+  if( FD_UNLIKELY( !ele ) ) ele = insert( blk_repair, slot, parent_off, shred_idx ); /* cannot fail */
+  fd_blk_ele_idxs_insert( ele->fecs, fec_set_idx );
   fd_blk_ele_idxs_insert( ele->idxs, shred_idx );
   ele->received_idx = fd_uint_max( ele->received_idx, shred_idx );
   while( fd_blk_ele_idxs_test( ele->idxs, ele->consumed_idx + 1U ) ) ele->consumed_idx++;
-  advance_frontier( blk_repair, slot );
+  ele->complete_idx = fd_uint_if( complete_idx != UINT_MAX, complete_idx, ele->complete_idx );
+  advance_frontier( blk_repair, slot, parent_off );
   return ele;
-}
-
-void
-fd_blk_repair_shred_complete( fd_blk_repair_t * blk_repair, ulong slot, uint complete_idx ) {
-  VER_INC;
-  fd_blk_ele_t * ele = tree_query( blk_repair, slot );
-  ele->complete_idx  = complete_idx;
-  advance_frontier( blk_repair, slot );
 }
 
 fd_blk_ele_t const *
@@ -437,14 +465,15 @@ fd_blk_repair_preorder_print( fd_blk_repair_t const * blk_repair ) {
 }
 
 static void
-print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, int space, const char * prefix ) {
+ancestry_print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, int space, const char * prefix ) {
   fd_blk_ele_t const * pool = fd_blk_pool_const( blk_repair );
 
   if( ele == NULL ) return;
 
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ ) printf( " " );
-  printf( "%s%lu", prefix, ele->slot );
+  if ( ele->complete_idx == UINT_MAX ) printf( "%s%lu (%u/?)", prefix, ele->slot, ele->consumed_idx + 1 );
+  else printf( "%s%lu (%u/%u)", prefix, ele->slot, ele->consumed_idx + 1, ele->complete_idx + 1 );
 
   fd_blk_ele_t const * curr = fd_blk_pool_ele_const( pool, ele->child );
 
@@ -452,35 +481,52 @@ print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, int space, 
   while( curr ) {
     if( fd_blk_pool_ele_const( pool, curr->sibling ) ) {
       sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
-      print( blk_repair, curr, space + 4, new_prefix );
+      ancestry_print( blk_repair, curr, space + 4, new_prefix );
     } else {
       sprintf( new_prefix, "└── " ); /* end branch */
-      print( blk_repair, curr, space + 4, new_prefix );
+      ancestry_print( blk_repair, curr, space + 4, new_prefix );
     }
     curr = fd_blk_pool_ele_const( pool, curr->sibling );
   }
 }
 
-#define PRINT 0
+void
+fd_blk_repair_ancestry_print( fd_blk_repair_t const * blk_repair ) {
+  FD_LOG_NOTICE( ( "\n\n[Ancestry]" ) );
+  ancestry_print( blk_repair, fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), blk_repair->root ), 0, "" );
+}
 
 void
-fd_blk_repair_frontier_print( FD_PARAM_UNUSED fd_blk_repair_t const * blk_repair ) {
-  #if PRINT
+fd_blk_repair_frontier_print( fd_blk_repair_t const * blk_repair ) {
   printf( "\n\n[Frontier]\n" );
+  fd_blk_ele_t const *      pool     = fd_blk_pool_const( blk_repair );
   fd_blk_frontier_t const * frontier = fd_blk_frontier_const( blk_repair );
-  fd_blk_ele_t const * pool = fd_blk_pool_const( blk_repair );
   for( fd_blk_frontier_iter_t iter = fd_blk_frontier_iter_init( frontier, pool );
        !fd_blk_frontier_iter_done( iter, frontier, pool );
        iter = fd_blk_frontier_iter_next( iter, frontier, pool ) ) {
     fd_blk_ele_t const * ele = fd_blk_frontier_iter_ele_const( iter, frontier, pool );
     printf( "%lu ", ele->slot );
   }
-  #endif
+}
+
+void
+fd_blk_repair_orphaned_print( fd_blk_repair_t const * blk_repair ) {
+  printf( "\n\n[Orphaned]\n" );
+  fd_blk_orphaned_t const * orphaned = fd_blk_orphaned_const( blk_repair );
+  fd_blk_ele_t const * pool = fd_blk_pool_const( blk_repair );
+  for( fd_blk_orphaned_iter_t iter = fd_blk_orphaned_iter_init( orphaned, pool );
+       !fd_blk_orphaned_iter_done( iter, orphaned, pool );
+       iter = fd_blk_orphaned_iter_next( iter, orphaned, pool ) ) {
+    fd_blk_ele_t const * ele = fd_blk_orphaned_iter_ele_const( iter, orphaned, pool );
+    printf( "(%lu, %lu), ", ele->parent, ele->slot );
+  }
 }
 
 void
 fd_blk_repair_print( fd_blk_repair_t const * blk_repair ) {
-  FD_LOG_NOTICE( ( "\n\n[Ancestry]" ) );
-  print( blk_repair, fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), blk_repair->root ), 0, "" );
+  if( FD_UNLIKELY( blk_repair->root == ULONG_MAX ) ) return;
+  fd_blk_repair_ancestry_print( blk_repair );
   fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_orphaned_print( blk_repair );
+  printf("\n\n");
 }

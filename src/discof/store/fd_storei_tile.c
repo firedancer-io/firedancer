@@ -422,7 +422,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
-      fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)] = { 0 };
+      fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)] = { 0 };
       ulong  buffered_idx = 0;
       ulong  complete_idx = 0;
       for(;;) { /* speculative query */

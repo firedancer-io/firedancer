@@ -304,7 +304,7 @@ before_frag( fd_shred_ctx_t * ctx,
              ulong            sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED && fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
   else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
 
   return 0;
@@ -473,13 +473,11 @@ during_frag( fd_shred_ctx_t * ctx,
        when the FEC resolver verifies the signature and when it stores
        the local copy, we could end up storing and retransmitting
        garbage.  Instead we copy it locally, sadly, and only give it to
-       the FEC resolver when we know it won't be overrun anymore. */
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    uchar const * dcache_entry = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) + ctl;
+       the FEC resolver when we know it won't be overrun anymore. */ if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) ) FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark )); uchar const * dcache_entry = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) + ctl;
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
-    fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
+    ulong repair_nonce_sz = fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR*4;
+    fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz-repair_nonce_sz );
     if( FD_UNLIKELY( !shred ) ) {
       ctx->skip_frag = 1;
       return;
@@ -493,7 +491,7 @@ during_frag( fd_shred_ctx_t * ctx,
       return;
     }
     fd_memcpy( ctx->shred_buffer, dcache_entry+hdr_sz, sz-hdr_sz );
-    ctx->shred_buffer_sz = sz-hdr_sz;
+    ctx->shred_buffer_sz = sz-hdr_sz-repair_nonce_sz;
   }
 }
 
@@ -579,9 +577,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     uint last_idx = fd_disco_repair_shred_sig_last_shred_idx( sig );
     fd_shred_t out_last_shred[1] = { 0 };
     int rv = fd_fec_resolver_last_shred_query( ctx->resolver, shred_sig, last_idx, out_last_shred );
-    if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_OKAY ) ) {
-      FD_LOG_ERR(( "Shred tile %lu does not have the shred stored in fec_resolver", ctx->round_robin_id ));
-    }
+    if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_OKAY ) ) FD_LOG_ERR(( "Shred tile %lu does not have the shred stored in fec_resolver", ctx->round_robin_id ));
 
     fd_fec_set_t const * out_fec_set[1];
     rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
@@ -622,20 +618,23 @@ after_frag( fd_shred_ctx_t *    ctx,
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
 
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
-      /* Relay this shred */
-      ulong fanout = 200UL;
-      ulong max_dest_cnt[1];
-      do {
-        /* If we've validated the shred and it COMPLETES but we can't
-           compute the destination for whatever reason, don't forward
-           the shred, but still send it to the blockstore. */
-        fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
-        if( FD_UNLIKELY( !sdest ) ) break;
-        fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
-        if( FD_UNLIKELY( !dests ) ) break;
 
-        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
-      } while( 0 );
+      if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR ) ) {
+        /* Relay this shred */
+        ulong fanout = 200UL;
+        ulong max_dest_cnt[1];
+        do {
+          /* If we've validated the shred and it COMPLETES but we can't
+            compute the destination for whatever reason, don't forward
+            the shred, but still send it to the blockstore. */
+          fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
+          if( FD_UNLIKELY( !sdest ) ) break;
+          fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
+          if( FD_UNLIKELY( !dests ) ) break;
+
+          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
+        } while( 0 );
+      }
 
       if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer topo compiler hint */
 

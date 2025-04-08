@@ -18,12 +18,12 @@
 fd_blk_repair_t *
 setup_preorder( fd_blk_repair_t * blk_repair ) {
   fd_blk_repair_init( blk_repair, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 1, 1, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 2, 1, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 4, 2, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 3, 2, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 5, 2, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 6, 1, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1, 1, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 2, 1, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 4, 2, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 3, 2, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 5, 2, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 6, 1, 0, 0, UINT_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
   fd_blk_repair_print( blk_repair );
   return blk_repair;
@@ -110,70 +110,70 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_blk_repair_t * blk_repair = fd_blk_repair_join( fd_blk_repair_new( mem, ele_max, 42UL /* seed */ ) );
 
   fd_blk_repair_init( blk_repair, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 6, 1, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 5, 2, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 2, 1, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 3, 2, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 4, 2, 0 );
-  fd_blk_repair_shred_insert( blk_repair, 1, 1, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 6, 1, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 5, 2, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 2, 1, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 1, 1, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 3, 2, 0, 0, UINT_MAX );
 
-  fd_blk_repair_shred_complete( blk_repair, 1, 0 );
   ulong * arr = frontier_arr( wksp, blk_repair );
-  FD_TEST( arr[0] == 0 );
+  FD_TEST( arr[0] == 1 );
   FD_TEST( arr[1] == ULONG_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
-  fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_print( blk_repair );
   fd_wksp_free_laddr( arr );
 
-  fd_blk_repair_shred_complete( blk_repair, 0, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1, 1, 1, 0, 1 );
   arr = frontier_arr( wksp, blk_repair );
   FD_TEST( arr[0] == 2 );
   FD_TEST( arr[1] == 3 );
   FD_TEST( arr[2] == ULONG_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
-  fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_print( blk_repair );
   fd_wksp_free_laddr( arr );
 
-  fd_blk_repair_shred_complete( blk_repair, 3, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 3, 2, 1, 0, 1 );
   arr = frontier_arr( wksp, blk_repair );
   FD_TEST( arr[0] == 2 );
   FD_TEST( arr[1] == 5 );
   FD_TEST( arr[2] == ULONG_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
-  fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_print( blk_repair );
   fd_wksp_free_laddr( arr );
 
-  fd_blk_repair_shred_complete( blk_repair, 5, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 5, 2, 1, 0, 1 );
   arr = frontier_arr( wksp, blk_repair );
   FD_TEST( arr[0] == 2 );
   FD_TEST( arr[1] == 6 );
   FD_TEST( arr[2] == ULONG_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
-  fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_print( blk_repair );
   fd_wksp_free_laddr( arr );
 
-  fd_blk_repair_shred_complete( blk_repair, 2, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 4, 2, 0, 0, UINT_MAX );
+  fd_blk_repair_data_shred_insert( blk_repair, 2, 1, 1, 0, 1 );
   arr = frontier_arr( wksp, blk_repair );
   FD_TEST( arr[0] == 4 );
   FD_TEST( arr[1] == 6 );
   FD_TEST( arr[2] == ULONG_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
-  fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_print( blk_repair );
   fd_wksp_free_laddr( arr );
 
-  fd_blk_repair_shred_complete( blk_repair, 6, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 6, 1, 1, 0, 1 );
   arr = frontier_arr( wksp, blk_repair );
   FD_TEST( arr[0] == 4 );
   FD_TEST( arr[1] == ULONG_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
-  fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_print( blk_repair );
   fd_wksp_free_laddr( arr );
 
-  fd_blk_repair_shred_complete( blk_repair, 4, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 4, 2, 1, 0, UINT_MAX ); /* shred complete arrives before */
+  fd_blk_repair_data_shred_insert( blk_repair, 4, 2, 2, 0, 2 );
   arr = frontier_arr( wksp, blk_repair );
   FD_TEST( arr[0] == ULONG_MAX );
   FD_TEST( !fd_blk_repair_verify( blk_repair ) );
-  fd_blk_repair_frontier_print( blk_repair );
+  fd_blk_repair_print( blk_repair );
   fd_wksp_free_laddr( arr );
 
   // for( ulong i = 0; i < 7; i++ ) {

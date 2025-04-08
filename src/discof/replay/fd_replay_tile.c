@@ -48,7 +48,7 @@
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
-#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
+#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_BLK_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
@@ -2877,6 +2877,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->runtime_public ) ) {
     FD_LOG_ERR(( "no runtime_public" ));
   }
+
 
   /* Open Funk */
   fd_funk_txn_start_write( NULL );
