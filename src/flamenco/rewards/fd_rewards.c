@@ -524,7 +524,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
     /* Add the stake reward to list of all stake rewards. The update is thread-safe because each index in the dlist
       is only ever accessed / written to once among all threads. */
-    fd_stake_reward_t * stake_reward = fd_stake_reward_pool_ele( result->stake_reward_calculation.pool, i );
+    fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_pool_ele( result->stake_reward_calculation.pool, i );
     if( FD_UNLIKELY( stake_reward==NULL ) ) {
       FD_LOG_WARNING(( "could not find stake reward node in pool" ));
       continue;
@@ -614,11 +614,15 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   ulong rewards_max_count = temp_info->stake_infos_len;
 
   /* Create the stake rewards pool and dlist. The pool will be destoyed after the stake rewards have been distributed. */
-  result->stake_reward_calculation.pool = fd_stake_reward_pool_join( fd_stake_reward_pool_new( fd_spad_alloc( runtime_spad,
-                                                                                                              fd_stake_reward_pool_align(),
-                                                                                                              fd_stake_reward_pool_footprint( rewards_max_count ) ),
-                                                                     rewards_max_count ) );
-  fd_stake_reward_dlist_new( &result->stake_reward_calculation.stake_rewards );
+  result->stake_reward_calculation.pool = fd_stake_reward_calculation_pool_join( fd_stake_reward_calculation_pool_new( fd_spad_alloc( runtime_spad,
+                                                                                                                                      fd_stake_reward_calculation_pool_align(),
+                                                                                                                                      fd_stake_reward_calculation_pool_footprint( rewards_max_count ) ),
+                                                                                                                                      rewards_max_count ) );
+  result->stake_reward_calculation.stake_rewards = fd_spad_alloc( runtime_spad,
+                                                                  fd_stake_reward_calculation_dlist_align(),
+                                                                  fd_stake_reward_calculation_dlist_footprint() );
+
+  fd_stake_reward_calculation_dlist_new( result->stake_reward_calculation.stake_rewards );
   result->stake_reward_calculation.stake_rewards_len = 0UL;
 
   /* Create the vote rewards map. This will be destroyed after the vote rewards have been distributed. */
@@ -646,13 +650,13 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
 
   /* Pre-allocate the dlist stake reward elements */
   for( ulong i=0UL; i<temp_info->stake_infos_len; i++ ) {
-    fd_stake_reward_t * stake_reward = fd_stake_reward_pool_ele_acquire( result->stake_reward_calculation.pool );
+    fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_pool_ele_acquire( result->stake_reward_calculation.pool );
     if( FD_UNLIKELY( stake_reward==NULL ) ) {
       FD_LOG_ERR(( "insufficient space allocated for stake reward calculation pool" ));
       return;
     }
     stake_reward->valid = 0;
-    fd_stake_reward_dlist_ele_push_tail( &result->stake_reward_calculation.stake_rewards, stake_reward, result->stake_reward_calculation.pool );
+    fd_stake_reward_calculation_dlist_ele_push_tail( result->stake_reward_calculation.stake_rewards, stake_reward, result->stake_reward_calculation.pool );
   }
 
   fd_calculate_stake_vote_rewards_task_args_t task_args = {
@@ -753,24 +757,24 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
                                                               stake_reward_calculation->stake_rewards_len );
   result->partitioned_stake_rewards.partitions_len = num_partitions;
   result->partitioned_stake_rewards.partitions     = fd_spad_alloc( runtime_spad,
-                                                                    fd_stake_reward_dlist_align(),
-                                                                    fd_stake_reward_dlist_footprint() * num_partitions );
+                                                                    fd_partitioned_stake_rewards_dlist_align(),
+                                                                    fd_partitioned_stake_rewards_dlist_footprint() * num_partitions );
 
   /* Ownership of these dlist's and the pool gets transferred to stake_rewards_by_partition, which then gets transferred to epoch_reward_status.
       These are eventually cleaned up when epoch_reward_status_inactive is called. */
   for( ulong i = 0; i < num_partitions; ++i ) {
-    fd_stake_reward_dlist_new( &result->partitioned_stake_rewards.partitions[ i ] );
+    fd_partitioned_stake_rewards_dlist_new( &result->partitioned_stake_rewards.partitions[ i ] );
   }
 
   /* Iterate over all the stake rewards, moving references to them into the appropiate partitions.
       IMPORTANT: after this, we cannot use the original stake rewards dlist anymore. */
-  fd_stake_reward_dlist_iter_t next_iter;
-  for( fd_stake_reward_dlist_iter_t iter = fd_stake_reward_dlist_iter_fwd_init( &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
-        !fd_stake_reward_dlist_iter_done( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+  fd_stake_reward_calculation_dlist_iter_t next_iter;
+  for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+        !fd_stake_reward_calculation_dlist_iter_done( iter, stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
         iter = next_iter ) {
-    fd_stake_reward_t * stake_reward = fd_stake_reward_dlist_iter_ele( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+    fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_dlist_iter_ele( iter, stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
     /* Cache the next iter here, as we will overwrite the DLIST_NEXT value further down in the loop iteration. */
-    next_iter = fd_stake_reward_dlist_iter_fwd_next( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+    next_iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
 
     if( FD_UNLIKELY( !stake_reward->valid ) ) {
       continue;
@@ -791,8 +795,9 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
                                     ((uint128)ULONG_MAX + 1));
 
     /* Move the stake reward to the partition's dlist */
-    fd_stake_reward_dlist_t * partition = &result->partitioned_stake_rewards.partitions[ partition_index ];
-    fd_stake_reward_dlist_ele_push_tail( partition, stake_reward, stake_reward_calculation->pool );
+    fd_partitioned_stake_rewards_dlist_t * partition = &result->partitioned_stake_rewards.partitions[ partition_index ];
+    fd_partitioned_stake_rewards_dlist_ele_push_tail( partition, stake_reward, stake_reward_calculation->pool );
+    result->partitioned_stake_rewards.partitions_lengths[ partition_index ]++;
   }
 }
 
@@ -970,11 +975,11 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
 static void
 set_epoch_reward_status_inactive( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
-  if( slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Active ) {
+  if( slot_ctx->slot_bank.epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Active ) {
     FD_LOG_NOTICE(( "Done partitioning rewards for current epoch" ));
     fd_spad_pop( runtime_spad );
   }
-  slot_ctx->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
+  slot_ctx->slot_bank.epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
 }
 
 /* Sets the epoch reward status to active.
@@ -987,10 +992,10 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
                                 fd_partitioned_stake_rewards_t * partitioned_rewards ) {
 
   FD_LOG_NOTICE(( "Setting epoch reward status as active" ));
-  slot_ctx->epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
-  slot_ctx->epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
+  slot_ctx->slot_bank.epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
+  slot_ctx->slot_bank.epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
 
-  fd_memcpy( &slot_ctx->epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT );
+  fd_memcpy( &slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT );
 }
 
 /*  Process reward credits for a partition of rewards.
@@ -998,18 +1003,18 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
 
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L88 */
 static void
-distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
-                                       fd_stake_reward_t *       pool,
-                                       fd_exec_slot_ctx_t *      slot_ctx,
-                                       fd_spad_t *               runtime_spad ) {
+distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * partition,
+                                       fd_stake_reward_t *                    pool,
+                                       fd_exec_slot_ctx_t *                   slot_ctx,
+                                       fd_spad_t *                            runtime_spad ) {
 
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
 
-  for( fd_stake_reward_dlist_iter_t iter = fd_stake_reward_dlist_iter_fwd_init( partition, pool );
-        !fd_stake_reward_dlist_iter_done( iter, partition, pool );
-        iter = fd_stake_reward_dlist_iter_fwd_next( iter, partition, pool ) ) {
-    fd_stake_reward_t * stake_reward = fd_stake_reward_dlist_iter_ele( iter, partition, pool );
+  for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( partition, pool );
+        !fd_partitioned_stake_rewards_dlist_iter_done( iter, partition, pool );
+        iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, partition, pool ) ) {
+    fd_stake_reward_t * stake_reward = fd_partitioned_stake_rewards_dlist_iter_ele( iter, partition, pool );
 
     if( distribute_epoch_reward_to_stake_acc( slot_ctx,
                                               &stake_reward->stake_pubkey,
@@ -1048,11 +1053,11 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
   (void)exec_spads;
   (void)exec_spad_cnt;
 
-  if( slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Inactive ) {
+  if( slot_ctx->slot_bank.epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Inactive ) {
     return;
   }
 
-  fd_start_block_height_and_rewards_t * status = &slot_ctx->epoch_reward_status.inner.Active;
+  fd_start_block_height_and_rewards_t * status = &slot_ctx->slot_bank.epoch_reward_status.inner.Active;
 
   fd_slot_bank_t *        slot_bank  = &slot_ctx->slot_bank;
   ulong                   height     = slot_bank->block_height;

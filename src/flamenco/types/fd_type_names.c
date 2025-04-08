@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 240
+#define FD_TYPE_NAME_COUNT 253
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -104,6 +104,19 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_rent_fresh_account",
  "fd_rent_fresh_accounts",
  "fd_epoch_bank",
+ "fd_stake_reward",
+ "fd_vote_reward",
+ "fd_point_value",
+ "fd_partitioned_stake_rewards",
+ "fd_stake_reward_calculation_partitioned",
+ "fd_stake_reward_calculation",
+ "fd_calculate_stake_vote_rewards_result",
+ "fd_calculate_validator_rewards_result",
+ "fd_calculate_rewards_and_distribute_vote_rewards_result",
+ "fd_partitioned_rewards_calculation",
+ "fd_start_block_height_and_rewards",
+ "fd_fd_epoch_reward_status_inner",
+ "fd_epoch_reward_status",
  "fd_slot_bank",
  "fd_prev_epoch_inflation_rewards",
  "fd_vote",

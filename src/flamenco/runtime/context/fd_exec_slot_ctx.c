@@ -27,9 +27,6 @@ fd_exec_slot_ctx_new( void *      mem,
 
   self->sysvar_cache = fd_sysvar_cache_new( fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ) );
 
-  /* This is inactive by default */
-  self->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
-
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
   FD_COMPILER_MFENCE();
