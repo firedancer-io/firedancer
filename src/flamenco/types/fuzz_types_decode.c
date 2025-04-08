@@ -72,7 +72,6 @@ decode_type( fd_types_funcs_t const * type_meta,
 
   ulong total_sz = 0UL;
   int   err      = type_meta->decode_footprint_fun( &decode_ctx, &total_sz );
-  __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
 
   if (err != FD_BINCODE_SUCCESS) {
     return err;
@@ -315,6 +314,11 @@ LLVMFuzzerCustomMutator( uchar * data,
     size_t written;
     int err = encode_type( &type_meta, type, data + 1, max_size - 1, &written );
     if ( err != FD_BINCODE_SUCCESS ) {
+      if ( err == FD_BINCODE_ERR_OVERFLOW ) {
+        FD_LOG_WARNING(( "encoding failed for: %s (err: %d)", fd_type_names[data[0]], err ));
+        // This type is just too large to fit in the max_size (4095 byte) buffer
+        return 0;
+      }
       FD_LOG_CRIT(( "encoding failed for: %s (err: %d)", fd_type_names[data[0]], err ));
     }
     size = written;

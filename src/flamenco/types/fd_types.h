@@ -1951,7 +1951,7 @@ typedef struct fd_epoch_bank_global fd_epoch_bank_global_t;
 #define FD_EPOCH_BANK_GLOBAL_FOOTPRINT sizeof(fd_epoch_bank_global_t)
 #define FD_EPOCH_BANK_GLOBAL_ALIGN (16UL)
 
-/* Encoded Size: Fixed (73 bytes) */
+/* Encoded Size: Fixed (49 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_reward {
   ulong prev;
   ulong next;

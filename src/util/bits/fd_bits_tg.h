@@ -78,7 +78,11 @@
    identical. */
 
 #ifndef FD_BITS_TG_USE_BUILTIN
+#ifdef __cplusplus
+#define FD_BITS_TG_USE_BUILTIN 0
+#else
 #define FD_BITS_TG_USE_BUILTIN 1
+#endif
 #endif
 
 #if FD_BITS_TG_USE_BUILTIN

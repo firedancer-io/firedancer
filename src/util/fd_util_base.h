@@ -741,7 +741,7 @@ fd_type_pun_const( void const * p ) {
    compile-time-const-based optimizations like hoisting operations with
    useful CPU side effects out of a critical loop. */
 
-#define FD_COMPILER_UNPREDICTABLE(var) __asm__ __volatile__( "# FD_COMPILER_UNPREDICTABLE(" #var ")@" FD_SRC_LOCATION : "+r" (var) )
+#define FD_COMPILER_UNPREDICTABLE(var) __asm__ __volatile__( "# FD_COMPILER_UNPREDICTABLE(" #var ")@" FD_SRC_LOCATION : "+m,r" (var) )
 
 /* Atomic tricks ******************************************************/
 
