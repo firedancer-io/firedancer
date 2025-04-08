@@ -745,7 +745,7 @@ fd_type_pun_const( void const * p ) {
 
 /* Atomic tricks ******************************************************/
 
-/* FD_COMPILER_MFENCE():  Tells the compiler that that it can't move any
+/* FD_COMPILER_MFENCE():  Tells the compiler that it can't move any
    memory operations (load or store) from before the MFENCE to after the
    MFENCE (and vice versa).  The processor itself might still reorder
    around the fence though (that requires platform specific fences). */
@@ -850,7 +850,7 @@ fd_type_pun_const( void const * p ) {
    __sync_lock_test_and_set.  And some implementations (and C++)
    debatably then implemented this API according to what the misleading
    name implied as opposed to what it actually did.  But those
-   implementations didn't bother to provide an replacement for atomic
+   implementations didn't bother to provide a replacement for atomic
    exchange functionality (forcing us to emulate atomic exchange more
    slowly via CAS there).  Sigh ... we do what we can to fix this up. */
 

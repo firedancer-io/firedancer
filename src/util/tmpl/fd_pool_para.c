@@ -9,13 +9,13 @@
    such, concurrent usage requires FD_HAS_ATOMIC support (this can still
    be used on platforms without FD_HAS_ATOMIC but it will not be safe
    for concurrent usage).  Stack top versioning is used to handle ABA.
-   Versioning has been been tweaked to support locked pool operations
-   like initialization (and thus this can also be used without changes
-   as a more conventional spin lock based concurrent stack).
-   Unsurprisingly, the current implementation is equally usable as a
-   concurrent element stack (though the implementation may be changed in
-   the future to better support ultra high contention ultra high
-   concurrency ala fd_alloc).
+   Versioning has been tweaked to support locked pool operations like
+   initialization (and thus this can also be used without changes as a
+   more conventional spin lock based concurrent stack).  Unsurprisingly,
+   the current implementation is equally usable as a concurrent element
+   stack (though the implementation may be changed in the future to
+   better support ultra high contention ultra high concurrency ala
+   fd_alloc).
 
    The current implementation is optimized for pools with a moderate
    number of reasonably localized users (e.g. a handful of cores and
@@ -72,7 +72,7 @@
      // align.
      //
      // mypool_new formats a memory region with the appropriate
-     // alignment and footprint into a mypool.  shmem points in the the
+     // alignment and footprint into a mypool.  shmem points in the
      // caller's address space of the memory region to format.  Returns
      // shmem on success (mypool has ownership of the memory region) and
      // NULL on failure (no changes, logs details).  Caller is not
@@ -162,7 +162,7 @@
      // occurs, returns sentinel (arbitrary).  A non-zero / zero value
      // for blocking indicates locked operations on the mypool are / are
      // not allowed to block the caller.  If opt_err is not NULL, on
-     // return, *_opt_err will indicate FD_POOL_SUCCESS (zero) or a
+     // return, *_opt_err will indicate FD_POOL_SUCCESS (zero) or an
      // FD_POOL_ERR code (negative).  On success, the returned value
      // will be a pointer in the caller's address space to the element
      // store element acquired from the mypool.  On failure for any
@@ -185,7 +185,7 @@
      // is a current local join, ele is a pointer in the caller's
      // address space to the element, and the element is currently not
      // in the mypool.  Returns FD_POOL_SUCCESS (zero) on success (the
-     // element will be in the mypool on return) and a FD_POOL_ERR code
+     // element will be in the mypool on return) and an FD_POOL_ERR code
      // (negative) on failure (the element will not be in the mypool on
      // return).  Reasons for failure:
      //
@@ -323,7 +323,7 @@
 #define POOL_IMPL_STYLE 0
 #endif
 
-/* Commom pool error codes (FIXME: probably should get around to making
+/* Common pool error codes (FIXME: probably should get around to making
    unified error codes and string handling across all util at least so
    we don't have to do this in the generator itself) */
 
