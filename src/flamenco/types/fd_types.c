@@ -12586,12 +12586,6 @@ ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
 
 int fd_stake_reward_encode( fd_stake_reward_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_bincode_uint64_encode( self->prev, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->next, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->parent, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_pubkey_encode( &self->stake_pubkey, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->credits_observed, ctx );
@@ -12613,12 +12607,6 @@ int fd_stake_reward_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
 int fd_stake_reward_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
@@ -12639,9 +12627,6 @@ void * fd_stake_reward_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
 }
 void fd_stake_reward_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_stake_reward_t * self = (fd_stake_reward_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->prev, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->next, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->parent, ctx );
   fd_pubkey_decode_inner( &self->stake_pubkey, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->credits_observed, ctx );
   fd_bincode_uint64_decode_unsafe( &self->lamports, ctx );
@@ -12660,9 +12645,6 @@ ulong fd_stake_reward_align( void ){ return FD_STAKE_REWARD_ALIGN; }
 
 void fd_stake_reward_walk( void * w, fd_stake_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_reward", level++ );
-  fun( w, &self->prev, "prev", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, &self->next, "next", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, &self->parent, "parent", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_pubkey_walk( w, &self->stake_pubkey, fun, "stake_pubkey", level );
   fun( w, &self->credits_observed, "credits_observed", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -12671,9 +12653,6 @@ void fd_stake_reward_walk( void * w, fd_stake_reward_t const * self, fd_types_wa
 }
 ulong fd_stake_reward_size( fd_stake_reward_t const * self ) {
   ulong size = 0;
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
   size += fd_pubkey_size( &self->stake_pubkey );
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -13131,7 +13110,7 @@ void fd_stake_reward_calculation_decode_inner( void * struct_mem, void * * alloc
   fd_bincode_uint64_decode_unsafe( &self->stake_rewards_len, ctx );
   self->pool = fd_stake_reward_calculation_pool_join_new( alloc_mem, self->stake_rewards_len );
   self->stake_rewards = fd_stake_reward_calculation_dlist_join_new( alloc_mem, self->stake_rewards_len );
-  fd_stake_reward_calculation_dlist_new( &self->stake_rewards );
+  fd_stake_reward_calculation_dlist_new( self->stake_rewards );
   for( ulong i=0; i < self->stake_rewards_len; i++ ) {
     fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( self->pool );
     fd_stake_reward_new( ele );

@@ -469,7 +469,7 @@ class DlistMember(TypeNode):
 
         print(f'  self->pool = {pool_name}_join_new( alloc_mem, self->{self.name}_len );', file=body)
         print(f'  self->{self.name} = {dlist_name}_join_new( alloc_mem, self->{self.name}_len );', file=body)
-        print(f'  {dlist_name}_new( &self->{self.name} );', file=body)
+        print(f'  {dlist_name}_new( self->{self.name} );', file=body)
         print(f'  for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
         print(f'    {dlist_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {dlist_t.rstrip("_t")}_new( ele );', file=body)

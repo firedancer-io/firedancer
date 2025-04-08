@@ -1710,7 +1710,7 @@ void *fd_stake_reward_calculation_generate( void *mem, void **alloc_mem, fd_rng_
   self->stake_rewards_len = fd_rng_ulong( rng ) % 8;
   self->pool = fd_stake_reward_calculation_pool_join_new( alloc_mem, self->stake_rewards_len );
   self->stake_rewards = fd_stake_reward_calculation_dlist_join_new( alloc_mem, self->stake_rewards_len );
-  fd_stake_reward_calculation_dlist_new( &self->stake_rewards );
+  fd_stake_reward_calculation_dlist_new( self->stake_rewards );
   for( ulong i=0; i < self->stake_rewards_len; i++ ) {
     fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( self->pool );
     fd_stake_reward_new( ele );

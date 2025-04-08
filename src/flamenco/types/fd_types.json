@@ -1116,9 +1116,9 @@
       "type": "struct",
       "alignment": "8",
       "fields": [
-        { "name": "prev",             "type": "ulong" },
-        { "name": "next",             "type": "ulong" },
-        { "name": "parent",           "type": "ulong" },
+        { "name": "prev",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
+        { "name": "next",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
+        { "name": "parent",           "type": "ulong", "decode": false, "encode": false, "walk": false  },
         { "name": "stake_pubkey",     "type": "pubkey"},
         { "name": "credits_observed", "type": "ulong" },
         { "name": "lamports",         "type": "ulong" },
