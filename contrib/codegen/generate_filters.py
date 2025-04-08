@@ -240,7 +240,7 @@ def eval_bit_and(filt, op1, op2, label_t, label_f):
 
     elif op2_type is tuple and op1_type is not tuple:
         # eval op2 and do operation with op1 imm
-        eval_(op2, 0, 0)
+        eval_(op2, filt, 0, 0)
         # accu now contains the eval res of op2
         filt.append("{ BPF_ALU | BPF_AND | BPF_K, 0, 0, %s }" % str(op1))
     else:
