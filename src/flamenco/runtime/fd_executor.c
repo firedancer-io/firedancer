@@ -1245,7 +1245,7 @@ fd_executor_setup_executable_account( fd_exec_txn_ctx_t * txn_ctx,
   if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->executable_accounts[ *executable_idx ],
                                                             programdata_acc,
                                                             txn_ctx->funk,
-                                                            txn_ctx->funk_txn ) )==0 ) {
+                                                            txn_ctx->funk_txn )==0 ) ) {
     (*executable_idx)++;
   }
 }
