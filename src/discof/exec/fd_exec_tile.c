@@ -412,7 +412,7 @@ static void
 during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                in_idx,
              ulong                seq FD_PARAM_UNUSED,
-             ulong                sig FD_PARAM_UNUSED,
+             ulong                sig,
              ulong                chunk,
              ulong                sz,
              ulong                ctl FD_PARAM_UNUSED ) {
@@ -466,7 +466,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
 }
 
 static void
-after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
+after_frag( fd_exec_tile_ctx_t * ctx,
             ulong                in_idx FD_PARAM_UNUSED,
             ulong                seq    FD_PARAM_UNUSED,
             ulong                sig,
