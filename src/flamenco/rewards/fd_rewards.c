@@ -311,21 +311,17 @@ get_minimum_stake_delegation( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 static void
-calculate_points_tpool( void  *tpool,
-                        ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                        void  *args,
-                        void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                        ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                        ulong m0,                      ulong m1,
-                        ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
-  fd_epoch_info_pair_t const *      stake_infos                    = ((fd_epoch_info_pair_t const *)tpool);
-  fd_calculate_points_task_args_t * task_args                      = (fd_calculate_points_task_args_t *)args;
+calculate_points_range( fd_epoch_info_pair_t const *      stake_infos,
+                        fd_calculate_points_task_args_t * task_args,
+                        ulong                             start_idx,
+                        ulong                             end_idx ) {
+
   fd_stake_history_t const *        stake_history                  = task_args->stake_history;
   ulong *                           new_warmup_cooldown_rate_epoch = task_args->new_warmup_cooldown_rate_epoch;
   ulong                             minimum_stake_delegation       = task_args->minimum_stake_delegation;
 
   uint128 total_points = 0;
-  for( ulong i=m0; i<m1; i++ ) {
+  for( ulong i=start_idx; i<end_idx; i++ ) {
     fd_epoch_info_pair_t const * stake_info = stake_infos + i;
     fd_stake_t const *           stake      = &stake_info->stake;
 
@@ -355,6 +351,21 @@ calculate_points_tpool( void  *tpool,
 
   FD_ATOMIC_FETCH_AND_ADD( task_args->total_points, total_points );
 
+
+}
+
+static void
+calculate_points_tpool_task( void  *tpool,
+                             ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
+                             void  *args,
+                             void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                             ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
+                             ulong m0,                      ulong m1,
+                             ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
+  fd_epoch_info_pair_t const *      stake_infos                    = ((fd_epoch_info_pair_t const *)tpool);
+  fd_calculate_points_task_args_t * task_args                      = (fd_calculate_points_task_args_t *)args;
+
+  calculate_points_range( stake_infos, task_args, m0, m1 );
 }
 
 /* Calculates epoch reward points from stake/vote accounts.
@@ -393,8 +404,13 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
     .total_points                   = &points,
   };
 
-  fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_points_tpool,
-                           temp_info->stake_infos, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
+  if( !!tpool ) {
+    fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_points_tpool_task,
+                             temp_info->stake_infos, &task_args, NULL,
+                             1UL, 0UL, temp_info->stake_infos_len );
+  } else {
+    calculate_points_range( temp_info->stake_infos, &task_args, 0UL, temp_info->stake_infos_len );
+  }
 
   if( points > 0 ) {
     result->points  = points;
@@ -402,20 +418,13 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   }
 }
 
-/* Calculate the partitioned stake rewards for a single stake/vote account pair, updates result with these. */
 static void
-calculate_stake_vote_rewards_account_tpool( void  *tpool,
-                                            ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                                            void  *args,
-                                            void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                                            ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                                            ulong m0,                      ulong m1,
-                                            ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
+calculate_stake_vote_rewards_account( fd_epoch_info_t const *                             temp_info,
+                                      fd_calculate_stake_vote_rewards_task_args_t const * task_args,
+                                      ulong                                               start_idx,
+                                      ulong                                               end_idx ) {
 
-  fd_epoch_info_t const *                             temp_info                      = ((fd_epoch_info_t const *)tpool);
   fd_epoch_info_pair_t const *                        stake_infos                    = temp_info->stake_infos;
-
-  fd_calculate_stake_vote_rewards_task_args_t const * task_args                      = (fd_calculate_stake_vote_rewards_task_args_t const *)args;
   fd_exec_slot_ctx_t *                                slot_ctx                       = task_args->slot_ctx;
   fd_stake_history_t const *                          stake_history                  = task_args->stake_history;
   ulong                                               rewarded_epoch                 = task_args->rewarded_epoch;
@@ -423,7 +432,8 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
   fd_point_value_t *                                  point_value                    = task_args->point_value;
   fd_calculate_stake_vote_rewards_result_t *          result                         = task_args->result; // written to
   fd_spad_t *                                         spad                           = task_args->exec_spads[ fd_tile_idx() ];
-  fd_spad_push(spad);
+
+  FD_SPAD_FRAME_BEGIN( spad ) {
 
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
   ulong total_stake_rewards      = 0UL;
@@ -432,11 +442,11 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
   /* Build a local vote reward map */
   fd_vote_reward_t_mapnode_t * vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc( spad,
                                                                                                                           fd_vote_reward_t_map_align(),
-                                                                                                                          fd_vote_reward_t_map_footprint( m1-m0 )),
-                                                                                 m1-m0 ) );
+                                                                                                                          fd_vote_reward_t_map_footprint( end_idx-start_idx )),
+                                                                                  end_idx-start_idx ) );
   fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
 
-  for( ulong i=m0; i<m1; i++ ) {
+  for( ulong i=start_idx; i<end_idx; i++ ) {
     fd_epoch_info_pair_t const * stake_info = stake_infos + i;
     fd_pubkey_t const *          stake_acc  = &stake_info->account;
     fd_stake_t const *           stake      = &stake_info->stake;
@@ -451,8 +461,8 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
     fd_vote_info_pair_t_mapnode_t key;
     fd_memcpy( &key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
     fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool,
-                                                                                     temp_info->vote_states_root,
-                                                                                     &key );
+                                                                                      temp_info->vote_states_root,
+                                                                                      &key );
     if( FD_UNLIKELY( vote_state_entry==NULL ) ) {
       continue;
     }
@@ -532,8 +542,8 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
 
   /* Merge vote rewards with result after */
   for( fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_minimum( vote_reward_map_pool, vote_reward_map_root );
-       vote_reward_node;
-       vote_reward_node = fd_vote_reward_t_map_successor( vote_reward_map_pool, vote_reward_node ) ) {
+        vote_reward_node;
+        vote_reward_node = fd_vote_reward_t_map_successor( vote_reward_map_pool, vote_reward_node ) ) {
 
     fd_vote_reward_t_mapnode_t * result_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_reward_node );
     FD_ATOMIC_CAS( &result_reward_node->elem.commission, 0, vote_reward_node->elem.commission );
@@ -543,8 +553,25 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
 
   FD_ATOMIC_FETCH_AND_ADD( &result->stake_reward_calculation.total_stake_rewards_lamports, total_stake_rewards );
   FD_ATOMIC_FETCH_AND_ADD( &result->stake_reward_calculation.stake_rewards_len, dlist_additional_cnt );
-  fd_spad_pop(spad);
 
+  } FD_SPAD_FRAME_END;
+
+
+}
+
+/* Calculate the partitioned stake rewards for a single stake/vote account pair, updates result with these. */
+static void
+calculate_stake_vote_rewards_account_tpool_task( void  *tpool,
+                                                 ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
+                                                 void  *args,
+                                                 void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                                                 ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
+                                                 ulong m0,                      ulong m1,
+                                                 ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
+
+  fd_epoch_info_t const *                             temp_info                      = ((fd_epoch_info_t const *)tpool);
+  fd_calculate_stake_vote_rewards_task_args_t const * task_args                      = (fd_calculate_stake_vote_rewards_task_args_t const *)args;
+  calculate_stake_vote_rewards_account( temp_info, task_args, m0, m1 );
 }
 
 /* Calculates epoch rewards for stake/vote accounts.
@@ -641,8 +668,13 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
 
   /* Loop over all the delegations
      https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L367  */
-  fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_stake_vote_rewards_account_tpool,
-                           temp_info, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
+  if( !!tpool ) {
+    fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_stake_vote_rewards_account_tpool_task,
+                             temp_info, &task_args,
+                             NULL, 1UL, 0UL, temp_info->stake_infos_len );
+  } else {
+    calculate_stake_vote_rewards_account( temp_info, &task_args, 0UL, temp_info->stake_infos_len );
+  }
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
