@@ -216,7 +216,7 @@ class PrimitiveMember(TypeNode):
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'{indent}  err = fd_bincode_bytes_decode_footprint( slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'{indent}  *total_sz += slen;', file=body)
+        print(f'{indent}  *total_sz += slen + 1; // Need an extra byte for null termination', file=body)
 
     emitDecodeFootprintMap = {
         "char" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
@@ -245,7 +245,7 @@ class PrimitiveMember(TypeNode):
         print(f'{indent}  self->{n} = *alloc_mem;', file=body)
         print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
         print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
-        print(f'{indent}  *alloc_mem = (uchar *)(*alloc_mem) + slen;', file=body)
+        print(f'{indent}  *alloc_mem = (uchar *)(*alloc_mem) + (slen + 1); // extra byte for null termination', file=body)
 
     def ushort_decode_unsafe(n, varint):
         if varint:
