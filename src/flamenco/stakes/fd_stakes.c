@@ -521,7 +521,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
      do not have access to iterators at a specific index in constant or logarithmic time. */
   ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz,
                                                                            fd_ulong_min( fd_tpool_worker_cnt( tpool ), exec_spads_cnt ) );
-  fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *),
+  fd_delegation_pair_t_mapnode_t * * batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *),
                                                                                       ( worker_cnt + 1 )*sizeof(fd_delegation_pair_t_mapnode_t *) );
 
   ulong * idx_starts = fd_spad_alloc( runtime_spad, alignof(ulong), worker_cnt * sizeof(ulong) );
@@ -611,7 +611,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t const * history = (fd_stake_history_t const *)fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(

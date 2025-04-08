@@ -35,6 +35,22 @@ fd_flamenco_txn_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * t
   return 0;
 }
 
+int FD_FN_UNUSED
+fd_flamenco_txn_encode_global( fd_flamenco_txn_t const * self,
+                               fd_bincode_encode_ctx_t * ctx ) {
+  (void)self;
+  (void)ctx;
+  FD_LOG_ERR(( "only exists for testing" ));
+}
+
+void * FD_FN_UNUSED
+fd_flamenco_txn_decode_global( void *                    mem,
+                               fd_bincode_decode_ctx_t * ctx ) {
+  (void)mem;
+  (void)ctx;
+  FD_LOG_ERR(( "only exists for testing" ));
+}
+
 void *
 fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)mem;
@@ -66,27 +82,6 @@ fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_
   ctx->data = (void *)( (ulong)ctx->data + sz );
 }
 
-void *
-fd_flamenco_txn_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)mem;
-  fd_flamenco_txn_new( self );
-  void *   alloc_region = (uchar *)mem + sizeof(fd_flamenco_txn_t);
-  void * * alloc_mem    = &alloc_region;
-  fd_flamenco_txn_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-
-int
-fd_flamenco_txn_convert_global_to_local( void const * global_self, fd_flamenco_txn_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  FD_LOG_ERR(("TODO: Implement"));
-}
-
-void
-fd_flamenco_txn_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  FD_LOG_ERR(("TODO: Implement"));
-}
-
-
 void
 fd_gossip_ip4_addr_walk( void *                       w,
                          fd_gossip_ip4_addr_t const * self,
@@ -114,6 +109,10 @@ fd_gossip_ip6_addr_walk( void *                       w,
 }
 
 int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  FD_LOG_ERR(( "todo"));
+}
+
+int fd_tower_sync_encode_global( fd_tower_sync_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   FD_LOG_ERR(( "todo"));
 }
 

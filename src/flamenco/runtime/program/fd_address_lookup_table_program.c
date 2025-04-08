@@ -260,16 +260,16 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   do {
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
-    fd_slot_hashes_t slot_hashes[1];
-    fd_bincode_decode_ctx_t decode = { .wksp = ctx->txn_ctx->runtime_pub_wksp };
-    fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
 
-
-    if( FD_UNLIKELY( !&slot_hashes[0] ) )
+    if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    }
+
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp,
+                                                          slot_hashes_global->hashes_gaddr ) );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
-    ulong is_recent_slot = slot_hashes_position( slot_hashes->hashes, create->recent_slot )!=ULONG_MAX;
+    ulong is_recent_slot = slot_hashes_position( slot_hash, create->recent_slot )!=ULONG_MAX;
     if( FD_UNLIKELY( !is_recent_slot ) ) {
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L100-L105 */
       /* Max msg_sz: 24 - 3 + 20 = 41 < 127 => we can use printf */
@@ -944,17 +944,16 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
   fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
-  fd_slot_hashes_t slot_hashes[1];
-  fd_bincode_decode_ctx_t decode = { .wksp = ctx->txn_ctx->runtime_pub_wksp };
-  fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
-
-  if( FD_UNLIKELY( !&slot_hashes[0] ) ) {
+  if( FD_UNLIKELY( !slot_hashes_global ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
+  fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp,
+                                                        slot_hashes_global->hashes_gaddr ) );
+
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
   ulong remaining_blocks = 0UL;
-  int status = fd_addrlut_status( &state->meta, clock->slot, slot_hashes->hashes, &remaining_blocks );
+  int status = fd_addrlut_status( &state->meta, clock->slot, slot_hash, &remaining_blocks );
 
   switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:

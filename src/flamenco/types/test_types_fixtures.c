@@ -27,7 +27,6 @@
   X( txn_vote,                         flamenco_txn, 0         )   \
   X( vote_account,                     vote_state_versioned, 1 )   \
   X( vote_account_two,                 vote_state_versioned, 1 )   \
-  X( slot_bank,                        slot_bank, 1            )   \
   X( gossip_pull_req,                  gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info,    gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info_v2, gossip_msg, 0           )   \
@@ -64,6 +63,9 @@ typedef void *
 typedef void *
 (* fd_types_decode_global_vfn_t)( void *                    self,
                                   fd_bincode_decode_ctx_t * d );
+typedef int
+(* fd_types_encode_global_vfn_t)( void *                    self,
+                                  fd_bincode_encode_ctx_t * d );
 
 typedef int
 (* fd_types_encode_vfn_t)( void const *              self,
@@ -81,11 +83,6 @@ typedef ulong
 typedef ulong
 (* fd_types_footprint_vfn_t)( void );
 
-typedef int
-(* fd_types_convert_vfn_t)( void const *              global_self,
-                            void *                    self,
-                            fd_bincode_decode_ctx_t * d );
-
 /* Define test vector */
 
 struct test_fixture {
@@ -102,10 +99,10 @@ struct test_fixture {
   fd_types_decode_vfn_t           decode;
   fd_types_decode_global_vfn_t    decode_global;
   fd_types_encode_vfn_t           encode;
+  fd_types_encode_global_vfn_t    encode_global;
   fd_types_walk_vfn_t             walk;
   fd_types_align_vfn_t            align;
   fd_types_footprint_vfn_t        footprint;
-  fd_types_convert_vfn_t          convert;
 };
 
 typedef struct test_fixture test_fixture_t;
@@ -124,10 +121,10 @@ static const test_fixture_t test_vector[] = {
     .decode           = ( fd_types_decode_vfn_t )fd_##type##_decode,                     \
     .decode_global    = ( fd_types_decode_global_vfn_t )fd_##type##_decode_global,       \
     .encode           = ( fd_types_encode_vfn_t )fd_##type##_encode,                     \
+    .encode_global    = ( fd_types_encode_global_vfn_t )fd_##type##_encode_global,       \
     .align            = ( fd_types_align_vfn_t )fd_##type##_align,                       \
     .footprint        = ( fd_types_footprint_vfn_t )fd_##type##_footprint,               \
-    .walk             = ( fd_types_walk_vfn_t )fd_##type##_walk,                         \
-    .convert          = ( fd_types_convert_vfn_t )fd_##type##_convert_global_to_local },
+    .walk             = ( fd_types_walk_vfn_t )fd_##type##_walk },
 TEST_VECTOR( X )
 # undef X
   {0}
@@ -246,23 +243,17 @@ test_idempotent( test_fixture_t const * t, fd_spad_t * spad, fd_wksp_t * wksp ) 
 
   t->decode_global( decoded_global, decode );
 
-  void * converted_struct = fd_spad_alloc( spad, t->align(), t->footprint() );
-
-  err = t->convert( decoded_global, converted_struct, decode );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Test '%s' failed: Convert err (%d)", t->name, err ));
-  }
-
-  fd_bincode_encode_ctx_t converted_encode[1] = {{
+  fd_bincode_encode_ctx_t global_encode[1] = {{
     .data    = encoded_buf,
     .dataend = encoded_buf + bin_sz,
+    .wksp    = wksp
   }};
 
-  err = t->encode( converted_struct, converted_encode );
+  err = t->encode_global( decoded_global, global_encode );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     FD_LOG_ERR(( "Test '%s' failed: Bincode encode err (%d)", t->name, err ));
   }
-  FD_TEST_CUSTOM( !memcmp( encoded_buf, t->bin, bin_sz ), "Global converted type doesn't encode correctly" );
+  FD_TEST_CUSTOM( !memcmp( encoded_buf, t->bin, bin_sz ), "Global type doesn't encode correctly" );
 
 } FD_SPAD_FRAME_END;
 }
@@ -284,7 +275,6 @@ main( int     argc,
   fd_spad_t * spad     = fd_spad_join( fd_spad_new( spad_mem, FD_SHMEM_GIGANTIC_PAGE_SZ * 12 ) );
 
   for( test_fixture_t const * t = test_vector; t->name; t++ ) {
-
     test_yaml      ( t, spad );
     test_idempotent( t, spad, wksp );
     /* Add more here ... */

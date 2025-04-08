@@ -452,7 +452,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   }
   txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
 
-  fd_epoch_schedule_t const * schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
@@ -817,7 +817,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Collect rent from the fee payer and set the starting lamports (to avoid unbalanced lamports issues in instruction execution)
      https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L438-L445 */
-  fd_epoch_schedule_t const * schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
   txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
                                                                    &txn_ctx->schedule,
@@ -861,9 +861,8 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
 
-    fd_slot_hashes_t slot_hashes[1];
-    fd_bincode_decode_ctx_t decode = { .wksp = txn_ctx->runtime_pub_wksp };
-    fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( txn_ctx->runtime_pub_wksp,
+                                                          slot_hashes_global->hashes_gaddr ) );
 
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
@@ -871,7 +870,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
                                                          txn_ctx->funk,
                                                          txn_ctx->funk_txn,
                                                          txn_ctx->slot,
-                                                         slot_hashes->hashes,
+                                                         slot_hash,
                                                          accts_alt );
     txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
@@ -1416,7 +1415,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
 int
 fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
 
   ulong starting_lamports_l = 0;
   ulong starting_lamports_h = 0;
