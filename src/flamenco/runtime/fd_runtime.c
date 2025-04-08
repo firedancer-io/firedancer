@@ -1587,9 +1587,9 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
 
 static void
 fd_account_hash_task( void * tpool,
-                      ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
-                      void *args FD_PARAM_UNUSED,
-                      void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                      ulong t0, ulong t1,
+                      void *args,
+                      void *reduce, ulong stride FD_PARAM_UNUSED,
                       ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
                       ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
                       ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {

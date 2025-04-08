@@ -394,8 +394,8 @@ fd_account_hash( fd_funk_t *                    funk,
 
 static void
 fd_account_hash_task( void * tpool,
-                      ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
-                      void *args FD_PARAM_UNUSED,
+                      ulong t0, ulong t1,
+                      void *args,
                       void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
                       ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
                       ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
