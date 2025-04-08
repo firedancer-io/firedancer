@@ -77,9 +77,6 @@ typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 typedef uint fd_gossip_ip4_addr_t;
 typedef uint fd_gossip_ip4_addr_t;
 
-typedef uint fd_gossip_ip4_addr_global_t;
-typedef uint fd_gossip_ip4_addr_global_t;
-
 /* IPv6 ***************************************************************/
 
 union fd_gossip_ip6_addr {
@@ -125,7 +122,6 @@ struct fd_flamenco_txn {
 };
 
 typedef struct fd_flamenco_txn fd_flamenco_txn_t;
-typedef struct fd_flamenco_txn fd_flamenco_txn_global_t;
 
 
 static inline void
@@ -144,6 +140,15 @@ fd_flamenco_txn_encode( fd_flamenco_txn_t const * self,
                         fd_bincode_encode_ctx_t * ctx ) {
   return fd_bincode_bytes_encode( self->raw, self->raw_sz, ctx );
 }
+
+
+int FD_FN_UNUSED
+fd_flamenco_txn_encode_global( fd_flamenco_txn_t const * self,
+                               fd_bincode_encode_ctx_t * ctx );
+
+void * FD_FN_UNUSED
+fd_flamenco_txn_decode_global( void *                    mem,
+                               fd_bincode_decode_ctx_t * ctx );
 
 static inline void
 fd_flamenco_txn_walk( void *                    w,
@@ -184,15 +189,6 @@ fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void
 fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-
-void
-fd_flamenco_txn_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-
-void *
-fd_flamenco_txn_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-int
-fd_flamenco_txn_convert_global_to_local( void const * global_self, fd_flamenco_txn_t * self, fd_bincode_decode_ctx_t * ctx );
 
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;

@@ -612,7 +612,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* Override epoch bank rent setting */
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( rent ) {
     epoch_bank->rent = *rent;
   }
@@ -621,8 +621,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    fd_bincode_decode_ctx_t decode = { .wksp = runtime_wksp };
-    fd_recent_block_hashes_convert_global_to_local( rbh_global, rbh, &decode );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( runtime_wksp, rbh_global->hashes_gaddr ) );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
@@ -867,7 +866,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
-  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
       ( rent->exemption_threshold     <      0.0 ) |
       ( rent->exemption_threshold     >    999.0 ) |
@@ -892,8 +891,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    fd_bincode_decode_ctx_t decode = { .wksp = fd_wksp_containing( runner->spad ) };
-    fd_recent_block_hashes_convert_global_to_local( rbh_global, rbh, &decode );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( fd_wksp_containing( runner->spad ), rbh_global->hashes_gaddr ) );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
@@ -1230,8 +1228,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    fd_bincode_decode_ctx_t decode = { .wksp = fd_wksp_containing( runner->spad ) };
-    fd_recent_block_hashes_convert_global_to_local( rbh_global, rbh, &decode );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( fd_wksp_containing( runner->spad ), rbh_global->hashes_gaddr ) );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
