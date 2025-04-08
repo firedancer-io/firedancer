@@ -222,6 +222,33 @@ LLVMFuzzerTestOneInput( uchar const * data,
   return 0;
 }
 
+size_t
+normalize_fd_vote_authorized_voters( uchar * data,
+                                     size_t  size ) {
+  fd_types_funcs_t type_meta;
+  size_t written = 0;
+
+  FD_SCRATCH_SCOPE_BEGIN {
+    if( fd_flamenco_type_lookup( "fd_vote_authorized_voters", &type_meta ) != 0 ) {
+      FD_LOG_ERR (( "Failed to lookup type fd_vote_authorized_voters" ));
+    }
+
+    // decode will deduplicate
+    void *decoded = NULL;
+    int err = decode_type( &type_meta, data, &decoded, size, &written );
+    if( err != FD_BINCODE_SUCCESS ) {
+      return size;
+    }
+
+    err = encode_type( &type_meta, decoded, data, size, &written );
+    if( err != FD_BINCODE_SUCCESS ) {
+      FD_LOG_CRIT(( "encoding failed for: fd_vote_authorized_voters (err: %d)", err ));
+    }
+  } FD_SCRATCH_SCOPE_END;
+
+  return written;
+}
+
 ulong
 LLVMFuzzerCustomMutator( uchar * data,
                          ulong   size,
@@ -246,6 +273,9 @@ LLVMFuzzerCustomMutator( uchar * data,
     else if ( strcmp( "fd_gossip_msg", type_name ) == 0 ) {
       uint discriminant = *(uint *)(data+1);
       use_generate = (discriminant == 0 || discriminant == 1 || discriminant == 2) ? 1 : 0;
+    }
+    else if ( strcmp( "fd_vote_authorized_voters", type_name ) == 0 ) {
+      mutated_size = normalize_fd_vote_authorized_voters( data+1, size-1 ) + 1;
     }
 
     if ( !use_generate ) return mutated_size;
@@ -288,6 +318,10 @@ LLVMFuzzerCustomMutator( uchar * data,
       FD_LOG_CRIT(( "encoding failed for: %s (err: %d)", fd_type_names[data[0]], err ));
     }
     size = written;
+
+    if ( strcmp( "fd_vote_authorized_voters", type_name ) == 0 ) {
+      size = normalize_fd_vote_authorized_voters( data+1, size-1 ) + 1;
+    }
 
   } FD_SCRATCH_SCOPE_END;
 
