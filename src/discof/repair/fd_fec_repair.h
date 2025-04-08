@@ -66,12 +66,14 @@ struct fd_fec_intra {
   ulong prev; /* internal use by dlist */
   ulong next; /* internal use by map_chain */
 
-  ulong slot;        /* slot of the block this fec set is part of  */
-  ulong parent_slot; /* parent slot of `slot` */
-  uint  fec_set_idx; /* index of the first data shred */
-  long  ts;          /* timestamp upon receiving the first shred */
-  ulong recv_cnt;    /* count of shreds received so far data + coding */
-  uint  data_cnt;    /* count of total data shreds in the FEC set */
+  ulong  slot; /* slot of the block this fec set is part of  */
+  ushort parent_off;
+  ulong  parent_slot; /* parent slot of `slot` */
+  uint   fec_set_idx; /* index of the first data shred */
+  long   ts;          /* timestamp upon receiving the first shred */
+  ulong  recv_cnt;    /* count of shreds received so far data + coding */
+  uint   data_cnt;    /* count of total data shreds in the FEC set */
+
   fd_ed25519_sig_t sig; /* Ed25519 sig identifier of the FEC. */
 
   uint  buffered_idx;  /* wmk of shreds buffered contiguously, inclusive. Starts at 0 */
@@ -225,19 +227,18 @@ fd_fec_repair_delete( void * fec_repair );
 // /* fd_fec_repair_ele_query returns a pointer to the in-progress FEC keyed
 //    by slot and fec_set_idx.  Returns NULL if not found. */
 
-// FD_FN_PURE static inline fd_fec_intra_t *
-// fd_fec_repair_ele_query( fd_fec_repair_t * fec_repair, ulong slot, uint fec_set_idx ) {
-//   ulong key = slot << 32 | (ulong)fec_set_idx;
-//   return fd_fec_repair_ele_map_query( fec_repair->map, key, NULL );
-// }
+FD_FN_PURE static inline fd_fec_intra_t *
+fd_fec_repair_query( fd_fec_repair_t * fec_repair, ulong slot, uint fec_set_idx ) {
+  ulong key = slot << 32 | (ulong)fec_set_idx;
+  return fd_fec_intra_map_ele_query( fec_repair->intra_map, &key, NULL, fec_repair->intra_pool );
+}
 
 // /* fd_fec_repair_ele_insert inserts and returns a new in-progress FEC set
 //    keyed by slot and fec_set_idx into the map.  Returns NULL if the map
 //    is full. */
 
 static inline void
-fd_fec_repair_ele_remove( fd_fec_repair_t * fec_repair,
-                          ulong             key ) {
+fd_fec_repair_remove( fd_fec_repair_t * fec_repair, ulong key ) {
   fd_fec_intra_t * fec = fd_fec_intra_map_ele_query( fec_repair->intra_map, &key, NULL, fec_repair->intra_pool );
   FD_TEST( fec );
 
@@ -257,7 +258,7 @@ fd_fec_repair_ele_remove( fd_fec_repair_t * fec_repair,
 }
 
 static inline fd_fec_intra_t *
-fd_fec_repair_ele_insert( fd_fec_repair_t * fec_repair,
+fd_fec_repair_insert( fd_fec_repair_t * fec_repair,
                           ulong             slot,
                           uint              fec_set_idx,
                           uint              shred_idx_or_data_cnt,
@@ -321,12 +322,9 @@ fd_fec_repair_ele_insert( fd_fec_repair_t * fec_repair,
   } else {
     uint shred_idx = shred_idx_or_data_cnt;
     fd_fec_intra_idxs_insert( fec->idxs, shred_idx - fec_set_idx );
+    if( FD_UNLIKELY( completes ) ) fec->completes_idx = shred_idx - fec_set_idx;
   }
 
-  if( FD_UNLIKELY( completes ) ) {
-    uint shred_idx = shred_idx_or_data_cnt;
-    fec->completes_idx = shred_idx - fec_set_idx;
-  }
 
   fec->recv_cnt++;
   /* advanced buffered if possible */
@@ -340,7 +338,6 @@ fd_fec_repair_ele_insert( fd_fec_repair_t * fec_repair,
 
   return fec;
 }
-
 
 int
 check_blind_fec_completed( fd_fec_repair_t  const * fec_repair,

@@ -1067,7 +1067,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   if( dupelem == NULL ) {
     dupelem = fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
     dupelem->last_send_time = 0L;
-  } else if( ( dupelem->last_send_time+(long)200e6 )<glob->now ) {
+  } else if( ( dupelem->last_send_time+(long)100e6 )<glob->now ) {
     fd_repair_unlock( glob );
     return 0;
   }

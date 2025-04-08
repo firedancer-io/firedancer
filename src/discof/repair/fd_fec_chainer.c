@@ -247,6 +247,8 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
 
 # if FD_FEC_CHAINER_USE_HANDHOLDING
   FD_TEST( fd_fec_pool_free( chainer->pool ) ); /* FIXME lru? */
+  FD_TEST( fd_fec_parents_key_cnt( chainer->parents ) < fd_fec_parents_key_max( chainer->parents ) );
+  FD_TEST( fd_fec_children_key_cnt( chainer->children ) < fd_fec_children_key_max( chainer->children ) );
 # endif
 
   fd_fec_ele_t * ele = fd_fec_pool_ele_acquire( chainer->pool );
@@ -263,7 +265,7 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   /* If it is the first FEC set, derive and insert parent_key->key into
      the parents map and parent_slot->slot into the children map. */
 
-  if ( FD_UNLIKELY( fec_set_idx == 0 ) ) {
+  if( FD_UNLIKELY( fec_set_idx == 0 ) ) {
     ulong parent_slot = slot - parent_off;
 
     fd_fec_parent_t * parent_key = fd_fec_parents_insert( chainer->parents, key );
@@ -294,8 +296,16 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
     /* This is not the last FEC set. */
     /* Key the child to point to ele (child's parent). */
 
-    fd_fec_parent_t * parent = fd_fec_parents_insert( chainer->parents, child_key );
-    parent->parent_key = key;
+    if( !fd_fec_parents_query( chainer->parents, child_key, NULL ) ) {
+      fd_fec_parent_t * parent = fd_fec_parents_insert( chainer->parents, child_key );
+      parent->parent_key = key;
+    } else {
+      FD_LOG_NOTICE(( "already inserted %lu %u", slot, fec_set_idx + data_cnt ));
+      fd_fec_parent_t * parent = fd_fec_parents_query( chainer->parents, child_key, NULL );
+      FD_LOG_NOTICE(( "%lu %u vs %lu %u data_cnt %u", parent->parent_key >> 32, (uint)parent->parent_key, slot, fec_set_idx, data_cnt ));
+      __asm__("int $3");
+      FD_TEST( parent->parent_key == key );
+    }
   }
 
   /* Push ele into the BFS deque and the orphaned map for processing. */
