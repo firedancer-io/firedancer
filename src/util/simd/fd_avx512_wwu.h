@@ -301,7 +301,7 @@ static inline wwu_t wwu_ror_vector( wwu_t a, wwu_t b ) {
    stores the result in c0,c1...c7.  In-place operation fine. */
 
 #define wwu_transpose_2x8x8( r0,r1,r2,r3,r4,r5,r6,r7,                                                \
-                             c0,c1,c2,c3,c4,c5,c6,c7 ) {                                             \
+                             c0,c1,c2,c3,c4,c5,c6,c7 ) do {                                          \
     wwu_t _wwu_transpose_r0 = (r0); wwu_t _wwu_transpose_r1 = (r1);                                  \
     wwu_t _wwu_transpose_r2 = (r2); wwu_t _wwu_transpose_r3 = (r3);                                  \
     wwu_t _wwu_transpose_r4 = (r4); wwu_t _wwu_transpose_r5 = (r5);                                  \

@@ -13,6 +13,7 @@ FD_PROTOTYPES_BEGIN
    fd_ulong_mask_bit   ( b          ) returns the ulong with bit b set and all other bits 0.  U.B. if b is not in [0,64).
    fd_ulong_clear_bit  ( x, b       ) returns x with bit b cleared.  U.B. if b is not in [0,64).
    fd_ulong_set_bit    ( x, b       ) returns x with bit b set. U.B. if b is not in [0,64).
+   fd_ulong_flip_bit   ( x, b       ) returns x with bit b flipped. U.B. if b is not in [0,64).
    fd_ulong_extract_bit( x, b       ) returns bit b of x as an int in {0,1}.  U.B. if b is not in [0,64).
    fd_ulong_insert_bit ( x, b, y    ) returns x with bit b set to y.  U.B. if b is not in [0,64) and/or y is not in {0,1}.
 
@@ -1013,5 +1014,9 @@ fd_ulong_svw_dec_tail( uchar const * b,
   }))
 
 FD_PROTOTYPES_END
+
+/* Include type generic versions of much of the above */
+
+#include "fd_bits_tg.h"
 
 #endif /* HEADER_fd_src_util_bits_fd_bits_h */

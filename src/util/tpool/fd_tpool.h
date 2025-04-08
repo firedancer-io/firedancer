@@ -591,15 +591,17 @@ fd_tpool_private_split( ulong n ) { /* Assumes n>1 */
 # if 0 /* Simple splitting */
   return n>>1;
 # else /* NUMA aware splitting */
-  /* This split has the property that the left side >= the right and one
-     of the splits is the largest power of two smaller than n.  It
-     results in building a balanced tree (the same as the simple split)
-     but with all the leaf nodes concentrated to toward the left when n
-     isn't a power of two.  This can yield a slight reduction of the
+  /* This split has the property that the left side >= the right side
+     and one of the splits is the largest power of two smaller than n.
+     It results in building a balanced tree (the same as the simple
+     split) but with all the leaf nodes concentrated to toward the left
+     when n isn't a power of two (and that all the nodes are easily
+     contiguously indexable).  This can yield a slight reduction of the
      number of messages that might have to cross a NUMA boundary in many
      common usage scenarios. */
-  ulong tmp = 1UL << (fd_ulong_find_msb( n )-1);
-  return fd_ulong_max( tmp, n-tmp );
+  int   b = fd_ulong_find_msb( n );
+  ulong m = 1UL << (b-1);
+  return fd_ulong_if( !(n & m), n-m, m<<1 );
 # endif
 }
 
