@@ -187,8 +187,11 @@ typedef struct {
      successful transaction insert. */
   long last_successful_insert;
 
-  /* last_bundle stores the tickcount at the time of insertion of the
+  /* first_bundle stores the tickcount for the first bundle we receive
+     when the previous bundle was more than 50 milliseconds prior.
+     last_bundle stores the tickcount at the time of insertion of the
      most recent bundle. */
+  long first_bundle;
   long last_bundle;
 
   /* for bundle_rush_duration ticks (fd_tickcount ticks, not Solana
@@ -645,16 +648,17 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
-    int allow_regular  = now<(ctx->last_bundle + ctx->bundle_rush_duration);
-    int no_votes_bank_0 = (bank_cnt>1UL) & (ctx->crank->enabled) && fd_pack_peek_bundle_meta( ctx->pack );
+    int allow_regular = ((ctx->last_bundle + ctx->bundle_rush_duration/8L)<now) & (now<(ctx->first_bundle + ctx->bundle_rush_duration));
+    int pause_votes_okay = (bank_cnt>1UL) & (ctx->crank->enabled) && fd_pack_peek_bundle_meta( ctx->pack );
+    int vote_only_period = (now>(ctx->first_bundle + ctx->bundle_rush_duration));
     /* We want to exempt votes from pacing, so we always allow
        scheduling votes.  It doesn't really make much sense to pace
        bundles, because they get scheduled in FIFO order.  However, we
        keep pacing for normal transactions.  For example, if
        pacing_bank_cnt is 0, then pack won't schedule normal
        transactions to any bank tile. */
-    int flags = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( (i==0)&no_votes_bank_0,              0,                    FD_PACK_SCHEDULE_VOTE ) |
-                                          fd_int_if( allow_regular & (i<pacing_bank_cnt), FD_PACK_SCHEDULE_TXN, 0                     );
+    int flags = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( (!pause_votes_okay) | vote_only_period, FD_PACK_SCHEDULE_VOTE, 0 ) |
+                                          fd_int_if( allow_regular & (i<pacing_bank_cnt),    FD_PACK_SCHEDULE_TXN,  0 );
 
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
@@ -978,7 +982,9 @@ after_frag( fd_pack_ctx_t *     ctx,
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
         ctx->current_bundle->bundle = NULL;
-        ctx->last_bundle = fd_tickcount();
+
+        ctx->first_bundle = fd_long_if( now-ctx->first_bundle>ctx->bundle_rush_duration, now, ctx->first_bundle );
+        ctx->last_bundle  = now;
       }
     } else {
       ulong blockhash_slot = sig;
@@ -1144,6 +1150,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->rng                           = rng;
   ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
   ctx->bundle_rush_duration          = (long)(ctx->ticks_per_ns * 50000000.0); /* 50 ms */
+  ctx->first_bundle                  = 0L;
   ctx->last_bundle                   = 0L;
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_slot         = 0UL;
