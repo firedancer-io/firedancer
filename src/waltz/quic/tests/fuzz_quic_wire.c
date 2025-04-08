@@ -112,7 +112,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .handshake_cnt    = 2,
     .conn_id_cnt      = 4,
     .inflight_pkt_cnt = 8UL,
-    .stream_pool_cnt  = 8UL
+    .stream_pool_cnt  = 8UL,
+    .tx_buf_sz        = 1UL<<8UL
   };
 
   /* Enable features depending on the last few bits.  The last bits are
@@ -198,13 +199,17 @@ LLVMFuzzerTestOneInput( uchar const * data,
     assert( event->timeout > g_clock );
   }
 
-
-  /* Generate ACKs */
+  /* Generate ACKs, if any left */
   fd_quic_svc_event_t next = fd_quic_svc_timers_next( state->svc_timers, ULONG_MAX, 0 );
-  assert( NULL != next.conn );
-  g_clock = next.timeout;
-  fd_quic_service( quic );
-  assert( --svc_quota > 0 );
+  do {
+    assert( NULL != next.conn );
+    if( next.conn->ack_gen->head == next.conn->ack_gen->tail ) break;
+
+    g_clock = next.timeout;
+    fd_quic_service( quic );
+    assert( --svc_quota > 0 );
+    next = fd_quic_svc_timers_next( state->svc_timers, ULONG_MAX, 0 );
+  } while( 0 );
 
   /* Simulate conn timeout */
   next = fd_quic_svc_timers_next(state->svc_timers, ULONG_MAX, 0);
@@ -221,6 +226,13 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* connection should be dead */
   assert( conn->svc_meta.idx == FD_QUIC_SVC_IDX_INVAL );
   assert( conn->state == FD_QUIC_CONN_STATE_DEAD || conn->state == FD_QUIC_CONN_STATE_INVALID );
+
+  /* freed stream resources */
+  assert( state->stream_pool->cur_cnt == quic_limits.stream_pool_cnt );
+  assert( conn->used_streams->sentinel );
+  assert( conn->send_streams->sentinel );
+  assert( !conn->tls_hs );
+
 
   fd_quic_delete( fd_quic_leave( fd_quic_fini( quic ) ) );
   fd_aio_delete( fd_aio_leave( aio ) );

@@ -134,7 +134,7 @@ fd_quic_svc_event_t
 fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
                          ulong                  now,
                          int                    pop ) {
-  fd_quic_svc_event_t next = { .conn = NULL , .timeout = ULONG_MAX};
+  fd_quic_svc_event_t next = { .timeout = ULONG_MAX, .conn = NULL };
 
   if( FD_UNLIKELY( fd_quic_svc_queue_prq_cnt( timers ) == 0 )) {
     return next;

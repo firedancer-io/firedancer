@@ -2801,8 +2801,8 @@ fd_quic_svc_poll( fd_quic_t *      quic,
 
   //FD_DEBUG( FD_LOG_DEBUG(( "svc_poll conn=%p svc_type=%u", (void *)conn, conn->svc_type )); )
 
-  if( FD_UNLIKELY( now > conn->last_activity + ( conn->idle_timeout / 2 ) ) ) {
-    if( FD_UNLIKELY( now > conn->last_activity + conn->idle_timeout ) ) {
+  if( FD_UNLIKELY( now >= conn->last_activity + ( conn->idle_timeout / 2 ) ) ) {
+    if( FD_UNLIKELY( now >= conn->last_activity + conn->idle_timeout ) ) {
       if( FD_LIKELY( conn->state != FD_QUIC_CONN_STATE_DEAD ) ) {
         /* rfc9000 10.1 Idle Timeout
             "... the connection is silently closed and its state is discarded
