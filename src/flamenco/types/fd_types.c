@@ -32745,7 +32745,7 @@ int fd_instr_error_enum_inner_decode_footprint( uint discriminant, fd_bincode_de
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     err = fd_bincode_bytes_decode_footprint( slen, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    *total_sz += slen;
+    *total_sz += slen + 1; // Need an extra byte for null termination
     return FD_BINCODE_SUCCESS;
   }
   case 45: {
@@ -32934,7 +32934,7 @@ void fd_instr_error_enum_inner_decode_inner( fd_instr_error_enum_inner_t * self,
     self->borsh_io_error = *alloc_mem;
     fd_bincode_bytes_decode_unsafe( (uchar *)self->borsh_io_error, slen, ctx );
     self->borsh_io_error[slen] = '\0';
-    *alloc_mem = (uchar *)(*alloc_mem) + slen;
+    *alloc_mem = (uchar *)(*alloc_mem) + (slen + 1); // extra byte for null termination
     break;
   }
   case 45: {
@@ -33107,7 +33107,7 @@ void fd_instr_error_enum_inner_decode_inner_global( fd_instr_error_enum_inner_gl
     self->borsh_io_error = *alloc_mem;
     fd_bincode_bytes_decode_unsafe( (uchar *)self->borsh_io_error, slen, ctx );
     self->borsh_io_error[slen] = '\0';
-    *alloc_mem = (uchar *)(*alloc_mem) + slen;
+    *alloc_mem = (uchar *)(*alloc_mem) + (slen + 1); // extra byte for null termination
     break;
   }
   case 45: {
