@@ -1,5 +1,5 @@
 /* Repair tile runs the repair protocol for a Firedancer node. */
-#include "fd_fec_chainer.h"
+#include "../replay/fd_fec_chainer.h"
 #define _GNU_SOURCE
 
 #include "../../disco/topo/fd_topo.h"

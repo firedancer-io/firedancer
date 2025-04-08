@@ -39,7 +39,7 @@
 #include "../../disco/fd_disco_base.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../../tango/fseq/fd_fseq.h"
-#include "fd_fec_chainer.h"
+#include "../replay/fd_fec_chainer.h"
 
 
 /* FD_REPAIR_USE_HANDHOLDING:  Define this to non-zero at compile time
