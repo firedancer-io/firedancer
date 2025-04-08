@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 
+#include "../../fd_flamenco_base.h"
+#include "../fd_runtime_public.h"
 #include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
@@ -32,11 +34,19 @@ struct fd_sbpf_validated_program {
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 
+
 FD_PROTOTYPES_BEGIN
+
+void
+bpf_tpool_wrapper( void * para_arg_1,
+                   void * para_arg_2,
+                   void * fn_arg_1,
+                   void * fn_arg_2,
+                   void * fn_arg_3,
+                   void * fn_arg_4 );
 
 fd_sbpf_validated_program_t *
 fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info );
-
 
 ulong
 fd_sbpf_validated_program_align( void );
@@ -60,11 +70,16 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_pubkey_t const *  pubkey,
                                                  fd_spad_t *          runtime_spad );
 
+void
+fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
+                       fd_wksp_t *           funk_wksp,
+                       uchar *               is_bpf_program );
+
 int
-fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                                      fd_funk_txn_t *      funk_txn,
-                                                      fd_tpool_t *         tpool,
-                                                      fd_spad_t *          runtime_spad );
+fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slot_ctx,
+                                                     fd_funk_txn_t *         funk_txn,
+                                                     fd_spad_t *             runtime_spad,
+                                                     fd_exec_para_cb_ctx_t * exec_para_ctx );
 
 int
 fd_bpf_load_cache_entry( fd_funk_t *                    funk,

@@ -1,11 +1,14 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_h
 
+#include "stdarg.h"
+
 #include "../fd_flamenco_base.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
+#include "fd_hashes.h"
 #include "../features/fd_features.h"
 #include "fd_rent_lists.h"
 #include "../../ballet/poh/fd_poh.h"
@@ -22,6 +25,8 @@
 #include "info/fd_microblock_info.h"
 #include "../../ballet/bmtree/fd_wbmtree.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "fd_runtime_public.h"
+
 /* Various constant values used by the runtime. */
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
@@ -64,6 +69,14 @@
    compute units. Each writable account lock costs 300 CUs. That means there
    can be up to 48M/300 writable accounts in a block. */
 #define FD_WRITABLE_ACCS_IN_SLOT (160000UL)
+
+void
+block_finalize_tpool_wrapper( void * para_arg_1,
+                              void * para_arg_2,
+                              void * arg_1,
+                              void * arg_2,
+                              void * arg_3,
+                              void * arg_4 );
 
 struct fd_execute_txn_task_info {
   fd_spad_t * *       spads;
@@ -508,12 +521,27 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad );
 
+void
+fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_ctx,
+                                         fd_spad_t *                      runtime_spad,
+                                         fd_accounts_hash_task_data_t * * task_data,
+                                         ulong                            lt_hash_cnt );
+
 int
-fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t            * slot_ctx,
-                                         fd_capture_ctx_t              * capture_ctx,
-                                         fd_runtime_block_info_t const * block_info,
-                                         fd_tpool_t                    * tpool,
-                                         fd_spad_t                     * runtime_spad );
+fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_ctx,
+                                          fd_capture_ctx_t *               capture_ctx,
+                                          fd_runtime_block_info_t const *  block_info,
+                                          fd_spad_t *                      runtime_spad,
+                                          fd_accounts_hash_task_data_t *   task_data,
+                                          ulong                            lt_hash_cnt );
+
+int
+fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
+                                        fd_capture_ctx_t *               capture_ctx,
+                                        fd_runtime_block_info_t const *  block_info,
+                                        ulong                            worker_cnt,
+                                        fd_spad_t *                      runtime_spad,
+                                        fd_exec_para_cb_ctx_t *          exec_para_ctx );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -583,7 +611,8 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_tpool_t *         tpool,
                                                 fd_spad_t * *        exec_spads,
                                                 ulong                exec_spad_cnt,
-                                                fd_spad_t *          runtime_spad );
+                                                fd_spad_t *          runtime_spad,
+                                                int *                is_epoch_boundary );
 
 /* Debugging Tools ************************************************************/
 

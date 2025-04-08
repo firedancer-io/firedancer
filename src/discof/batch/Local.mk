@@ -1,3 +1,3 @@
 ifdef FD_HAS_SSE
-$(call add-objs,fd_batch_tile fd_batch_thread,fd_discof)
+$(call add-objs,fd_batch_tile ,fd_discof)
 endif

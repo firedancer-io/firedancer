@@ -45,7 +45,6 @@ name = \"fd1test\"
         blockstore_publish = true
         blockstore_checkpt = \"firedancer-dev-blockstore.checkpt\"
         genesis = \"genesis.bin\"
-        tpool_thread_count = 8
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024

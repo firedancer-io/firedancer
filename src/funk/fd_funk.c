@@ -35,10 +35,10 @@ fd_funk_footprint( ulong txn_max,
 
 void *
 fd_funk_new( void * shmem,
-                ulong  wksp_tag,
-                ulong  seed,
-                ulong  txn_max,
-                ulong  rec_max ) {
+             ulong  wksp_tag,
+             ulong  seed,
+             ulong  txn_max,
+             ulong  rec_max ) {
   fd_funk_t * funk = (fd_funk_t *)shmem;
   fd_wksp_t * wksp = fd_wksp_containing( funk );
 

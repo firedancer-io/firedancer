@@ -9,6 +9,7 @@
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_executor.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_filemap.h"
@@ -29,14 +30,76 @@ struct fd_exec_tile_ctx {
   fd_runtime_public_t * runtime_public;
   fd_spad_t const *     runtime_spad;
 
-  /* Management around exec spad and frame lifetimes. We will always
-     have 1 frame pushed onto the spad. This frame will contain the
-     txn_ctx. Any allocations made for the scope of an epoch boundary
-     will live in the next spad frame. Then, all allocations made for
-     the scope of the slot ctx will live in the next spad frame.
-     Finally, any state used for actually executing the transaction
-     will use the remaining frames. The pending_{n}_pop variables are
-     used to manage lifetimes we recieve slot/epoch updates. */
+  /* Management around exec spad and frame lifetimes.
+
+     We will always have at least 1 frame pushed onto the exec spad.
+     This frame will contain the txn_ctx. The replay tile will propogate
+     new slot and new epoch messages to the exec tile at the start of a
+     new epoch or at the start of a new slot. These messages will live
+     in their own frames so that they have distinct lifetimes. We expect
+     to recieve an update for a new epoch first: this will live inside
+     of the second spad frame. Then all allocations made at the start of
+     a new slot will live in the third spad frame. The following
+     frame(s) will be used for the execution of the current transaction.
+     The pending_{n}_pop variables are used to manage lifetimes for
+     txn/slot/epoch updates. We need frames for the epoch and slot to
+     store information that is copied into the exec tile at every
+     epoch/slot.
+
+     Examples:
+
+     Start of a new transaction:
+       * If pending_txn_pop==1:
+         State before new transaction message received:
+         | txn_ctx frame | epoch frame | slot frame | prev txn frame |
+         State after new transaction message received:
+         * The prev txn's frame is popped off because pending_txn_pop==1.
+         | txn_ctx frame | epoch frame | slot frame |
+         * A new frame is pushed onto the exec spad for the new transaction.
+         | txn_ctx frame | epoch frame | slot frame | new txn frame |
+         * pending_txn_pop is set to 1 to indicate that we need to pop
+           the txn frame at the start of the next transaction.
+      * If pending_txn_pop==0:
+         State before new transaction message received:
+         * Because there is no pending_txn_pop we know that there is no
+           frame for a previous transaction; this implies that this is
+           the first transaction in the slot
+         | txn_ctx frame | epoch frame | slot frame |
+         State after new transaction message received:
+         * A new frame is pushed onto the exec spad for the new transaction.
+         | txn_ctx frame | epoch frame | slot frame | new txn frame |
+         * pending_txn_pop is set to 1 to indicate that we need to pop
+           the txn frame at the start of the next transaction.
+
+      Start of a new slot:
+      * If pending_slot_pop==1:
+        State before new slot message received (assuming the previous slot had txns):
+        | txn_ctx frame | epoch frame | prev slot frame | prev txn frame |
+        State after new slot message received:
+        * The prev txn's frame is popped off because pending_txn_pop==1. (see above)
+        * The prev slot's frame is also popped off because pending_slot_pop==1.
+        | txn_ctx frame | epoch frame |
+        * A new frame is pushed onto the exec spad for the new slot.
+        | txn_ctx frame | epoch frame | slot frame |
+        * pending_slot_pop is set to 1 to indicate that we need to pop
+          the slot frame at the start of the next slot.
+      * If pending_slot_pop==0:
+        State before new slot message received:
+        * Because there is no pending_slot_pop we know that there is no
+          slot frame for a previous slot; this implies that this is the
+          first slot in the current epoch. This also implies that there
+          can be no pending txn frame that needs to get popped on.
+        | txn_ctx frame | epoch frame |
+        State after new slot message received:
+        * A new frame is pushed onto the exec spad for the new slot.
+        | txn_ctx frame | epoch frame | slot frame |
+        * pending_slot_pop is set to 1 to indicate that we need to pop
+          the slot frame at the start of the next slot.
+
+      ... This same principle extends to dealing with new epoch scoped
+      spad frames.
+
+   */
   fd_spad_t *           exec_spad;
   fd_wksp_t *           exec_spad_wksp;
   int                   pending_txn_pop;
@@ -56,10 +119,20 @@ struct fd_exec_tile_ctx {
   fd_txn_p_t            txn;
   fd_exec_txn_ctx_t *   txn_ctx;
   int                   exec_res;
-  uint                  flags;
+
+  /* The txn/bpf id are sequence numbers. */
+  /* The txn id is a value that is monotonically increased after
+     executing a transaction. It is used to prevent race conditions in
+     interactions between the exec and replay tile. It is expected to
+     overflow back to 0. */
+  uint                  txn_id;
+  /* The bpf id is the txn_id counterparts for updates to the bpf cache. */
+  uint                  bpf_id;
 
   ulong *               exec_fseq;
 
+  /* Pairs len is the number of accounts to hash. */
+  ulong                 pairs_len;
 };
 typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
 
@@ -82,7 +155,9 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
                              fd_runtime_public_epoch_msg_t * epoch_msg ) {
 
   /* If we need to refresh epoch-level information, we need to pop off
-     the transaction-level, slot-level, and epoch-level frames. */
+     the transaction-level, slot-level, and epoch-level frames.
+
+     TODO: Epoch-level information should probably live in its own spad. */
   if( FD_LIKELY( ctx->pending_txn_pop ) ) {
     fd_spad_pop( ctx->exec_spad );
     ctx->pending_txn_pop = 0;
@@ -104,7 +179,7 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
   ctx->txn_ctx->rent              = epoch_msg->rent;
   ctx->txn_ctx->slots_per_year    = epoch_msg->slots_per_year;
 
-  uchar * stakes_enc = fd_wksp_laddr( ctx->runtime_public_wksp, epoch_msg->stakes_encoded_gaddr );
+  uchar * stakes_enc = fd_wksp_laddr_fast( ctx->runtime_public_wksp, epoch_msg->stakes_encoded_gaddr );
   if( FD_UNLIKELY( !stakes_enc ) ) {
     FD_LOG_ERR(( "Could not get laddr for encoded stakes" ));
   }
@@ -127,9 +202,9 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
   ctx->txn_ctx->stakes = *stakes;
 
   /* TODO: The bank hash cmp obj can likely be shared once at boot and
-     there is no need to pass it forward every epoch. The proper
-     solution here is probably to create a new message type. */
-  fd_bank_hash_cmp_t * bank_hash_cmp_local = fd_bank_hash_cmp_join( fd_wksp_laddr( ctx->runtime_public_wksp, epoch_msg->bank_hash_cmp_gaddr ) );
+      there is no need to pass it forward every epoch. The proper
+      solution here is probably to create a new message type. */
+  fd_bank_hash_cmp_t * bank_hash_cmp_local = fd_bank_hash_cmp_join( fd_wksp_laddr_fast( ctx->runtime_public_wksp, epoch_msg->bank_hash_cmp_gaddr ) );
   if( FD_UNLIKELY( !bank_hash_cmp_local ) ) {
     FD_LOG_ERR(( "Could not get laddr for bank hash cmp" ));
   }
@@ -170,12 +245,16 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   ctx->txn_ctx->prev_lamports_per_signature = slot_msg->prev_lamports_per_signature;
   ctx->txn_ctx->fee_rate_governor           = slot_msg->fee_rate_governor;
 
-  ctx->txn_ctx->sysvar_cache = fd_wksp_laddr( ctx->runtime_public_wksp, slot_msg->sysvar_cache_gaddr );
+  ctx->txn_ctx->sysvar_cache = fd_wksp_laddr_fast( ctx->runtime_public_wksp, slot_msg->sysvar_cache_gaddr );
   if( FD_UNLIKELY( !ctx->txn_ctx->sysvar_cache ) ) {
     FD_LOG_ERR(( "Could not find valid sysvar cache" ));
   }
 
-  uchar * block_hash_queue_enc = fd_wksp_laddr( ctx->runtime_public_wksp, slot_msg->block_hash_queue_encoded_gaddr );
+  uchar * block_hash_queue_enc = fd_wksp_laddr_fast( ctx->runtime_public_wksp, slot_msg->block_hash_queue_encoded_gaddr );
+  if( FD_UNLIKELY( !block_hash_queue_enc ) ) {
+    FD_LOG_ERR(( "Could not get laddr for encoded block hash queue" ));
+  }
+
   fd_bincode_decode_ctx_t decode = {
     .data    = block_hash_queue_enc,
     .dataend = block_hash_queue_enc + slot_msg->block_hash_queue_encoded_sz
@@ -187,8 +266,8 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not decode block hash queue footprint" ));
   }
 
-  uchar * block_hash_queue_mem = fd_spad_alloc( ctx->exec_spad, fd_block_hash_queue_align(), total_sz );
-  fd_block_hash_queue_t * block_hash_queue = fd_block_hash_queue_decode( block_hash_queue_mem, &decode );
+  uchar *                 block_hash_queue_mem = fd_spad_alloc( ctx->exec_spad, fd_block_hash_queue_align(), total_sz );
+  fd_block_hash_queue_t * block_hash_queue     = fd_block_hash_queue_decode( block_hash_queue_mem, &decode );
   if( FD_UNLIKELY( !block_hash_queue ) ) {
     FD_LOG_ERR(( "Could not decode block hash queue" ));
   }
@@ -211,7 +290,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     .txn      = &ctx->txn,
   };
 
-  fd_txn_t const * txn_descriptor = (fd_txn_t const *)task_info.txn->_;
+  fd_txn_t const * txn_descriptor = TXN( task_info.txn );
   fd_rawtxn_b_t    raw_txn        = {
     .raw    = task_info.txn->payload,
     .txn_sz = (ushort)task_info.txn->payload_sz
@@ -225,7 +304,6 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) {
     task_info.txn->flags = 0U;
     task_info.exec_res   = err;
-    ctx->flags = 0U;
     return;
   }
 
@@ -233,22 +311,17 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)ctx->txn_ctx->_txn_raw->raw+ctx->txn_ctx->txn_descriptor->signature_off ) ));
     task_info.txn->flags = 0U;
     task_info.exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-    ctx->flags = 0U;
     return;
   }
 
-  task_info.txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-
   fd_runtime_pre_execute_check( &task_info, 0 );
   if( FD_UNLIKELY( !( task_info.txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-    ctx->flags = 0U;
     return;
   }
 
   /* Execute */
   task_info.txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   ctx->exec_res         = fd_execute_txn( &task_info );
-  ctx->flags            = FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
   if( FD_LIKELY( ctx->exec_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
     fd_txn_reclaim_accounts( task_info.txn_ctx );
@@ -259,24 +332,80 @@ static void
 hash_accounts( fd_exec_tile_ctx_t *                ctx,
                fd_runtime_public_hash_bank_msg_t * msg ) {
 
-  ulong             start_idx = msg->start_idx;
-  ulong             end_idx   = msg->end_idx;
-  fd_lthash_value_t lt_hash;
-  fd_lthash_zero( &lt_hash );
+  ulong start_idx = msg->start_idx;
+  ulong end_idx   = msg->end_idx;
 
-  fd_accounts_hash_task_info_t * task_info = fd_wksp_laddr( ctx->runtime_public_wksp, msg->task_infos_gaddr );
+  fd_accounts_hash_task_info_t * task_info = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->task_infos_gaddr );
   if( FD_UNLIKELY( !task_info ) ) {
     FD_LOG_ERR(( "Unable to join task info array" ));
   }
+
+  if( FD_UNLIKELY( !msg->lthash_gaddr ) ) {
+    FD_LOG_ERR(( "lthash gaddr is zero" ));
+  }
+  fd_lthash_value_t * lthash = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->lthash_gaddr );
+  if( FD_UNLIKELY( !lthash ) ) {
+    FD_LOG_ERR(( "Unable to join lthash" ));
+  }
+  fd_lthash_zero( lthash );
 
   for( ulong i=start_idx; i<=end_idx; i++ ) {
     fd_account_hash( ctx->txn_ctx->funk,
                      ctx->txn_ctx->funk_txn,
                      &task_info[i],
-                     &lt_hash,
+                     lthash,
                      ctx->txn_ctx->slot,
                      &ctx->txn_ctx->features );
   }
+}
+
+static void
+bpf_scan_accounts( fd_exec_tile_ctx_t *               ctx,
+                   fd_runtime_public_bpf_scan_msg_t * msg ) {
+  ulong                   start_idx = msg->start_idx;
+  ulong                   end_idx   = msg->end_idx;
+
+  fd_funk_rec_t const * * recs = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->recs_gaddr );
+  if( FD_UNLIKELY( !recs ) ) {
+    FD_LOG_ERR(( "Unable to join recs" ));
+  }
+  uchar * is_bpf = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->is_bpf_gaddr );
+  if( FD_UNLIKELY( !is_bpf ) ) {
+    FD_LOG_ERR(( "Unable to join is_bpf" ));
+  }
+
+  fd_wksp_t * wksp = fd_funk_wksp( ctx->txn_ctx->funk );
+  for( ulong i=start_idx; i<=end_idx; i++ ) {
+    fd_funk_rec_t const * rec = recs[ i ];
+    fd_bpf_is_bpf_program( rec, wksp, &is_bpf[ i ] );
+  }
+}
+
+static void
+snap_hash_count( fd_exec_tile_ctx_t * ctx ) {
+  ctx->pairs_len = fd_accounts_sorted_subrange_count( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt );
+}
+
+static void
+snap_hash_gather( fd_exec_tile_ctx_t *                ctx,
+                  fd_runtime_public_snap_hash_msg_t * msg ) {
+
+  ulong * num_pairs = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->num_pairs_out_gaddr );
+  if( FD_UNLIKELY( !num_pairs ) ) {
+    FD_LOG_ERR(( "Unable to join num_pairs" ));
+  }
+  fd_pubkey_hash_pair_t * pairs = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->pairs_gaddr );
+  if( FD_UNLIKELY( !pairs ) ) {
+    FD_LOG_ERR(( "Unable to join pairs" ));
+  }
+  fd_lthash_value_t * lthash_value = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->lt_hash_value_out_gaddr );
+  if( FD_UNLIKELY( !lthash_value ) ) {
+    FD_LOG_ERR(( "Unable to join lthash values" ));
+  }
+
+  fd_accounts_sorted_subrange_gather( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt,
+                                      num_pairs, lthash_value,
+                                      pairs, &ctx->runtime_public->features );
 }
 
 static void
@@ -317,6 +446,18 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       FD_LOG_NOTICE(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
       hash_accounts( ctx, msg );
       return;
+    } else if( sig==EXEC_BPF_SCAN_SIG ) {
+      fd_runtime_public_bpf_scan_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
+      FD_LOG_DEBUG(( "bpf scan=%lu msg recvd", msg->end_idx - msg->start_idx ));
+      bpf_scan_accounts( ctx, msg );
+      return;
+    } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
+      FD_LOG_NOTICE(( "snap hash count msg recvd" ));
+      snap_hash_count( ctx );
+    } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
+      fd_runtime_public_snap_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
+      FD_LOG_NOTICE(( "snap hash gather msg recvd" ));
+      snap_hash_gather( ctx, msg );
     } else {
       FD_LOG_ERR(( "Unknown signature" ));
     }
@@ -347,10 +488,28 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
        executing. The replay tile will be repsonsible for commiting
        the transaction back to funk. */
     ctx->txn_ctx->exec_err = ctx->exec_res;
-    ctx->txn_ctx->flags    = ctx->flags;
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done() );
+    ctx->txn_ctx->flags    = ctx->txn.flags;
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done( ctx->txn_id++ ) );
+    /* Make sure that the txn/bpf id can never be equal to the sentinel
+       value (this means that this is unintialized. )*/
+    if( FD_UNLIKELY( ctx->txn_id==FD_EXEC_ID_SENTINEL ) ) {
+      ctx->txn_id = 0U;
+    }
   } else if( sig==EXEC_HASH_ACCS_SIG ) {
-    FD_LOG_NOTICE(( "Sending ack for hash accs msg" ));
+    FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done() );
+  } else if( sig==EXEC_BPF_SCAN_SIG ) {
+    FD_LOG_DEBUG(( "Sending ack for bpf scan msg %u", ctx->bpf_id ));
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_bpf_scan_done( ctx->bpf_id++ ) );
+    if( FD_UNLIKELY( ctx->bpf_id==FD_EXEC_ID_SENTINEL ) ) {
+      ctx->bpf_id = 0U;
+    }
+  } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
+    FD_LOG_NOTICE(( "Sending ack for snap hash count msg pairs_len=%lu", ctx->pairs_len ));
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_cnt_done( (uint)ctx->pairs_len ) );
+  } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
+    FD_LOG_NOTICE(("Sending ack for snap hash gather msg" ));
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_gather_done() );
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }
@@ -388,7 +547,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tile_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->tile_idx = tile->kind_id;
 
-
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_exec_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_exec", ctx->tile_idx );
   if( FD_UNLIKELY( ctx->replay_exec_in_idx==ULONG_MAX ) ) {
@@ -414,8 +572,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ runtime_obj_id ].wksp_id ].wksp;
-
-  if( FD_UNLIKELY( ctx->runtime_public_wksp==NULL ) ) {
+  if( FD_UNLIKELY( !ctx->runtime_public_wksp ) ) {
     FD_LOG_ERR(( "No runtime_public workspace" ));
   }
 
@@ -520,6 +677,10 @@ unprivileged_init( fd_topo_t *      topo,
   uint txn_ctx_offset = (uint)(txn_ctx_gaddr-exec_spad_gaddr);
   fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_booted( txn_ctx_offset ) );
 
+  /* Initialize sequence numbers to be 0. */
+  ctx->txn_id = 0U;
+  ctx->bpf_id = 0U;
+
   FD_LOG_NOTICE(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 }
 
@@ -560,7 +721,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-
+/* The stem burst is bound by the max number of exec tiles that are
+   posible. */
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_exec_tile_ctx_t

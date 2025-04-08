@@ -1,4 +1,5 @@
 #include "fd_runtime_public.h"
+#include "fd_runtime.h"
 
 ulong
 fd_runtime_public_footprint( void ) {

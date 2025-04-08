@@ -718,7 +718,14 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx, args->slot_ctx->funk_txn, args->tpool, args->runtime_spad );
+  fd_exec_para_cb_ctx_t exec_para_ctx = {
+    .func       = bpf_tpool_wrapper,
+    .para_arg_1 = args->tpool
+  };
+  fd_bpf_scan_and_create_bpf_program_cache_entry_para( args->slot_ctx,
+                                                       args->slot_ctx->funk_txn,
+                                                       args->runtime_spad,
+                                                       &exec_para_ctx );
 
   /* First, load in the sysvars into the sysvar cache. This is required to
       make the StakeHistory sysvar available to the rewards calculation. */
@@ -1320,6 +1327,7 @@ replay( fd_ledger_args_t * args ) {
       FD_LOG_NOTICE(( "imported from snapshot" ));
     }
   }
+
   if( args->genesis ) {
     fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
   }

@@ -36,10 +36,6 @@ struct fd_snapshot_tile_ctx {
   int             full_snapshot_fd;
   int             incremental_snapshot_fd;
 
-  /* Thread pool used for account hash calculation. */
-  uchar           tpool_mem[ FD_TPOOL_FOOTPRINT( FD_TILE_MAX ) ] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
-  fd_tpool_t *    tpool;
-
   /* Only join funk after tiles start spinning. */
   int             is_funk_active;
 
@@ -60,35 +56,6 @@ struct fd_snapshot_tile_ctx {
 };
 typedef struct fd_snapshot_tile_ctx fd_snapshot_tile_ctx_t;
 
-void
-tpool_batch_boot( fd_topo_t * topo, ulong total_thread_count ) {
-  ushort tile_to_cpu[ FD_TILE_MAX ] = {0};
-  ulong thread_count                = 0UL;
-  ulong main_thread_seen            = 0UL;
-
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( strcmp( topo->tiles[i].name, "btpool" ) == 0 ) {
-      tile_to_cpu[ 1+thread_count ] = (ushort)topo->tiles[i].cpu_idx;
-      thread_count++;
-    }
-    if( strcmp( topo->tiles[i].name, "batch" ) == 0 ) {
-      tile_to_cpu[ 0 ] = (ushort)topo->tiles[i].cpu_idx;
-      main_thread_seen = 1;
-    }
-  }
-
-  if( main_thread_seen ) {
-    thread_count++;
-  }
-
-  if( thread_count != total_thread_count )
-    FD_LOG_ERR(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu",
-                 thread_count,
-                 total_thread_count,
-                 main_thread_seen ));
-
-  fd_tile_private_map_boot( tile_to_cpu, thread_count );
-}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -193,28 +160,6 @@ unprivileged_init( fd_topo_t      * topo,
   ctx->incremental_snapshot_fd = tile->batch.incremental_snapshot_fd;
 
   /**********************************************************************/
-  /* tpool                                                              */
-  /**********************************************************************/
-
-  FD_LOG_NOTICE(( "Number of threads in hash tpool: %lu", tile->batch.hash_tpool_thread_count ));
-
-  if( FD_LIKELY( tile->batch.hash_tpool_thread_count>1UL ) ) {
-    tpool_batch_boot( topo, tile->batch.hash_tpool_thread_count );
-    ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->batch.hash_tpool_thread_count );
-  } else {
-    ctx->tpool = NULL;
-  }
-
-  if( FD_LIKELY( tile->batch.hash_tpool_thread_count>1UL ) ) {
-    /* Start the tpool workers */
-    for( ulong i=1UL; i<tile->batch.hash_tpool_thread_count; i++ ) {
-      if( FD_UNLIKELY( !fd_tpool_worker_push( ctx->tpool, i, NULL, 0UL ) ) ) {
-        FD_LOG_ERR(( "failed to launch worker" ));
-      }
-    }
-  }
-
-  /**********************************************************************/
   /* spads                                                              */
   /**********************************************************************/
   /* FIXME: Define a bound for the size of the spad. It likely needs to be
@@ -317,7 +262,6 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
     .status_cache             = ctx->status_cache,
     .tmp_fd                   = is_incremental ? ctx->tmp_inc_fd              : ctx->tmp_fd,
     .snapshot_fd              = is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd,
-    .tpool                    = ctx->tpool,
     /* These parameters are ignored if the snapshot is not incremental. */
     .last_snap_slot           = ctx->last_full_snap_slot,
     .last_snap_acc_hash       = &ctx->last_hash,
@@ -459,7 +403,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
 
     fd_hash_t epoch_account_hash = {0};
 
-    fd_accounts_hash( funk, slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad, 0, &ctx->runtime_public->features );
+    fd_accounts_hash( funk, slot_bank, &epoch_account_hash, ctx->spad, 0, &ctx->runtime_public->features, NULL );
 
     FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 

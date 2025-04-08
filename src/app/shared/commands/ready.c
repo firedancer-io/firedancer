@@ -19,10 +19,6 @@ ready_cmd_fn( args_t *   args FD_PARAM_UNUSED,
        anyway. */
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
-    /* Don't wait for rtpool/btpool tiles, they will not report ready. */
-    if( strncmp( tile->name, "rtpool", 7 )==0 ) continue;
-    if( strncmp( tile->name, "btpool", 7 )==0 ) continue;
-
     long start = fd_log_wallclock();
     int printed = 0;
     do {

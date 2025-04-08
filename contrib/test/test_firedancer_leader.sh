@@ -54,7 +54,6 @@ name = \"fd1\"
     [tiles.replay]
         capture = \"firedancer-dev.solcap\"
         snapshot = \"$FULL_SNAPSHOT\"
-        tpool_thread_count = 8
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024

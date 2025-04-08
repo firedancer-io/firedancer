@@ -15,6 +15,7 @@
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
 #include "../../flamenco/stakes/fd_stakes.h"
@@ -61,6 +62,14 @@
 #define NOTIF_OUT_IDX  (1UL)
 #define SENDER_OUT_IDX (2UL)
 #define POH_OUT_IDX    (3UL)
+
+#define EXEC_BOOT_WAIT  (0UL)
+#define EXEC_BOOT_DONE  (1UL)
+#define EXEC_EPOCH_WAIT (2UL)
+#define EXEC_EPOCH_DONE (3UL)
+#define EXEC_SLOT_WAIT  (4UL)
+#define EXEC_TXN_BUSY   (5UL)
+#define EXEC_TXN_READY  (6UL)
 
 #define VOTE_ACC_MAX   (2000000UL)
 
@@ -212,11 +221,6 @@ struct fd_replay_tile_ctx {
   uchar * mbatch; /* TODO move mbatch to slice_exec_ctx or replay */
   fd_slice_exec_ctx_t slice_exec_ctx;
 
-  /* Tpool */
-
-  uchar        tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
-  fd_tpool_t * tpool;
-
   /* Depends on store_int and is polled in after_credit */
 
   fd_blockstore_t   blockstore_ljoin;
@@ -261,10 +265,10 @@ struct fd_replay_tile_ctx {
   /* TODO: Some of these arrays should be bitvecs that get masked into. */
   ulong               exec_cnt;
   ulong               exec_out_idx;
-  fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
+  fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ];   /* Sending to exec unexecuted txns */
   uchar               exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
-  uchar               exec_hashing[ FD_PACK_MAX_BANK_TILES ]; /* Is tile hashing accs */
-  ulong *             exec_fseq[ FD_PACK_MAX_BANK_TILES ]; /* fseq of the last executed txn */
+  uint                prev_ids[ FD_PACK_MAX_BANK_TILES ];   /* Previous txn id if any */
+  ulong *             exec_fseq[ FD_PACK_MAX_BANK_TILES ];  /* fseq of the last executed txn */
   int                 block_finalizing;
 
   ulong root; /* the root slot is the most recent slot to have reached
@@ -430,6 +434,258 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     ulong stake_weights_sig = 4UL;
     fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_weights_out_chunk, stake_weights_sz, 0UL, 0UL, tspub );
     ctx->stake_weights_out_chunk = fd_dcache_compact_next( ctx->stake_weights_out_chunk, stake_weights_sz, ctx->stake_weights_out_chunk0, ctx->stake_weights_out_wmark );
+  }
+}
+
+static void FD_FN_UNUSED
+snap_hash_tiles_cb( void * para_arg_1,
+                    void * para_arg_2,
+                    void * fn_arg_1,
+                    void * fn_arg_2 FD_PARAM_UNUSED,
+                    void * fn_arg_3 FD_PARAM_UNUSED,
+                    void * fn_arg_4 FD_PARAM_UNUSED ) {
+
+  fd_replay_tile_ctx_t *    ctx       = (fd_replay_tile_ctx_t *)para_arg_1;
+  fd_stem_context_t *       stem      = (fd_stem_context_t *)para_arg_2;
+  fd_subrange_task_info_t * task_info = (fd_subrange_task_info_t *)fn_arg_1;
+
+  ulong num_lists = ctx->exec_cnt;
+  FD_LOG_NOTICE(( "launching %lu hash tasks", num_lists ));
+  fd_pubkey_hash_pair_list_t * lists         = fd_spad_alloc( ctx->runtime_spad, alignof(fd_pubkey_hash_pair_list_t), num_lists * sizeof(fd_pubkey_hash_pair_list_t) );
+  fd_lthash_value_t *          lthash_values = fd_spad_alloc( ctx->runtime_spad, FD_LTHASH_VALUE_ALIGN, num_lists * FD_LTHASH_VALUE_FOOTPRINT );
+  for( ulong i = 0; i < num_lists; i++ ) {
+    fd_lthash_zero(&lthash_values[i] );
+  }
+
+  task_info->num_lists     = num_lists;
+  task_info->lists         = lists;
+  task_info->lthash_values = lthash_values;
+
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    fd_stem_publish( stem, ctx->exec_out[i].idx, EXEC_SNAP_HASH_ACCS_CNT_SIG, ctx->exec_out[i].chunk, 0UL, 0UL, 0UL, 0UL );
+    ctx->exec_out[i].chunk = fd_dcache_compact_next( ctx->exec_out[i].chunk, 0UL, ctx->exec_out[i].chunk0, ctx->exec_out[i].wmark );
+  }
+
+  uchar cnt_done[ FD_PACK_MAX_BANK_TILES ] = {0};
+  for( ;; ) {
+    uchar wait_cnt = 0;
+    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+      if( !cnt_done[ i ] ) {
+        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+        uint  state = fd_exec_fseq_get_state( res );
+        if( state==FD_EXEC_STATE_SNAP_CNT_DONE ) {
+          FD_LOG_DEBUG(( "Acked hash cnt msg" ));
+          cnt_done[ i ] = 1;
+          task_info->lists[ i ].pairs = fd_spad_alloc( ctx->runtime_spad,
+                                                       FD_PUBKEY_HASH_PAIR_ALIGN,
+                                                       fd_exec_fseq_get_pairs_len( res ) * sizeof(fd_pubkey_hash_pair_t) );
+        } else {
+          wait_cnt++;
+        }
+      }
+    }
+    if( !wait_cnt ) {
+      break;
+    }
+  }
+
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+
+    fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
+
+    fd_runtime_public_snap_hash_msg_t * gather_msg = (fd_runtime_public_snap_hash_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+
+    gather_msg->lt_hash_value_out_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, &lthash_values[i] );
+    gather_msg->num_pairs_out_gaddr     = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, &task_info->lists[i].pairs_len );
+    gather_msg->pairs_gaddr             = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_info->lists[i].pairs );
+
+    fd_stem_publish( stem, ctx->exec_out[i].idx, EXEC_SNAP_HASH_ACCS_GATHER_SIG, ctx->exec_out[i].chunk, sizeof(fd_runtime_public_snap_hash_msg_t), 0UL, 0UL, 0UL );
+    ctx->exec_out[i].chunk = fd_dcache_compact_next( ctx->exec_out[i].chunk, sizeof(fd_runtime_public_snap_hash_msg_t), ctx->exec_out[i].chunk0, ctx->exec_out[i].wmark );
+  }
+
+
+  memset( cnt_done, 0, sizeof(cnt_done) );
+  for( ;; ) {
+    uchar wait_cnt = 0;
+    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+      if( !cnt_done[ i ] ) {
+        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+        uint  state = fd_exec_fseq_get_state( res );
+        if( state==FD_EXEC_STATE_SNAP_GATHER_DONE ) {
+          FD_LOG_DEBUG(( "Acked hash gather msg" ));
+          cnt_done[ i ] = 1;
+        } else {
+          wait_cnt++;
+        }
+      }
+    }
+    if( !wait_cnt ) {
+      break;
+    }
+  }
+}
+
+static void FD_FN_UNUSED
+bpf_tiles_cb( void * para_arg_1,
+              void * para_arg_2,
+              void * fn_arg_1,
+              void * fn_arg_2,
+              void * fn_arg_3,
+              void * fn_arg_4 FD_PARAM_UNUSED ) {
+  fd_replay_tile_ctx_t *  ctx            = (fd_replay_tile_ctx_t *)para_arg_1;
+  fd_stem_context_t *     stem           = (fd_stem_context_t *)para_arg_2;
+  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const **)fn_arg_1;
+  uchar *                 is_bpf_program = (uchar *)fn_arg_2;
+  ulong                   rec_cnt        = (ulong)fn_arg_3;
+
+  ulong cnt_per_worker = rec_cnt / ctx->exec_cnt;
+
+  ulong recs_gaddr   = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, recs );
+  if( FD_UNLIKELY( !recs_gaddr ) ) {
+    FD_LOG_ERR(( "Unable to calculate gaddr for recs arary" ));
+  }
+
+  ulong is_bpf_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, is_bpf_program );
+  if( FD_UNLIKELY( !is_bpf_gaddr ) ) {
+    FD_LOG_ERR(( "Unable to calculate gaddr for is bpf array" ));
+  }
+
+  /* We need to keep track of the previous state because we don't want
+     to duplicate write cache entries back into funk. If we are in an
+     uninitialized state, we set our previous id to UINT_MAX */
+  uint prev_ids[ FD_PACK_MAX_BANK_TILES ];
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+    uint  state = fd_exec_fseq_get_state( res );
+    if( state==FD_EXEC_STATE_BPF_SCAN_DONE ) {
+      prev_ids[ i ] = fd_exec_fseq_get_bpf_id( res );
+    } else {
+      prev_ids[ i ] = FD_EXEC_ID_SENTINEL;
+    }
+  }
+
+  for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    ulong start_idx = worker_idx * cnt_per_worker;
+    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                                      fd_ulong_sat_sub( rec_cnt, 1UL );
+    fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
+
+    fd_runtime_public_bpf_scan_msg_t * scan_msg = (fd_runtime_public_bpf_scan_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    scan_msg->start_idx       = start_idx;
+    scan_msg->end_idx         = end_idx;
+    scan_msg->recs_gaddr      = recs_gaddr;
+    scan_msg->is_bpf_gaddr    = is_bpf_gaddr;
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     EXEC_BPF_SCAN_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_bpf_scan_msg_t),
+                     0UL,
+                     tsorig,
+                     tspub );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk,
+                                              sizeof(fd_runtime_public_bpf_scan_msg_t),
+                                              exec_out->chunk0,
+                                              exec_out->wmark );
+
+  }
+
+  /* Spins and blocks until all exec tiles are done scanning. */
+  uchar scan_done[ FD_PACK_MAX_BANK_TILES ] = {0};
+  for( ;; ) {
+    uchar wait_cnt = 0;
+    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+      if( !scan_done[ i ] ) {
+        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+        uint  state = fd_exec_fseq_get_state( res );
+        uint  id    = fd_exec_fseq_get_bpf_id( res );
+        if( state==FD_EXEC_STATE_BPF_SCAN_DONE && id!=prev_ids[ i ] ) {
+          scan_done[ i ] = 1;
+          prev_ids[ i ]  = id;
+        } else {
+          wait_cnt++;
+        }
+      }
+    }
+    if( !wait_cnt ) {
+      break;
+    }
+  }
+
+}
+
+void
+block_finalize_tiles_cb( void * para_arg_1,
+                         void * para_arg_2,
+                         void * fn_arg_1,
+                         void * fn_arg_2 FD_PARAM_UNUSED,
+                         void * fn_arg_3 FD_PARAM_UNUSED,
+                         void * fn_arg_4 FD_PARAM_UNUSED ) {
+
+  fd_replay_tile_ctx_t *         ctx        = (fd_replay_tile_ctx_t *)para_arg_1;
+  fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
+  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
+
+  ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
+  ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
+
+  for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    ulong lt_hash_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, &task_data->lthash_values[ worker_idx ] );
+    if( FD_UNLIKELY( !lt_hash_gaddr ) ) {
+      FD_LOG_ERR(( "lt_hash_gaddr is NULL" ));
+      return;
+    }
+
+    ulong start_idx = worker_idx * cnt_per_worker;
+    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
+                                                      fd_ulong_sat_sub( task_data->info_sz, 1UL );
+
+    fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
+
+    fd_runtime_public_hash_bank_msg_t * hash_msg = (fd_runtime_public_hash_bank_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    hash_msg->task_infos_gaddr = task_infos_gaddr;
+    hash_msg->lthash_gaddr     = lt_hash_gaddr;
+    hash_msg->start_idx        = start_idx;
+    hash_msg->end_idx          = end_idx;
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     EXEC_HASH_ACCS_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_hash_bank_msg_t),
+                     0UL,
+                     tsorig,
+                     tspub );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_hash_bank_msg_t), exec_out->chunk0, exec_out->wmark );
+  }
+
+  /* Spins and blocks until all exec tiles are done hashing. */
+  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
+  for( ;; ) {
+    uchar wait_cnt = 0;
+    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+      if( !hash_done[ i ] ) {
+        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
+        uint  state = fd_exec_fseq_get_state( res );
+        if( state==FD_EXEC_STATE_HASH_DONE ) {
+          hash_done[ i ] = 1;
+        } else {
+          wait_cnt++;
+        }
+      }
+    }
+    if( !wait_cnt ) {
+      break;
+    }
   }
 }
 
@@ -732,7 +988,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
        to do special handling in the case where the epoch account hash is about
        to be calculated. */
 
-    FD_LOG_NOTICE(( "Publishing slot=%lu", wmk ));
+    FD_LOG_NOTICE(( "Publishing slot=%lu xid=%lu", wmk, to_root_txn->xid.ul[0] ));
 
     if( FD_UNLIKELY( wmk>=epoch_bank->eah_start_slot ) ) {
 
@@ -872,13 +1128,7 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
      n+1 and NOT n. When the computation is done, we resume publishing as normal.
   */
 
-  /* First wait for all tpool threads to finish. */
-
-  for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
-    fd_tpool_wait( ctx->tpool, i+1 );
-  }
-
-  uchar             is_constipated = fd_fseq_query( ctx->is_constipated ) != 0;
+  uchar is_constipated = fd_fseq_query( ctx->is_constipated ) != 0;
 
   /* If the false root is no longer needed, then we should stop
      tracking it. */
@@ -892,6 +1142,9 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
   fd_funk_txn_start_read( ctx->funk );
   fd_funk_txn_map_t txn_map     = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t *   to_root_txn = fd_funk_txn_query( xid, &txn_map );
+  if( FD_UNLIKELY( !to_root_txn ) ) {
+    FD_LOG_ERR(( "Unable to find funk transaction for xid %lu", xid->ul[0] ));
+  }
   fd_funk_txn_t *   rooted_txn  = get_rooted_txn( ctx, to_root_txn, is_constipated );
   fd_funk_txn_end_read( ctx->funk );
 
@@ -1100,7 +1353,9 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
 
-    ctx->exec_ready[ i ] = 0;
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    ctx->exec_ready[ i ] = EXEC_EPOCH_WAIT;
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
 
     fd_runtime_public_epoch_msg_t * epoch_msg = (fd_runtime_public_epoch_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
@@ -1110,8 +1365,8 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
     epoch_msg->epoch_schedule      = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
     epoch_msg->rent                = slot_ctx->epoch_ctx->epoch_bank.rent;
     epoch_msg->slots_per_year      = slot_ctx->epoch_ctx->epoch_bank.slots_per_year;
-    epoch_msg->bank_hash_cmp_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp,
-                                                    fd_bank_hash_cmp_leave( ctx->bank_hash_cmp ) );
+    epoch_msg->bank_hash_cmp_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp,
+                                                         fd_bank_hash_cmp_leave( ctx->bank_hash_cmp ) );
     if( FD_UNLIKELY( !epoch_msg->bank_hash_cmp_gaddr ) ) {
       FD_LOG_ERR(( "Failed to get gaddr for bank hash cmp" ));
     }
@@ -1130,10 +1385,17 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
       FD_LOG_ERR(( "Failed to encode stakes" ));
     }
 
-    epoch_msg->stakes_encoded_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, stakes_encode_mem );
+    epoch_msg->stakes_encoded_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, stakes_encode_mem );
     epoch_msg->stakes_encoded_sz    = stakes_encode_sz;
 
-    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_EPOCH_SIG, exec_out->chunk, sizeof(fd_runtime_public_epoch_msg_t), 0UL, 0UL, 0UL );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     EXEC_NEW_EPOCH_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_epoch_msg_t),
+                     0UL,
+                     tsorig, tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_epoch_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 }
@@ -1149,7 +1411,9 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
 
-    ctx->exec_ready[ i ] = 0;
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    ctx->exec_ready[ i ] = EXEC_SLOT_WAIT;
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
 
     fd_runtime_public_slot_msg_t * slot_msg = (fd_runtime_public_slot_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
@@ -1159,7 +1423,7 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
     slot_msg->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
 
     /* Save the gaddr of the sysvar cache */
-    slot_msg->sysvar_cache_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, slot_ctx->sysvar_cache );
+    slot_msg->sysvar_cache_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, slot_ctx->sysvar_cache );
 
     /* Now encode the bhq */
     ulong   bhq_encode_sz  = fd_block_hash_queue_size( &slot_ctx->slot_bank.block_hash_queue ) + 128UL;
@@ -1174,10 +1438,18 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Failed to encode block hash queue" ));
     }
-    slot_msg->block_hash_queue_encoded_gaddr = fd_wksp_gaddr( ctx->runtime_public_wksp, bhq_encode_mem );
+    slot_msg->block_hash_queue_encoded_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, bhq_encode_mem );
     slot_msg->block_hash_queue_encoded_sz    = bhq_encode_sz;
 
-    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_SLOT_SIG, exec_out->chunk, sizeof(fd_runtime_public_slot_msg_t), 0UL, 0UL, 0UL );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     EXEC_NEW_SLOT_SIG,
+                     exec_out->chunk,
+                     sizeof(fd_runtime_public_slot_msg_t),
+                     0UL,
+                     tsorig,
+                     tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_slot_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 }
@@ -1189,7 +1461,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              ulong                  flags ) {
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    ctx->exec_ready[ i ] = 0;
+    ctx->exec_ready[ i ] = EXEC_SLOT_WAIT;
   }
 
   long prepare_time_ns = -fd_log_wallclock();
@@ -1272,11 +1544,24 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx->funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx->funk_txn, &xid, 1);
   fd_funk_txn_end_write( ctx->funk );
 
+  int is_epoch_boundary = 0;
+  /* TODO: Currently all of the epoch boundary/rewards logic is not
+     multhreaded at the epoch boundary. */
   fd_runtime_block_pre_execute_process_new_epoch( fork->slot_ctx,
-                                                  ctx->tpool,
+                                                  NULL,
                                                   ctx->exec_spads,
                                                   ctx->exec_spad_cnt,
-                                                  ctx->runtime_spad );
+                                                  ctx->runtime_spad,
+                                                  &is_epoch_boundary );
+
+  if( FD_UNLIKELY( !is_epoch_boundary ) ) {
+    send_exec_epoch_msg( ctx, stem, fork->slot_ctx );
+  }
+
+  /* At this point we need to notify all of the exec tiles and tell them
+    that a new slot is ready to be published. At this point, we should
+    also mark the tile as not not being ready. */
+    send_exec_slot_msg( ctx, stem, fork->slot_ctx );
 
   /* We want to push on a spad frame before we start executing a block.
      Apart from allocations made at the epoch boundary, there should be no
@@ -1378,11 +1663,6 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
   }
   ctx->slot_ctx = fork->slot_ctx;
 
-  /* At this point we need to notify all of the exec tiles and tell them
-     that a new slot is ready to be published. At this point, we should
-     also mark the tile as not not being ready. */
-  send_exec_slot_msg( ctx, stem, ctx->slot_ctx );
-
   /**********************************************************************/
   /* Get the solcap context for replaying curr_slot                     */
   /**********************************************************************/
@@ -1420,7 +1700,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
   uchar to_exec[ FD_PACK_MAX_BANK_TILES ];
   uchar num_free_exec_tiles = 0UL;
   for( uchar i=0; i<ctx->exec_cnt; i++ ) {
-    if( ctx->exec_ready[ i ]==1 ) {
+    if( ctx->exec_ready[ i ]==EXEC_TXN_READY ) {
       to_exec[ num_free_exec_tiles++ ] = i;
     }
   }
@@ -1438,6 +1718,8 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
 
     /* change to whatever condition handles if(ex ec free). */
     if( ctx->slice_exec_ctx.txns_rem > 0 && num_free_exec_tiles > 0 ) {
+
+      ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
       uchar exec_idx = to_exec[ num_free_exec_tiles-1 ];
       //FD_LOG_WARNING(( "[%s] executing txn", __func__ ));
@@ -1461,13 +1743,6 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       memcpy( &exec_msg->txn, &txn_p, sizeof(fd_txn_p_t) );
 
-      /* dispatch dcache */
-      ctx->exec_ready[ exec_idx ] = 0;
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, 0UL, 0UL );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
-
-      /* dispatch tpool */
-
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
                                                      &slot,
                                                      NULL,
@@ -1477,6 +1752,12 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       }
 
       publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
+
+      /* dispatch dcache */
+      ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
 
       ctx->slice_exec_ctx.txns_rem--;
       num_free_exec_tiles--;
@@ -1653,21 +1934,24 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* TODO: The leader pipeline execution needs to be optimized. This is
        very hacky and suboptimal. First, wait for the tpool workers to be idle.
        Then, execute the transactions, and notify the pack tile. We should be
-       taking advantage of bank_busy flags. */
+       taking advantage of bank_busy flags.
 
-    for( ulong i=1UL; i<ctx->exec_spad_cnt; i++ ) {
-      fd_tpool_wait( ctx->tpool, i );
-    }
+       FIXME: It is currently not working and the below commented out
+       code corresponds to executing packed microblocks. */
 
-    fd_runtime_process_txns_in_microblock_stream( ctx->slot_ctx,
-                                                  ctx->capture_ctx,
-                                                  txns,
-                                                  txn_cnt,
-                                                  ctx->tpool,
-                                                  ctx->exec_spads,
-                                                  ctx->exec_spad_cnt,
-                                                  ctx->runtime_spad,
-                                                  NULL );
+    // for( ulong i=1UL; i<ctx->exec_spad_cnt; i++ ) {
+    //   fd_tpool_wait( ctx->tpool, i );
+    // }
+
+    // fd_runtime_process_txns_in_microblock_stream( ctx->slot_ctx,
+    //                                               ctx->capture_ctx,
+    //                                               txns,
+    //                                               txn_cnt,
+    //                                               ctx->tpool,
+    //                                               ctx->exec_spads,
+    //                                               ctx->exec_spad_cnt,
+    //                                               ctx->runtime_spad,
+    //                                               NULL );
 
     fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
 
@@ -1726,33 +2010,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 #endif
 }
 
-void
-tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
-  ushort tile_to_cpu[ FD_TILE_MAX ] = { 0 };
-  ulong thread_count = 0;
-  ulong main_thread_seen = 0;
-
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( strcmp( topo->tiles[i].name, "rtpool" ) == 0 ) {
-      tile_to_cpu[ 1+thread_count ] = (ushort)topo->tiles[i].cpu_idx;
-      thread_count++;
-    }
-    if( strcmp( topo->tiles[i].name, "replay" ) == 0 ) {
-      tile_to_cpu[ 0 ] = (ushort)topo->tiles[i].cpu_idx;
-      main_thread_seen = 1;
-    }
-  }
-
-  if( main_thread_seen ) {
-    thread_count++;
-  }
-
-  if( thread_count != total_thread_count )
-    FD_LOG_ERR(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu", thread_count, total_thread_count, main_thread_seen ));
-
-  fd_tile_private_map_boot( tile_to_cpu, thread_count );
-}
-
 static void
 kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
@@ -1769,6 +2026,12 @@ read_snapshot( void *              _ctx,
                char const *        snapshotfile,
                char const *        incremental ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
+
+  fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
+    .func       = snap_hash_tiles_cb,
+    .para_arg_1 = ctx,
+    .para_arg_2 = stem,
+  };
 
   if( ctx->replay_plugin_out_mem ) {
     // ValidatorStartProgress::DownloadingSnapshot
@@ -1802,25 +2065,28 @@ read_snapshot( void *              _ctx,
        stake weights. After this, repair will kick off concurrently with loading
        the rest of the snapshots. */
 
-    /* TODO: enable snapshot verification for all 3 snapshot loads */
-
+    /* TODO: enable snapshot verification for all 3 snapshot loads.
+       TODO: If prefetching the manifest is enabled it leads to
+       incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
       uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
       /* TODO: enable snapshot verification */
+
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
                                                                     ctx->slot_ctx,
-                                                                    ctx->tpool,
                                                                     false,
                                                                     false,
                                                                     FD_SNAPSHOT_TYPE_FULL,
                                                                     ctx->exec_spads,
                                                                     ctx->exec_spad_cnt,
-                                                                    ctx->runtime_spad );
+                                                                    ctx->runtime_spad,
+                                                                    &exec_para_ctx_snap );
       /* Load the prefetch manifest, and initialize the status cache and slot context,
          so that we can use these to kick off repair. */
       fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
       kickoff_repair_orphans( ctx, stem );
+
     }
 
     /* In order to kick off repair effectively we need the snapshot slot and
@@ -1834,13 +2100,13 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->slot_ctx,
-                                                              ctx->tpool,
                                                               false,
                                                               false,
                                                               FD_SNAPSHOT_TYPE_FULL,
                                                               ctx->exec_spads,
                                                               ctx->exec_spad_cnt,
-                                                              ctx->runtime_spad );
+                                                              ctx->runtime_spad,
+                                                              &exec_para_ctx_snap );
 
     fd_snapshot_load_init( snap_ctx );
 
@@ -1850,9 +2116,9 @@ read_snapshot( void *              _ctx,
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
         FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
 
+      kickoff_repair_orphans( ctx, stem );
       /* If we don't have an incremental snapshot, we can still kick off
          sending the stake weights and snapshot slot to repair. */
-      kickoff_repair_orphans( ctx, stem );
     } else {
       /* If we have an incremental snapshot, load the manifest and the status cache,
           and don't initialize the objects because we did this above from the incremental snapshot. */
@@ -1883,7 +2149,7 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_all( incremental,
                           ctx->slot_ctx,
                           &base_slot,
-                          ctx->tpool,
+                          NULL,
                           false,
                           false,
                           FD_SNAPSHOT_TYPE_INCREMENTAL,
@@ -1904,10 +2170,16 @@ read_snapshot( void *              _ctx,
                              ctx->slot_ctx->slot_bank.slot,
                              ctx->runtime_spad );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
-                                                        ctx->slot_ctx->funk_txn,
-                                                        ctx->tpool,
-                                                        ctx->runtime_spad );
+
+  fd_exec_para_cb_ctx_t exec_para_ctx = {
+    .func       = bpf_tiles_cb,
+    .para_arg_1 = ctx,
+    .para_arg_2 = stem
+  };
+  fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
+                                                       ctx->slot_ctx->funk_txn,
+                                                       ctx->runtime_spad,
+                                                       &exec_para_ctx );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_init( ctx->slot_ctx->blockstore,
@@ -1917,7 +2189,8 @@ read_snapshot( void *              _ctx,
 }
 
 static void
-init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
+init_after_snapshot( fd_replay_tile_ctx_t * ctx,
+                     fd_stem_context_t *    stem ) {
   /* Do not modify order! */
 
   /* First, load in the sysvars into the sysvar cache. This is required to
@@ -1929,7 +2202,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
      start distributing rewards. */
 
   fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx,
-                                              ctx->tpool,
+                                              NULL,
                                               ctx->exec_spads,
                                               ctx->exec_spad_cnt,
                                               ctx->runtime_spad );
@@ -1950,21 +2223,35 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };
-    FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx,
-                                                      NULL,
-                                                      &info,
-                                                      ctx->tpool,
-                                                      ctx->runtime_spad ) == 0 );
+
+    fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
+      .func       = block_finalize_tiles_cb,
+      .para_arg_1 = ctx,
+      .para_arg_2 = stem,
+    };
+
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
+                                            ctx->capture_ctx,
+                                            &info,
+                                            ctx->exec_cnt,
+                                            ctx->runtime_spad,
+                                            &exec_para_ctx_block_finalize );
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot_bank.slot      = 1UL;
     snapshot_slot                      = 1UL;
 
+    fd_exec_para_cb_ctx_t exec_para_ctx_bpf = {
+      .func       = bpf_tiles_cb,
+      .para_arg_1 = ctx,
+      .para_arg_2 = stem
+    };
+
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-    fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
-                                                          ctx->slot_ctx->funk_txn,
-                                                          ctx->tpool,
-                                                          ctx->runtime_spad );
+    fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
+                                                         ctx->slot_ctx->funk_txn,
+                                                         ctx->runtime_spad,
+                                                         &exec_para_ctx_bpf );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
     /* On boot, we want to send all of the relevant epoch-level
@@ -2042,11 +2329,11 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->genesis,
                            is_snapshot,
                            ctx->capture_ctx,
-                           ctx->tpool,
+                           NULL,
                            ctx->runtime_spad );
   ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
-  init_after_snapshot( ctx );
+  init_after_snapshot( ctx, stem );
 
   /* Redirect ctx->slot_ctx to point to the memory inside forks. */
 
@@ -2056,7 +2343,6 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   // Tell the world about the current activate features
   fd_memcpy( &ctx->runtime_public->features, &ctx->slot_ctx->epoch_ctx->features, sizeof(ctx->runtime_public->features) );
 
-  /* TODO: We should really be doing this after every epoch boundary. */
   send_exec_epoch_msg( ctx, stem, ctx->slot_ctx );
 
 
@@ -2165,47 +2451,61 @@ join_txn_ctx( fd_replay_tile_ctx_t * ctx,
 
 static void
 handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
+
+  /* This function is responsible for updating the local view for the
+     states of the exec tiles. */
+
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong res = fd_fseq_query( ctx->exec_fseq[ i ] );
     if( FD_UNLIKELY( res==ULONG_MAX ) ) {
       FD_LOG_WARNING(( "Exec tile fseq idx=%lu is not booted", i ));
     }
 
-    uint state = fd_exec_fseq_get_state( res );
+    uint state  = fd_exec_fseq_get_state( res );
+    uint txn_id = FD_EXEC_ID_SENTINEL;
     switch( state ) {
       case FD_EXEC_STATE_NOT_BOOTED:
         /* Init is not complete in the exec tile for some reason. */
         FD_LOG_WARNING(( "Exec tile idx=%lu is not booted", i ));
         break;
       case FD_EXEC_STATE_BOOTED:
-        FD_LOG_NOTICE(( "Exec tile idx=%lu is booting", i ));
-        join_txn_ctx( ctx, i, fd_exec_fseq_get_booted_offset( res ) );
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
+        if( ctx->exec_ready[ i ] == EXEC_BOOT_WAIT ) {
+          FD_LOG_NOTICE(( "Exec tile idx=%lu is booting", i ));
+          join_txn_ctx( ctx, i, fd_exec_fseq_get_booted_offset( res ) );
+        }
         break;
       case FD_EXEC_STATE_EPOCH_DONE:
-        FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed epoch message", i ));
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
-        ctx->exec_ready[ i ] = 0;
+        if( ctx->exec_ready[ i ]==EXEC_EPOCH_WAIT ) {
+          FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed epoch message", i ));
+          ctx->exec_ready[ i ] = EXEC_EPOCH_DONE;
+        }
         break;
       case FD_EXEC_STATE_SLOT_DONE:
-        FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed slot message", i ));
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
-        ctx->exec_ready[ i ] = 1;
+        if( ctx->exec_ready[ i ]==EXEC_SLOT_WAIT ) {
+          FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed slot message", i ));
+          ctx->exec_ready[ i ] = EXEC_TXN_READY;
+        }
         break;
       case FD_EXEC_STATE_TXN_DONE:
-        FD_LOG_DEBUG(( "Ack that exec tile idx=%lu has processed txn message", i ));
-        fd_execute_txn_task_info_t info = {0};
-        info.txn_ctx  = ctx->exec_txn_ctxs[ i ];
-        info.exec_res = info.txn_ctx->exec_err;
+        /* We must make sure that we don't try to finalize the same txn
+           twice. This would happen in the case of */
+        txn_id = fd_exec_fseq_get_txn_id( res );
+        if( ctx->exec_ready[ i ]==EXEC_TXN_BUSY && ctx->prev_ids[ i ]!=txn_id ) {
+          FD_LOG_DEBUG(( "Ack that exec tile idx=%lu has processed txn message with id=%u", i, txn_id ));
+          fd_execute_txn_task_info_t info = {0};
+          info.txn_ctx  = ctx->exec_txn_ctxs[ i ];
+          info.exec_res = info.txn_ctx->exec_err;
 
-        if( info.txn_ctx->flags == FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
-          fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
+          if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
+            fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
+          }
+          ctx->exec_ready[ i ] = EXEC_TXN_READY;
+          ctx->prev_ids[ i ]   = txn_id;
         }
-
-        fd_fseq_update( ctx->exec_fseq[ i ], fd_exec_fseq_set_idle() );
-        ctx->exec_ready[ i ] = 1;
         break;
-      case FD_EXEC_STATE_IDLE:
+      case FD_EXEC_STATE_HASH_DONE:
+        break;
+      case FD_EXEC_STATE_BPF_SCAN_DONE:
         break;
       default:
         FD_LOG_ERR(( "Unexpected fseq state from exec tile idx=%lu state=%u", i, state ));
@@ -2220,6 +2520,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
 
+  /* TODO: Consider moving state management to during_housekeeping */
   /* Check all the exec fseqs and handle any updates if needed. */
   handle_exec_state_updates( ctx );
 
@@ -2260,19 +2561,24 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     /* Destroy the slot history */
     fd_slot_history_destroy( fork->slot_ctx->slot_history );
-    for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
-      fd_tpool_wait( ctx->tpool, i+1 );
-    }
 
     fd_runtime_block_info_t runtime_block_info[1];
     runtime_block_info->signature_cnt = fork->slot_ctx->signature_cnt;
 
     ctx->block_finalizing = 0;
 
-    int res = fd_runtime_block_execute_finalize_tpool( fork->slot_ctx, ctx->capture_ctx, runtime_block_info, ctx->tpool, ctx->runtime_spad );
-    if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-      FD_LOG_ERR(( "block finished failed" ));
-    }
+    fd_exec_para_cb_ctx_t exec_para_ctx_block_finalize = {
+      .func       = block_finalize_tiles_cb,
+      .para_arg_1 = ctx,
+      .para_arg_2 = stem,
+    };
+
+    fd_runtime_block_execute_finalize_para( ctx->slot_ctx,
+                                            ctx->capture_ctx,
+                                            runtime_block_info,
+                                            ctx->exec_cnt,
+                                            ctx->runtime_spad,
+                                            &exec_para_ctx_block_finalize );
 
     fd_spad_pop( ctx->runtime_spad );
     FD_LOG_NOTICE(( "Spad memory after executing block %lu", ctx->runtime_spad->mem_used ));
@@ -2517,7 +2823,7 @@ during_housekeeping( void * _ctx ) {
 
   ulong wmark = fd_ulong_min( ctx->root, ctx->forks->finalized );
 
-  if ( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
+  if( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
 
   fd_funk_txn_xid_t xid = { .ul = { wmark, wmark } };
@@ -2857,28 +3163,6 @@ unprivileged_init( fd_topo_t *      topo,
   memset( &ctx->slice_exec_ctx, 0, sizeof(fd_slice_exec_ctx_t) );
 
   /**********************************************************************/
-  /* tpool                                                              */
-  /**********************************************************************/
-
-  if( FD_LIKELY( tile->replay.tpool_thread_count > 1 ) ) {
-    tpool_boot( topo, tile->replay.tpool_thread_count );
-  }
-  ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->replay.tpool_thread_count );
-
-  if( FD_LIKELY( tile->replay.tpool_thread_count > 1 ) ) {
-    /* Start the tpool workers */
-    for( ulong i=1UL; i<tile->replay.tpool_thread_count; i++ ) {
-      if( fd_tpool_worker_push( ctx->tpool, i, NULL, 0UL ) == NULL ) {
-        FD_LOG_ERR(( "failed to launch worker" ));
-      }
-    }
-  }
-
-  if( ctx->tpool == NULL ) {
-    FD_LOG_ERR(("failed to create thread pool"));
-  }
-
-  /**********************************************************************/
   /* capture                                                            */
   /**********************************************************************/
 
@@ -2923,10 +3207,14 @@ unprivileged_init( fd_topo_t *      topo,
   /* exec                                                               */
   /**********************************************************************/
   ctx->exec_cnt = tile->replay.exec_tile_count;
+  if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) {
+    FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
+  }
+
   for( ulong i = 0UL; i < ctx->exec_cnt; i++ ) {
     /* Mark all initial state as not being ready. */
-    ctx->exec_ready[ i ]    = 0;
-    ctx->exec_hashing[ i ]  = 0;
+    ctx->exec_ready[ i ]    = EXEC_BOOT_WAIT;
+    ctx->prev_ids[ i ]      = FD_EXEC_ID_SENTINEL;
     ctx->exec_txn_ctxs[ i ] = NULL;
 
     ulong exec_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_fseq.%lu", i );
@@ -3106,8 +3394,8 @@ metrics_write( fd_replay_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, SLOT, ctx->metrics.slot );
 }
 
-/* TODO: This is definitely not correct */
-#define STEM_BURST (1UL)
+/* TODO: This needs to get sized out correctly. */
+#define STEM_BURST (64UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_ctx_t)

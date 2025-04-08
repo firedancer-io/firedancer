@@ -62,19 +62,18 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   /* TODO: These are fields borrowed from the slot and epoch ctx. This
      could be refactored even further. Currently these fields are not
-     all valid local joins. */
-
+     all valid local joins within the scope of txn execution. */
 
   uint flags;
 
-
+  /* All pointers starting here are valid local joins in txn execution. */
   fd_features_t                   features;
   fd_sysvar_cache_t const *       sysvar_cache;
   fd_txncache_t *                 status_cache;
   ulong                           prev_lamports_per_signature;
   int                             enable_exec_recording;
   ulong                           total_epoch_stake;
-  fd_bank_hash_cmp_t *            bank_hash_cmp; /* FIXME: broken */
+  fd_bank_hash_cmp_t *            bank_hash_cmp;
   fd_funk_txn_t *                 funk_txn;
   fd_funk_t *                     funk;
   fd_wksp_t *                     runtime_pub_wksp;
@@ -89,6 +88,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
   fd_wksp_t *                     spad_wksp;                                   /* Workspace for the spad. */
+  /* Fields below here are not guaranteed to be local joins in txn execution. */
 
   ulong                           paid_fees;
   ulong                           compute_unit_limit;                          /* Compute unit limit for this transaction. */
@@ -223,6 +223,7 @@ fd_exec_txn_ctx_delete( void * mem );
 void
 fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx );
 
+/* TODO: the constructors for the txn_ctx needs to be properly consolidated. */
 void
 fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * ctx,
                        fd_txn_t const * txn_descriptor,
