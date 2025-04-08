@@ -98,7 +98,6 @@ static inline void  wwi_stu( void * m, wwi_t x ) { _mm512_storeu_epi32( m, x ); 
 static inline wwi_t wwi_rol_variable( wwi_t a, int n ) { return wwi_or( wwi_shl ( a, n & 31 ), wwi_shru( a, (-n) & 31 ) ); }
 static inline wwi_t wwi_ror_variable( wwi_t a, int n ) { return wwi_or( wwi_shru( a, n & 31 ), wwi_shl ( a, (-n) & 31 ) ); }
 
-
 static inline wwi_t wwi_rol_vector( wwi_t a, wwi_t b ) {
   wwi_t m = wwi_bcast( 31 );
   return wwi_or( wwi_shl_vector ( a, wwi_and( b, m ) ), wwi_shru_vector( a, wwi_and( wwi_neg( b ), m ) ) );
@@ -294,7 +293,7 @@ static inline wwi_t wwi_ror_vector( wwi_t a, wwi_t b ) {
    stores the result in c0,c1...c7.  In-place operation fine. */
 
 #define wwi_transpose_2x8x8( r0,r1,r2,r3,r4,r5,r6,r7,                                                \
-                             c0,c1,c2,c3,c4,c5,c6,c7 ) {                                             \
+                             c0,c1,c2,c3,c4,c5,c6,c7 ) do {                                          \
     wwi_t _wwi_transpose_r0 = (r0); wwi_t _wwi_transpose_r1 = (r1);                                  \
     wwi_t _wwi_transpose_r2 = (r2); wwi_t _wwi_transpose_r3 = (r3);                                  \
     wwi_t _wwi_transpose_r4 = (r4); wwi_t _wwi_transpose_r5 = (r5);                                  \
