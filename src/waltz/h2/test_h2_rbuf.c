@@ -57,7 +57,7 @@ test_h2_rbuf( fd_rng_t * rng ) {
       if( action & (2+4+8) ) {
         /* gather */
         ulong sz0, sz1;
-        uchar * b = fd_h2_rbuf_peek_frag( rbuf, &sz0, &sz1 );
+        uchar * b = fd_h2_rbuf_peek_used( rbuf, &sz0, &sz1 );
         for( ulong j=0UL; j<pop_sz; j++ ) {
           FD_TEST( shadow[ (shadow_cons++)%64 ]==b[0] );
           b++; sz0--;
