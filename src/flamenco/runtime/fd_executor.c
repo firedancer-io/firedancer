@@ -1202,7 +1202,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX ) {
     void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
 
-    /* promote the account to mutable, which requires a memcpy*/
+    /* promote the account to mutable, which requires a memcpy */
     fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
 
     /* All new accounts should have their rent epoch set to ULONG_MAX.
