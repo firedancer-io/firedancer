@@ -261,27 +261,54 @@ fd_txn_account_save( fd_txn_account_t * acct,
   acct->const_meta = acct->meta;
   acct->const_data = acct->data;
 
-  fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
+  if( true ) {
+    fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
-  /* Remove previous incarnation of the account's record from the transaction, so that we don't hash it twice */
-  fd_funk_rec_hard_remove( funk, txn, &key );
+    /* Remove previous incarnation of the account's record from the transaction, so that we don't hash it twice */
+    fd_funk_rec_hard_remove( funk, txn, &key );
 
-  int err;
-  fd_funk_rec_prepare_t prepare[1];
-  fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, txn, &key, prepare, &err );
-  if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
+    int err;
+    fd_funk_rec_prepare_t prepare[1];
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, txn, &key, prepare, &err );
+    if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
 
-  acct->rec = rec;
-  ulong reclen = sizeof(fd_account_meta_t)+acct->const_meta->dlen;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, wksp ), wksp, &err ) == NULL ) {
-    FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+    acct->rec = rec;
+    ulong reclen = sizeof(fd_account_meta_t)+acct->const_meta->dlen;
+    fd_wksp_t * wksp = fd_funk_wksp( funk );
+    if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, wksp ), wksp, &err ) == NULL ) {
+      FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+    }
+    err = fd_txn_account_save_internal( acct, funk );
+
+    fd_funk_rec_publish( prepare );
+
+    return err;
+  } else {
+    /* Accessing the rec is safe since we did a blocking modify. */
+    int err;
+    fd_funk_rec_t * rec    = acct->rec;
+    ulong           reclen = sizeof(fd_account_meta_t)+acct->const_meta->dlen;
+    fd_wksp_t *     wksp   = fd_funk_wksp( funk );
+
+    /* Resize account and save changes back into the funk rec. */
+    if( FD_UNLIKELY( !fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, wksp ), wksp, &err ) ) ) {
+      FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+    }
+
+    err = fd_txn_account_save_internal( acct, funk );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_ERR(( "unable to save account value, err %d", err ));
+    }
+
+    /* We have now updated the account and we are ready to either update
+       the existing account or we publish if the account is new. */
+    if( acct->is_new ) {
+      fd_funk_rec_publish( &acct->prepared_rec );
+    }
+
+
+    return err;
   }
-  err = fd_txn_account_save_internal( acct, funk );
-
-  fd_funk_rec_publish( prepare );
-
-  return err;
 }
 
 void

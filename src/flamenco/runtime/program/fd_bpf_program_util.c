@@ -217,7 +217,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
-    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk, wksp ), wksp, NULL );;
+    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk, wksp ), wksp, NULL );
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
@@ -307,6 +307,16 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
 
     fd_funk_rec_publish( prepare );
 
+
+    funk_err = FD_FUNK_SUCCESS;
+    fd_funk_rec_prepare_t prepare2[1];
+    fd_funk_rec_t * recc = fd_funk_rec_prepare( funk, funk_txn, &id, prepare2, &funk_err );
+    if( recc == NULL || funk_err != FD_FUNK_SUCCESS ) {
+      FD_LOG_ERR(("WHAT HAPPENSE HERE"));
+    } else {
+      FD_LOG_WARNING(("HERE"));
+    }
+    fd_funk_rec_cancel( prepare2 );
     return 0;
   } FD_SPAD_FRAME_END;
 }

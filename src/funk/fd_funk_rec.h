@@ -15,6 +15,7 @@
      fd_funk_rec_remove
 */
 
+#include "fd_funk_base.h"
 #include "fd_funk_txn.h" /* Includes fd_funk_base.h */
 
 /* FD_FUNK_REC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
@@ -129,6 +130,21 @@ FD_PROTOTYPES_BEGIN
    0 otherwise. */
 
 FD_FN_CONST static inline int fd_funk_rec_idx_is_null( ulong idx ) { return idx==FD_FUNK_REC_IDX_NULL; }
+
+/* Mutators */
+
+fd_funk_rec_t *
+fd_funk_rec_modify_prepare( fd_funk_t *               funk,
+                            fd_funk_txn_t const *     txn,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_query_t *     query );
+
+
+fd_funk_rec_t *
+fd_funk_rec_modify_prepare( fd_funk_t *               funk,
+                            fd_funk_txn_t const *     txn,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_query_t *     query );
 
 /* Accessors */
 
