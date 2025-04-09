@@ -408,7 +408,7 @@ POOL_(private_cas)( ulong volatile * p,
   o = FD_ATOMIC_CAS( p, c, s );
 # else
   o = *p;
-  *p = fd_ulong_if( o==c, s, c );
+  *p = fd_ulong_if( o==c, s, o );
 # endif
   FD_COMPILER_MFENCE();
   return o;
