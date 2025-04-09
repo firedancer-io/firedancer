@@ -1,13 +1,10 @@
 #define _GNU_SOURCE
-#include "../../shared/commands/configure/configure.h"
+#include "../main.h"
 
-#include "../../fdctl/config.h"
-#include "../../fdctl/topology.h"
 #include "../../shared/fd_sys_util.h"
 #include "../../shared/commands/ready.h"
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
-#include "../../shared_dev/boot/fd_dev_boot.h"
 
 #include <errno.h>
 #include <unistd.h>

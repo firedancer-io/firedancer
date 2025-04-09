@@ -181,22 +181,13 @@ fd_main( int     argc,
      example, they want to show the version or validate the produced
      binary without yet setting up the full TOML. */
 
-  for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
-    action_t * action = ACTIONS[ i ];
-    if( FD_UNLIKELY( action->is_immediate ) ) {
-      action->fn( NULL, NULL );
-      return 0;
-    }
-  }
-
-  fd_main_init( &argc, &argv, &config, NULL, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
-
   if( FD_UNLIKELY( !argc ) ) {
     for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
       action_t * action = ACTIONS[ i ];
       if( FD_UNLIKELY( action->is_help ) ) {
         action->fn( NULL, NULL );
-        FD_LOG_ERR(( "no subcommand specified" ));
+        FD_LOG_WARNING(( "no subcommand specified, exiting" ));
+        return 1;
       }
     }
   }
@@ -205,9 +196,16 @@ fd_main( int     argc,
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
     if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ) ) {
       action = ACTIONS[ i ];
+      if( FD_UNLIKELY( action->is_immediate ) ) {
+        action->fn( NULL, NULL );
+        return 0;
+      }
       break;
     }
   }
+
+  fd_main_init( &argc, &argv, &config, NULL, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
+
   if( FD_UNLIKELY( !action ) ) {
     for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
       action_t * action = ACTIONS[ i ];

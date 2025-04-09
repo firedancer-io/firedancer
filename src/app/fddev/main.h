@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_app_fddev_main_h
+#define HEADER_fd_src_app_fddev_main_h
+
 #include "../fdctl/topology.h"
 #include "../fdctl/config.h"
 #include "../shared_dev/boot/fd_dev_boot.h"
@@ -151,3 +154,5 @@ action_t * ACTIONS[] = {
   &fd_action_wksp,
   NULL,
 };
+
+#endif /* HEADER_fd_src_app_fddev_main_h */

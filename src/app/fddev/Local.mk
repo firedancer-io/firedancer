@@ -7,7 +7,7 @@ ifdef FD_HAS_SSE
 
 .PHONY: fddev run monitor
 
-$(call add-objs,dev1 main1,fd_fddev)
+$(call add-objs,dev1,fd_fddev)
 $(call add-objs,commands/configure/blockstore,fd_fddev)
 $(call add-objs,commands/bench,fd_fddev)
 $(call add-objs,commands/dev,fd_fddev)
