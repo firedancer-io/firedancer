@@ -399,10 +399,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                      ctx->store->curr_turbine_slot - slot,
                      ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
 
-    if( !fd_blockstore_shreds_complete( ctx->blockstore, slot ) ) {
-      FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
-    }
-
     ulong parent_slot = fd_blockstore_parent_slot_query( ctx->blockstore, slot );
     if ( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) FD_LOG_ERR(( "could not find slot %lu meta", slot ));
 
@@ -762,7 +758,6 @@ unprivileged_init( fd_topo_t *      topo,
       if( err || block_map_entry->slot != slot ) {
         FD_LOG_ERR(( "init: slot %lu does not match block_map_entry->slot %lu", slot, block_map_entry->slot ));
       }
-      block_map_entry->flags = 0;
       fd_block_map_publish( query );
       fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
     }

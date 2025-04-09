@@ -1482,12 +1482,6 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
-  if( slot_ctx->blockstore && slot_ctx->slot_bank.slot != 0UL ) {
-    fd_blockstore_block_height_update( slot_ctx->blockstore,
-                                       slot_ctx->slot_bank.slot,
-                                       slot_ctx->slot_bank.block_height );
-  }
-
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
   slot_ctx->slot_bank.collected_priority_fees  = 0UL;
   slot_ctx->slot_bank.collected_rent           = 0UL;

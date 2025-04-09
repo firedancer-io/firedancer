@@ -3,6 +3,8 @@
 
 #include "../../ballet/block/fd_microblock.h"
 #include "fd_blockstore.h"
+#include <complex.h>
+#include <stdint.h>
 
 /** allocations made for offline-replay in the blockstore */
 struct fd_block {
@@ -325,6 +327,12 @@ fd_blockstore_block_query(fd_blockstore_t *blockstore, ulong slot){
   }
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), query_block_gaddr );
 }
+
+int
+fd_block_info_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
+
+void
+fd_block_info_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
 
 FD_PROTOTYPES_END
 

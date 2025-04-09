@@ -450,7 +450,7 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
     FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
     fd_block_info_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
-    if( FD_LIKELY( block_entry && fd_blockstore_shreds_complete( blockstore, slot) ) ) {
+    if( FD_LIKELY( block_entry && fd_block_info_shreds_complete( blockstore, slot) ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
       fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
@@ -767,8 +767,6 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   fd_microblock_hdr_t * last_micro = (fd_microblock_hdr_t *)( data + micros[block->micros_cnt - 1].off );
   memcpy( &block_info->block_hash, last_micro->hash, sizeof( fd_hash_t ) );
 
-  block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_RECEIVING );
-  block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_COMPLETED );
   fd_block_map_publish( query );
 
   return FD_BLOCKSTORE_SUCCESS;
@@ -785,10 +783,6 @@ fd_blockstore_block_allocs_remove( fd_blockstore_t * blockstore,
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return; /* slot not found */
     fd_block_info_t * block_info = fd_block_map_query_ele( query );
-    if( FD_UNLIKELY( fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
-      FD_LOG_WARNING(( "[%s] slot %lu has replay in progress. not removing.", __func__, slot ));
-      return;
-    }
     block_gaddr  = block_info->block_gaddr;
     err = fd_block_map_query_test( query );
   }
@@ -822,6 +816,193 @@ fd_blockstore_block_allocs_remove( fd_blockstore_t * blockstore,
     mgaddr = mgaddr2;
   }
   fd_alloc_free( alloc, block );
+}
+
+int
+fd_block_info_shreds_complete( fd_blockstore_t * blockstore, ulong slot ){
+  //fd_block_t * block_exists = fd_blockstore_block_query( blockstore,  slot );
+  fd_block_map_query_t query[1];
+  int complete = 0;
+  int err     = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ){
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return 0;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+    complete = ( block_info->buffered_idx != FD_SHRED_IDX_NULL ) &&
+               ( block_info->slot_complete_idx == block_info->buffered_idx );
+    err = fd_block_map_query_test( query );
+  }
+  return complete;
+
+
+  /* When replacing block_query( slot ) != NULL with this function:
+     There are other things verified in a successful deshred & scan block that are not verified here.
+     scan_block does a round of well-formedness checks like parsing txns, and no premature end of batch
+     like needing cnt, microblock, microblock format.
+
+     This maybe should be fine in places where we check both
+     shreds_complete and flag PROCESSED/REPLAYING is set, because validation has been for sure done
+     if the block has been replayed
+
+     Should be careful in places that call this now that happen before the block is replayed, if we want
+     to assume the shreds are well-formed we can't. */
+
+}
+
+int
+fd_block_info_test( const fd_block_map_t * block_map, ulong slot ) {
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ){
+    fd_block_map_query_t query[1] = { 0 };
+    err = fd_block_map_query_try( block_map, &slot, NULL, query, 0 );
+    if( err == FD_MAP_ERR_AGAIN ) continue;
+    if( err == FD_MAP_ERR_KEY ) return 0;
+    err = fd_block_map_query_test( query );
+  }
+  return 1;
+}
+
+void
+fd_block_info_insert( fd_blockstore_t * blockstore, const fd_shred_t * shred ){
+  ulong slot = shred->slot;
+  if( FD_UNLIKELY( !fd_block_info_test( blockstore->block_map, slot ) ) ) {
+    fd_block_map_query_t query[1] = { 0 };
+    /* Prepare will succeed regardless of if the key is in the map or not. It either returns
+       the element at that idx, or it will return a spot to insert new stuff. So we need to check
+       if that space is actually unused, to signify that we are adding a new entry. */
+
+    /* Try to insert slot into block_map TODO make non blocking? */
+
+    int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_FULL ) ){
+      FD_LOG_ERR(( "[%s] OOM: failed to insert new block map entry. blockstore needs to save metadata for all slots >= SMR, so increase memory or check for issues with publishing new SMRs.", __func__ ));
+    }
+
+    /* Initialize the block_info. Note some fields are initialized
+       to dummy values because we do not have all the necessary metadata
+       yet. */
+
+    block_info->slot = slot;
+
+    block_info->parent_slot = slot - shred->data.parent_off;
+    memset( block_info->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof(ulong) );
+    block_info->child_slot_cnt = 0;
+
+    block_info->block_height   = 0;
+    block_info->block_hash     = ( fd_hash_t ){ 0 };
+    block_info->bank_hash      = ( fd_hash_t ){ 0 };
+    block_info->ts             = 0;
+    // block_info->ref_tick = (uchar)( (int)shred->data.flags &
+                                              //  (int)FD_SHRED_DATA_REF_TICK_MASK );
+    block_info->buffered_idx   = UINT_MAX;
+    block_info->received_idx   = 0;
+    block_info->consumed_idx   = UINT_MAX;
+
+    block_info->data_complete_idx = UINT_MAX;
+    block_info->slot_complete_idx = UINT_MAX;
+
+    block_info->ticks_consumed        = 0;
+    block_info->tick_hash_count_accum = 0;
+
+    fd_block_set_null( block_info->data_complete_idxs );
+
+    block_info->block_gaddr    = 0;
+
+    fd_block_map_publish( query );
+
+    FD_TEST( fd_block_info_test( blockstore->block_map, slot ) );
+  }
+  fd_block_map_query_t query[1] = { 0 };
+  int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_info_t * block_info = fd_block_map_query_ele( query );   /* should be impossible for this to fail */
+
+  /* Advance the buffered_idx watermark. */
+
+  uint prev_buffered_idx = block_info->buffered_idx;
+  while( FD_LIKELY( fd_blockstore_shred_test( blockstore, slot, block_info->buffered_idx + 1 ) ) ) {
+    block_info->buffered_idx++;
+  }
+
+  /* Mark the ending shred idxs of entry batches. */
+
+  fd_block_set_insert_if( block_info->data_complete_idxs, shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE, shred->idx );
+
+  /* Advance the data_complete_idx watermark using the shreds in between
+     the previous consumed_idx and current consumed_idx. */
+
+  for (uint idx = prev_buffered_idx + 1; block_info->buffered_idx != FD_SHRED_IDX_NULL && idx <= block_info->buffered_idx; idx++) {
+    if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) {
+      block_info->data_complete_idx = idx;
+    }
+  }
+
+  /* Update received_idx and slot_complete_idx.  */
+
+  block_info->received_idx = fd_uint_max( block_info->received_idx, shred->idx + 1 );
+  if( FD_UNLIKELY( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) ) {
+    // FD_LOG_NOTICE(( "slot %lu %u complete", slot, shred->idx ));
+    block_info->slot_complete_idx = shred->idx;
+  }
+
+  ulong parent_slot       = block_info->parent_slot;
+
+  FD_LOG_DEBUG(( "shred: (%lu, %u). consumed: %u, received: %u, complete: %u",
+               slot,
+               shred->idx,
+               block_info->buffered_idx,
+               block_info->received_idx,
+               block_info->slot_complete_idx ));
+  fd_block_map_publish( query );
+
+  /* Update ancestry metadata: parent_slot, is_connected, next_slot.
+
+     If the parent_slot happens to be very old, there's a chance that
+     it's hash probe could collide with an existing slot in the block
+     map, and cause what looks like an OOM. Instead of using map_prepare
+     and hitting this collision, we can either check that the
+     parent_slot lives in the map with a block_info_test, or use the
+     shmem wmk value as a more general guard against querying for
+     parents that are too old. */
+
+  if( FD_LIKELY( parent_slot < blockstore->shmem->wmk ) ) return;
+
+  err = fd_block_map_prepare( blockstore->block_map, &parent_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_info_t * parent_block_info = fd_block_map_query_ele( query );
+
+  /* Add this slot to its parent's child slots if not already there. */
+
+  if( FD_LIKELY( parent_block_info && parent_block_info->slot == parent_slot ) ) {
+    int found = 0;
+    for( ulong i = 0; i < parent_block_info->child_slot_cnt; i++ ) {
+      if( FD_LIKELY( parent_block_info->child_slots[i] == slot ) ) {
+        found = 1;
+        break;
+      }
+    }
+    if( FD_UNLIKELY( !found ) ) { /* add to parent's child slots if not already there */
+      if( FD_UNLIKELY( parent_block_info->child_slot_cnt == FD_BLOCKSTORE_CHILD_SLOT_MAX ) ) {
+        FD_LOG_ERR(( "failed to add slot %lu to parent %lu's children. exceeding child slot max",
+                      slot,
+                      parent_block_info->slot ));
+      }
+      parent_block_info->child_slots[parent_block_info->child_slot_cnt++] = slot;
+    }
+  }
+  if( FD_LIKELY( err == FD_MAP_SUCCESS ) ) {
+    fd_block_map_publish( query );
+  } else {
+    /* err is FD_MAP_ERR_FULL. Not in a valid prepare. Can happen if we
+       are about to OOM, or if the parents are so far away that it just
+       happens to chain longer than the probe_max. Somewhat covered by
+       the early return, but there are some edge cases where we reach
+       here, and it shouldn't be a LOG_ERR */
+    FD_LOG_WARNING(( "block info not found for parent slot %lu. Have we seen it before?", parent_slot ));
+  }
+
+
 }
 
 int
@@ -886,6 +1067,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       return -1;
     }
     fd_blockstore_shred_insert( blockstore, shred );
+    fd_block_info_insert( blockstore, shred );
     // if (rc != FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE && rc != FD_BLOCKSTORE_SUCCESS) {
     //   FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
     //   rocksdb_iter_destroy(iter);
@@ -900,7 +1082,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_info_t * block_info = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_LIKELY( block_info && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
+  if( FD_LIKELY( block_info && fd_block_info_shreds_complete( blockstore, slot ) ) ) {
     deshred( blockstore, slot );
 
     size_t vallen = 0;
@@ -978,7 +1160,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     }
   }
 
-  if( txnstatus && FD_LIKELY( block_info && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
+  if( txnstatus && FD_LIKELY( block_info && fd_block_info_shreds_complete( blockstore, slot ) ) ) {
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_info->block_gaddr );
     uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
     fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
@@ -1047,21 +1229,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   blockstore->shmem->lps = slot;
   blockstore->shmem->hcs = slot;
   blockstore->shmem->wmk = slot;
-
-  if( FD_LIKELY( block_info ) ) {
-    block_info->flags =
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-        block_info->flags,
-        FD_BLOCK_FLAG_COMPLETED ),
-        FD_BLOCK_FLAG_PROCESSED ),
-        FD_BLOCK_FLAG_EQVOCSAFE ),
-        FD_BLOCK_FLAG_CONFIRMED ),
-        FD_BLOCK_FLAG_FINALIZED );
-  }
 
   return 0;
 }

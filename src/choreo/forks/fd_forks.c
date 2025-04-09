@@ -194,11 +194,8 @@ slot_ctx_restore( ulong                 slot,
                   fd_spad_t *           runtime_spad,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
 
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
-  if( !block_exists )
-    FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
 
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
@@ -297,10 +294,6 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   fd_spad_t *           runtime_spad ) {
 
   /* Check the parent block is present in the blockstore and executed. */
-
-  if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, parent_slot ) ) ) {
-    FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
-  }
 
   /* Query for parent_slot in the frontier. */
 

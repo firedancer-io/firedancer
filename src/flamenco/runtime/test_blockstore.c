@@ -2,7 +2,7 @@
 
 #include <unistd.h>
 #include <stdio.h>
-
+#if 0
 struct __attribute__((packed)) fd_shred_cap_file_hdr {
   ushort magic;
   ushort shred_cap_hdr_sz;
@@ -177,3 +177,4 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
+#endif
