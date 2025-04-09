@@ -151,11 +151,8 @@ is_last_fec( ulong key ){
   return ( (uint)fd_ulong_extract( key, 0, 31 ) & UINT_MAX ) == UINT_MAX; // lol fix
 }
 
-/* chain performs a BFS using chainer->deque to advance the frontier and
-   connect orphaned FECs to the tree. */
-
 static void
-chain( fd_fec_chainer_t * chainer ) {
+link_orphans( fd_fec_chainer_t * chainer ) {
   while( FD_LIKELY( !fd_fec_queue_empty( chainer->queue ) ) ) {
     ulong          key = fd_fec_queue_pop_head( chainer->queue );
     fd_fec_ele_t * ele = fd_fec_orphaned_ele_query( chainer->orphaned, &key, NULL, chainer->pool );
@@ -216,8 +213,8 @@ chain( fd_fec_chainer_t * chainer ) {
       fd_fec_children_t * fec_children = fd_fec_children_query( chainer->children, ele->slot, NULL );
       if( FD_UNLIKELY( !fec_children ) ) continue;
       for( ulong off = fd_slot_child_offs_const_iter_init( fec_children->child_offs );
-            !fd_slot_child_offs_const_iter_done( off );
-            off = fd_slot_child_offs_const_iter_next( fec_children->child_offs, off ) ) {
+           !fd_slot_child_offs_const_iter_done( off );
+           off = fd_slot_child_offs_const_iter_next( fec_children->child_offs, off ) ) {
         ulong child_key = (ele->slot + off) << 32; /* always fec_set_idx 0 */
         fd_fec_ele_t * child = fd_fec_orphaned_ele_query( chainer->orphaned, &child_key, NULL, chainer->pool );
         if( FD_LIKELY( child ) ) {
@@ -306,7 +303,7 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   fd_fec_queue_push_tail( chainer->queue, key );
   fd_fec_orphaned_ele_insert( chainer->orphaned, ele, chainer->pool );
 
-  chain( chainer );
+  link_orphans( chainer );
 
   return ele;
 }
