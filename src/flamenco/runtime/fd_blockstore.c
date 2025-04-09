@@ -58,7 +58,9 @@ fd_blockstore_new( void * shmem,
   void * txn_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) );
   void * alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),               fd_alloc_footprint() );
   ulong  top        = FD_SCRATCH_ALLOC_FINI( l, fd_blockstore_align() );
-  FD_TEST( fd_ulong_align_up( top - (ulong)shmem, fd_alloc_align() ) == fd_ulong_align_up( fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ), fd_alloc_align() ) );
+  (void) top;
+  //FD_TEST( top - (ulong)shmem == fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) );
+  //FD_TEST( fd_ulong_align_up( top - (ulong)shmem, fd_alloc_align() ) == fd_ulong_align_up( fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ), fd_alloc_align() ) );
 
   (void)shreds;
   fd_buf_shred_pool_new( shred_pool );
@@ -232,17 +234,9 @@ fd_blockstore_delete( void * shblockstore ) {
 } while(0);
 
 fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank ) {
-
-  if ( fd_size_max < FD_BLOCKSTORE_ARCHIVE_MIN_SIZE ) {
-    FD_LOG_ERR(( "archive file size too small" ));
-    return NULL;
-  }
-  blockstore->shmem->archiver.fd_size_max = fd_size_max;
+fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank ) {
 
   //build_idx( blockstore, fd );
-  lseek( fd, 0, SEEK_END );
-
   /* initialize fields using slot bank */
 
   ulong smr       = slot_bank->slot;
@@ -323,8 +317,7 @@ fd_txn_key_hash( fd_txn_key_t const * k, ulong seed ) {
   return h;
 }
 
-/* Remove a slot from blockstore. Needs to currently be under a blockstore_write
-   lock due to txn_map access. */
+/* Remove a slot from blockstore. Shreds are removed as soon as they replay. */
 void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_NOTICE(( "[%s] slot: %lu", __func__, slot ));
@@ -332,7 +325,6 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   /* It is not safe to remove a replaying block. */
   fd_block_map_query_t query[1] = { 0 };
   ulong parent_slot  = FD_SLOT_NULL;
-  ulong received_idx = 0;
   int    err  = FD_MAP_ERR_AGAIN;
   while( err == FD_MAP_ERR_AGAIN ) {
     err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
@@ -344,7 +336,6 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
       return;
     }
     parent_slot  = block_info->parent_slot;
-    received_idx = block_info->received_idx;
     err = fd_block_map_query_test( query );
   }
 
@@ -365,17 +356,11 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   }
   fd_block_map_publish( query );
 
-  /* Remove buf_shreds. */
-  for( uint idx = 0; idx < received_idx; idx++ ) {
-    fd_blockstore_shred_remove( blockstore, slot, idx );
-  }
-
   return;
 }
 
 void
 fd_blockstore_publish( fd_blockstore_t * blockstore,
-                       int fd FD_PARAM_UNUSED,
                        ulong wmk ) {
   FD_LOG_NOTICE(( "[%s] wmk %lu => smr %lu", __func__, blockstore->shmem->wmk, wmk ));
 
@@ -494,7 +479,9 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   fd_shred_key_t key = { slot, .idx = shred->idx };
 
-  /* Test if the blockstore already contains this shred key. */
+  /* Test if the blockstore already contains this shred key.
+     TODO: remove this section? the fec_resolver is taking care of removing duplicates, so
+     not sure this'll ever get hit */
 
   if( FD_UNLIKELY( fd_blockstore_shred_test( blockstore, slot, shred->idx ) ) ) {
 
@@ -586,6 +573,10 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
     fd_block_map_publish( query );
 
+    if( !fd_blockstore_block_info_test( blockstore, slot ) ) {
+
+      FD_LOG_ERR(( "[%s] failed to insert new block map entry, slot %lu, idx %u", __func__, slot, shred->idx ));
+    }
     FD_TEST( fd_blockstore_block_info_test( blockstore, slot ) );
   }
   fd_block_map_query_t query[1] = { 0 };

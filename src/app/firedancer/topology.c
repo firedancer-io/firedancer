@@ -213,6 +213,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "voter_gossip" );
   fd_topob_wksp( topo, "voter_dedup"  );
   fd_topob_wksp( topo, "batch_replay" );
+  fd_topob_wksp( topo, "replay_arxiv" );
 
   fd_topob_wksp( topo, "rstart_gossi" );
   fd_topob_wksp( topo, "gossi_rstart" );
@@ -240,6 +241,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "voter"       );
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "eqvoc"       );
+  fd_topob_wksp( topo, "arxiv"       );
   fd_topob_wksp( topo, "batch"       );
   fd_topob_wksp( topo, "btpool"      );
   fd_topob_wksp( topo, "constipate"  );
@@ -295,6 +297,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   128UL,                                    sizeof(fd_became_leader_t) ,   1UL   );
 
   /**/                 fd_topob_link( topo, "replay_voter", "replay_voter", 128UL,                                    sizeof(fd_txn_p_t),            1UL   );
+  /**/                 fd_topob_link( topo, "replay_arxiv", "replay_arxiv", 128UL,                                    sizeof(ulong),                 1UL   );
   /**/                 fd_topob_link( topo, "voter_gossip", "voter_gossip", 128UL,                                    FD_TXN_MTU,                    1UL   );
   /**/                 fd_topob_link( topo, "voter_sign",   "voter_sign",   128UL,                                    FD_TXN_MTU,                    1UL   );
   /**/                 fd_topob_link( topo, "sign_voter",   "sign_voter",   128UL,                                    64UL,                          1UL   );
@@ -355,6 +358,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                             fd_topob_tile( topo, "sender",  "voter",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "bhole",   "bhole",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "eqvoc",   "eqvoc",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                             fd_topob_tile( topo, "arxiv",   "arxiv",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /* These thread tiles must be defined immediately after the replay tile.  We subtract one because the replay tile acts as a thread in the tpool as well. */
@@ -377,6 +381,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * batch_tile  = &topo->tiles[ fd_topo_find_tile( topo, "batch" , 0UL ) ];
   fd_topo_tile_t * pack_tile   = &topo->tiles[ fd_topo_find_tile( topo, "pack"  , 0UL ) ];
   fd_topo_tile_t * exec_tile   = &topo->tiles[ fd_topo_find_tile( topo, "exec"  , 0UL ) ];
+  fd_topo_tile_t * arxiv_tile  = &topo->tiles[ fd_topo_find_tile( topo, "arxiv" , 0UL ) ];
 
   /* Create a shared blockstore to be used by store and replay. */
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
@@ -389,6 +394,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, arxiv_tile, blockstore_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+
   if( enable_rpc ) {
     fd_topo_tile_t * rpcserv_tile = &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ];
     fd_topob_tile_uses( topo, rpcserv_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -554,6 +561,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "batch_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_voter",  0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_arxiv",  0UL                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                  ); /* TODO check order in fd_replay.c macros*/
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "shred_replay",  i,            FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
@@ -589,6 +597,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "repair",   0UL,                       "repair_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "repair",   0UL,          "metric_in", "sign_repair",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "repair",   0UL,                      "repair_repla",  0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "arxiv",   0UL,          "metric_in", "replay_arxiv",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED  );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_repair",  0UL                                                  );
 
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "eqvoc",    0UL,          "metric_in", "shred_net",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -760,6 +769,9 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
       tile->replay.full_interval        = config->tiles.batch.full_interval;
       tile->replay.incremental_interval = config->tiles.batch.incremental_interval;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "arxiv" ) ) ) {
+      strncpy( tile->arxiv.blockstore_file, config->blockstore.file, sizeof(tile->arxiv.blockstore_file) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bhole" ) ) ) {
 

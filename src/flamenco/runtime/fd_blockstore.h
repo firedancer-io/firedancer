@@ -576,7 +576,7 @@ fd_blockstore_delete( void * shblockstore );
    file.  */
 
 fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank );
+fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank );
 
 /* fd_blockstore_fini finalizes a blockstore.
 
@@ -930,7 +930,7 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
    function. */
 
 void
-fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong wmk );
+fd_blockstore_publish( fd_blockstore_t * blockstore, ulong wmk );
 
 void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot );

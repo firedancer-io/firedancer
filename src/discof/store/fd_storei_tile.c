@@ -14,6 +14,7 @@
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_pod_format.h"
+#include "../../discof/repair/fd_fec_chainer.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../disco/metrics/fd_metrics.h"
 
@@ -85,6 +86,8 @@ struct fd_store_tile_ctx {
   fd_blockstore_t   blockstore_ljoin;
   int               blockstore_fd; /* file descriptor for archival file */
   fd_blockstore_t * blockstore;
+
+  fd_fec_chainer_t * fec_chain;
 
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;

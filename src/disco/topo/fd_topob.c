@@ -366,6 +366,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
+    "arxiv",  /* FIREDANCER only */
     "exec",   /* FIREDANCER only */
     "rtpool", /* FIREDANCER only */
     "sender", /* FIREDANCER only */

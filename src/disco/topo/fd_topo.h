@@ -385,6 +385,10 @@ typedef struct {
     } eqvoc;
 
     struct {
+      char   blockstore_file[ PATH_MAX ];
+    } arxiv;
+
+    struct {
       ushort  rpc_port;
       ushort  tpu_port;
       uint    tpu_ip_addr;

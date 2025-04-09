@@ -60,7 +60,8 @@
 #define STAKE_OUT_IDX  (0UL)
 #define NOTIF_OUT_IDX  (1UL)
 #define SENDER_OUT_IDX (2UL)
-#define POH_OUT_IDX    (3UL)
+#define ARXIV_OUT_IDX  (3UL)
+#define POH_OUT_IDX    (4UL)
 
 #define VOTE_ACC_MAX   (2000000UL)
 
@@ -152,6 +153,9 @@ struct fd_replay_tile_ctx {
   ulong       sender_out_wmark;
   ulong       sender_out_chunk;
 
+  // Arxiv output defs
+  fd_replay_out_ctx_t arxiv_out;
+
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
   ulong *          stake_weights_out_sync;
@@ -220,7 +224,6 @@ struct fd_replay_tile_ctx {
   /* Depends on store_int and is polled in after_credit */
 
   fd_blockstore_t   blockstore_ljoin;
-  int               blockstore_fd; /* file descriptor for archival file */
   fd_blockstore_t * blockstore;
 
   /* Updated during execution */
@@ -1611,6 +1614,9 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
     __asm__("int $3");
     FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
   }
+
+  ulong arxiv_sig = fd_disco_replay_arxiv_sig( slot, start_idx, start_idx + data_cnt - 1 );
+  fd_stem_publish( stem, ARXIV_OUT_IDX, arxiv_sig, ctx->arxiv_out.chunk, 0, 0, 0, 0 );
 }
 
 static void
@@ -1756,7 +1762,7 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
 static void
 kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
-  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
 
   publish_stake_weights( ctx, stem, ctx->slot_ctx );
   fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
@@ -1911,8 +1917,6 @@ read_snapshot( void *              _ctx,
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_init( ctx->slot_ctx->blockstore,
-                      ctx->blockstore_fd,
-                      FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
                       &ctx->slot_ctx->slot_bank );
 }
 
@@ -2521,7 +2525,7 @@ during_housekeeping( void * _ctx ) {
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
 
   fd_funk_txn_xid_t xid = { .ul = { wmark, wmark } };
-  if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );
+  if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, wmark );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmark, ctx->ghost );
   if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmark, &xid );
   if( FD_LIKELY( ctx->ghost ) ) {
@@ -2547,11 +2551,6 @@ privileged_init( fd_topo_t *      topo,
 
   FD_TEST( sizeof(ulong) == getrandom( &ctx->funk_seed, sizeof(ulong), 0 ) );
   FD_TEST( sizeof(ulong) == getrandom( &ctx->status_cache_seed, sizeof(ulong), 0 ) );
-
-  ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDWR | O_CREAT, 0666 );
-  if( FD_UNLIKELY( ctx->blockstore_fd == -1 ) ) {
-    FD_LOG_ERR(( "failed to open or create blockstore archival file %s %d %d %s", tile->replay.blockstore_file, ctx->blockstore_fd, errno, strerror(errno) ));
-  }
 
   /**********************************************************************/
   /* runtime public                                                      */
@@ -2894,6 +2893,20 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /**********************************************************************/
+  /* arxiv                                                             */
+  /**********************************************************************/
+  fd_topo_link_t * arxiv_out_link = &topo->links[ tile->out_link_id[ ARXIV_OUT_IDX ] ];
+  ctx->arxiv_out.mcache = arxiv_out_link->mcache;
+  ctx->arxiv_out.sync   = fd_mcache_seq_laddr( ctx->arxiv_out.mcache );
+  ctx->arxiv_out.depth  = fd_mcache_depth( ctx->arxiv_out.mcache );
+  ctx->arxiv_out.seq    = fd_mcache_seq_query( ctx->arxiv_out.sync );
+  ctx->arxiv_out.mem    = topo->workspaces[ topo->objs[ arxiv_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->arxiv_out.chunk0 = fd_dcache_compact_chunk0( ctx->arxiv_out.mem, arxiv_out_link->dcache );
+  ctx->arxiv_out.wmark  = fd_dcache_compact_wmark( ctx->arxiv_out.mem, arxiv_out_link->dcache, arxiv_out_link->mtu );
+  ctx->arxiv_out.chunk  = ctx->arxiv_out.chunk0;
+  ctx->arxiv_out.idx    = fd_topo_find_tile_out_link( topo, tile, "arxiv", 0UL );
+
+  /**********************************************************************/
   /* bank                                                               */
   /**********************************************************************/
 
@@ -3069,13 +3082,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_replay_tile_ctx_t) );
-
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_fd );
+  (void) topo;
+  (void) tile;
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
@@ -3084,19 +3093,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_replay_tile_ctx_t) );
-
+  (void) topo;
+  (void) tile;
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
   return out_cnt;
 }
 
@@ -3107,7 +3111,7 @@ metrics_write( fd_replay_tile_ctx_t * ctx ) {
 }
 
 /* TODO: This is definitely not correct */
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_ctx_t)
