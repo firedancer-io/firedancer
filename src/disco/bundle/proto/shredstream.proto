@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package shredstream;
+
+import "shared.proto";
+
+message Heartbeat {
+  // don't trust IP:PORT from tcp header since it can be tampered over the wire
+  // `socket.ip` must match incoming packet's ip. this prevents spamming an unwitting destination
+  shared.Socket socket = 1;
+
+  // regions for shredstream proxy to receive shreds from
+  // list of valid regions: https://jito-labs.gitbook.io/mev/systems/connecting/mainnet
+  repeated string regions = 2;
+}
+
+message HeartbeatResponse {
+  // client must respond within `ttl_ms` to keep stream alive
+  uint32 ttl_ms = 1;
+}
+
+service Shredstream {
+  // RPC endpoint to send heartbeats to keep shreds flowing
+  rpc SendHeartbeat (Heartbeat) returns (HeartbeatResponse) {}
+}
