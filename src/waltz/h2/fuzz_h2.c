@@ -24,11 +24,18 @@ static FD_TL fuzz_h2_ctx_t g_ctx;
 
 static FD_TL fd_rng_t g_rng[1];
 
+/* Stream leak detector (detects unbalanced callbacks) */
+static FD_TL long g_stream_cnt;
+
+/* Double callback detector */
+static FD_TL long g_conn_final_cnt;
+
 static void
 test_response_continue( void ) {
   if( !g_ctx.stream->stream_id ) return;
   fd_h2_tx_op_copy( g_ctx.conn, g_ctx.stream, g_ctx.rbuf_tx, g_ctx.tx_op );
   if( g_ctx.stream->state==FD_H2_STREAM_STATE_CLOSED ) {
+    g_stream_cnt--;
     memset( g_ctx.tx_op,  0, sizeof(g_ctx.tx_op ) );
     memset( g_ctx.stream, 0, sizeof(g_ctx.stream) );
   }
@@ -52,11 +59,12 @@ test_response_init( fd_h2_conn_t *   conn,
 static fd_h2_stream_t *
 cb_stream_create( fd_h2_conn_t * conn,
                   uint           stream_id ) {
-  (void)conn;
+  (void)conn; (void)stream_id;
   if( g_ctx.stream->stream_id ) {
     return NULL;
   }
-  fd_h2_stream_init( g_ctx.stream, stream_id );
+  fd_h2_stream_init( g_ctx.stream );
+  g_stream_cnt++;
   return g_ctx.stream;
 }
 
@@ -76,9 +84,13 @@ cb_conn_established( fd_h2_conn_t * conn ) {
 
 static void
 cb_conn_final( fd_h2_conn_t * conn,
-               uint           h2_err ) {
+               uint           h2_err,
+               int            closed_by ) {
   assert( conn == g_ctx.conn );
+  assert( closed_by==0 || closed_by==1 );
   (void)h2_err;
+  g_stream_cnt = 0L;
+  g_conn_final_cnt++;
   return;
 }
 
@@ -88,7 +100,6 @@ cb_headers( fd_h2_conn_t *   conn,
             void const *     data,
             ulong            data_sz,
             ulong            flags ) {
-  (void)stream; (void)flags;
   fd_hpack_rd_t hpack_rd[1];
   fd_hpack_rd_init( hpack_rd, data, data_sz );
   while( !fd_hpack_rd_done( hpack_rd ) )  {
@@ -124,10 +135,13 @@ cb_data( fd_h2_conn_t *   conn,
 static void
 cb_rst_stream( fd_h2_conn_t *   conn,
                fd_h2_stream_t * stream,
-               uint             error_code ) {
+               uint             error_code,
+               int              closed_by ) {
   (void)stream; (void)error_code;
   assert( conn == g_ctx.conn );
+  assert( closed_by==0 || closed_by==1 );
   memset( &g_ctx.stream, 0, sizeof(fd_h2_stream_t) );
+  g_stream_cnt--;
   return;
 }
 
@@ -195,12 +209,17 @@ LLVMFuzzerTestOneInput( uchar const * data,
   }
   g_ctx.conn->self_settings.max_frame_size = 256;
 
+  g_stream_cnt     = 0L;
+  g_conn_final_cnt = 0L;
+
   while( size ) {
-    fd_h2_tx_control( g_ctx.conn, rbuf_tx );
+    fd_h2_tx_control( g_ctx.conn, rbuf_tx, &fuzz_h2_cb );
     rbuf_tx->lo_off = rbuf_tx->hi_off;
     rbuf_tx->lo     = rbuf_tx->hi;
 
     if( FD_UNLIKELY( g_ctx.conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) {
+      assert( g_conn_final_cnt==1 );
+      assert( g_stream_cnt==0     );
       break;
     }
 
@@ -210,6 +229,15 @@ LLVMFuzzerTestOneInput( uchar const * data,
     data += chunk; size -= chunk;
 
     fd_h2_rx( g_ctx.conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), &fuzz_h2_cb );
+  }
+  fd_h2_tx_control( g_ctx.conn, rbuf_tx, &fuzz_h2_cb );
+
+  assert( g_stream_cnt>=0 );
+  assert( g_conn_final_cnt==0 || g_conn_final_cnt==1 );
+  if( g_stream_cnt==1 ) {
+    assert( g_ctx.stream->state==FD_H2_STREAM_STATE_OPEN ||
+            g_ctx.stream->state==FD_H2_STREAM_STATE_CLOSING_RX ||
+            g_ctx.stream->state==FD_H2_STREAM_STATE_CLOSING_TX );
   }
 
   fd_rng_delete( fd_rng_leave( rng ) );
