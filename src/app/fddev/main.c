@@ -1,5 +1,4 @@
-#include "../fdctl/config.h"
-#include "../shared_dev/boot/fd_dev_boot.h"
+#include "main.h"
 
 int
 main( int     argc,
