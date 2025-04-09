@@ -10,18 +10,20 @@
    to compute the destination of a specific shred for the leader and
    non-leader.  This is where the Turbine tree logic is implemented. */
 
-/* For a given FEC, we might need to produce 200 destinations for each
-   of 134 shreds, which is a lot of destinations!  Full destination
+/* For a given FEC, we might need to produce "fanout" destinations for
+   each of 134 shreds, which is a lot of destinations!  Full destination
    information (ip, port, mac) is 12 B. A pointer is 8 B, but an index
-   can be as small as 2 B, since currently Turbine doesn't work with
-   more than fanout^2 nodes which is less than USHORT_MAX.  Thus, we go
-   with the index, which can cheaply be mapped to the full information
-   using fd_shred_dest_idx_to_dest below. */
-typedef ushort fd_shred_dest_idx_t;
+   can be as small as 4 B, since currently Turbine doesn't work with
+   more than fanout^2 nodes, which is less than UINT_MAX for a maximum
+   fanout of 1536 (the fanout is dependent on feature activation). Thus,
+   we go with the index, which can cheaply be mapped to the full
+   information using fd_shred_dest_idx_to_dest below. */
+typedef uint fd_shred_dest_idx_t;
 
 
 #define FD_SHRED_DEST_MAX_SHRED_CNT (134UL) /* DATA_SHREDS_MAX+PARITY_SHREDS_MAX */
-#define FD_SHRED_DEST_NO_DEST       (USHORT_MAX)
+#define FD_SHRED_DEST_NO_DEST       (UINT_MAX)
+#define FD_SHRED_DEST_MAX_FANOUT    (1536UL)
 
 /* fd_shred_dest_weighted_t specifies a destination to which a shred might be
    sent.  The information comes from Gossip typically. */
