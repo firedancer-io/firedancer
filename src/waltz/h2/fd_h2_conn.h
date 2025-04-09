@@ -47,39 +47,42 @@ struct fd_h2_conn {
   uint  rx_frame_rem;    /* current RX frame: payload bytes remaining */
   uint  rx_stream_id;    /* current RX frame: stream ID */
   uint  rx_stream_next;  /* next unused RX stream ID */
-  uint  tx_stream_next;  /* next unused TX stream ID */
 
   uint  rx_wnd_wmark;    /* receive window refill threshold */
   uint  rx_wnd_max;      /* receive window max size */
   uint  rx_wnd;          /* receive window bytes remaining */
+
+  uint  tx_stream_next;  /* next unused TX stream ID */
   uint  tx_wnd;          /* transmit quota available */
 
   uint  stream_active_cnt[2]; /* currently active {rx,tx} streams  */
 
-  uchar flags;           /* bit set of FD_H2_CONN_FLAGS_* */
-  uchar conn_error;
-  uchar setting_tx;      /* no of sent SETTINGS frames pending their ACK */
-  uchar rx_frame_flags;  /* current RX frame: flags */
-  uchar rx_pad_rem;      /* current RX frame: pad bytes remaining */
+  ushort flags;           /* bit set of FD_H2_CONN_FLAGS_* */
+  uchar  conn_error;
+  uchar  setting_tx;      /* no of sent SETTINGS frames pending their ACK */
+  uchar  rx_frame_flags;  /* current RX frame: flags */
+  uchar  rx_pad_rem;      /* current RX frame: pad bytes remaining */
 };
 
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
 
 #define FD_H2_CONN_FLAGS_LG_DEAD                (0) /* conn has passed */
-#define FD_H2_CONN_FLAGS_LG_CONTINUATION        (1) /* next frame must be CONTINUATION */
-#define FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         (3) /* send GOAWAY */
-#define FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      (4) /* send preface, SETTINGS */
-#define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 (5) /* wait for initial ACK of initial SETTINGS */
-#define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     (6) /* wait for peer's initial SETTINGS */
-#define FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      (7) /* wait for client preface, then send settings */
+#define FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         (1) /* send GOAWAY */
+#define FD_H2_CONN_FLAGS_LG_CONTINUATION        (2) /* next frame must be CONTINUATION */
+#define FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      (3) /* send preface, SETTINGS */
+#define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 (4) /* wait for initial ACK of initial SETTINGS */
+#define FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     (5) /* wait for peer's initial SETTINGS */
+#define FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      (6) /* wait for client preface, then send settings */
+#define FD_H2_CONN_FLAGS_LG_WINDOW_UPDATE       (7) /* send WINDOW_UPDATE */
 
 #define FD_H2_CONN_FLAGS_DEAD                ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_DEAD                ))
-#define FD_H2_CONN_FLAGS_CONTINUATION        ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_CONTINUATION        ))
 #define FD_H2_CONN_FLAGS_SEND_GOAWAY         ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SEND_GOAWAY         ))
+#define FD_H2_CONN_FLAGS_CONTINUATION        ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_CONTINUATION        ))
 #define FD_H2_CONN_FLAGS_CLIENT_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_CLIENT_INITIAL      ))
 #define FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_ACK_0 ))
 #define FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WAIT_SETTINGS_0     ))
 #define FD_H2_CONN_FLAGS_SERVER_INITIAL      ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_SERVER_INITIAL      ))
+#define FD_H2_CONN_FLAGS_WINDOW_UPDATE       ((uchar)( 1U<<FD_H2_CONN_FLAGS_LG_WINDOW_UPDATE       ))
 
 /* A connection is established when no more handshake-related flags are
    sent.  Specifically: The connection preface was sent, the peer's
@@ -133,8 +136,9 @@ fd_h2_rx( fd_h2_conn_t *            conn,
    expires. */
 
 void
-fd_h2_tx_control( fd_h2_conn_t * conn,
-                  fd_h2_rbuf_t * rbuf_tx );
+fd_h2_tx_control( fd_h2_conn_t *            conn,
+                  fd_h2_rbuf_t *            rbuf_tx,
+                  fd_h2_callbacks_t const * cb );
 
 /* fd_h2_tx_check_sz checks whether rbuf_tx has enough space to buffer
    a frame for sending.  frame_max is the max frame size to check for.
@@ -193,10 +197,9 @@ fd_h2_tx_commit( fd_h2_conn_t *       conn,
   uchar * buf1  = rbuf_tx->buf1;
   ulong   bufsz = rbuf_tx->bufsz;
   uchar * frame = conn->tx_frame_p;
-  uchar * sz0   = frame+1;
-  uchar * sz1   = frame+2;
+  uchar * sz0   = frame;
+  uchar * sz1   = frame+1;
   uchar * sz2   = frame+2;
-  sz0 = sz0>=buf1 ? sz0-bufsz : sz0;
   sz1 = sz1>=buf1 ? sz1-bufsz : sz1;
   sz2 = sz2>=buf1 ? sz2-bufsz : sz2;
 

@@ -69,7 +69,7 @@ test_cb_stream_create( fd_h2_conn_t * conn,
   (void)conn;
   fd_h2_stream_t * stream = g_app->stream;
   if( FD_UNLIKELY( stream->stream_id ) ) return NULL;
-  fd_h2_stream_init( stream, stream_id );
+  fd_h2_stream_open( fd_h2_stream_init( stream ), conn, stream_id );
   return stream;
 }
 
@@ -90,17 +90,22 @@ test_cb_conn_established( fd_h2_conn_t * conn ) {
 
 static void
 test_cb_conn_final( fd_h2_conn_t * conn,
-                    uint           h2_err ) {
-  (void)conn;
+                    uint           h2_err,
+                    int            closed_by ) {
+  (void)conn; (void)closed_by;
   FD_LOG_NOTICE(( "HTTP/2 conn closed (%u-%s)", h2_err, fd_h2_strerror( h2_err ) ));
 }
 
 static void
 test_cb_rst_stream( fd_h2_conn_t *   conn,
                     fd_h2_stream_t * stream,
-                    uint             error_code ) {
+                    uint             error_code,
+                    int              closed_by ) {
   (void)conn;
-  FD_LOG_NOTICE(( "Request %u: received RST_STREAM (%u-%s)", stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+  FD_LOG_NOTICE(( "Request %u: %s RST_STREAM (%u-%s)",
+                  stream->stream_id,
+                  closed_by ? "received" : "sending",
+                  error_code, fd_h2_strerror( error_code ) ));
   memset( g_app->tx_op, 0, sizeof(fd_h2_tx_op_t) );
 }
 
@@ -216,7 +221,7 @@ handle_conn( int tcp_sock ) {
   fd_h2_rbuf_init( rbuf_tx, tx_buf, sizeof(tx_buf) );
 
   for(;;) {
-    fd_h2_tx_control( conn, rbuf_tx );
+    fd_h2_tx_control( conn, rbuf_tx, &test_h2_callbacks );
 
     while( fd_h2_rbuf_used_sz( rbuf_tx ) ) {
       int err = fd_h2_rbuf_sendmsg( rbuf_tx, tcp_sock, MSG_NOSIGNAL );
