@@ -208,6 +208,11 @@ typedef struct {
       uchar raw[ 63679UL ]; /* The largest that fits in 1 FEC set */
     };
   } pending_batch;
+
+  fd_shred_features_activation_t features_activation[1];
+  /* too large to be left in the stack */
+  fd_shred_dest_idx_t scratchpad_dests[ FD_SHRED_DEST_MAX_FANOUT*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
+
 } fd_shred_ctx_t;
 
 /* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
@@ -303,8 +308,8 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
-
+  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) return  (fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) &
+                                                                      (fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT);
   return 0;
 }
 
@@ -343,118 +348,135 @@ during_frag( fd_shred_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
-    /* This is a frag from the PoH tile.  We'll copy it to our pending
-       microblock batch and shred it if necessary (last in block or
-       above watermark).  We just go ahead and shred it here, even
-       though we may get overrun.  If we do end up getting overrun, we
-       just won't send these shreds out and we'll reuse the FEC set for
-       the next one.  From a higher level though, if we do get overrun,
-       a bunch of shreds will never be transmitted, and we'll end up
-       producing a block that never lands on chain. */
-    fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
+    if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_FEAT_ACT_SLOT) ) ) {
+      /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
+          the shred tile needs to be aware of.  Since this requires the
+          bank, we are forced (so far) to receive them from the poh tile
+          (as a POH_PKT_TYPE_FEAT_ACT_SLOT).  This is not elegant, and it
+          should be revised in the future (TODO), but it provides a
+          "temporary" working solution to handle features activation. */
+      uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_features_activation_t)) ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+              ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_POH_SHRED_MTU ||
-        sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-            ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-    fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
-    uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
-    ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
-
-    fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
-
-    /* It should never be possible for this to fail, but we check it
-       anyway. */
-    FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
-
-    ulong target_slot = fd_disco_poh_sig_slot( sig );
-    if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
-      /* TODO: The Agave client sends a dummy entry batch with only 1
-         byte and the block-complete bit set.  This helps other
-         validators know that the block is dead and they should not try
-         to continue building a fork on it.  We probably want a similar
-         approach eventually. */
-      FD_LOG_WARNING(( "Abandoning %lu microblocks for slot %lu and switching to slot %lu",
-            ctx->pending_batch.microblock_cnt, ctx->pending_batch.slot, target_slot ));
-      ctx->pending_batch.slot           = 0UL;
-      ctx->pending_batch.pos            = 0UL;
-      ctx->pending_batch.microblock_cnt = 0UL;
-      ctx->pending_batch.txn_cnt        = 0UL;
-      ctx->batch_cnt                    = 0UL;
-
-      FD_MCNT_INC( SHRED, MICROBLOCKS_ABANDONED, 1UL );
+      fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
+      fd_memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
     }
+    else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
+      /* This is a frag from the PoH tile.  We'll copy it to our pending
+        microblock batch and shred it if necessary (last in block or
+        above watermark).  We just go ahead and shred it here, even
+        though we may get overrun.  If we do end up getting overrun, we
+        just won't send these shreds out and we'll reuse the FEC set for
+        the next one.  From a higher level though, if we do get overrun,
+        a bunch of shreds will never be transmitted, and we'll end up
+        producing a block that never lands on chain. */
+      fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
-    ctx->pending_batch.slot = target_slot;
-    if( FD_UNLIKELY( target_slot!=ctx->slot )) {
-      /* Reset batch count if we are in a new slot */
-      ctx->batch_cnt = 0UL;
-      ctx->slot      = target_slot;
-    }
-    if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
-      /* Ugh, yet another memcpy */
-      fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
-    } else {
-      /* If we are not processing this batch, filter */
-      ctx->skip_frag = 1;
-    }
-    ctx->pending_batch.pos            += entry_sz;
-    ctx->pending_batch.microblock_cnt += 1UL;
-    ctx->pending_batch.txn_cnt        += microblock->txn_cnt;
+      uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_POH_SHRED_MTU ||
+          sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+              ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    int last_in_batch = entry_meta->block_complete | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
+      fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
+      uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
+      ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
 
-    ctx->send_fec_set_idx = ULONG_MAX;
-    if( FD_UNLIKELY( last_in_batch )) {
-      if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
-        /* If it's our turn, shred this batch. FD_UNLIKELY because shred tile cnt generally >= 2 */
-        ulong batch_sz = sizeof(ulong)+ctx->pending_batch.pos;
+      fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
 
-        /* We sized this so it fits in one FEC set */
-        long shredding_timing =  -fd_tickcount();
+      /* It should never be possible for this to fail, but we check it
+        anyway. */
+      FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
 
-        if( FD_UNLIKELY( entry_meta->block_complete && batch_sz < FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ ) ) {
+      ulong target_slot = fd_disco_poh_sig_slot( sig );
+      if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
+        /* TODO: The Agave client sends a dummy entry batch with only 1
+          byte and the block-complete bit set.  This helps other
+          validators know that the block is dead and they should not try
+          to continue building a fork on it.  We probably want a similar
+          approach eventually. */
+        FD_LOG_WARNING(( "Abandoning %lu microblocks for slot %lu and switching to slot %lu",
+              ctx->pending_batch.microblock_cnt, ctx->pending_batch.slot, target_slot ));
+        ctx->pending_batch.slot           = 0UL;
+        ctx->pending_batch.pos            = 0UL;
+        ctx->pending_batch.microblock_cnt = 0UL;
+        ctx->pending_batch.txn_cnt        = 0UL;
+        ctx->batch_cnt                    = 0UL;
 
-          /* Ensure the last batch generates >= 32 data shreds by
-             padding with 0s. Because the last FEC set is "oddly sized"
-             we only expect this code path to execute for blocks
-             containing less data than can fill 32 data shred payloads
-             (hence FD_UNLIKELY).
-
-             See documentation for FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ
-             for further context. */
-
-          fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ - batch_sz );
-          batch_sz = FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
-        }
-
-        fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
-        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out ) );
-        fd_shredder_fini_batch( ctx->shredder );
-        shredding_timing      +=  fd_tickcount();
-
-        d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
-        p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( out->parity_shred_rcvd ) ) ) );
-        ctx->shredded_txn_cnt = ctx->pending_batch.txn_cnt;
-
-        ctx->send_fec_set_idx = ctx->shredder_fec_set_idx;
-
-        /* Update metrics */
-        fd_histf_sample( ctx->metrics->batch_sz,             batch_sz                          );
-        fd_histf_sample( ctx->metrics->batch_microblock_cnt, ctx->pending_batch.microblock_cnt );
-        fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
-      } else {
-        /* If it's not our turn, update the indices for this slot */
-        fd_shredder_skip_batch( ctx->shredder, sizeof(ulong)+ctx->pending_batch.pos, target_slot );
+        FD_MCNT_INC( SHRED, MICROBLOCKS_ABANDONED, 1UL );
       }
 
-      ctx->pending_batch.slot           = 0UL;
-      ctx->pending_batch.pos            = 0UL;
-      ctx->pending_batch.microblock_cnt = 0UL;
-      ctx->pending_batch.txn_cnt        = 0UL;
-      ctx->batch_cnt++;
+      ctx->pending_batch.slot = target_slot;
+      if( FD_UNLIKELY( target_slot!=ctx->slot )) {
+        /* Reset batch count if we are in a new slot */
+        ctx->batch_cnt = 0UL;
+        ctx->slot      = target_slot;
+      }
+      if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
+        /* Ugh, yet another memcpy */
+        fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
+      } else {
+        /* If we are not processing this batch, filter */
+        ctx->skip_frag = 1;
+      }
+      ctx->pending_batch.pos            += entry_sz;
+      ctx->pending_batch.microblock_cnt += 1UL;
+      ctx->pending_batch.txn_cnt        += microblock->txn_cnt;
+
+      int last_in_batch = entry_meta->block_complete | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
+
+      ctx->send_fec_set_idx = ULONG_MAX;
+      if( FD_UNLIKELY( last_in_batch )) {
+        if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
+          /* If it's our turn, shred this batch. FD_UNLIKELY because shred tile cnt generally >= 2 */
+          ulong batch_sz = sizeof(ulong)+ctx->pending_batch.pos;
+
+          /* We sized this so it fits in one FEC set */
+          long shredding_timing =  -fd_tickcount();
+
+          if( FD_UNLIKELY( entry_meta->block_complete && batch_sz < FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ ) ) {
+
+            /* Ensure the last batch generates >= 32 data shreds by
+              padding with 0s. Because the last FEC set is "oddly sized"
+              we only expect this code path to execute for blocks
+              containing less data than can fill 32 data shred payloads
+              (hence FD_UNLIKELY).
+
+              See documentation for FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ
+              for further context. */
+
+            fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ - batch_sz );
+            batch_sz = FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
+          }
+
+          fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
+          FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out ) );
+          fd_shredder_fini_batch( ctx->shredder );
+          shredding_timing      +=  fd_tickcount();
+
+          d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
+          p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( out->parity_shred_rcvd ) ) ) );
+          ctx->shredded_txn_cnt = ctx->pending_batch.txn_cnt;
+
+          ctx->send_fec_set_idx = ctx->shredder_fec_set_idx;
+
+          /* Update metrics */
+          fd_histf_sample( ctx->metrics->batch_sz,             batch_sz                          );
+          fd_histf_sample( ctx->metrics->batch_microblock_cnt, ctx->pending_batch.microblock_cnt );
+          fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
+        } else {
+          /* If it's not our turn, update the indices for this slot */
+          fd_shredder_skip_batch( ctx->shredder, sizeof(ulong)+ctx->pending_batch.pos, target_slot );
+        }
+
+        ctx->pending_batch.slot           = 0UL;
+        ctx->pending_batch.pos            = 0UL;
+        ctx->pending_batch.microblock_cnt = 0UL;
+        ctx->pending_batch.txn_cnt        = 0UL;
+        ctx->batch_cnt++;
+      }
     }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     /* The common case, from the net tile.  The FEC resolver API does
@@ -553,8 +575,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
-  const ulong fanout = 200UL;
-  fd_shred_dest_idx_t _dests[ 200*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
+  ulong fanout = 200UL; /* Default Agave's DATA_PLANE_FANOUT = 200UL */
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     uchar * shred_buffer    = ctx->shred_buffer;
@@ -580,9 +601,41 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
 
+    /* Fanout is subject to feature activation. The code below replicates
+        Agave's get_data_plane_fanout() in turbine/src/cluster_nodes.rs
+        on 2025-03-25. Default Agave's DATA_PLANE_FANOUT = 200UL.
+        TODO once the experiments are disabled, consider removing these
+        fanout variations from the code. */
+    if( FD_LIKELY( shred->slot >= ctx->features_activation->disable_turbine_fanout_experiments ) ) {
+      fanout = 200UL;
+    } else {
+      if( FD_LIKELY( shred->slot >= ctx->features_activation->enable_turbine_extended_fanout_experiments ) ) {
+        switch( shred->slot % 359 ) {
+          case  11UL: fanout = 1152UL;  break;
+          case  61UL: fanout = 1280UL;  break;
+          case 111UL: fanout = 1024UL;  break;
+          case 161UL: fanout = 1408UL;  break;
+          case 211UL: fanout =  896UL;  break;
+          case 261UL: fanout = 1536UL;  break;
+          case 311UL: fanout =  768UL;  break;
+          default   : fanout =  200UL;
+        }
+      } else {
+        switch( shred->slot % 359 ) {
+          case  11UL: fanout =   64UL;  break;
+          case  61UL: fanout =  768UL;  break;
+          case 111UL: fanout =  128UL;  break;
+          case 161UL: fanout =  640UL;  break;
+          case 211UL: fanout =  256UL;  break;
+          case 261UL: fanout =  512UL;  break;
+          case 311UL: fanout =  384UL;  break;
+          default   : fanout =  200UL;
+        }
+      }
+    }
+
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
       /* Relay this shred */
-      ulong fanout = 200UL;
       ulong max_dest_cnt[1];
       do {
         /* If we've validated the shred and it COMPLETES but we can't
@@ -590,7 +643,7 @@ after_frag( fd_shred_ctx_t *    ctx,
            the shred, but still send it to the blockstore. */
         fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
         if( FD_UNLIKELY( !sdest ) ) break;
-        fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
+        fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
         if( FD_UNLIKELY( !dests ) ) break;
 
         for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
@@ -698,11 +751,14 @@ after_frag( fd_shred_ctx_t *    ctx,
   fd_shred_dest_idx_t * dests;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     out_stride = k;
-    dests = fd_shred_dest_compute_children( sdest, new_shreds, k, _dests, k, fanout, fanout, max_dest_cnt );
+    /* In the case of feature activation, the fanout used below is
+        the same as the one calculated/modified previously at the
+        begining of after_frag() for IN_KIND_NET in this slot. */
+    dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
   } else {
     out_stride = 1UL;
     *max_dest_cnt = 1UL;
-    dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, _dests );
+    dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
   }
   if( FD_UNLIKELY( !dests ) ) return;
 
@@ -943,6 +999,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_batch.pos            = 0UL;
   ctx->pending_batch.slot           = 0UL;
   fd_memset( ctx->pending_batch.payload, 0, sizeof(ctx->pending_batch.payload) );
+
+  for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ )
+    ctx->features_activation->slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

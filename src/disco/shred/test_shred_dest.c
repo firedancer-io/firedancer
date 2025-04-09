@@ -156,7 +156,7 @@ test_distribution_is_tree( fd_shred_dest_weighted_t const * info, ulong cnt, fd_
     }
 
     for( ulong i=0; i<dest_cnt; i++ ) {
-      ushort child = out[i];
+      fd_shred_dest_idx_t child = out[i];
       if( FD_LIKELY( child != FD_SHRED_DEST_NO_DEST ) ) {
         FD_TEST( !hit[child] );
         hit[child] = 1;
