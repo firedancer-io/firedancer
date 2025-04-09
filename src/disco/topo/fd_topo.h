@@ -291,6 +291,8 @@ typedef struct {
       ulong exec_tile_count;
       ulong full_interval;
       ulong incremental_interval;
+      ulong replay_end_slot;
+      char  replay_type[ PATH_MAX ];
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
@@ -365,7 +367,8 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
-      ulong shred_cap_end_slot;
+      ulong replay_end_slot;
+      char  rocksdb[ PATH_MAX ];
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_restore[ PATH_MAX ];

@@ -411,13 +411,15 @@ struct fd_config {
       ulong tpool_thread_count;
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
+      ulong replay_end_slot;
+      char  replay_type[ PATH_MAX ];
     } replay;
 
     struct {
       char  slots_pending[PATH_MAX];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
-      ulong shred_cap_end_slot;
+      char  rocksdb[ PATH_MAX ];
     } store_int;
 
     struct {
