@@ -126,6 +126,18 @@ struct __attribute__((packed)) fd_h2_goaway {
 typedef struct fd_h2_goaway fd_h2_goaway_t;
 
 
+/* fd_h2_window_update_t matches the encoding of a WINDOW_UPDATE frame.
+   https://www.rfc-editor.org/rfc/rfc9113.html#name-window_update */
+
+struct __attribute__((packed)) fd_h2_window_update {
+  fd_h2_frame_hdr_t hdr;
+
+  uint increment;
+};
+
+typedef struct fd_h2_window_update fd_h2_window_update_t;
+
+
 /* fd_h2_rst_stream_t matches the encoding of a RST_STREAM frame.
    https://www.rfc-editor.org/rfc/rfc9113.html#name-rst_stream */
 

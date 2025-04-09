@@ -55,7 +55,7 @@ test_h2_client_handshake( void ) {
 
   fd_h2_rbuf_t rbuf_tx[1];
   fd_h2_rbuf_init( rbuf_tx, rbuf_tx_b, sizeof(rbuf_tx_b) );
-  fd_h2_tx_control( conn, rbuf_tx );
+  fd_h2_tx_control( conn, rbuf_tx, cb );
   FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==69 );
   uchar * hello = fd_h2_rbuf_pop( rbuf_tx, scratch, 69 );
   FD_TEST( fd_memeq( hello, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24 ) );
@@ -85,8 +85,8 @@ test_h2_client_handshake( void ) {
   FD_TEST( fd_memeq( hello+24, settings_frame_expected, sizeof(settings_frame_expected) ) );
 
   FD_TEST( conn->flags == (FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 | FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0) );
-  fd_h2_tx_control( conn, rbuf_tx );
-  fd_h2_tx_control( conn, rbuf_tx );
+  fd_h2_tx_control( conn, rbuf_tx, cb );
+  fd_h2_tx_control( conn, rbuf_tx, cb );
   FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==0 );
 
   /* Server: SETTINGS, SETTINGS ACK */
@@ -134,7 +134,7 @@ test_h2_client_handshake( void ) {
   FD_TEST( fd_memeq( settings_ack, settings_ack_expected, sizeof(settings_ack_expected) ) );
 
   FD_TEST( conn->flags == FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 );
-  fd_h2_tx_control( conn, rbuf_tx );
+  fd_h2_tx_control( conn, rbuf_tx, cb );
   FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==0 );
 
   FD_TEST( cb_rec.cb_established_cnt==0 );
@@ -142,7 +142,7 @@ test_h2_client_handshake( void ) {
   fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
   FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==0 );
   FD_TEST( conn->flags == 0 );
-  fd_h2_tx_control( conn, rbuf_tx );
+  fd_h2_tx_control( conn, rbuf_tx, cb );
   FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==0 );
   FD_TEST( cb_rec.cb_established_cnt==1 );
 

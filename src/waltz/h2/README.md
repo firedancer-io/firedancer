@@ -33,6 +33,15 @@ requests before seeing our SETTINGS.  The second request might reuse a
 header from the first request via HPACK, but fd_h2 does not understand
 this.
 
+**END_STREAM / CONTINUATION state**
+
+> A HEADERS frame with the END_STREAM flag set signals the end of a stream.
+> However, a HEADERS frame with the END_STREAM flag set can be followed by
+> CONTINUATION frames on the same stream. Logically, the CONTINUATION frames
+> are part of the HEADERS frame.
+
+fd_h2 does not support this correctly.
+
 ## HTTP/2 quirks
 
 This section points out a few HTTP/2 quirks in general.
@@ -51,3 +60,14 @@ out-of-band data.
 In the HTTP/2 framing layer, the server may initiate streams.  This is
 unrelated to server push or regular responses.  In HTTP semantics, this
 is as if the HTTP server sent HTTP requests to the client.
+
+## Coverage
+
+```shell
+CORPUS=~/corpus/fuzz_h2 # change this
+make CC=clang EXTRAS=llvm-cov BUILDDIR=clang-cov -j build/clang-cov/fuzz-test/fuzz_h2 && \
+  build/clang-cov/fuzz-test/fuzz_h2 $CORPUS && \
+  llvm-profdata merge -o cov.profdata default.profraw && \
+  llvm-cov export -format=lcov --instr-profile cov.profdata build/clang-cov/fuzz-test/fuzz_h2 > cov.lcov && \
+  genhtml --output report cov.lcov
+```

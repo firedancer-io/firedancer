@@ -3,17 +3,18 @@
 
 /* fd_h2_stream.h provides the HTTP/2 stream state machine. */
 
+#include "fd_h2_base.h"
 #include "fd_h2_proto.h"
 #include "fd_h2_conn.h"
 
 /* The fd_h2_stream_t object holds the stream state machine.  */
 
 struct fd_h2_stream {
-  uint  stream_id;
+  uint stream_id;
+  uint tx_wnd; /* transmit quota available */
+
   uchar state;
   uchar hdrs_seq;
-
-  uint tx_wnd; /* transmit quota available */
 };
 
 #define FD_H2_STREAM_STATE_IDLE       0
@@ -50,6 +51,29 @@ fd_h2_stream_open( fd_h2_stream_t *     stream,
     .hdrs_seq  = 0U
   };
   return stream;
+}
+
+static inline void
+fd_h2_stream_error1( fd_h2_rbuf_t * rbuf_tx,
+                     uint           stream_id,
+                     uint           h2_err ) {
+  fd_h2_rst_stream_t rst_stream = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
+      .flags       = 0U,
+      .r_stream_id = fd_uint_bswap( stream_id )
+    },
+    .error_code = fd_uint_bswap( h2_err )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+}
+
+static inline void
+fd_h2_stream_error( fd_h2_stream_t * stream,
+                    fd_h2_rbuf_t *   rbuf_tx,
+                    uint             h2_err ) {
+  fd_h2_stream_error1( rbuf_tx, stream->stream_id, h2_err );
+  stream->state = FD_H2_STREAM_STATE_CLOSED;
 }
 
 static inline void
@@ -113,6 +137,7 @@ fd_h2_stream_rx_headers( fd_h2_stream_t * stream,
                          fd_h2_conn_t *   conn,
                          ulong            flags ) {
   if( stream->state == FD_H2_STREAM_STATE_IDLE ) {
+    /* FIXME This is probably redundant */
     stream->state = FD_H2_STREAM_STATE_OPEN;
   }
   if( flags & FD_H2_FLAG_END_STREAM ) {

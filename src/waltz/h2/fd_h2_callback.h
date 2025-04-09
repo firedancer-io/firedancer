@@ -39,7 +39,8 @@ struct fd_h2_callbacks {
 
   void
   (* conn_final)( fd_h2_conn_t * conn,
-                  uint           h2_err );
+                  uint           h2_err,
+                  int            closed_by );  /* 0=local 1=peer */
 
   /* headers delivers a chunk of incoming HPACK-encoded header data.
      the low bits of flags are the frame flags (e.g. END_STREAM or
@@ -63,13 +64,14 @@ struct fd_h2_callbacks {
             ulong            data_sz,
             ulong            flags );
 
-  /* rst_stream signals peer-requested termination of a stream.  The app
-     should call fd_h2_stream_close on this stream. */
+  /* rst_stream signals termination of a stream.  The callee should
+     deallocate the stream object and cease writing on it. */
 
   void
   (* rst_stream)( fd_h2_conn_t *   conn,
                   fd_h2_stream_t * stream,
-                  uint             error_code );
+                  uint             error_code,
+                  int              closed_by );  /* 0=local 1=peer */
 
   /* window_update delivers a conn-level WINDOW_UPDATE frame. */
 
@@ -110,7 +112,8 @@ fd_h2_noop_conn_established( fd_h2_conn_t * conn );
 
 void
 fd_h2_noop_conn_final( fd_h2_conn_t * conn,
-                       uint           h2_err );
+                       uint           h2_err,
+                       int            closed_by );
 
 void
 fd_h2_noop_headers( fd_h2_conn_t *   conn,
@@ -129,7 +132,8 @@ fd_h2_noop_data( fd_h2_conn_t *   conn,
 void
 fd_h2_noop_rst_stream( fd_h2_conn_t *   conn,
                        fd_h2_stream_t * stream,
-                       uint             error_code );
+                       uint             error_code,
+                       int              closed_by );
 
 void
 fd_h2_noop_window_update( fd_h2_conn_t * conn,

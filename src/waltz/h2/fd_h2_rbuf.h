@@ -218,10 +218,10 @@ fd_h2_rbuf_pop_copy( fd_h2_rbuf_t * rbuf,
   ulong   bufsz = rbuf->bufsz;
   rbuf->lo_off += n;
   uchar * end = lo+n;
-  if( FD_UNLIKELY( end>=buf1 ) ) {
+  if( FD_UNLIKELY( (lo+n)>=buf1 ) ) {
     end -= bufsz;
   }
-  if( FD_UNLIKELY( end>buf1 ) ) {
+  if( FD_UNLIKELY( (lo+n)>buf1 ) ) {
     ulong part0 = (ulong)( buf1-lo );
     ulong part1 = n-part0;
     fd_memcpy(                  out,         lo,   part0 );

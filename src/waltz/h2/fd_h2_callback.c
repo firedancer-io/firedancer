@@ -22,8 +22,9 @@ fd_h2_noop_conn_established( fd_h2_conn_t * conn ) {
 
 void
 fd_h2_noop_conn_final( fd_h2_conn_t * conn,
-                       uint           h2_err ) {
-  (void)conn; (void)h2_err;
+                       uint           h2_err,
+                       int            closed_by ) {
+  (void)conn; (void)h2_err; (void)closed_by;
 }
 
 void
@@ -47,8 +48,9 @@ fd_h2_noop_data( fd_h2_conn_t *   conn,
 void
 fd_h2_noop_rst_stream( fd_h2_conn_t *   conn,
                        fd_h2_stream_t * stream,
-                       uint             error_code ) {
-  (void)conn; (void)stream; (void)error_code;
+                       uint             error_code,
+                       int              closed_by ) {
+  (void)conn; (void)stream; (void)error_code; (void)closed_by;
 }
 
 void
