@@ -231,14 +231,14 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      rec_map_gaddr is the wksp gaddr of the fd_funk_rec_map_t used by
      this funk. */
 
-  ulong rec_max;
+  uint rec_max;
   ulong rec_map_gaddr; /* Non-zero wksp gaddr with tag wksp_tag
                           seed   ==fd_funk_rec_map_seed   (rec_map)
                           rec_max==fd_funk_rec_map_key_max(rec_map) */
   ulong rec_pool_gaddr;
   ulong rec_ele_gaddr;
-  ulong rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
-  ulong rec_tail_idx;  /* "                       last          " */
+  uint rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
+  uint rec_tail_idx;  /* "                       last          " */
 
   /* The funk alloc is used for allocating wksp resources for record
      values.  This is a fd_alloc and more details are given in
@@ -270,7 +270,7 @@ fd_funk_align( void );
 
 FD_FN_CONST ulong
 fd_funk_footprint( ulong txn_max,
-                   ulong rec_max );
+                   uint  rec_max );
 
 /* fd_wksp_new formats an unused wksp allocation with the appropriate
    alignment and footprint as a funk.  Caller is not joined on return.
@@ -290,7 +290,7 @@ fd_funk_new( void * shmem,
              ulong  wksp_tag,
              ulong  seed,
              ulong  txn_max,
-             ulong  rec_max );
+             uint   rec_max );
 
 /* fd_funk_join joins the caller to a funk instance.  shfunk points to
    the first byte of the memory region backing the funk in the caller's
@@ -430,7 +430,7 @@ fd_funk_last_publish_is_frozen( fd_funk_t const * funk ) {
    in the funk.  This includes both records of the last published
    transaction and records for transactions that are in-flight. */
 
-FD_FN_PURE static inline ulong fd_funk_rec_max( fd_funk_t * funk ) { return funk->rec_max; }
+FD_FN_PURE static inline uint fd_funk_rec_max( fd_funk_t * funk ) { return funk->rec_max; }
 
 /* fd_funk_rec_map returns the funk's record map join. This
    join can copied by value and is generally stored as a stack variable. */

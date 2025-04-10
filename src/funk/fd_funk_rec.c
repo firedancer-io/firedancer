@@ -236,17 +236,17 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 void
 fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_t * rec = prepare->rec;
-  ulong * rec_head_idx = prepare->rec_head_idx;
-  ulong * rec_tail_idx = prepare->rec_tail_idx;
+  uint * rec_head_idx = prepare->rec_head_idx;
+  uint * rec_tail_idx = prepare->rec_tail_idx;
   fd_funk_rec_map_t rec_map = fd_funk_rec_map( prepare->funk, prepare->wksp );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
 
   /* We need a global lock to protect the prev/next update */
   fd_funk_rec_pool_lock( &rec_pool, 1 );
 
-  ulong rec_prev_idx;
-  ulong rec_idx = (ulong)( rec - rec_pool.ele );
-  rec_prev_idx = *rec_tail_idx;
+  uint rec_prev_idx;
+  uint rec_idx  = (uint)( rec - rec_pool.ele );
+  rec_prev_idx  = *rec_tail_idx;
   *rec_tail_idx = rec_idx;
   rec->prev_idx = rec_prev_idx;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
@@ -346,8 +346,8 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
     break;
   }
 
-  ulong prev_idx = rec->prev_idx;
-  ulong next_idx = rec->next_idx;
+  uint prev_idx = rec->prev_idx;
+  uint next_idx = rec->next_idx;
   if( txn == NULL ) {
     if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
     else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
@@ -485,8 +485,8 @@ fd_funk_rec_forget( fd_funk_t *      funk,
       break;
     }
 
-    ulong prev_idx = rec->prev_idx;
-    ulong next_idx = rec->next_idx;
+    uint prev_idx = rec->prev_idx;
+    uint next_idx = rec->next_idx;
     if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
     else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
     if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;

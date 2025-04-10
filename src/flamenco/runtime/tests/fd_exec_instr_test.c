@@ -91,7 +91,7 @@ fd_exec_instr_test_runner_align( void ) {
 ulong
 fd_exec_instr_test_runner_footprint( void ) {
   ulong txn_max = 4+fd_tile_cnt();
-  ulong rec_max = 1024UL;
+  uint rec_max = 1024;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
@@ -104,7 +104,7 @@ fd_exec_instr_test_runner_new( void * mem,
                                void * spad_mem,
                                ulong  wksp_tag ) {
   ulong txn_max = 4+fd_tile_cnt();
-  ulong rec_max = 1024UL;
+  uint  rec_max = 1024;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );

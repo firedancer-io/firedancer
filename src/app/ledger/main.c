@@ -52,7 +52,7 @@ struct fd_ledger_args {
   ulong                 shred_max;               /* maximum number of shreds*/
   ulong                 slot_history_max;        /* number of slots stored by blockstore*/
   ulong                 txns_max;                /* txns_max*/
-  ulong                 index_max;               /* size of funk index (same as rec max) */
+  uint                  index_max;               /* size of funk index (same as rec max) */
   char const *          funk_file;               /* path to funk backing store */
   ulong                 funk_page_cnt;
   fd_funk_close_file_args_t funk_close_args;
@@ -1367,7 +1367,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        page_cnt              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",              NULL, 5                                                  );
   int          reset                 = fd_env_strip_cmdline_int   ( &argc, &argv, "--reset",                 NULL, 0                                                  );
   char const * cmd                   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cmd",                   NULL, NULL                                               );
-  ulong        index_max             = fd_env_strip_cmdline_ulong ( &argc, &argv, "--index-max",             NULL, 450000000                                          );
+  uint        index_max              = fd_env_strip_cmdline_uint  ( &argc, &argv, "--index-max",             NULL, 450000000                                          );
   ulong        txns_max              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--txn-max",               NULL,      1000                                          );
   char const * funk_file             = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--funk-file",             NULL, NULL                                               );
   int          verify_funk           = fd_env_strip_cmdline_int   ( &argc, &argv, "--verify-funky",          NULL, 0                                                  );

@@ -324,7 +324,8 @@ main( int     argc,
   int lg_max_naccts   = fd_ulong_find_msb( fd_ulong_pow2_up( FD_TXN_CONFLICT_MAP_MAX_NACCT ) );
   void * acct_map_mem = fd_wksp_alloc_laddr( wksp, fd_conflict_detect_map_align(), fd_conflict_detect_map_footprint( lg_max_naccts ), 1234UL );
   void * acct_arr_mem = fd_wksp_alloc_laddr( wksp, 32UL, sizeof(fd_acct_addr_t)*FD_TXN_CONFLICT_MAP_MAX_NACCT, 1235UL );
-  ulong tag=2345UL, seed=5678UL, txn_max=1024, rec_max=1024;
+  ulong tag=2345UL, seed=5678UL, txn_max=1024;
+  uint rec_max=1024;
   void * funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), tag );
   FD_TEST( funk_mem );
   FD_TEST( acct_arr_mem );

@@ -8,7 +8,7 @@ fd_funk_align( void ) {
 
 ulong
 fd_funk_footprint( ulong txn_max,
-                      ulong rec_max ) {
+                   uint  rec_max ) {
 
   ulong l = FD_LAYOUT_INIT;
 
@@ -19,7 +19,7 @@ fd_funk_footprint( ulong txn_max,
   l = FD_LAYOUT_APPEND( l, fd_funk_txn_pool_align(), fd_funk_txn_pool_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_funk_txn_t), sizeof(fd_funk_txn_t) * txn_max );
 
-  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
+  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( (ulong)rec_max );
   l = FD_LAYOUT_APPEND( l, fd_funk_rec_map_align(), fd_funk_rec_map_footprint( rec_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_funk_rec_pool_align(), fd_funk_rec_pool_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_funk_rec_t), sizeof(fd_funk_rec_t) * rec_max );
@@ -38,7 +38,7 @@ fd_funk_new( void * shmem,
              ulong  wksp_tag,
              ulong  seed,
              ulong  txn_max,
-             ulong  rec_max ) {
+             uint   rec_max ) {
   fd_funk_t * funk = (fd_funk_t *)shmem;
   fd_wksp_t * wksp = fd_wksp_containing( funk );
 

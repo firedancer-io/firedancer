@@ -38,7 +38,7 @@
 /* FD_FUNK_REC_IDX_NULL gives the map record idx value used to represent
    NULL.  This value also set a limit on how large rec_max can be. */
 
-#define FD_FUNK_REC_IDX_NULL (ULONG_MAX)
+#define FD_FUNK_REC_IDX_NULL (UINT_MAX)
 
 /* A fd_funk_rec_t describes a funk record. */
 
@@ -53,8 +53,12 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
 
-  ulong prev_idx;  /* Record map index of previous record in its transaction */
-  ulong next_idx;  /* Record map index of next record in its transaction */
+  uint  prev_idx;  /* Record map index of previous record in its transaction */
+  uint  next_idx;  /* Record map index of next record in its transaction */
+
+  uint  accounts_lru_prev_idx; /* Record map idx of the next record in the accounts LRU dlist */
+  uint  accounts_lru_next_idx; /* Record map idx of the prev record in the accounts LRU dlist */
+
   uint  txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
   uint  tag;       /* Internal use only */
   ulong flags;     /* Flags that indicate how to interpret a record */
@@ -117,8 +121,8 @@ struct _fd_funk_rec_prepare {
   fd_funk_t *     funk;
   fd_wksp_t *     wksp;
   fd_funk_rec_t * rec;
-  ulong *         rec_head_idx;
-  ulong *         rec_tail_idx;
+  uint *          rec_head_idx;
+  uint *          rec_tail_idx;
 };
 
 typedef struct _fd_funk_rec_prepare fd_funk_rec_prepare_t;
@@ -128,7 +132,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_funk_rec_idx_is_null returns 1 if idx is FD_FUNK_REC_IDX_NULL and
    0 otherwise. */
 
-FD_FN_CONST static inline int fd_funk_rec_idx_is_null( ulong idx ) { return idx==FD_FUNK_REC_IDX_NULL; }
+FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==FD_FUNK_REC_IDX_NULL; }
 
 /* Accessors */
 
