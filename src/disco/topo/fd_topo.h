@@ -237,6 +237,10 @@ typedef struct {
     } shred;
 
     struct {
+      ulong depth; /* TODO expand */
+    } snp;
+
+    struct {
       ulong disable_blockstore_from_slot;
     } store;
 
