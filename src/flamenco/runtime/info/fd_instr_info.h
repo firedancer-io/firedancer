@@ -77,10 +77,13 @@ fd_instr_info_setup_instr_account( fd_instr_info_t * instr,
                                    ushort            idx_in_callee,
                                    uchar             is_writable,
                                    uchar             is_signer ) {
-  instr->is_duplicate[ idx_in_callee ] = acc_idx_seen[ idx_in_txn ];
-  if( FD_LIKELY( !acc_idx_seen[ idx_in_txn ] ) ) {
-    /* This is the first time seeing this account */
-    acc_idx_seen[ idx_in_txn ] = 1;
+  if( FD_LIKELY( idx_in_txn!=USHORT_MAX ) ) {
+    instr->is_duplicate[ idx_in_callee ] = acc_idx_seen[ idx_in_txn ];
+
+    if( FD_LIKELY( !acc_idx_seen[ idx_in_txn ] ) ) {
+      /* This is the first time seeing this account */
+      acc_idx_seen[ idx_in_txn ] = 1;
+    }
   }
 
   instr->accounts[ idx_in_callee ] = fd_instruction_account_init( idx_in_txn,
