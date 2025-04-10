@@ -584,6 +584,8 @@ dynamic_port_range = "8900-9000"
 #  - shred      Distributes block data to the network when leader, and
 #               receives and retransmits block data when not leader
 #
+# - snp         Implements the underlying logic of the snp protocol
+#
 #  - store      Receives block data when we are leader, or from other
 #               nodes when they are leader, and stores it locally in a
 #               database on disk
@@ -786,6 +788,9 @@ dynamic_port_range = "8900-9000"
     # development and benchmarking, 1 tile is also sufficient to hit
     # very high TPS rates because the cluster size will be very small.
     shred_tile_count = 1
+
+    # TODO adjust
+    snp_tile_count = 1
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
@@ -1197,6 +1202,11 @@ dynamic_port_range = "8900-9000"
         # is broadcast over gossip so other validators know how to reach
         # this one.
         shred_listen_port = 8003
+
+    # The snp tile implements the underlying logic of the snp protocol,
+    # as a separate tile.
+    [tiles.snp]
+        # TODO expand comment.
 
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP

@@ -278,6 +278,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
+  CFG_POP      ( uint,   layout.snp_tile_count                            );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
   CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );
@@ -476,6 +477,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+  CFG_HAS_NON_ZERO ( layout.snp_tile_count );
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );

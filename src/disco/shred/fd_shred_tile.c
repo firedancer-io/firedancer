@@ -87,11 +87,11 @@
 #define IN_KIND_CONTACT (0UL)
 #define IN_KIND_STAKE   (1UL)
 #define IN_KIND_POH     (2UL)
-#define IN_KIND_NET     (3UL)
+#define IN_KIND_SNP     (3UL)
 #define IN_KIND_SIGN    (4UL)
 
 #define STORE_OUT_IDX   0
-#define NET_OUT_IDX     1
+#define SNP_OUT_IDX     1
 #define SIGN_OUT_IDX    2
 #define REPLAY_OUT_IDX  3
 
@@ -319,7 +319,7 @@ before_frag( fd_shred_ctx_t * ctx,
              ulong            sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
   else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
 
   return 0;
@@ -472,7 +472,7 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->pending_batch.txn_cnt        = 0UL;
       ctx->batch_cnt++;
     }
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
     /* The common case, from the net tile.  The FEC resolver API does
        not present a prepare/commit model. If we get overrun between
        when the FEC resolver verifies the signature and when it stores
@@ -612,7 +612,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   const ulong fanout = 200UL;
   fd_shred_dest_idx_t _dests[ 200*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
@@ -712,7 +712,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ i ] );
       fd_blockstore_shred_insert( ctx->blockstore, data_shred );
     }
-    if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+    if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
       /* Shred came from block we didn't produce. This is not our leader
          slot. */
       fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( ctx->shred_buffer );
@@ -727,7 +727,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   }
 
   /* Send to the blockstore, skipping any empty shred34_t s. */
-  ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
+  ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_SNP; /* sig==0 means the store tile will do extra checks */
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
@@ -752,7 +752,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   ulong out_stride;
   ulong max_dest_cnt[1];
   fd_shred_dest_idx_t * dests;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
     out_stride = k;
     dests = fd_shred_dest_compute_children( sdest, new_shreds, k, _dests, k, fanout, fanout, max_dest_cnt );
   } else {
@@ -794,11 +794,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_LIKELY( tile->out_cnt==3UL ) ) { /* frankendancer */
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[STORE_OUT_IDX]].name,  "shred_store"  ) );
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "shred_net"    ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SNP_OUT_IDX]].name,    "shred_snp"    ) );
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "shred_sign"   ) );
   } else if( FD_LIKELY( tile->out_cnt==4UL ) ) { /* firedancer */
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[STORE_OUT_IDX]].name,  "shred_storei"  ) );
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "shred_net"    ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SNP_OUT_IDX]].name,    "shred_snp"    ) );
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "shred_sign"   ) );
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[REPLAY_OUT_IDX]].name, "shred_replay" ) );
   } else {
@@ -935,7 +935,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "net_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
+    if( FD_LIKELY(      !strcmp( link->name, "snp_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNP;
     else if( FD_LIKELY( !strcmp( link->name, "poh_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
@@ -947,7 +947,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ SNP_OUT_IDX ] ];
 
   ctx->net_out_mcache = net_out->mcache;
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );

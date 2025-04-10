@@ -229,6 +229,7 @@ struct fd_config {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint snp_tile_count;
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
   } layout;
 
@@ -372,6 +373,10 @@ struct fd_config {
       uint   max_pending_shred_sets;
       ushort shred_listen_port;
     } shred;
+
+    struct {
+      uint   dummy; /* TODO */
+    } snp;
 
     struct {
       char   prometheus_listen_address[ 16 ];
