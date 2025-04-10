@@ -39,7 +39,7 @@ fd_funk_open_file( const char * filename,
                       ulong        wksp_tag,
                       ulong        seed,
                       ulong        txn_max,
-                      ulong        rec_max,
+                      uint         rec_max,
                       ulong        total_sz,
                       fd_funk_file_mode_t mode,
                       fd_funk_close_file_args_t * close_args_out );
