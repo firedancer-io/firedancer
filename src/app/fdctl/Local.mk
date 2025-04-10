@@ -30,7 +30,7 @@ endif
 
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
-.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash
+.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash
 
 # fdctl comands
 $(call add-objs,commands/run_agave,fd_fdctl)
@@ -39,7 +39,7 @@ $(call add-objs,commands/run_agave,fd_fdctl)
 $(call make-lib,fdctl_version)
 $(call add-objs,version,fdctl_version)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco agave_validator firedancer_plugin_bundle fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util fdctl_version)
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
@@ -54,7 +54,6 @@ check-agave-hash:
 cargo-validator: check-agave-hash
 cargo-solana: check-agave-hash
 cargo-ledger-tool: check-agave-hash
-cargo-plugin-bundle: check-agave-hash
 
 # Cargo build cannot cache the prior build if the command line changes,
 # for example if we did,
@@ -68,8 +67,6 @@ cargo-plugin-bundle: check-agave-hash
 # with one cargo command, even if the dependency could be more fine
 # grained.
 ifeq ($(RUST_PROFILE),release)
-cargo-plugin-bundle:
-    cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p agave-validator
 cargo-solana:
@@ -77,8 +74,6 @@ cargo-solana:
 cargo-ledger-tool:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --bin agave-ledger-tool
 else ifeq ($(RUST_PROFILE),release-with-debug)
-cargo-plugin-bundle:
-	cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ../../agave/cargo build --profile=release-with-debug --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p agave-validator
 cargo-solana:
@@ -86,8 +81,6 @@ cargo-solana:
 cargo-ledger-tool:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --bin agave-ledger-tool
 else
-cargo-plugin-bundle:
-    cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p agave-validator
 cargo-solana:
@@ -104,18 +97,12 @@ endif
 agave/target/$(RUST_PROFILE)/libagave_validator.a: cargo-validator
 	@sleep 0.1
 
-plugin/bundle/target/$(RUST_PROFILE)/libfiredancer_plugin_bundle.a: cargo-plugin-bundle
-	@sleep 0.1
-
 agave/target/$(RUST_PROFILE)/solana: cargo-solana
 
 agave/target/$(RUST_PROFILE)/agave-ledger-tool: cargo-ledger-tool
 
 $(OBJDIR)/lib/libagave_validator.a: agave/target/$(RUST_PROFILE)/libagave_validator.a
 	$(MKDIR) $(dir $@) && cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@
-
-$(OBJDIR)/lib/libfiredancer_plugin_bundle.a: plugin/bundle/target/$(RUST_PROFILE)/libfiredancer_plugin_bundle.a
-	$(MKDIR) $(dir $@) && cp plugin/bundle/target/$(RUST_PROFILE)/libfiredancer_plugin_bundle.a $@
 
 fdctl: $(OBJDIR)/bin/fdctl
 
