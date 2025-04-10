@@ -342,6 +342,7 @@ fd_snapshot_load_all( const char *         source_cstr,
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
+  FD_LOG_NOTICE(( "fd_snapshot_load_prefetch_manifest(\"%s\")", ctx->snapshot_file ));
 
   size_t slen = strlen( ctx->snapshot_file );
   char * snapshot_cstr = fd_spad_alloc( ctx->runtime_spad, 8UL, slen + 1 );
