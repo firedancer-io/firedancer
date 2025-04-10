@@ -145,6 +145,8 @@ typedef struct {
 
   int skip_frag;
 
+  fd_shred_dest_weighted_t adtl_dest[1];
+
   fd_ip4_udp_hdrs_t data_shred_net_hdr  [1];
   fd_ip4_udp_hdrs_t parity_shred_net_hdr[1];
 
@@ -509,12 +511,10 @@ during_frag( fd_shred_ctx_t * ctx,
 }
 
 static inline void
-send_shred( fd_shred_ctx_t *    ctx,
-            fd_shred_t const *  shred,
-            fd_shred_dest_t *   sdest,
-            fd_shred_dest_idx_t dest_idx,
-            ulong               tsorig ) {
-  fd_shred_dest_weighted_t * dest = fd_shred_dest_idx_to_dest( sdest, dest_idx );
+send_shred( fd_shred_ctx_t                 * ctx,
+            fd_shred_t const               * shred,
+            fd_shred_dest_weighted_t const * dest,
+            ulong                            tsorig ) {
 
   if( FD_UNLIKELY( !dest->ip4 ) ) return;
 
@@ -646,7 +646,8 @@ after_frag( fd_shred_ctx_t *    ctx,
         fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
         if( FD_UNLIKELY( !dests ) ) break;
 
-        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
+        send_shred( ctx, *out_shred, ctx->adtl_dest, ctx->tsorig );
+        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ]), ctx->tsorig );
       } while( 0 );
 
       if( FD_LIKELY( ctx->blockstore && rv==FD_FEC_RESOLVER_SHRED_OKAY ) ) { /* optimize for the compiler - branch predictor will still be correct */
@@ -763,7 +764,10 @@ after_frag( fd_shred_ctx_t *    ctx,
   if( FD_UNLIKELY( !dests ) ) return;
 
   /* Send only the ones we didn't receive. */
-  for( ulong i=0UL; i<k; i++ ) for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], sdest, dests[ j*out_stride+i ], ctx->tsorig );
+  for( ulong i=0UL; i<k; i++ ) {
+    send_shred( ctx, new_shreds[ i ], ctx->adtl_dest, ctx->tsorig );
+    for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
+  }
 }
 
 static void
@@ -920,6 +924,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_ip4_udp_hdr_init( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, 0, tile->shred.shred_listen_port );
   fd_ip4_udp_hdr_init( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, 0, tile->shred.shred_listen_port );
+
+  ctx->adtl_dest->ip4  = tile->shred.adtl_dest.ip;
+  ctx->adtl_dest->port = tile->shred.adtl_dest.port;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];

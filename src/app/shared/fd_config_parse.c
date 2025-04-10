@@ -325,6 +325,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
+  CFG_POP      ( cstr,   tiles.shred.additional_shred_destination         );
 
   CFG_POP      ( cstr,   tiles.metric.prometheus_listen_address           );
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
