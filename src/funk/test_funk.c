@@ -20,7 +20,7 @@ main( int     argc,
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,          1234UL );
   ulong        seed     = fd_env_strip_cmdline_ulong( &argc, &argv, "--seed",      NULL,          5678UL );
   ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,        262144UL );
-  ulong        rec_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rec-max",   NULL,        262144UL );
+  uint         rec_max  = fd_env_strip_cmdline_uint(  &argc, &argv, "--rec-max",   NULL,          262144 );
 
   fd_wksp_t * wksp;
   if( name ) {
@@ -34,7 +34,7 @@ main( int     argc,
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rec-max %lu", wksp_tag, seed, txn_max, rec_max ));
+  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rec-max %u", wksp_tag, seed, txn_max, rec_max ));
 
   ulong align     = fd_funk_align();     FD_TEST( align    ==FD_FUNK_ALIGN     );
   ulong footprint = fd_funk_footprint(txn_max, rec_max);

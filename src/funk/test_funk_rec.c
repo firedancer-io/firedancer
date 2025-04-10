@@ -6,7 +6,7 @@ FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 64UL, unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_REC_FLAG_ERASE==1UL, unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_REC_IDX_NULL==ULONG_MAX, unit_test );
+FD_STATIC_ASSERT( FD_FUNK_REC_IDX_NULL==UINT_MAX, unit_test );
 
 #include "test_funk_common.h"
 
@@ -22,7 +22,7 @@ main( int     argc,
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,          1234UL );
   ulong        seed     = fd_env_strip_cmdline_ulong( &argc, &argv, "--seed",      NULL,          5678UL );
   ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,            32UL );
-  ulong        rec_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rec-max",   NULL,           128UL );
+  uint         rec_max  = fd_env_strip_cmdline_uint(  &argc, &argv, "--rec-max",   NULL,             128 );
   ulong        iter_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-max",  NULL,       1048576UL );
   int          verbose  = fd_env_strip_cmdline_int  ( &argc, &argv, "--verbose",   NULL,               0 );
 
@@ -40,7 +40,7 @@ main( int     argc,
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %lu --iter-max %lu --verbose %i",
+  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %u --iter-max %lu --verbose %i",
                   wksp_tag, seed, txn_max, rec_max, iter_max, verbose ));
 
   fd_funk_t * tst = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), wksp_tag ),

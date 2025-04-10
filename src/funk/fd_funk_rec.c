@@ -15,6 +15,7 @@
 #define MAP_KEY               pair
 #define MAP_KEY_EQ(k0,k1)     fd_funk_xid_key_pair_eq((k0),(k1))
 #define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
+#define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MEMO              map_hash
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
@@ -236,17 +237,17 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 void
 fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_t * rec = prepare->rec;
-  ulong * rec_head_idx = prepare->rec_head_idx;
-  ulong * rec_tail_idx = prepare->rec_tail_idx;
+  uint * rec_head_idx = prepare->rec_head_idx;
+  uint * rec_tail_idx = prepare->rec_tail_idx;
   fd_funk_rec_map_t rec_map = fd_funk_rec_map( prepare->funk, prepare->wksp );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
 
   /* We need a global lock to protect the prev/next update */
   fd_funk_rec_pool_lock( &rec_pool, 1 );
 
-  ulong rec_prev_idx;
-  ulong rec_idx = (ulong)( rec - rec_pool.ele );
-  rec_prev_idx = *rec_tail_idx;
+  uint rec_prev_idx;
+  uint rec_idx  = (uint)( rec - rec_pool.ele );
+  rec_prev_idx  = *rec_tail_idx;
   *rec_tail_idx = rec_idx;
   rec->prev_idx = rec_prev_idx;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
@@ -344,8 +345,8 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
     break;
   }
 
-  ulong prev_idx = rec->prev_idx;
-  ulong next_idx = rec->next_idx;
+  uint prev_idx = rec->prev_idx;
+  uint next_idx = rec->next_idx;
   if( txn == NULL ) {
     if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
     else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
@@ -483,8 +484,8 @@ fd_funk_rec_forget( fd_funk_t *      funk,
       break;
     }
 
-    ulong prev_idx = rec->prev_idx;
-    ulong next_idx = rec->next_idx;
+    uint prev_idx = rec->prev_idx;
+    uint next_idx = rec->next_idx;
     if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
     else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
     if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
@@ -589,7 +590,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   do {
     ulong txn_idx = FD_FUNK_TXN_IDX_NULL;
-    ulong rec_idx = funk->rec_head_idx;
+    uint rec_idx = funk->rec_head_idx;
     while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
       TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==0U );
       rec_pool.ele[ rec_idx ].tag = 1U;
@@ -599,7 +600,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         TEST( rec2 == NULL );
       else
         TEST( rec2 = rec_pool.ele + rec_idx );
-      ulong next_idx = rec_pool.ele[ rec_idx ].next_idx;
+      uint next_idx = rec_pool.ele[ rec_idx ].next_idx;
       if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool.ele[ next_idx ].prev_idx==rec_idx );
       rec_idx = next_idx;
     }
@@ -608,7 +609,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
 
       ulong txn_idx = (ulong)(txn-txn_pool.ele);
-      ulong rec_idx = txn->rec_head_idx;
+      uint rec_idx = txn->rec_head_idx;
       while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
         TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==0U );
         rec_pool.ele[ rec_idx ].tag = 1U;
@@ -618,7 +619,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
           TEST( rec2 == NULL );
         else
           TEST( rec2 = rec_pool.ele + rec_idx );
-        ulong next_idx = rec_pool.ele[ rec_idx ].next_idx;
+        uint next_idx = rec_pool.ele[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool.ele[ next_idx ].prev_idx==rec_idx );
         rec_idx = next_idx;
       }
@@ -627,11 +628,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   do {
     ulong txn_idx = FD_FUNK_TXN_IDX_NULL;
-    ulong rec_idx = funk->rec_tail_idx;
+    uint rec_idx = funk->rec_tail_idx;
     while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
       TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==1U );
       rec_pool.ele[ rec_idx ].tag = 2U;
-      ulong prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
+      uint prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
       if( !fd_funk_rec_idx_is_null( prev_idx ) ) TEST( rec_pool.ele[ prev_idx ].next_idx==rec_idx );
       rec_idx = prev_idx;
     }
@@ -640,12 +641,12 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
     for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
       fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
 
-      ulong txn_idx = (ulong)(txn-txn_pool.ele);
-      ulong rec_idx = txn->rec_tail_idx;
+      uint txn_idx = (uint)(txn-txn_pool.ele);
+      uint rec_idx = txn->rec_tail_idx;
       while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
         TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==1U );
         rec_pool.ele[ rec_idx ].tag = 2U;
-        ulong prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
+        uint prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
         if( !fd_funk_rec_idx_is_null( prev_idx ) ) TEST( rec_pool.ele[ prev_idx ].next_idx==rec_idx );
         rec_idx = prev_idx;
       }

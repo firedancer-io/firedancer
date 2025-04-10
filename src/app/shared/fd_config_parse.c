@@ -398,7 +398,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   tiles.replay.capture                             );
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
-  CFG_POP      ( ulong,  tiles.replay.funk_rec_max                        );
+  CFG_POP      ( uint,   tiles.replay.funk_rec_max                        );
   CFG_POP      ( ulong,  tiles.replay.funk_sz_gb                          );
   CFG_POP      ( ulong,  tiles.replay.funk_txn_max                        );
   CFG_POP      ( cstr,   tiles.replay.funk_file                           );
