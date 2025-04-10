@@ -455,11 +455,13 @@ fdctl_cfg_net_auto( config_t * config ) {
       FD_LOG_ERR(( "could not get IP address for interface `%s`", config->tiles.net.interface ));
 
     if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
+
       uint gossip_ip_addr = iface_ip;
       int  has_gossip_ip4 = 0;
       if( FD_UNLIKELY( strlen( config->gossip.host )<=15UL ) ) {
         /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
         has_gossip_ip4 = fd_cstr_to_ip4_addr( config->gossip.host, &gossip_ip_addr );
+        config->tiles.net.ip_addr = gossip_ip_addr;
       }
       if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
         FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
@@ -476,7 +478,7 @@ fdctl_cfg_net_auto( config_t * config ) {
                    config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
     }
 
-    config->tiles.net.ip_addr = iface_ip;
+    // config->tiles.net.ip_addr = iface_ip;
 
   }
 

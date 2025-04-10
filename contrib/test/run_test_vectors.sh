@@ -47,7 +47,10 @@ LOG=$LOG_PATH/test_exec_precompiles
 cat contrib/test/test-vectors-fixtures/precompile-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
 LOG=$LOG_PATH/test_exec_txn
-cat contrib/test/test-vectors-fixtures/txn-fixtures/*.list | xargs -P $NUM_PROCESSES ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
+cat contrib/test/test-vectors-fixtures/txn-fixtures/program-tests.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
+
+LOG=$LOG_PATH/test_exec_current_txn
+cat contrib/test/test-vectors-fixtures/txn-fixtures/current-program-tests.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
 zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
 LOG=$LOG_PATH/test_elf_loader

@@ -495,9 +495,15 @@ sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
   void * output = NULL;
   sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_txn_test_run );
 
-  // Compare effects
-  fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
-  ok = sol_compat_cmp_txn( &fixture->output, effects );
+  if( output ) {
+    // Compare effects
+    fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
+    ok = sol_compat_cmp_txn( &fixture->output, effects );
+  }
+  else {
+    return 1;
+  }
+
   } FD_SPAD_FRAME_END;
 
   // Cleanup
@@ -548,8 +554,11 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
   void * output = NULL;
   sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_syscall_test_run );
 
-  // Compare effects
-  ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
+  if( output ) {
+    // Compare effects
+    ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
+  }
+
   } FD_SPAD_FRAME_END;
 
   // Cleanup
