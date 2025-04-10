@@ -230,6 +230,10 @@ typedef struct {
       ushort shred_listen_port;
       int    larger_shred_limits_per_block;
       ulong  expected_shred_version;
+      struct {
+        uint   ip;
+        ushort port;
+      } adtl_dest;
     } shred;
 
     struct {
