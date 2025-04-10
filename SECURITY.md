@@ -23,6 +23,4 @@ During this time, we reward security reports to the scope defined in the contest
 
 # Bug Bounty Program
 
-We are in the process of designing a **bug bounty program** for Firedancer.
-
-In the meantime, if you find a security issue in Firedancer, submit it to the [Audit Contest](#Audit-Contest), or reach out to our team via Discord for security bugs outside the scope of v0.1.
+We have bug bounty program at [imunefi](https://immunefi.com/bug-bounty/firedancer/information/)
