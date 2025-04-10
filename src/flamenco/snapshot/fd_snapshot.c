@@ -209,7 +209,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
   }
 
 }
-
+/* Multi-thread this section */
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
 
