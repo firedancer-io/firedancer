@@ -48,6 +48,10 @@ extern const fd_pubkey_t fd_solana_config_program_buffer_address;
 extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
 extern const fd_pubkey_t fd_solana_stake_program_buffer_address;
 
+/* BPF migration authority
+   https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L399-L401 */
+extern const fd_pubkey_t fd_solana_migration_authority;
+
 /* fd_pubkey_is_{pending, active}_reserved_key and fd_pubkey_is_secp256r1_key checks to see if the pubkey is
    a reserved account. They return 1 if the pubkey is in the list, and 0 otherwise.
 

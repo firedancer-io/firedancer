@@ -7155,6 +7155,7 @@ FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_set_authority(
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_close( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_extend_program( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_set_authority_checked( fd_bpf_upgradeable_loader_program_instruction_t const * self );
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_migrate( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 enum {
 fd_bpf_upgradeable_loader_program_instruction_enum_initialize_buffer = 0,
 fd_bpf_upgradeable_loader_program_instruction_enum_write = 1,
@@ -7164,6 +7165,7 @@ fd_bpf_upgradeable_loader_program_instruction_enum_set_authority = 4,
 fd_bpf_upgradeable_loader_program_instruction_enum_close = 5,
 fd_bpf_upgradeable_loader_program_instruction_enum_extend_program = 6,
 fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked = 7,
+fd_bpf_upgradeable_loader_program_instruction_enum_migrate = 8,
 };
 void fd_bpf_upgradeable_loader_state_buffer_new( fd_bpf_upgradeable_loader_state_buffer_t * self );
 int fd_bpf_upgradeable_loader_state_buffer_encode( fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_bincode_encode_ctx_t * ctx );

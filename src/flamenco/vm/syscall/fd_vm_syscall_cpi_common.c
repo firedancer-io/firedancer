@@ -73,10 +73,6 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
 
-  /* Calculate summary information for the account list */
-  out_instr->starting_lamports_h = 0UL;
-  out_instr->starting_lamports_l = 0UL;
-
   for( ushort i=0; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
     fd_pubkey_t const * pubkey = fd_type_pun_const( VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta ) );
@@ -92,25 +88,19 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
                                                           VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ),
                                                           VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) );
 
-    int idx_in_txn = fd_exec_txn_ctx_find_index_of_account( vm->instr_ctx->txn_ctx, pubkey );
-    if( FD_LIKELY( idx_in_txn!=-1 ) ) {
-      /* Use USHORT_MAX to indicate account not found
-         https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L366-L370 */
-      int index_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( vm->instr_ctx, pubkey );
-      if( index_in_caller == -1 ) {
-        index_in_caller = USHORT_MAX;
-      }
+    /* Use USHORT_MAX to indicate account not found
+        https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L366-L370 */
+    int idx_in_txn    = fd_exec_txn_ctx_find_index_of_account( vm->instr_ctx->txn_ctx, pubkey );
+    int idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( vm->instr_ctx, pubkey );
 
-      fd_instr_info_setup_instr_account( out_instr,
-                                         acc_idx_seen,
-                                         (ushort)idx_in_txn,
-                                         (ushort)index_in_caller,
-                                         i,
-                                         VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ),
-                                         VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) );
+    fd_instr_info_setup_instr_account( out_instr,
+                                       acc_idx_seen,
+                                       idx_in_txn!=-1 ? (ushort)idx_in_txn : USHORT_MAX,
+                                       idx_in_caller!=-1 ? (ushort)idx_in_caller : USHORT_MAX,
+                                       i,
+                                       VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ),
+                                       VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) );
 
-      fd_instr_info_accumulate_starting_lamports( out_instr, vm->instr_ctx->txn_ctx, i, (ushort)idx_in_txn);
-    }
   }
 
   return FD_VM_SUCCESS;
