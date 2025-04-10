@@ -286,6 +286,12 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
 
   fd_solana_manifest_t * manifest = fd_solana_manifest_decode( mem, &decode );
 
+  uchar * mem2 = fd_spad_alloc( restore->spad, fd_solana_manifest_align(), total_sz );
+  if( FD_UNLIKELY( !mem2 ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for solana manifest" ));
+  }
+  fd_solana_manifest_t * manifest2 = fd_solana_manifest_decode( mem2, &decode );
+
   if( manifest->bank_incremental_snapshot_persistence ) {
     FD_LOG_NOTICE(( "Incremental snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
                     FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->full_hash),
