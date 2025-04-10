@@ -371,6 +371,7 @@ struct fd_config {
     struct {
       uint   max_pending_shred_sets;
       ushort shred_listen_port;
+      char   additional_shred_destination[ sizeof("255.255.255.255:65536") ];
     } shred;
 
     struct {

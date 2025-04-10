@@ -440,6 +440,23 @@ fd_topo_initialize( config_t * config ) {
       tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
       tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
       tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+      char   adtl_dest[ sizeof("255.255.255.255:65536") ];
+      memcpy( adtl_dest, config->tiles.shred.additional_shred_destination, sizeof(adtl_dest) );
+      if( FD_UNLIKELY( strcmp( adtl_dest, "" ) ) ) {
+        char * ip_end = strchr( adtl_dest, ':' );
+        if( FD_UNLIKELY( !ip_end ) ) FD_LOG_ERR(( "[tiles.shred.additional_shred_destination] must be empty or in the form ip:port" ));
+        *ip_end = '\0';
+
+        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( adtl_dest, &(tile->shred.adtl_dest.ip) ) ) ) {
+          FD_LOG_ERR(( "could not parse IP %s in [tiles.shred.additional_shred_destination]", adtl_dest ));
+        }
+
+        tile->shred.adtl_dest.port = fd_cstr_to_ushort( ip_end+1 );
+        if( FD_UNLIKELY( !tile->shred.adtl_dest.port ) ) FD_LOG_ERR(( "could not parse port %s in [tiles.shred.additional_shred_destination]", ip_end+1 ));
+      } else {
+        tile->shred.adtl_dest.ip   = 0U;
+        tile->shred.adtl_dest.port = 0;
+      }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
       tile->store.disable_blockstore_from_slot = config->development.bench.disable_blockstore_from_slot;
