@@ -2724,7 +2724,7 @@ void *fd_bpf_upgradeable_loader_program_instruction_generate( void *mem, void **
   fd_bpf_upgradeable_loader_program_instruction_t *self = (fd_bpf_upgradeable_loader_program_instruction_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_t);
   fd_bpf_upgradeable_loader_program_instruction_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 8;
+  self->discriminant = fd_rng_uint( rng ) % 9;
   fd_bpf_upgradeable_loader_program_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }

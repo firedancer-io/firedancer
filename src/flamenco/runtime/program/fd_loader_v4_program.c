@@ -375,7 +375,7 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
-    } else {
+    } else if( FD_UNLIKELY( new_size==0U ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Closing a program requires a recipient account" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
