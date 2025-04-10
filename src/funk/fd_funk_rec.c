@@ -56,6 +56,33 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 }
 
 fd_funk_rec_t const *
+fd_funk_rec_query_try_global_2( fd_funk_t *               funk,
+                                fd_funk_txn_t const *     txn,
+                                fd_funk_rec_key_t const * key,
+                                fd_funk_txn_t const **    txn_out,
+                                fd_funk_rec_query_t *     query ) {
+
+  fd_wksp_t *        wksp     = fd_funk_wksp( funk );
+  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
+  fd_funk_rec_map_t  rec_map  = fd_funk_rec_map( funk, wksp );
+//can
+  fd_funk_txn_t const * cur_txn = txn;
+  for( ;; ) {
+
+    fd_funk_rec_query_t queryl[1];
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, cur_txn, key, queryl );
+    if( rec ) {
+      return fd_funk_rec_query_try( funk, cur_txn, key, query );
+    }
+
+    if( cur_txn==NULL ) {
+      return NULL;
+    }
+    cur_txn = fd_funk_txn_parent( cur_txn, &txn_pool );
+  }
+}
+
+fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t *               funk,
                               fd_funk_txn_t const *     txn,
                               fd_funk_rec_key_t const * key,
