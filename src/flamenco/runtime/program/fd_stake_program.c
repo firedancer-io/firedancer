@@ -12,7 +12,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 
-/* A note on fd_borrowed_account_acquire_write:
+/* A note on account borrowing:
 
    The stake program uses this function to prevent aliasing of accounts.
    (When the same account is passed via multiple instruction account
