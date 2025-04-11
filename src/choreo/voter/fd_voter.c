@@ -10,7 +10,7 @@ fd_voter_state( fd_funk_t * funk,
                 fd_funk_rec_key_t const * key ) {
   for( ; ; ) {
     fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, key, NULL, query );
-    if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
+    if( FD_UNLIKELY( !rec ) ) {
       return NULL;
     }
     fd_account_meta_t const * meta = fd_funk_val_const( rec, fd_funk_wksp(funk) );

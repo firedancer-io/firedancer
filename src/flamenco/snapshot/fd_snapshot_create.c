@@ -14,13 +14,6 @@
 #include <zstd.h>
 
 static uchar             padding[ FD_SNAPSHOT_ACC_ALIGN ] = {0};
-static fd_account_meta_t default_meta = { .magic = FD_ACCOUNT_META_MAGIC };
-
-static inline fd_account_meta_t *
-fd_snapshot_create_get_default_meta( ulong slot ) {
-  default_meta.slot = slot;
-  return &default_meta;
-}
 
 static inline void
 fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
@@ -68,6 +61,11 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
      iterate through funk and accumulate the size of all of the records
      from all slots before the snapshot_slot. */
 
+  /* FIXME: the tombstone logic has been removed from Funk, so the snapshots
+            created will be missing records in the append vecs. Snapshot creation
+            is currently disabled, but when this is enabled this will need to be
+            addressed. */
+
   fd_funk_t * funk           = snapshot_ctx->funk;
   ulong       prev_sz        = 0UL;
   ulong       tombstones_cnt = 0UL;
@@ -79,10 +77,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
 
     tombstones_cnt++;
 
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
     uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
-                                                      (fd_account_meta_t*)raw;
+    fd_account_meta_t * metadata     = (fd_account_meta_t*)raw;
 
     if( !metadata ) {
       continue;
@@ -292,10 +288,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
     }
 
     fd_pubkey_t const * pubkey       = fd_type_pun_const( rec->pair.key[0].uc );
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
+    int                 is_tombstone = false;
     uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
-                                                      (fd_account_meta_t*)raw;
+    fd_account_meta_t * metadata     = (fd_account_meta_t*)raw;
 
     if( !snapshot_ctx->is_incremental && is_tombstone ) {
       /* If we are in a full snapshot, we need to gather all of the accounts
@@ -427,10 +422,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
       FD_LOG_ERR(( "Previously found record can no longer be found" ));
     }
 
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
     uchar       const * raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
-                                                      (fd_account_meta_t*)raw;
+    fd_account_meta_t * metadata     = (fd_account_meta_t*)raw;
 
     if( FD_UNLIKELY( !metadata ) ) {
       FD_LOG_ERR(( "Record should have non-NULL metadata" ));
@@ -479,17 +472,6 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
   err = fd_tar_writer_fini_file( writer );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Unable to finish writing out file" ));
-  }
-
-  /* TODO: At this point we must implement compaction to the snapshot service.
-     Without this, we are actually not cleaning up any tombstones from funk. */
-
-  if( snapshot_ctx->is_incremental ) {
-    err = fd_funk_rec_forget( funk, tombstones, tombstones_cnt );
-    if( FD_UNLIKELY( err!=FD_FUNK_SUCCESS ) ) {
-      FD_LOG_ERR(( "Unable to forget tombstones" ));
-    }
-    FD_LOG_NOTICE(( "Compacted %lu tombstone records", tombstones_cnt ));
   }
 
   fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), snapshot_slot_keys );

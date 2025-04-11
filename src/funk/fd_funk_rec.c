@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include "fd_funk_base.h"
 
 /* Provide the actual record map implementation */
 
@@ -114,8 +115,7 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
 
         if( FD_LIKELY( match ) ) {
           if( txn_out ) *txn_out = cur_txn;
-          query->ele = ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL :
-                         (fd_funk_rec_t *)ele );
+          query->ele = (fd_funk_rec_t *)ele;
           return query->ele;
         }
 
@@ -368,8 +368,7 @@ int
 fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,
                     fd_funk_rec_key_t const * key,
-                    fd_funk_rec_t **          rec_out,
-                    ulong                     erase_data ) {
+                    fd_funk_rec_t **          rec_out ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL ) ) {
     return FD_FUNK_ERR_INVAL;
@@ -389,8 +388,11 @@ fd_funk_rec_remove( fd_funk_t *               funk,
     }
   }
 
-  fd_wksp_t * wksp          = fd_funk_wksp( funk );
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
+  fd_wksp_t * wksp            = fd_funk_wksp( funk );
+  fd_alloc_t * alloc          = fd_funk_alloc( funk, wksp );
+  fd_funk_rec_map_t rec_map   = fd_funk_rec_map( funk, wksp );
+  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
+
   fd_funk_xid_key_pair_t pair[1];
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( pair->xid );
@@ -410,90 +412,27 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
   if( rec_out ) *rec_out = rec;
 
-  /* Access the flags atomically */
-  ulong old_flags;
   for(;;) {
-    old_flags = rec->flags;
-    if( FD_UNLIKELY( old_flags & FD_FUNK_REC_FLAG_ERASE ) ) return FD_FUNK_SUCCESS;
-    if( FD_ATOMIC_CAS( &rec->flags, old_flags, old_flags | FD_FUNK_REC_FLAG_ERASE ) == old_flags ) break;
+    fd_funk_rec_map_query_t rec_query[1];
+    int err = fd_funk_rec_map_remove( &rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+    if( err == FD_MAP_ERR_KEY ) return FD_FUNK_ERR_KEY;
+    if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
+    if( rec != fd_funk_rec_map_query_ele( rec_query ) ) FD_LOG_CRIT(( "map corruption" ));
+    break;
   }
 
-  /* Flush the value and leave a tombstone behind. In theory, this can
-     lead to an unbounded number of records, but for application
-     reasons, we need to remember what was deleted. */
+  fd_funk_rec_pool_lock( &rec_pool, 1UL );
+  uint prev_idx = rec->prev_idx;
+  uint next_idx = rec->next_idx;
+  if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
+  else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+  if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
+  else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+  fd_funk_rec_pool_unlock( &rec_pool );
 
-  fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp );
-
-  /* At this point, the 5 most significant bytes should store data about the
-     transaction that the record was updated in. */
-
-  fd_funk_rec_set_erase_data( rec, erase_data );
-
-  return FD_FUNK_SUCCESS;
-}
-
-void
-fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data ) {
-  rec->flags |= ((erase_data & 0xFFFFFFFFFFUL) << (sizeof(unsigned long) * 8 - 40));
-}
-
-ulong
-fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec ) {
-  return (rec->flags >> (sizeof(unsigned long) * 8 - 40)) & 0xFFFFFFFFFFUL;
-}
-
-int
-fd_funk_rec_forget( fd_funk_t *      funk,
-                    fd_funk_rec_t ** recs,
-                    ulong            recs_cnt ) {
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
-#endif
-
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_alloc_t * alloc          = fd_funk_alloc( funk, wksp );
-  fd_funk_rec_map_t rec_map   = fd_funk_rec_map( funk, wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-
-#ifdef FD_FUNK_HANDHOLDING
-  ulong rec_max = funk->rec_max;
-#endif
-
-  for( ulong i = 0; i < recs_cnt; ++i ) {
-    fd_funk_rec_t * rec = recs[i];
-
-#ifdef FD_FUNK_HANDHOLDING
-    ulong rec_idx = (ulong)(rec - rec_pool.ele);
-    if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_pool.ele+rec_idx)) /* Bad alignment */ ) )
-      return FD_FUNK_ERR_INVAL;
-#endif
-
-    ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
-    if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( txn_idx ) || /* Must be published */
-                     !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) { /* Must be removed */
-      return FD_FUNK_ERR_KEY;
-    }
-
-    for(;;) {
-      fd_funk_rec_map_query_t rec_query[1];
-      int err = fd_funk_rec_map_remove( &rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-      if( err == FD_MAP_ERR_KEY ) return FD_FUNK_ERR_KEY;
-      if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
-      if( rec != fd_funk_rec_map_query_ele( rec_query ) ) FD_LOG_CRIT(( "map corruption" ));
-      break;
-    }
-
-    uint prev_idx = rec->prev_idx;
-    uint next_idx = rec->next_idx;
-    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
-
-    fd_funk_val_flush( rec, alloc, wksp );
-    fd_funk_rec_pool_release( &rec_pool, rec, 1 );
-  }
+  fd_funk_val_flush( rec, alloc, wksp );
+  fd_funk_rec_pool_release( &rec_pool, rec, 1 );
 
   return FD_FUNK_SUCCESS;
 }
@@ -596,10 +535,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       rec_pool.ele[ rec_idx ].tag = 1U;
       fd_funk_rec_query_t query[1];
       fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, NULL, rec_pool.ele[ rec_idx ].pair.key, NULL, query );
-      if( FD_UNLIKELY( rec_pool.ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
-        TEST( rec2 == NULL );
-      else
-        TEST( rec2 = rec_pool.ele + rec_idx );
+      TEST( rec2 = rec_pool.ele + rec_idx );
       uint next_idx = rec_pool.ele[ rec_idx ].next_idx;
       if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool.ele[ next_idx ].prev_idx==rec_idx );
       rec_idx = next_idx;
@@ -615,10 +551,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         rec_pool.ele[ rec_idx ].tag = 1U;
         fd_funk_rec_query_t query[1];
         fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, txn, rec_pool.ele[ rec_idx ].pair.key, NULL, query );
-        if( FD_UNLIKELY( rec_pool.ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
-          TEST( rec2 == NULL );
-        else
-          TEST( rec2 = rec_pool.ele + rec_idx );
+        TEST( rec2 = rec_pool.ele + rec_idx );
         uint next_idx = rec_pool.ele[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool.ele[ next_idx ].prev_idx==rec_idx );
         rec_idx = next_idx;

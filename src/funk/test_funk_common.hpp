@@ -188,7 +188,7 @@ struct fake_funk {
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       auto key = rec->real_id();
-      assert(fd_funk_rec_remove(_real, txn2, &key, NULL, 0UL) == FD_FUNK_SUCCESS);
+      assert(fd_funk_rec_remove(_real, txn2, &key, NULL) == FD_FUNK_SUCCESS);
 
       rec->_erased = true;
       rec->_data.clear();
@@ -348,10 +348,8 @@ struct fake_funk {
         assert(j != recs.end());
         auto * rec2 = *j;
         if (rec2->_erased) {
-          assert(rec->flags & FD_FUNK_REC_FLAG_ERASE);
           assert(fd_funk_val_sz(rec) == 0);
         } else {
-          assert(!(rec->flags & FD_FUNK_REC_FLAG_ERASE));
           assert(fd_funk_val_sz(rec) == rec2->size());
           assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
         }
@@ -360,10 +358,7 @@ struct fake_funk {
         fd_funk_txn_t * txn = fd_funk_txn_query( xid, &txn_map );
         fd_funk_rec_query_t query[1];
         auto* rec3 = fd_funk_rec_query_try_global(_real, txn, rec->pair.key, NULL, query);
-        if( ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
-          assert(rec3 == NULL);
-        else
-          assert(rec == rec3);
+        assert(rec == rec3);
         assert(!fd_funk_rec_query_test( query ));
 
         assert(!rec2->_touched);

@@ -24,17 +24,6 @@
 
 #define FD_FUNK_REC_ALIGN     (64UL)
 
-/* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
-   how records are to be interpreted.  The 5 most significant bytes of a
-   rec's flag are reserved to be used in conjunction with the ERASE flag.
-
-   - ERASE indicates a record in an in-preparation transaction should be
-   erased if and when the in-preparation transaction is published. If
-   set on a published record, it serves as a tombstone.
-   If set, there will be no value resources used by this record. */
-
-#define FD_FUNK_REC_FLAG_ERASE (1UL<<0)
-
 /* FD_FUNK_REC_IDX_NULL gives the map record idx value used to represent
    NULL.  This value also set a limit on how large rec_max can be. */
 
@@ -287,10 +276,13 @@ fd_funk_rec_is_full( fd_funk_t * funk );
    transaction's subsequently created descendants (again, assuming no
    subsequent insert of key).  This type of remove can be done on a
    published record (assuming the last published transaction is
-   unfrozen). A tombstone is left in funk to track removals as they
-   are published or cancelled.
+   unfrozen).
 
    Any information in an erased record is lost.
+   This is a dangerous API. An older version of the record in a
+   parent transaction might be exposed. In other words, the record may
+   appear to go backwards in time. We are effectively reverting an
+   update. Any information in an removed record is lost.
 
    This is a reasonably fast O(1) and fortified against memory
    corruption. */
@@ -299,12 +291,10 @@ int
 fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,
                     fd_funk_rec_key_t const * key,
-                    fd_funk_rec_t **          rec_out,
-                    ulong                     erase_data );
+                    fd_funk_rec_t **          rec_out );
 
 /*
-  fd_funk_rec_hard_remove completely removes the record from Funk,
-  and leaves no tombstone behind.
+  fd_funk_rec_hard_remove completely removes the record from Funk.
 
   This is a dangerous API. An older version of the record in a
   parent transaction might be exposed. In other words, the record may
@@ -330,22 +320,6 @@ fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
 
 ulong
 fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
-
-/* Remove a list of tombstones from funk, thereby freeing up space in
-   the main index. All the records must be removed and published
-   beforehand. Reasons for failure include:
-
-     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
-       obviously not from funk, etc)
-
-     FD_FUNK_ERR_KEY - the record did not appear to be a removed record.
-       Specifically, a record query of funk for rec's (xid,key) pair did
-       not return rec. Also, the record was never published.
-*/
-int
-fd_funk_rec_forget( fd_funk_t *      funk,
-                    fd_funk_rec_t ** recs,
-                    ulong            recs_cnt );
 
 /* Iterator which walks all records in all transactions. Usage is:
 
