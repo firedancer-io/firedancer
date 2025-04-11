@@ -1,8 +1,15 @@
-ifdef FD_HAS_HOSTED
-ifdef FD_HAS_THREADS
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
+
+$(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
+
+# fdctl core
+$(call add-objs,topology,fd_fdctl)
+$(call add-objs,config,fd_fdctl)
+
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_THREADS
 ifdef FD_HAS_SSE
 
 include src/app/fdctl/with-version.mk
@@ -24,12 +31,6 @@ endif
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash
-
-$(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
-
-# fdctl core
-$(call add-objs,topology,fd_fdctl)
-$(call add-objs,config,fd_fdctl)
 
 # fdctl comands
 $(call add-objs,commands/run_agave,fd_fdctl)
