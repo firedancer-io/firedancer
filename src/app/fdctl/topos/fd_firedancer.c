@@ -607,9 +607,11 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "arch_w" );
     /**/ fd_topob_tile( topo, "arch_f", "arch_f", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
     /**/ fd_topob_tile( topo, "arch_w", "arch_w", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-    /* the links here need to be reliable, so the archive file does not miss any shred */
-    FOR(shred_tile_cnt) fd_topob_tile_in( topo, "arch_f", 0UL, "metric_in", "shred_storei", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    /**/ fd_topob_tile_in( topo, "arch_f", 0UL, "metric_in", "repair_store", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_wksp( topo, "store_feeder" );
+    fd_topob_link( topo, "store_feeder", "store_feeder", 65536UL, 4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
+    /**/ fd_topob_tile_out( topo, "storei", 0UL, "store_feeder", 0UL );
+    /**/ fd_topob_tile_in(  topo, "arch_f", 0UL, "metric_in", "store_feeder", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
     fd_topob_wksp( topo, "arch_f2w" );
     fd_topob_link( topo, "arch_f2w", "arch_f2w", 128UL, 4UL*FD_SHRED_STORE_MTU, 1UL );

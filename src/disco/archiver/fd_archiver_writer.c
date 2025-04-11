@@ -216,6 +216,12 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
 
   ctx->stats.net_shred_in_cnt   += header->tile_id == FD_ARCHIVER_TILE_ID_SHRED;
   ctx->stats.net_repair_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR;
+
+  if( FD_UNLIKELY( ctx->stats.net_shred_in_cnt%400==0 ) ) {
+    FD_LOG_NOTICE(( "archiver writes %lu frags for shred and %lu frags for repair",
+                    ctx->stats.net_shred_in_cnt,
+                    ctx->stats.net_repair_in_cnt ));
+  }
 }
 
 static inline void

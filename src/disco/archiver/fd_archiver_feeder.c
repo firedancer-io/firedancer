@@ -34,9 +34,6 @@ struct fd_archiver_feeder_tile_ctx {
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
-  /* Map of input link idxs to header tile IDs */
-  uint link_to_header_tile_ids[ FD_ARCHIVER_FEEDER_MAX_INPUT_LINKS ];
-
   /* Input links */
   fd_archiver_feeder_in_ctx_t in[ FD_ARCHIVER_FEEDER_MAX_INPUT_LINKS ];
 };
@@ -104,16 +101,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-
-    /* Set the link tile ID correctly in the map */
-    if( !strcmp( link->name, "shred_storei" ) ) {
-      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_SHRED;
-    } else if( !strcmp( link->name, "repair_store" ) ) {
-      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_REPAIR;
-    } else {
-      FD_LOG_ERR(( "unsupported input link" ));
-    }
-
   }
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
@@ -150,10 +137,10 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
     fd_archiver_frag_header_t * header = fd_type_pun( dst );
     header->magic                      = FD_ARCHIVER_HEADER_MAGIC;
     header->version                    = FD_ARCHIVER_HEADER_VERSION;
-    header->tile_id                    = ctx->link_to_header_tile_ids[ in_idx ];
+    header->tile_id                    = FD_ARCHIVER_SIG_TILE_ID(sig);
     /* header->ns_since_prev_fragment is set in the single writer tile, so that we have a total order */
     header->sz                         = sz;
-    header->sig                        = sig;
+    header->sig                        = FD_ARCHIVER_SIG_CLEAR(sig);
     header->seq                        = seq;
 
     /* Write the frag to the dst */

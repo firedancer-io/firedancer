@@ -6,6 +6,13 @@
 #define FD_ARCHIVER_TILE_ID_SHRED  (0U)
 #define FD_ARCHIVER_TILE_ID_REPAIR (1U)
 
+/* For now, feeder only needs to distinguish 2 types of input frags,
+   so we use the highest bit in sig to distinguish shred and repair. */
+#define FD_ARCHIVER_SIG_MARK_SHRED(x)  fd_ulong_clear_bit(x, 63)
+#define FD_ARCHIVER_SIG_MARK_REPAIR(x) fd_ulong_set_bit(x, 63)
+#define FD_ARCHIVER_SIG_TILE_ID(x)     ((uint)fd_ulong_extract_bit(x, 63))
+#define FD_ARCHIVER_SIG_CLEAR(x)       fd_ulong_clear_bit(x, 63)
+
 #define FD_ARCHIVER_HEADER_MAGIC (0xF17EDA2CE5A4B321) /* FIREDANCE ARCHIVER */
 
 /* Header written out to the archive for each fragment */
