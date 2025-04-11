@@ -2,6 +2,9 @@ ifdef FD_HAS_INT128
 $(call add-hdrs,fd_acc_mgr.h)
 $(call add-objs,fd_acc_mgr,fd_flamenco)
 
+$(call add-hdrs,fd_bank_mgr.h)
+$(call add-objs,fd_bank_mgr,fd_flamenco)
+
 $(call add-hdrs,fd_txn_account.h)
 $(call add-objs,fd_txn_account,fd_flamenco)
 

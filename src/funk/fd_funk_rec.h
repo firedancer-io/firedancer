@@ -200,6 +200,13 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
                               fd_funk_txn_t const **    txn_out,
                               fd_funk_rec_query_t *     query );
 
+fd_funk_rec_t const *
+fd_funk_rec_query_try_global_2( fd_funk_t *               funk,
+                                fd_funk_txn_t const *     txn,
+                                fd_funk_rec_key_t const * key,
+                                fd_funk_txn_t const **    txn_out,
+                                fd_funk_rec_query_t *     query );
+
 /* fd_funk_rec_query_copy queries the in-preparation transaction pointed to
    by txn for the record whose key matches the key pointed to by key.
 
