@@ -154,6 +154,7 @@ while true; do
 
         make distclean && make clean
         ./deps.sh nuke
+        git submodule update --init --recursive --force
         echo "y" | FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev
         EXTRAS=offline-replay make -j
 
