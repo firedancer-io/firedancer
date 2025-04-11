@@ -272,7 +272,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        is released. */
     if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-      FD_LOG_WARNING(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
+      FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
                    "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
                    actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
                    transaction_err[ sanitized_idx-1UL ] ));
@@ -433,7 +433,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     if( FD_LIKELY( (txn->flags & (FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS))==(FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
       if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
         FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-        FD_LOG_WARNING(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
+        FD_LOG_ERR(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
       }
 
       txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
