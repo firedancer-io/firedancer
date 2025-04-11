@@ -2,10 +2,10 @@
 
 void *
 fd_funk_val_truncate( fd_funk_rec_t * rec,
-                         ulong           new_val_sz,
-                         fd_alloc_t *    alloc,
-                         fd_wksp_t *     wksp,
-                         int *           opt_err ) {
+                      ulong           new_val_sz,
+                      fd_alloc_t *    alloc,
+                      fd_wksp_t *     wksp,
+                      int *           opt_err ) {
 
   /* Check input args */
 
@@ -17,7 +17,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
   }
 #endif
 
-  ulong val_sz = (ulong)rec->val_sz;
+  ulong val_sz  = (ulong)rec->val_sz;
   ulong val_max = (ulong)rec->val_max;
 
   if( FD_UNLIKELY( !new_val_sz ) ) {

@@ -22,6 +22,38 @@
 #define MAP_IMPL_STYLE        2
 #include "../util/tmpl/fd_map_para.c"
 
+fd_funk_rec_t *
+fd_funk_rec_modify_prepare( fd_funk_t *               funk,
+                            fd_funk_txn_t const *     txn,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_query_t *     query ) {
+  fd_wksp_t * wksp          = fd_funk_wksp( funk );
+  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funk_xid_key_pair_t pair[1];
+  if( txn == NULL ) {
+    fd_funk_txn_xid_set_root( pair->xid );
+  } else {
+    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
+  }
+  fd_funk_rec_key_copy( pair->key, key );
+
+  for( ;; ) {
+    int err = fd_funk_rec_map_modify_try( &rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+    if( err==FD_MAP_SUCCESS ) break;
+    if( err==FD_MAP_ERR_KEY ) return NULL;
+    if( err==FD_MAP_ERR_AGAIN ) continue;
+    FD_LOG_CRIT(( "query returned err %d", err ));
+  }
+
+  fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
+  return rec;
+}
+
+void
+fd_funk_rec_modify_publish( fd_funk_rec_query_t * query ) {
+  fd_funk_rec_map_modify_test( query );
+}
+
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_txn_t const *     txn,
@@ -107,12 +139,13 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
            match. According to the property above, this will be the
            youngest descendent in the transaction stack. */
 
-        int match = FD_UNLIKELY( cur_txn ) ? /* opt for root find (FIXME: eliminate branch with cmov into txn_xid_eq?) */
-          fd_funk_txn_xid_eq( &cur_txn->xid, ele->pair.xid ) :
-          fd_funk_txn_xid_eq_root( ele->pair.xid );
-
+        /* opt for root find (FIXME: eliminate branch with cmov into txn_xid_eq?) */
+        int match = FD_UNLIKELY( cur_txn ) ? fd_funk_txn_xid_eq( &cur_txn->xid, ele->pair.xid ) :
+                                             fd_funk_txn_xid_eq_root( ele->pair.xid );
         if( FD_LIKELY( match ) ) {
-          if( txn_out ) *txn_out = cur_txn;
+          if( txn_out ) {
+            *txn_out = cur_txn;
+          }
           query->ele = ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL :
                          (fd_funk_rec_t *)ele );
           return query->ele;
