@@ -430,7 +430,6 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
       /* Make a list of rec ptrs to process */
       ulong rec_cnt = 0UL;
       for( ; NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
-        if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) continue;
         recs[ rec_cnt ] = rec;
 
         if( rec_cnt==65536UL ) {
@@ -503,7 +502,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, funk_txn );
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec )) {
-    if( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
+    if( !fd_funk_key_is_acc( rec->pair.key ) ) {
       continue;
     }
 
@@ -568,7 +567,7 @@ fd_bpf_load_cache_entry( fd_funk_t *                    funk,
     fd_funk_rec_query_t query[1];
     fd_funk_rec_t const * rec = fd_funk_rec_query_try_global(funk, funk_txn, &id, NULL, query);
 
-    if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
+    if( FD_UNLIKELY( !rec ) ) {
       if( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) {
         return -1;
       } else {
