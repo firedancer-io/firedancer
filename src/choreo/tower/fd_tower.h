@@ -589,12 +589,12 @@ fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_ghost_t const * ghost,
                         ulong slot );
 
-/* fd_tower_switch_check checks if we can switch to `fork`.  Returns 1
-   if we can switch, 0 otherwise.  Assumes tower is non-empty.
+/* fd_tower_switch_check checks if we can switch to the fork of `slot`.
+   Returns 1 if we can switch, 0 otherwise.  Assumes tower is non-empty.
 
    There are two forks of interest: our last vote fork ("vote fork") and
-   the fork we want to switch to ("switch fork"). The switch fork is
-   what the caller passes in as `fork`.
+   the fork we want to switch to ("switch fork"). The switch fork is the
+   fork of `slot`.
 
    In order to switch, FD_TOWER_SWITCH_PCT of stake must have voted for
    a different descendant of the GCA of vote_fork and switch_fork, and
