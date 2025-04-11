@@ -28,7 +28,7 @@ fd_snp_rng( uchar * buf, ulong buf_sz ) {
 long
 fd_snp_s0_client_initial( fd_snp_s0_client_params_t const * client,
                           fd_snp_s0_client_hs_t *           hs,
-                          uchar                             pkt_out[ SNP_MTU ] ) {
+                          uchar                             pkt_out[ SNP_MTU-42 ] ) {
 
   /* Expect client state to be just initialized */
   if( FD_UNLIKELY( hs->state != 0 ) ) {
@@ -91,7 +91,7 @@ long
 fd_snp_s0_server_handle_initial( fd_snp_s0_server_params_t const * server,
                                  snp_net_ctx_t const *             ctx,
                                  snp_s0_hs_pkt_t const *           pkt,
-                                 uchar                             pkt_out[ SNP_MTU ],
+                                 uchar                             pkt_out[ SNP_MTU-42 ],
                                  fd_snp_s0_server_hs_t * const     hs /* server_initial is stateless, we do NOT modify hs */
 ) {
   (void)ctx;
@@ -128,7 +128,7 @@ fd_snp_s0_server_handle_initial( fd_snp_s0_server_params_t const * server,
 long
 fd_snp_s0_client_handle_continue( fd_snp_s0_client_params_t const * client,
                                   snp_s0_hs_pkt_t const *           pkt_in,
-                                  uchar                             pkt_out[ SNP_MTU ],
+                                  uchar                             pkt_out[ SNP_MTU-42 ],
                                   uchar                             to_sign[32],
                                   fd_snp_s0_client_hs_t *           hs ) {
   (void)client;
@@ -179,7 +179,7 @@ fd_snp_s0_client_handle_continue( fd_snp_s0_client_params_t const * client,
 }
 
 void
-fd_snp_s0_client_handle_continue_add_signature( uchar pkt_out[ SNP_MTU ],
+fd_snp_s0_client_handle_continue_add_signature( uchar pkt_out[ SNP_MTU-42 ],
                                                 uchar sig[ 64 ] ) {
   snp_s0_hs_pkt_client_accept_t * out = (snp_s0_hs_pkt_client_accept_t *)pkt_out;
   fd_memcpy( out->signature, sig, 64 );
@@ -189,7 +189,7 @@ long
 fd_snp_s0_server_handle_accept( fd_snp_s0_server_params_t const * server,
                                 snp_net_ctx_t const *                ctx,
                                 snp_s0_hs_pkt_t const *              pkt_in,
-                                uchar                                pkt_out[ SNP_MTU ],
+                                uchar                                pkt_out[ SNP_MTU-42 ],
                                 uchar                                to_sign[32],
                                 fd_snp_s0_server_hs_t *              hs,
                                 fd_snp_sesh_t *                      sesh ) {
@@ -261,7 +261,7 @@ fd_snp_s0_server_handle_accept( fd_snp_s0_server_params_t const * server,
 }
 
 void
-fd_snp_s0_server_handle_accept_add_signature( uchar pkt_out[ SNP_MTU ],
+fd_snp_s0_server_handle_accept_add_signature( uchar pkt_out[ SNP_MTU-42 ],
                                               uchar sig[ 64 ] ) {
   snp_s0_hs_pkt_server_accept_t * out = (snp_s0_hs_pkt_server_accept_t *)pkt_out;
   fd_memcpy( out->signature, sig, 64 );
@@ -335,7 +335,7 @@ fd_snp_s0_client_handle_accept( fd_snp_t*                         snp,
 //                          fd_snp_s0_client_hs_t *           hs,
 //                          uchar const *                pkt_in,
 //                          ulong                       pkt_in_sz,
-//                          uchar                        pkt_out[ static SNP_MTU ] ) {
+//                          uchar                        pkt_out[ static SNP_MTU-42 ] ) {
 
 //   if( FD_UNLIKELY( pkt_in_sz < sizeof(snp_s0_hs_pkt_t) ) )
 //     return 0UL;
@@ -361,10 +361,42 @@ fd_snp_s0_client_handle_accept( fd_snp_t*                         snp,
 // }
 
 long
+fd_snp_s0_finalize_packet( fd_snp_sesh_t * sesh,
+                           uchar *         packet,
+                           ushort          packet_sz ) {
+  /* IP + UDP */
+#if 0
+  fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
+  *hdr = *( sesh->net_hdr );
+  memset( hdr->eth->dst, 0, 6UL );
+  fd_ip4_hdr_t * ip4 = hdr->ip4;
+  // ip4->daddr  = dst_ip;
+  ip4->net_id = fd_ushort_bswap( sesh->net_id++ );
+  ip4->check  = 0U;
+  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
+  // hdr->udp->net_dport  = dst_port;
+  hdr->udp->net_len    = fd_ushort_bswap( (ushort)(packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t)) );
+#endif
+
+  /* SNP */
+  snp_hdr_t * udp_payload = (snp_hdr_t *)(packet + sizeof(fd_ip4_udp_hdrs_t));
+  udp_payload->version_type = snp_hdr_version_type( SNP_V0, SNP_TYPE_APP_SIMPLE );
+  fd_memcpy( udp_payload->session_id, &(sesh->session_id), SNP_SESSION_ID_SZ );
+
+  /* data is already set by fd_snp_app_send */
+
+  /* append some fake MAC */
+  uchar * mac_ptr = packet + packet_sz - SNP_MAC_SZ;
+  fd_memset( mac_ptr, 0xff, SNP_MAC_SZ);
+
+  return packet_sz;
+}
+
+long
 fd_snp_s0_encode_appdata( fd_snp_sesh_t * sesh,
                      const uchar *      payload, /* TODO: create a 0cp mode */
                      ushort             payload_sz,
-                     uchar              pkt_out[ SNP_MTU ] ) {
+                     uchar              pkt_out[ SNP_MTU-42 ] ) {
   snp_hdr_t* ptr = (snp_hdr_t*)pkt_out;
   ptr->version_type = snp_hdr_version_type( SNP_V0, SNP_TYPE_APP_SIMPLE );
   fd_memcpy( ptr->session_id, &(sesh->session_id), SNP_SESSION_ID_SZ );

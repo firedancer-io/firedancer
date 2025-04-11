@@ -40,7 +40,7 @@ long
 fd_snp_s0_server_handle_initial( fd_snp_s0_server_params_t const * server,
                                  snp_net_ctx_t const *             ctx,
                                  snp_s0_hs_pkt_t const *           pkt,
-                                 uchar                             out[ SNP_MTU ],
+                                 uchar                             out[ SNP_MTU-42 ],
                                  fd_snp_s0_server_hs_t *           hs );
 
 // TODO document
@@ -48,13 +48,13 @@ long
 fd_snp_s0_server_handle_accept( fd_snp_s0_server_params_t const * server,
                                 snp_net_ctx_t const *             ctx,
                                 snp_s0_hs_pkt_t const *           pkt,
-                                uchar                             out[ SNP_MTU ],
+                                uchar                             out[ SNP_MTU-42 ],
                                 uchar                             to_sign[32],
                                 fd_snp_s0_server_hs_t *           hs,
                                 fd_snp_sesh_t *                   sesh );
 
 void
-fd_snp_s0_server_handle_accept_add_signature( uchar out[ SNP_MTU ], 
+fd_snp_s0_server_handle_accept_add_signature( uchar out[ SNP_MTU-42 ], 
                                               uchar sig[ 64 ] );
 
 /* fd_snp_s0_server_rotate_keys re-generates the ephemeral keys

@@ -13,7 +13,7 @@
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../util/net/fd_net_headers.h"
-#include "../../waltz/snp/fd_snp.h"
+#include "../../waltz/snp/fd_snp_app.h"
 
 #include <linux/unistd.h>
 
@@ -209,7 +209,7 @@ typedef struct {
     };
   } pending_batch;
 
-  fd_snp_t * snp;
+  fd_snp_app_t * snp;
 } fd_shred_ctx_t;
 
 /* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
@@ -230,9 +230,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt = tile->shred.depth + tile->shred.fec_resolver_depth + 4UL;
 
-  fd_snp_limits_t limits = {
-    .conn_cnt = 8 // FIXME
-  };
+  fd_snp_app_limits_t limits = { 0 };
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
@@ -240,7 +238,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint                  );
   l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
   l = FD_LAYOUT_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt        );
-  l = FD_LAYOUT_APPEND( l, fd_snp_align(),                   fd_snp_footprint( &limits )             );
+  l = FD_LAYOUT_APPEND( l, fd_snp_app_align(),               fd_snp_app_footprint( &limits )         );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -290,20 +288,16 @@ handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
   ctx->new_dest_ptr = dests;
   ctx->new_dest_cnt = dest_cnt;
 
-  fd_snp_t* snp = ctx->snp;
   uchar empty[1] = { 0 };
-  snp_net_ctx_t dst = FD_SNP_NET_CTX_T_EMPTY;
-
   for( ulong i=0UL; i<dest_cnt; i++ ) {
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
     dests[i].ip4  = in_dests[i].ip4_addr;
     dests[i].port = in_dests[i].udp_port;
 
     // establish connection
-    dst.parts.ip4 = dests[i].ip4  = in_dests[i].ip4_addr;
-    dst.parts.port = dests[i].port = in_dests[i].udp_port;
-    // FD_LOG_NOTICE(( "SNP connect to %u:%u", dst.parts.ip4, dst.parts.port ));
-    fd_snp_send( snp, &dst, empty, 1UL );
+    uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+    fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_UDP, dests[i].ip4, dests[i].port );
+    fd_snp_app_send( ctx->snp, packet, FD_NET_MTU, empty, 1UL, meta );
   }
 }
 
@@ -319,7 +313,7 @@ before_frag( fd_shred_ctx_t * ctx,
              ulong            sig ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) )      return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
   else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
 
   return 0;
@@ -485,14 +479,8 @@ during_frag( fd_shred_ctx_t * ctx,
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
 
-    const uchar *ip_hdr = dcache_entry + 14;
-    uchar ip_hdr_len = (uchar)((ip_hdr[0] & 0x0F) * 4);
-    const uchar *udp_hdr = ip_hdr + ip_hdr_len;
-    ushort src_port = (ushort)((ushort)udp_hdr[0] << 8 | udp_hdr[1]);
-    uint src_ip = (uint)ip_hdr[12]        | ((uint)ip_hdr[13] << 8) |
-                 ((uint)ip_hdr[14] << 16) | ((uint)ip_hdr[15] << 24);
-
-    fd_snp_process_packet( ctx->snp, dcache_entry+hdr_sz, sz-hdr_sz, src_ip, src_port );
+    fd_snp_meta_t meta = (fd_snp_meta_t)sig;
+    fd_snp_app_recv( ctx->snp, dcache_entry+hdr_sz, sz-hdr_sz, meta );
   }
 }
 
@@ -500,38 +488,54 @@ static inline void
 send_shred( fd_shred_ctx_t *    ctx,
             fd_shred_t const *  shred,
             fd_shred_dest_t *   sdest,
-            fd_shred_dest_idx_t dest_idx,
-            ulong               tsorig ) {
-  (void) tsorig;
-
+            fd_shred_dest_idx_t dest_idx ) {
   fd_shred_dest_weighted_t * dest = fd_shred_dest_idx_to_dest( sdest, dest_idx );
   if( FD_UNLIKELY( !dest->ip4 ) ) return;
 
   int is_data = fd_shred_is_data( fd_shred_type( shred->variant ) );
   ulong shred_sz = fd_ulong_if( is_data, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
 
-  snp_net_ctx_t dst = FD_SNP_NET_CTX_T_EMPTY;
-  dst.parts.ip4 = dest->ip4;
-  dst.parts.port = dest->port;
-
-  int tmp = fd_snp_send( ctx->snp, &dst, shred, shred_sz );
-  if( tmp<0 ) {
-    FD_LOG_NOTICE(("SNP send error: %d", tmp)); /* TODO remove this */
+  uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+  fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_UDP, dest->ip4, dest->port );
+  int res = fd_snp_app_send( ctx->snp, packet, FD_NET_MTU, shred, shred_sz, meta );
+  if( res<0 ) {
+    FD_LOG_NOTICE(( "SNP send error: %d", res ));
   }
 }
 
-static void
-shred_rx( fd_snp_t* snp,
-          snp_net_ctx_t* sender,
-          uchar const * data,
-          ulong         data_sz ) {
-  (void)sender;
+static int
+snp_callback_tx( void const *  _ctx,
+                 uchar const * packet,
+                 ulong         packet_sz,
+                 fd_snp_meta_t meta ) {
+  // TODO: convert back packet -> ctx->net_out_chunk. The conversion is implicit right now.
+  (void)packet;
 
-  fd_shred_ctx_t* ctx = snp->cb.snp_ctx;
+  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
+  ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sig = (ulong)meta;
+
+  fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, packet_sz, 0UL, ctx->tsorig, tspub );
+  ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
+  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+
+  return FD_SNP_SUCCESS;
+}
+
+static int
+snp_callback_rx( void const *  _ctx,
+                 fd_snp_peer_t peer,
+                 uchar const * data,
+                 ulong         data_sz,
+                 fd_snp_meta_t meta ) {
+  (void)peer;
+  (void)meta;
+
+  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
   fd_shred_t const * shred = fd_shred_parse( data, (ulong)data_sz );
   if( FD_UNLIKELY( !shred ) ) {
     ctx->skip_frag = 1;
-    return;
+    return FD_SNP_SUCCESS;
   };
   /* all shreds in the same FEC set will have the same signature
       so we can round-robin shreds between the shred tiles based on
@@ -539,42 +543,12 @@ shred_rx( fd_snp_t* snp,
   ulong sig = fd_ulong_load_8( shred->signature );
   if( FD_LIKELY( sig%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
     ctx->skip_frag = 1;
-    return;
+    return FD_SNP_SUCCESS;
   }
   fd_memcpy( ctx->shred_buffer, data, data_sz );
   ctx->shred_buffer_sz = data_sz;
-}
 
-static void
-send_to_net( fd_snp_t * snp,
-             snp_net_ctx_t* dest,
-             uchar const* data,
-             ulong data_sz) {
-  fd_shred_ctx_t * ctx = snp->cb.snp_ctx;
-  uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-
-  fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
-  *hdr = *( ctx->net_hdr );
-
-  memset( hdr->eth->dst, 0, 6UL );
-
-  fd_ip4_hdr_t * ip4 = hdr->ip4;
-  ip4->daddr  = dest->parts.ip4;
-  ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
-  ip4->check  = 0U;
-  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
-
-  hdr->udp->net_dport  = fd_ushort_bswap( dest->parts.port );
-  hdr->udp->net_len    = fd_ushort_bswap( (ushort)(data_sz + sizeof(fd_udp_hdr_t)) );
-
-  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), data, data_sz );
-  ulong pkt_sz = data_sz + sizeof(fd_ip4_udp_hdrs_t);
-
-  ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig    = fd_disco_netmux_sig( dest->parts.ip4, dest->parts.port, dest->parts.ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
-  fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, pkt_sz, 0UL, ctx->tsorig, tspub );
-  ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+  return FD_SNP_SUCCESS;
 }
 
 static void
@@ -649,7 +623,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
         if( FD_UNLIKELY( !dests ) ) break;
 
-        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
+        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ] );
       } while( 0 );
 
       if( FD_LIKELY( ctx->blockstore && rv==FD_FEC_RESOLVER_SHRED_OKAY ) ) { /* optimize for the compiler - branch predictor will still be correct */
@@ -763,7 +737,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   if( FD_UNLIKELY( !dests ) ) return;
 
   /* Send only the ones we didn't receive. */
-  for( ulong i=0UL; i<k; i++ ) for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], sdest, dests[ j*out_stride+i ], ctx->tsorig );
+  for( ulong i=0UL; i<k; i++ ) for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], sdest, dests[ j*out_stride+i ] );
 }
 
 static void
@@ -843,20 +817,18 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !bank_cnt && !replay_cnt ) ) FD_LOG_ERR(( "0 bank/replay tiles" ));
   if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 
-  fd_snp_limits_t limits = {
-    .conn_cnt = 8 // FIXME
-  };
+  fd_snp_app_limits_t limits = { 0 };
 
-  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
-  void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint             );
-  void * _shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()            );
-  void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt   );
-  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_align(),                   fd_snp_footprint( &limits )        );
+  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()          );
+  void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(), fec_resolver_footprint           );
+  void * _shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),     fd_shredder_footprint()          );
+  void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),   sizeof(fd_fec_set_t)*fec_set_cnt );
+  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_app_align(),      fd_snp_app_footprint( &limits )  );
 
-  fd_snp_t * snp = fd_snp_join( fd_snp_new( _snp, &limits ) );
-  snp->cb.snp_ctx = ctx;
-  snp->cb.rx = shred_rx;
-  snp->cb.tx = send_to_net;
+  fd_snp_app_t * snp = fd_snp_app_join( fd_snp_app_new( _snp, &limits ) );
+  snp->cb.ctx = ctx;
+  snp->cb.rx = snp_callback_rx;
+  snp->cb.tx = snp_callback_tx;
 
   fd_fec_set_t * fec_sets = (fd_fec_set_t *)_fec_sets;
   fd_shred34_t * shred34  = (fd_shred34_t *)store_out_dcache;

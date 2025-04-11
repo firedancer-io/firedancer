@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_waltz_snp_fd_snp_h
 #define HEADER_fd_src_waltz_snp_fd_snp_h
 
+#include "fd_snp_common.h"
 #include "fd_snp_base.h"
 #include "fd_snp_proto.h"
 #include "fd_snp_private.h"
@@ -9,7 +10,6 @@
 
 /* FD_SNP_API marks public API declarations.  No-op for now. */
 #define FD_SNP_API
-
 
 /* fd_snp_limits_t defines the memory layout of an fd_snp_t object.
    Limits are immutable and valid for the lifetime of an fd_snp_t
@@ -30,31 +30,35 @@ typedef ulong
 
 /* Callback API *******************************************************/
 
-typedef void
-(* fd_snp_cb_rx_t)( fd_snp_t      *  snp,
-                    snp_net_ctx_t *  sockAddr,
-                    uchar const *    data,
-                    ulong            data_sz );
+/* CALLBACKS */
 
+/* send/tx callback.
+   This is invoked by fd_snp_app_send* to actually send the packet over
+   the wire (or to a different process). */
+typedef int
+( * fd_snp_cb_tx_t )( void const *         ctx,          /* callback context */
+                      uchar const *        packet,       /* packet to send */
+                      ulong                packet_sz,    /* size of packet to send */
+                      fd_snp_meta_t        meta );       /* connection metadata */
 
-typedef void
-(* fd_snp_cb_tx_t)( fd_snp_t      *  snp,
-                    snp_net_ctx_t *  sockAddr,
-                    uchar const *    data,
-                    ulong            data_sz );
+/* recv/rx callback.
+   This is invoked by fd_snp_app_recv to process data received from peer. */
+typedef int
+( * fd_snp_cb_rx_t )( void const *         ctx,          /* callback context */
+                      uchar const *        packet,       /* packet to send */
+                      ulong                packet_sz,    /* size of packet to send */
+                      fd_snp_meta_t        meta );       /* connection metadata */
 
 struct fd_snp_callbacks {
   /* Function pointers to user callbacks */
 
-  void * snp_ctx; /* user-provided context pointer
-                      for instance-wide callbacks */
-
-  fd_snp_cb_rx_t                 rx;         /* non-NULL, with stream_ctx */
-  fd_snp_cb_tx_t                 tx; /* sends UDP payload, handle rest in callback */
+  void *         ctx;
+  fd_snp_cb_tx_t tx;
+  fd_snp_cb_rx_t rx;
 
   /* Clock source */
   fd_snp_now_t now;     /* non-NULL */
-  void *        now_ctx; /* user-provided context pointer for now_fn calls */
+  void *       now_ctx; /* user-provided context pointer for now_fn calls */
 
 };
 typedef struct fd_snp_callbacks fd_snp_callbacks_t;
@@ -146,20 +150,20 @@ fd_snp_service_timers( fd_snp_t * snp );
     <0   one of FD_SNP_SEND_ERR_{INVAL_STREAM,INVAL_CONN,AGAIN} */
 
 FD_SNP_API int
-fd_snp_send( fd_snp_t * snp,
-             snp_net_ctx_t *  dst,
-             void const *     data,
-             ulong            data_sz);
+fd_snp_send( fd_snp_t *    snp,
+             uchar *       packet,
+             ulong         packet_sz,
+             fd_snp_meta_t meta );
 
 
 /* TODO document this */
 /* should include IP/UDP headers, not ethernet */
 FD_SNP_API void
-fd_snp_process_packet( fd_snp_t * snp,
-                       const uchar *     data,
-                       ulong       data_sz,
-                       uint          src_ip,
-                       ushort      src_port );
+fd_snp_process_packet( fd_snp_t *    snp,
+                       uchar const * packet,
+                       ulong         packet_sz );
+                      //  uint          src_ip,
+                      //  ushort      src_port );
 
 FD_PROTOTYPES_END
 
