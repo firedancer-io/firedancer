@@ -160,6 +160,14 @@
 
 #define FD_FUNK_MAGIC (0xf17eda2ce7fc2c02UL) /* firedancer funk version 2 */
 
+#define DLIST_NAME  fd_funk_accounts_lru
+#define DLIST_ELE_T fd_funk_rec_t
+#define DLIST_PREV  accounts_lru_prev_idx
+#define DLIST_NEXT  accounts_lru_next_idx
+#define DLIST_IDX_T uint
+
+#include "../util/tmpl/fd_dlist.c"
+
 struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   /* Metadata */
@@ -251,6 +259,9 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      that and allocating exclusively from that? */
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
+
+  /* LRU cache of the Funk accounts */
+  fd_funk_accounts_lru_t accounts_lru;
 
   /* Padding to FD_FUNK_ALIGN here */
 };
