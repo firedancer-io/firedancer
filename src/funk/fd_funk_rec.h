@@ -47,7 +47,7 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   /* These fields are managed by the funk's rec_map */
 
   fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
-  ulong                  map_next; /* Internal use by map */
+  uint                   map_next; /* Internal use by map */
   ulong                  map_hash; /* Internal use by map */
 
   /* These fields are managed by funk.  TODO: Consider using record
@@ -102,6 +102,7 @@ FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is 
 #define MAP_KEY               pair
 #define MAP_KEY_EQ(k0,k1)     fd_funk_xid_key_pair_eq((k0),(k1))
 #define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
+#define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MEMO              map_hash
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
