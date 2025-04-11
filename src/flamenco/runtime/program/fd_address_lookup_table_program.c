@@ -329,18 +329,33 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
       signers[0] = *payer_key;
 
       // Create system program instruction
-      fd_system_program_instruction_t instr = {0};
-      instr.discriminant = fd_system_program_instruction_enum_transfer;
-      instr.inner.transfer = required_lamports;
+      uchar instr_data[FD_TXN_MTU];
+      fd_system_program_instruction_t instr = {
+        .discriminant = fd_system_program_instruction_enum_transfer,
+        .inner = {
+          .transfer = required_lamports,
+        }
+      };
 
-      int err = fd_native_cpi_execute_system_program_instruction(
-        ctx,
-        &instr,
-        acct_metas,
-        2,
-        signers,
-        signers_cnt
-      );
+      fd_bincode_encode_ctx_t encode_ctx = {
+        .data    = instr_data,
+        .dataend = instr_data + FD_TXN_MTU
+      };
+
+      // This should never fail.
+      int err = fd_system_program_instruction_encode( &instr, &encode_ctx );
+      if( FD_UNLIKELY( err ) ) {
+        return FD_EXECUTOR_INSTR_ERR_FATAL;
+      }
+
+      err = fd_native_cpi_native_invoke( ctx,
+                                         &fd_solana_system_program_id,
+                                         instr_data,
+                                         FD_TXN_MTU,
+                                         acct_metas,
+                                         2UL,
+                                         signers,
+                                         signers_cnt );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -357,36 +372,67 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     ulong signers_cnt = 1;
     signers[0] = *lut_key;
 
-    // Create system program instruction
-    fd_system_program_instruction_t instr = {0};
-    instr.discriminant = fd_system_program_instruction_enum_allocate;
-    instr.inner.allocate = 56;
+    // Create system program allocate instruction
+    uchar instr_data[FD_TXN_MTU];
+    fd_system_program_instruction_t instr = {
+      .discriminant = fd_system_program_instruction_enum_allocate,
+      .inner = {
+        .allocate = FD_LOOKUP_TABLE_META_SIZE,
+      }
+    };
+
+    fd_bincode_encode_ctx_t encode_ctx = {
+      .data    = instr_data,
+      .dataend = instr_data + FD_TXN_MTU
+    };
+
+    // This should never fail.
+    int err = fd_system_program_instruction_encode( &instr, &encode_ctx );
+    if( FD_UNLIKELY( err ) ) {
+      return FD_EXECUTOR_INSTR_ERR_FATAL;
+    }
 
     // Execute allocate instruction
-    int err = fd_native_cpi_execute_system_program_instruction(
-      ctx,
-      &instr,
-      acct_metas,
-      1,
-      signers,
-      signers_cnt
-    );
+    err = fd_native_cpi_native_invoke( ctx,
+                                       &fd_solana_system_program_id,
+                                       instr_data,
+                                       FD_TXN_MTU,
+                                       acct_metas,
+                                       1UL,
+                                       signers,
+                                       signers_cnt );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
 
-    instr.discriminant = fd_system_program_instruction_enum_assign;
-    instr.inner.assign = fd_solana_address_lookup_table_program_id;
+    // Prepare system program assign instruction
+    instr = (fd_system_program_instruction_t) {
+      .discriminant = fd_system_program_instruction_enum_assign,
+      .inner = {
+        .assign = fd_solana_address_lookup_table_program_id,
+      }
+    };
+
+    encode_ctx = (fd_bincode_encode_ctx_t) {
+      .data    = instr_data,
+      .dataend = instr_data + FD_TXN_MTU
+    };
+
+    // This should never fail.
+    err = fd_system_program_instruction_encode( &instr, &encode_ctx );
+    if( FD_UNLIKELY( err ) ) {
+      return FD_EXECUTOR_INSTR_ERR_FATAL;
+    }
 
     // Execute assign instruction
-    err = fd_native_cpi_execute_system_program_instruction(
-      ctx,
-      &instr,
-      acct_metas,
-      1,
-      signers,
-      signers_cnt
-    );
+    err = fd_native_cpi_native_invoke( ctx,
+                                       &fd_solana_system_program_id,
+                                       instr_data,
+                                       FD_TXN_MTU,
+                                       acct_metas,
+                                       1UL,
+                                       signers,
+                                       signers_cnt );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -711,16 +757,33 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
       signers[0]        = *payer_key;
 
       // Create system program instruction
-      fd_system_program_instruction_t instr = {0};
-      instr.discriminant                    = fd_system_program_instruction_enum_transfer;
-      instr.inner.transfer                  = required_lamports;
+      uchar instr_data[FD_TXN_MTU];
+      fd_system_program_instruction_t instr = {
+        .discriminant = fd_system_program_instruction_enum_transfer,
+        .inner = {
+          .transfer = required_lamports,
+        }
+      };
 
-      int err = fd_native_cpi_execute_system_program_instruction( ctx,
-                                                                  &instr,
-                                                                  acct_metas,
-                                                                  2UL,
-                                                                  signers,
-                                                                  signers_cnt );
+      fd_bincode_encode_ctx_t encode_ctx = {
+        .data    = instr_data,
+        .dataend = instr_data + FD_TXN_MTU
+      };
+
+      // This should never fail.
+      int err = fd_system_program_instruction_encode( &instr, &encode_ctx );
+      if( FD_UNLIKELY( err ) ) {
+        return FD_EXECUTOR_INSTR_ERR_FATAL;
+      }
+
+      err = fd_native_cpi_native_invoke( ctx,
+                                         &fd_solana_system_program_id,
+                                         instr_data,
+                                         FD_TXN_MTU,
+                                         acct_metas,
+                                         2UL,
+                                         signers,
+                                         signers_cnt );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }

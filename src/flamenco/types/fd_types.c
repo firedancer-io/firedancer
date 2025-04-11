@@ -21838,6 +21838,9 @@ FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_extend_program
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_set_authority_checked(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
   return self->discriminant == 7;
 }
+FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_migrate(fd_bpf_upgradeable_loader_program_instruction_t const * self) {
+  return self->discriminant == 8;
+}
 void fd_bpf_upgradeable_loader_program_instruction_inner_new( fd_bpf_upgradeable_loader_program_instruction_inner_t * self, uint discriminant );
 int fd_bpf_upgradeable_loader_program_instruction_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   int err;
@@ -21870,6 +21873,9 @@ int fd_bpf_upgradeable_loader_program_instruction_inner_decode_footprint( uint d
     return FD_BINCODE_SUCCESS;
   }
   case 7: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 8: {
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -21919,6 +21925,9 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner( fd_bpf_up
   case 7: {
     break;
   }
+  case 8: {
+    break;
+  }
   }
 }
 void fd_bpf_upgradeable_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -21961,6 +21970,9 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_new( fd_bpf_upgradeable
     break;
   }
   case 7: {
+    break;
+  }
+  case 8: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -22034,6 +22046,10 @@ void fd_bpf_upgradeable_loader_program_instruction_walk( void * w, fd_bpf_upgrad
   }
   case 7: {
     fun( w, self, "set_authority_checked", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 8: {
+    fun( w, self, "migrate", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   }
