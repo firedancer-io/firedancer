@@ -11,6 +11,7 @@
 #include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
 #include "fd_quic_svc_q.h"
+#include "fd_quic_hash.h"
 
 #include "../../util/log/fd_dtrace.h"
 #include "../../util/net/fd_ip4.h"
@@ -25,6 +26,72 @@
 #define DLIST_NAME  fd_quic_tls_hs_cache
 #define DLIST_ELE_T fd_quic_tls_hs_t
 #include "../../util/tmpl/fd_dlist.c"
+
+/* stateless reset token */
+struct fd_quic_token {
+  union{
+    uchar raw[16];
+    ulong l[2];
+  };
+};
+typedef struct fd_quic_token fd_quic_token_t;
+
+extern FD_TL uchar fd_quic_token_map_seed[16];
+
+#define FD_QUIC_TOKEN_NULL       ((fd_quic_token_t){0})
+#define FD_QUIC_TOKEN_IS_NULL(k) ( ( (k).l[0] | (k).l[1] ) == 0 )
+
+struct fd_quic_token_map {
+  fd_quic_token_t  token;
+  fd_quic_conn_t * conn;
+};
+typedef struct fd_quic_token_map fd_quic_token_map_t;
+
+/* hash function for storing stateless reset token in map
+   This key (the stateless reset token) is unsafe, coming from the peer
+   As such, we use a seeded hash function to reduce the chance a peer
+   can cause high collision counts and therefore DoS */
+FD_PROTOTYPES_BEGIN
+
+inline static void
+fd_quic_set_token_map_seed( uchar const seed[16] ) {
+  memcpy( fd_quic_token_map_seed, seed, sizeof( fd_quic_token_map_seed ) );
+}
+
+inline static uint
+fd_quic_token_hash( fd_quic_token_t token ) {
+  uchar buf[16];
+
+  /* This function generates a 16-byte hash
+     We don't need 16 bytes for the hash table */
+  fd_quic_hash_128( token.raw, fd_quic_token_map_seed, buf );
+
+  /* collapse into 4 bytes */
+  uint a, b, c, d;
+  memcpy( &a, buf+0,  4 );
+  memcpy( &b, buf+4,  4 );
+  memcpy( &c, buf+8,  4 );
+  memcpy( &d, buf+12, 4 );
+
+  return a^b^c^d;
+}
+
+FD_PROTOTYPES_END
+
+
+/* hash map for holding stateless reset tokens from peer connections */
+
+#define MAP_NAME              fd_quic_token_map
+#define MAP_T                 fd_quic_token_map_t
+#define MAP_KEY               token
+#define MAP_KEY_T             fd_quic_token_t
+#define MAP_KEY_NULL          FD_QUIC_TOKEN_NULL
+#define MAP_KEY_INVAL(k)      FD_QUIC_TOKEN_IS_NULL(k)
+#define MAP_KEY_EQUAL(k0,k1)  ( ! ( ( (k0).l[0] - (k1).l[0] ) | ( (k0).l[1] - (k1).l[1] ) ) )
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_KEY_HASH(k)       ( fd_quic_token_hash(k) )
+#define MAP_MEMOIZE           0
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
@@ -84,6 +151,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
                                           /* not using fd_quic_conn_t* to avoid confusion */
                                           /* use fd_quic_conn_at_idx instead */
   ulong                   conn_sz;        /* size of one connection element */
+
+  ulong                   token_map_base;
+  fd_quic_token_map_t *   token_map;
 
   /* flow control - configured initial limits */
   ulong initial_max_data;           /* directly from transport params */
