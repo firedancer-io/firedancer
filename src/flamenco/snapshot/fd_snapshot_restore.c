@@ -286,11 +286,19 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
 
   fd_solana_manifest_t * manifest = fd_solana_manifest_decode( mem, &decode );
 
-  uchar * mem2 = fd_spad_alloc( restore->spad, fd_solana_manifest_align(), total_sz );
+  decode.data    = restore->buf;
+  decode.dataend = restore->buf + restore->buf_sz;
+  decode.wksp    = fd_wksp_containing( restore->spad );
+  uchar * mem2 = fd_spad_alloc( restore->spad, fd_solana_manifest_align(), total_sz * 2 );
   if( FD_UNLIKELY( !mem2 ) ) {
     FD_LOG_ERR(( "Unable to allocate memory for solana manifest" ));
   }
-  fd_solana_manifest_t * manifest2 = fd_solana_manifest_decode( mem2, &decode );
+  fd_solana_manifest_global_t * manifest2 = fd_solana_manifest_decode_global( mem2, &decode );
+  fd_block_hash_vec_global_t * bhq_vec = &manifest2->bank.blockhash_queue;
+  FD_LOG_NOTICE(("ages len %lu %lu", bhq_vec->ages_len, manifest->bank.blockhash_queue.ages_len));
+
+
+
 
   if( manifest->bank_incremental_snapshot_persistence ) {
     FD_LOG_NOTICE(( "Incremental snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
