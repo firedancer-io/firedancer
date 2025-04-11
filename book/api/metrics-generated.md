@@ -251,6 +251,7 @@
 | pack_&#8203;cus_&#8203;scheduled | `histogram` | The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs. |
 | pack_&#8203;cus_&#8203;rebated | `histogram` | The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses. |
 | pack_&#8203;cus_&#8203;net | `histogram` | The net number of cost units (scheduled - rebated) in each block pack produced. |
+| pack_&#8203;cus_&#8203;pct | `histogram` | The percent of the total block cost limit used for each block pack produced. |
 | pack_&#8203;delete_&#8203;missed | `counter` | Count of attempts to delete a transaction that wasn't found |
 | pack_&#8203;delete_&#8203;hit | `counter` | Count of attempts to delete a transaction that was found and deleted |
 
