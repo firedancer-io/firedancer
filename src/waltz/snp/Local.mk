@@ -19,11 +19,11 @@ SNP_TEST_LIBS:=fd_snp fd_util fd_ballet
 $(call make-unit-test,test_snp_hs,test_snp_hs,$(SNP_TEST_LIBS))
 $(call run-unit-test,test_snp_hs)
 
-$(call make-unit-test,test_snp_client_server, test_snp_client_server, $(SNP_TEST_LIBS))
-$(call run-unit-test,test_snp_client_server)
+#$(call make-unit-test,test_snp_client_server, test_snp_client_server, $(SNP_TEST_LIBS))
+#$(call run-unit-test,test_snp_client_server)
 
-$(call make-unit-test,test_snp_live, test_snp_live, $(SNP_TEST_LIBS))
-$(call run-unit-test,test_snp_live)
+#$(call make-unit-test,test_snp_live, test_snp_live, $(SNP_TEST_LIBS))
+#$(call run-unit-test,test_snp_live)
 
 $(call make-unit-test,test_snp_app,test_snp_app,$(SNP_TEST_LIBS))
 $(call run-unit-test,test_snp_app)

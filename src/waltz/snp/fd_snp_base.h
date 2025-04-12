@@ -15,9 +15,9 @@ typedef struct fd_snp_conn fd_snp_conn_t;
 
 union snp_net_ctx {
   struct __attribute__((packed)) snp_net_ctx_parts {
-    uint  ip4;
-    ushort port;
     ushort padding; /* WILL BE CLOBBERED */
+    ushort port;
+    uint  ip4;
   } parts;
 
   ulong b;

@@ -82,13 +82,13 @@ fd_snp_service_timers( fd_snp_t * snp ) {
 
 
 int
-fd_snp_send( fd_snp_t * snp,
-             snp_net_ctx_t *  dst,
-             void const *     data,
-             ulong            data_sz) {
-  dst->parts.padding = 0x0; /* always clear */
+fd_snp_send( fd_snp_t *    snp,
+             uchar *       packet,
+             ulong         packet_sz, 
+             fd_snp_meta_t meta ) {
+  // dst->parts.padding = 0x0; /* always clear */
   /* TODO better error handling */
-  if( data_sz > SNP_BASIC_PAYLOAD_MTU ) {
+  if( packet_sz > SNP_BASIC_PAYLOAD_MTU ) {
     return -1;
   }
 
@@ -96,79 +96,89 @@ fd_snp_send( fd_snp_t * snp,
   fd_snp_state_private_t* priv = (fd_snp_state_private_t*)(snp+1);
   uchar i;
   for( i=0; i<FD_SNP_MAX_SESSION_TMP; ++i ) {
-    if( priv->sessions[i].socket_addr == dst->b ) {
+    if( priv->sessions[i].socket_addr == meta ) {
       break;
     }
   }
-  uchar buf[SNP_MTU];
+
   long sz = 0;
+  uchar buf[ SNP_MTU ];
   if( i < FD_SNP_MAX_SESSION_TMP ) {
     /* we have a connection, just send on it */
-    sz = fd_snp_s0_encode_appdata( priv->sessions+i, data, (ushort)data_sz, buf );
+    sz = fd_snp_s0_finalize_packet( priv->sessions+i, packet, (ushort)packet_sz );
     if( sz < 0 ) {
       /* TODO - error handling */
       return -2;
     }
-  } else {
-
-    fd_snp_s0_client_hs_t* hs = NULL;
-    for( i=0; i<priv->client_hs_sz; ++i ) {
-      if( priv->client_hs[i].socket_addr == dst->b ) {
-        hs = priv->client_hs + i;
-        break;
-      }
-    }
-
-    /* no pending hs, start one */
-    if( !hs ) {
-      if( priv->session_sz >= FD_SNP_MAX_SESSION_TMP ) {
-        FD_LOG_NOTICE(("SNP session overflow: %u", priv->session_sz)); /* TODO - change this */
-      }
-
-      hs = priv->client_hs + priv->client_hs_sz++;
-      fd_snp_s0_client_hs_new( hs );
-      hs->socket_addr = dst->b;
-
-      fd_snp_s0_client_params_t params[1];
-      sz = fd_snp_s0_client_initial( params , hs, buf );
-    }
-
-    /* buffer data */
-    if( hs->buffers_sz >= FD_SNP_MAX_BUF ) {
-      FD_LOG_NOTICE(("SNP buffer overflow %u", hs->buffers_sz)); /* TODO - change this */
-      return -3;
-    }
-
-    fd_snp_payload_t* payload_buf = hs->buffers + hs->buffers_sz++;
-    payload_buf->sz = (ushort)data_sz;
-    fd_memcpy( payload_buf->data, data, data_sz );
+    return snp->cb.tx( snp->cb.ctx, packet, packet_sz, meta );
   }
 
+  fd_snp_s0_client_hs_t* hs = NULL;
+  for( i=0; i<priv->client_hs_sz; ++i ) {
+    if( priv->client_hs[i].socket_addr == meta ) {
+      hs = priv->client_hs + i;
+      break;
+    }
+  }
+
+  /* no pending hs, start one */
+  if( !hs ) {
+    if( priv->session_sz >= FD_SNP_MAX_SESSION_TMP ) {
+      FD_LOG_NOTICE(("SNP session overflow: %u", priv->session_sz)); /* TODO - change this */
+    }
+
+    hs = priv->client_hs + priv->client_hs_sz++;
+    fd_snp_s0_client_hs_new( hs );
+    hs->socket_addr = meta;
+
+    fd_snp_s0_client_params_t params[1];
+    sz = fd_snp_s0_client_initial( params, hs, buf + sizeof(fd_ip4_udp_hdrs_t) ); //TODO: client_initial only touches UDP payload
+  }
+
+  /* buffer data */
+  if( hs->buffers_sz >= FD_SNP_MAX_BUF ) {
+    FD_LOG_NOTICE(("SNP buffer overflow %u", hs->buffers_sz)); /* TODO - change this */
+    return -3;
+  }
+
+  fd_snp_payload_t* payload_buf = hs->buffers + hs->buffers_sz++;
+  payload_buf->sz = (ushort)packet_sz;
+  fd_memcpy( payload_buf->data, packet, packet_sz );
+
   if( sz > 0 ) {
-    snp->cb.tx( snp, dst, buf, (ulong)sz );
+    return snp->cb.tx( snp->cb.ctx, buf, (ulong)sz + sizeof(fd_ip4_udp_hdrs_t), meta );
   }
   return 0;
 }
 
 void
-fd_snp_process_packet( fd_snp_t *     snp,
-                       const uchar *  data,
-                       ulong          data_sz,
-                       uint           src_ip,
-                       ushort         src_port ) {
+fd_snp_process_packet( fd_snp_t *    snp,
+                       uchar const * packet,
+                       ulong         packet_sz ) {
+                      //  uint           src_ip,
+                      //  ushort         src_port ) {
   /* AMAN TODO - implement me */
 
   /* Create network context for the sender */
+  fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
+  uint dst_ip = hdr->ip4->saddr;
+  ushort dst_port = fd_ushort_bswap( hdr->udp->net_sport );
+
+  fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_V1_RAW, dst_ip, dst_port );
+
   snp_net_ctx_t sender = FD_SNP_NET_CTX_T_EMPTY;
-  sender.parts.ip4 = src_ip;
-  sender.parts.port = src_port;
+  sender.b = meta;
+  //FIXME
+  // sender.parts.ip4 = src_ip;
+  // sender.parts.port = src_port;
 
   /* Now data points to the SNP payload and data_sz is the payload size */
 
-  snp_s0_hs_pkt_t * pkt = (snp_s0_hs_pkt_t *)data;
+  snp_s0_hs_pkt_t * pkt = (snp_s0_hs_pkt_t *)(packet + sizeof(fd_ip4_udp_hdrs_t));
   fd_snp_state_private_t* priv = (fd_snp_state_private_t*)(snp+1);
 
-  uchar buf[SNP_MTU];
+  uchar _buf[SNP_MTU];
+  uchar * buf = _buf + sizeof(fd_ip4_udp_hdrs_t);
   long send_sz = 0;
 
   int type = snp_hdr_type( &pkt->hs.base );
@@ -195,15 +205,17 @@ fd_snp_process_packet( fd_snp_t *     snp,
       return;
     }
 
-    long rec_sz = fd_snp_s0_decode_appdata( sesh, data, (ushort)data_sz, buf );
-    if( rec_sz < 0 ) {
-      FD_LOG_ERR(("SNP decode appdata failed"));
-      return;
-    }
-    snp->cb.rx( snp, &sender, buf, (ulong)rec_sz );
-
-    send_sz = 0;
-  } else if( FD_UNLIKELY( type == SNP_TYPE_HS_CLIENT_INITIAL ) ) {
+    // FIXME: responsibility of fd_snp_app_recv()
+    // long rec_sz = fd_snp_s0_decode_appdata( sesh, data, (ushort)data_sz, buf );
+    // if( rec_sz < 0 ) {
+    //   FD_LOG_ERR(("SNP decode appdata failed"));
+    //   return;
+    // }
+    snp->cb.rx( snp->cb.ctx, packet, packet_sz, sesh->socket_addr );
+    return;
+  } 
+  
+  if( FD_UNLIKELY( type == SNP_TYPE_HS_CLIENT_INITIAL ) ) {
     fd_snp_s0_server_hs_t* hs = priv->server_hs + priv->server_hs_sz++;
     send_sz = fd_snp_s0_server_handle_initial( &snp->server_params,
                                           &sender,
@@ -292,13 +304,14 @@ fd_snp_process_packet( fd_snp_t *     snp,
     FD_TEST( i < priv->session_sz );
     fd_snp_sesh_t* sesh = priv->sessions + i;
 
-    uchar scratch[SNP_MTU];
-    snp_net_ctx_t sock_addr = FD_SNP_NET_CTX_T_EMPTY;
+    // uchar scratch[SNP_MTU];
+    // snp_net_ctx_t sock_addr = FD_SNP_NET_CTX_T_EMPTY;
     for (uchar i = 0; i < hs->buffers_sz; i++) {
-      long sz = fd_snp_s0_encode_appdata( sesh, hs->buffers[i].data, hs->buffers[i].sz, scratch );
+      long sz = fd_snp_s0_finalize_packet( sesh, hs->buffers[i].data, (ushort)hs->buffers[i].sz );
+      // long sz = fd_snp_s0_encode_appdata( sesh, hs->buffers[i].data, hs->buffers[i].sz, scratch );
       if (sz > 0) {
-        sock_addr.b = sesh->socket_addr;
-        snp->cb.tx( snp, &sock_addr, scratch, (ulong)sz );
+        // sock_addr.b = sesh->socket_addr;
+        snp->cb.tx( snp->cb.ctx, hs->buffers[i].data, hs->buffers[i].sz, meta );
       }
     }
 
@@ -306,7 +319,7 @@ fd_snp_process_packet( fd_snp_t *     snp,
     FD_LOG_NOTICE(("snp_process_packet: Unknown hdr type %d", type));
   }
   if( send_sz > 0 ) {
-    snp->cb.tx( snp, &sender, buf, (ulong)send_sz );
+    snp->cb.tx( snp->cb.ctx, _buf, (ulong)send_sz + sizeof(fd_ip4_udp_hdrs_t), meta );
   }
 }
 

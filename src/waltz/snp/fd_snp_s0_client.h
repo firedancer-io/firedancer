@@ -43,18 +43,18 @@ fd_snp_s0_client_hs_new( void * hs );
 long
 fd_snp_s0_client_initial( fd_snp_s0_client_params_t const * client,
                           fd_snp_s0_client_hs_t *           hs,
-                          uchar                             pkt_out[ SNP_MTU ] );
+                          uchar                             pkt_out[ SNP_MTU-42 ] );
 
 // TODO document
 long
 fd_snp_s0_client_handle_continue( fd_snp_s0_client_params_t const * client,
                                   snp_s0_hs_pkt_t const *           pkt,
-                                  uchar                             out[ SNP_MTU ],
+                                  uchar                             out[ SNP_MTU-42 ],
                                   uchar                             to_sign[32],
                                   fd_snp_s0_client_hs_t *           hs );
 
 void
-fd_snp_s0_client_handle_continue_add_signature( uchar out[ SNP_MTU ],
+fd_snp_s0_client_handle_continue_add_signature( uchar out[ SNP_MTU-42 ],
                                                 uchar sig[ 64 ] );
 
 // TODO document
@@ -73,7 +73,12 @@ long
 fd_snp_s0_encode_appdata( fd_snp_sesh_t * sesh,
                      const uchar *      payload, /* TODO: create a 0cp mode */
                      ushort             payload_sz,
-                     uchar              pkt_out[ SNP_MTU ] );
+                     uchar              pkt_out[ SNP_MTU-42 ] );
+
+long
+fd_snp_s0_finalize_packet( fd_snp_sesh_t * sesh,
+                           uchar *         packet,
+                           ushort          packet_sz );
 
 FD_PROTOTYPES_END
 
