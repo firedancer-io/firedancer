@@ -186,6 +186,46 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_blk_repair_delete( fd_blk_repair_leave( fd_blk_repair_fini( blk_repair ) ) ) );
 }
 
+void
+test_print_tree( fd_wksp_t *wksp ){
+  ulong ele_max = 512UL;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_blk_repair_align(), fd_blk_repair_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_blk_repair_t * blk_repair = fd_blk_repair_join( fd_blk_repair_new( mem, ele_max, 42UL /* seed */ ) );
+
+  fd_blk_repair_init( blk_repair, 1568376 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568377, 1, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568378, 1, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568379, 1, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568380, 1, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568381, 2, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568382, 1, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568383, 4, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568384, 5, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568385, 5, 0 );
+  fd_blk_repair_data_shred_insert( blk_repair, 1568386, 6, 0 );
+
+  for( ulong i = 1568387; i < 1568400; i++ ){
+    FD_TEST( fd_blk_repair_data_shred_insert( blk_repair, i, 1, 0 ) );
+    //fd_blk_repair_shred_complete( blk_repair, i, 0 );
+  }
+
+  //fd_blk_repair_shred_complete( blk_repair,  1568377, 0 ); /* shred complete arrives before */
+  //fd_blk_repair_shred_complete( blk_repair,  1568378, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568379, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568380, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568381, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568382, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568383, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568384, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568385, 0 );
+  //fd_blk_repair_shred_complete( blk_repair,  1568386, 0 );
+//
+  FD_TEST( !fd_blk_repair_verify( blk_repair ) );
+  fd_blk_repair_print( blk_repair );
+
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -197,7 +237,8 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   // test_publish( wksp );
-  test_out_of_order( wksp );
+  //test_out_of_order( wksp );
+  test_print_tree( wksp );
 
   fd_halt();
   return 0;
