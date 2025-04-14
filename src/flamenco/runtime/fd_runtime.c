@@ -1795,6 +1795,25 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
          https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
       task_info->txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
       task_info->exec_res    = err;
+
+      /* If the transaction fails to load, the "rollback" accounts will include one of the following:
+         1. Nonce account only
+         2. Fee payer only
+         3. Nonce account + fee payer
+
+         Because the cost tracker uses the loaded account data size in block cost calculations, we need to
+         make sure our calculated loaded accounts data size is conformant with Agave's.
+         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116 */
+      task_info->txn_ctx->loaded_accounts_data_size = 0UL;
+
+      /* This branch checks for case 3 - if the nonce account is present in the transaction and is not the fee
+         payer, then we add the dlen of the nonce account. */
+      if( task_info->txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX &&
+          task_info->txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+        task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->rollback_nonce_account->vt->get_data_len( task_info->txn_ctx->rollback_nonce_account );
+      }
+      /* We should always add the dlen of the fee payer right after, since that is guaranteed to not have been added by the above branch. */
+      task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX].vt->get_data_len( &task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
     } else {
       task_info->txn->flags = 0U;
       task_info->exec_res   = err;
