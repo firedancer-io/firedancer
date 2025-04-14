@@ -354,13 +354,12 @@ FD_FN_PURE static inline ulong fd_funk_txn_max( fd_funk_t * funk ) { return funk
 
 static inline fd_funk_txn_map_t
 fd_funk_txn_map( fd_funk_t * funk,       /* Assumes current local join */
-                    fd_wksp_t * wksp ) {       /* Assumes wksp == fd_funk_wksp( funk ) */
+                 fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
   fd_funk_txn_map_t join;
-  fd_funk_txn_map_join(
-    &join,
-    fd_wksp_laddr_fast( wksp, funk->txn_map_gaddr ),
-    fd_wksp_laddr_fast( wksp, funk->txn_ele_gaddr ),
-    funk->txn_max );
+  fd_funk_txn_map_join( &join,
+                        fd_wksp_laddr_fast( wksp, funk->txn_map_gaddr ),
+                        fd_wksp_laddr_fast( wksp, funk->txn_ele_gaddr ),
+                        funk->txn_max );
   return join;
 }
 
@@ -369,13 +368,12 @@ fd_funk_txn_map( fd_funk_t * funk,       /* Assumes current local join */
 
 static inline fd_funk_txn_pool_t
 fd_funk_txn_pool( fd_funk_t * funk,    /* Assumes current local join */
-                     fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+                  fd_wksp_t * wksp ) { /* Assumes wksp == fd_funk_wksp( funk ) */
   fd_funk_txn_pool_t join;
-  fd_funk_txn_pool_join(
-    &join,
-    fd_wksp_laddr_fast( wksp, funk->txn_pool_gaddr ),
-    fd_wksp_laddr_fast( wksp, funk->txn_ele_gaddr ),
-    funk->txn_max );
+  fd_funk_txn_pool_join( &join,
+                         fd_wksp_laddr_fast( wksp, funk->txn_pool_gaddr ),
+                         fd_wksp_laddr_fast( wksp, funk->txn_ele_gaddr ),
+                         funk->txn_max );
   return join;
 }
 
@@ -387,7 +385,7 @@ fd_funk_txn_pool( fd_funk_t * funk,    /* Assumes current local join */
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_last_publish_child_head( fd_funk_t *          funk,
-                                    fd_funk_txn_pool_t * pool ) {
+                                 fd_funk_txn_pool_t * pool ) {
   ulong idx = fd_funk_txn_idx( funk->child_head_cidx );
   if( fd_funk_txn_idx_is_null( idx ) ) return NULL; /* TODO: Consider branchless? */
   return pool->ele + idx;
@@ -395,7 +393,7 @@ fd_funk_last_publish_child_head( fd_funk_t *          funk,
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_last_publish_child_tail( fd_funk_t *          funk,
-                                    fd_funk_txn_pool_t * pool ) {
+                                 fd_funk_txn_pool_t * pool ) {
   ulong idx = fd_funk_txn_idx( funk->child_tail_cidx );
   if( fd_funk_txn_idx_is_null( idx ) ) return NULL; /* TODO: Consider branchless? */
   return pool->ele + idx;

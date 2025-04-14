@@ -3,6 +3,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../program/fd_vote_program.h"
 #include "../../../ballet/lthash/fd_lthash.h"
+#include "../fd_bank_mgr.h"
 
 #include <assert.h>
 #include <time.h>
@@ -308,6 +309,75 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
     fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
   }
+
+  /* EXPERIMENT START */
+  FD_LOG_WARNING(("EXPERIMENT START"));
+
+  /* First calculate the total footprint of the block hash queue. */
+  ulong total_bhq_sz = sizeof(fd_block_hash_queue_global_t) +
+                       alignof(fd_block_hash_queue_global_t) +
+                       sizeof(fd_hash_t) +
+                       alignof(fd_hash_t) +
+                       fd_hash_hash_age_pair_t_map_footprint( 400 ) +
+                       fd_hash_hash_age_pair_t_map_align();
+
+  /* Prepare the bank mgr entry, this will also be responsible for
+     allocating out the memory used by the record. */
+  fd_bank_mgr_prepare_t bank_mgr_prepare = {0};
+  int bank_mgr_err = fd_bank_mgr_prepare_entry( slot_ctx->funk,
+                                                slot_ctx->funk_txn,
+                                                BLOCK_HASH_QUEUE_ID,
+                                                total_bhq_sz,
+                                                &bank_mgr_prepare );
+  FD_TEST( bank_mgr_err == FD_BANK_MGR_SUCCESS );
+
+  fd_wksp_t * funk_wksp = fd_funk_wksp( slot_ctx->funk );
+
+  /* Calculate and layout the pointers that are used.
+     TODO: Consider generating a layout function from gen_stubs. */
+  uchar *                        data             = bank_mgr_prepare.data;
+  fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)fd_ulong_align_up( (ulong)data, alignof(fd_block_hash_queue_global_t) );
+  fd_hash_t *                    last_hash        = (fd_hash_t *)fd_ulong_align_up( (ulong)(block_hash_queue + 1UL), alignof(fd_hash_t) );
+  uchar *                        ages_pool_mem    = (uchar *)fd_ulong_align_up( (ulong)(last_hash + 1UL), fd_hash_hash_age_pair_t_map_align() );
+
+
+  /* Assign the fields and convert any pointers. */
+
+  block_hash_queue->last_hash_index = slot_bank->block_hash_queue.last_hash_index;
+  block_hash_queue->max_age         = slot_bank->block_hash_queue.max_age;
+
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = NULL;
+
+  for( ulong i=0UL; i<oldbank->blockhash_queue.ages_len; i++ ) {
+    fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
+    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
+    fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
+    fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
+  }
+
+  FD_TEST( fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_leave( ages_pool ) ) );
+
+  block_hash_queue->ages_pool_gaddr = fd_wksp_gaddr_fast( funk_wksp, fd_hash_hash_age_pair_t_map_leave( ages_pool ) );
+  block_hash_queue->ages_root_gaddr = fd_wksp_gaddr_fast( funk_wksp, ages_root );
+
+  FD_LOG_WARNING(("GADDRS %lu %lu", block_hash_queue->ages_pool_gaddr, block_hash_queue->ages_root_gaddr));
+
+  FD_TEST( fd_hash_hash_age_pair_t_map_join( fd_wksp_laddr_fast( funk_wksp, block_hash_queue->ages_pool_gaddr ) ) );
+
+  if( oldbank->blockhash_queue.last_hash ) {
+    fd_memcpy( last_hash, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
+    block_hash_queue->last_hash_gaddr = fd_wksp_gaddr_fast( funk_wksp, oldbank->blockhash_queue.last_hash );
+  } else {
+    block_hash_queue->last_hash_gaddr = 0UL;
+  }
+
+  /* Publish the entry. */
+  fd_bank_mgr_publish_entry( &bank_mgr_prepare );
+
+  FD_LOG_WARNING(("EXPERIMENT END"));
+  /* EXPERIMENT END */
+
 
   /* FIXME: Remove the magic number here. */
   if( !slot_ctx->slot_bank.timestamp_votes.votes_pool ) {
