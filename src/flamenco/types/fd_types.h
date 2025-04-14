@@ -67,9 +67,9 @@ typedef struct fd_block_hash_vec fd_block_hash_vec_t;
 
 struct __attribute__((aligned(8UL))) fd_block_hash_vec_global {
   ulong last_hash_index;
-  ulong last_hash_gaddr;
+  ulong last_hash_gaddr_off;
   ulong ages_len;
-  ulong ages_gaddr;
+  ulong ages_gaddr_off;
   ulong max_age;
 };
 typedef struct fd_block_hash_vec_global fd_block_hash_vec_global_t;
@@ -110,9 +110,9 @@ typedef struct fd_block_hash_queue fd_block_hash_queue_t;
 
 struct __attribute__((aligned(8UL))) fd_block_hash_queue_global {
   ulong last_hash_index;
-  ulong last_hash_gaddr;
-  ulong ages_pool_gaddr;
-  ulong ages_root_gaddr;
+  ulong last_hash_gaddr_off;
+  ulong ages_pool_gaddr_off;
+  ulong ages_root_gaddr_off;
   ulong max_age;
 };
 typedef struct fd_block_hash_queue_global fd_block_hash_queue_global_t;
@@ -320,8 +320,8 @@ typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_vote_accounts_global {
-  ulong vote_accounts_pool_gaddr;
-  ulong vote_accounts_root_gaddr;
+  ulong vote_accounts_pool_gaddr_off;
+  ulong vote_accounts_root_gaddr_off;
 };
 typedef struct fd_vote_accounts_global fd_vote_accounts_global_t;
 #define FD_VOTE_ACCOUNTS_GLOBAL_FOOTPRINT sizeof(fd_vote_accounts_global_t)
@@ -366,8 +366,8 @@ typedef struct fd_account_keys fd_account_keys_t;
 #define FD_ACCOUNT_KEYS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_account_keys_global {
-  ulong account_keys_pool_gaddr;
-  ulong account_keys_root_gaddr;
+  ulong account_keys_pool_gaddr_off;
+  ulong account_keys_root_gaddr_off;
 };
 typedef struct fd_account_keys_global fd_account_keys_global_t;
 #define FD_ACCOUNT_KEYS_GLOBAL_FOOTPRINT sizeof(fd_account_keys_global_t)
@@ -413,8 +413,8 @@ typedef struct fd_stake_weights fd_stake_weights_t;
 #define FD_STAKE_WEIGHTS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_stake_weights_global {
-  ulong stake_weights_pool_gaddr;
-  ulong stake_weights_root_gaddr;
+  ulong stake_weights_pool_gaddr_off;
+  ulong stake_weights_root_gaddr_off;
 };
 typedef struct fd_stake_weights_global fd_stake_weights_global_t;
 #define FD_STAKE_WEIGHTS_GLOBAL_FOOTPRINT sizeof(fd_stake_weights_global_t)
@@ -497,8 +497,8 @@ typedef struct fd_stakes fd_stakes_t;
 
 struct __attribute__((aligned(8UL))) fd_stakes_global {
   fd_vote_accounts_global_t vote_accounts;
-  ulong stake_delegations_pool_gaddr;
-  ulong stake_delegations_root_gaddr;
+  ulong stake_delegations_pool_gaddr_off;
+  ulong stake_delegations_root_gaddr_off;
   ulong unused;
   ulong epoch;
   fd_stake_history_t stake_history;
@@ -543,8 +543,8 @@ typedef struct fd_stakes_stake fd_stakes_stake_t;
 
 struct __attribute__((aligned(8UL))) fd_stakes_stake_global {
   fd_vote_accounts_global_t vote_accounts;
-  ulong stake_delegations_pool_gaddr;
-  ulong stake_delegations_root_gaddr;
+  ulong stake_delegations_pool_gaddr_off;
+  ulong stake_delegations_root_gaddr_off;
   ulong unused;
   ulong epoch;
   fd_stake_history_t stake_history;
@@ -610,9 +610,9 @@ struct __attribute__((aligned(8UL))) fd_epoch_stakes_global {
   fd_stakes_global_t stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
-  ulong node_id_to_vote_accounts_gaddr;
+  ulong node_id_to_vote_accounts_gaddr_off;
   ulong epoch_authorized_voters_len;
-  ulong epoch_authorized_voters_gaddr;
+  ulong epoch_authorized_voters_gaddr_off;
 };
 typedef struct fd_epoch_stakes_global fd_epoch_stakes_global_t;
 #define FD_EPOCH_STAKES_GLOBAL_FOOTPRINT sizeof(fd_epoch_stakes_global_t)
@@ -702,7 +702,7 @@ typedef struct fd_versioned_bank fd_versioned_bank_t;
 struct __attribute__((aligned(16UL))) fd_versioned_bank_global {
   fd_block_hash_vec_global_t blockhash_queue;
   ulong ancestors_len;
-  ulong ancestors_gaddr;
+  ulong ancestors_gaddr_off;
   fd_hash_t hash;
   fd_hash_t parent_hash;
   ulong parent_slot;
@@ -712,7 +712,7 @@ struct __attribute__((aligned(16UL))) fd_versioned_bank_global {
   ulong signature_count;
   ulong capitalization;
   ulong max_tick_height;
-  ulong hashes_per_tick_gaddr;
+  ulong hashes_per_tick_gaddr_off;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
   ulong genesis_creation_time;
@@ -732,7 +732,7 @@ struct __attribute__((aligned(16UL))) fd_versioned_bank_global {
   fd_stakes_global_t stakes;
   fd_unused_accounts_t unused_accounts;
   ulong epoch_stakes_len;
-  ulong epoch_stakes_gaddr;
+  ulong epoch_stakes_gaddr_off;
   uchar is_delta;
 };
 typedef struct fd_versioned_bank_global fd_versioned_bank_global_t;
@@ -839,9 +839,9 @@ struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_current_global {
   fd_stakes_stake_global_t stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
-  ulong node_id_to_vote_accounts_gaddr;
+  ulong node_id_to_vote_accounts_gaddr_off;
   ulong epoch_authorized_voters_len;
-  ulong epoch_authorized_voters_gaddr;
+  ulong epoch_authorized_voters_gaddr_off;
 };
 typedef struct fd_versioned_epoch_stakes_current_global fd_versioned_epoch_stakes_current_global_t;
 #define FD_VERSIONED_EPOCH_STAKES_CURRENT_GLOBAL_FOOTPRINT sizeof(fd_versioned_epoch_stakes_current_global_t)
@@ -929,11 +929,11 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest_global {
   fd_versioned_bank_global_t bank;
   fd_solana_accounts_db_fields_t accounts_db;
   ulong lamports_per_signature;
-  ulong bank_incremental_snapshot_persistence_gaddr;
-  ulong epoch_account_hash_gaddr;
+  ulong bank_incremental_snapshot_persistence_gaddr_off;
+  ulong epoch_account_hash_gaddr_off;
   ulong versioned_epoch_stakes_len;
-  ulong versioned_epoch_stakes_gaddr;
-  ulong lthash_gaddr;
+  ulong versioned_epoch_stakes_gaddr_off;
+  ulong lthash_gaddr_off;
 };
 typedef struct fd_solana_manifest_global fd_solana_manifest_global_t;
 #define FD_SOLANA_MANIFEST_GLOBAL_FOOTPRINT sizeof(fd_solana_manifest_global_t)
@@ -961,7 +961,7 @@ typedef struct fd_poh_config fd_poh_config_t;
 
 struct __attribute__((aligned(8UL))) fd_poh_config_global {
   fd_rust_duration_t target_tick_duration;
-  ulong target_tick_count_gaddr;
+  ulong target_tick_count_gaddr_off;
   ulong hashes_per_tick;
   uchar has_hashes_per_tick;
 };
@@ -981,7 +981,7 @@ typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
 
 struct __attribute__((aligned(8UL))) fd_string_pubkey_pair_global {
   ulong string_len;
-  ulong string_gaddr;
+  ulong string_gaddr_off;
   fd_pubkey_t pubkey;
 };
 typedef struct fd_string_pubkey_pair_global fd_string_pubkey_pair_global_t;
@@ -1023,11 +1023,11 @@ typedef struct fd_genesis_solana fd_genesis_solana_t;
 struct __attribute__((aligned(8UL))) fd_genesis_solana_global {
   ulong creation_time;
   ulong accounts_len;
-  ulong accounts_gaddr;
+  ulong accounts_gaddr_off;
   ulong native_instruction_processors_len;
-  ulong native_instruction_processors_gaddr;
+  ulong native_instruction_processors_gaddr_off;
   ulong rewards_pools_len;
-  ulong rewards_pools_gaddr;
+  ulong rewards_pools_gaddr_off;
   ulong ticks_per_slot;
   ulong unused;
   fd_poh_config_global_t poh_config;
@@ -1223,10 +1223,10 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5_global {
   fd_vote_prior_voters_0_23_5_t prior_voters;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  ulong votes_gaddr; /* fd_deque_dynamic (min cnt 32) */
+  ulong votes_gaddr_off; /* fd_deque_dynamic (min cnt 32) */
   ulong root_slot;
   uchar has_root_slot;
-  ulong epoch_credits_gaddr; /* fd_deque_dynamic (min cnt 64) */
+  ulong epoch_credits_gaddr_off; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_0_23_5_global fd_vote_state_0_23_5_global_t;
@@ -1271,8 +1271,8 @@ typedef struct fd_vote_authorized_voters fd_vote_authorized_voters_t;
 #define FD_VOTE_AUTHORIZED_VOTERS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_vote_authorized_voters_global {
-  ulong pool_gaddr;
-  ulong treap_gaddr;
+  ulong pool_gaddr_off;
+  ulong treap_gaddr_off;
 };
 typedef struct fd_vote_authorized_voters_global fd_vote_authorized_voters_global_t;
 #define FD_VOTE_AUTHORIZED_VOTERS_GLOBAL_FOOTPRINT sizeof(fd_vote_authorized_voters_global_t)
@@ -1300,12 +1300,12 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11_global {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  ulong votes_gaddr; /* fd_deque_dynamic (min cnt 32) */
+  ulong votes_gaddr_off; /* fd_deque_dynamic (min cnt 32) */
   ulong root_slot;
   uchar has_root_slot;
   fd_vote_authorized_voters_global_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  ulong epoch_credits_gaddr; /* fd_deque_dynamic (min cnt 64) */
+  ulong epoch_credits_gaddr_off; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_1_14_11_global fd_vote_state_1_14_11_global_t;
@@ -1349,12 +1349,12 @@ struct __attribute__((aligned(8UL))) fd_vote_state_global {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  ulong votes_gaddr; /* fd_deque_dynamic (min cnt 32) */
+  ulong votes_gaddr_off; /* fd_deque_dynamic (min cnt 32) */
   ulong root_slot;
   uchar has_root_slot;
   fd_vote_authorized_voters_global_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  ulong epoch_credits_gaddr; /* fd_deque_dynamic (min cnt 64) */
+  ulong epoch_credits_gaddr_off; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_global fd_vote_state_global_t;
@@ -1406,7 +1406,7 @@ typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_vote_state_update_global {
-  ulong lockouts_gaddr; /* fd_deque_dynamic (min cnt 32) */
+  ulong lockouts_gaddr_off; /* fd_deque_dynamic (min cnt 32) */
   ulong root;
   uchar has_root;
   fd_hash_t hash;
@@ -1433,7 +1433,7 @@ typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 struct __attribute__((aligned(8UL))) fd_compact_vote_state_update_global {
   ulong root;
   ushort lockouts_len;
-  ulong lockouts_gaddr;
+  ulong lockouts_gaddr_off;
   fd_hash_t hash;
   long timestamp;
   uchar has_timestamp;
@@ -1491,7 +1491,7 @@ typedef struct fd_compact_tower_sync fd_compact_tower_sync_t;
 
 struct __attribute__((aligned(8UL))) fd_compact_tower_sync_global {
   ulong root;
-  ulong lockout_offsets_gaddr; /* fd_deque_dynamic (min cnt 32) */
+  ulong lockout_offsets_gaddr_off; /* fd_deque_dynamic (min cnt 32) */
   fd_hash_t hash;
   long timestamp;
   uchar has_timestamp;
@@ -1518,7 +1518,7 @@ typedef struct fd_tower_sync fd_tower_sync_t;
 #define FD_TOWER_SYNC_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_tower_sync_global {
-  ulong lockouts_gaddr; /* fd_deque_dynamic */
+  ulong lockouts_gaddr_off; /* fd_deque_dynamic */
   ulong lockouts_cnt;
   ulong root;
   uchar has_root;
@@ -1569,7 +1569,7 @@ typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
 #define FD_SLOT_HISTORY_BITVEC_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_slot_history_bitvec_global {
-  ulong bits_gaddr;
+  ulong bits_gaddr_off;
   ulong len;
 };
 typedef struct fd_slot_history_bitvec_global fd_slot_history_bitvec_global_t;
@@ -1628,7 +1628,7 @@ typedef struct fd_slot_hashes fd_slot_hashes_t;
 #define FD_SLOT_HASHES_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_slot_hashes_global {
-  ulong hashes_gaddr; /* fd_deque_dynamic (min cnt 512) */
+  ulong hashes_gaddr_off; /* fd_deque_dynamic (min cnt 512) */
 };
 typedef struct fd_slot_hashes_global fd_slot_hashes_global_t;
 #define FD_SLOT_HASHES_GLOBAL_FOOTPRINT sizeof(fd_slot_hashes_global_t)
@@ -1667,7 +1667,7 @@ typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_recent_block_hashes_global {
-  ulong hashes_gaddr; /* fd_deque_dynamic (min cnt 151) */
+  ulong hashes_gaddr_off; /* fd_deque_dynamic (min cnt 151) */
 };
 typedef struct fd_recent_block_hashes_global fd_recent_block_hashes_global_t;
 #define FD_RECENT_BLOCK_HASHES_GLOBAL_FOOTPRINT sizeof(fd_recent_block_hashes_global_t)
@@ -1733,8 +1733,8 @@ typedef struct fd_clock_timestamp_votes fd_clock_timestamp_votes_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_clock_timestamp_votes_global {
-  ulong votes_pool_gaddr;
-  ulong votes_root_gaddr;
+  ulong votes_pool_gaddr_off;
+  ulong votes_root_gaddr_off;
 };
 typedef struct fd_clock_timestamp_votes_global fd_clock_timestamp_votes_global_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_GLOBAL_FOOTPRINT sizeof(fd_clock_timestamp_votes_global_t)
@@ -1799,7 +1799,7 @@ typedef struct fd_feature_entry fd_feature_entry_t;
 struct __attribute__((aligned(8UL))) fd_feature_entry_global {
   fd_pubkey_t pubkey;
   ulong description_len;
-  ulong description_gaddr;
+  ulong description_gaddr_off;
   ulong since_slot;
 };
 typedef struct fd_feature_entry_global fd_feature_entry_global_t;
@@ -2024,8 +2024,8 @@ typedef struct fd_partitioned_stake_rewards fd_partitioned_stake_rewards_t;
 struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards_global {
   ulong partitions_len;
   ulong partitions_lengths[4096];
-  ulong pool_gaddr;
-  ulong dlist_gaddr;
+  ulong pool_gaddr_off;
+  ulong dlist_gaddr_off;
 };
 typedef struct fd_partitioned_stake_rewards_global fd_partitioned_stake_rewards_global_t;
 #define FD_PARTITIONED_STAKE_REWARDS_GLOBAL_FOOTPRINT sizeof(fd_partitioned_stake_rewards_global_t)
@@ -2086,8 +2086,8 @@ typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
 
 struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_global {
   ulong stake_rewards_len;
-  ulong pool_gaddr;
-  ulong dlist_gaddr;
+  ulong pool_gaddr_off;
+  ulong dlist_gaddr_off;
   ulong total_stake_rewards_lamports;
 };
 typedef struct fd_stake_reward_calculation_global fd_stake_reward_calculation_global_t;
@@ -2126,8 +2126,8 @@ typedef struct fd_calculate_stake_vote_rewards_result fd_calculate_stake_vote_re
 
 struct __attribute__((aligned(8UL))) fd_calculate_stake_vote_rewards_result_global {
   fd_stake_reward_calculation_global_t stake_reward_calculation;
-  ulong vote_reward_map_pool_gaddr;
-  ulong vote_reward_map_root_gaddr;
+  ulong vote_reward_map_pool_gaddr_off;
+  ulong vote_reward_map_root_gaddr_off;
 };
 typedef struct fd_calculate_stake_vote_rewards_result_global fd_calculate_stake_vote_rewards_result_global_t;
 #define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_GLOBAL_FOOTPRINT sizeof(fd_calculate_stake_vote_rewards_result_global_t)
@@ -2192,8 +2192,8 @@ typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calcula
 #define FD_PARTITIONED_REWARDS_CALCULATION_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_partitioned_rewards_calculation_global {
-  ulong vote_reward_map_pool_gaddr;
-  ulong vote_reward_map_root_gaddr;
+  ulong vote_reward_map_pool_gaddr_off;
+  ulong vote_reward_map_root_gaddr_off;
   fd_stake_reward_calculation_partitioned_global_t stake_rewards_by_partition;
   ulong old_vote_balance_and_staked;
   ulong validator_rewards;
@@ -2375,9 +2375,9 @@ typedef struct fd_vote fd_vote_t;
 #define FD_VOTE_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_vote_global {
-  ulong slots_gaddr; /* fd_deque_dynamic */
+  ulong slots_gaddr_off; /* fd_deque_dynamic */
   fd_hash_t hash;
-  ulong timestamp_gaddr;
+  ulong timestamp_gaddr_off;
 };
 typedef struct fd_vote_global fd_vote_global_t;
 #define FD_VOTE_GLOBAL_FOOTPRINT sizeof(fd_vote_global_t)
@@ -2474,7 +2474,7 @@ struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args_global {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
   ulong current_authority_derived_key_seed_len;
-  ulong current_authority_derived_key_seed_gaddr;
+  ulong current_authority_derived_key_seed_gaddr_off;
   fd_pubkey_t new_authority;
 };
 typedef struct fd_vote_authorize_with_seed_args_global fd_vote_authorize_with_seed_args_global_t;
@@ -2497,7 +2497,7 @@ struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args_gl
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
   ulong current_authority_derived_key_seed_len;
-  ulong current_authority_derived_key_seed_gaddr;
+  ulong current_authority_derived_key_seed_gaddr_off;
 };
 typedef struct fd_vote_authorize_checked_with_seed_args_global fd_vote_authorize_checked_with_seed_args_global_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_GLOBAL_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_global_t)
@@ -2585,7 +2585,7 @@ typedef struct fd_system_program_instruction_create_account_with_seed fd_system_
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_account_with_seed_global {
   fd_pubkey_t base;
   ulong seed_len;
-  ulong seed_gaddr;
+  ulong seed_gaddr_off;
   ulong lamports;
   ulong space;
   fd_pubkey_t owner;
@@ -2610,7 +2610,7 @@ typedef struct fd_system_program_instruction_allocate_with_seed fd_system_progra
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_allocate_with_seed_global {
   fd_pubkey_t base;
   ulong seed_len;
-  ulong seed_gaddr;
+  ulong seed_gaddr_off;
   ulong space;
   fd_pubkey_t owner;
 };
@@ -2633,7 +2633,7 @@ typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_assign_with_seed_global {
   fd_pubkey_t base;
   ulong seed_len;
-  ulong seed_gaddr;
+  ulong seed_gaddr_off;
   fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_assign_with_seed_global fd_system_program_instruction_assign_with_seed_global_t;
@@ -2655,7 +2655,7 @@ typedef struct fd_system_program_instruction_transfer_with_seed fd_system_progra
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_transfer_with_seed_global {
   ulong lamports;
   ulong from_seed_len;
-  ulong from_seed_gaddr;
+  ulong from_seed_gaddr_off;
   fd_pubkey_t from_owner;
 };
 typedef struct fd_system_program_instruction_transfer_with_seed_global fd_system_program_instruction_transfer_with_seed_global_t;
@@ -2769,7 +2769,7 @@ typedef struct fd_stake_lockup_custodian_args fd_stake_lockup_custodian_args_t;
 struct __attribute__((aligned(8UL))) fd_stake_lockup_custodian_args_global {
   fd_stake_lockup_t lockup;
   fd_sol_sysvar_clock_t clock;
-  ulong custodian_gaddr;
+  ulong custodian_gaddr_off;
 };
 typedef struct fd_stake_lockup_custodian_args_global fd_stake_lockup_custodian_args_global_t;
 #define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_GLOBAL_FOOTPRINT sizeof(fd_stake_lockup_custodian_args_global_t)
@@ -2818,7 +2818,7 @@ struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args_global {
   fd_pubkey_t new_authorized_pubkey;
   fd_stake_authorize_t stake_authorize;
   ulong authority_seed_len;
-  ulong authority_seed_gaddr;
+  ulong authority_seed_gaddr_off;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_with_seed_args_global fd_authorize_with_seed_args_global_t;
@@ -2840,7 +2840,7 @@ typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_see
 struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args_global {
   fd_stake_authorize_t stake_authorize;
   ulong authority_seed_len;
-  ulong authority_seed_gaddr;
+  ulong authority_seed_gaddr_off;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_checked_with_seed_args_global fd_authorize_checked_with_seed_args_global_t;
@@ -2858,8 +2858,8 @@ typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
 #define FD_LOCKUP_CHECKED_ARGS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_lockup_checked_args_global {
-  ulong unix_timestamp_gaddr;
-  ulong epoch_gaddr;
+  ulong unix_timestamp_gaddr_off;
+  ulong epoch_gaddr_off;
 };
 typedef struct fd_lockup_checked_args_global fd_lockup_checked_args_global_t;
 #define FD_LOCKUP_CHECKED_ARGS_GLOBAL_FOOTPRINT sizeof(fd_lockup_checked_args_global_t)
@@ -2877,9 +2877,9 @@ typedef struct fd_lockup_args fd_lockup_args_t;
 #define FD_LOCKUP_ARGS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_lockup_args_global {
-  ulong unix_timestamp_gaddr;
-  ulong epoch_gaddr;
-  ulong custodian_gaddr;
+  ulong unix_timestamp_gaddr_off;
+  ulong epoch_gaddr_off;
+  ulong custodian_gaddr_off;
 };
 typedef struct fd_lockup_args_global fd_lockup_args_global_t;
 #define FD_LOCKUP_ARGS_GLOBAL_FOOTPRINT sizeof(fd_lockup_args_global_t)
@@ -3205,7 +3205,7 @@ typedef struct fd_bpf_upgradeable_loader_state_buffer fd_bpf_upgradeable_loader_
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_buffer_global {
-  ulong authority_address_gaddr;
+  ulong authority_address_gaddr_off;
 };
 typedef struct fd_bpf_upgradeable_loader_state_buffer_global fd_bpf_upgradeable_loader_state_buffer_global_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_GLOBAL_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_buffer_global_t)
@@ -3232,7 +3232,7 @@ typedef struct fd_bpf_upgradeable_loader_state_program_data fd_bpf_upgradeable_l
 
 struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_program_data_global {
   ulong slot;
-  ulong upgrade_authority_address_gaddr;
+  ulong upgrade_authority_address_gaddr_off;
 };
 typedef struct fd_bpf_upgradeable_loader_state_program_data_global fd_bpf_upgradeable_loader_state_program_data_global_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_GLOBAL_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_program_data_global_t)
@@ -3494,7 +3494,7 @@ typedef struct fd_gossip_prune_sign_data_with_prefix fd_gossip_prune_sign_data_w
 
 struct __attribute__((aligned(8UL))) fd_gossip_prune_sign_data_with_prefix_global {
   ulong prefix_len;
-  ulong prefix_gaddr;
+  ulong prefix_gaddr_off;
   fd_gossip_prune_sign_data_t data;
 };
 typedef struct fd_gossip_prune_sign_data_with_prefix_global fd_gossip_prune_sign_data_with_prefix_global_t;
@@ -3676,7 +3676,7 @@ struct __attribute__((aligned(8UL))) fd_gossip_epoch_slots_global {
   uchar u8;
   fd_pubkey_t from;
   ulong slots_len;
-  ulong slots_gaddr;
+  ulong slots_gaddr_off;
   ulong wallclock;
 };
 typedef struct fd_gossip_epoch_slots_global fd_gossip_epoch_slots_global_t;
@@ -4009,7 +4009,7 @@ typedef struct fd_crds_bloom fd_crds_bloom_t;
 
 struct __attribute__((aligned(8UL))) fd_crds_bloom_global {
   ulong keys_len;
-  ulong keys_gaddr;
+  ulong keys_gaddr_off;
   fd_gossip_bitvec_u64_global_t bits;
   ulong num_bits_set;
 };
@@ -4083,7 +4083,7 @@ typedef struct fd_gossip_pull_resp fd_gossip_pull_resp_t;
 struct __attribute__((aligned(8UL))) fd_gossip_pull_resp_global {
   fd_pubkey_t pubkey;
   ulong crds_len;
-  ulong crds_gaddr;
+  ulong crds_gaddr_off;
 };
 typedef struct fd_gossip_pull_resp_global fd_gossip_pull_resp_global_t;
 #define FD_GOSSIP_PULL_RESP_GLOBAL_FOOTPRINT sizeof(fd_gossip_pull_resp_global_t)
@@ -4102,7 +4102,7 @@ typedef struct fd_gossip_push_msg fd_gossip_push_msg_t;
 struct __attribute__((aligned(8UL))) fd_gossip_push_msg_global {
   fd_pubkey_t pubkey;
   ulong crds_len;
-  ulong crds_gaddr;
+  ulong crds_gaddr_off;
 };
 typedef struct fd_gossip_push_msg_global fd_gossip_push_msg_global_t;
 #define FD_GOSSIP_PUSH_MSG_GLOBAL_FOOTPRINT sizeof(fd_gossip_push_msg_global_t)
@@ -4402,7 +4402,7 @@ typedef struct fd_status_value fd_status_value_t;
 struct __attribute__((aligned(8UL))) fd_status_value_global {
   ulong txn_idx;
   ulong statuses_len;
-  ulong statuses_gaddr;
+  ulong statuses_gaddr_off;
 };
 typedef struct fd_status_value_global fd_status_value_global_t;
 #define FD_STATUS_VALUE_GLOBAL_FOOTPRINT sizeof(fd_status_value_global_t)
@@ -4440,7 +4440,7 @@ struct __attribute__((aligned(8UL))) fd_slot_delta_global {
   ulong slot;
   uchar is_root;
   ulong slot_delta_vec_len;
-  ulong slot_delta_vec_gaddr;
+  ulong slot_delta_vec_gaddr_off;
 };
 typedef struct fd_slot_delta_global fd_slot_delta_global_t;
 #define FD_SLOT_DELTA_GLOBAL_FOOTPRINT sizeof(fd_slot_delta_global_t)
@@ -4457,7 +4457,7 @@ typedef struct fd_bank_slot_deltas fd_bank_slot_deltas_t;
 
 struct __attribute__((aligned(8UL))) fd_bank_slot_deltas_global {
   ulong slot_deltas_len;
-  ulong slot_deltas_gaddr;
+  ulong slot_deltas_gaddr_off;
 };
 typedef struct fd_bank_slot_deltas_global fd_bank_slot_deltas_global_t;
 #define FD_BANK_SLOT_DELTAS_GLOBAL_FOOTPRINT sizeof(fd_bank_slot_deltas_global_t)
@@ -4482,7 +4482,7 @@ typedef struct fd_optional_account fd_optional_account_t;
 #define FD_OPTIONAL_ACCOUNT_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_optional_account_global {
-  ulong account_gaddr;
+  ulong account_gaddr_off;
 };
 typedef struct fd_optional_account_global fd_optional_account_global_t;
 #define FD_OPTIONAL_ACCOUNT_GLOBAL_FOOTPRINT sizeof(fd_optional_account_global_t)
@@ -4602,9 +4602,9 @@ typedef struct fd_epoch_info fd_epoch_info_t;
 
 struct __attribute__((aligned(8UL))) fd_epoch_info_global {
   ulong stake_infos_len;
-  ulong stake_infos_gaddr;
-  ulong vote_states_pool_gaddr;
-  ulong vote_states_root_gaddr;
+  ulong stake_infos_gaddr_off;
+  ulong vote_states_pool_gaddr_off;
+  ulong vote_states_root_gaddr_off;
   ulong stake_infos_new_keys_start_idx;
 };
 typedef struct fd_epoch_info_global fd_epoch_info_global_t;
@@ -4680,8 +4680,8 @@ typedef struct fd_account_costs fd_account_costs_t;
 #define FD_ACCOUNT_COSTS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_account_costs_global {
-  ulong account_costs_pool_gaddr;
-  ulong account_costs_root_gaddr;
+  ulong account_costs_pool_gaddr_off;
+  ulong account_costs_root_gaddr_off;
 };
 typedef struct fd_account_costs_global fd_account_costs_global_t;
 #define FD_ACCOUNT_COSTS_GLOBAL_FOOTPRINT sizeof(fd_account_costs_global_t)

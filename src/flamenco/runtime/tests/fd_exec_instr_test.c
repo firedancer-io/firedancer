@@ -571,7 +571,10 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                           .leader_schedule_epoch = 0,
                                           .unix_timestamp = 0
                                         };
-    memcpy( slot_ctx->sysvar_cache->val_clock, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
+
+    slot_ctx->sysvar_cache->gaddr_val_clock = fd_wksp_gaddr( funk_wksp, fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_CLOCK_ALIGN, FD_SOL_SYSVAR_CLOCK_FOOTPRINT ) );
+    void * data = (void*)fd_sysvar_cache_clock( slot_ctx->sysvar_cache );
+    memcpy( data, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
   }
 
   /* Epoch schedule */
@@ -585,7 +588,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                                   .first_normal_epoch = 14,
                                                   .first_normal_slot = 524256
                                                 };
-    memcpy( slot_ctx->sysvar_cache->val_epoch_schedule, &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+
+    slot_ctx->sysvar_cache->gaddr_val_epoch_schedule = fd_wksp_gaddr( funk_wksp, fd_spad_alloc( runner->spad, FD_EPOCH_SCHEDULE_ALIGN, FD_EPOCH_SCHEDULE_FOOTPRINT ) );
+    memcpy( (void*)fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache ), &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
   }
 
   /* Rent */
@@ -597,15 +602,16 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                               .exemption_threshold = 2.0,
                               .burn_percent = 50
                             };
-    memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
+    slot_ctx->sysvar_cache->gaddr_val_rent = fd_wksp_gaddr( funk_wksp, fd_spad_alloc( runner->spad, FD_RENT_ALIGN, FD_RENT_FOOTPRINT ) );
+    memcpy( (void*)fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), &sysvar_rent, sizeof(fd_rent_t) );
   }
 
   if ( !slot_ctx->sysvar_cache->has_last_restart_slot ) {
     slot_ctx->sysvar_cache->has_last_restart_slot = 1;
 
     fd_sol_sysvar_last_restart_slot_t restart = {.slot = 5000};
-
-    memcpy( slot_ctx->sysvar_cache->val_last_restart_slot, &restart, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+    slot_ctx->sysvar_cache->gaddr_val_last_restart_slot = fd_wksp_gaddr( funk_wksp, fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT ) );
+    memcpy( (void*)fd_sysvar_cache_last_restart_slot( slot_ctx->sysvar_cache ), &restart, sizeof(fd_sol_sysvar_last_restart_slot_t) );
   }
 
   /* Set slot bank variables */
@@ -623,7 +629,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( runtime_wksp, rbh_global->hashes_gaddr ) );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar *)rbh_global + rbh_global->hashes_gaddr_off );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
@@ -805,12 +811,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
-    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
+    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t *)fd_type_pun_const( fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache ) );
+    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t *)fd_type_pun_const( fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache ) );
   }
 
   if( slot_ctx->sysvar_cache->has_rent ) {
-    epoch_bank->rent = *(fd_rent_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_rent );
+    epoch_bank->rent = *(fd_rent_t *)fd_type_pun_const( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ) );
   }
 
   /* Provide default slot hashes of size 1 if not provided */
@@ -891,7 +897,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( fd_wksp_containing( runner->spad ), rbh_global->hashes_gaddr ) );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar *)rbh_global + rbh_global->hashes_gaddr_off );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
@@ -1056,9 +1062,9 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   fd_runtime_sysvar_cache_load( slot_ctx, runner->spad );
 
   /* Finish init epoch bank sysvars */
-  fd_memcpy( &epoch_bank->epoch_schedule, slot_ctx->sysvar_cache->val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  fd_memcpy( &epoch_bank->rent_epoch_schedule, slot_ctx->sysvar_cache->val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  fd_memcpy( &epoch_bank->rent, slot_ctx->sysvar_cache->val_rent, sizeof(fd_rent_t) );
+  fd_memcpy( &epoch_bank->epoch_schedule, fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache ), sizeof(fd_epoch_schedule_t) );
+  fd_memcpy( &epoch_bank->rent_epoch_schedule, fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache ), sizeof(fd_epoch_schedule_t) );
+  fd_memcpy( &epoch_bank->rent, fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), sizeof(fd_rent_t) );
   epoch_bank->stakes.epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->prev_slot, NULL );
 
   /* Update stake cache for epoch T */
@@ -1228,7 +1234,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( fd_wksp_containing( runner->spad ), rbh_global->hashes_gaddr ) );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar *)rbh_global + rbh_global->hashes_gaddr_off );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {

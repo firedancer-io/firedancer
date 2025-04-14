@@ -56,16 +56,15 @@
    allowing for safe idempotent calls to fd_sol_sysvar_{...}_destroy() */
 
 struct __attribute__((aligned(16UL))) fd_sysvar_cache_private {
-  ulong magic; /* ==FD_SYSVAR_CACHE_MAGIC */
+  ulong       magic; /* ==FD_SYSVAR_CACHE_MAGIC */
+  fd_wksp_t * wksp;
 
   /* Declare the val_{...} values */
   /* Define two macro handlers - one for global types, one for local types */
-  #define HANDLE_GLOBAL_1(type, name, is_global) type##_global_t val_##name[1];
-  #define HANDLE_GLOBAL_0(type, name, is_global) type##_t val_##name[1];
 
   /* Process for global types (is_global==1) */
   #define X(type, name, is_global) \
-      HANDLE_GLOBAL_##is_global(type, name, is_global)
+    ulong gaddr_val_##name;
   FD_SYSVAR_CACHE_ITER(X)
   #undef X
 
@@ -77,8 +76,6 @@ struct __attribute__((aligned(16UL))) fd_sysvar_cache_private {
   FD_SYSVAR_CACHE_ITER(X)
   #undef X
 
-  #undef HANDLE_GLOBAL_1
-  #undef HANDLE_GLOBAL_0
 };
 struct fd_sysvar_cache_private;
 typedef struct fd_sysvar_cache_private fd_sysvar_cache_t;
@@ -94,13 +91,23 @@ fd_sysvar_cache_align( void );
 ulong
 fd_sysvar_cache_footprint( void );
 
+/* fd_sysvar_cache_{join,leave} create and destroy a sysvar cache object.
+   mem is the memory region that will back the fd_sysvar_cache_t.  wksp
+   is the workspace to use for heap allocations. */
+
+fd_sysvar_cache_t *
+fd_sysvar_cache_join( void * mem, fd_wksp_t * wksp );
+
+void *
+fd_sysvar_cache_leave( fd_sysvar_cache_t * cache );
+
 /* fd_sysvar_cache_new creates a new sysvar cache object.  mem is the
    memory region that will back the fd_sysvar_cache_t.  Attaches to the
    given valloc for use as a heap allocator for sysvar data.  Returns
    object (in mem) on success and NULL on failure.  Logs reasons for
    failure. */
 
-fd_sysvar_cache_t *
+void *
 fd_sysvar_cache_new( void * mem );
 
 /* fd_sysvar_cache_delete destroys a given sysvar cache object and any

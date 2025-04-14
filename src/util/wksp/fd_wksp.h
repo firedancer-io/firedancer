@@ -164,7 +164,48 @@
 
 /* A fd_wksp_t * is an opaque handle of a workspace */
 
-struct fd_wksp_private;
+struct fd_wksp_private {
+
+  /* This point is FD_WKSP_ALIGN aligned */
+
+  /* This fields are static and mostly in the first cache line */
+
+  ulong magic;                     /* ==FD_WKSP_MAGIC */
+  ulong part_max;                  /* Max wksp partitions */
+  ulong data_max;                  /* Data region */
+  ulong gaddr_lo;                  /* ==fd_wksp_private_data_off( part_max ), data region covers offsets [gaddr_lo,gaddr_hi) */
+  ulong gaddr_hi;                  /* ==gaddr_lo + data_max,                  offset gaddr_hi is to 1 byte footer */
+  char  name[ FD_SHMEM_NAME_MAX ]; /* (Convenience) backing fd_shmem region cstr name */
+  uint  seed;                      /* Heap priority random number seed, arbitrary */
+
+  /* These fields are dynamic and in the adjacent cache line */
+
+  uint  idle_top_cidx;             /* Stack of partition infos not in use, parent_idx is next pointer */
+  uint  part_head_cidx;            /* Index for info about the leftmost partition */
+  uint  part_tail_cidx;            /* Index for info about the rightmost partition */
+  uint  part_used_cidx;            /* Treap of partitions that are currently used (tag!=0), searchable by gaddr */
+  uint  part_free_cidx;            /* Treap of partitions that are currently free (tag==0), searchable by size */
+  ulong cycle_tag;                 /* Used for cycle detection */
+  ulong owner;                     /* thread group id of the owner or NULL otherwise */
+
+  /* IMPORTANT!  The "single-source-of-truth" for what is currently
+     used (and its tags) is the set of non-zero tagged partitions in the
+     partition info array.  The idle stack, partition list, used treap
+     and free treap are auxiliary data structuring that can be
+     reconstructed at any time from this single source of truth.
+
+     Conversely, if there accidental or deliberate data corruption of
+     the wksp metadata resulting in a conflict between what is stored
+     in the partition info array and the auxiliary data structures,
+     the partition info array governs. */
+
+  /* Padding to FD_WKSP_PRIVATE_PINFO_ALIGN here */
+
+  /* part_max pinfo here */
+  /* data_max byte data region here */
+  /* 1 footer byte here */
+  /* Padding to FD_WKSP_ALIGN here */
+};
 typedef struct fd_wksp_private fd_wksp_t;
 
 /* A fd_wksp_usage_t is used to return workspace usage stats. */

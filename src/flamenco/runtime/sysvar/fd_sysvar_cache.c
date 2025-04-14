@@ -18,6 +18,19 @@ fd_sysvar_cache_footprint( void ) {
 }
 
 fd_sysvar_cache_t *
+fd_sysvar_cache_join( void * mem, fd_wksp_t * wksp ) {
+  fd_sysvar_cache_t * cache = (fd_sysvar_cache_t *)mem;
+  cache->wksp = wksp;
+  return cache;
+}
+
+void *
+fd_sysvar_cache_leave( fd_sysvar_cache_t * cache ) {
+  cache->wksp = NULL;
+  return (void *)cache;
+}
+
+void *
 fd_sysvar_cache_new( void * mem ) {
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -62,18 +75,18 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
   return (void *)cache;
 }
 
-#define HANDLE_GLOBAL_1(type, name, is_global)                       \
-type##_global_t const *                                              \
-fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache ) {          \
-  type##_global_t const * val = cache->val_##name;                   \
-  return (cache->has_##name) ? val : NULL;                           \
+#define HANDLE_GLOBAL_1(type, name, is_global)                                                                 \
+type##_global_t const *                                                                                        \
+fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache ) {                                                    \
+  type##_global_t const * val = (type##_global_t *)fd_wksp_laddr( cache->wksp, cache->gaddr_val_##name ); \
+  return (cache->has_##name) ? val : NULL;                                                                     \
 }
 
-#define HANDLE_GLOBAL_0(type, name, is_global)                       \
-type##_t const *                                                     \
-fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache ) {          \
-  type##_t const * val = cache->val_##name;                          \
-  return (cache->has_##name) ? val : NULL;                           \
+#define HANDLE_GLOBAL_0(type, name, is_global)                                                   \
+type##_t const *                                                                                 \
+fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache ) {                                      \
+  type##_t const * val = (type##_t *)fd_wksp_laddr( cache->wksp, cache->gaddr_val_##name ); \
+  return (cache->has_##name) ? val : NULL;                                                       \
 }
 
 /* Provide accessor methods */
@@ -138,7 +151,7 @@ fd_sysvar_cache_restore_##name(                                                 
       FD_LOG_ERR(( "memory allocation failed" ));                                         \
     }                                                                                     \
     HANDLE_GLOBAL_##is_global( type, mem, decode )                                        \
-    fd_memcpy( cache->val_##name, mem, sizeof(type##_t) );                                \
+    cache->gaddr_val_##name = fd_wksp_gaddr( wksp, mem );                                 \
   } while(0);                                                                             \
 }
   FD_SYSVAR_CACHE_ITER(X)

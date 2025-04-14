@@ -245,10 +245,8 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
   }
 
-  ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
-  if( FD_UNLIKELY( !ctx->sysvar_cache ) ) {
-    FD_LOG_ERR(( "Could not find valid sysvar cache" ));
-  }
+  ctx->sysvar_cache = fd_sysvar_cache_join( fd_wksp_laddr_fast( runtime_pub_wksp, sysvar_cache_gaddr ),
+                                            ctx->runtime_pub_wksp );
 
   ctx->features     = slot_ctx->epoch_ctx->features;
   ctx->status_cache = slot_ctx->status_cache;
