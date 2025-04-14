@@ -91,6 +91,13 @@ static void fd_gossip_peer_addr_copy( fd_gossip_peer_addr_t * keyd, const fd_gos
   keyd->l = keys->l;
 }
 
+/* Test if a timestamp is in the window [mid-radius, mid+radius] */
+FD_FN_PURE static int
+fd_gossip_in_window( ulong ts, ulong mid, ulong radius ) {
+  ulong diff = (ts > mid) ? (ts - mid) : (mid - ts);
+  return (diff < radius);
+}
+
 /* All peers table element. The peers table is all known validator addresses/ids. */
 struct fd_peer_elem {
     fd_gossip_peer_addr_t key;
@@ -2322,9 +2329,9 @@ fd_gossip_compact_values( fd_gossip_t * glob ) {
   fd_value_t * vec = glob->values;
 
   ulong start = 0;
-  ulong cur_count = fd_value_vec_cnt( vec );
+  ulong pre_count = fd_value_vec_cnt( vec );
   /* find first element to delete */
-  for( ; start<cur_count ; start++ ) {
+  for( ; start<pre_count ; start++ ) {
     if( FD_UNLIKELY( vec[start].del ) ) break;
   }
 
@@ -2333,7 +2340,7 @@ fd_gossip_compact_values( fd_gossip_t * glob ) {
   ulong num_deleted = 0UL;
   ulong push_head_snapshot = ULONG_MAX;
 
-  while( next<cur_count ) {
+  while( next<pre_count ) {
     if( FD_UNLIKELY( vec[next].del ) ) {
       if( next>(start + 1) ) {
         /* move all values between start and next */
@@ -2357,7 +2364,7 @@ fd_gossip_compact_values( fd_gossip_t * glob ) {
   glob->need_push_head -= fd_ulong_if( push_head_snapshot != ULONG_MAX, push_head_snapshot, num_deleted );
   fd_value_vec_contract( glob->values, num_deleted );
   glob->metrics.value_vec_cnt = fd_value_vec_cnt( glob->values );
-  FD_LOG_NOTICE(( "GOSSIP compacted %lu values", num_deleted ));
+  FD_LOG_INFO(( "GOSSIP compacted %lu values", num_deleted ));
   return num_deleted;
 }
 
@@ -2367,18 +2374,22 @@ fd_gossip_cleanup_values( fd_gossip_t * glob,
   (void)arg;
   fd_gossip_add_pending( glob, fd_gossip_cleanup_values, fd_pending_event_arg_null(), glob->now + (long)15e9 );
 
-  ulong value_expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_VALUE_EXPIRE;
+  ulong now = FD_NANOSEC_TO_MILLI(glob->now);
   for( fd_value_meta_map_iter_t iter = fd_value_meta_map_iter_init( glob->value_metas );
        !fd_value_meta_map_iter_done( glob->value_metas, iter );
        iter = fd_value_meta_map_iter_next( glob->value_metas, iter ) ) {
     fd_value_meta_t * ele = fd_value_meta_map_iter_ele( glob->value_metas, iter );
-    if ( ele->wallclock<value_expire ) {
-      /* This value has expired, mark it for deletion in the value vector and remove from map */
-      if( ele->value!=NULL ){
-        ele->value->del = 1UL;
-      }
+    if( !fd_gossip_in_window( ele->wallclock, now, FD_GOSSIP_VALUE_EXPIRE ) ) {
+      /* This value has expired, remove it from the value set and vector */
+      if( ele->value != NULL )
+        ele->value->del = 1;
       fd_value_meta_map_remove( glob->value_metas, &ele->key ); /* Remove from the value set */
       fd_bloom_remove( &glob->bloom, &ele->key ); /* Remove from the bloom filter */
+    } else if( !fd_gossip_in_window( ele->wallclock, now, FD_GOSSIP_PULL_TIMEOUT ) ) {
+      /* Purge */
+      if( ele->value != NULL )
+        ele->value->del = 1;
+      ele->value = NULL;
     }
   }
 
