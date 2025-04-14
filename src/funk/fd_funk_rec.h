@@ -132,6 +132,22 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( ulong idx ) { return idx=
 
 /* Accessors */
 
+/* fd_funk_rec_modify_prepare queries the in-prep transaction pointed to
+   by txn for the record whose key matches the key pointed to by the
+   key. If the query is successful, then we will acquire a lock on the
+   corresponding hash chain. Any updates made to the record can be
+   published into the funk transaction with a call to
+   fd_funk_rec_modify_publish. */
+
+   fd_funk_rec_t *
+   fd_funk_rec_modify_prepare( fd_funk_t *               funk,
+                               fd_funk_txn_t const *     txn,
+                               fd_funk_rec_key_t const * key,
+                               fd_funk_rec_query_t *     query );
+
+   void
+   fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
+
 /* fd_funk_rec_query_try queries the in-preparation transaction pointed to
    by txn for the record whose key matches the key pointed to by key.
    If txn is NULL, the query will be done for the funk's last published

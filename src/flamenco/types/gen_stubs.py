@@ -475,7 +475,7 @@ class VectorMember(TypeNode):
             print(f'  ushort {self.name}_len;', file=header)
         else:
             print(f'  ulong {self.name}_len;', file=header)
-        print(f'  ulong {self.name}_gaddr;', file=header)
+        print(f'  ulong {self.name}_gaddr_off;', file=header)
 
     def emitNew(self):
         pass
@@ -571,18 +571,18 @@ class VectorMember(TypeNode):
         el = el.upper()
 
         if self.element == "uchar":
-            print(f'    self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+            print(f'    self->{self.name}_gaddr_off = (ulong)*alloc_mem - (ulong)struct_mem;', file=body)
             print(f'    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->{self.name}_len, ctx );', file=body)
             print(f'    *alloc_mem = (uchar *)(*alloc_mem) + self->{self.name}_len;', file=body)
         else:
             if self.element in simpletypes:
                 print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );', file=body)
-                print(f'    self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+                print(f'    self->{self.name}_gaddr_off = (ulong)*alloc_mem - (ulong)struct_mem;', file=body)
                 print(f'    uchar * cur_mem = (uchar *)(*alloc_mem);', file=body)
                 print(f'    *alloc_mem = (uchar *)(*alloc_mem) + sizeof({self.element})*self->{self.name}_len;', file=body)
             else:
                 print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), {el}_ALIGN );', file=body)
-                print(f'    self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+                print(f'    self->{self.name}_gaddr_off = (ulong)*alloc_mem - (ulong)struct_mem;', file=body)
                 print(f'    uchar * cur_mem = (uchar *)(*alloc_mem);', file=body)
                 print(f'    *alloc_mem = (uchar *)(*alloc_mem) + {el}_FOOTPRINT*self->{self.name}_len;', file=body)
 
@@ -599,7 +599,7 @@ class VectorMember(TypeNode):
             print('    }', file=body)
 
         print('  } else {', file=body)
-        print(f'    self->{self.name}_gaddr = 0UL;', file=body)
+        print(f'    self->{self.name}_gaddr_off = 0UL;', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
@@ -634,7 +634,7 @@ class VectorMember(TypeNode):
             print(f'  err = fd_bincode_uint64_encode( self->{self.name}_len, ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'  if( self->{self.name}_len ) {{', file=body)
-        print(f'    uchar * {self.name}_laddr = fd_wksp_laddr_fast( ctx->wksp, self->{self.name}_gaddr );', file=body)
+        print(f'    uchar * {self.name}_laddr = (uchar*)self + self->{self.name}_gaddr_off;', file=body)
 
         if self.element == "uchar":
             print(f'    err = fd_bincode_bytes_encode( {self.name}_laddr, self->{self.name}_len, ctx );', file=body)
@@ -1024,7 +1024,7 @@ class DequeMember(TypeNode):
             min_tag = f" (min cnt {self.min})"
         else:
             min_tag = ""
-        print(f'  ulong {self.name}_gaddr; /* fd_deque_dynamic{min_tag} */', file=header)
+        print(f'  ulong {self.name}_gaddr_off; /* fd_deque_dynamic{min_tag} */', file=header)
 
     def emitNew(self):
         pass
@@ -1141,8 +1141,7 @@ class DequeMember(TypeNode):
                 print(f'    {namespace}_{self.element}_decode_inner_global( elem, alloc_mem, ctx );', file=body)
         print('  }', file=body)
         leave = f'{namespace}_{self.element}_leave' if self.element in flattypes else f'{namespace}_{self.element}_global_leave'
-        print(f'  self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, {prefix}_leave( {self.name} ) );', file=body)
-
+        print(f'  self->{self.name}_gaddr_off = (ulong){prefix}_leave( {self.name} ) - (ulong)struct_mem;', file=body)
 
     def emitEncode(self):
         print(f'  if( self->{self.name} ) {{', file=body)
@@ -1177,9 +1176,9 @@ class DequeMember(TypeNode):
         print('  }', file=body)
 
     def emitEncodeGlobal(self):
-        print(f'  if( self->{self.name}_gaddr ) {{', file=body)
+        print(f'  if( self->{self.name}_gaddr_off ) {{', file=body)
 
-        print(f'  uchar * {self.name}_laddr = fd_wksp_laddr_fast( ctx->wksp, self->{self.name}_gaddr );', file=body)
+        print(f'  uchar * {self.name}_laddr = (uchar*)self + self->{self.name}_gaddr_off;', file=body)
         prefix = self.prefix() if self.element in flattypes else self.prefix_global()
         elem_type = self.elem_type() if self.element in flattypes else self.elem_type_global()
         print(f'   {elem_type} * {self.name} = {prefix}_join( {self.name}_laddr );', file=body)

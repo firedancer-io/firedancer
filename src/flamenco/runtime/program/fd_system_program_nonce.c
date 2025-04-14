@@ -56,7 +56,7 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
-  (*out)->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp, rbh_global->hashes_gaddr ) );
+  (*out)->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_gaddr_off );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -72,7 +72,8 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_hash_t const * last_hash = ctx->txn_ctx->block_hash_queue.last_hash;
+  fd_hash_t const * last_hash = fd_wksp_laddr_fast( fd_funk_wksp( ctx->funk ),
+                                                    ctx->txn_ctx->block_hash_queue_global->last_hash_gaddr );
   if( FD_UNLIKELY( last_hash==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;

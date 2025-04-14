@@ -311,39 +311,71 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   /* EXPERIMENT START */
+  FD_LOG_WARNING(("EXPERIMENT START"));
 
+  /* First calculate the total footprint of the block hash queue. */
   ulong total_bhq_sz = sizeof(fd_block_hash_queue_global_t) +
+                       alignof(fd_block_hash_queue_global_t) +
                        sizeof(fd_hash_t) +
-                       sizeof(fd_hash_hash_age_pair_t_map_footprint( 400 ) ;
+                       alignof(fd_hash_t) +
+                       fd_hash_hash_age_pair_t_map_footprint( 400 ) +
+                       fd_hash_hash_age_pair_t_map_align();
 
-  fd_bank_mgr_create_entry( slot_ctx->funk
-                            slot_ctx->funk_txn, ulong entry_id, uchar *entry_data, ulong entry_data_sz)
+  /* Prepare the bank mgr entry, this will also be responsible for
+     allocating out the memory used by the record. */
+  fd_bank_mgr_prepare_t bank_mgr_prepare = {0};
+  int bank_mgr_err = fd_bank_mgr_prepare_entry( slot_ctx->funk,
+                                                slot_ctx->funk_txn,
+                                                BLOCK_HASH_QUEUE_ID,
+                                                total_bhq_sz,
+                                                &bank_mgr_prepare );
+  FD_TEST( bank_mgr_err == FD_BANK_MGR_SUCCESS );
 
-  fd_wksp_t * wksp = fd_wksp_containing( slot_ctx->funk );
-  fd_block_hash_queue_global_t * block_hash_queue = fd_spad_alloc( runtime_spad, fd_block_hash_queue_align(), fd_block_hash_queue_footprint() );
+  fd_wksp_t * funk_wksp = fd_funk_wksp( slot_ctx->funk );
+
+  /* Calculate and layout the pointers that are used.
+     TODO: Consider generating a layout function from gen_stubs. */
+  uchar *                        data             = bank_mgr_prepare.data;
+  fd_block_hash_queue_global_t * block_hash_queue = (fd_block_hash_queue_global_t *)fd_ulong_align_up( (ulong)data, alignof(fd_block_hash_queue_global_t) );
+  fd_hash_t *                    last_hash        = (fd_hash_t *)fd_ulong_align_up( (ulong)(block_hash_queue + 1UL), alignof(fd_hash_t) );
+  uchar *                        ages_pool_mem    = (uchar *)fd_ulong_align_up( (ulong)(last_hash + 1UL), fd_hash_hash_age_pair_t_map_align() );
+
+
+  /* Assign the fields and convert any pointers. */
+
   block_hash_queue->last_hash_index = slot_bank->block_hash_queue.last_hash_index;
   block_hash_queue->max_age         = slot_bank->block_hash_queue.max_age;
-  uchar * ages_pool_mem = fd_spad_alloc( runtime_spad,
-                                         fd_hash_hash_age_pair_t_map_align(),
-                                         fd_hash_hash_age_pair_t_map_footprint( 400 ) );
+
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
   fd_hash_hash_age_pair_t_mapnode_t * ages_root = NULL;
+
   for( ulong i=0UL; i<oldbank->blockhash_queue.ages_len; i++ ) {
     fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
-    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_bank->block_hash_queue.ages_pool );
+    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
     fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
     fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
   }
-  block_hash_queue->ages_pool_gaddr = fd_wksp_gaddr_fast( wksp, fd_hash_hash_age_pair_t_map_leave( ages_pool ) );
-  block_hash_queue->ages_root_gaddr = fd_wksp_gaddr_fast( wksp, fd_hash_hash_age_pair_t_map_leave( ages_root ) );
 
-  if ( oldbank->blockhash_queue.last_hash ) {
-    block_hash_queue->last_hash_gaddr = fd_wksp_gaddr_fast( wksp, oldbank->blockhash_queue.last_hash );
-    fd_memcpy( slot_bank->block_hash_queue.last_hash, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
+  FD_TEST( fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_leave( ages_pool ) ) );
+
+  block_hash_queue->ages_pool_gaddr = fd_wksp_gaddr_fast( funk_wksp, fd_hash_hash_age_pair_t_map_leave( ages_pool ) );
+  block_hash_queue->ages_root_gaddr = fd_wksp_gaddr_fast( funk_wksp, ages_root );
+
+  FD_LOG_WARNING(("GADDRS %lu %lu", block_hash_queue->ages_pool_gaddr, block_hash_queue->ages_root_gaddr));
+
+  FD_TEST( fd_hash_hash_age_pair_t_map_join( fd_wksp_laddr_fast( funk_wksp, block_hash_queue->ages_pool_gaddr ) ) );
+
+  if( oldbank->blockhash_queue.last_hash ) {
+    fd_memcpy( last_hash, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
+    block_hash_queue->last_hash_gaddr = fd_wksp_gaddr_fast( funk_wksp, oldbank->blockhash_queue.last_hash );
   } else {
-    slot_bank->block_hash_queue.last_hash = NULL;
+    block_hash_queue->last_hash_gaddr = 0UL;
   }
 
+  /* Publish the entry. */
+  fd_bank_mgr_publish_entry( &bank_mgr_prepare );
+
+  FD_LOG_WARNING(("EXPERIMENT END"));
   /* EXPERIMENT END */
 
 

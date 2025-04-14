@@ -79,10 +79,10 @@ fd_funk_val_const( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's
 
 void *                                               /* Returns record value on success, NULL on failure */
 fd_funk_val_truncate( fd_funk_rec_t * rec,     /* Assumed in caller's address space to a live funk record (NULL returns NULL) */
-                         ulong              new_val_sz, /* Should be in [0,FD_FUNK_REC_VAL_MAX] (returns NULL otherwise) */
-                         fd_alloc_t *       alloc,      /* ==fd_funk_alloc( funk, wksp ) */
-                         fd_wksp_t *        wksp,       /* ==fd_funk_wksp( funk ) where funk is current local join */
-                         int *              opt_err );  /* If non-NULL, *opt_err returns operation error code */
+                      ulong           new_val_sz, /* Should be in [0,FD_FUNK_REC_VAL_MAX] (returns NULL otherwise) */
+                      fd_alloc_t *    alloc,      /* ==fd_funk_alloc( funk, wksp ) */
+                      fd_wksp_t *     wksp,       /* ==fd_funk_wksp( funk ) where funk is current local join */
+                      int *           opt_err );  /* If non-NULL, *opt_err returns operation error code */
 
 /* Misc */
 

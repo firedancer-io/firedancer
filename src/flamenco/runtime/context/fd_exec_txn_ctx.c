@@ -4,6 +4,7 @@
 #include "../../vm/fd_vm.h"
 #include "../fd_system_ids.h"
 #include "fd_exec_epoch_ctx.h"
+#include "../fd_bank_mgr.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -262,6 +263,25 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   ctx->slot                        = slot_ctx->slot_bank.slot;
   ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
   ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
+
+  uchar * bhq_global_data    = NULL;
+  ulong   bhq_global_data_sz = 0UL;
+
+  int bank_mgr_err = fd_bank_mgr_entry_query_const( ctx->funk,
+                                                    ctx->funk_txn,
+                                                    BLOCK_HASH_QUEUE_ID,
+                                                    &bhq_global_data,
+                                                    &bhq_global_data_sz );
+  FD_TEST( bank_mgr_err==FD_BANK_MGR_SUCCESS );
+  ctx->block_hash_queue_global = (fd_block_hash_queue_global_t *)bhq_global_data;
+  FD_TEST( ctx->block_hash_queue_global );
+
+  //FD_LOG_WARNING(("GADDRS %lu %lu", ctx->block_hash_queue_global->ages_pool_gaddr, ctx->block_hash_queue_global->ages_root_gaddr));
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_wksp_laddr_fast( funk_wksp, ctx->block_hash_queue_global->ages_pool_gaddr ) );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_wksp_laddr_fast( funk_wksp, ctx->block_hash_queue_global->ages_root_gaddr );
+  FD_TEST( ages_pool );
+  FD_TEST( ages_root );
+
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
   ctx->schedule                    = epoch_bank->epoch_schedule;

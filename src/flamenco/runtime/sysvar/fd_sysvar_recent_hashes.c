@@ -5,19 +5,9 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../fd_bank_mgr.h"
 
 #define FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE  sizeof(ulong) + FD_RECENT_BLOCKHASHES_MAX_ENTRIES * (sizeof(fd_hash_t) + sizeof(ulong))
-
-// run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 2 --end-slot 2 --start-id 35 --end-id 37
-// run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 120000000 --start-slot 0 --end-slot 3
-
-// {meta = {write_version_obsolete = 137,
-// data_len = 6008, pubkey = "\006\247\325\027\031,V\216\340\212\204_sҗ\210\317\003\\1E\262\032\263D\330\006.\251@\000"}, info = {lamports = 42706560, rent_epoch = 0, owner = "\006\247\325\027\030u\367)\307=\223@\217!a \006~،v\340\214(\177\301\224`\000\000\000", executable = 0 '\000', padding = "K\000\f\376\177\000"}, hash = {value = "\302Q\316\035qTY\347\352]\260\335\213\224R\227ԯ\366R\273\063H\345֑c\377\207/k\275"}}
-
-// owner:      Sysvar1111111111111111111111111111111111111 pubkey:      SysvarRecentB1ockHashes11111111111111111111 hash:     E5YSehyvJ7xXcNnQjWCH9UhMJ1dxDBJ1RuuPh1Y3RZgg file: /home/jsiegel/test-ledger/accounts//2.37
-//   {blockhash = JCidNXtcMXMWQwMDM3ZQq5pxaw3hQpNbeHg1KcstjuF4,  fee_calculator={lamports_per_signature = 5000}}
-//   {blockhash = GQN3oV8G1Ra3GCX76dE1YYJ6UjMyDreNCEWM4tZ39zj1,  fee_calculator={lamports_per_signature = 5000}}
-//   {blockhash = Ha5DVgnD1xSA8oQc337jtA3atEfQ4TFX1ajeZG1Y2tUx,  fee_calculator={lamports_per_signature = 0}}
 
 /* Skips fd_types encoding preflight checks and directly serializes the blockhash queue into a buffer representing
    account data for the recent blockhashes sysvar. */
@@ -71,11 +61,49 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
 static void
-register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
+register_blockhash( fd_exec_slot_ctx_t *           slot_ctx,
+                    fd_block_hash_queue_global_t * block_hash_queue_global,
+                    fd_hash_t const *              hash ) {
+
+  (void)block_hash_queue_global;
+  // block_hash_queue_global->last_hash_index++;
+  // fd_hash_hash_age_pair_t_mapnode_t * ages_pool       = fd_hash_hash_age_pair_t_map_join( fd_wksp_laddr_fast( slot_ctx->funk_wksp, block_hash_queue_global->ages_pool_gaddr ) );
+  // fd_hash_hash_age_pair_t_mapnode_t * ages_root       = fd_wksp_laddr_fast( slot_ctx->funk_wksp, block_hash_queue_global->ages_root_gaddr );
+  // ulong                               max_age         = block_hash_queue_global->max_age;
+  // ulong                               last_hash_index = block_hash_queue_global->last_hash_index;
+
+  // if( fd_hash_hash_age_pair_t_map_size( ages_pool, ages_root ) >= max_age ) {
+  //   fd_hash_hash_age_pair_t_mapnode_t * nn;
+  //   for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( ages_pool, ages_root ); n; n = nn ) {
+  //     nn = fd_hash_hash_age_pair_t_map_successor( ages_pool, n );
+  //     /* NOTE: Yes, this check is incorrect. It should be >= which caps the blockhash queue at max_age
+  //       entries, but instead max_age + 1 entries are allowed to exist in the queue at once. This mimics
+  //       Agave to stay conformant with their implementation.
+  //       https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L109 */
+  //     if( last_hash_index - n->elem.val.hash_index > max_age ) {
+  //       fd_hash_hash_age_pair_t_map_remove( ages_pool, &ages_root, n );
+  //       fd_hash_hash_age_pair_t_map_release( ages_pool, n );
+  //     }
+  //   }
+  // }
+  // fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
+  // node->elem = (fd_hash_hash_age_pair_t) {
+  //   .key = *hash,
+  //   .val = (fd_hash_age_t){ .hash_index     = last_hash_index,
+  //                           .fee_calculator = (fd_fee_calculator_t){ .lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature },
+  //                           .timestamp      = (ulong)fd_log_wallclock() }
+  // };
+  // // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L121-L128
+  // fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
+  // // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L130
+  // fd_hash_t * last_hash = fd_wksp_laddr_fast( slot_ctx->funk_wksp, block_hash_queue_global->last_hash_gaddr );
+  // fd_memcpy( last_hash, hash, sizeof(fd_hash_t) );
+
+
   fd_block_hash_queue_t * queue = &slot_ctx->slot_bank.block_hash_queue;
   // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L114
   queue->last_hash_index++;
-  if ( fd_hash_hash_age_pair_t_map_size( queue->ages_pool, queue->ages_root ) >= queue->max_age ) {
+  if( fd_hash_hash_age_pair_t_map_size( queue->ages_pool, queue->ages_root ) >= queue->max_age ) {
     fd_hash_hash_age_pair_t_mapnode_t * nn;
     for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
       nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
@@ -110,7 +138,25 @@ void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Update the blockhash queue */
-  register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
+
+  ulong total_bhq_sz = sizeof(fd_block_hash_queue_global_t) +
+                       alignof(fd_block_hash_queue_global_t) +
+                       sizeof(fd_hash_t) +
+                       alignof(fd_hash_t) +
+                       fd_hash_hash_age_pair_t_map_footprint( 400 ) +
+                       fd_hash_hash_age_pair_t_map_align();
+
+  fd_bank_mgr_prepare_t bank_mgr_prepare = {0};
+  int err = fd_bank_mgr_prepare_entry( slot_ctx->funk,
+                                       slot_ctx->funk_txn,
+                                       BLOCK_HASH_QUEUE_ID,
+                                       total_bhq_sz,
+                                       &bank_mgr_prepare );
+  FD_TEST( err == FD_BANK_MGR_SUCCESS );
+
+  register_blockhash( slot_ctx,
+                      (fd_block_hash_queue_global_t *)bank_mgr_prepare.data,
+                      &slot_ctx->slot_bank.poh );
 
   /* Derive the new sysvar recent blockhashes from the blockhash queue */
   ulong   sz        = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
