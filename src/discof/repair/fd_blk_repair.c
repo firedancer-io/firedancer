@@ -464,7 +464,106 @@ fd_blk_repair_preorder_print( fd_blk_repair_t const * blk_repair ) {
   printf( "\n\n" );
 }
 
+/* TODO use bit tricks / change */
+static int
+num_digits( ulong slot ) {
+  /* using log10 */
+  int digits = 0;
+  while( slot ) {
+    digits++;
+    slot /= 10;
+  }
+  return digits;
+}
+
 static void
+ancestry_print2( fd_blk_repair_t const * blk_repair,
+                 fd_blk_ele_t const    * ele,
+                 fd_blk_ele_t const    * prev,
+                 ulong        last_printed,
+                 int          depth,
+                 const char * prefix ) {
+
+  if( FD_UNLIKELY( ele == NULL ) ) return;
+
+  fd_blk_ele_t const * pool = fd_blk_pool_const( blk_repair );
+  int digits = num_digits( ele->slot );
+
+  /* If there is a prefix, this means we are on a fork,  and we need to
+     indent to the correct depth. We do depth - 1 for more satisfying
+     spacing. */
+  if( FD_UNLIKELY( strcmp( prefix, "" ) ) ) {
+    for( int i = 0; i < depth - 1; i++ ) printf( " " );
+    if( depth > 0 ) printf( "%s", prefix );
+  }
+
+  if ( FD_UNLIKELY( !prev ) ) { // New interval
+    printf("[%lu" , ele->slot );
+    last_printed = ele->slot;
+    depth       += 1 + digits;
+  }
+
+  fd_blk_ele_t const * curr = fd_blk_pool_ele_const( pool, ele->child );
+
+  /* Cases in which we close the interval:
+     1. the slots are no longer consecutive. no eliding, close bracket
+     2. current ele has multiple children, want to print forks.
+     Maintain last_printed on this fork so that we don't print [a, a]
+     intervals. */
+
+  fd_blk_ele_t const * new_prev = ele;
+
+  if( prev && prev->slot != ele->slot - 1 ) { // non-consecutive, do not elide
+    if( last_printed == prev->slot ){
+      printf( "] ── [%lu", ele->slot );
+      depth += digits + 6;
+    } else {
+      printf( ", %lu] ── [%lu", prev->slot, ele->slot );
+      depth += digits + num_digits(prev->slot ) + 8;
+    }
+    last_printed = ele->slot;
+  } else if( curr && curr->sibling != ULONG_MAX ) { // has multiple children, do not elide
+    if( last_printed == ele->slot ){
+      printf( "] ── " );
+      depth += 5;
+    } else {
+      printf( ", %lu] ── ", ele->slot );
+      depth += digits + 2;
+    }
+    last_printed = ele->slot;
+    new_prev = NULL;
+  }
+
+  if( !curr ){ // no children, close bracket, end fork
+    if( last_printed == ele->slot ){
+      printf( "]\n" );
+    } else {
+      printf( ", %lu]\n", ele->slot );
+    }
+    return;
+  }
+
+  char new_prefix[512]; /* FIXME size this correctly */
+  new_prefix[0] = '\0'; /* first fork stays on the same line, no prefix */
+  while( curr ) {
+    if( fd_blk_pool_ele_const( pool, curr->sibling ) ) {
+      ancestry_print2( blk_repair, curr, new_prev, last_printed, depth, new_prefix );
+    } else {
+      ancestry_print2( blk_repair, curr, new_prev, last_printed, depth, new_prefix );
+    }
+    curr = fd_blk_pool_ele_const( pool, curr->sibling );
+
+    /* Set up prefix for following iterations */
+    if( curr && curr->sibling != ULONG_MAX ) {
+      sprintf( new_prefix, "├── " ); /* any following forks start on new lines */
+    } else {
+      sprintf( new_prefix, "└── " ); /* any following forks start on new lines */
+    }
+  }
+
+}
+
+static void FD_FN_UNUSED
 ancestry_print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, int space, const char * prefix ) {
   fd_blk_ele_t const * pool = fd_blk_pool_const( blk_repair );
 
@@ -490,10 +589,17 @@ ancestry_print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, in
   }
 }
 
+
 void
 fd_blk_repair_ancestry_print( fd_blk_repair_t const * blk_repair ) {
-  FD_LOG_NOTICE( ( "\n\n[Ancestry]" ) );
-  ancestry_print( blk_repair, fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), blk_repair->root ), 0, "" );
+  FD_LOG_NOTICE( ( "\n\n[Ancestry]\n%lu", fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), blk_repair->root )->slot ) );
+
+  ancestry_print2( blk_repair, fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), blk_repair->root ), NULL, 0, 0, "" );
+
+  //FD_LOG_NOTICE(("\n\n[Ancestry]\n%lu", fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), blk_repair->root )->slot ) );
+
+  //ancestry_print( blk_repair, fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), blk_repair->root ), 0, "" );
+
 }
 
 void
