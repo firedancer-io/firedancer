@@ -28,7 +28,7 @@ fd_fec_chainer_new( void * shmem, ulong fec_max, ulong seed ) {
   fd_memset( shmem, 0, footprint );
 
   fd_fec_chainer_t * chainer;
-  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) ) + 2; /* +2 for fill ratio <= 0.25 */
+  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   chainer         = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(),  sizeof( fd_fec_chainer_t )               );

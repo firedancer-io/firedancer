@@ -280,7 +280,7 @@ fd_fec_chainer_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_fec_chainer_footprint( ulong fec_max ) {
-  int lg_fec_max  = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max  ) ) + 2; /* +2 for fill ratio <= 0.25 */
+  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(

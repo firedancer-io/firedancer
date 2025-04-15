@@ -906,11 +906,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->blockstore = &ctx->blockstore_ljoin;
   ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
-  ctx->blk_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_blk_repair_align(), fd_blk_repair_footprint( FD_BLOCK_MAX ) );
-  ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( tile->repair.max_pending_shred_sets + 1 + 1 ), tile->repair.shred_tile_cnt ) );
+  ctx->blk_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_blk_repair_align(), fd_blk_repair_footprint( FD_BLK_REPAIR_ELE_MAX ) );
+  ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
 
-  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( tile->repair.max_pending_shred_sets ) );
+  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( FD_BLK_REPAIR_ELE_MAX * 4 ) );
 
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
