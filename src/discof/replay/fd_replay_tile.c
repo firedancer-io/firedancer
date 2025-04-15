@@ -1733,7 +1733,6 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
                                         &pay_sz );
 
       if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU ) ) {
-        __asm__("int $3");
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
       fd_memcpy( txn_p.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
@@ -1889,7 +1888,6 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   ctx->slice_exec_ctx.last_mblk_off = 0;
 
   if( FD_UNLIKELY( err ) ) {
-    __asm__("int $3");
     FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
   }
 }
@@ -2069,6 +2067,7 @@ read_snapshot( void *              _ctx,
        TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
+      FD_LOG_NOTICE(( "PREFETCHING" ));
       uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
       /* TODO: enable snapshot verification */
 
@@ -2088,6 +2087,7 @@ read_snapshot( void *              _ctx,
       kickoff_repair_orphans( ctx, stem );
 
     }
+    FD_LOG_NOTICE(( "after prefetch" ));
 
     /* In order to kick off repair effectively we need the snapshot slot and
        the stake weights. These are both available in the manifest. We will
@@ -2519,6 +2519,20 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
+  FD_LOG_NOTICE(( "after credit" ));
+
+  if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
+    init_snapshot( ctx, stem );
+    ctx->snapshot_init_done = 1;
+    //*charge_busy = 0;
+    if( ctx->replay_plugin_out_mem ) {
+      // ValidatorStartProgress::Running
+      uchar msg[56];
+      fd_memset( msg, 0, sizeof(msg) );
+      msg[0] = 11;
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+    }
+  }
 
   /* TODO: Consider moving state management to during_housekeeping */
   /* Check all the exec fseqs and handle any updates if needed. */
@@ -2791,19 +2805,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     fd_bank_hash_cmp_unlock( bank_hash_cmp );
     ctx->flags = EXEC_FLAG_READY_NEW;
   } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
-
-  if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
-    init_snapshot( ctx, stem );
-    ctx->snapshot_init_done = 1;
-    //*charge_busy = 0;
-    if( ctx->replay_plugin_out_mem ) {
-      // ValidatorStartProgress::Running
-      uchar msg[56];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[0] = 11;
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
-  }
 
   long now = fd_log_wallclock();
   if( ctx->votes_plugin_out_mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
@@ -3349,6 +3350,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "failed to join and create exec slice deque" ));
   }
 
+  __asm__("int $3");
   FD_LOG_NOTICE(("Finished unprivileged init"));
 }
 
