@@ -11,6 +11,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/snapshot/fd_snapshot_base.h"
 #include "../../util/tile/fd_tile_private.h"
 
 #include <sys/random.h>
@@ -138,6 +139,58 @@ resolve_gossip_entrypoints( config_t * config ) {
     }
   }
   config->gossip.resolved_entrypoints_cnt = resolved_entrypoints;
+}
+
+static void
+setup_snapshots( config_t *       config,
+                 fd_topo_tile_t * tile ) {
+  uchar incremental_is_file, incremental_is_url;
+  if( strnlen( config->tiles.replay.incremental, PATH_MAX )>0UL ) {
+    incremental_is_file = 1U;
+  } else {
+    incremental_is_file = 0U;
+  }
+  if( strnlen( config->tiles.replay.incremental_url, PATH_MAX )>0UL ) {
+    incremental_is_url = 1U;
+  } else {
+    incremental_is_url = 0U;
+  }
+  if( FD_UNLIKELY( incremental_is_file && incremental_is_url ) ) {
+    FD_LOG_ERR(( "At most one of the incremental snapshot source strings in the configuration file under [tiles.replay.incremental] and [tiles.replay.incremental_url] may be set." ));
+  }
+  tile->replay.incremental_src_type = INT_MAX;
+  if( FD_LIKELY( incremental_is_url ) ) {
+    strncpy( tile->replay.incremental, config->tiles.replay.incremental_url, sizeof(tile->replay.incremental) );
+    tile->replay.incremental_src_type = FD_SNAPSHOT_SRC_HTTP;
+  }
+  if( FD_UNLIKELY( incremental_is_file ) ) {
+    strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
+    tile->replay.incremental_src_type = FD_SNAPSHOT_SRC_FILE;
+  }
+
+  uchar snapshot_is_file, snapshot_is_url;
+  if( strnlen( config->tiles.replay.snapshot, PATH_MAX )>0UL ) {
+    snapshot_is_file = 1U;
+  } else {
+    snapshot_is_file = 0U;
+  }
+  if( strnlen( config->tiles.replay.snapshot_url, PATH_MAX )>0UL ) {
+    snapshot_is_url = 1U;
+  } else {
+    snapshot_is_url = 0U;
+  }
+  if( FD_UNLIKELY( snapshot_is_file && snapshot_is_url ) ) {
+    FD_LOG_ERR(( "At most one of the full snapshot source strings in the configuration file under [tiles.replay.snapshot] and [tiles.replay.snapshot_url] may be set." ));
+  }
+  tile->replay.snapshot_src_type = INT_MAX;
+  if( FD_LIKELY( snapshot_is_url ) ) {
+    strncpy( tile->replay.snapshot, config->tiles.replay.snapshot_url, sizeof(tile->replay.snapshot) );
+    tile->replay.snapshot_src_type = FD_SNAPSHOT_SRC_HTTP;
+  }
+  if( FD_UNLIKELY( snapshot_is_file ) ) {
+    strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
+    tile->replay.snapshot_src_type = FD_SNAPSHOT_SRC_FILE;
+  }
 }
 
 void
@@ -748,9 +801,9 @@ fd_topo_initialize( config_t * config ) {
       }
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
 
-      strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
+      setup_snapshots( config, tile );
+
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
-      strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       strncpy( tile->replay.status_cache, config->tiles.replay.status_cache, sizeof(tile->replay.status_cache) );
       strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
       tile->replay.bank_tile_count = config->layout.bank_tile_count;

@@ -286,6 +286,9 @@ typedef struct {
 
       /* not specified in TOML */
 
+      int   incremental_src_type;
+      int   snapshot_src_type;
+
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       int   vote;

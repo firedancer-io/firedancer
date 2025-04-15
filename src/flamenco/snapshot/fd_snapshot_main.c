@@ -284,7 +284,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   /* Resolve snapshot source */
 
   fd_snapshot_src_t src[1];
-  if( FD_UNLIKELY( !fd_snapshot_src_parse( src, args->snapshot ) ) )
+  if( FD_UNLIKELY( !fd_snapshot_src_parse_type_unknown( src, args->snapshot ) ) )
     return EXIT_FAILURE;
 
   /* Create a heap */
@@ -352,7 +352,7 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Set up the snapshot loader */
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src, 0UL, 1 ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src, 0UL, 0 ) ) ) {
     FD_LOG_WARNING(( "fd_snapshot_loader_init failed" ));
     return EXIT_FAILURE;
   }
