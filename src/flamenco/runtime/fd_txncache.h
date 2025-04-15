@@ -40,7 +40,7 @@
      - The transactions to be queried are stored in a structure that
        looks like a
 
-         hash_map<blockhash, hash_map<txnhash, vec<(slot, status)>>>
+         hash_map<blockhash, hash_map<txnhash, vec<(slot, txn_result)>>>
 
        The top level hash_map is a probed hash map, and the txnhash map
        is a chained hash map, where the items come from a pool of pages
@@ -210,9 +210,40 @@
 
 #define FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS (1024UL)
 
+/* Keys are truncated to 20 bytes when inserting into the txn cache.
+   Typically, keys are transaction message hashes, which are 32 bytes.
+   They could also be transaction signatures, which are 64 bytes.
+   This cannot be changed willy-nilly, because keys get serialized out
+   and loaded from snapshots, and more importantly this affects the
+   key index flooring logic.
+ */
+
+#define FD_TXNCACHE_KEY_SIZE (20UL)
+
+/* Result codes stored in the txn cache.
+   Currently only an indication of whether the transaction execution
+   returned success or not.
+   There's enough bits to store richer information if needed in the
+   future, such as the actual error code returned by the executor.
+   We don't do that because all we care about when querying the txn
+   cache is whether the transaction executed or not.
+   The mere presence of a transaction in the txn cache tells us that
+   it executed, or landed on chain, regardless of whether the execution
+   was entirely successful or not, because only executed/committed
+   transactions are inserted into the txn cache.
+ */
+#define FD_TXNCACHE_RESULT_OK  (0)
+#define FD_TXNCACHE_RESULT_ERR (1)
+
+/* Results from querying the txn cache.
+ */
+#define FD_TXNCACHE_QUERY_ABSENT  (0)
+#define FD_TXNCACHE_QUERY_PRESENT (1)
+
 struct fd_txncache_insert {
   uchar const * blockhash;
   uchar const * txnhash;
+  ulong         key_sz;
   ulong         slot;
   uchar const * result;
 };
@@ -222,19 +253,10 @@ typedef struct fd_txncache_insert fd_txncache_insert_t;
 struct fd_txncache_query {
   uchar const * blockhash;
   uchar const * txnhash;
+  ulong         key_sz;
 };
 
 typedef struct fd_txncache_query fd_txncache_query_t;
-
-struct fd_txncache_snapshot_entry {
-   ulong slot;
-   uchar blockhash[ 32 ];
-   uchar txnhash[ 20 ];
-   ulong txn_idx;
-   uchar result;
-};
-
-typedef struct fd_txncache_snapshot_entry fd_txncache_snapshot_entry_t;
 
 /* Forward declare opaque handle */
 struct fd_txncache_private;
@@ -342,29 +364,6 @@ void
 fd_txncache_root_slots( fd_txncache_t * tc,
                         ulong *         out_slots );
 
-/* fd_txncache_snapshot writes the current state of a txn cache into a
-   binary format suitable for serving to other nodes via snapshot
-   responses.  The write function is called in a streaming fashion with
-   the binary data, the size of the data, and the ctx pointer provided
-   to this function.  The write function should return 0 on success and
-   -1 on failure, this function will propgate a failure to write back to
-   the caller immediately, so this function also returns 0 on success
-   and -1 on failure.
-
-   IMPORTANT!  THIS ASSUMES THERE ARE NO CONCURRENT INSERTS OCCURING ON
-   THE TXN CACHE AT THE ROOT SLOTS DURING SNAPSHOTTING.  OTHERWISE THE
-   SNAPSHOT MIGHT BE NOT CONTAIN ALL OF THE DATA, ALTHOUGH IT WILL NOT
-   CAUSE CORRUPTION.  THIS IS ASSUMED OK BECAUSE YOU CANNOT MODIFY A
-   ROOTED SLOT.
-
-   This is a cheap operation and will not cause any pause in insertion
-   or query operations. */
-
-int
-fd_txncache_snapshot( fd_txncache_t * tc,
-                      void *          ctx,
-                      int ( * write )( uchar const * data, ulong data_sz, void * ctx ) );
-
 /* fd_txncache_insert_batch inserts a batch of transaction results into
    a txn cache.  Assumes tc points to a txn cache, txns is a list of
    transaction results to be inserted, and txns_cnt is the count of the
@@ -397,10 +396,15 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
    executed, and queries_cnt is the count of the queries list.
    out_results must be at least as large as queries_cnt and will be
    filled with 0 or 1 if the transaction is not present or present
-   respectively.
+   respectively, at some point during the query.
 
    This is a cheap, high performance, concurrent operation and can occur
-   at the same time as queries and arbitrary other insertions. */
+   at the same time as queries and arbitrary other insertions.
+   Crucially, callers of this function should not expect guaranteed
+   presence of concurrently inserted transactions.
+   Visibility of inserted transactions in subsequent queries need to be
+   ensured via external synchronizations, if desired.
+ */
 
 void
 fd_txncache_query_batch( fd_txncache_t *             tc,
@@ -420,15 +424,33 @@ fd_txncache_set_txnhash_offset( fd_txncache_t * tc,
                                 uchar blockhash[ 32 ],
                                 ulong txnhash_offset );
 
-/* fd_txncache_is_rooted_slot returns 1 is `slot` is rooted, 0 otherwise. */
+/* fd_txncache_is_rooted_slot returns 1 is `slot` is rooted, 0 otherwise.
+   Acquires a read lock.
+ */
 int
 fd_txncache_is_rooted_slot( fd_txncache_t * tc,
-                            ulong slot );
+                            ulong           slot );
+
+/* fd_txncache_is_rooted_slot_locked returns 1 is `slot` is rooted, 0 otherwise.
+   Assumes a read lock has been acquired.
+ */
+int
+fd_txncache_is_rooted_slot_locked( fd_txncache_t * tc,
+                                   ulong           slot );
 
 /* fd_txncache_get_entries is responsible for converting the rooted state of
    the status cache back into fd_bank_slot_deltas_t, which is the decoded
    format used by Agave. This is a helper method used to generate Agave-
-   compatible snapshots. */
+   compatible snapshots.
+
+   This will not cause any pause in insertion or query operations.
+
+   IMPORTANT!  THIS ASSUMES THERE ARE NO CONCURRENT INSERTS OCCURING ON
+   THE TXN CACHE AT THE ROOT SLOTS DURING SNAPSHOTTING.  OTHERWISE THE
+   SNAPSHOT MIGHT BE NOT CONTAIN ALL OF THE DATA, ALTHOUGH IT WILL NOT
+   CAUSE CORRUPTION.  THIS IS ASSUMED OK BECAUSE YOU CANNOT MODIFY A
+   ROOTED SLOT.
+ */
 
 int
 fd_txncache_get_entries( fd_txncache_t *         tc,

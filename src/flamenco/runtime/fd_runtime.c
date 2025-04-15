@@ -1865,20 +1865,24 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
 
-  // if( slot_ctx->status_cache ) {
-  //   fd_txncache_insert_t status_insert = {0};
-  //   uchar                result        = exec_txn_err == 0 ? 1 : 0;
+  if( slot_ctx->status_cache ) {
+    fd_txncache_insert_t status_insert = {0};
+    uchar                result        = (!exec_txn_err) ? FD_TXNCACHE_RESULT_OK : FD_TXNCACHE_RESULT_ERR;
 
-  //   fd_txncache_insert_t * curr_insert = &status_insert;
-  //   curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
-  //   curr_insert->slot      = slot_ctx->slot_bank.slot;
-  //   fd_hash_t * hash       = &txn_ctx->blake_txn_msg_hash;
-  //   curr_insert->txnhash   = hash->uc;
-  //   curr_insert->result    = &result;
-  //   if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, &status_insert, 1UL ) ) ) {
-  //     FD_LOG_ERR(( "Status cache is full, this should not be possible" ));
-  //   }
-  // }
+    status_insert.blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+    status_insert.slot      = slot_ctx->slot_bank.slot;
+    status_insert.txnhash   = txn_ctx->blake_txn_msg_hash.uc;
+    status_insert.key_sz    = sizeof(txn_ctx->blake_txn_msg_hash.uc);
+    status_insert.result    = &result;
+    if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, &status_insert, 1UL ) ) ) {
+      FD_LOG_CRIT(( "Status cache is full, this means either things aren't sized properly, or we haven't rooted a slot for too long" ));
+    }
+    /* In theory, we could fd_txncache_flush_constipated_slots() here to
+       try to free up some space in the txncache, but we would also have
+       to somehow abort snapshotting.
+     */
+    // TODO For RPC, we might also wanna insert by signature.
+  }
 
   if( FD_UNLIKELY( exec_txn_err ) ) {
 
