@@ -404,8 +404,10 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.replay.funk_file                           );
   CFG_POP      ( cstr,   tiles.replay.genesis                             );
   CFG_POP      ( cstr,   tiles.replay.incremental                         );
+  CFG_POP      ( cstr,   tiles.replay.incremental_url                     );
   CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
+  CFG_POP      ( cstr,   tiles.replay.snapshot_url                        );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
