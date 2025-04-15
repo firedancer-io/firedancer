@@ -10,6 +10,7 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   ulong magic; /* ==FD_CAPTURE_CTX_MAGIC */
 
   /* Solcap */
+  ulong                    solcap_start_slot;
   int                      trace_dirfd;
   int                      trace_mode;
   fd_solcap_writer_t *     capture;

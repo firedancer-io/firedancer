@@ -265,7 +265,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
     }
   }
 
-  if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
+  if( capture_ctx != NULL && capture_ctx->capture != NULL && slot_ctx->slot_bank.slot>=capture_ctx->solcap_start_slot ) {
     fd_solcap_write_bank_preimage(
         capture_ctx->capture,
         hash->hash,
@@ -548,7 +548,7 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
                     acc_rec->vt->get_rent_epoch( acc_rec ),
                     acc_rec->vt->get_data_len( acc_rec ) ));
 
-      if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
+      if( capture_ctx != NULL && capture_ctx->capture != NULL && slot_ctx->slot_bank.slot>=capture_ctx->solcap_start_slot ) {
         fd_account_meta_t const * acc_meta = fd_funk_get_acc_meta_readonly( slot_ctx->funk,
                                                                             slot_ctx->funk_txn,
                                                                             task_info->acc_pubkey,
