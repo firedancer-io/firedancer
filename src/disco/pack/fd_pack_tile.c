@@ -649,7 +649,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
     int allow_regular    = ((ctx->last_bundle + ctx->bundle_rush_duration/8L)<now) & (now<(ctx->first_bundle + ctx->bundle_rush_duration));
-    int regular_pacing   = (0<pacing_bank_cnt) | (ctx->slot_end_ns - ctx->approx_wallclock_ns<150000000L); /* bypass pacing at the end */
+    int regular_pacing   = (0<pacing_bank_cnt) | (ctx->slot_end_ns - ctx->approx_wallclock_ns<50000000L); /* bypass pacing at the end */
     int pause_votes_okay = (bank_cnt>1UL) & (ctx->crank->enabled) && fd_pack_peek_bundle_meta( ctx->pack );
     int vote_only_period = (now>(ctx->first_bundle + ctx->bundle_rush_duration));
     /* We want to exempt votes from pacing, so we always allow
@@ -1150,7 +1150,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->approx_wallclock_ns           = fd_log_wallclock();
   ctx->rng                           = rng;
   ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
-  ctx->bundle_rush_duration          = (long)(ctx->ticks_per_ns * 50000000.0); /* 50 ms */
+  ctx->bundle_rush_duration          = (long)(ctx->ticks_per_ns * 20000000.0); /* 15 ms */
   ctx->first_bundle                  = 0L;
   ctx->last_bundle                   = 0L;
   ctx->last_successful_insert        = 0L;
