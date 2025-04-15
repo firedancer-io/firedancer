@@ -65,6 +65,7 @@ struct fd_ledger_args {
   char const *          shredcap;                /* path to replay using shredcap instead of rocksdb */
   int                   abort_on_mismatch;       /* determine if execution should abort on mismatch*/
   char const *          capture_fpath;           /* solcap: path for solcap file to be created */
+  ulong                 solcap_start_slot;       /* solcap capture start slot */
   int                   capture_txns;            /* solcap: determine if transaction results should be captured for solcap*/
   char const *          checkpt_path;            /* path to dump funk wksp checkpoints during execution*/
   ulong                 checkpt_freq;            /* how often funk wksp checkpoints will be dumped (defaults to never) */
@@ -679,6 +680,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
     args->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
     args->capture_ctx->checkpt_freq = ULONG_MAX;
+    args->capture_ctx->solcap_start_slot = args->solcap_start_slot;
 
     if( has_solcap ) {
       capture_file = fopen( args->capture_fpath, "w+" );
@@ -1390,6 +1392,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * checkpt               = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--checkpt",               NULL, NULL                                               );
   char const * checkpt_funk          = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--checkpt-funk",          NULL, NULL                                               );
   char const * capture_fpath         = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--capture-solcap",        NULL, NULL                                               );
+  ulong        solcap_start_slot     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--solcap-start-slot",     NULL, 0                                                  );
   int          capture_txns          = fd_env_strip_cmdline_int   ( &argc, &argv, "--capture-txns",          NULL, 1                                                  );
   char const * checkpt_path          = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--checkpt-path",          NULL, NULL                                               );
   ulong        checkpt_freq          = fd_env_strip_cmdline_ulong ( &argc, &argv, "--checkpt-freq",          NULL, ULONG_MAX                                          );
@@ -1497,6 +1500,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->verify_acc_hash         = verify_acc_hash;
   args->trash_hash              = trash_hash;
   args->capture_fpath           = capture_fpath;
+  args->solcap_start_slot       = solcap_start_slot;
   args->capture_txns            = capture_txns;
   args->checkpt_path            = checkpt_path;
   args->checkpt_freq            = checkpt_freq;

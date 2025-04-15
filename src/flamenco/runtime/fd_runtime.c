@@ -1860,7 +1860,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   int                 exec_txn_err = task_info->exec_res;
 
   /* For ledgers that contain txn status, decode and write out for solcap */
-  if( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
+  if( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns && slot_ctx->slot_bank.slot>=capture_ctx->solcap_start_slot ) {
     fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
@@ -4080,7 +4080,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                 ulong                   exec_spad_cnt,
                                 fd_spad_t *             runtime_spad ) {
 
-  if ( capture_ctx != NULL && capture_ctx->capture ) {
+  if ( capture_ctx != NULL && capture_ctx->capture && slot_ctx->slot_bank.slot>=capture_ctx->solcap_start_slot ) {
     fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
   }
 
