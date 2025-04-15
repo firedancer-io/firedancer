@@ -346,6 +346,12 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
+  fd_sysvar_cache_restore_clock( slot_ctx->sysvar_cache,
+                                 slot_ctx->funk,
+                                 slot_ctx->funk_txn,
+                                 runtime_spad,
+                                 slot_ctx->runtime_wksp );
+
   fd_pubkey_t const * key = &fd_sysvar_clock_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
