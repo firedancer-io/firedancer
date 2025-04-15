@@ -59,6 +59,8 @@
 
 #define FD_RENT_EXEMPT_RENT_EPOCH (ULONG_MAX)
 
+#define FD_RUNTIME_BURN_PERCENT (50UL)
+
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 
 /* TODO: increase this to default once we have enough memory to support a 95G status cache. */

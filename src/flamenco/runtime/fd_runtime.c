@@ -412,13 +412,16 @@ fd_runtime_update_rent_epoch_account( fd_exec_slot_ctx_t * slot_ctx,
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 }
 
-/* Emulate collecting rent from accounts. Since every account is rent exempt, all we have to do
-   is set all rent_epoch fields to ULONG_MAX. By induction, we only need to do this for newly created accounts.
+/* Emulate collecting rent from accounts. Since every account is rent
+   exempt, all we have to do is set all rent_epoch fields to ULONG_MAX.
+   By induction, we only need to do this for newly created accounts.
 
-   The slight complication is that we need to do this at the appropiate time - taking into account
-   the rent partition the account would have fallen into.
+   The slight complication is that we need to do this at the appropriate
+   time - taking into account the rent partition the account would have
+   fallen into.
 
-   This code is super hacky, but will be removed soon when disable_partitioned_rent_collection is activated.
+   This code is super hacky, but will be removed soon when
+   disable_partitioned_rent_collection is activated.
    After that, we will not update any rent_epoch fields.
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L2921 */
@@ -460,71 +463,133 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 static void
+fd_runtime_deposit_or_burn_fee( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_pubkey_t const *  collector_id,
+                                ulong                deposit,
+                                ulong                burn ) {
+  /* NOTE: The collector_id is the leader for the current */
+  /* do_create=1 because we might wanna pay fees to a leader
+      account that we've purged due to 0 balance. */
+  FD_TXN_ACCOUNT_DECL( rec );
+  int err = fd_txn_account_init_from_funk_mutable( rec, collector_id, slot_ctx->funk, slot_ctx->funk_txn, 1, 0UL );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for collector_id (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( collector_id ), err ));
+    burn = fd_ulong_sat_add( burn, deposit );
+    return;
+  }
+
+  if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, validate_fee_collector_account ) ) ) {
+    ulong _burn;
+    if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( slot_ctx, rec, deposit ) ) ) {
+      if( FD_UNLIKELY( _burn!=deposit ) ) {
+        FD_LOG_ERR(( "expected _burn(%lu)==deposit(%lu)", _burn, deposit ));
+      }
+      burn = fd_ulong_sat_add( burn, deposit );
+      FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", deposit ));
+      return;
+    }
+  }
+
+  /* TODO: is it ok to not check the overflow error here? */
+  rec->vt->checked_add_lamports( rec, deposit );
+  rec->vt->set_slot( rec, slot_ctx->slot_bank.slot );
+
+  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
+
+  slot_ctx->block_rewards.collected_fees = deposit;
+  slot_ctx->block_rewards.post_balance = rec->vt->get_lamports( rec );
+  memcpy( slot_ctx->block_rewards.leader.uc, collector_id->uc, sizeof(fd_hash_t) );
+}
+
+static void
+fd_runtime_fee_rate_governor_burn( ulong fees, ulong * burn_out, ulong * deposit_out ) {
+  ulong burn    = fees * FD_RUNTIME_BURN_PERCENT / 100UL;
+  ulong deposit = fees - burn;
+  *burn_out     = burn;
+  *deposit_out  = deposit;
+}
+
+static void
+fd_runtime_caclulate_reward_and_burn_fees_details( fd_exec_slot_ctx_t * slot_ctx,
+                                                    ulong *             burn,
+                                                    ulong *             deposit ) {
+  ulong fees = slot_ctx->slot_bank.collected_execution_fees;
+  if( fees ) {
+    fd_runtime_fee_rate_governor_burn( fees, burn, deposit );
+  }
+  *deposit = fd_ulong_sat_add( *deposit, slot_ctx->slot_bank.collected_priority_fees );
+}
+
+static void
+fd_runtime_caclulate_reward_and_burn_fees( fd_exec_slot_ctx_t * slot_ctx,
+                                            ulong *             burn,
+                                            ulong *             deposit ) {
+  ulong total_fees = fd_ulong_sat_add( slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
+  if( total_fees ) {
+    fd_runtime_fee_rate_governor_burn( total_fees, burn, deposit );
+  }
+}
+
+static void
+fd_runtime_distribute_transaction_fees( fd_exec_slot_ctx_t * slot_ctx ) {
+  ulong deposit = 0UL;
+  ulong burn    = 0UL;
+  fd_runtime_caclulate_reward_and_burn_fees( slot_ctx, &burn, &deposit );
+  if( deposit ) {
+    fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot );
+    fd_runtime_deposit_or_burn_fee( slot_ctx, leader, deposit, burn );
+  }
+  slot_ctx->slot_bank.capitalization -= burn;
+
+  /* Reset the collected fees */
+  slot_ctx->slot_bank.collected_execution_fees = 0UL;
+  slot_ctx->slot_bank.collected_priority_fees  = 0UL;
+}
+
+static void
+fd_runtime_distribute_transaction_fees_details( fd_exec_slot_ctx_t * slot_ctx ) {
+  if( slot_ctx->slot_bank.collected_execution_fees + slot_ctx->slot_bank.collected_priority_fees == 0UL ) {
+    return;
+  }
+
+  ulong deposit = 0UL;
+  ulong burn    = 0UL;
+  fd_runtime_caclulate_reward_and_burn_fees_details( slot_ctx, &burn, &deposit );
+  if( deposit ) {
+    fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot );
+    fd_runtime_deposit_or_burn_fee( slot_ctx, leader, deposit, burn );
+  }
+  slot_ctx->slot_bank.capitalization -= burn;
+
+  /* Reset the collected fees */
+  slot_ctx->slot_bank.collected_execution_fees = 0UL;
+  slot_ctx->slot_bank.collected_priority_fees  = 0UL;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.9/runtime/src/bank.rs#2583 */
+static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
+  /* Counterpart to collect_rent_eagerly() */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.9/runtime/src/bank.rs#3998 */
   fd_runtime_update_rent_epoch( slot_ctx );
+
+  /* distribute_transaction_fees() */
+  /* distribute_rent_fees() */
+  /* update_slot_history() */
+  /* run incinerator() */
+  /* calculate hash() */
 
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar) )
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar) ) {
     fd_sysvar_fees_update(slot_ctx);
-
-  ulong fees = 0UL;
-  ulong burn = 0UL;
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, reward_full_priority_fee ) ) {
-    ulong half_fee = slot_ctx->slot_bank.collected_execution_fees / 2;
-    fees = fd_ulong_sat_add( slot_ctx->slot_bank.collected_priority_fees, slot_ctx->slot_bank.collected_execution_fees - half_fee );
-    burn = half_fee;
-  } else {
-    ulong total_fees = fd_ulong_sat_add( slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
-    ulong half_fee = total_fees / 2;
-    fees = total_fees - half_fee;
-    burn = half_fee;
   }
-  if( FD_LIKELY( fees ) ) {
-    // Look at collect_fees... I think this was where I saw the fee payout..
-    FD_TXN_ACCOUNT_DECL( rec );
 
-    do {
-      /* do_create=1 because we might wanna pay fees to a leader
-         account that we've purged due to 0 balance. */
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot );
-      int err = fd_txn_account_init_from_funk_mutable( rec, leader, slot_ctx->funk, slot_ctx->funk_txn, 1, 0UL );
-      if( FD_UNLIKELY(err) ) {
-        FD_LOG_WARNING(("fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( leader ), err));
-        burn = fd_ulong_sat_add( burn, fees );
-        break;
-      }
-
-      if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, validate_fee_collector_account ) ) ) {
-        ulong _burn;
-        if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( slot_ctx, rec, fees ) ) ) {
-          if( FD_UNLIKELY( _burn!=fees ) ) {
-            FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fees ));
-          }
-          burn = fd_ulong_sat_add( burn, fees );
-          FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", fees ));
-          break;
-        }
-      }
-
-      /* TODO: is it ok to not check the overflow error here? */
-      rec->vt->checked_add_lamports( rec, fees );
-      rec->vt->set_slot( rec, slot_ctx->slot_bank.slot );
-
-      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
-
-      slot_ctx->block_rewards.collected_fees = fees;
-      slot_ctx->block_rewards.post_balance = rec->vt->get_lamports( rec );
-      memcpy( slot_ctx->block_rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
-    } while(0);
-
-    ulong old = slot_ctx->slot_bank.capitalization;
-    slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burn);
-    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, slot_ctx->slot_bank.capitalization));
-
-    slot_ctx->slot_bank.collected_execution_fees = 0;
-    slot_ctx->slot_bank.collected_priority_fees = 0;
+  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, reward_full_priority_fee ) ) {
+    fd_runtime_distribute_transaction_fees_details( slot_ctx );
+  } else {
+    fd_runtime_distribute_transaction_fees( slot_ctx );
   }
 
   fd_runtime_run_incinerator( slot_ctx );
@@ -4205,6 +4270,15 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                              runtime_spad );
   }
 }
+
+// static int FD_FN_UNUSED
+// fd_runtime_bank_new_from_parent( FD_PARAM_UNUSED fd_exec_slot_ctx_t * slot_ctx,
+//                                  FD_PARAM_UNUSED fd_spad_t *          runtime_spad ) {
+
+//   /* parent.freeze() */
+
+//   /* */
+// }
 
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
