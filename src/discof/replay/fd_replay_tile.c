@@ -192,6 +192,8 @@ struct fd_replay_tile_ctx {
   char const * genesis;
   char const * incremental;
   char const * snapshot;
+  int          incremental_src_type;
+  int          snapshot_src_type;
 
   /* Do not modify order! This is join-order in unprivileged_init. */
 
@@ -2071,19 +2073,19 @@ read_snapshot( void *              _ctx,
        stake weights. After this, repair will kick off concurrently with loading
        the rest of the snapshots. */
 
-    /* TODO: enable snapshot verification for all 3 snapshot loads.
-       TODO: If prefetching the manifest is enabled it leads to
+    /* TODO: Verify account hashes for all 3 snapshot loads. */
+    /* TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
       uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-      /* TODO: enable snapshot verification */
 
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
+                                                                    ctx->incremental_src_type,
                                                                     ctx->slot_ctx,
                                                                     false,
                                                                     false,
-                                                                    FD_SNAPSHOT_TYPE_FULL,
+                                                                    FD_SNAPSHOT_TYPE_INCREMENTAL,
                                                                     ctx->exec_spads,
                                                                     ctx->exec_spad_cnt,
                                                                     ctx->runtime_spad,
@@ -2095,16 +2097,11 @@ read_snapshot( void *              _ctx,
 
     }
 
-    /* In order to kick off repair effectively we need the snapshot slot and
-       the stake weights. These are both available in the manifest. We will
-       try to load in the manifest from the latest snapshot that is available,
-       then setup the blockstore and publish the stake weights. After this,
-       repair will kick off concurrently with loading the rest of the snapshots. */
 
     uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-    /* TODO: enable snapshot verification */
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
+                                                              ctx->snapshot_src_type,
                                                               ctx->slot_ctx,
                                                               false,
                                                               false,
@@ -2140,8 +2137,8 @@ read_snapshot( void *              _ctx,
 
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
-    /* TODO: enable snapshot verification */
     fd_snapshot_load_all( incremental,
+                          ctx->incremental_src_type,
                           ctx->slot_ctx,
                           &base_slot,
                           NULL,
@@ -2296,7 +2293,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 void
 init_snapshot( fd_replay_tile_ctx_t * ctx,
                fd_stem_context_t *    stem ) {
-  FD_LOG_NOTICE(( "init snapshot" ));
   /* Init slot_ctx */
 
   uchar * slot_ctx_mem        = fd_spad_alloc( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
@@ -3075,6 +3071,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->genesis             = tile->replay.genesis;
   ctx->incremental         = tile->replay.incremental;
   ctx->snapshot            = tile->replay.snapshot;
+
+  ctx->incremental_src_type = tile->replay.incremental_src_type;
+  ctx->snapshot_src_type    = tile->replay.snapshot_src_type;
 
   /**********************************************************************/
   /* alloc                                                              */

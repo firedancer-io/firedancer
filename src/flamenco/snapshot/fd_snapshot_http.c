@@ -64,7 +64,7 @@ fd_snapshot_http_new( void *               mem,
   this->socket_fd   = -1;
   this->state       = FD_SNAPSHOT_HTTP_STATE_INIT;
   this->req_timeout = 10e9;  /* 10s */
-  this->hops        = 5;
+  this->hops        = FD_SNAPSHOT_HTTP_DEFAULT_HOPS;
   this->name_out    = name_out;
   if( !this->name_out ) this->name_out = this->name_dummy;
   fd_memset( this->name_out, 0, sizeof(fd_snapshot_name_t) );
@@ -114,7 +114,7 @@ fd_snapshot_http_delete( fd_snapshot_http_t * this ) {
 static int
 fd_snapshot_http_init( fd_snapshot_http_t * this ) {
 
-  FD_LOG_INFO(( "Connecting to " FD_IP4_ADDR_FMT ":%u ...",
+  FD_LOG_NOTICE(( "Connecting to " FD_IP4_ADDR_FMT ":%u ...",
                 FD_IP4_ADDR_FMT_ARGS( this->next_ipv4 ), this->next_port ));
 
   this->req_deadline = fd_log_wallclock() + this->req_timeout;
@@ -127,7 +127,7 @@ fd_snapshot_http_init( fd_snapshot_http_t * this ) {
     return errno;
   }
 
-  int optval = 4<<20;
+  int optval = 4*FD_SNAPSHOT_HTTP_RESP_BUF_MAX;
   if( setsockopt( this->socket_fd, SOL_SOCKET, SO_RCVBUF, (char *)&optval, sizeof(int) ) < 0 ) {
     FD_LOG_WARNING(( "setsockopt failed (%d-%s)",
                      errno, fd_io_strerror( errno ) ));
@@ -243,7 +243,8 @@ fd_snapshot_http_follow_redirect( fd_snapshot_http_t *      this,
                ( (c>='A') & (c<='Z') ) |
                ( (c>='0') & (c<='9') ) |
                (c=='.') | (c=='/') | (c=='-') | (c=='_') |
-               (c=='+') | (c=='=') | (c=='&');
+               (c=='+') | (c=='=') | (c=='&') | (c=='~') |
+               (c=='%') | (c=='#');
     if( FD_UNLIKELY( !c_ok ) ) {
       FD_LOG_WARNING(( "Invalid char '0x%02x' in redirect location", (uint)c ));
       this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
@@ -256,7 +257,13 @@ fd_snapshot_http_follow_redirect( fd_snapshot_http_t *      this,
   FD_LOG_NOTICE(( "Following redirect to %.*s", (int)loc_len, loc ));
 
   if( FD_UNLIKELY( !fd_snapshot_name_from_buf( this->name_out, loc, loc_len ) ) ) {
+    this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
     return EPROTO;
+  }
+  if( FD_UNLIKELY( this->base_slot!=ULONG_MAX && fd_snapshot_name_slot_validate( this->name_out, this->base_slot ) ) ) {
+    FD_LOG_WARNING(( "Cannot validate snapshot based on name.  This likely indicates that the full snapsnot is stale and that the incremental snapshot is based on a newer slot." ));
+    this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+    return EINVAL;
   }
 
   int set_path_ok = fd_snapshot_http_set_path( this, loc, loc_len, this->base_slot );
@@ -348,15 +355,18 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
   /* Is it a redirect?  If so, start over. */
 
   int is_redirect = (int)( (status==301) | (status==303) |
-                           (status==304) | (status==307) );
+                           (status==304) | (status==307) |
+                           (status==308) );
   if( FD_UNLIKELY( (!this->hops) & (is_redirect) ) ) {
     FD_LOG_WARNING(( "Too many redirects. Aborting." ));
     this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
     return ELOOP;
   }
 
-  if( is_redirect )
+  if( is_redirect ) {
+    FD_LOG_NOTICE(( "Redirecting due to code %d", status ));
     return fd_snapshot_http_follow_redirect( this, headers, header_cnt );
+  }
 
   /* Validate response header */
 
@@ -392,6 +402,11 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
       this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
       return EINVAL;
     }
+    if( FD_UNLIKELY( this->base_slot!=ULONG_MAX && fd_snapshot_name_slot_validate( this->name_out, this->base_slot ) ) ) {
+      FD_LOG_WARNING(( "Cannot validate snapshot based on name.  This likely indicates that the full snapsnot is stale and that the incremental snapshot is based on a newer slot." ));
+      this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+      return EINVAL;
+    }
   }
 
   this->state = FD_SNAPSHOT_HTTP_STATE_DL;
@@ -409,10 +424,7 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
 
   if( this->resp_head == this->resp_tail ) {
     if( this->content_len == this->dl_total ) {
-      FD_LOG_NOTICE(( "download complete at %lu MB", this->dl_total>>20 ));
-      this->state = FD_SNAPSHOT_HTTP_STATE_DONE;
-      close( this->socket_fd );
-      this->socket_fd = -1;
+      FD_LOG_NOTICE(( "download already complete at %lu MB", this->dl_total>>20 ));
       return -1;
     }
     this->resp_tail = this->resp_head = 0U;
@@ -439,11 +451,30 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
     }
     this->resp_head = (uint)recv_sz;
 #define DL_PERIOD (100UL<<20)
-    ulong x = this->dl_total/DL_PERIOD;
+    static ulong x = 0;
+    static ulong last_dl_total;
+    static long  last_nanos;
     this->dl_total += (ulong)recv_sz;
     if( x != this->dl_total/DL_PERIOD ) {
+
       FD_LOG_NOTICE(( "downloaded %lu MB (%lu%%) ...",
-                      this->dl_total>>20U, 100LU*this->dl_total/this->content_len ));
+                      this->dl_total>>20U, 100UL*this->dl_total/this->content_len ));
+      x = this->dl_total/DL_PERIOD;
+      if( FD_LIKELY( x >= 2UL ) ) {
+        ulong dl_delta    = this->dl_total - last_dl_total;
+        ulong nanos_delta = (ulong)(fd_log_wallclock() - last_nanos);
+        FD_LOG_NOTICE(( "estimate %lu MB/s", dl_delta*1000UL/nanos_delta ));
+      }
+      last_dl_total = this->dl_total;
+      last_nanos    = fd_log_wallclock();
+    }
+    if( this->content_len <= this->dl_total ) {
+      FD_LOG_NOTICE(( "download complete at %lu MB", this->dl_total>>20 ));
+      close( this->socket_fd );
+      this->socket_fd = -1;
+      if( FD_UNLIKELY( this->content_len < this->dl_total ) ) {
+        FD_LOG_WARNING(( "server transmitted more than Content-Length %lu bytes vs %lu bytes", this->content_len, this->dl_total ));
+      }
     }
   }
 
@@ -452,6 +483,11 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
   fd_memcpy( dst, this->resp_buf + this->resp_tail, write_sz );
   *dst_sz = write_sz;
   this->resp_tail += (uint)write_sz;
+  this->write_total += write_sz;
+  if( this->content_len == this->write_total ) {
+    FD_LOG_NOTICE(( "wrote out all %lu MB", this->write_total>>20 ));
+    this->state = FD_SNAPSHOT_HTTP_STATE_DONE;
+  }
   return 0;
 }
 
