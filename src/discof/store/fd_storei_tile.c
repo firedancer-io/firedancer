@@ -195,7 +195,7 @@ during_frag( fd_store_tile_ctx_t * ctx,
              ulong                 chunk,
              ulong                 sz,
              ulong                 ctl FD_PARAM_UNUSED ) {
-
+  return;
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
@@ -253,6 +253,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
             ulong                 tsorig FD_PARAM_UNUSED,
             ulong                 tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *   stem   FD_PARAM_UNUSED ) {
+  return;
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
     return;

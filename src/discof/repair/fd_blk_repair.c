@@ -130,7 +130,7 @@ fd_blk_repair_init( fd_blk_repair_t * blk_repair, ulong root_slot ) {
   root_ele->child         = null;
   root_ele->sibling       = null;
 
-  root_ele->consumed_idx = 0;
+  root_ele->buffered_idx = 0;
   root_ele->complete_idx = 0;
 
   fd_blk_ele_idxs_null( root_ele->idxs );
@@ -192,7 +192,7 @@ fd_blk_repair_verify( fd_blk_repair_t const * blk_repair ) {
    orphaned ele. */
 
 static fd_blk_ele_t *
-tree_query( fd_blk_repair_t * blk_repair, ulong slot ) {
+ancestry_frontier_query( fd_blk_repair_t * blk_repair, ulong slot ) {
   fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
   fd_blk_ele_t * ele  = NULL;
   ele =                  fd_blk_ancestry_ele_query( fd_blk_ancestry( blk_repair ), &slot, NULL, pool );
@@ -204,7 +204,7 @@ tree_query( fd_blk_repair_t * blk_repair, ulong slot ) {
    maps.  does not remove orphaned ele.  does not unlink ele. */
 
 static fd_blk_ele_t *
-tree_map_remove( fd_blk_repair_t * blk_repair, ulong slot ) {
+ancestry_frontier_remove( fd_blk_repair_t * blk_repair, ulong slot ) {
   fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
   fd_blk_ele_t * ele = NULL;
   ele =                  fd_blk_ancestry_ele_remove( fd_blk_ancestry( blk_repair ), &slot, NULL, pool );
@@ -241,7 +241,7 @@ link( fd_blk_repair_t * blk_repair, fd_blk_ele_t * parent, fd_blk_ele_t * child 
    a parent also links its direct children). Otherwise it remains in the
    orphaned map.  The BFS continues until the queue is empty. */
 
-static void
+FD_FN_UNUSED static void
 link_orphans( fd_blk_repair_t * blk_repair, fd_blk_ele_t * head ) {
   fd_blk_ele_t *      pool     = fd_blk_pool( blk_repair );
   ulong               null     = fd_blk_pool_idx_null( pool );
@@ -250,11 +250,9 @@ link_orphans( fd_blk_repair_t * blk_repair, fd_blk_ele_t * head ) {
   fd_blk_ele_t *      tail     = head;
   fd_blk_ele_t *      prev     = NULL;
   while( FD_LIKELY( head ) ) { /* while queue is non-empty */
-    fd_blk_ele_t * parent = tree_query( blk_repair, head->parent );
-    if( FD_LIKELY( parent ) ) {
-      fd_blk_orphaned_ele_remove( orphaned, &head->parent, NULL, pool );
-      link( blk_repair, parent, head ); /* link the now unorphaned `head` to parent */
-      fd_blk_ele_t * child = fd_blk_orphaned_ele_query( orphaned, &head->slot, NULL, pool ); /* query head's orphaned children */
+    if( FD_LIKELY( fd_blk_orphaned_ele_remove( orphaned, &head->slot, NULL, pool ) ) ) { /* head is orphan root */
+      fd_blk_ancestry_ele_insert( ancestry, head, pool );
+      fd_blk_ele_t * child = fd_blk_pool_ele( pool, head->child );
       while( FD_LIKELY( child ) ) { /* append children to frontier */
         tail->prev     = fd_blk_pool_idx( pool, child ); /* safe to overwrite prev */
         tail           = fd_blk_pool_ele( pool, tail->prev );
@@ -263,7 +261,6 @@ link_orphans( fd_blk_repair_t * blk_repair, fd_blk_ele_t * head ) {
         child->sibling = null;
         child          = fd_blk_pool_ele( pool, sibling );
       }
-      fd_blk_ancestry_ele_insert( ancestry, head, pool );
     }
     prev       = head;
     head       = fd_blk_pool_ele( pool, head->prev );
@@ -293,7 +290,7 @@ advance_frontier( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off ) 
   fd_blk_ele_t * prev = NULL;
 
   while( FD_LIKELY( head ) ) {
-    if( FD_LIKELY( head->complete_idx != UINT_MAX && head->consumed_idx == head->complete_idx ) ) {
+    if( FD_LIKELY( head->complete_idx != UINT_MAX && head->buffered_idx == head->complete_idx ) ) {
       fd_blk_frontier_ele_remove( frontier, &head->slot, NULL, pool );
       fd_blk_ancestry_ele_insert( ancestry, head, pool );
       fd_blk_ele_t * child = fd_blk_pool_ele( pool, head->child );
@@ -313,77 +310,93 @@ advance_frontier( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off ) 
 }
 
 static fd_blk_ele_t *
-query( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off ) {
+query( fd_blk_repair_t * blk_repair, ulong slot ) {
   fd_blk_ele_t *      pool        = fd_blk_pool( blk_repair );
   fd_blk_ancestry_t * ancestry    = fd_blk_ancestry( blk_repair );
   fd_blk_frontier_t * frontier    = fd_blk_frontier( blk_repair );
   fd_blk_orphaned_t * orphaned    = fd_blk_orphaned( blk_repair );
-  ulong               parent_slot = slot - parent_off;
 
   fd_blk_ele_t * ele;
   ele =                  fd_blk_ancestry_ele_query( ancestry, &slot, NULL, pool );
   ele = fd_ptr_if( !ele, fd_blk_frontier_ele_query( frontier, &slot, NULL, pool ), ele );
-  ele = fd_ptr_if( !ele, fd_blk_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ), ele );
+  ele = fd_ptr_if( !ele, fd_blk_orphaned_ele_query( orphaned, &slot, NULL, pool ), ele );
   return ele;
 }
 
-
 static fd_blk_ele_t *
-insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx ) {
+acquire( fd_blk_repair_t * blk_repair, ulong slot ) {
   fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
-  if( FD_UNLIKELY( parent_off == 0 ) ) __asm__( "int $3" );
-
-# if FD_BLK_REPAIR_USE_HANDHOLDING
-  FD_TEST( parent_off <= slot ); /* inval - caller bug */
-  FD_TEST( fd_blk_pool_ele( pool, blk_repair->root ) ); /* corrupt - impl bug */
-  FD_TEST( fd_blk_pool_free( pool ) ); /* oom - impl bug. check eviction logic */
-# endif
-
-  if( FD_UNLIKELY( slot <= fd_blk_pool_ele( pool, blk_repair->root )->slot ) ) return NULL; /* slot older than root */
-
   fd_blk_ele_t * ele  = fd_blk_pool_ele_acquire( pool );
   ulong          null = fd_blk_pool_idx_null( pool );
 
   ele->slot    = slot;
   ele->prev    = null;
-  ele->parent  = slot - parent_off;
+  ele->parent  = null;
   ele->child   = null;
   ele->sibling = null;
 
-  ele->received_idx = shred_idx;
   ele->consumed_idx = UINT_MAX;
+  ele->buffered_idx = UINT_MAX;
   ele->complete_idx = UINT_MAX;
 
+  fd_blk_ele_idxs_null( ele->fecs ); /* FIXME expensive */
   fd_blk_ele_idxs_null( ele->idxs ); /* FIXME expensive */
 
-  /* always insert ele as an orphan because we immediately try to link it after */
+  return ele;
+}
 
-  fd_blk_orphaned_t * orphaned = fd_blk_orphaned( blk_repair );
-  fd_blk_ele_t *      orphan   = fd_blk_orphaned_ele_query( orphaned, &ele->parent, NULL, pool );
-  if( FD_UNLIKELY( orphan ) ) {
-    link_sibling( blk_repair, orphan, ele );
+static fd_blk_ele_t *
+insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off ) {
+  fd_blk_ele_t *      pool     = fd_blk_pool( blk_repair );
+
+# if FD_BLK_REPAIR_USE_HANDHOLDING
+  FD_TEST( parent_off <= slot ); /* caller err - inval */
+  FD_TEST( fd_blk_pool_free( pool ) ); /* impl err - oom */
+  FD_TEST( slot > fd_blk_repair_root_slot( blk_repair ) ); /* caller error - inval */
+# endif
+
+  fd_blk_ele_t * ele         = acquire( blk_repair, slot );
+  ulong          parent_slot = slot - parent_off;
+  fd_blk_ele_t * parent      = query( blk_repair, parent_slot );
+  if( FD_LIKELY( parent ) ) {
+    fd_blk_ancestry_ele_insert( fd_blk_ancestry( blk_repair ), ele, pool );
+    link( blk_repair, parent, ele ); /* cannot fail */
   }
-  else {
-    if( ele->parent == ele->slot ) __asm__( "int $3" );
-    fd_blk_orphaned_ele_insert( orphaned, ele, pool );
-    orphan = ele;
-  }
-  link_orphans( blk_repair, orphan );
   return ele;
 }
 
 fd_blk_ele_t *
 fd_blk_repair_data_shred_insert( fd_blk_repair_t * blk_repair, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, uint complete_idx ) {
-  VER_INC;
-  fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
-  if( FD_UNLIKELY( slot < fd_blk_pool_ele( pool, blk_repair->root )->slot ) ) return NULL;
+# if FD_BLK_REPAIR_USE_HANDHOLDING
+  FD_TEST( slot > fd_blk_repair_root_slot( blk_repair ) ); /* caller error - inval */
+# endif
 
-  fd_blk_ele_t * ele = query( blk_repair, slot, parent_off );
-  if( FD_UNLIKELY( !ele ) ) ele = insert( blk_repair, slot, parent_off, shred_idx ); /* cannot fail */
+  VER_INC;
+
+  fd_blk_ele_t * pool = fd_blk_pool( blk_repair );
+  fd_blk_ele_t * ele  = query( blk_repair, slot );
+  if( FD_UNLIKELY( !ele ) ) ele = insert( blk_repair, slot, parent_off ); /* cannot fail */
+  if( FD_UNLIKELY( ele->parent == fd_blk_pool_idx_null( pool ) ) ) {
+
+    /* `ele` is an orphan tree root so it does not have a parent. Now,
+       having received a shred for ele, we know ele's parent
+       slot. Here we check whether ele's parent is already in the tree.
+       If it is, then the orphan tree rooted at ele can be linked to the
+       tree containing ele's parent (which may be another orphan tree or
+       the canonical tree). */
+
+    fd_blk_ele_t * parent = query( blk_repair, slot - parent_off );
+    if( FD_UNLIKELY( !parent ) ) {  /* parent is either in canonical or another orphan tree */
+      parent = acquire( blk_repair, slot - parent_off );
+      fd_blk_orphaned_ele_insert( fd_blk_orphaned( blk_repair ), parent, pool ); /* update orphan root */
+    }
+    fd_blk_orphaned_ele_remove( fd_blk_orphaned( blk_repair ), &ele->slot, NULL, pool );
+    fd_blk_ancestry_ele_insert( fd_blk_ancestry( blk_repair ), ele, pool );
+    link( blk_repair, parent, ele );
+  }
   fd_blk_ele_idxs_insert( ele->fecs, fec_set_idx );
   fd_blk_ele_idxs_insert( ele->idxs, shred_idx );
-  ele->received_idx = fd_uint_max( ele->received_idx, shred_idx );
-  while( fd_blk_ele_idxs_test( ele->idxs, ele->consumed_idx + 1U ) ) ele->consumed_idx++;
+  while( fd_blk_ele_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) ele->buffered_idx++;
   ele->complete_idx = fd_uint_if( complete_idx != UINT_MAX, complete_idx, ele->complete_idx );
   advance_frontier( blk_repair, slot, parent_off );
   return ele;
@@ -401,7 +414,7 @@ fd_blk_repair_publish( fd_blk_repair_t * blk_repair, ulong new_root_slot ) {
   ulong               null     = fd_blk_pool_idx_null( pool );
 
   fd_blk_ele_t * old_root_ele = fd_blk_pool_ele( pool, blk_repair->root );
-  fd_blk_ele_t * new_root_ele = tree_query( blk_repair, new_root_slot );
+  fd_blk_ele_t * new_root_ele = ancestry_frontier_query( blk_repair, new_root_slot );
 
 # if FD_BLK_REPAIR_USE_HANDHOLDING
   FD_TEST( new_root_slot > old_root_ele->slot ); /* caller error - inval */
@@ -411,7 +424,7 @@ fd_blk_repair_publish( fd_blk_repair_t * blk_repair, ulong new_root_slot ) {
   /* First, remove the previous root, and add it to a FIFO prune queue.
      head points to the queue head (initialized with old_root_ele). */
 
-  fd_blk_ele_t * head = tree_map_remove( blk_repair, old_root_ele->slot );
+  fd_blk_ele_t * head = ancestry_frontier_remove( blk_repair, old_root_ele->slot );
   head->next          = null;
   fd_blk_ele_t * tail = head;
 
@@ -571,8 +584,8 @@ ancestry_print( fd_blk_repair_t const * blk_repair, fd_blk_ele_t const * ele, in
 
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ ) printf( " " );
-  if ( ele->complete_idx == UINT_MAX ) printf( "%s%lu (%u/?)", prefix, ele->slot, ele->consumed_idx + 1 );
-  else printf( "%s%lu (%u/%u)", prefix, ele->slot, ele->consumed_idx + 1, ele->complete_idx + 1 );
+  if ( ele->complete_idx == UINT_MAX ) printf( "%s%lu (%u/?)", prefix, ele->slot, ele->buffered_idx + 1 );
+  else printf( "%s%lu (%u/%u)", prefix, ele->slot, ele->buffered_idx + 1, ele->complete_idx + 1 );
 
   fd_blk_ele_t const * curr = fd_blk_pool_ele_const( pool, ele->child );
 
@@ -611,7 +624,8 @@ fd_blk_repair_frontier_print( fd_blk_repair_t const * blk_repair ) {
        !fd_blk_frontier_iter_done( iter, frontier, pool );
        iter = fd_blk_frontier_iter_next( iter, frontier, pool ) ) {
     fd_blk_ele_t const * ele = fd_blk_frontier_iter_ele_const( iter, frontier, pool );
-    printf( "%lu ", ele->slot );
+    ancestry_print2( blk_repair, fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), fd_blk_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
+
   }
 }
 
@@ -624,7 +638,7 @@ fd_blk_repair_orphaned_print( fd_blk_repair_t const * blk_repair ) {
        !fd_blk_orphaned_iter_done( iter, orphaned, pool );
        iter = fd_blk_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_blk_ele_t const * ele = fd_blk_orphaned_iter_ele_const( iter, orphaned, pool );
-    printf( "(%lu, %lu), ", ele->parent, ele->slot );
+    ancestry_print2( blk_repair, fd_blk_pool_ele_const( fd_blk_pool_const( blk_repair ), fd_blk_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
   }
 }
 

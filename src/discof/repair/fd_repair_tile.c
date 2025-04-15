@@ -334,13 +334,13 @@ should_force_complete( fd_blk_repair_t *  blk_repair, fd_fec_intra_t * fec ) {
   ulong parent_slot = fec->slot - fec->parent_off;
   ele = fd_ptr_if( !ele, fd_blk_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ), ele );
   if( FD_UNLIKELY( !ele ) ) return 0;
-  for( uint idx = fec->fec_set_idx + 1; idx < ele->consumed_idx + 1; idx++ ) { /* TODO iterate by word */
+  for( uint idx = fec->fec_set_idx + 1; idx < ele->buffered_idx + 1; idx++ ) { /* TODO iterate by word */
     if( FD_UNLIKELY( fd_blk_ele_idxs_test( ele->fecs, idx ) ) ) {
       fec->data_cnt = idx - fec->fec_set_idx;
       return 1;
     }
   }
-  if( FD_UNLIKELY( !fec->data_cnt && ele->complete_idx != UINT_MAX && ele->consumed_idx == ele->complete_idx ) ) {
+  if( FD_UNLIKELY( !fec->data_cnt && ele->complete_idx != UINT_MAX && ele->buffered_idx == ele->complete_idx ) ) {
     fec->data_cnt = ele->complete_idx - fec->fec_set_idx + 1;
     return 1;
   }
@@ -498,10 +498,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
-    ulong wmark = fd_fseq_query( ctx->wmark );
-    FD_TEST( wmark != ULONG_MAX );
     if( FD_UNLIKELY( fd_blk_repair_root_slot( ctx->blk_repair ) == ULONG_MAX ) ) {
-      fd_blk_repair_init( ctx->blk_repair, wmark );
+      fd_blk_repair_init( ctx->blk_repair, fd_fseq_query( ctx->wmark ) );
+      FD_TEST( fd_blk_repair_root_slot( ctx->blk_repair ) != ULONG_MAX ); /* the watermark MUST be ready if we are receiving messages from shred */
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
@@ -634,7 +633,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     fd_blk_ele_t *       tail = head;
     fd_blk_ele_t *       prev = NULL;
     while( FD_LIKELY( head ) ) {
-      for( uint idx = head->consumed_idx + 1; idx < fd_ulong_min( head->complete_idx, FD_REEDSOL_DATA_SHREDS_MAX); idx++ ) {
+      for( uint idx = head->buffered_idx + 1; idx < fd_ulong_min( head->complete_idx, FD_REEDSOL_DATA_SHREDS_MAX); idx++ ) {
         if( FD_LIKELY( !fd_blk_ele_idxs_test( head->idxs, idx ) ) ) {
           fd_repair_need_window_index( ctx->repair, head->slot, idx );
         };
@@ -652,15 +651,33 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     }
   }
 
-  ulong min = ULONG_MAX;
   for( fd_blk_orphaned_iter_t iter = fd_blk_orphaned_iter_init( orphaned, pool );
        !fd_blk_orphaned_iter_done( iter, orphaned, pool );
        iter = fd_blk_orphaned_iter_next( iter, orphaned, pool ) ) {
-    fd_blk_ele_t const * orphan = fd_blk_orphaned_iter_ele_const( iter, orphaned, pool );
-    // FD_LOG_NOTICE(( "orphan: %lu, parent: %lu, min: %lu", orphan->slot, orphan->parent, min ));
-    min = fd_ulong_min( min, orphan->parent );
+    fd_blk_ele_t * orphan = fd_blk_orphaned_iter_ele( iter, orphaned, pool );
+    fd_repair_need_orphan( ctx->repair, orphan->slot );
+
+    // fd_blk_ele_t * head = orphan;
+    // fd_blk_ele_t * tail = head;
+    // fd_blk_ele_t * prev = NULL;
+    // while( FD_LIKELY( head ) ) {
+    //   for( uint idx = head->buffered_idx + 1; idx < fd_ulong_min( head->complete_idx, FD_REEDSOL_DATA_SHREDS_MAX); idx++ ) {
+    //     if( FD_LIKELY( !fd_blk_ele_idxs_test( head->idxs, idx ) ) ) {
+    //       fd_repair_need_window_index( ctx->repair, head->slot, idx );
+    //     };
+    //   }
+    //   fd_blk_ele_t * child = fd_blk_pool_ele( pool, head->child );
+    //   while( FD_LIKELY( child ) ) { /* append children to frontier */
+    //     tail->prev     = fd_blk_pool_idx( pool, child );
+    //     tail           = fd_blk_pool_ele( pool, tail->prev );
+    //     tail->prev     = fd_blk_pool_idx_null( pool );
+    //     child          = fd_blk_pool_ele( pool, child->sibling );
+    //   }
+    //   prev       = head;
+    //   head       = fd_blk_pool_ele( pool, head->prev );
+    //   prev->prev = null;
+    // }
   }
-  if( FD_LIKELY( min != ULONG_MAX )) fd_repair_need_orphan( ctx->repair, min );
 
   // for( fd_blk_orphaned_iter_t iter = fd_blk_orphaned_iter_init( orphaned, pool );
   //      !fd_blk_orphaned_iter_done( iter, orphaned, pool );

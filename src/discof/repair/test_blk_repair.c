@@ -234,9 +234,9 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  // test_publish( wksp );
+  test_publish( wksp );
   test_out_of_order( wksp );
-  test_print_tree( wksp );
+  // test_print_tree( wksp );
 
   fd_halt();
   return 0;

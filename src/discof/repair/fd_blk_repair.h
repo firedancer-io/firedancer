@@ -1,8 +1,6 @@
 #ifndef HEADER_fd_src_choreo_blk_repair_fd_blk_repair_h
 #define HEADER_fd_src_choreo_blk_repair_fd_blk_repair_h
 
-#include "../../disco/fd_disco_base.h"
-
 /* Blk repair is an API for repairing blocks as they are discovered from
    the cluster via Turbine or Gossip.  Shreds (from Turbine) and votes
    (from Gossip) inform blk repair that a block with the given slot they
@@ -20,6 +18,8 @@
 
 /* FD_BLK_REPAIR_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
+
+#include "../../disco/fd_disco_base.h"
 
 #ifndef FD_BLK_REPAIR_USE_HANDHOLDING
 #define FD_BLK_REPAIR_USE_HANDHOLDING 1
@@ -46,15 +46,15 @@
    operations from processes with separate local blk_repair joins. */
 
 struct __attribute__((aligned(128UL))) fd_blk_ele {
-  ulong slot;    /* map key */
-  ulong prev;    /* internal use by link_orphans */
-  ulong next;    /* internal use by fd_pool, fd_map_chain */
-  ulong parent;  /* pool idx of the parent in the tree, parent slot when orphaned */
-  ulong child;   /* pool idx of the left-child */
-  ulong sibling; /* pool idx of the right-sibling */
+  ulong slot;     /* map key */
+  ulong prev;     /* internal use by link_orphans */
+  ulong next;     /* internal use by fd_pool, fd_map_chain */
+  ulong parent;   /* pool idx of the parent in the tree, parent slot when orphaned */
+  ulong child;    /* pool idx of the left-child */
+  ulong sibling;  /* pool idx of the right-sibling */
 
-  uint received_idx; /* highest received shred idx */
-  uint consumed_idx; /* highest contiguosly-received shred idx */
+  uint consumed_idx; /* highest consumed shred idx */
+  uint buffered_idx; /* highest contiguosly-received shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
   fd_blk_ele_idxs_t fecs[fd_blk_ele_idxs_word_cnt]; /* fec set idxs */
@@ -78,7 +78,7 @@ typedef struct fd_blk_ele fd_blk_ele_t;
 
 #define MAP_NAME  fd_blk_orphaned
 #define MAP_ELE_T fd_blk_ele_t
-#define MAP_KEY   parent
+#define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_blk_repair_t is the top-level structure that holds the root of
