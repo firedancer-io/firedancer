@@ -1,10 +1,10 @@
 use std::iter;
 use std::pin::Pin;
 
-use bundle_test_server::proto::auth::{self, Token};
-use bundle_test_server::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
-use bundle_test_server::proto::bundle::{Bundle, BundleUuid};
-use bundle_test_server::proto::packet::{Packet, PacketBatch};
+use crate::proto::auth::{self, Token};
+use crate::proto::auth::auth_service_server::{AuthService, AuthServiceServer};
+use crate::proto::bundle::{Bundle, BundleUuid};
+use crate::proto::packet::{Packet, PacketBatch};
 use chrono::{Duration, Utc};
 use futures::{stream, StreamExt};
 use log::info;
@@ -13,14 +13,35 @@ use tonic::{transport::Server, Request, Response, Status};
 use futures_util::stream::Stream;
 use base64::prelude::*;
 
-use bundle_test_server::proto::block_engine::block_engine_validator_server::{BlockEngineValidator, BlockEngineValidatorServer};
-use bundle_test_server::proto::block_engine::{SubscribePacketsRequest, SubscribePacketsResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse};
+use crate::proto::block_engine::block_engine_validator_server::{BlockEngineValidator, BlockEngineValidatorServer};
+use crate::proto::block_engine::{SubscribePacketsRequest, SubscribePacketsResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse};
 
 #[derive(Debug, Default)]
 pub struct BlockEngineValidatorService;
 
 type PacketResponseStream = Pin<Box<dyn Stream<Item = Result<SubscribePacketsResponse, Status>> + Send>>;
 type BundleResponseStream = Pin<Box<dyn Stream<Item = Result<SubscribeBundlesResponse, Status>> + Send>>;
+
+pub mod proto {
+    pub mod auth {
+        tonic::include_proto!("auth");
+    }
+    pub mod block_engine {
+        tonic::include_proto!("block_engine");
+    }
+    pub mod bundle {
+        tonic::include_proto!("bundle");
+    }
+    pub mod packet {
+        tonic::include_proto!("packet");
+    }
+    pub mod relayer {
+        tonic::include_proto!("relayer");
+    }
+    pub mod shared {
+        tonic::include_proto!("shared");
+    }
+}
 
 #[tonic::async_trait]
 impl BlockEngineValidator for BlockEngineValidatorService {

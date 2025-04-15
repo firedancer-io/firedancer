@@ -7,7 +7,7 @@ fn main() -> Result<(), std::io::Error> {
         std::env::set_var(PROTOC_ENVAR, protobuf_src::protoc());
     }
 
-    let proto_base_path = std::path::PathBuf::from("../protos");
+    let proto_base_path = std::path::PathBuf::from("protos");
     let proto_files = [
         "auth.proto",
         "block_engine.proto",
@@ -34,5 +34,5 @@ fn main() -> Result<(), std::io::Error> {
             "InstructionErrorType",
             "#[cfg_attr(test, derive(enum_iterator::Sequence))]",
         )
-        .compile_protos(&protos, &[std::path::PathBuf::from("../protos")])
+        .compile_protos(&protos, &[std::path::PathBuf::from("protos")])
 }
