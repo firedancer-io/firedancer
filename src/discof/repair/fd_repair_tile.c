@@ -422,7 +422,7 @@ repair_get_shred( ulong  slot,
     return -1;
   }
 
-  if( shred_idx == UINT_MAX ) {
+  /*if( shred_idx == UINT_MAX ) {
     int err = FD_MAP_ERR_AGAIN;
     while( err == FD_MAP_ERR_AGAIN ) {
       fd_block_map_query_t query[1] = { 0 };
@@ -433,7 +433,7 @@ repair_get_shred( ulong  slot,
       shred_idx = (uint)meta->slot_complete_idx;
       err = fd_block_map_query_test( query );
     }
-  }
+  }*/
   long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
   return sz;
 }
