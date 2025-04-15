@@ -570,21 +570,10 @@ fd_runtime_distribute_transaction_fees_details( fd_exec_slot_ctx_t * slot_ctx ) 
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
-  /* Counterpart to collect_rent_eagerly() */
+  /* Counterpart to collect_rent_eagerly(). The firedancer client
+     doesn't support rent collection functionality. */
   /* https://github.com/anza-xyz/agave/blob/v2.2.9/runtime/src/bank.rs#3998 */
   fd_runtime_update_rent_epoch( slot_ctx );
-
-  /* distribute_transaction_fees() */
-  /* distribute_rent_fees() */
-  /* update_slot_history() */
-  /* run incinerator() */
-  /* calculate hash() */
-
-  fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
-
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar) ) {
-    fd_sysvar_fees_update(slot_ctx);
-  }
 
   if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, reward_full_priority_fee ) ) {
     fd_runtime_distribute_transaction_fees_details( slot_ctx );
@@ -592,10 +581,31 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
     fd_runtime_distribute_transaction_fees( slot_ctx );
   }
 
+  /* distribute_rent_fees(). The firedancer client doesn't support this
+     functionality. */
+
+  /* update_slot_history() */
+  fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
+
+  /* run incinerator() */
   fd_runtime_run_incinerator( slot_ctx );
 
+
+  /* The firedancer client deviates from the agave client when
+     calculating the bank hash for the current slot. */
+
+
+
+  fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
+
+  // if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ) ) {
+  //   fd_sysvar_fees_update( slot_ctx );
+  // }
+
+
+
   FD_LOG_DEBUG(( "fd_runtime_freeze: capitalization %lu ", slot_ctx->slot_bank.capitalization));
-  slot_ctx->slot_bank.collected_rent = 0;
+  slot_ctx->slot_bank.collected_rent = 0UL;
 }
 
 #define FD_RENT_EXEMPT (-1L)
@@ -1584,7 +1594,6 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
                                          fd_accounts_hash_task_data_t * * task_data,
                                          ulong                            lt_hash_cnt ) {
 
-  fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx, runtime_spad );
@@ -1702,6 +1711,10 @@ block_finalize_tpool_wrapper( void * para_arg_1,
   }
 }
 
+/* This function doesn't have a direct parallel in the agave client.
+   The agave client freezes the current slot and updates the bank hash
+   when it is creating a child slot. The firedancer client encapsulates
+   this behavior in fd_runtime_block_execute_finalize_para. */
 int
 fd_runtime_block_execute_finalize_para( fd_exec_slot_ctx_t *             slot_ctx,
                                         fd_capture_ctx_t *               capture_ctx,
@@ -4335,6 +4348,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* All runtime allocations here are scoped to the end of a block. */
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
+    /* This funciton gathers the block to execute from the blockstore. */
     if( FD_UNLIKELY( (ret = fd_runtime_block_prepare( slot_ctx->blockstore,
                                                       block,
                                                       slot,
@@ -4344,7 +4358,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
     *txn_cnt = block_info.txn_cnt;
 
-    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx,
+                                                           &block_info,
+                                                           &slot_ctx->slot_bank.poh,
+                                                           &slot_ctx->slot_bank.poh,
+                                                           tpool,
+                                                           runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
 
