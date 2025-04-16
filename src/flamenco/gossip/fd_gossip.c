@@ -21,7 +21,8 @@
    Purged values are counted because:
     - Our table (currently) does not "purge" values in the same sense Agave does
     - Purged values are included in bloom filter construction, so we need them anyway */
-#define FD_VALUE_KEY_MAX (1<<21)
+#define FD_VALUE_KEY_MAX (1<<24) // includes purged values
+#define FD_VALUE_DATA_MAX (1<<21)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
 /* Sample rate of bloom filters. */
@@ -165,24 +166,60 @@ void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
     keyd->ul[i] = keys->ul[i];
 }
 
-/* Value table element. This table stores all received crds
-   values. Keyed by the hash of the value data. */
-struct fd_value_elem {
-    fd_hash_t key;
-    ulong next;
-    fd_pubkey_t origin; /* Where did this value originate */
-    ulong wallclock; /* Original timestamp of value in millis */
-    uchar data[PACKET_DATA_SIZE]; /* Serialized form of value (bincode) including signature */
-    ulong datalen;
+/************ Gossip Value Table Structures **************/
+/* The fd_gossip value table is backed by two structures:
+   a value metadata map and a value vector. The lifetime
+   requirement of a full value is much smaller than its
+   metadata (15s vs 1hr), while a full value has a much
+   larger size footprint (100x). Decoupling the two
+   allows for retaining more metadata without significantly
+   increasing memory footprint and iteration overhead.
+   
+      
+   An entry in the vector must have a corresponding entry
+   in the metadata map, while an entry in the metadata
+   map may not have an entry in the vector (denoted by a
+   NULL in the meta_t value ptr). */
+
+/* Full gossip value representation. Stores the encoded
+   form of a CRDS value and other metadata. */
+struct fd_value {
+  fd_hash_t key; /* Hash of the value data */
+  ulong wallclock; /* Original timestamp of value in millis */
+  fd_pubkey_t origin; /* Where did this value originate */
+  uchar data[PACKET_DATA_SIZE]; /* Serialized form of value (bincode) including signature */
+  ulong datalen;
 };
-/* Value table */
-typedef struct fd_value_elem fd_value_elem_t;
-#define MAP_NAME     fd_value_table
+
+typedef struct fd_value fd_value_t;
+
+/* Value vector that:
+   - backs the values pointed by fd_value_meta_t->value 
+   - is used in generating push and pullresp 
+     messages */
+#define VEC_NAME fd_value_vec
+#define VEC_T    fd_value_t
+#include "../../util/tmpl/fd_vec.c"
+
+/* Minimized form of fd_value that only holds metadata */
+struct fd_value_meta {
+  fd_hash_t key; /* Hash of the value data, also functions as map key */
+  ulong wallclock; /* Timestamp of value (millis) */
+  fd_value_t * value; /* Pointer to the actual value element (backed by the value vector) */
+  ulong next;
+};
+typedef struct fd_value_meta fd_value_meta_t;
+
+/* Value map, holds hashes of processed CRDS entries.
+   Used in pull request generation and de-duplication.
+   Also holds pointer to corresponding element in
+   value vec, if available. */
+#define MAP_NAME     fd_value_meta_map
 #define MAP_KEY_T    fd_hash_t
 #define MAP_KEY_EQ   fd_hash_eq
 #define MAP_KEY_HASH fd_hash_hash
 #define MAP_KEY_COPY fd_hash_copy
-#define MAP_T        fd_value_elem_t
+#define MAP_T        fd_value_meta_t
 #include "../../util/tmpl/fd_map_giant.c"
 
 /* Weights table element. This table stores the weight for each peer
@@ -357,8 +394,9 @@ struct fd_gossip {
     ulong inactives_cnt;
 #define INACTIVES_MAX 1024U
 
-    /* Table of crds values that we have received in the last 60 minutes, keys by hash */
-    fd_value_elem_t * values;
+    /* Table of crds metadata, keyed by hash of the encoded data */
+    fd_value_meta_t * value_metas;
+    fd_value_t * values; /* Vector of full values */
     /* The last timestamp that we pushed our own contact info */
     long last_contact_time;
     fd_hash_t last_contact_info_v2_key;
@@ -367,8 +405,8 @@ struct fd_gossip {
     fd_push_state_t * push_states[FD_PUSH_LIST_MAX];
     ulong push_states_cnt;
     fd_push_state_t * push_states_pool;
-    /* Queue of values that need pushing */
-    fd_hash_t * need_push;
+    /* Queue of values vec ptrs that need pushing */
+    fd_value_t * * need_push;
     ulong need_push_head;
     ulong need_push_cnt;
 
@@ -421,8 +459,9 @@ fd_gossip_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_peer_table_align(), fd_peer_table_footprint(FD_PEER_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_peer_addr_t), INACTIVES_MAX*sizeof(fd_gossip_peer_addr_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t) );
-  l = FD_LAYOUT_APPEND( l, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_value_t *), FD_NEED_PUSH_MAX*sizeof(fd_value_t *) );
+  l = FD_LAYOUT_APPEND( l, fd_value_meta_map_align(), fd_value_meta_map_footprint( FD_VALUE_KEY_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_value_vec_align(), fd_value_vec_footprint( FD_VALUE_DATA_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
@@ -448,10 +487,13 @@ fd_gossip_new ( void * shmem, ulong seed ) {
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
 
   glob->inactives = (fd_gossip_peer_addr_t*)FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_gossip_peer_addr_t), INACTIVES_MAX*sizeof(fd_gossip_peer_addr_t));
-  glob->need_push = (fd_hash_t*)FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t));
+  glob->need_push = (fd_value_t * *)FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_value_t *), FD_NEED_PUSH_MAX*sizeof(fd_value_t *));
 
-  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX));
-  glob->values = fd_value_table_join(fd_value_table_new(shm, FD_VALUE_KEY_MAX, seed));
+  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_value_meta_map_align(), fd_value_meta_map_footprint( FD_VALUE_KEY_MAX ) );
+  glob->value_metas = fd_value_meta_map_join( fd_value_meta_map_new( shm, FD_VALUE_KEY_MAX, seed ) );
+
+  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_value_vec_align(), fd_value_vec_footprint( FD_VALUE_DATA_MAX ) );
+  glob->values = fd_value_vec_join( fd_value_vec_new( shm, FD_VALUE_DATA_MAX ) );
 
   glob->last_contact_time = 0;
 
@@ -487,7 +529,8 @@ fd_gossip_delete ( void * shmap ) {
   fd_peer_table_delete( fd_peer_table_leave( glob->peers ) );
   fd_active_table_delete( fd_active_table_leave( glob->actives ) );
 
-  fd_value_table_delete( fd_value_table_leave( glob->values ) );
+  fd_value_meta_map_delete( fd_value_meta_map_leave( glob->value_metas ) );
+  fd_value_vec_delete( fd_value_vec_leave( glob->values ) );
   fd_pending_heap_delete( fd_pending_heap_leave( glob->event_heap ) );
   fd_stats_table_delete( fd_stats_table_leave( glob->stats ) );
   fd_weights_table_delete( fd_weights_table_leave( glob->weights ) );
@@ -1111,7 +1154,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Compute the number of packets needed for all the bloom filter parts
      with a desired false positive rate <0.1% (upper bounded by FD_BLOOM_MAX_PACKETS ) */
-  ulong nitems = fd_value_table_key_cnt(glob->values);
+  ulong nitems = fd_value_meta_map_key_cnt( glob->value_metas );
   ulong nkeys = 1;
   ulong npackets = 1;
   uint nmaskbits = 0;
@@ -1185,14 +1228,16 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   ulong bits[CHUNKSIZE * FD_BLOOM_MAX_PACKETS]; /* TODO: can we bound size based on sample rate instead? */
   fd_memset(bits, 0, CHUNKSIZE*8U*npackets);
   ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_VALUE_EXPIRE;
-  for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
-       !fd_value_table_iter_done( glob->values, iter );
-       iter = fd_value_table_iter_next( glob->values, iter ) ) {
-    fd_value_elem_t * ele = fd_value_table_iter_ele( glob->values, iter );
+  for( fd_value_meta_map_iter_t iter = fd_value_meta_map_iter_init( glob->value_metas );
+       !fd_value_meta_map_iter_done( glob->value_metas, iter );
+       iter = fd_value_meta_map_iter_next( glob->value_metas, iter ) ) {
+    fd_value_meta_t * ele = fd_value_meta_map_iter_ele( glob->value_metas, iter );
     fd_hash_t * hash = &(ele->key);
-    /* Purge expired values */
-    if (ele->wallclock < expire) {
-      fd_value_table_remove( glob->values, hash );
+
+    /* Purge expired value's data entry */
+    if (ele->wallclock < expire && ele->value != NULL) {
+      fd_value_vec_remove_ele( glob->values, ele->value );
+      ele->value = NULL;
       continue;
     }
     /* Choose which filter packet based on the high bits in the hash,
@@ -1366,15 +1411,6 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 /* CRDS processing utils.
    TODO: move to a separate fd_crds file? Need to decouple gossip metrics first */
 
-typedef struct{
-  fd_crds_value_t * crd;                // Decoded CRDS value
-  uchar encoded_val[PACKET_DATA_SIZE];  // Raw encoded form
-  ulong encoded_len;                    // Length of encoded data
-  fd_hash_t val_hash;                   // Hash of the value (used as key in the value table)
-  fd_pubkey_t* pubkey;                  // Reference to origin's pubkey
-  ulong wallclock;                      // Timestamp
-} fd_crds_value_processed_t;
-
 /* fd_crds_dedup_check returns 1 if key exists in the CRDS value table, 0 otherwise.
    Also logs the
     - the host that sent the duplicate message
@@ -1382,20 +1418,20 @@ typedef struct{
    for use in making prune messages. */
 static int
 fd_crds_dup_check( fd_gossip_t * glob, fd_hash_t * key, const fd_gossip_peer_addr_t * from, const fd_pubkey_t * origin ) {
-  fd_value_elem_t * msg = fd_value_table_query(glob->values, key, NULL);
+  fd_value_meta_t * msg = fd_value_meta_map_query( glob->value_metas, key, NULL );
 
-  if (msg != NULL) {
+  if( msg!=NULL ) {
     /* Already have this value */
-    if (from != NULL) {
+    if( from!=NULL ) {
       /* Record the dup in the receive statistics table */
       fd_stats_elem_t * val = fd_stats_table_query(glob->stats, from, NULL);
-      if (val == NULL) {
+      if( val==NULL ) {
         if (!fd_stats_table_is_full(glob->stats)) {
           val = fd_stats_table_insert(glob->stats, from);
           val->dups_cnt = 0;
         }
       }
-      if (val != NULL) {
+      if( val!=NULL ) {
         val->last = glob->now;
         for (ulong i = 0; i < val->dups_cnt; ++i){
           if (fd_hash_eq(&val->dups[i].origin, origin)) {
@@ -1403,7 +1439,7 @@ fd_crds_dup_check( fd_gossip_t * glob, fd_hash_t * key, const fd_gossip_peer_add
             goto found_origin;
           }
         }
-        if (val->dups_cnt < 8) {
+        if( val->dups_cnt<8 ) {
           ulong i = val->dups_cnt++;
           fd_hash_copy(&val->dups[i].origin, origin);
           val->dups[i].cnt = 1;
@@ -1440,27 +1476,6 @@ fd_crds_sigverify( uchar * crds_encoded_val, ulong crds_encoded_len, fd_pubkey_t
 
 #define INC_RECV_CRDS_DROP_METRIC( REASON ) glob->metrics.recv_crds_drop_reason[ FD_CONCAT3( FD_METRICS_ENUM_CRDS_DROP_REASON_V_, REASON, _IDX ) ] += 1UL
 
-/* fd_crds_insert sets up and inserts a fd_value_elem_t entry
-   from a fully populated crd_p.
-
-   This only fails if the table is full.   */
-static void
-fd_crds_insert( fd_gossip_t * glob, fd_crds_value_processed_t * crd_p ) {
-  if( FD_UNLIKELY( fd_value_table_is_full( glob->values ) ) ) {
-    INC_RECV_CRDS_DROP_METRIC( TABLE_FULL );
-    FD_LOG_DEBUG(( "too many values" ));
-    return;
-  }
-
-  fd_value_elem_t * ele = fd_value_table_insert(glob->values, &crd_p->val_hash );
-  ele->wallclock = crd_p->wallclock;
-  fd_hash_copy( &ele->origin, crd_p->pubkey );
-
-  /* Store encoded form of full CRDS value (including signature) */
-  fd_memcpy( ele->data, crd_p->encoded_val, crd_p->encoded_len );
-  ele->datalen = crd_p->encoded_len;
-}
-
 /* fd_gossip_recv_crds_array processes crds_len crds values. First
    performs a filter pass, dropping duplicate/own values and
    exiting* on any sigverify failures. Then inserts the filtered
@@ -1477,83 +1492,91 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
   if( FD_UNLIKELY( crds_len > FD_GOSSIP_MAX_CRDS_VALS ) ) {
     FD_LOG_ERR(( "too many CRDS values, max %u vs %lu received", FD_GOSSIP_MAX_CRDS_VALS, crds_len ));
   }
-  fd_crds_value_processed_t filtered_crds[FD_GOSSIP_MAX_CRDS_VALS];
-  ulong num_filtered_crds = 0;
+
+  if( FD_UNLIKELY( fd_value_vec_cnt( glob->values ) + crds_len > fd_value_vec_max( glob->values ))){
+    INC_RECV_CRDS_DROP_METRIC( TABLE_FULL );
+    FD_LOG_DEBUG(( "too many values" ));
+    return;
+  }
+  fd_value_t * retained_vals = fd_value_vec_expand( glob->values, crds_len );
+  fd_crds_value_t * retained_crds[FD_GOSSIP_MAX_CRDS_VALS]; /* store pointers to decoded crds entries we retain */
+  ulong num_retained_crds = 0;
 
   /* OK to reuse since sha256_init is called in every iteration */
   fd_sha256_t sha2[1];
 
-  /* Filter pass */
+  /**************** Filter pass ******************/
   for( ulong i = 0; i < crds_len; ++i ) {
-    fd_crds_value_processed_t * tmp = &filtered_crds[ num_filtered_crds ]; /* This will overwrite if previous value was dedup, should be safe */
-    tmp->crd = &crds[ i ];
+    fd_value_t * val = &retained_vals[ num_retained_crds ]; /* This will overwrite if previous value was filtered, should be safe */
+    fd_crds_value_t * crd = &crds[ i ];
+    retained_crds[ num_retained_crds ] = crd; /* for use in insert pass */
 
     /* Setup fd_crds_value_processed_t entry */
-    switch (tmp->crd->data.discriminant) {
+    switch( crd->data.discriminant ) {
     case fd_crds_data_enum_contact_info_v1:
-      tmp->pubkey = &tmp->crd->data.inner.contact_info_v1.id;
-      tmp->wallclock = tmp->crd->data.inner.contact_info_v1.wallclock;
+      val->origin = crd->data.inner.contact_info_v1.id;
+      val->wallclock = crd->data.inner.contact_info_v1.wallclock;
       break;
     case fd_crds_data_enum_vote:
-      tmp->pubkey = &tmp->crd->data.inner.vote.from;
-      tmp->wallclock = tmp->crd->data.inner.vote.wallclock;
+      val->origin     = crd->data.inner.vote.from;
+      val->wallclock  = crd->data.inner.vote.wallclock;
       break;
     case fd_crds_data_enum_lowest_slot:
-      tmp->pubkey = &tmp->crd->data.inner.lowest_slot.from;
-      tmp->wallclock = tmp->crd->data.inner.lowest_slot.wallclock;
+      val->origin     = crd->data.inner.lowest_slot.from;
+      val->wallclock  = crd->data.inner.lowest_slot.wallclock;
       break;
     case fd_crds_data_enum_snapshot_hashes:
-      tmp->pubkey = &tmp->crd->data.inner.snapshot_hashes.from;
-      tmp->wallclock = tmp->crd->data.inner.snapshot_hashes.wallclock;
+      val->origin     = crd->data.inner.snapshot_hashes.from;
+      val->wallclock  = crd->data.inner.snapshot_hashes.wallclock;
       break;
     case fd_crds_data_enum_accounts_hashes:
-      tmp->pubkey = &tmp->crd->data.inner.accounts_hashes.from;
-      tmp->wallclock = tmp->crd->data.inner.accounts_hashes.wallclock;
+      val->origin     = crd->data.inner.accounts_hashes.from;
+      val->wallclock  = crd->data.inner.accounts_hashes.wallclock;
       break;
     case fd_crds_data_enum_epoch_slots:
-      tmp->pubkey = &tmp->crd->data.inner.epoch_slots.from;
-      tmp->wallclock = tmp->crd->data.inner.epoch_slots.wallclock;
+      val->origin     = crd->data.inner.epoch_slots.from;
+      val->wallclock  = crd->data.inner.epoch_slots.wallclock;
       break;
     case fd_crds_data_enum_version_v1:
-      tmp->pubkey = &tmp->crd->data.inner.version_v1.from;
-      tmp->wallclock = tmp->crd->data.inner.version_v1.wallclock;
+      val->origin     = crd->data.inner.version_v1.from;
+      val->wallclock  = crd->data.inner.version_v1.wallclock;
       break;
     case fd_crds_data_enum_version_v2:
-      tmp->pubkey = &tmp->crd->data.inner.version_v2.from;
-      tmp->wallclock = tmp->crd->data.inner.version_v2.wallclock;
+      val->origin    = crd->data.inner.version_v2.from;
+      val->wallclock = crd->data.inner.version_v2.wallclock;
       break;
     case fd_crds_data_enum_node_instance:
-      tmp->pubkey = &tmp->crd->data.inner.node_instance.from;
-      tmp->wallclock = tmp->crd->data.inner.node_instance.wallclock;
+      val->origin    = crd->data.inner.node_instance.from;
+      val->wallclock = crd->data.inner.node_instance.wallclock;
       break;
     case fd_crds_data_enum_duplicate_shred:
-      tmp->pubkey = &tmp->crd->data.inner.duplicate_shred.from;
-      tmp->wallclock = tmp->crd->data.inner.duplicate_shred.wallclock;
+      val->origin     = crd->data.inner.duplicate_shred.from;
+      val->wallclock  = crd->data.inner.duplicate_shred.wallclock;
       break;
     case fd_crds_data_enum_incremental_snapshot_hashes:
-      tmp->pubkey = &tmp->crd->data.inner.incremental_snapshot_hashes.from;
-      tmp->wallclock = tmp->crd->data.inner.incremental_snapshot_hashes.wallclock;
+      val->origin    = crd->data.inner.incremental_snapshot_hashes.from;
+      val->wallclock = crd->data.inner.incremental_snapshot_hashes.wallclock;
       break;
     case fd_crds_data_enum_contact_info_v2:
-      tmp->pubkey = &tmp->crd->data.inner.contact_info_v2.from;
-      tmp->wallclock = tmp->crd->data.inner.contact_info_v2.wallclock;
+      val->origin     = crd->data.inner.contact_info_v2.from;
+      val->wallclock  = crd->data.inner.contact_info_v2.wallclock;
       break;
     case fd_crds_data_enum_restart_last_voted_fork_slots:
-      tmp->pubkey = &tmp->crd->data.inner.restart_last_voted_fork_slots.from;
-      tmp->wallclock = tmp->crd->data.inner.restart_last_voted_fork_slots.wallclock;
+      val->origin     = crd->data.inner.restart_last_voted_fork_slots.from;
+      val->wallclock  = crd->data.inner.restart_last_voted_fork_slots.wallclock;
       break;
     case fd_crds_data_enum_restart_heaviest_fork:
-      tmp->pubkey = &tmp->crd->data.inner.restart_heaviest_fork.from;
-      tmp->wallclock = tmp->crd->data.inner.restart_heaviest_fork.wallclock;
+      val->origin     = crd->data.inner.restart_heaviest_fork.from;
+      val->wallclock  = crd->data.inner.restart_heaviest_fork.wallclock;
       break;
     default:
       INC_RECV_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
       return;
     }
 
-    glob->metrics.recv_crds[ route ][ tmp->crd->data.discriminant ] += 1UL;
+    glob->metrics.recv_crds[ route ][ crd->data.discriminant ] += 1UL;
 
-    if (memcmp(tmp->pubkey->uc, glob->public_key->uc, 32U) == 0) {
+    if( memcmp( val->origin.uc, glob->public_key->uc, 32U )==0 ) {
       /* skip my own messages */
       INC_RECV_CRDS_DROP_METRIC( OWN_MESSAGE );
       continue;
@@ -1561,27 +1584,27 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
 
     /* Encode */
     fd_bincode_encode_ctx_t ctx;
-    ctx.data = tmp->encoded_val;
-    ctx.dataend = tmp->encoded_val + PACKET_DATA_SIZE;
-    if ( fd_crds_value_encode( tmp->crd, &ctx ) ) {
+    ctx.data = val->data;
+    ctx.dataend = val->data + PACKET_DATA_SIZE;
+    if( fd_crds_value_encode( crd, &ctx ) ) {
       FD_LOG_ERR(("fd_crds_value_encode failed"));
     }
-    tmp->encoded_len = (ulong)((uchar *)ctx.data - tmp->encoded_val);
+    val->datalen = (ulong)((uchar *)ctx.data - val->data);
 
     /* Get hash */
     fd_sha256_init( sha2 );
-    fd_sha256_append( sha2, tmp->encoded_val, tmp->encoded_len );
-    fd_sha256_fini( sha2, tmp->val_hash.uc );
+    fd_sha256_append( sha2, val->data, val->datalen );
+    fd_sha256_fini( sha2, val->key.uc );
 
-    fd_msg_stats_elem_t * msg_stat = &glob->msg_stats[ tmp->crd->data.discriminant ];
+    fd_msg_stats_elem_t * msg_stat = &glob->msg_stats[ crd->data.discriminant ];
     msg_stat->total_cnt++;
-    msg_stat->bytes_rx_cnt += tmp->encoded_len;
+    msg_stat->bytes_rx_cnt += val->datalen;
 
     /* Dedup first */
-    if ( fd_crds_dup_check( glob, &tmp->val_hash, from, tmp->pubkey ) ) {
+    if ( fd_crds_dup_check( glob, &val->key, from, &val->origin ) ) {
       msg_stat->dups_cnt++;
       glob->recv_dup_cnt++;
-      glob->metrics.recv_crds_duplicate_message[ route ][ tmp->crd->data.discriminant ]++;
+      glob->metrics.recv_crds_duplicate_message[ route ][ crd->data.discriminant ]++;
       continue; /* skip this entry */
     }
 
@@ -1589,38 +1612,55 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
     /* Sigverify step
         Skip verifying epoch slots because they:
         - are not used anywhere within the client
-          - still store them in table for forwarding +
-            prune message construction
+          - still store them in table for forwarding
         - represent a significant portion of inbound CRDS
-          traffic (~90%)
+          traffic (~50%)
         - will be deprecated soon */
-    if( tmp->crd->data.discriminant != fd_crds_data_enum_epoch_slots &&
-        fd_crds_sigverify( tmp->encoded_val, tmp->encoded_len, tmp->pubkey ) ) {
+    if( crd->data.discriminant!=fd_crds_data_enum_epoch_slots &&
+        fd_crds_sigverify( val->data, val->datalen, &val->origin ) ) {
       INC_RECV_CRDS_DROP_METRIC( INVALID_SIGNATURE );
       /* drop full packet on bad signature
           https://github.com/anza-xyz/agave/commit/d68b5de6c0fc07d60cf9749ae82c2651a549e81b */
+      fd_value_vec_contract( glob->values, crds_len );
       return;
     }
-    num_filtered_crds++;
+    num_retained_crds++;
   }
 
-  /* Insert pass */
-  for( ulong i = 0; i < num_filtered_crds; ++i ) {
-    fd_crds_value_processed_t * crd_p = &filtered_crds[ i ];
-    fd_crds_insert(  glob, crd_p );
+  /* Contract vector by number of values not retained */
+  fd_value_vec_contract( glob->values, crds_len - num_retained_crds );
+
+  /**************** Insert pass ****************/
+  for( ulong i = 0; i < num_retained_crds; ++i ) {
+    fd_value_t * val = &retained_vals[ i ];
+    /* Technically not needed, len(value_key_map) >>> len(values) */
+    if( FD_UNLIKELY( fd_value_meta_map_is_full( glob->value_metas ) ) ) {
+      INC_RECV_CRDS_DROP_METRIC( TABLE_FULL );
+      FD_LOG_DEBUG(( "too many values" ));
+      fd_value_vec_contract( glob->values, num_retained_crds );
+      return;
+    }
+
+    /* Insert into the value set (duplicate check performed in filter pass) */
+    fd_value_meta_t * ele = fd_value_meta_map_insert( glob->value_metas, &val->key );
+
+    ele->key        = val->key;
+    ele->value      = val;
+    ele->wallclock  = val->wallclock;
 
     if ( FD_UNLIKELY( glob->need_push_cnt < FD_NEED_PUSH_MAX ) ) {
       /* Remember that I need to push this value */
       ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
-      fd_hash_copy(glob->need_push + i, &crd_p->val_hash);
+      /* TODO: change this to vector idx/ptrs? */
+      glob->need_push[ i ] = val;
       glob->metrics.push_crds_queue_cnt = glob->need_push_cnt;
     } else {
       INC_RECV_CRDS_DROP_METRIC( PUSH_QUEUE_FULL );
     }
 
-    fd_crds_value_t * crd = crd_p->crd;
+    fd_crds_value_t * crd = retained_crds[ i ];
 
-    if (crd->data.discriminant == fd_crds_data_enum_contact_info_v2) {
+    if( crd->data.discriminant==fd_crds_data_enum_contact_info_v2 ) {
       fd_gossip_contact_info_v2_t * info = &crd->data.inner.contact_info_v2;
       fd_gossip_socket_addr_t socket_addr;
       if( fd_gossip_contact_info_v2_find_proto_ident( info, FD_GOSSIP_SOCKET_TAG_GOSSIP, &socket_addr ) ) {
@@ -1628,28 +1668,28 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
             fd_gossip_socket_addr_is_ip4( &socket_addr ) ) { /* Only support ipv4 */
           /* Remember the peer */
           fd_gossip_peer_addr_t pkey;
-          fd_memset(&pkey, 0, sizeof(pkey));
-          fd_gossip_from_soladdr(&pkey, &socket_addr);
-          fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
-          if (val == NULL) {
-            if (fd_peer_table_is_full(glob->peers)) {
+          fd_memset( &pkey, 0, sizeof(pkey) );
+          fd_gossip_from_soladdr( &pkey, &socket_addr );
+          fd_peer_elem_t * peer = fd_peer_table_query( glob->peers, &pkey, NULL );
+          if( peer==NULL ) {
+            if(fd_peer_table_is_full( glob->peers ) ) {
               INC_RECV_CRDS_DROP_METRIC( PEER_TABLE_FULL );
-              FD_LOG_DEBUG(("too many peers"));
+              FD_LOG_DEBUG(( "too many peers" ));
             } else {
-              val = fd_peer_table_insert(glob->peers, &pkey);
+              peer = fd_peer_table_insert( glob->peers, &pkey );
 
-              if ( glob->inactives_cnt >= INACTIVES_MAX ) {
+              if( glob->inactives_cnt>=INACTIVES_MAX ) {
                 INC_RECV_CRDS_DROP_METRIC( INACTIVES_QUEUE_FULL );
-              } else if ( fd_active_table_query(glob->actives, &pkey, NULL) == NULL ) {
+              } else if( fd_active_table_query( glob->actives, &pkey, NULL )==NULL ) {
                 /* Queue this peer for later pinging */
-                fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
+                fd_gossip_peer_addr_copy( glob->inactives + (glob->inactives_cnt++), &pkey );
               }
             }
           }
-          if (val != NULL) {
-            val->wallclock = crd_p->wallclock;
-            val->stake = 0;
-            fd_hash_copy(&val->id, &info->from);
+          if( peer!=NULL ) {
+            peer->wallclock = val->wallclock;
+            peer->stake = 0;
+            fd_hash_copy( &peer->id, &info->from );
           } else {
             INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
           }
@@ -1658,18 +1698,21 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
         fd_gossip_peer_addr_t peer_addr = { .addr = socket_addr.inner.ip4.addr,
                                             /* FIXME: hardcode to ip4 inner? */
                                             .port = fd_ushort_bswap( fd_gossip_port_from_socketaddr( &socket_addr ) ) };
-        if (glob->my_contact.ci->shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
-          FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v2.shred_version));
+        if( glob->my_contact.ci->shred_version==0U &&
+            fd_gossip_is_allowed_entrypoint( glob, &peer_addr ) ) {
+          FD_LOG_NOTICE(( "using shred version %lu", (ulong)crd->data.inner.contact_info_v2.shred_version ));
           glob->my_contact.ci->shred_version = crd->data.inner.contact_info_v2.shred_version;
         }
       }
     }
 
     glob->metrics.gossip_peer_cnt[ FD_METRICS_ENUM_GOSSIP_PEER_STATE_V_INACTIVE_IDX ] = glob->inactives_cnt;
+    glob->metrics.value_map_cnt = fd_value_meta_map_key_cnt( glob->value_metas );
+    glob->metrics.value_vec_cnt = fd_value_vec_cnt( glob->values );
 
     /* Deliver the data upstream */
     fd_gossip_unlock( glob );
-    (*glob->deliver_fun)(&crd->data, glob->deliver_arg);
+    (*glob->deliver_fun)( &crd->data, glob->deliver_arg );
     fd_gossip_lock( glob );
   }
 
@@ -1780,22 +1823,23 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
 static void
 fd_gossip_push_updated_contact(fd_gossip_t * glob) {
   /* See if we have a shred version yet */
-  if (glob->my_contact.ci->shred_version == 0U)
+  if( glob->my_contact.ci->shred_version==0U )
     return;
   /* Update every 1 secs */
-  if (glob->now - glob->last_contact_time < (long)1e9)
+  if( (glob->now - glob->last_contact_time)<(long)1e9 )
     return;
 
   if (glob->last_contact_time != 0) {
-    fd_value_elem_t * ele = fd_value_table_query(glob->values, &glob->last_contact_info_v2_key, NULL);
+    fd_value_meta_t * ele = fd_value_meta_map_query(glob->value_metas, &glob->last_contact_info_v2_key, NULL);
     if (ele != NULL) {
-      fd_value_table_remove( glob->values, &glob->last_contact_info_v2_key );
+      fd_value_vec_remove_ele( glob->values, ele->value ); /* Remove the old value from the vector */
+      fd_value_meta_map_remove( glob->value_metas, &glob->last_contact_info_v2_key );
     }
   }
 
   glob->last_contact_time = glob->now;
-  glob->my_contact.ci->wallclock = FD_NANOSEC_TO_MILLI(glob->now);
-  fd_gossip_push_value_nolock(glob, &glob->my_contact.crd, &glob->last_contact_info_v2_key);
+  glob->my_contact.ci->wallclock = FD_NANOSEC_TO_MILLI( glob->now );
+  fd_gossip_push_value_nolock( glob, &glob->my_contact.crd, &glob->last_contact_info_v2_key );
 }
 
 /* Respond to a pull request */
@@ -1856,10 +1900,8 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   ulong hits = 0;
   ulong misses = 0;
   uint npackets = 0;
-  for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
-       !fd_value_table_iter_done( glob->values, iter );
-       iter = fd_value_table_iter_next( glob->values, iter ) ) {
-    fd_value_elem_t * ele = fd_value_table_iter_ele( glob->values, iter );
+  for( ulong i = 0UL; i < fd_value_vec_cnt( glob->values ); ++i ) {
+    fd_value_t * ele = &glob->values[ i ];
     fd_hash_t * hash = &(ele->key);
     if (ele->wallclock < expire)
       continue;
@@ -2073,30 +2115,29 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   /* Iterate across recent values */
   ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_PULL_TIMEOUT;
   while (glob->need_push_cnt > 0) {
-    fd_hash_t * h = glob->need_push + ((glob->need_push_head++) & (FD_NEED_PUSH_MAX-1));
+    fd_value_t * msg = glob->need_push[ ((glob->need_push_head++) & (FD_NEED_PUSH_MAX-1)) ];
     glob->need_push_cnt--;
 
-    fd_value_elem_t * msg = fd_value_table_query(glob->values, h, NULL);
-    if (msg == NULL || msg->wallclock < expire)
+    if( msg->wallclock<expire )
       continue;
 
     /* Iterate across push states */
     ulong npush = 0;
-    for (ulong i = 0; i < glob->push_states_cnt && npush < FD_PUSH_VALUE_MAX; ++i) {
+    for( ulong i = 0; i<glob->push_states_cnt && npush<FD_PUSH_VALUE_MAX; ++i ) {
       fd_push_state_t* s = glob->push_states[i];
 
       /* Apply the pruning bloom filter */
       int pass = 0;
-      for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j) {
-        ulong pos = fd_gossip_bloom_pos(&msg->origin, s->prune_keys[j], FD_PRUNE_NUM_BITS);
+      for( ulong j = 0; j<FD_PRUNE_NUM_KEYS; ++j ) {
+        ulong pos = fd_gossip_bloom_pos( &msg->origin, s->prune_keys[j], FD_PRUNE_NUM_BITS );
         ulong * j = s->prune_bits + (pos>>6U); /* divide by 64 */
         ulong bit = 1UL<<(pos & 63U);
-        if (!(*j & bit)) {
+        if( !(*j & bit) ) {
           pass = 1;
           break;
         }
       }
-      if (!pass) {
+      if( !pass ) {
         s->drop_cnt++;
         glob->not_push_cnt++;
         continue;
@@ -2107,30 +2148,30 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       /* Add the value in already encoded form */
-      if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
+      if( (s->packet_end + msg->datalen - s->packet)>PACKET_DATA_SIZE ) {
         /* Packet is getting too large. Flush it */
         ulong sz = (ulong)(s->packet_end - s->packet);
         glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
-        fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+        fd_gossip_send_raw( glob, &s->addr, s->packet, sz );
         FD_LOG_DEBUG(("push to " GOSSIP_ADDR_FMT " size=%lu", GOSSIP_ADDR_FMT_ARGS( s->addr ), sz));
         s->packet_end = s->packet_end_init;
         *crds_len = 0;
       }
-      fd_memcpy(s->packet_end, msg->data, msg->datalen);
+      fd_memcpy( s->packet_end, msg->data, msg->datalen );
       s->packet_end += msg->datalen;
       (*crds_len)++;
     }
   }
 
   /* Flush partially full packets */
-  for (ulong i = 0; i < glob->push_states_cnt; ++i) {
+  for( ulong i = 0; i < glob->push_states_cnt; ++i ) {
     fd_push_state_t* s = glob->push_states[i];
-    if (s->packet_end != s->packet_end_init) {
+    if ( s->packet_end != s->packet_end_init ) {
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       ulong sz = (ulong)(s->packet_end - s->packet);
-      fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+      fd_gossip_send_raw( glob, &s->addr, s->packet, sz );
       glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
-      FD_LOG_DEBUG(("push to " GOSSIP_ADDR_FMT " size=%lu", GOSSIP_ADDR_FMT_ARGS( s->addr ), sz));
+      FD_LOG_DEBUG(( "push to " GOSSIP_ADDR_FMT " size=%lu", GOSSIP_ADDR_FMT_ARGS( s->addr ), sz ));
       s->packet_end = s->packet_end_init;
       *crds_len = 0;
     }
@@ -2143,7 +2184,7 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
 #define INC_PUSH_CRDS_DROP_METRIC( REASON ) \
   glob->metrics.push_crds_drop_reason[ FD_CONCAT3( FD_METRICS_ENUM_CRDS_DROP_REASON_V_, REASON , _IDX ) ] += 1UL
 
-  if ( FD_UNLIKELY( data->discriminant >= FD_KNOWN_CRDS_ENUM_MAX ) ) {
+  if( FD_UNLIKELY( data->discriminant >= FD_KNOWN_CRDS_ENUM_MAX ) ) {
     INC_PUSH_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
     return -1;
   }
@@ -2151,17 +2192,17 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
 
   /* Wrap the data in a value stub. Sign it. */
   fd_crds_value_t crd;
-  fd_memcpy(&crd.data, data, sizeof(fd_crds_data_t));
-  fd_gossip_sign_crds_value(glob, &crd);
+  fd_memcpy( &crd.data, data, sizeof(fd_crds_data_t) );
+  fd_gossip_sign_crds_value( glob, &crd );
 
   /* Perform the value hash to get the value table key */
   uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
   ctx.dataend = buf + PACKET_DATA_SIZE;
-  if ( fd_crds_value_encode( &crd, &ctx ) ) {
+  if( fd_crds_value_encode( &crd, &ctx ) ) {
     INC_PUSH_CRDS_DROP_METRIC( ENCODING_FAILED );
-    FD_LOG_ERR(("fd_crds_value_encode failed"));
+    FD_LOG_ERR(( "fd_crds_value_encode failed" ));
     return -1;
   }
   fd_sha256_t sha2[1];
@@ -2170,12 +2211,12 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   fd_sha256_append( sha2, buf, datalen );
   fd_hash_t key;
   fd_sha256_fini( sha2, key.uc );
-  if ( key_opt != NULL )
+  if( key_opt != NULL )
     fd_hash_copy( key_opt, &key );
 
   /* Store the value for later pushing/duplicate detection */
-  fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
-  if (msg != NULL) {
+  fd_value_meta_t * ele = fd_value_meta_map_query( glob->value_metas, &key, NULL );
+  if( ele != NULL ) {
     /* Already have this value, which is strange!
        NOTE: This is a different list from duplicate crds values received
        from the network (see metrics.recv_crds_duplicate_message).
@@ -2184,23 +2225,29 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
     glob->metrics.push_crds_duplicate[ data->discriminant ] += 1UL;
     return -1;
   }
-  if (fd_value_table_is_full(glob->values)) {
+  if( fd_value_meta_map_is_full( glob->value_metas ) || fd_value_vec_is_full( glob->values ) ) {
     INC_PUSH_CRDS_DROP_METRIC( TABLE_FULL );
     FD_LOG_DEBUG(("too many values"));
     return -1;
   }
-  msg = fd_value_table_insert(glob->values, &key);
-  msg->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
-  fd_hash_copy(&msg->origin, glob->public_key);
+  fd_value_t * val = fd_value_vec_expand( glob->values, 1UL );
+  ele = fd_value_meta_map_insert( glob->value_metas, &key );
+
+  ele->value      = val; /* Store the pointer to the value element */
+  ele->wallclock  = FD_NANOSEC_TO_MILLI( glob->now );
+
+  val->key        = key;
+  val->wallclock  = ele->wallclock;
+  val->origin     = *glob->public_key;
 
   /* We store the serialized form for convenience */
-  fd_memcpy(msg->data, buf, datalen);
-  msg->datalen = datalen;
+  fd_memcpy( val->data, buf, datalen );
+  val->datalen = datalen;
 
   if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
     /* Remember that I need to push this value */
     ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
-    fd_hash_copy(glob->need_push + i, &key);
+    glob->need_push[ i ] = val; /* Store the pointer to the value element */
   } else {
     INC_PUSH_CRDS_DROP_METRIC( PUSH_QUEUE_FULL );
   }
@@ -2360,16 +2407,40 @@ fd_gossip_gettime( fd_gossip_t * glob ) {
   return glob->now;
 }
 
+static void
+fd_gossip_cleanup_values( fd_gossip_t * glob,
+                          fd_pending_event_arg_t * arg ) {
+  (void)arg;
+  fd_gossip_add_pending( glob, fd_gossip_cleanup_values, fd_pending_event_arg_null(), glob->now + (long)3600e9 );
+
+  ulong value_expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_VALUE_EXPIRE;
+  // ulong value_purge = value_expire - FD_GOSSIP_VALUE_EXPIRE/4U; // for purging, which removes data entries but retains the key
+  for( fd_value_meta_map_iter_t iter = fd_value_meta_map_iter_init( glob->value_metas );
+       !fd_value_meta_map_iter_done( glob->value_metas, iter );
+       iter = fd_value_meta_map_iter_next( glob->value_metas, iter ) ) {
+    fd_value_meta_t * ele = fd_value_meta_map_iter_ele( glob->value_metas, iter );
+    if ( ele->wallclock < value_expire) {
+      /* This value has expired, remove it from the value set and vector */
+      if( ele->value != NULL )
+        fd_value_vec_remove_ele( glob->values, ele->value ); /* Remove the old value from the vector */
+      fd_value_meta_map_remove( glob->value_metas, &ele->key ); /* Remove from the value set */
+    }
+  }
+  glob->metrics.value_map_cnt = fd_value_meta_map_key_cnt( glob->value_metas );
+  glob->metrics.value_vec_cnt = fd_value_vec_cnt( glob->values );
+}
+
 /* Start timed events and other protocol behavior */
 int
 fd_gossip_start( fd_gossip_t * glob ) {
   fd_gossip_lock( glob );
-  fd_gossip_add_pending( glob, fd_gossip_random_pull,         fd_pending_event_arg_null(), glob->now + (long) 1e9 );
-  fd_gossip_add_pending( glob, fd_gossip_random_ping,         fd_pending_event_arg_null(), glob->now + (long) 5e9 );
-  fd_gossip_add_pending( glob, fd_gossip_log_stats,           fd_pending_event_arg_null(), glob->now + (long)60e9 );
-  fd_gossip_add_pending( glob, fd_gossip_refresh_push_states, fd_pending_event_arg_null(), glob->now + (long)20e9 );
-  fd_gossip_add_pending( glob, fd_gossip_push,                fd_pending_event_arg_null(), glob->now + (long) 1e8 );
-  fd_gossip_add_pending( glob, fd_gossip_make_prune,          fd_pending_event_arg_null(), glob->now + (long)30e9 );
+  fd_gossip_add_pending( glob, fd_gossip_random_pull,         fd_pending_event_arg_null(), glob->now + (long)   1e9 );
+  fd_gossip_add_pending( glob, fd_gossip_random_ping,         fd_pending_event_arg_null(), glob->now + (long)   5e9 );
+  fd_gossip_add_pending( glob, fd_gossip_log_stats,           fd_pending_event_arg_null(), glob->now + (long)  60e9 );
+  fd_gossip_add_pending( glob, fd_gossip_refresh_push_states, fd_pending_event_arg_null(), glob->now + (long)  20e9 );
+  fd_gossip_add_pending( glob, fd_gossip_push,                fd_pending_event_arg_null(), glob->now + (long)   1e8 );
+  fd_gossip_add_pending( glob, fd_gossip_make_prune,          fd_pending_event_arg_null(), glob->now + (long)  30e9 );
+  fd_gossip_add_pending( glob, fd_gossip_cleanup_values,      fd_pending_event_arg_null(), glob->now + (long)3600e9 );
   fd_gossip_unlock( glob );
   return 0;
 }

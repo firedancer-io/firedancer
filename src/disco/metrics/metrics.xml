@@ -637,6 +637,9 @@ metric introduced.
     <gauge   name="PeerCounts"                                      enum="PeerTypes"            clickhouse_exclude="true" summary="Number of peers of each type" />
     <counter name="ShredVersionZero"                                                            clickhouse_exclude="true" summary="Shred version zero" />
 
+    <gauge   name="ValueMapSize"                                                                 clickhouse_exclude="true" summary="Current size of the CRDS value map" />
+    <gauge   name="ValueVecSize"                                                             clickhouse_exclude="true" summary="Current size of the CRDS value vector" />
+
     <counter name="ReceivedPackets"                                 clickhouse_exclude="true" summary="Number of all gossip packets received" />
     <counter name="CorruptedMessages"                               clickhouse_exclude="true" summary="Number of corrupted gossip messages received" />
     <counter name="ReceivedGossipMessages" enum="GossipMessage"     clickhouse_exclude="true" summary="Number of gossip messages received" />
