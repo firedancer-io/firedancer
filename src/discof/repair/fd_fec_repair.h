@@ -72,7 +72,7 @@ struct fd_fec_intra {
   uint   fec_set_idx; /* index of the first data shred */
   long   ts;          /* timestamp upon receiving the first shred */
   ulong  recv_cnt;    /* count of shreds received so far data + coding */
-  uint   data_cnt;    /* count of total data shreds in the FEC set */
+  ushort data_cnt;    /* count of total data shreds in the FEC set */
 
   fd_ed25519_sig_t sig; /* Ed25519 sig identifier of the FEC. */
 
@@ -320,7 +320,7 @@ fd_fec_repair_insert( fd_fec_repair_t * fec_repair,
   }
 
   if( FD_UNLIKELY( is_code ) ) {
-    fec->data_cnt = shred_idx_or_data_cnt;
+    fec->data_cnt = (ushort)shred_idx_or_data_cnt;
     fec->completes_idx = fec->data_cnt - 1;
   } else {
     uint shred_idx = shred_idx_or_data_cnt;

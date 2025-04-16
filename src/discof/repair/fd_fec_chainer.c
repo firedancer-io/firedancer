@@ -193,7 +193,7 @@ link_orphans( fd_fec_chainer_t * chainer ) {
     /* Verify the chained merkle root. */
 
     if ( FD_UNLIKELY( memcmp( ele->chained_merkle_root, parent->merkle_root, FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
-      fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .fec_set_idx = ele->fec_set_idx, .err = FD_FEC_CHAINER_ERR_MERKLE } );
+      fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
       continue;
     }
 
@@ -201,7 +201,7 @@ link_orphans( fd_fec_chainer_t * chainer ) {
        a new fork) and deliver to `out`. */
 
     fd_fec_frontier_ele_insert( chainer->frontier, ele, chainer->pool );
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .fec_set_idx = ele->fec_set_idx, .err = FD_FEC_CHAINER_SUCCESS } );
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
 
     /* Check whether any of ele's children are orphaned and can be
        chained into the frontier. */
@@ -232,7 +232,7 @@ fd_fec_ele_t *
 fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
                        ulong              slot,
                        uint               fec_set_idx,
-                       uint               data_cnt,
+                       ushort             data_cnt,
                        int                data_complete,
                        int                slot_complete,
                        ushort             parent_off,
@@ -241,7 +241,8 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   ulong key = slot << 32 | fec_set_idx;
 
   if( FD_UNLIKELY( fd_fec_chainer_query( chainer, slot, fec_set_idx ) ) ) {
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, fec_set_idx, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, parent_off, fec_set_idx, data_cnt, data_complete, slot_complete, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
+    __asm__("int $3");
     return NULL;
   }
 
@@ -315,5 +316,6 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
 
   link_orphans( chainer );
 
+  __asm__("int $3");
   return ele;
 }
