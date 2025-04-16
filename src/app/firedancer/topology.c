@@ -756,6 +756,7 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.bank_tile_count = config->layout.bank_tile_count;
       tile->replay.exec_tile_count = config->layout.exec_tile_count;
       strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
+      tile->replay.disable_bank_hash_cmp = config->tiles.replay.disable_bank_hash_cmp;
 
       /* not specified by [tiles.replay] */
 
