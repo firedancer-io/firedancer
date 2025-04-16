@@ -5,6 +5,10 @@
 #include "../shred/fd_shredder.h"
 #include "../shred/fd_shred_dest.h"
 #include "../shred/fd_fec_resolver.h"
+#include "../shred/fd_stake_ci.h"
+#include "../keyguard/fd_keyload.h"
+#include "../keyguard/fd_keyguard.h"
+#include "../keyguard/fd_keyswitch.h"
 #include "../fd_disco.h"
 #include "../../waltz/snp/fd_snp.h"
 
@@ -17,6 +21,8 @@
 #define IN_KIND_SHRED    (1UL)
 #define IN_KIND_GOSSIP   (2UL)
 #define IN_KIND_SIGN     (3UL)
+#define IN_KIND_CRDS     (4UL)
+#define IN_KIND_STAKE    (5UL)
 
 /* The order here depends on the order in which fd_topob_tile_out(...)
     are called inside topology.c (in the corresponding folder) */
@@ -31,9 +37,20 @@ typedef struct {
 
 typedef struct {
 
+  fd_pubkey_t      identity_key[1]; /* Just the public key */
+
   int              skip_frag;
   ulong            round_robin_id;
   ulong            round_robin_cnt;
+
+  fd_keyswitch_t * keyswitch;
+  /* TODO pending */
+  // fd_keyguard_client_t keyguard_client[1];
+
+  fd_stake_ci_t  * stake_ci;
+  /* These are used in between during_frag and after_frag */
+  fd_shred_dest_weighted_t * new_dest_ptr;
+  ulong                      new_dest_cnt;
 
   fd_snp_in_ctx_t  in[ 32 ];
   int              in_kind[ 32 ];
@@ -91,13 +108,61 @@ scratch_footprint( fd_topo_tile_t const * tile ) { /* TODO */
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snp_ctx_t), sizeof(fd_snp_ctx_t)        );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),   fd_stake_ci_footprint()     );
   l = FD_LAYOUT_APPEND( l, fd_snp_align(),        fd_snp_footprint( &limits ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static inline void
-during_housekeeping( fd_snp_ctx_t * ctx ) { /* TODO */
-  (void)ctx;
+during_housekeeping( fd_snp_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    /* TODO necessary? */
+    // ulong seq_must_complete = ctx->keyswitch->param;
+    fd_memcpy( ctx->identity_key->uc, ctx->keyswitch->bytes, 32UL );
+    fd_stake_ci_set_identity( ctx->stake_ci, ctx->identity_key );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
+static inline void
+handle_new_cluster_contact_info( fd_snp_ctx_t * ctx,
+                                 uchar const    * buf ) {
+
+  ulong const * header = (ulong const *)fd_type_pun_const( buf );
+
+  ulong dest_cnt = header[ 0 ];
+  fd_histf_sample( ctx->metrics->contact_info_cnt, dest_cnt );
+
+  if( dest_cnt >= MAX_SHRED_DESTS )
+    FD_LOG_ERR(( "Cluster nodes had %lu destinations, which was more than the max of %lu", dest_cnt, MAX_SHRED_DESTS ));
+
+  fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header+1UL );
+  fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( ctx->stake_ci );
+
+  ctx->new_dest_ptr = dests;
+  ctx->new_dest_cnt = dest_cnt;
+
+  // FD_LOG_NOTICE(( "[SNP] handle_new_cluster_contact_info, dest_cnt %lu", dest_cnt ));
+
+  // uchar empty[1] = { 0 };
+  for( ulong i=0UL; i<dest_cnt; i++ ) {
+    memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
+    dests[i].ip4  = in_dests[i].ip4_addr;
+    dests[i].port = in_dests[i].udp_port;
+
+    /* TODO pending implementation */
+    // establish connection
+    // uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+    // fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_V1_RAW, dests[i].ip4, dests[i].port );
+    // FD_LOG_NOTICE(( "[shred] fd_snp_app_send to %u:%u", dests[i].ip4, dests[i].port ));
+    // fd_snp_app_send( ctx->snp, packet, FD_NET_MTU, empty, 1UL, meta );
+  }
+}
+
+static inline void
+finalize_new_cluster_contact_info( fd_snp_ctx_t * ctx ) {
+  // FD_LOG_NOTICE(( "[SNP] finalize_new_cluster_contact_info" ));
+  fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
 }
 
 static inline void
@@ -118,6 +183,7 @@ before_frag( fd_snp_ctx_t * ctx,
   /* TODO: load balance using sig */
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) )    return 0;
   else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED; /* TODO change DST_PROTO_SHRED name? */
+  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CRDS ) ) return 0;
 
   return 0;
 }
@@ -152,6 +218,24 @@ during_frag( fd_snp_ctx_t * ctx,
     case IN_KIND_SIGN:
       /* Sign is a reliable channel, we can process new signatures here */
       break;
+
+    case IN_KIND_CRDS: {
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                    ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+      uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      handle_new_cluster_contact_info( ctx, dcache_entry );
+    } break;
+
+    case IN_KIND_STAKE: {
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                    ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+      uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
+    } break;
   }
 }
 
@@ -190,6 +274,14 @@ after_frag( fd_snp_ctx_t *      ctx,
     case IN_KIND_SIGN:
       /* Sign */
       break;
+
+    case IN_KIND_CRDS: {
+      finalize_new_cluster_contact_info( ctx );
+    }  break;
+
+    case IN_KIND_STAKE: {
+      fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+    }
   }
 }
 
@@ -240,7 +332,7 @@ snp_callback_rx( void const *  _ctx,
   //TODO: based on ... (port?) ... we should send it to the correct application, e.g. shred tile
 
   uchar * dst = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-  memcpy( dst, packet, packet_sz );  
+  memcpy( dst, packet, packet_sz );
   fd_mcache_publish( ctx->shred_out_mcache, ctx->shred_out_depth, ctx->shred_out_seq, sig, ctx->shred_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
   ctx->shred_out_seq   = fd_seq_inc( ctx->shred_out_seq, 1UL );
   ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, packet_sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
@@ -256,7 +348,11 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snp_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_snp_ctx_t ), sizeof( fd_snp_ctx_t ) );
-  (void) ctx;
+
+  if( FD_UNLIKELY( !strcmp( tile->snp.identity_key_path, "" ) ) )
+    FD_LOG_ERR(( "identity_key_path not set" ));
+
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->snp.identity_key_path, /* pubkey only: */ 1 ) );
 }
 
 static void
@@ -293,13 +389,19 @@ unprivileged_init( fd_topo_t *      topo,
     .conn_cnt = 8 // FIXME
   };
 
-  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_align(), fd_snp_footprint( &limits ) );
+  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()     );
+  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_align(),          fd_snp_footprint( &limits ) );
+
+  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );
 
   fd_snp_t * snp = fd_snp_join( fd_snp_new( _snp, &limits ) );
   snp->cb.ctx = ctx;
   snp->cb.rx = snp_callback_rx;
   snp->cb.tx = snp_callback_tx;
   ctx->snp = snp;
+
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
 
   ctx->net_id   = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->net_hdr, 0, 0, 8003 ); //FIXME: remove / configure by app
@@ -311,6 +413,10 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_LIKELY(      !strcmp( link->name, "shred_snp"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;    /* TODO name should be "net_snp", but that requires changes to src/disco/net/xdp/fd_xdp_tile.c(1193) */
     else if( FD_LIKELY( !strcmp( link->name, "net_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
+    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CRDS;  /* TODO reusing crds_shred */
+    else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
+    // else if( FD_LIKELY( !strcmp( link->name, "gossip_snp"  ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP; /* TODO pending implementation */
+    // else if( FD_LIKELY( !strcmp( link->name, "sign_snp"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN; /* TODO pending implementation */
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

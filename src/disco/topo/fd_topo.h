@@ -238,6 +238,7 @@ typedef struct {
 
     struct {
       ulong depth; /* TODO expand */
+      char identity_key_path[ PATH_MAX ];
     } snp;
 
     struct {
