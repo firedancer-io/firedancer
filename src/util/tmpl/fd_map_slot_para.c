@@ -66,9 +66,9 @@
    concurrency, high algorithmic and implementation performance for
    normal usage and friendly cache / file system streaming access
    patterns for heavily loaded / heavily concurrent usage are
-   prioritized.  In particular, unlike fd_map_para, this takes ownership
-   of the underlying element store for the lifetime of the map in order
-   to speed up operations and increase concurrency.
+   prioritized.  In particular, unlike fd_map_chain_para, this takes
+   ownership of the underlying element store for the lifetime of the map
+   in order to speed up operations and increase concurrency.
 
    Typical usage:
 
@@ -735,7 +735,7 @@
        ... will be to an element compatible memory region that will
        ... continue to exist regardless and we shouldn't be trusting any
        ... query reads yet (the query test will detect if these can be
-       ... trusted).  See rant in fd_map_para.c for more details.
+       ... trusted).  See rant in fd_map_chain_para.c for more details.
 
        ... At this point, we are done with speculative processing (or we
        ... don't want to do any more speculative processing if the try

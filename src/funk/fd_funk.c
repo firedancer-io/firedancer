@@ -204,7 +204,7 @@ fd_funk_delete( void * shfunk ) {
   /* Free all the records */
   fd_alloc_t * alloc = fd_funk_alloc( funk, wksp);
 
-  /* Thread-safe iteration as described in the documentation of fd_map_para.c */
+  /* Thread-safe iteration as described in the documentation of fd_map_chain_para.c */
   fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
   ulong lock_cnt               = fd_funk_rec_map_chain_cnt( &rec_map );
   ulong * lock_seq             = (ulong *)fd_alloc_malloc( alloc, alignof(ulong), sizeof(ulong) * lock_cnt );

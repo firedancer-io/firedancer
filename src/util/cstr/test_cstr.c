@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include <ctype.h>
 
 /* FIXME: COVERAGE FOR FD_CSTR_CASECMP, FD_CSTR_TO_ULONG_OCTAL,
    FD_CSTR_APPEND_PRINTF, FD_CSTR_APPEND_CSTR, FD_CSTR_APPEND_CSTR_SAFE,
@@ -253,10 +254,33 @@ main( int     argc,
     strcpy( buf2, "a; b c ;d" ); FD_TEST( fd_cstr_tokenize( tok, 1UL, buf2, ';' )==3UL ); FD_TEST( !strcmp( buf, buf2 ) ); FD_TEST( !strcmp( tok[0], "a" ) );
   } while(0);
 
+  for( ulong i=0UL; i<256UL; i++ ) {
+    char c = (char)i;
+
+    /* Note the compiler will warn (promoted to error) without the
+       volatile because it will detect the result of the macros is
+       always 0 or 1 (which is the whole point of the test). */
+
+    int volatile b;
+
+    b = fd_isalnum (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isalpha (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_iscntrl (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isdigit (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isgraph (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_islower (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isprint (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_ispunct (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isspace (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isupper (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isxdigit(c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isascii (c); FD_TEST( (0<=b) & (b<=1) );
+    b = fd_isblank (c); FD_TEST( (0<=b) & (b<=1) );
+  }
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-

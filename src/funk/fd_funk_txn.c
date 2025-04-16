@@ -19,7 +19,7 @@
 #define MAP_HASH              map_hash
 #define MAP_MAGIC             (0xf173da2ce7172db0UL) /* Firedancer txn db version 0 */
 #define MAP_IMPL_STYLE        2
-#include "../util/tmpl/fd_map_para.c"
+#include "../util/tmpl/fd_map_chain_para.c"
 
 /* TODO: remove this lock */
 #include "../flamenco/fd_rwlock.h"
