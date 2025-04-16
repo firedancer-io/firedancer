@@ -696,7 +696,7 @@ fd_log_private_hexdump_msg( char const * descr,
     FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", (uint)(uchar)c );
 
     /* If not a printable ASCII character, output a dot. */
-    line_buf[ col_idx     ] = fd_char_if( isalnum( (int)c ) | ispunct( (int)c ) | (c==' '), c, '.' );
+    line_buf[ col_idx     ] = fd_char_if( fd_isalnum( (int)c ) | fd_ispunct( (int)c ) | (c==' '), c, '.' );
     line_buf[ col_idx+1UL ] = '\0';
   }
 

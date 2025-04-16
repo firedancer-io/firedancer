@@ -20,7 +20,7 @@
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
 #define MAP_MEMOIZE           1
 #define MAP_IMPL_STYLE        2
-#include "../util/tmpl/fd_map_para.c"
+#include "../util/tmpl/fd_map_chain_para.c"
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
@@ -302,8 +302,6 @@ fd_funk_rec_clone( fd_funk_t *               funk,
     }
   }
 }
-
-
 
 int
 fd_funk_rec_is_full( fd_funk_t * funk ) {

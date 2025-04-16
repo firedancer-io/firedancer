@@ -457,22 +457,22 @@ fd_tile_private_cpus_parse( char const * cstr,
   char const * p = cstr;
   for(;;) {
 
-    while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
+    while( fd_isspace( (int)p[0] ) ) p++; /* Munch whitespace */
 
     if( p[0]=='f' ) { /* These tiles have been requested to float on the original core set */
       p++;
 
       ulong float_cnt;
 
-      while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
+      while( fd_isspace( (int)p[0] ) ) p++; /* Munch whitespace */
       if     ( p[0]==','             ) float_cnt = 1UL, p++;
       else if( p[0]=='\0'            ) float_cnt = 1UL;
-      else if( !isdigit( (int)p[0] ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (malformed count)" ));
+      else if( !fd_isdigit( (int)p[0] ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (malformed count)" ));
       else {
         float_cnt = fd_cstr_to_ulong( p );
         if( FD_UNLIKELY( !float_cnt ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad count)" ));
-        p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
-        while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
+        p++; while( fd_isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+        while( fd_isspace( (int)p[0] ) ) p++; /* Munch whitespace */
         if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad count delimiter)" ));
         if( p[0]==',' ) p++;
       }
@@ -486,31 +486,31 @@ fd_tile_private_cpus_parse( char const * cstr,
       continue;
     }
 
-    if( !isdigit( (int)p[0] ) ) {
+    if( !fd_isdigit( (int)p[0] ) ) {
       if( FD_UNLIKELY( p[0]!='\0' ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (range lo not a cpu)" ));
       break;
     }
     ulong cpu0   = fd_cstr_to_ulong( p );
     ulong cpu1   = cpu0;
     ulong stride = 1UL;
-    p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
-    while( isspace( (int)p[0] ) ) p++;
+    p++; while( fd_isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+    while( fd_isspace( (int)p[0] ) ) p++;
     if( p[0]=='-' ) {
       p++;
-      while( isspace( (int)p[0] ) ) p++;
-      if( FD_UNLIKELY( !isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (range hi not a cpu)" ));
+      while( fd_isspace( (int)p[0] ) ) p++;
+      if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (range hi not a cpu)" ));
       cpu1 = fd_cstr_to_ulong( p );
-      p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
-      while( isspace( (int)p[0] ) ) p++;
+      p++; while( fd_isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+      while( fd_isspace( (int)p[0] ) ) p++;
       if( p[0]=='/' || p[0]==':' ) {
         p++;
-        while( isspace( (int)p[0] ) ) p++;
-        if( FD_UNLIKELY( !isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (stride not an int)" ));
+        while( fd_isspace( (int)p[0] ) ) p++;
+        if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (stride not an int)" ));
         stride = fd_cstr_to_ulong( p );
-        p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+        p++; while( fd_isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
       }
     }
-    while( isspace( (int)p[0] ) ) p++;
+    while( fd_isspace( (int)p[0] ) ) p++;
     if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad range delimiter)" ));
     if( p[0]==',' ) p++;
     cpu1++;

@@ -414,4 +414,71 @@ fd_cstr_append_utf8( char * p,
 
 FD_PROTOTYPES_END
 
+/* The below macros guarantee the corresponding ctype.h functions return
+   a value strictly in [0,1].  These still need the caller to include
+   <ctype.h> to use.
+
+   For context, the vast majority of developers reasonably expect
+   ctype.h functions (like isspace) return 1/0 if the given character
+   is/is not in the tested class.
+
+   But the standard actually says these functions return non-zero/0.
+
+   Many common standard libraries exploit this ambiguity.  For example,
+   isspace('\n') returns 8192 on recent linux-gcc-x86_64.
+
+   In most usage, this subtle distinction does not make a difference.
+
+   That makes it worse.
+
+   When the distinction matters, it is incredibly difficult and time
+   consuming to debug.  Consider using ctype.h functions in user input
+   parsing to compute the case of a switch statement.  Suddenly,
+   seemingly innocous code run on seemingly innocous input generates a
+   branch to a mystifying place.  Hilarity ensues.
+
+   Worse still, this is a massive security risk.  Consider using ctype.h
+   in a mission critical VM implementation.  Strictly deterministic
+   verifiable cross platform behavior is a necessity.  Should a
+   malicious smart contract be able to halt a chain because the standard
+   absent mindedly gave isspace dubious flexibility on its return value?
+
+   That is, this behavior is absolutely vile.
+
+   This is an example of "implicitly specified behavior".  There is some
+   behavior that must followed bit-for-bit.  But nobody knows what that
+   behavior is because the standard was written poorly.  And then the
+   library implementation blindly followed the standard and ignored
+   developer usability in ambiguous situations.
+
+   This also violates the core UNIX principle (and generally good idea
+   in engineering or beyond) of "be generous in what you accept and
+   strict in what you produce".  Given the generally absymal language
+   handling of boolean values, the only practical way to handle
+   true/false reliably and efficiently is accept non-zero/0 but only
+   produce 1/0.  (And, since both sides have some responsibility in the
+   examples above, the library implementation is more at fault as it is
+   more foundational, more trusted and more reused.  Library code should
+   be held to a higher standard than code built on top of it.)
+
+   Any use of naked ctype.h functions should be considered harmful and
+   eradicated with extreme prejudice until the language and standard
+   library implementations get a clue (not holding my breath).
+
+   TL;DR ctype.h but sane. */
+
+#define fd_isalnum(c)  (!!isalnum((c)))
+#define fd_isalpha(c)  (!!isalpha((c)))
+#define fd_iscntrl(c)  (!!iscntrl((c)))
+#define fd_isdigit(c)  (!!isdigit((c)))
+#define fd_isgraph(c)  (!!isgraph((c)))
+#define fd_islower(c)  (!!islower((c)))
+#define fd_isprint(c)  (!!isprint((c)))
+#define fd_ispunct(c)  (!!ispunct((c)))
+#define fd_isspace(c)  (!!isspace((c)))
+#define fd_isupper(c)  (!!isupper((c)))
+#define fd_isxdigit(c) (!!isxdigit((c)))
+#define fd_isascii(c)  (!!isascii((c)))
+#define fd_isblank(c)  (!!isblank((c)))
+
 #endif /* HEADER_fd_src_cstr_fd_cstr_h */

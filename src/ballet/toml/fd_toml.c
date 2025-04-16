@@ -315,7 +315,7 @@ fd_toml_parse_escaped( fd_toml_parser_t * parser ) {
     return 1;
   case 'u':
     if( FD_UNLIKELY( fd_toml_avail( parser ) < 4UL ) ) return 0;
-    for( ulong j=0; j<4; j++ ) valid &= ( !!isxdigit( parser->c.data[j] ) );
+    for( ulong j=0; j<4; j++ ) valid &= fd_isxdigit( parser->c.data[j] );
     if( FD_UNLIKELY( !valid ) ) return 0;
     rune  = ( fd_toml_xdigit( parser->c.data[0] )<<12 );
     rune |= ( fd_toml_xdigit( parser->c.data[1] )<< 8 );
@@ -326,7 +326,7 @@ fd_toml_parse_escaped( fd_toml_parser_t * parser ) {
     return 1;
   case 'U':
     if( FD_UNLIKELY( fd_toml_avail( parser ) < 8UL ) ) return 0;
-    for( ulong j=0; j<8; j++ ) valid &= ( !!isxdigit( parser->c.data[j] ) );
+    for( ulong j=0; j<8; j++ ) valid &= fd_isxdigit( parser->c.data[j] );
     if( FD_UNLIKELY( !valid ) ) return 0;
     rune  = ( fd_toml_xdigit( parser->c.data[0] )<<28 );
     rune |= ( fd_toml_xdigit( parser->c.data[1] )<<24 );
@@ -971,8 +971,8 @@ fd_toml_parse_zero_prefixable_int( fd_toml_parser_t * parser,
     if( FD_UNLIKELY( allow_underscore && parser->c.data[0] == '_' ) ) {
       allow_underscore = 0;
       fd_toml_advance_inline( parser, 1UL );
-      if( FD_UNLIKELY( !fd_toml_avail( parser )      ) ) return 0;
-      if( FD_UNLIKELY( !isdigit( parser->c.data[0] ) ) ) return 0;
+      if( FD_UNLIKELY( !fd_toml_avail( parser )         ) ) return 0;
+      if( FD_UNLIKELY( !fd_isdigit( parser->c.data[0] ) ) ) return 0;
     } else {
       int digit = (uchar)parser->c.data[0];
       if( FD_UNLIKELY(
@@ -983,7 +983,7 @@ fd_toml_parse_zero_prefixable_int( fd_toml_parser_t * parser,
       }
       fd_toml_advance_inline( parser, 1UL );
       if( !fd_toml_avail( parser ) ) break;
-      if( !isdigit( parser->c.data[0] ) && parser->c.data[0] != '_' ) break;
+      if( !fd_isdigit( parser->c.data[0] ) && parser->c.data[0] != '_' ) break;
       allow_underscore = 1;
     }
   }
@@ -1041,10 +1041,10 @@ fd_toml_parse_dec_int( fd_toml_parser_t * parser ) {
 
 static int
 fd_toml_parse_hex_int( fd_toml_parser_t * parser ) {
-  if( FD_UNLIKELY( fd_toml_avail( parser ) < 3    ) ) return 0;
-  if( FD_UNLIKELY( parser->c.data[0] != '0'       ) ) return 0;
-  if( FD_UNLIKELY( parser->c.data[1] != 'x'       ) ) return 0;
-  if( FD_UNLIKELY( !isxdigit( parser->c.data[2] ) ) ) return 0;  /* at least one digit */
+  if( FD_UNLIKELY( fd_toml_avail( parser ) < 3       ) ) return 0;
+  if( FD_UNLIKELY( parser->c.data[0] != '0'          ) ) return 0;
+  if( FD_UNLIKELY( parser->c.data[1] != 'x'          ) ) return 0;
+  if( FD_UNLIKELY( !fd_isxdigit( parser->c.data[2] ) ) ) return 0;  /* at least one digit */
   fd_toml_advance_inline( parser, 2UL );
 
   ulong res = 0UL;
@@ -1054,10 +1054,10 @@ fd_toml_parse_hex_int( fd_toml_parser_t * parser ) {
     if( FD_UNLIKELY( allow_underscore && digit == '_' ) ) {
       allow_underscore = 0;
       fd_toml_advance_inline( parser, 1UL );
-      if( FD_UNLIKELY( !fd_toml_avail( parser )       ) ) return 0;
-      if( FD_UNLIKELY( !isxdigit( parser->c.data[0] ) ) ) return 0;
+      if( FD_UNLIKELY( !fd_toml_avail( parser )          ) ) return 0;
+      if( FD_UNLIKELY( !fd_isxdigit( parser->c.data[0] ) ) ) return 0;
     } else {
-      if( !isxdigit( digit ) ) break;
+      if( !fd_isxdigit( digit ) ) break;
       if( FD_UNLIKELY( res>>60 ) ) {
         parser->error = FD_TOML_ERR_RANGE;
         return 0;
@@ -1319,16 +1319,16 @@ fd_toml_parse_full_date( fd_toml_parser_t * parser,
                          struct tm *        time ) {
   if( FD_UNLIKELY( fd_toml_avail( parser ) < 10 ) ) return 0;
 
-  if( ( !isdigit( parser->c.data[0] ) )      |
-      ( !isdigit( parser->c.data[1] ) )      |
-      ( !isdigit( parser->c.data[2] ) )      |
-      ( !isdigit( parser->c.data[3] ) )      |
-                ( parser->c.data[4] != '-' ) |
-      ( !isdigit( parser->c.data[5] ) )      |
-      ( !isdigit( parser->c.data[6] ) )      |
-                ( parser->c.data[7] != '-' ) |
-      ( !isdigit( parser->c.data[8] ) ) |
-      ( !isdigit( parser->c.data[9] ) ) ) {
+  if( ( !fd_isdigit( parser->c.data[0] ) )      |
+      ( !fd_isdigit( parser->c.data[1] ) )      |
+      ( !fd_isdigit( parser->c.data[2] ) )      |
+      ( !fd_isdigit( parser->c.data[3] ) )      |
+                   ( parser->c.data[4] != '-' ) |
+      ( !fd_isdigit( parser->c.data[5] ) )      |
+      ( !fd_isdigit( parser->c.data[6] ) )      |
+                   ( parser->c.data[7] != '-' ) |
+      ( !fd_isdigit( parser->c.data[8] ) ) |
+      ( !fd_isdigit( parser->c.data[9] ) ) ) {
     return 0;
   }
 
@@ -1362,9 +1362,9 @@ fd_toml_parse_time_delim( fd_toml_parser_t * parser ) {
 static int
 fd_toml_parse_time_secfrac( fd_toml_parser_t * parser,
                             ulong *            pnanos ) {
-  if( fd_toml_avail( parser ) < 2                  ) return 0;
-  if( parser->c.data[0] != '.'                     ) return 0;
-  if( FD_UNLIKELY( !isdigit( parser->c.data[1] ) ) ) return 0;
+  if( fd_toml_avail( parser ) < 2                     ) return 0;
+  if( parser->c.data[0] != '.'                        ) return 0;
+  if( FD_UNLIKELY( !fd_isdigit( parser->c.data[1] ) ) ) return 0;
   fd_toml_advance_inline( parser, 1UL );
 
   ulong secfrac = 0UL;
@@ -1374,7 +1374,7 @@ fd_toml_parse_time_secfrac( fd_toml_parser_t * parser,
     secfrac = secfrac * 10UL + (ulong)( digit - '0' );
     fd_toml_advance_inline( parser, 1UL );
     len++;
-  } while( fd_toml_avail( parser ) && isdigit( parser->c.data[0] ) );
+  } while( fd_toml_avail( parser ) && fd_isdigit( parser->c.data[0] ) );
   if( FD_UNLIKELY( len > 9 ) ) {
     FD_LOG_WARNING(( "TOML parse error: invalid time fraction format" ));
     return 0;
@@ -1395,14 +1395,14 @@ fd_toml_parse_partial_time( fd_toml_parser_t * parser,
                             ulong *            pnanos ) {
 
   if( FD_UNLIKELY( fd_toml_avail( parser ) < 8 ) ) return 0;
-  if( ( !isdigit( parser->c.data[0] ) )      |
-      ( !isdigit( parser->c.data[1] ) )      |
-                ( parser->c.data[2] != ':' ) |
-      ( !isdigit( parser->c.data[3] ) )      |
-      ( !isdigit( parser->c.data[4] ) )      |
-                ( parser->c.data[5] != ':' ) |
-      ( !isdigit( parser->c.data[6] ) )      |
-      ( !isdigit( parser->c.data[7] ) ) ) {
+  if( ( !fd_isdigit( parser->c.data[0] ) )      |
+      ( !fd_isdigit( parser->c.data[1] ) )      |
+                   ( parser->c.data[2] != ':' ) |
+      ( !fd_isdigit( parser->c.data[3] ) )      |
+      ( !fd_isdigit( parser->c.data[4] ) )      |
+                   ( parser->c.data[5] != ':' ) |
+      ( !fd_isdigit( parser->c.data[6] ) )      |
+      ( !fd_isdigit( parser->c.data[7] ) ) ) {
     return 0;
   }
 
@@ -1446,11 +1446,11 @@ fd_toml_parse_time_numoffset( fd_toml_parser_t * parser,
   fd_toml_advance_inline( parser, 1UL );
 
   if( FD_UNLIKELY( fd_toml_avail( parser ) < 5   ) ) return 0;
-  if( ( !isdigit( parser->c.data[0] ) ) |
-      ( !isdigit( parser->c.data[1] ) ) |
-                ( parser->c.data[2] != ':' ) |
-      ( !isdigit( parser->c.data[3] ) ) |
-      ( !isdigit( parser->c.data[4] ) ) ) {
+  if( ( !fd_isdigit( parser->c.data[0] ) ) |
+      ( !fd_isdigit( parser->c.data[1] ) ) |
+                   ( parser->c.data[2] != ':' ) |
+      ( !fd_isdigit( parser->c.data[3] ) ) |
+      ( !fd_isdigit( parser->c.data[4] ) ) ) {
     FD_LOG_WARNING(( "TOML parse error: invalid time offset format" ));
     return 0;
   }
@@ -1768,7 +1768,6 @@ fd_toml_parse( void const *         toml,
     .scratch_cur = scratch,
     .scratch_end = scratch + scratch_sz
   }};
-
 
   int ok = fd_toml_parse_toml( parser );
   opt_err->line = parser->c.lineno;

@@ -172,7 +172,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   /* The funk transaction map stores the details about transactions
      in preparation and their relationships to each other.  This is a
-     fd_map_para/fd_pool_para and more details are given in fd_funk_txn.h
+     fd_map_chain_para/fd_pool_para and more details are given in
+     fd_funk_txn.h
 
      txn_max is the maximum number of transactions that can be in
      preparation.  Due to the use of compressed map indices to reduce
@@ -223,7 +224,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   /* The funk record map stores the details about all the records in
      the funk, including all those in the last published transaction and
      all those getting updated in an in-preparation translation.  This
-     is a fd_map_para/fd_pool_para and more details are given in fd_funk_rec.h
+     is a fd_map_chain_para/fd_pool_para and more details are given in
+     fd_funk_rec.h
 
      rec_max is the maximum number of records that can exist in this
      funk.

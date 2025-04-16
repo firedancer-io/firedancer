@@ -69,7 +69,6 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
                       has tag wksp_tag) and the owner of the region will be the record. The allocator is
                       fd_funk_alloc(). IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
-
   /* Padding to FD_FUNK_REC_ALIGN here */
 };
 
@@ -103,7 +102,7 @@ FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is 
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
 #define MAP_MEMOIZE           1
 #define MAP_IMPL_STYLE        1
-#include "../util/tmpl/fd_map_para.c"
+#include "../util/tmpl/fd_map_chain_para.c"
 #undef  MAP_MEMOIZE
 #undef  MAP_HASH
 
@@ -312,7 +311,6 @@ void
 fd_funk_rec_hard_remove( fd_funk_t *               funk,
                          fd_funk_txn_t *           txn,
                          fd_funk_rec_key_t const * key );
-
 
 /* When a record is erased there is metadata stored in the five most
    significant bytes of record flags.  These are helpers to make setting

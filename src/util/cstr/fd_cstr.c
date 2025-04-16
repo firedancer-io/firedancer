@@ -39,7 +39,7 @@ fd_cstr_to_ulong_seq( char const * cstr,
     char   c;
     char * q;
 
-    c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+    c = *p; while( fd_isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
     if( c=='\0' ) break; /* end of sequence */
 
     ulong seq_ele_0 = strtoul( p, &q, 0 );
@@ -49,7 +49,7 @@ fd_cstr_to_ulong_seq( char const * cstr,
     ulong seq_ele_1  = seq_ele_0;
     ulong seq_stride = 1UL;
 
-    c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+    c = *p; while( fd_isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
     if( c=='-' ) {
       p++;
 
@@ -57,7 +57,7 @@ fd_cstr_to_ulong_seq( char const * cstr,
       if( FD_UNLIKELY( p==(char const *)q ) ) return 0UL; /* Malformed sequence, seq_ele_1 is not a ulong */
       p = (char const *)q;
 
-      c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+      c = *p; while( fd_isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
       if( c=='/' || c==':' ) {
         p++;
 
@@ -67,7 +67,7 @@ fd_cstr_to_ulong_seq( char const * cstr,
       }
     }
 
-    c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+    c = *p; while( fd_isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
     if( !(c==',' || c=='\0' ) ) return 0UL; /* Malformed sequence, delimiter */
     if( c==',' ) p++;
 
@@ -76,7 +76,6 @@ fd_cstr_to_ulong_seq( char const * cstr,
        near or equal to ULONG_MAX */
 
     if( FD_UNLIKELY( (seq_ele_1<seq_ele_0) | (!seq_stride) )) return 0UL; /* Malformed sequence, bad range */
-
 
     ulong seq_ele = seq_ele_0;
     while( ((seq_ele_0<=seq_ele) & (seq_ele<seq_ele_1)) ) {
@@ -165,7 +164,7 @@ fd_cstr_tokenize( char ** tok,
   for(;;) {
 
     /* Find token start and record it (if possible) */
-    while( isspace( (int)p[0] ) ) p++;
+    while( fd_isspace( (int)p[0] ) ) p++;
     if( p[0]=='\0' ) break;
     if( tok_cnt<tok_max ) tok[ tok_cnt ] = p;
     tok_cnt++;
@@ -179,4 +178,3 @@ fd_cstr_tokenize( char ** tok,
 
   return tok_cnt;
 }
-
