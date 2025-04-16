@@ -15,7 +15,7 @@
 
       HARNESS-SPECIFIC FILTERS:
         Instructions:
-            --dump-instr-to-pb <0/1>
+            --dump-insn-to-pb <0/1>
                 * If enabled, instructions will be dumped to the specified output directory
                 * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin", where instruction_idx is 1-indexed
                 * Each file represents a single instruction as a serialized InstrContext Protobuf message
@@ -47,7 +47,7 @@
 #include "../info/fd_instr_info.h"
 #include "../info/fd_runtime_block_info.h"
 #include "../../vm/fd_vm.h"
-#include "generated/block.pb.h"
+#include "harness/generated/block.pb.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -76,10 +76,11 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
    fail / segfault when dumping the last block of a partitioned epoch rewards distribution run. This will be fixed once the
    lifetime of the partitions can exist beyond the rewards distribution period so that we don't have to push and pop
    spad frames in disjoint sections of the runtime. */
-void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
-                                fd_capture_ctx_t const *       capture_ctx,
-                                fd_spad_t *                    spad,
-                                fd_exec_test_block_context_t * block_context_msg /* output */ );
+void
+fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
+                           fd_capture_ctx_t const *       capture_ctx,
+                           fd_spad_t *                    spad,
+                           fd_exec_test_block_context_t * block_context_msg /* output */ );
 
 void
 fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,

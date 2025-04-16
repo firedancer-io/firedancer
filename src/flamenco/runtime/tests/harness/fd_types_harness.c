@@ -1,5 +1,5 @@
-#include "fd_types_test.h"
-#include "../../types/fd_type_names.c"
+#include "fd_types_harness.h"
+#include "../../../types/fd_type_names.c"
 
 static int
 fd_flamenco_type_lookup( char const *       type,
@@ -186,11 +186,11 @@ custom_serializer_walk( void *       _self,
 }
 
 int
-sol_compat_decode_type( fd_spad_t *   spad,
-                        uchar const * input,
-                        ulong         input_sz,
-                        uchar *       output,
-                        ulong *       output_sz ) {
+fd_runtime_fuzz_decode_type_run( fd_spad_t *   spad,
+                                 uchar const * input,
+                                 ulong         input_sz,
+                                 uchar *       output,
+                                 ulong *       output_sz ) {
 
   char const * type_name = fd_type_names[input[0] % FD_TYPE_NAME_COUNT];
 

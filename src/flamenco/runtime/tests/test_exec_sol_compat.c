@@ -1,6 +1,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fd_flamenco.h"
-#include "fd_exec_sol_compat.h"
+#include "harness/fd_exec_sol_compat.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -11,8 +11,8 @@
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
 static int
-run_test( fd_exec_instr_test_runner_t * runner,
-          char const *                  path ) {
+run_test( fd_runtime_fuzz_runner_t * runner,
+          char const *               path ) {
 
   /* Read file content to memory */
 
@@ -69,7 +69,7 @@ main( int     argc,
   for( int j=1; j<argc; j++ ) {
 
     // Init runner
-    fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+    fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
     ulong frames_used_pre_test = runner->spad->frame_free;
     ulong mem_used_pre_test    = runner->spad->mem_used;
