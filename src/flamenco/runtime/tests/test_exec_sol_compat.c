@@ -1,5 +1,4 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
-#include "../../fd_flamenco_base.h"
 #include "../../fd_flamenco.h"
 #include "fd_exec_sol_compat.h"
 #include <errno.h>
@@ -7,7 +6,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "../../nanopb/pb_firedancer.h"
+#include "../../../ballet/nanopb/pb_firedancer.h"
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */

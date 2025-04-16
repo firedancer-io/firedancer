@@ -1,23 +1,22 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include "fd_exec_sol_compat.h"
-#include "../../nanopb/pb_encode.h"
-#include "../../nanopb/pb_decode.h"
+#include "../../../ballet/nanopb/pb_encode.h"
+#include "../../../ballet/nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
-#include <assert.h>
-#include <stdlib.h>
-#include "../../vm/fd_vm.h"
 #include "fd_vm_test.h"
 #include "fd_pack_test.h"
+#include "fd_types_test.h"
 #include "../../features/fd_features.h"
 #include "../fd_executor_err.h"
 #include "../../fd_flamenco.h"
 #include "../../../ballet/shred/fd_shred.h"
-#include "../fd_acc_mgr.h"
-#include "fd_types_test.h"
+
+#include <assert.h>
+#include <stdlib.h>
 
 /* FIXME: Spad isn't properly sized out or cleaned up */
 

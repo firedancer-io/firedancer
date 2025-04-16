@@ -4,7 +4,7 @@
 #ifndef PB_ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_INCLUDED
 #define PB_ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_INCLUDED
 
-#include "../../../nanopb/pb_firedancer.h"
+#include "../../../../ballet/nanopb/pb_firedancer.h"
 #include "context.pb.h"
 #include "txn.pb.h"
 #include "metadata.pb.h"

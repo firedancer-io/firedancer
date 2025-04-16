@@ -44,27 +44,9 @@
             * Allows execution result(s) comparison between Firedancer and Solana / Agave
             * See solana-conformance/README.md for functionality and use cases */
 
-#include <unistd.h>
-#include <sys/mman.h>
-#include <errno.h>
-
-#include "../../fd_flamenco.h"
-#include "../../fd_flamenco_base.h"
-#include "../fd_system_ids.h"
-#include "../fd_runtime.h"
-#include "../fd_executor.h"
-#include "../fd_hashes.h"
+#include "../info/fd_instr_info.h"
+#include "../info/fd_runtime_block_info.h"
 #include "../../vm/fd_vm.h"
-#include "../../../util/log/fd_log.h"
-#include "../program/fd_address_lookup_table_program.h"
-#include "../program/fd_bpf_loader_program.h"
-
-#include "../../nanopb/pb_encode.h"
-#include "../../nanopb/pb_decode.h"
-#include "generated/elf.pb.h"
-#include "generated/invoke.pb.h"
-#include "generated/txn.pb.h"
-#include "generated/vm.pb.h"
 #include "generated/block.pb.h"
 
 FD_PROTOTYPES_BEGIN

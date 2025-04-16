@@ -3,10 +3,9 @@
 #include "fd_solcap_reader.h"
 #include "fd_solcap.pb.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../runtime/fd_runtime.h"
 #include "../types/fd_types.h"
 #include "../types/fd_types_yaml.h"
-#include "../nanopb/pb_decode.h"
+#include "../../ballet/nanopb/pb_decode.h"
 
 #include <errno.h>
 #include <stdio.h>
