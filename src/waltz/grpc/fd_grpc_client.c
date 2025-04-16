@@ -81,6 +81,8 @@ fd_grpc_client_delete( fd_grpc_client_t * client ) {
   return client;
 }
 
+#if FD_HAS_OPENSSL
+
 static int
 fd_ossl_log_error( char const * str,
                    ulong        len,
@@ -89,8 +91,6 @@ fd_ossl_log_error( char const * str,
   FD_LOG_WARNING(( "%.*s", (int)len, str ));
   return 0;
 }
-
-#if FD_HAS_OPENSSL
 
 int
 fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,

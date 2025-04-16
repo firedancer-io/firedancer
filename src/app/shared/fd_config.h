@@ -300,6 +300,11 @@ struct fd_config {
     } bench;
 
     struct {
+      char ssl_key_log_file[ PATH_MAX ];
+      uint buffer_size_kib;
+    } bundle;
+
+    struct {
       char affinity[ AFFINITY_SZ ];
       char fake_dst_ip[ 16 ];
     } pktgen;

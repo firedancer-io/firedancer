@@ -1,0 +1,41 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+unsigned int logfile_fd
+
+# bundle: Read from TCP connection.
+read
+
+# bundle: Write to TCP connection.
+#
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all
+# messages are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# bundle: TCP connection to the bundle server needs to be established.
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM|SOCK_CLOEXEC")
+             (eq (arg 2) "IPPROTO_TCP"))
+connect
+
+# bundle: TCP connection is closed if there is an error, and a new one
+#         is reopened
+shutdown: (eq (arg 1) "SHUT_WR")
+close
+
+# bundle: Make TCP connection non-blocking
+fcntl: (and (eq (arg 1) "F_SETFL")
+            (eq (arg 2) "O_NONBLOCK"))
+
+# bundle: Wait for TCP connection to be established
+poll: (and (eq (arg 1) 1)
+           (eq (arg 2) 0))
