@@ -42,8 +42,10 @@ fd_flamenco_type_lookup( char const *       type,
      ( t->walk_fun == NULL ) ||
      ( t->encode_fun == NULL ) ||
      ( t->destroy_fun == NULL ) ||
-     ( t->size_fun == NULL ))
+     ( t->size_fun == NULL )) {
+    FD_LOG_WARNING(( "Could not find all functions for type %s", type ));
     return -1;
+  }
   return 0;
 }
 
@@ -192,59 +194,133 @@ sol_compat_decode_type( fd_spad_t *   spad,
                         uchar *       output,
                         ulong *       output_sz ) {
 
-  char const * type_name = fd_type_names[input[0] % FD_TYPE_NAME_COUNT];
+  FD_SPAD_FRAME_BEGIN( spad ) {
+    if( input_sz < 1 ) {
+      *output_sz = 0;
+      return 0;
+    }
 
-  fd_types_funcs_t type_meta;
-  if( fd_flamenco_type_lookup( type_name, &type_meta ) != 0 ) {
-    fprintf(stderr,  "Failed to lookup type %s (%d)", type_name, input[0]);
-    FD_LOG_ERR (( "Failed to lookup type %s", type_name ));
-  }
+    // First byte is the type ID
+    uchar type_id = input[0];
+    if (type_id >= FD_TYPE_NAME_COUNT) {
+      FD_LOG_WARNING(( "Invalid type ID: %d", type_id ));
+      *output_sz = 0;
+      return 0;
+    }
 
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = input + 1,
-    .dataend = (void *) ( (ulong) input + input_sz ),
-  };
+    // Get the type name from the type ID
+    char const * type_name = fd_type_names[type_id];
 
-  ulong total_sz = 0UL;
-  int   err      = type_meta.decode_footprint_fun( &decode_ctx, &total_sz );
-  __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
+    // Look up the type functions
+    fd_types_funcs_t type_meta;
+    if( fd_flamenco_type_lookup( type_name, &type_meta ) == -1 ) {
+      FD_LOG_ERR(( "Failed to lookup type %s (%d)", type_name, type_id ));
+      *output_sz = 0;
+      return 0;
+    }
 
-  if (err != FD_BINCODE_SUCCESS) {
-    return 0;
-  }
+    // Set up decode context
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = input + 1,
+      .dataend = (void *)( (ulong)input + input_sz ),
+    };
 
-  void * decoded = fd_spad_alloc( spad, 1UL, total_sz );
-  FD_TEST( total_sz <= fd_spad_alloc_max( spad, 1UL ) );
-  type_meta.decode_fun( decoded, &decode_ctx );
+    // Get the size needed for the decoded object
+    ulong total_sz = 0UL;
+    int err = type_meta.decode_footprint_fun( &decode_ctx, &total_sz );
+    if( err != FD_BINCODE_SUCCESS ) {
+      *output_sz = 0;
+      return 0;
+    }
 
-  // Serialize the memory representation
-  ulong rem_sz = *output_sz - sizeof(ulong);
-  FILE * file = fmemopen( output+sizeof(ulong), rem_sz, "w" );
-  CustomerSerializer serializer = {
-    .file = file,
-  };
+    // Allocate memory for the decoded object
+    void * decoded = fd_spad_alloc( spad, 1UL, total_sz );
+    if( !decoded ) {
+      *output_sz = 0;
+      return 0;
+    }
 
-  type_meta.walk_fun( &serializer, decoded, custom_serializer_walk, type_name, 0 );
-  FD_TEST( 0==ferror( file ) );
-  long serialized_sz = ftell(  file );
-  FD_TEST( 0==fclose( file ) );
+    // Decode the object
+    void* result = type_meta.decode_fun(decoded, &decode_ctx);
+    if (result == NULL) {
+      *output_sz = 0;
+      return 0;
+    }
 
-  *(ulong *)output = (ulong)serialized_sz;
-  rem_sz -= (ulong) serialized_sz;
+    // Output buffer structure:
+    // - serialized_sz (ulong)
+    // - serialized data (bytes)
+    // - yaml data (bytes)
 
-  // YAML for debugging
-  file = fmemopen( output + sizeof(ulong) + serialized_sz, rem_sz, "w" );
+    uchar * output_ptr = output;
+    ulong remaining_sz = *output_sz;
 
-  void * yaml_mem = fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
-  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
+    // Skip serialized_sz for now (we'll write it after serialization)
+    uchar * serialized_sz_ptr = output_ptr;
+    output_ptr += sizeof(ulong);
+    remaining_sz -= sizeof(ulong);
 
-  type_meta.walk_fun( yaml, decoded, fd_flamenco_yaml_walk, type_name, 0 );
-  FD_TEST( 0==ferror( file ) );
-  long yaml_sz = ftell(  file );
-  FD_TEST( yaml_sz>0 );
-  FD_TEST( 0==fclose( file ) );
+    // Serialize the memory representation
+    uchar * serialized_data_ptr = output_ptr;
+    FILE * file = fmemopen( serialized_data_ptr, remaining_sz, "w" );
+    if( !file ) {
+      *output_sz = 0;
+      return 0;
+    }
 
-  *output_sz = sizeof(ulong) + (ulong) serialized_sz + (ulong) yaml_sz;
+    CustomerSerializer serializer = {
+      .file = file,
+    };
 
-  return 1;
+    // Walk the decoded object and serialize it
+    type_meta.walk_fun( &serializer, decoded, custom_serializer_walk, type_name, 0 );
+    if( ferror( file ) ) {
+      fclose( file );
+      *output_sz = 0;
+      return 0;
+    }
+
+    long serialized_sz = ftell( file );
+    fclose( file );
+
+    // Write serialized_sz
+    *(ulong *)serialized_sz_ptr = (ulong)serialized_sz;
+
+    // Update output_ptr and remaining_sz
+    output_ptr += serialized_sz;
+    remaining_sz -= (ulong)serialized_sz;
+
+    // Generate YAML representation
+    uchar * yaml_data_ptr = output_ptr;
+    file = fmemopen( yaml_data_ptr, remaining_sz, "w" );
+    if( !file ) {
+      *output_sz = 0;
+      return 0;
+    }
+
+    void * yaml_mem = fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
+    fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
+
+    // Walk the decoded object and generate YAML
+    type_meta.walk_fun( yaml, decoded, fd_flamenco_yaml_walk, type_name, 0 );
+    if( ferror( file ) ) {
+      fclose( file );
+      *output_sz = 0;
+      return 0;
+    }
+
+    long yaml_sz = ftell( file );
+    fclose( file );
+
+    // Update output_ptr and remaining_sz
+    output_ptr += yaml_sz;
+    remaining_sz -= (ulong)yaml_sz;
+
+    // Calculate total size
+    *output_sz = (ulong)(output_ptr - output);
+    return 1;
+  } FD_SPAD_FRAME_END;
+
+  *output_sz = 0;
+  return 0;
 }

@@ -1,8 +1,9 @@
-
-#include "generated/invoke.pb.h"
+#include "fd_types_test.h"
 #undef FD_SPAD_USE_HANDHOLDING
 #define FD_SPAD_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
+#include "generated/invoke.pb.h"
+#include "generated/type.pb.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../fd_hashes.h"
@@ -2261,4 +2262,89 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       }
     }
     return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+ulong
+fd_exec_type_test_run( fd_exec_instr_test_runner_t * runner,
+                       void const *                  input_,
+                       void **                       output_,
+                       void *                        output_buf,
+                       ulong                         output_bufsz ) {
+  fd_exec_test_type_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_type_effects_t **      output = fd_type_pun( output_ );
+
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT(l, output_buf);
+
+  fd_exec_test_type_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_exec_test_type_effects_t),
+                            sizeof(fd_exec_test_type_effects_t));
+  if (FD_UNLIKELY(_l > output_end)) {
+    return 0UL;
+  }
+
+  if( input == NULL || input->content == NULL ) {
+    return 0UL;
+  }
+
+  if(input->content->size == 0) {
+    return 0UL;
+  }
+
+  // Initialize effects
+  effects->result = 0;
+  effects->representation = NULL;
+  effects->yaml = NULL;
+
+  // Decode the type
+  ulong max_content_size = output_bufsz - (_l - (ulong)output_buf);
+  uchar* temp_buffer = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), max_content_size);
+  if (FD_UNLIKELY(_l > output_end)) {
+    return 0UL;
+  }
+
+  ulong decoded_sz = max_content_size;
+  int success = sol_compat_decode_type(
+    runner->spad,
+    input->content->bytes,
+    input->content->size,
+    temp_buffer,
+    &decoded_sz);
+
+  if (!success || decoded_sz == 0) {
+    effects->result = 0;
+  } else {
+    effects->result = 1;
+
+    // The decoded data contains:
+    // - serialized_sz (ulong)
+    // - serialized data (bytes)
+    // - yaml data (bytes)
+
+    // Extract serialized_sz
+    ulong serialized_sz = *(ulong*)temp_buffer;
+
+    // Allocate and copy the representation (serialized data)
+    effects->representation = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
+                                                    PB_BYTES_ARRAY_T_ALLOCSIZE(serialized_sz));
+    if (FD_UNLIKELY(_l > output_end)) {
+      return 0UL;
+    }
+    effects->representation->size = (pb_size_t)serialized_sz;
+    fd_memcpy(effects->representation->bytes, temp_buffer + sizeof(ulong), serialized_sz);
+
+    // Allocate and copy the yaml data
+    ulong yaml_sz = decoded_sz - sizeof(ulong) - serialized_sz;
+    effects->yaml = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
+                                          PB_BYTES_ARRAY_T_ALLOCSIZE(yaml_sz));
+    if (FD_UNLIKELY(_l > output_end)) {
+      return 0UL;
+    }
+    effects->yaml->size = (pb_size_t)yaml_sz;
+    fd_memcpy(effects->yaml->bytes, temp_buffer + sizeof(ulong) + serialized_sz, yaml_sz);
+  }
+
+  ulong actual_end = FD_SCRATCH_ALLOC_FINI(l, 1UL);
+  *output = effects;
+  return actual_end - (ulong)output_buf;
 }
