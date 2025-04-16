@@ -43,7 +43,7 @@
 
 /* SNP_SESSION_ID_SZ is the byte size of the session ID. */
 
-#define SNP_SESSION_ID_SZ (7UL)
+#define SNP_SESSION_ID_SZ (8UL)
 
 /* SNP_COOKIE_SZ is the cookie byte size used in the handshake
    mechanism.  (Handshake cookies are analogous to TCP SYN cookies). */
@@ -87,7 +87,7 @@ typedef struct fd_snp_payload fd_snp_payload_t;
 /* snp_hdr_t is the common SNP header shared by all packets. */
 
 struct __attribute__((packed)) snp_hdr {
-  uchar version_type;
+  uint  version_type;
   uchar session_id[ SNP_SESSION_ID_SZ ];
 };
 
@@ -123,10 +123,13 @@ snp_hdr_type( snp_hdr_t const * hdr ) {
 /* snp_hdr_version_type assembles the version_type compound field. */
 
 __attribute__((const))
-static inline uchar
+static inline uint
 snp_hdr_version_type( unsigned int version,
                       unsigned int type ) {
-  return (uchar)( ( version << 4 ) | ( type & 0x0F ) );
+  return (uchar)( ( version << 4 ) | ( type & 0x0F ) )
+    | (uint)'S' << 8
+    | (uint)'O' << 16
+    | (uint)'L' << 24;
 }
 
 /* seq_{compress,expand} compress 64-bit sequence numbers to 32-bit

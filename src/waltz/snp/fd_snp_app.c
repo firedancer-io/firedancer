@@ -36,28 +36,33 @@ fd_snp_app_join( void * shsnp ) {
   return (fd_snp_app_t *)(shsnp);
 }
 
-fd_snp_meta_t
-fd_snp_app_into_meta( ulong  snp_proto,
-                      uint   ip4,
-                      ushort port ) {
-  return ( snp_proto )
-    | (( (ulong) port ) << 32 )
-    | (( (ulong) ip4  )       );
-}
-
 int
 fd_snp_app_recv( fd_snp_app_t const * ctx,          /* snp_app context */
                  uchar const *        packet,       /* input packet */
                  ulong                packet_sz,    /* size of input packet */
                  fd_snp_meta_t        meta ) {      /* connection metadata */
-  // FIXME: extract meta and peer info from packet
+  uchar const * data = NULL;
+  ulong data_sz = 0UL;
+
+  ulong proto = meta & FD_SNP_META_PROTO_MASK;
+  switch( proto ) {
+    case FD_SNP_META_PROTO_UDP:
+      data    = packet    + sizeof(fd_ip4_udp_hdrs_t);
+      data_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t);
+      break;
+    case FD_SNP_META_PROTO_V1:
+      //FIXME: add TLV
+      data = packet + sizeof(fd_ip4_udp_hdrs_t) + 12;            //TODO: 12 is for SNP header
+      data_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t) - 12 - 16; //TODO: 16 is for final MAC
+      break;
+    default:
+      return FD_SNP_FAILURE; /* Not implemented */
+  }
+
+  // FIXME: extract peer info from packet/meta
   fd_snp_peer_t peer = 0;
 
-  //TODO: UDP vs SNP
-  uchar const * data = packet + sizeof(fd_ip4_udp_hdrs_t);
-  ulong data_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t);
-
-  return ctx->cb.rx( ctx->cb.ctx, peer, data, data_sz, meta );
+  return ctx->cb.rx ? ctx->cb.rx( ctx->cb.ctx, peer, data, data_sz, meta ) : (int)data_sz;
 }
 
 int
@@ -67,15 +72,29 @@ fd_snp_app_send( fd_snp_app_t const * ctx,          /* snp_app context */
                  void const *         data,         /* app data to send to peer */
                  ulong                data_sz,      /* size of app data to send to peer */
                  fd_snp_meta_t        meta ) {      /* connection metadata */
-  //TODO: UDP vs SNP
-  ulong data_offset = sizeof(fd_ip4_udp_hdrs_t) + 8; //TODO: 8 is for SNP session id
-  ulong actual_packet_sz = data_sz + data_offset + 16; //TODO: 16 is for final MAC
+  ulong data_offset = 0UL;
+  ulong actual_packet_sz = 0UL;
+
+  ulong proto = meta & FD_SNP_META_PROTO_MASK;
+  switch( proto ) {
+    case FD_SNP_META_PROTO_UDP:
+      data_offset = sizeof(fd_ip4_udp_hdrs_t);
+      actual_packet_sz = data_sz + data_offset;
+      break;
+    case FD_SNP_META_PROTO_V1:
+      //FIXME: add TLV
+      data_offset = sizeof(fd_ip4_udp_hdrs_t) + 12;  //TODO: 12 is for SNP header
+      actual_packet_sz = data_sz + data_offset + 16; //TODO: 16 is for final MAC
+      break;
+    default:
+      return FD_SNP_FAILURE; /* Not implemented */
+  }
+
   if( FD_UNLIKELY( packet_sz < actual_packet_sz ) ) {
     return FD_SNP_FAILURE;
   }
-
   memcpy( packet + data_offset, data, data_sz );
-  return ctx->cb.tx( ctx->cb.ctx, packet, actual_packet_sz, meta );
+  return ctx->cb.tx ? ctx->cb.tx( ctx->cb.ctx, packet, actual_packet_sz, meta ) : (int)actual_packet_sz;
 }
 
 int
@@ -87,7 +106,7 @@ fd_snp_app_send_many( FD_PARAM_UNUSED fd_snp_app_t const * ctx,
                       FD_PARAM_UNUSED void const *         data,
                       FD_PARAM_UNUSED ulong                data_sz,
                       FD_PARAM_UNUSED fd_snp_meta_t        meta ) {
-  return FD_SNP_APP_FAILURE;
+  return FD_SNP_FAILURE; /* Not implemented */
 }
 
 int
@@ -97,5 +116,5 @@ fd_snp_app_send_broadcast( FD_PARAM_UNUSED fd_snp_app_t const * ctx,
                            FD_PARAM_UNUSED void const *         data,
                            FD_PARAM_UNUSED ulong                data_sz,
                            FD_PARAM_UNUSED fd_snp_meta_t        meta ) {
-  return FD_SNP_APP_FAILURE;
+  return FD_SNP_FAILURE; /* Not implemented */
 }

@@ -91,7 +91,7 @@ test_s0_handshake( void ) {
   fd_snp_state_private_t * priv = (fd_snp_state_private_t *)(snp+1);
   assert( (uchar*)(snp+1) == (uchar*)priv );
 
-  client_pkt_sz = fd_snp_s0_client_handle_accept( snp, client, (snp_s0_hs_pkt_t *)server_pkt, client_hs );
+  client_pkt_sz = fd_snp_s0_client_handle_accept( snp, client, (snp_s0_hs_pkt_t *)server_pkt, client_hs, NULL );
   assert( client_pkt_sz==0L );
   assert( client_hs->state == SNP_TYPE_HS_DONE );
   assert( priv->sessions[0].session_id == FD_LOAD( ulong, client_hs->session_id ) );

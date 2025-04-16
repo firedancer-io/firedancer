@@ -7,7 +7,6 @@
 #include "fd_snp_base.h"
 #include "fd_snp_proto.h"
 #include "fd_snp_sesh.h"
-#include "fd_snp_sesh_map.h"
 #include "fd_snp_s0_server.h"
 #include "fd_snp_s0_client.h"
 

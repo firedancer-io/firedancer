@@ -62,7 +62,8 @@ long
 fd_snp_s0_client_handle_accept( fd_snp_t*                         snp,
                                 fd_snp_s0_client_params_t const * client,
                                 snp_s0_hs_pkt_t const *           pkt,
-                                fd_snp_s0_client_hs_t *           hs );
+                                fd_snp_s0_client_hs_t *           hs,
+                                fd_snp_sesh_t *                   sesh );
 
 /*
   fd_snp_s0_encode_appdata is a temporary function that encodes the payload into

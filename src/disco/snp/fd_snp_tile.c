@@ -144,18 +144,16 @@ handle_new_cluster_contact_info( fd_snp_ctx_t * ctx,
 
   // FD_LOG_NOTICE(( "[SNP] handle_new_cluster_contact_info, dest_cnt %lu", dest_cnt ));
 
-  // uchar empty[1] = { 0 };
   for( ulong i=0UL; i<dest_cnt; i++ ) {
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
     dests[i].ip4  = in_dests[i].ip4_addr;
     dests[i].port = in_dests[i].udp_port;
 
-    /* TODO pending implementation */
-    // establish connection
+    /* Establish connection for turbine */
     // uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-    // fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_V1_RAW, dests[i].ip4, dests[i].port );
-    // FD_LOG_NOTICE(( "[shred] fd_snp_app_send to %u:%u", dests[i].ip4, dests[i].port ));
-    // fd_snp_app_send( ctx->snp, packet, FD_NET_MTU, empty, 1UL, meta );
+    // fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_V1, /* app_id */ 0, dests[i].ip4, dests[i].port );
+    // FD_LOG_NOTICE(( "[snp] connect to %u:%u", dests[i].ip4, dests[i].port ));
+    // fd_snp_send( ctx->snp, packet, 0, meta );
   }
 }
 
@@ -263,7 +261,7 @@ after_frag( fd_snp_ctx_t *      ctx,
 
     case IN_KIND_NET: {
       /* Process incoming network packets */
-      FD_LOG_NOTICE(( "[snp] received from net, processing" ));
+      FD_LOG_NOTICE(( "[snp] received from net %lu, processing", ctx->packet_sz ));
       fd_snp_process_packet( ctx->snp, ctx->packet, ctx->packet_sz );
     } break;
 
@@ -293,23 +291,16 @@ snp_callback_tx( void const *  _ctx,
   fd_snp_ctx_t * ctx = (fd_snp_ctx_t *)_ctx;
   uint dst_ip;
   ushort dst_port;
-  fd_snp_meta_into_parts( NULL, &dst_ip, &dst_port, meta );
+  fd_snp_meta_into_parts( NULL, NULL, &dst_ip, &dst_port, meta );
 
   ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = fd_disco_netmux_sig( dst_ip, dst_port, dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
-  //FIXME: this part should go inside snp_send
-  fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
-  *hdr = *( ctx->net_hdr );
-  memset( hdr->eth->dst, 0, 6UL );
-  fd_ip4_hdr_t * ip4 = hdr->ip4;
-  ip4->daddr  = dst_ip;
-  ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
-  ip4->check  = 0U;
-  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
-  hdr->udp->net_dport  = fd_ushort_bswap( dst_port );
-  hdr->udp->net_len    = fd_ushort_bswap( (ushort)(packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t)) );
+  if( ctx->net_id++ == 0 ) {
+    FD_LOG_HEXDUMP_NOTICE(( "packet", packet, packet_sz ));
+  }
 
+  // TODO: remove memcpy, unless ( meta & FD_SNP_META_OPT_BUFFERED ) is set
   uchar * dst = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   memcpy( dst, packet, packet_sz );
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
@@ -337,7 +328,7 @@ snp_callback_rx( void const *  _ctx,
   ctx->shred_out_seq   = fd_seq_inc( ctx->shred_out_seq, 1UL );
   ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, packet_sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
 
-  FD_LOG_NOTICE(( "[snp] publish to shred" ));
+  FD_LOG_NOTICE(( "[snp] publish to shred %lu", packet_sz ));
   return FD_SNP_SUCCESS;
 }
 
@@ -386,6 +377,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* SNP */
   fd_snp_limits_t limits = {
+    .max_apps = 1,
     .conn_cnt = 8 // FIXME
   };
 
@@ -395,10 +387,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );
 
   fd_snp_t * snp = fd_snp_join( fd_snp_new( _snp, &limits ) );
+  ctx->snp = snp;
   snp->cb.ctx = ctx;
   snp->cb.rx = snp_callback_rx;
   snp->cb.tx = snp_callback_tx;
-  ctx->snp = snp;
+  snp->apps_cnt = 1;
+  snp->apps[0].port = 8003;
+  FD_TEST( fd_snp_init( snp ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

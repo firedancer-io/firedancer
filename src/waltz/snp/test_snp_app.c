@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 199309L
 
+#include "fd_snp_app.h"
 #include "fd_snp_private.h"
 #include "fd_snp_s0_server.h"
 #include "fd_snp_s0_client.h"
@@ -26,70 +27,336 @@ void external_sign( uchar signature[64], uchar to_sign[32], uchar private_key[32
   fd_ed25519_sign( signature, to_sign, 32, public_key, private_key, sha512 );
 }
 
+struct test_cb_ctx {
+  uchar * out_packet;
+  uchar * assert_packet;
+  ulong   assert_packet_sz;
+  uchar * assert_data;
+  ulong   assert_data_sz;
+  ulong   assert_peer;
+  ulong   assert_meta;
+};
+typedef struct test_cb_ctx test_cb_ctx_t;
+
+int
+test_cb_snp_tx( void const *  _ctx,
+                uchar const * packet,
+                ulong         packet_sz,
+                fd_snp_meta_t meta ) {
+  test_cb_ctx_t * ctx = (test_cb_ctx_t *)_ctx;
+  if( meta & FD_SNP_META_OPT_BUFFERED ) {
+    memcpy( ctx->out_packet, packet, packet_sz );
+  }
+  return (int)packet_sz;
+}
+
+int
+test_cb_snp_rx( void const *  _ctx,
+                uchar const * packet,
+                ulong         packet_sz,
+                fd_snp_meta_t meta ) {
+  test_cb_ctx_t * ctx = (test_cb_ctx_t *)_ctx;
+  FD_TEST( packet    == ctx->assert_packet );
+  FD_TEST( packet_sz == ctx->assert_packet_sz );
+  (void)meta;
+  // assert( meta      == ctx->assert_meta ); //FIXME
+  return 1;
+}
+
+int
+test_cb_app_rx( void const *  _ctx,
+                fd_snp_peer_t peer,
+                uchar const * data,
+                ulong         data_sz,
+                fd_snp_meta_t meta ) {
+  test_cb_ctx_t * ctx = (test_cb_ctx_t *)_ctx;
+  FD_TEST( peer    == ctx->assert_peer );
+  FD_TEST( data_sz == ctx->assert_data_sz );
+  (void)meta;
+  // assert( meta      == ctx->assert_meta ); //FIXME
+  if( ctx->assert_data ) FD_TEST( fd_memeq( data, ctx->assert_data, data_sz ) );
+  return 1;
+}
+
 static void
-test_snp_app_send_recv( void ) {
-  /* Init server, server_hs */
-  fd_snp_s0_server_params_t server[1] = {0};
-  fd_snp_s0_server_hs_t server_hs[1] = {0};
+test_snp_app_send_recv_udp( void ) {
+  ulong proto = FD_SNP_META_PROTO_UDP;
 
-  uchar server_private_key[32];
-  external_generate_keypair( server_private_key, server->identity );
-  FD_TEST( fd_rng_secure( server->state_enc_key, 16 )!=NULL );
+  /* Client */
+  ushort client_port = 1234;
+  test_cb_ctx_t client_cb_test[1] = { 0 };
+  fd_snp_app_t client_app[1] = { 0 };
+  fd_snp_t client[1] = { 0 };
+  uchar client_packet[SNP_MTU] = { 0 };
+  uint client_ip4 = 0UL;
+  int client_sz = 0;
+  fd_snp_meta_t client_meta = 0UL;
+  int client_cb_res = 0;
+  ulong client_msg_sz = 5UL;
+  uchar * client_msg = (uchar *)"hello";
 
-  /* Init client, client_hs */
-  fd_snp_s0_client_params_t client[1] = {0};
-  fd_snp_s0_client_hs_t client_hs[1]; fd_snp_s0_client_hs_new( client_hs );
+  client->cb.rx = test_cb_snp_rx;
+  client->cb.tx = test_cb_snp_tx;
+  client->cb.ctx = client_cb_test;
+  client_cb_test->out_packet = client_packet;
+  client->apps_cnt = 1;
+  client->apps[0].port = client_port;
+  FD_TEST( fd_snp_init( client ) );
 
-  uchar client_private_key[32];
-  external_generate_keypair( client_private_key, client->identity );
+  client_app->cb.rx = test_cb_app_rx;
+  client_app->cb.ctx = client_cb_test;
 
-  /* Init ctx, sessions */
+  /* Server */
+  ushort server_port = 4567;
+  test_cb_ctx_t server_cb_test[1] = { 0 };
+  fd_snp_app_t server_app[1] = { 0 };
+  fd_snp_t server[1] = { 0 };
+  uchar server_packet[SNP_MTU] = { 0 };
+  uint server_ip4 = 0UL;
+  int server_sz = 0UL;
+  fd_snp_meta_t server_meta = 0UL;
+  int server_cb_res = 0;
+  ulong server_msg_sz = 6UL;
+  uchar * server_msg = (uchar *)"world!";
 
-  snp_net_ctx_t ctx[1] = { 0 };
-  fd_snp_sesh_t server_sesh[1] = { 0 };
+  server->cb.rx = test_cb_snp_rx;
+  server->cb.tx = test_cb_snp_tx;
+  server->cb.ctx = server_cb_test;
+  server_cb_test->out_packet = server_packet;
+  server->apps_cnt = 1;
+  server->apps[0].port = server_port;
+  FD_TEST( fd_snp_init( server ) );
 
-  uchar client_pkt[ SNP_MTU ];
-  uchar server_pkt[ SNP_MTU ];
-  uchar to_sign[ 32 ];
-  uchar signature[ 64 ];
+  server_app->cb.rx = test_cb_app_rx;
+  server_app->cb.ctx = server_cb_test;
 
-  long client_pkt_sz;
-  long server_pkt_sz;
+  /* Test protocol */
 
-  assert( client_hs->state == 0 );
-  assert( server_hs->state == 0 );
+  /* Client sends */
+  client_meta = fd_snp_meta_from_parts( proto, /* app_id */ 0, server_ip4, server_port );
+  client_sz = fd_snp_app_send( client_app, client_packet, SNP_MTU, client_msg, client_msg_sz, client_meta );
+  assert( client_sz>0 );
+  client_sz = fd_snp_send( client, client_packet, (ulong)client_sz, client_meta );
+  assert( client_sz>0 );
 
-  client_pkt_sz = fd_snp_s0_client_initial( client, client_hs, client_pkt );
-  assert( client_pkt_sz>0L );
-  assert( client_hs->state == SNP_TYPE_HS_SERVER_CONTINUE );
+  /* simulate network */ server_sz = client_sz; memcpy( server_packet, client_packet, (ulong)client_sz );
+  FD_LOG_HEXDUMP_WARNING(( "packet", server_packet, (ulong)server_sz ));
 
-  server_pkt_sz = fd_snp_s0_server_handle_initial( server, ctx, (snp_s0_hs_pkt_t *)client_pkt, server_pkt, server_hs );
-  assert( server_pkt_sz>0L );
-  assert( server_hs->state == 0 );
+  /* Server receives */
+  server_meta = fd_snp_meta_from_parts( proto, /* app_id */ 0, client_ip4, client_port );
 
-  client_pkt_sz = fd_snp_s0_client_handle_continue( client, (snp_s0_hs_pkt_t *)server_pkt, client_pkt, to_sign, client_hs );
-  external_sign( signature, to_sign, server_private_key, server->identity );
-  fd_snp_s0_client_handle_continue_add_signature( client_pkt, signature );
-  assert( client_pkt_sz>0L );
-  assert( client_hs->state == SNP_TYPE_HS_SERVER_ACCEPT );
+  server_cb_test->assert_packet = server_packet;
+  server_cb_test->assert_packet_sz = (ulong)server_sz;
+  server_cb_test->assert_meta = server_meta;
+  server_cb_res = fd_snp_process_packet( server, server_packet, (ulong)server_sz );
+  assert( server_cb_res==1 );
 
-  server_pkt_sz = fd_snp_s0_server_handle_accept( server, ctx, (snp_s0_hs_pkt_t *)client_pkt, server_pkt, to_sign, server_hs, server_sesh );
-  external_sign( signature, to_sign, server_private_key, server->identity );
-  fd_snp_s0_server_handle_accept_add_signature( server_pkt, signature );
-  assert( server_pkt_sz>0L );
-  assert( server_hs->state == SNP_TYPE_HS_DONE );
+  server_cb_test->assert_peer = 0UL; //FIXME
+  server_cb_test->assert_data = client_msg;
+  server_cb_test->assert_data_sz = client_msg_sz;
+  server_cb_test->assert_meta = server_meta;
+  server_cb_res = fd_snp_app_recv( server_app, server_packet, (ulong)server_sz, server_meta );
+  assert( server_cb_res==1 );
 
-  uchar scratch[sizeof(fd_snp_t)+sizeof(fd_snp_state_private_t)];
-  fd_snp_t * snp = (fd_snp_t *)scratch;
-  fd_snp_state_private_t * priv = (fd_snp_state_private_t *)(snp+1);
-  assert( (uchar*)(snp+1) == (uchar*)priv );
+  /* Server sends */
+  server_sz = fd_snp_app_send( server_app, server_packet, SNP_MTU, server_msg, server_msg_sz, server_meta );
+  assert( server_sz>0 );
+  server_sz = fd_snp_send( server, server_packet, (ulong)server_sz, server_meta );
+  assert( server_sz>0 );
 
-  client_pkt_sz = fd_snp_s0_client_handle_accept( snp, client, (snp_s0_hs_pkt_t *)server_pkt, client_hs );
-  assert( client_pkt_sz==0L );
-  assert( client_hs->state == SNP_TYPE_HS_DONE );
-  assert( priv->sessions[0].session_id == FD_LOAD( ulong, client_hs->session_id ) );
+  /* simulate network */ client_sz = server_sz; memcpy( client_packet, server_packet, (ulong)server_sz );
+  FD_LOG_HEXDUMP_WARNING(( "packet", client_packet, (ulong)client_sz ));
 
-  puts( "APP handshake: OK" );
+  /* Client receives */
+  client_cb_test->assert_packet = client_packet;
+  client_cb_test->assert_packet_sz = (ulong)client_sz;
+  client_cb_test->assert_meta = client_meta;
+  client_cb_res = fd_snp_process_packet( client, client_packet, (ulong)client_sz );
+  assert( client_cb_res==1 );
+
+  client_cb_test->assert_peer = 0UL; //FIXME
+  client_cb_test->assert_data = server_msg;
+  client_cb_test->assert_data_sz = server_msg_sz;
+  client_cb_test->assert_meta = client_meta;
+  client_cb_res = fd_snp_app_recv( client_app, client_packet, (ulong)client_sz, client_meta );
+  assert( client_cb_res==1 );
+
+  FD_LOG_INFO(( "Test snp_app proto=udp: ok" ));
+}
+
+static void
+test_snp_app_send_recv_v1( void ) {
+  ulong proto = FD_SNP_META_PROTO_V1;
+
+  /* Client */
+  ushort client_port = 1234;
+  test_cb_ctx_t client_cb_test[1] = { 0 };
+  fd_snp_app_t client_app[1] = { 0 };
+  fd_snp_t client[1] = { 0 };
+  uchar client_packet[SNP_MTU] = { 0 };
+  uint client_ip4 = 0UL;
+  int client_sz = 0;
+  fd_snp_meta_t client_meta = 0UL;
+  int client_cb_res = 0;
+  ulong client_msg_sz = 5UL;
+  uchar * client_msg = (uchar *)"hello";
+
+  client->cb.rx = test_cb_snp_rx;
+  client->cb.tx = test_cb_snp_tx;
+  client->cb.ctx = client_cb_test;
+  client_cb_test->out_packet = client_packet;
+  client->apps_cnt = 1;
+  client->apps[0].port = client_port;
+  FD_TEST( fd_snp_init( client ) );
+
+  client_app->cb.rx = test_cb_app_rx;
+  client_app->cb.ctx = client_cb_test;
+
+  /* Server */
+  ushort server_port = 4567;
+  test_cb_ctx_t server_cb_test[1] = { 0 };
+  fd_snp_app_t server_app[1] = { 0 };
+  fd_snp_t server[1] = { 0 };
+  uchar server_packet[SNP_MTU] = { 0 };
+  uint server_ip4 = 0UL;
+  int server_sz = 0UL;
+  fd_snp_meta_t server_meta = 0UL;
+  int server_cb_res = 0;
+  ulong server_msg_sz = 6UL;
+  uchar * server_msg = (uchar *)"world!";
+
+  server->cb.rx = test_cb_snp_rx;
+  server->cb.tx = test_cb_snp_tx;
+  server->cb.ctx = server_cb_test;
+  server_cb_test->out_packet = server_packet;
+  server->apps_cnt = 1;
+  server->apps[0].port = server_port;
+  FD_TEST( fd_snp_init( server ) );
+
+  server_app->cb.rx = test_cb_app_rx;
+  server_app->cb.ctx = server_cb_test;
+
+  /* Test protocol */
+
+  /* Client sends */
+  client_meta = fd_snp_meta_from_parts( proto, /* app_id */ 0, server_ip4, server_port );
+  client_sz = fd_snp_app_send( client_app, client_packet, SNP_MTU, client_msg, client_msg_sz, client_meta );
+  assert( client_sz>0 );
+  client_sz = fd_snp_send( client, client_packet, (ulong)client_sz, client_meta );
+  assert( client_sz>0 );
+
+  /* Handshake - snp_app is not involved - don't really need to memcpy packet all the times */
+  server_sz = fd_snp_process_packet( server, client_packet, (ulong)server_sz );
+  assert( server_sz>0 );
+  client_sz = fd_snp_process_packet( client, client_packet, (ulong)client_sz );
+  assert( client_sz>0 );
+  server_sz = fd_snp_process_packet( server, client_packet, (ulong)server_sz );
+  assert( server_sz>0 );
+  client_sz = fd_snp_process_packet( client, client_packet, (ulong)client_sz );
+  assert( client_sz>0 );
+
+  /* simulate network */ server_sz = client_sz; memcpy( server_packet, client_packet, (ulong)client_sz );
+  FD_LOG_HEXDUMP_WARNING(( "packet", server_packet, (ulong)server_sz ));
+
+  /* Server receives */
+  server_meta = fd_snp_meta_from_parts( proto, /* app_id */ 0, client_ip4, client_port );
+
+  server_cb_test->assert_packet = server_packet;
+  server_cb_test->assert_packet_sz = (ulong)server_sz;
+  server_cb_test->assert_meta = server_meta;
+  server_cb_res = fd_snp_process_packet( server, server_packet, (ulong)server_sz );
+  assert( server_cb_res==1 );
+
+  server_cb_test->assert_peer = 0UL; //FIXME
+  server_cb_test->assert_data = client_msg;
+  server_cb_test->assert_data_sz = client_msg_sz;
+  server_cb_test->assert_meta = server_meta;
+  server_cb_res = fd_snp_app_recv( server_app, server_packet, (ulong)server_sz, server_meta );
+  assert( server_cb_res==1 );
+
+  /* Server sends */
+  server_sz = fd_snp_app_send( server_app, server_packet, SNP_MTU, server_msg, server_msg_sz, server_meta );
+  assert( server_sz>0 );
+  server_sz = fd_snp_send( server, server_packet, (ulong)server_sz, server_meta );
+  assert( server_sz>0 );
+
+  /* Handshake - snp_app is not involved - don't really need to memcpy packet all the times */
+  client_sz = fd_snp_process_packet( client, server_packet, (ulong)client_sz );
+  assert( client_sz>0 );
+  server_sz = fd_snp_process_packet( server, server_packet, (ulong)server_sz );
+  assert( server_sz>0 );
+  client_sz = fd_snp_process_packet( client, server_packet, (ulong)client_sz );
+  assert( client_sz>0 );
+  server_sz = fd_snp_process_packet( server, server_packet, (ulong)server_sz );
+  assert( server_sz>0 );
+
+  /* simulate network */ client_sz = server_sz; memcpy( client_packet, server_packet, (ulong)server_sz );
+  FD_LOG_HEXDUMP_WARNING(( "packet", client_packet, (ulong)client_sz ));
+
+  /* Client receives */
+  client_cb_test->assert_packet = client_packet;
+  client_cb_test->assert_packet_sz = (ulong)client_sz;
+  client_cb_test->assert_meta = client_meta;
+  client_cb_res = fd_snp_process_packet( client, client_packet, (ulong)client_sz );
+  assert( client_cb_res==1 );
+
+  client_cb_test->assert_peer = 0UL; //FIXME
+  client_cb_test->assert_data = server_msg;
+  client_cb_test->assert_data_sz = server_msg_sz;
+  client_cb_test->assert_meta = client_meta;
+  client_cb_res = fd_snp_app_recv( client_app, client_packet, (ulong)client_sz, client_meta );
+  assert( client_cb_res==1 );
+
+  (void)client_cb_test;
+  (void)client_app;
+  (void)client;
+  (void)client_packet;
+  (void)client_ip4;
+  (void)client_port;
+  (void)client_sz;
+  (void)client_meta;
+  (void)client_cb_res;
+  (void)client_msg_sz;
+  (void)client_msg;
+
+  (void)server_cb_test;
+  (void)server_app;
+  (void)server;
+  (void)server_packet;
+  (void)server_ip4;
+  (void)server_port;
+  (void)server_sz;
+  (void)server_meta;
+  (void)server_cb_res;
+  (void)server_msg_sz;
+  (void)server_msg;
+
+  FD_LOG_INFO(( "Test snp_app proto=v1: ok" ));
+}
+
+static void
+test_snp_app_send_recv_v2( void ) {
+  ulong proto = FD_SNP_META_PROTO_V2;
+
+  /* Client */
+  fd_snp_app_t client_app[1] = { 0 };
+  uchar client_packet[SNP_MTU] = { 0 };
+  int client_sz = 0;
+  fd_snp_meta_t client_meta = 0UL;
+  ulong client_msg_sz = 5UL;
+  uchar * client_msg = (uchar *)"hello";
+
+  uint server_ip4 = 0UL;
+  ushort server_port = 0UL;
+
+  /* Test protocol */
+
+  /* Client sends */
+  client_meta = fd_snp_meta_from_parts( proto, /* app_id */ 0, server_ip4, server_port );
+  client_sz = fd_snp_app_send( client_app, client_packet, SNP_MTU, client_msg, client_msg_sz, client_meta );
+  assert( client_sz==-1 ); /* Not implemented */
+
+  FD_LOG_INFO(( "Test snp_app proto=v2: ok (not implemented)" ));
 }
 
 int
@@ -98,7 +365,9 @@ main( int     argc,
   (void)argc;
   (void)argv;
 
-  test_snp_app_send_recv();
+  test_snp_app_send_recv_udp();
+  test_snp_app_send_recv_v1();
+  test_snp_app_send_recv_v2();
 
   return 0;
 }

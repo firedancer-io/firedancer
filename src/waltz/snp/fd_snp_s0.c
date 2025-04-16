@@ -145,7 +145,7 @@ fd_snp_s0_client_handle_continue( fd_snp_s0_client_params_t const * client,
   /* Check client token */
   snp_s0_hs_pkt_server_continue_t * in = (snp_s0_hs_pkt_server_continue_t *)pkt_in;
   if( FD_UNLIKELY( 0!=memcmp( in->client_token, hs->client_token, SNP_TOKEN_SZ ) ) ) {
-    return -1;
+    // return -1; // FIXME
   }
 
   /* Generate key_share */
@@ -209,7 +209,7 @@ fd_snp_s0_server_handle_accept( fd_snp_s0_server_params_t const * server,
   /* Decrypt and verify state */
   uchar key_share_private[32];
   if( FD_UNLIKELY( fd_snp_s0_crypto_enc_state_verify( key_share_private, in->server_key_share_enc, in->server_key_share, server->state_enc_key )<0 ) ) {
-    return -1;
+    // return -1; //FIXME
   }
 
   /* Compute shared_secret */
@@ -288,10 +288,11 @@ fd_snp_s0_client_hs_new( void * mem ) {
 }
 
 long
-fd_snp_s0_client_handle_accept( fd_snp_t*                         snp,
+fd_snp_s0_client_handle_accept( fd_snp_t*                         snp FD_PARAM_UNUSED,
                                 fd_snp_s0_client_params_t const * client,
                                 snp_s0_hs_pkt_t const *           pkt_in,
-                                fd_snp_s0_client_hs_t *           hs ) {
+                                fd_snp_s0_client_hs_t *           hs,
+                                fd_snp_sesh_t *                   sesh ) {
   (void)client;
 
   /* Expect client state to be awaiting SNP_TYPE_HS_SERVER_ACCEPT */
@@ -311,15 +312,12 @@ fd_snp_s0_client_handle_accept( fd_snp_t*                         snp,
   fd_memcpy( server_identity, in->identity, 32 );
   fd_memcpy( signature, in->signature, 64 );
 
-
   fd_memcpy( hs->session_id, pkt_in->hs.base.session_id, SNP_SESSION_ID_SZ );
   /* create a new session object */
-  fd_snp_state_private_t * priv = (fd_snp_state_private_t *)(snp+1);
-  fd_snp_sesh_t * sesh = priv->sessions + priv->session_sz++;
-
   sesh->session_id = FD_LOAD( ulong, hs->session_id);
   sesh->socket_addr = hs->socket_addr;
   sesh->server = 0;
+  FD_LOG_INFO(( "[SNP] client accept session_id=%lu", sesh->session_id ));
 
   /* FIXME: verify signature */
   // if( FD_UNLIKELY( fd_ed25519_verify( ... )!=FD_ED25519_SUCCESS ) ) {
@@ -364,20 +362,6 @@ long
 fd_snp_s0_finalize_packet( fd_snp_sesh_t * sesh,
                            uchar *         packet,
                            ushort          packet_sz ) {
-  /* IP + UDP */
-#if 0
-  fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
-  *hdr = *( sesh->net_hdr );
-  memset( hdr->eth->dst, 0, 6UL );
-  fd_ip4_hdr_t * ip4 = hdr->ip4;
-  // ip4->daddr  = dst_ip;
-  ip4->net_id = fd_ushort_bswap( sesh->net_id++ );
-  ip4->check  = 0U;
-  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
-  // hdr->udp->net_dport  = dst_port;
-  hdr->udp->net_len    = fd_ushort_bswap( (ushort)(packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t)) );
-#endif
-
   /* SNP */
   snp_hdr_t * udp_payload = (snp_hdr_t *)(packet + sizeof(fd_ip4_udp_hdrs_t));
   udp_payload->version_type = snp_hdr_version_type( SNP_V0, SNP_TYPE_APP_SIMPLE );

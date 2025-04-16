@@ -16,7 +16,8 @@
    (i.e. outlasts joins, until fd_snp_delete) */
 
 struct __attribute__((aligned(16UL))) fd_snp_limits {
-  ulong  conn_cnt;              /* instance-wide, max concurrent conn count */
+  ulong max_apps;
+  ulong conn_cnt;
 };
 typedef struct fd_snp_limits fd_snp_limits_t;
 
@@ -63,6 +64,13 @@ struct fd_snp_callbacks {
 };
 typedef struct fd_snp_callbacks fd_snp_callbacks_t;
 
+struct fd_snp_applications {
+  ushort            port;
+  ushort            net_id;
+  fd_ip4_udp_hdrs_t net_hdr[1];
+};
+typedef struct fd_snp_applications fd_snp_applications_t;
+ 
 
 struct fd_snp {
   ulong magic;   /* ==FD_QUIC_MAGIC */
@@ -70,9 +78,14 @@ struct fd_snp {
   fd_snp_limits_t    limits;
   fd_snp_callbacks_t cb;
 
+  fd_snp_applications_t apps[8];
+  ulong                 apps_cnt;
+
   fd_snp_s0_client_params_t client_params;
   fd_snp_s0_server_params_t server_params;
   /* ... private variable-length structures follow ... */
+
+  fd_snp_state_private_t priv[1];
 };
 
 FD_PROTOTYPES_BEGIN
@@ -158,12 +171,10 @@ fd_snp_send( fd_snp_t *    snp,
 
 /* TODO document this */
 /* should include IP/UDP headers, not ethernet */
-FD_SNP_API void
-fd_snp_process_packet( fd_snp_t *    snp,
-                       uchar const * packet,
-                       ulong         packet_sz );
-                      //  uint          src_ip,
-                      //  ushort      src_port );
+FD_SNP_API int
+fd_snp_process_packet( fd_snp_t * snp,
+                       uchar *    packet,
+                       ulong      packet_sz );
 
 FD_PROTOTYPES_END
 
