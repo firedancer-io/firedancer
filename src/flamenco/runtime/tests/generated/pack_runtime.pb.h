@@ -4,7 +4,7 @@
 #ifndef PB_ORG_SOLANA_SEALEVEL_V1_PACK_RUNTIME_PB_H_INCLUDED
 #define PB_ORG_SOLANA_SEALEVEL_V1_PACK_RUNTIME_PB_H_INCLUDED
 
-#include "../../../nanopb/pb_firedancer.h"
+#include "../../../../ballet/pb_firedancer.h"
 #include "metadata.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40

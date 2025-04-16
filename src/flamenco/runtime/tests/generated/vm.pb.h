@@ -4,7 +4,7 @@
 #ifndef PB_ORG_SOLANA_SEALEVEL_V1_VM_PB_H_INCLUDED
 #define PB_ORG_SOLANA_SEALEVEL_V1_VM_PB_H_INCLUDED
 
-#include "../../../nanopb/pb_firedancer.h"
+#include "../../../../ballet/nanopb/pb_firedancer.h"
 #include "invoke.pb.h"
 #include "context.pb.h"
 #include "metadata.pb.h"
@@ -94,7 +94,7 @@ typedef struct fd_exec_test_return_data {
     pb_bytes_array_t *data;
 } fd_exec_test_return_data_t;
 
-/* Information sufficient to allow the fuzzer to generate a fd_vm_t context for 
+/* Information sufficient to allow the fuzzer to generate a fd_vm_t context for
  execution inside the VM (excluding the instruction context).
 
  TODO: this currently only includes fields necessary for executing syscalls,

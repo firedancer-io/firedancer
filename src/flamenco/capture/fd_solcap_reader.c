@@ -1,6 +1,6 @@
 #include "fd_solcap_reader.h"
 #include "fd_solcap_proto.h"
-#include "../nanopb/pb_decode.h"
+#include "../../ballet/nanopb/pb_decode.h"
 
 #if !FD_HAS_HOSTED
 #error "fd_solcap_reader requires FD_HAS_HOSTED"

@@ -1,7 +1,7 @@
 #include "fd_solcap_writer.h"
 #include "fd_solcap.pb.h"
 #include "fd_solcap_proto.h"
-#include "../nanopb/pb_encode.h"
+#include "../../ballet/nanopb/pb_encode.h"
 
 #if !FD_HAS_HOSTED
 #error "fd_solcap_writer requires FD_HAS_HOSTED"

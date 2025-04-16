@@ -4,7 +4,7 @@
 #ifndef PB_ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_INCLUDED
 #define PB_ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_INCLUDED
 
-#include "../../../nanopb/pb_firedancer.h"
+#include "../../../../ballet/nanopb/pb_firedancer.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.

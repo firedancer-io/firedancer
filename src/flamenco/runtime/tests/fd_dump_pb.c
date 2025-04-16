@@ -1,4 +1,16 @@
 #include "fd_dump_pb.h"
+#include "generated/invoke.pb.h"
+#include "generated/vm.pb.h"
+#include "../fd_system_ids.h"
+#include "../fd_runtime.h"
+#include "../program/fd_address_lookup_table_program.h"
+#include "../../../ballet/lthash/fd_lthash.h"
+#include "../../../ballet/nanopb/pb_encode.h"
+
+#include <errno.h>
+#include <stdio.h> /* fopen */
+#include <sys/mman.h> /* mmap */
+#include <unistd.h> /* ftruncate */
 
 #define SORT_NAME        sort_uint64_t
 #define SORT_KEY_T       uint64_t
