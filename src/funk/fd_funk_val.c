@@ -10,8 +10,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
   /* Check input args */
 
 #ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( (!rec) | (new_val_sz>FD_FUNK_REC_VAL_MAX) | (!alloc) | (!wksp) ) ||  /* NULL rec,too big,NULL alloc,NULL wksp */
-      FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE                            ) ) { /* Marked erase */
+  if( FD_UNLIKELY( (!rec) | (new_val_sz>FD_FUNK_REC_VAL_MAX) | (!alloc) | (!wksp) )  /* NULL rec,too big,NULL alloc,NULL wksp */ ) {
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
@@ -99,16 +98,11 @@ fd_funk_val_verify( fd_funk_t * funk ) {
 
     TEST( val_sz<=val_max );
 
-    if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) {
-      TEST( !val_max   );
-      TEST( !val_gaddr );
-    } else {
-      TEST( val_max<=FD_FUNK_REC_VAL_MAX );
-      if( !val_gaddr ) TEST( !val_max );
-      else {
-        TEST( (0UL<val_max) & (val_max<=FD_FUNK_REC_VAL_MAX) );
-        TEST( fd_wksp_tag( wksp, val_gaddr )==wksp_tag );
-      }
+    TEST( val_max<=FD_FUNK_REC_VAL_MAX );
+    if( !val_gaddr ) TEST( !val_max );
+    else {
+      TEST( (0UL<val_max) & (val_max<=FD_FUNK_REC_VAL_MAX) );
+      TEST( fd_wksp_tag( wksp, val_gaddr )==wksp_tag );
     }
   }
 
