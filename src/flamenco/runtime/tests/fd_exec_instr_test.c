@@ -1,8 +1,9 @@
-
-#include "generated/invoke.pb.h"
+#include "fd_types_test.h"
 #undef FD_SPAD_USE_HANDHOLDING
 #define FD_SPAD_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
+#include "generated/invoke.pb.h"
+#include "generated/type.pb.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../fd_hashes.h"
@@ -2261,4 +2262,31 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       }
     }
     return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+ulong
+fd_exec_type_test_run( fd_exec_instr_test_runner_t * runner,
+                       void const *                  input_,
+                       void **                       output_,
+                       void *                        output_buf,
+                       ulong                         output_bufsz ) {
+  fd_exec_test_type_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_type_effects_t **      output = fd_type_pun( output_ );
+
+  ulong decoded_sz = 0UL;
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
+
+    /* Attempt to decode the type */
+    decoded_sz = sol_compat_decode_type(
+      runner->spad,
+      input->content->bytes,
+      input->content->size,
+      (*output)->content->bytes,
+      &decoded_sz );
+
+    (*output)->content->size = (uint)decoded_sz;
+
+  } FD_SPAD_FRAME_END;
+
+  return sizeof(fd_exec_test_type_effects_t) + decoded_sz;
 }

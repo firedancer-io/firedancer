@@ -146,6 +146,13 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
                              void *                        output_buf,
                              ulong                         output_bufsz );
 
+ulong
+fd_exec_type_test_run( fd_exec_instr_test_runner_t * runner,
+                       void const *                  input_,
+                       void **                       output_,
+                       void *                        output_buf,
+                       ulong                         output_bufsz );
+
 
 FD_PROTOTYPES_END
 
