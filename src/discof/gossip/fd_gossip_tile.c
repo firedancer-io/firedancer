@@ -1073,6 +1073,9 @@ fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
   FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS_DROP, metrics->push_crds_drop_reason );
   FD_MGAUGE_SET( GOSSIP, PUSH_CRDS_QUEUE_COUNT, metrics->push_crds_queue_cnt );
 
+  FD_MGAUGE_SET( GOSSIP, VALUE_META_SIZE, metrics->value_meta_cnt );
+  FD_MGAUGE_SET( GOSSIP, VALUE_VEC_SIZE, metrics->value_vec_cnt );
+
   FD_MGAUGE_SET( GOSSIP, ACTIVE_PUSH_DESTINATIONS, metrics->active_push_destinations );
   FD_MCNT_SET( GOSSIP, REFRESH_PUSH_STATES_FAIL_COUNT, metrics->refresh_push_states_failcnt );
 

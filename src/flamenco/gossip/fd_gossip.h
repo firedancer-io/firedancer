@@ -177,6 +177,10 @@ struct fd_gossip_metrics {
   ulong push_crds_drop_reason[FD_METRICS_COUNTER_GOSSIP_PUSH_CRDS_DROP_CNT];
   ulong push_crds_queue_cnt;
 
+  /* Value DS sizes */
+  ulong value_meta_cnt;
+  ulong value_vec_cnt;
+
   /* Active Push Destinations */
   ulong active_push_destinations;
   ulong refresh_push_states_failcnt;
