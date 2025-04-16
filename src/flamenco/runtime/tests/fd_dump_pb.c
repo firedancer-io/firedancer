@@ -1,6 +1,6 @@
 #include "fd_dump_pb.h"
-#include "generated/invoke.pb.h"
-#include "generated/vm.pb.h"
+#include "harness/generated/invoke.pb.h"
+#include "harness/generated/vm.pb.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
 #include "../program/fd_address_lookup_table_program.h"
@@ -1030,10 +1030,11 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
   } FD_SPAD_FRAME_END;
 }
 
-void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
-                                fd_capture_ctx_t const *       capture_ctx,
-                                fd_spad_t *                    spad,
-                                fd_exec_test_block_context_t * block_context_msg /* output */ ) {
+void
+fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
+                           fd_capture_ctx_t const *       capture_ctx,
+                           fd_spad_t *                    spad,
+                           fd_exec_test_block_context_t * block_context_msg /* output */ ) {
   /* No spad frame because these allocations must persist beyond the lifetime of this function call */
   if( FD_UNLIKELY( capture_ctx==NULL ) ) {
     FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));

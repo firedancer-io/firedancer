@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-FD_NANOPB_TAG=$(cat ../../nanopb/nanopb_tag.txt)
+FD_NANOPB_TAG=$(cat ../../../../nanopb/nanopb_tag.txt)
 
 # Create venv and install packages
 python3.11 -m venv nanopb_venv
@@ -31,4 +31,4 @@ else
   cd ..
 fi
 
-./nanopb/generator/nanopb_generator.py -I ../.. -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
+./nanopb/generator/nanopb_generator.py -I ../.. -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D harness/generated
