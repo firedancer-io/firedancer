@@ -16,7 +16,7 @@
 #include "../../choreo/fd_choreo_base.h"
 #include "../../util/net/fd_net_headers.h"
 
-#include "fd_blk_repair.h"
+#include "../forest/fd_forest.h"
 #include "fd_fec_repair.h"
 #include "fd_fec_chainer.h"
 
@@ -40,7 +40,7 @@
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
 #define MAX_SHRED_TILE_CNT (16UL)
 
-#define FD_BLK_REPAIR_ELE_MAX (1 << 14UL) /* FIXME */
+#define FD_FOREST_ELE_MAX (1 << 14UL) /* FIXME */
 
 typedef union {
   struct {
@@ -77,7 +77,7 @@ struct fd_repair_tile_ctx {
   ushort                repair_intake_listen_port;
   ushort                repair_serve_listen_port;
 
-  fd_blk_repair_t  * blk_repair;
+  fd_forest_t  * forest;
   fd_fec_repair_t  * fec_repair;
   fd_fec_chainer_t * fec_chainer;
 
@@ -153,9 +153,9 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_blk_repair_align(),         fd_blk_repair_footprint( FD_BLK_REPAIR_ELE_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_forest_align(),             fd_forest_footprint( FD_FOREST_ELE_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( FD_BLK_REPAIR_ELE_MAX * 4 ) ); // TODO: fix this
+  l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( FD_FOREST_ELE_MAX * 4 ) ); // TODO: fix this
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),       fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),           fd_stake_ci_footprint() );
@@ -322,20 +322,20 @@ repair_shred_deliver_fail( fd_pubkey_t const * id FD_PARAM_UNUSED,
 }
 
 static int
-should_force_complete( fd_blk_repair_t *  blk_repair, fd_fec_intra_t * fec ) {
+should_force_complete( fd_forest_t *  forest, fd_fec_intra_t * fec ) {
   if( FD_LIKELY( fec->data_cnt ) ) return 0;
-  fd_blk_ele_t *      pool        = fd_blk_pool( blk_repair );
-  fd_blk_ancestry_t * ancestry    = fd_blk_ancestry( blk_repair );
-  fd_blk_frontier_t * frontier    = fd_blk_frontier( blk_repair );
-  fd_blk_orphaned_t * orphaned    = fd_blk_orphaned( blk_repair );
-  fd_blk_ele_t * ele;
-  ele =                  fd_blk_ancestry_ele_query( ancestry, &fec->slot, NULL, pool );
-  ele = fd_ptr_if( !ele, fd_blk_frontier_ele_query( frontier, &fec->slot, NULL, pool ), ele );
+  fd_forest_ele_t *      pool        = fd_forest_pool( forest );
+  fd_forest_ancestry_t * ancestry    = fd_forest_ancestry( forest );
+  fd_forest_frontier_t * frontier    = fd_forest_frontier( forest );
+  fd_forest_orphaned_t * orphaned    = fd_forest_orphaned( forest );
+  fd_forest_ele_t * ele;
+  ele =                  fd_forest_ancestry_ele_query( ancestry, &fec->slot, NULL, pool );
+  ele = fd_ptr_if( !ele, fd_forest_frontier_ele_query( frontier, &fec->slot, NULL, pool ), ele );
   ulong parent_slot = fec->slot - fec->parent_off;
-  ele = fd_ptr_if( !ele, fd_blk_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ), ele );
+  ele = fd_ptr_if( !ele, fd_forest_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ), ele );
   if( FD_UNLIKELY( !ele ) ) return 0;
   for( uint idx = fec->fec_set_idx + 1; idx < ele->buffered_idx + 1; idx++ ) { /* TODO iterate by word */
-    if( FD_UNLIKELY( fd_blk_ele_idxs_test( ele->fecs, idx ) ) ) {
+    if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, idx ) ) ) {
       fec->data_cnt = idx - fec->fec_set_idx;
       return 1;
     }
@@ -411,8 +411,8 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     }
   //   ulong wmark = fd_fseq_query( ctx->wmark );
   //   FD_TEST( wmark != ULONG_MAX );
-  //   if( FD_UNLIKELY( fd_blk_repair_root_slot( ctx->blk_repair ) == ULONG_MAX ) ) {
-  //     fd_blk_repair_init( ctx->blk_repair, wmark );
+  //   if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
+  //     fd_forest_init( ctx->forest, wmark );
   //   }
 
   //   ulong slot        = fd_disco_shred_repair_shred_sig_slot( sig );
@@ -454,7 +454,7 @@ during_frag( fd_repair_tile_ctx_t * ctx,
   //        the parent off. */
 
   //   } else {
-  //     if( !is_code ) fd_blk_repair_data_shred_insert( ctx->blk_repair, slot, fec->parent_off, shred_idx );
+  //     if( !is_code ) fd_forest_data_shred_insert( ctx->forest, slot, fec->parent_off, shred_idx );
   //     ctx->skip_frag = 1;
   //     return; // no need to read frag.
   //   }
@@ -498,13 +498,13 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
-    if( FD_UNLIKELY( fd_blk_repair_root_slot( ctx->blk_repair ) == ULONG_MAX ) ) {
-      fd_blk_repair_init( ctx->blk_repair, fd_fseq_query( ctx->wmark ) );
-      FD_TEST( fd_blk_repair_root_slot( ctx->blk_repair ) != ULONG_MAX ); /* the watermark MUST be ready if we are receiving messages from shred */
+    if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
+      fd_forest_init( ctx->forest, fd_fseq_query( ctx->wmark ) );
+      FD_TEST( fd_forest_root_slot( ctx->forest ) != ULONG_MAX ); /* the watermark MUST be ready if we are receiving messages from shred */
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
-    if( FD_UNLIKELY( shred->slot <= fd_blk_repair_root_slot( ctx->blk_repair )  ) ) return;
+    if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest )  ) ) return;
     uint shred_tile_idx = (uint)( in_idx - ctx->shred_out_ctx[0].idx );
     int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
     fd_fec_intra_t * fec            = NULL;
@@ -512,7 +512,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       fec = fd_fec_repair_insert( ctx->fec_repair, shred->slot, shred->fec_set_idx, shred->idx, 0, is_code, shred_tile_idx );
       fec->parent_off = shred->data.parent_off;
       uint complete_idx = fd_uint_if( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, shred->idx, UINT_MAX );
-      fd_blk_repair_data_shred_insert( ctx->blk_repair, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, complete_idx );
+      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, complete_idx );
     } else {
       fec = fd_fec_repair_insert( ctx->fec_repair, shred->slot, shred->fec_set_idx, shred->code.data_cnt, 0, is_code, shred_tile_idx );
     }
@@ -535,9 +535,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       fd_fec_repair_remove( ctx->fec_repair, fec->key );
       /* TODO set range ops */
       for( uint idx = shred->fec_set_idx; idx < shred->fec_set_idx + fec->data_cnt; idx++ ) {
-        fd_blk_repair_data_shred_insert( ctx->blk_repair, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, UINT_MAX );
+        fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, UINT_MAX );
       }
-    } else if( FD_UNLIKELY( !fec->completed && !is_code && should_force_complete( ctx->blk_repair, fec ) ) ) {
+    } else if( FD_UNLIKELY( !fec->completed && !is_code && should_force_complete( ctx->forest, fec ) ) ) {
 
       fec->completed = 1;
 
@@ -561,7 +561,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     // } else {
     //   fec->parent_off = shred->data.parent_off;
     //   fd_fec_intra_idxs_insert( fec->idxs, shred->idx - shred->fec_set_idx );
-    //   fd_blk_repair_data_shred_insert( ctx->blk_repair, shred->slot, shred->data.parent_off, shred->idx );
+    //   fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx );
 
     //   /* blind fec set logic */
 
@@ -618,77 +618,77 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   if( FD_UNLIKELY( now - ctx->tsrepair < (long)50e6 ) ) return;
   ctx->tsrepair = now;
 
-  if( FD_UNLIKELY( fd_blk_repair_root_slot( ctx->blk_repair ) == ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) return;
 
-  fd_blk_repair_t *         blk_repair = ctx->blk_repair;
-  fd_blk_ele_t *            pool       = fd_blk_pool( blk_repair );
-  ulong                     null       = fd_blk_pool_idx_null( pool );
-  fd_blk_frontier_t *       frontier   = fd_blk_frontier( blk_repair );
-  fd_blk_orphaned_t *       orphaned   = fd_blk_orphaned( blk_repair );
-  for( fd_blk_frontier_iter_t iter = fd_blk_frontier_iter_init( frontier, pool );
-       !fd_blk_frontier_iter_done( iter, frontier, pool );
-       iter = fd_blk_frontier_iter_next( iter, frontier, pool ) ) {
-    fd_blk_ele_t *       ele  = fd_blk_frontier_iter_ele( iter, frontier, pool );
-    fd_blk_ele_t *       head = ele;
-    fd_blk_ele_t *       tail = head;
-    fd_blk_ele_t *       prev = NULL;
+  fd_forest_t *          forest   = ctx->forest;
+  fd_forest_ele_t *      pool     = fd_forest_pool( forest );
+  ulong                  null     = fd_forest_pool_idx_null( pool );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
+       !fd_forest_frontier_iter_done( iter, frontier, pool );
+       iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+    fd_forest_ele_t *       ele  = fd_forest_frontier_iter_ele( iter, frontier, pool );
+    fd_forest_ele_t *       head = ele;
+    fd_forest_ele_t *       tail = head;
+    fd_forest_ele_t *       prev = NULL;
     while( FD_LIKELY( head ) ) {
       for( uint idx = head->buffered_idx + 1; idx < fd_ulong_min( head->complete_idx, FD_REEDSOL_DATA_SHREDS_MAX); idx++ ) {
-        if( FD_LIKELY( !fd_blk_ele_idxs_test( head->idxs, idx ) ) ) {
+        if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
           fd_repair_need_window_index( ctx->repair, head->slot, idx );
         };
       }
-      fd_blk_ele_t * child = fd_blk_pool_ele( pool, head->child );
+      fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
       while( FD_LIKELY( child ) ) { /* append children to frontier */
-        tail->prev     = fd_blk_pool_idx( pool, child );
-        tail           = fd_blk_pool_ele( pool, tail->prev );
-        tail->prev     = fd_blk_pool_idx_null( pool );
-        child          = fd_blk_pool_ele( pool, child->sibling );
+        tail->prev     = fd_forest_pool_idx( pool, child );
+        tail           = fd_forest_pool_ele( pool, tail->prev );
+        tail->prev     = fd_forest_pool_idx_null( pool );
+        child          = fd_forest_pool_ele( pool, child->sibling );
       }
       prev       = head;
-      head       = fd_blk_pool_ele( pool, head->prev );
+      head       = fd_forest_pool_ele( pool, head->prev );
       prev->prev = null;
     }
   }
 
-  for( fd_blk_orphaned_iter_t iter = fd_blk_orphaned_iter_init( orphaned, pool );
-       !fd_blk_orphaned_iter_done( iter, orphaned, pool );
-       iter = fd_blk_orphaned_iter_next( iter, orphaned, pool ) ) {
-    fd_blk_ele_t * orphan = fd_blk_orphaned_iter_ele( iter, orphaned, pool );
+  for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
+       !fd_forest_orphaned_iter_done( iter, orphaned, pool );
+       iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+    fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
     fd_repair_need_orphan( ctx->repair, orphan->slot );
 
-    // fd_blk_ele_t * head = orphan;
-    // fd_blk_ele_t * tail = head;
-    // fd_blk_ele_t * prev = NULL;
+    // fd_forest_ele_t * head = orphan;
+    // fd_forest_ele_t * tail = head;
+    // fd_forest_ele_t * prev = NULL;
     // while( FD_LIKELY( head ) ) {
     //   for( uint idx = head->buffered_idx + 1; idx < fd_ulong_min( head->complete_idx, FD_REEDSOL_DATA_SHREDS_MAX); idx++ ) {
-    //     if( FD_LIKELY( !fd_blk_ele_idxs_test( head->idxs, idx ) ) ) {
+    //     if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
     //       fd_repair_need_window_index( ctx->repair, head->slot, idx );
     //     };
     //   }
-    //   fd_blk_ele_t * child = fd_blk_pool_ele( pool, head->child );
+    //   fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
     //   while( FD_LIKELY( child ) ) { /* append children to frontier */
-    //     tail->prev     = fd_blk_pool_idx( pool, child );
-    //     tail           = fd_blk_pool_ele( pool, tail->prev );
-    //     tail->prev     = fd_blk_pool_idx_null( pool );
-    //     child          = fd_blk_pool_ele( pool, child->sibling );
+    //     tail->prev     = fd_forest_pool_idx( pool, child );
+    //     tail           = fd_forest_pool_ele( pool, tail->prev );
+    //     tail->prev     = fd_forest_pool_idx_null( pool );
+    //     child          = fd_forest_pool_ele( pool, child->sibling );
     //   }
     //   prev       = head;
-    //   head       = fd_blk_pool_ele( pool, head->prev );
+    //   head       = fd_forest_pool_ele( pool, head->prev );
     //   prev->prev = null;
     // }
   }
 
-  // for( fd_blk_orphaned_iter_t iter = fd_blk_orphaned_iter_init( orphaned, pool );
-  //      !fd_blk_orphaned_iter_done( iter, orphaned, pool );
-  //      iter = fd_blk_orphaned_iter_next( iter, orphaned, pool ) ) {
-  //   fd_blk_ele_t const * orphan = fd_blk_orphaned_iter_ele_const( iter, orphaned, pool );
-  //   fd_blk_ele_t const * parent = fd_blk_orphaned_ele_query_const( orphaned, &orphan->parent, NULL, pool );
+  // for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
+  //      !fd_forest_orphaned_iter_done( iter, orphaned, pool );
+  //      iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+  //   fd_forest_ele_t const * orphan = fd_forest_orphaned_iter_ele_const( iter, orphaned, pool );
+  //   fd_forest_ele_t const * parent = fd_forest_orphaned_ele_query_const( orphaned, &orphan->parent, NULL, pool );
   //   if( FD_UNLIKELY( !parent ) ) {
   //     fd_repair_need_orphan( ctx->repair, orphan->slot );
   //   }
   //   for( uint idx = orphan->consumed_idx; idx < fd_ulong_min( orphan->complete_idx, FD_REEDSOL_DATA_SHREDS_MAX); idx++ ) {
-  //     if( FD_LIKELY( !fd_blk_ele_idxs_test( orphan->idxs, idx ) ) ) {
+  //     if( FD_LIKELY( !fd_forest_ele_idxs_test( orphan->idxs, idx ) ) ) {
   //       // fd_repair_need_window_index( ctx->repair, orphan->slot, idx );
   //     };
   //   }
@@ -707,7 +707,7 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
 
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsprint > (long)1e9 ) ) {
-    fd_blk_repair_print( ctx->blk_repair );
+    fd_forest_print( ctx->forest );
     ctx->tsprint = fd_log_wallclock();
   }
 
@@ -923,11 +923,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->blockstore = &ctx->blockstore_ljoin;
   ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
-  ctx->blk_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_blk_repair_align(), fd_blk_repair_footprint( FD_BLK_REPAIR_ELE_MAX ) );
+  ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( FD_FOREST_ELE_MAX ) );
   ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
 
-  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( FD_BLK_REPAIR_ELE_MAX * 4 ) );
+  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( FD_FOREST_ELE_MAX * 4 ) );
 
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
@@ -979,9 +979,9 @@ unprivileged_init( fd_topo_t *      topo,
   /* Repair set up */
 
   ctx->repair      = fd_repair_join( fd_repair_new( ctx->repair, ctx->repair_seed ) );
-  ctx->blk_repair  = fd_blk_repair_join( fd_blk_repair_new( ctx->blk_repair, FD_BLK_REPAIR_ELE_MAX, ctx->repair_seed ) );
+  ctx->forest  = fd_forest_join( fd_forest_new( ctx->forest, FD_FOREST_ELE_MAX, ctx->repair_seed ) );
   ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
-  ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, FD_BLK_REPAIR_ELE_MAX * 4, 0 ) );
+  ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, FD_FOREST_ELE_MAX * 4, 0 ) );
 
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
