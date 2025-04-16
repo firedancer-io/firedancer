@@ -95,6 +95,13 @@ FD_STATIC_ASSERT( FD_SPAD_ALLOC_ALIGN_DEFAULT >= FD_MSAN_ALIGN,
 
 /* spad internals */
 
+struct fd_spad_debug_state {
+  ulong frame_free; /* number of frames free, in [0,FD_SPAD_FRAME_MAX] */
+  ulong mem_used;   /* number of spad memory bytes used, in [0,mem_max] */
+  fd_spad_t *spad;
+};
+typedef struct fd_spad_debug_state fd_spad_debug_state_t;
+
 struct __attribute__((aligned(FD_SPAD_ALIGN))) fd_spad_private {
 
   /* This point is FD_SPAD_ALIGN aligned */
@@ -363,12 +370,28 @@ fd_spad_private_frame_end( fd_spad_t ** _spad ) { /* declared here to avoid a fd
   fd_spad_pop( *_spad );
 }
 
+void fd_spad_private_frame_end_debug( fd_spad_debug_state_t * _spad_state);
+
+#if defined(FD_SPAD_USE_HANDHOLDING)
+
+#define FD_SPAD_FRAME_BEGIN(spad) do {                                            \
+  __attribute__((cleanup(fd_spad_private_frame_end_debug))) fd_spad_debug_state_t _spad_state; \
+  _spad_state = fd_spad_push_debug( spad );                                      \
+  do
+
+#define FD_SPAD_FRAME_END while(0); } while(0)
+
+#else
+
 #define FD_SPAD_FRAME_BEGIN(spad) do {                                            \
   fd_spad_t * _spad __attribute__((cleanup(fd_spad_private_frame_end))) = (spad); \
   fd_spad_push( _spad );                                                          \
   do
 
 #define FD_SPAD_FRAME_END while(0); } while(0)
+
+#endif
+
 
 /* fd_spad_alloc allocates sz bytes with alignment align from spad.
    Returns a pointer in the caller's address space to the first byte of
@@ -389,6 +412,39 @@ static inline void *
 fd_spad_alloc( fd_spad_t * spad,
                ulong       align,
                ulong       sz );
+
+/* fd_spad_check confirms you can allocates sz bytes with alignment align
+   from spad.
+*/
+
+static inline int
+fd_spad_check( fd_spad_t * spad,
+                     ulong       align,
+                     ulong       sz );
+/* fd_spad_alloc_check allocates sz bytes with alignment align from spad.
+   Returns a pointer in the caller's address space to the first byte of
+   the allocation (will be non-NULL with alignment align).  Assumes spad
+   is a current local join and in a frame, align is an integer power of
+   2 in [1,FD_SPAD_ALIGN] or 0 (indicates to use
+   FD_SPAD_ALLOC_ALIGN_DEFAULT) and sz is in [0,alloc_max].  Implicitly
+   cancels any in progress prepare.  On return, spad will be in a frame
+   and not in a prepare.  Fast O(1).
+
+   The lifetime of the returned region will be until the next pop or
+   delete and of the returned pointer until pop, delete or leave.  The
+   allocated region will be in the region backing the spad (e.g. if the
+   spad is backed by wksp memory, the returned value will be a laddr
+   that can be shared with threads in other processes using that wksp).
+
+   Additonal checks are introduced that will cause it to return NULL
+   if the total size of the spad object have been exceeded or it has
+   run out of frame space.
+*/
+
+static inline void *
+fd_spad_alloc_check( fd_spad_t * spad,
+                     ulong       align,
+                     ulong       sz );
 
 /* fd_spad_trim trims trims frame_hi to end at hi where hi is given the
    caller's local address space.  Assumes spad is a current local join
@@ -490,18 +546,18 @@ fd_spad_verify( fd_spad_t const * spad );
    satisfied (they all still assume spad is a current local join).  They
    can only be used if logging services are available. */
 
-void   fd_spad_reset_debug    ( fd_spad_t       * spad                          );
-void * fd_spad_delete_debug   ( void            * shspad                        );
-ulong  fd_spad_alloc_max_debug( fd_spad_t const * spad, ulong  align            );
-void * fd_spad_frame_lo_debug ( fd_spad_t       * spad                          );
-void * fd_spad_frame_hi_debug ( fd_spad_t       * spad                          );
-void   fd_spad_push_debug     ( fd_spad_t       * spad                          );
-void   fd_spad_pop_debug      ( fd_spad_t       * spad                          );
-void * fd_spad_alloc_debug    ( fd_spad_t       * spad, ulong  align, ulong sz  );
-void   fd_spad_trim_debug     ( fd_spad_t       * spad, void * hi               );
-void * fd_spad_prepare_debug  ( fd_spad_t       * spad, ulong  align, ulong max );
-void   fd_spad_cancel_debug   ( fd_spad_t       * spad                          );
-void   fd_spad_publish_debug  ( fd_spad_t       * spad, ulong  sz               );
+void                   fd_spad_reset_debug    ( fd_spad_t       * spad                          );
+void *                 fd_spad_delete_debug   ( void            * shspad                        );
+ulong                  fd_spad_alloc_max_debug( fd_spad_t const * spad, ulong  align            );
+void *                 fd_spad_frame_lo_debug ( fd_spad_t       * spad                          );
+void *                 fd_spad_frame_hi_debug ( fd_spad_t       * spad                          );
+fd_spad_debug_state_t  fd_spad_push_debug     ( fd_spad_t       * spad                          );
+void                   fd_spad_pop_debug      ( fd_spad_t       * spad                          );
+void *                 fd_spad_alloc_debug    ( fd_spad_t       * spad, ulong  align, ulong sz  );
+void                   fd_spad_trim_debug     ( fd_spad_t       * spad, void * hi               );
+void *                 fd_spad_prepare_debug  ( fd_spad_t       * spad, ulong  align, ulong max );
+void                   fd_spad_cancel_debug   ( fd_spad_t       * spad                          );
+void                   fd_spad_publish_debug  ( fd_spad_t       * spad, ulong  sz               );
 
 /* The sanitizer variants below have additional logic to control memory
    poisoning in ASAN/DEEPASAN and MSAN builds. */
@@ -677,6 +733,32 @@ void *
 fd_spad_alloc( fd_spad_t * spad,
                ulong       align,
                ulong       sz ) {
+  return SELECT_IMPL(fd_spad_alloc)(spad, align, sz);
+}
+
+int
+fd_spad_check( fd_spad_t * spad,
+         ulong       align,
+         ulong       sz ) {
+
+  if( FD_UNLIKELY( ( !fd_spad_frame_used( spad ) ) |
+                   ( (!!align) & (!fd_ulong_is_pow2( align ) ) ) |
+                   ( fd_spad_alloc_max( spad, align )<sz )
+                 ) ) return 0;
+
+  return 1;
+}
+
+void *
+fd_spad_alloc_check( fd_spad_t * spad,
+         ulong       align,
+         ulong       sz ) {
+
+  if( FD_UNLIKELY( ( !fd_spad_frame_used( spad ) ) |
+                   ( (!!align) & (!fd_ulong_is_pow2( align ) ) ) |
+                   ( fd_spad_alloc_max( spad, align )<sz )
+                 ) ) return NULL;
+
   return SELECT_IMPL(fd_spad_alloc)(spad, align, sz);
 }
 

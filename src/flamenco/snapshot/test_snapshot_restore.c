@@ -70,7 +70,8 @@ main( int     argc,
   void * restore_mem = fd_wksp_alloc_laddr( wksp, fd_snapshot_restore_align(), fd_snapshot_restore_footprint(), static_tag );
 
   fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 4194304UL ), static_tag ), 4194304UL );
-  fd_spad_push( _spad );
+  FD_SPAD_FRAME_BEGIN( _spad ) {
+
   FD_LOG_WARNING(("SPAD %lu", _spad->mem_max));
 
   fd_funk_txn_xid_t xid[1] = {{ .ul = {4} }};
@@ -96,15 +97,15 @@ main( int     argc,
   })
 
   /* Test invalid params */
-  fd_spad_push( _spad );
+  FD_SPAD_FRAME_BEGIN( _spad ) {
   FD_TEST( !fd_snapshot_restore_new( NULL,        funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL ) );  /* NULL mem */
   FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL ) );  /* NULL funk */
-  fd_spad_pop( _spad );
+  } FD_SPAD_FRAME_END;
 
   /* Reject accounts before manifest */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     FD_TEST( restore->failed        == 0 );
@@ -118,13 +119,13 @@ main( int     argc,
     FD_TEST( EINVAL==fd_snapshot_restore_chunk( restore, "A", 1UL ) );
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Reject invalid status cache */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     FD_LOG_WARNING(("SPAD %lu", _spad->mem_max));
     fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
@@ -133,13 +134,13 @@ main( int     argc,
     FD_TEST( restore->buf );
     FD_TEST( EINVAL==fd_snapshot_restore_chunk( restore, "AAAAAAAAAAAAAAAAAA", 18UL ) );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Reject invalid manifest */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
@@ -147,39 +148,39 @@ main( int     argc,
     FD_TEST( restore->buf );
     FD_TEST( EINVAL==fd_snapshot_restore_chunk( restore, "AAAAAAAAAAAAAAAAAA", 18UL ) );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test status cache with size exceeding buffer size (out of memory) */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
     FD_TEST( restore->failed == 1 );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test manifest with size exceeding buffer size (out of memory) */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, funk, NULL, _spad, NULL, cb_manifest, cb_status_cache, NULL );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
     FD_TEST( restore->failed == 1 );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test basic manifest */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_solana_manifest_t manifest[1] = {{ .bank = { .slot = 3UL } }};
     ulong manifest_sz = fd_solana_manifest_size( manifest );
 
@@ -206,13 +207,13 @@ main( int     argc,
     FD_TEST( restore->slot          == 3UL                );
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test basic status cache */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     /* Create basic slot delta */
     fd_bank_slot_deltas_t cache[1];
     cache->slot_deltas_len = 1;
@@ -256,13 +257,13 @@ main( int     argc,
     FD_TEST( restore->status_cache_done == 1   );
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Ignore trailing data after manifest */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_solana_manifest_t manifest[1] = {0};
     ulong manifest_sz = fd_solana_manifest_size( manifest );
 
@@ -288,13 +289,13 @@ main( int     argc,
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, manifest_sz + 1 ) );
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test empty file */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     _set_accv_sz( restore, /* slot */ 1UL, /* id */ 1UL, /* sz */ 0UL );
@@ -304,13 +305,13 @@ main( int     argc,
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, NULL, 0UL ) );
     FD_TEST( restore->state == STATE_IGNORE );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test undersz AppendVec (torn header) */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -321,13 +322,13 @@ main( int     argc,
     FD_TEST( restore->failed == 1 );
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test undersz AppendVec (no body) */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -344,13 +345,13 @@ main( int     argc,
     } while(0);
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test undersz AppendVec (torn body) */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -367,13 +368,13 @@ main( int     argc,
     } while(0);
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Reject account with too high slot number */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -383,13 +384,13 @@ main( int     argc,
     FD_TEST( EINVAL==fd_snapshot_restore_file( restore, &accv_meta, sizeof(fd_solana_account_hdr_t) ) );
     FD_TEST( restore->failed == 1 );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Dead accounts must be inserted into database too */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -414,13 +415,13 @@ main( int     argc,
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Old revision must not overrule dead account */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -466,7 +467,7 @@ main( int     argc,
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* When an old revision is encountered, only that revision should be
@@ -474,7 +475,7 @@ main( int     argc,
      database. */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -551,13 +552,13 @@ main( int     argc,
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test undersz AppendVec (real sz smaller than indicated sz) */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -568,13 +569,13 @@ main( int     argc,
     FD_TEST( restore->failed == 1 );
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
   /* Test accounts */
 
   do {
-    fd_spad_push( _spad );
+    FD_SPAD_FRAME_BEGIN( _spad ) {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -663,10 +664,12 @@ main( int     argc,
     FD_TEST( 0== fd_snapshot_restore_chunk( restore, "ABCD", 4UL ) );
 
     fd_snapshot_restore_delete( restore );
-    fd_spad_pop( _spad );
+    } FD_SPAD_FRAME_END;
   } while(0);
 
 # undef NEW_RESTORE_POST_MANIFEST
+
+  } FD_SPAD_FRAME_END;
 
   /* Clean up */
 
