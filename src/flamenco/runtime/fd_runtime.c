@@ -111,6 +111,7 @@ ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->part_width, slot_c
     }
   }
   if( FD_UNLIKELY( rent_fresh_account == NULL ) ) {
+    // return;
     FD_LOG_ERR(( "rent_fresh_accounts full! increase FD_RENT_FRESH_ACCOUNTS_MAX" ));
   }
 

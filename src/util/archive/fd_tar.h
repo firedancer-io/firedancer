@@ -168,6 +168,7 @@ struct fd_tar_reader {
   ulong pos;      /* Number of bytes consumed */
   ulong buf_ctr;  /* Write cursor in file header */
   ulong file_sz;  /* Number of file bytes left */
+  ulong file_sz_const; /* file size */
 
   /* Callback parameters */
   fd_tar_read_vtable_t cb_vt;

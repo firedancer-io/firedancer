@@ -26,6 +26,7 @@ fd_snapshot_restore_prepare_buf( fd_snapshot_restore_t * self,
                                  ulong                   sz ) {
 
   self->buf_ctr = 0UL;
+  self->buf_ctr_start = 0UL;
   self->buf_sz  = 0UL;
 
   if( FD_LIKELY( sz <= self->buf_cap ) )
@@ -69,7 +70,8 @@ fd_snapshot_restore_new( void *                                         mem,
                          void *                                         cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache,
-                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account ) {
+                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account,
+                         fd_tpool_t *                                   tpool ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -112,6 +114,7 @@ fd_snapshot_restore_new( void *                                         mem,
   void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
   FD_TEST( self->accv_map );
+  self->tpool = tpool;
 
   return self;
 }
@@ -147,7 +150,7 @@ fd_snapshot_expect_account_hdr( fd_snapshot_restore_t * restore ) {
 
   restore->state    = STATE_READ_ACCOUNT_HDR;
   restore->acc_data = NULL;
-  restore->buf_ctr  = 0UL;
+  restore->buf_ctr_start = restore->buf_ctr;
   restore->buf_sz   = sizeof(fd_solana_account_hdr_t);
   return 0;
 }
@@ -155,74 +158,74 @@ fd_snapshot_expect_account_hdr( fd_snapshot_restore_t * restore ) {
 /* fd_snapshot_restore_account_hdr deserializes an account header and
    allocates a corresponding funk record. */
 
-static int
-fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
+// static int
+// fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
 
-  fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->buf );
+//   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->buf );
 
-  /* Prepare for account lookup */
-  fd_funk_t *         funk     = restore->funk;
-  fd_funk_txn_t *     funk_txn = restore->funk_txn;
-  fd_pubkey_t const * key      = fd_type_pun_const( hdr->meta.pubkey );
-  FD_TXN_ACCOUNT_DECL( rec );
-  char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
+//   /* Prepare for account lookup */
+//   fd_funk_t *         funk     = restore->funk;
+//   fd_funk_txn_t *     funk_txn = restore->funk_txn;
+//   fd_pubkey_t const * key      = fd_type_pun_const( hdr->meta.pubkey );
+//   FD_TXN_ACCOUNT_DECL( rec );
+//   char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
 
-  /* Sanity checks */
-  if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
-    FD_LOG_WARNING(( "accounts/%lu.%lu: account %s too large: data_len=%lu",
-                     restore->accv_slot, restore->accv_id, fd_acct_addr_cstr( key_cstr, key->uc ), hdr->meta.data_len ));
-    FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
-    return EINVAL;
-  }
+//   /* Sanity checks */
+//   if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
+//     FD_LOG_WARNING(( "accounts/%lu.%lu: account %s too large: data_len=%lu",
+//                      restore->accv_slot, restore->accv_id, fd_acct_addr_cstr( key_cstr, key->uc ), hdr->meta.data_len ));
+//     FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
+//     return EINVAL;
+//   }
 
-  int is_dupe = 0;
+//   int is_dupe = 0;
 
-  /* Check if account exists */
-  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, NULL, NULL, NULL );
-  if( rec_meta )
-    if( rec_meta->slot > restore->accv_slot )
-      is_dupe = 1;
+//   /* Check if account exists */
+//   fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, NULL, NULL, NULL );
+//   if( rec_meta )
+//     if( rec_meta->slot > restore->accv_slot )
+//       is_dupe = 1;
 
-  /* Write account */
-  if( !is_dupe ) {
-    int write_result = fd_txn_account_init_from_funk_mutable( rec, key, funk, funk_txn, /* do_create */ 1, hdr->meta.data_len );
-    if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_txn_account_init_from_funk_mutable(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
-      return ENOMEM;
-    }
-    rec->vt->set_data_len( rec, hdr->meta.data_len );
-    rec->vt->set_slot( rec, restore->accv_slot );
-    rec->vt->set_hash( rec, &hdr->hash );
-    rec->vt->set_info( rec, &hdr->info );
-    if( rec->vt->get_meta( rec ) && rec->vt->get_lamports( rec ) && rec->vt->get_rent_epoch( rec ) != FD_RENT_EXEMPT_RENT_EPOCH ) {
-      restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
-    }
-    restore->acc_data = rec->vt->get_data_mut( rec );
+//   /* Write account */
+//   if( !is_dupe ) {
+//     int write_result = fd_txn_account_init_from_funk_mutable( rec, key, funk, funk_txn, /* do_create */ 1, hdr->meta.data_len );
+//     if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+//       FD_LOG_WARNING(( "fd_txn_account_init_from_funk_mutable(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
+//       return ENOMEM;
+//     }
+//     rec->vt->set_data_len( rec, hdr->meta.data_len );
+//     rec->vt->set_slot( rec, restore->accv_slot );
+//     rec->vt->set_hash( rec, &hdr->hash );
+//     rec->vt->set_info( rec, &hdr->info );
+//     if( rec->vt->get_meta( rec ) && rec->vt->get_lamports( rec ) && rec->vt->get_rent_epoch( rec ) != FD_RENT_EXEMPT_RENT_EPOCH ) {
+//       restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
+//     }
+//     restore->acc_data = rec->vt->get_data_mut( rec );
 
-    fd_txn_account_mutable_fini( rec, funk, funk_txn );
-  }
-  ulong data_sz    = hdr->meta.data_len;
-  restore->acc_sz  = data_sz;
-  restore->acc_pad = fd_ulong_align_up( data_sz, FD_SNAPSHOT_ACC_ALIGN ) - data_sz;
+//     fd_txn_account_mutable_fini( rec, funk, funk_txn );
+//   }
+//   ulong data_sz    = hdr->meta.data_len;
+//   restore->acc_sz  = data_sz;
+//   restore->acc_pad = fd_ulong_align_up( data_sz, FD_SNAPSHOT_ACC_ALIGN ) - data_sz;
 
-  /* Next step */
-  if( data_sz == 0UL )
-    return fd_snapshot_expect_account_hdr( restore );
+//   /* Next step */
+//   if( data_sz == 0UL )
+//     return fd_snapshot_expect_account_hdr( restore );
 
-  /* Fail if account data is cut off */
-  if( FD_UNLIKELY( restore->accv_sz < data_sz ) ) {
-    FD_LOG_WARNING(( "accounts/%lu.%lu: account %s data exceeds past end of account vec (acc_sz=%lu accv_sz=%lu)",
-                     restore->accv_slot, restore->accv_id, fd_acct_addr_cstr( key_cstr, key->uc ), data_sz, restore->accv_sz ));
-    FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
-    restore->failed = 1;
-    return EINVAL;
-  }
+//   /* Fail if account data is cut off */
+//   if( FD_UNLIKELY( restore->accv_sz < data_sz ) ) {
+//     FD_LOG_WARNING(( "accounts/%lu.%lu: account %s data exceeds past end of account vec (acc_sz=%lu accv_sz=%lu)",
+//                      restore->accv_slot, restore->accv_id, fd_acct_addr_cstr( key_cstr, key->uc ), data_sz, restore->accv_sz ));
+//     FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
+//     restore->failed = 1;
+//     return EINVAL;
+//   }
 
-  restore->state    = STATE_READ_ACCOUNT_DATA;
-  restore->buf_ctr  = 0UL;
-  restore->buf_sz   = 0UL;
-  return 0;
-}
+//   restore->state    = STATE_READ_ACCOUNT_DATA;
+//   restore->buf_ctr  = 0UL;
+//   restore->buf_sz   = 0UL;
+//   return 0;
+// }
 
 /* fd_snapshot_accv_index populates the index of account vecs.  This
    index will be used when loading accounts.  Returns errno-compatible
@@ -262,6 +265,7 @@ fd_snapshot_accv_index( fd_snapshot_accv_map_t *               map,
 
 static int
 fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
+  FD_LOG_WARNING(("restoring manifest!1"));
 
   /* Decode manifest placing dynamic data structures onto slot context
      heap.  Once the epoch context heap is separated out, we need to
@@ -331,6 +335,8 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
 static int
 fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
 
+  FD_LOG_WARNING(("restore statuc cache!"));
+
   if( FD_UNLIKELY( !restore->cb_status_cache ) ) {
     fd_snapshot_restore_discard_buf( restore );
 
@@ -383,12 +389,7 @@ static int
 fd_snapshot_restore_accv_prepare( fd_snapshot_restore_t * const restore,
                                   fd_tar_meta_t const *   const meta,
                                   ulong                   const real_sz ) {
-
-  if( FD_UNLIKELY( !fd_snapshot_restore_prepare_buf( restore, sizeof(fd_solana_account_hdr_t) ) ) ) {
-    FD_LOG_WARNING(( "Failed to allocate read buffer while restoring accounts from snapshot" ));
-    return ENOMEM;
-  }
-
+  // FD_LOG_WARNING(("in accv prepare!"));
   /* Parse file name */
   ulong id, slot;
   if( FD_UNLIKELY( sscanf( meta->name, "accounts/%lu.%lu", &slot, &id )!=2 ) ) {
@@ -429,6 +430,11 @@ fd_snapshot_restore_accv_prepare( fd_snapshot_restore_t * const restore,
   restore->accv_sz   = sz;
   restore->accv_slot = slot;
   restore->accv_id   = id;
+
+  if( FD_UNLIKELY( !fd_snapshot_restore_prepare_buf( restore, sz ) ) ) {
+    FD_LOG_WARNING(( "Failed to allocate read buffer while restoring accounts from snapshot" ));
+    return ENOMEM;
+  }
 
   /* Prepare read of account header */
   FD_LOG_DEBUG(( "Loading account vec %s", meta->name ));
@@ -495,6 +501,7 @@ fd_snapshot_restore_file( void *                restore_,
                           fd_tar_meta_t const * meta,
                           ulong                 sz ) {
 
+  FD_LOG_WARNING(("in restore file, sz is %lu", sz));
   fd_snapshot_restore_t * restore = restore_;
   if( restore->failed ) return EINVAL;
 
@@ -541,6 +548,7 @@ fd_snapshot_read_buffered( fd_snapshot_restore_t * restore,
                            ulong                   bufsz ) {
   /* Should not be called if read is complete */
   FD_TEST( restore->buf_ctr < restore->buf_sz );
+  // ulong end_sz = restore->buf_ctr_start + sizeof(fd_solana_account_hdr_t);
 
   /* Determine number of bytes to buffer */
   ulong sz = restore->buf_sz - restore->buf_ctr;
@@ -553,72 +561,40 @@ fd_snapshot_read_buffered( fd_snapshot_restore_t * restore,
   return buf+sz;
 }
 
+static uchar const *
+fd_snapshot_read_buffered_acc_hdr(fd_snapshot_restore_t * restore,
+  uchar const *           buf,
+  ulong                   bufsz  ) {
+    /* Should not be called if read is complete */
+  ulong end_sz = restore->buf_ctr_start + sizeof(fd_solana_account_hdr_t);
+
+  /* Determine number of bytes to buffer */
+  ulong sz = end_sz - restore->buf_ctr;
+  if( sz>bufsz ) sz = bufsz;
+
+  /* Append to buffer */
+  fd_memcpy( restore->buf + restore->buf_ctr, buf, sz );
+  restore->buf_ctr += sz;
+
+  return buf+sz;
+  }
+
 /* fd_snapshot_read_is_complete returns 1 if all requested bytes have
    been buffered. */
 
 FD_FN_PURE static inline int
-fd_snapshot_read_is_complete( fd_snapshot_restore_t const * restore ) {
-  return restore->buf_ctr == restore->buf_sz;
+fd_snapshot_read_is_complete( fd_snapshot_restore_t * restore ) {
+  return restore->buf_sz == restore->buf_ctr;
+}
+
+static inline int
+fd_snapshot_read_is_complete_acc_hdr( fd_snapshot_restore_t * restore ) {
+  return restore->buf_ctr_start + sizeof(fd_solana_account_hdr_t) == restore->buf_ctr;
 }
 
 /* fd_snapshot_read_account_hdr_chunk reads a partial account header. */
 
-static uchar const *
-fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
-                                    uchar const *           buf,
-                                    ulong                   bufsz ) {
-  if( !restore->accv_sz ) {
-    /* Reached end of AppendVec */
-    restore->state   = STATE_IGNORE;
-    restore->buf_ctr = restore->buf_sz = 0UL;
-    return buf;
-  }
-  bufsz = fd_ulong_min( bufsz, restore->accv_sz );
-  uchar const * end = fd_snapshot_read_buffered( restore, buf, bufsz );
-  restore->accv_sz -= (ulong)(end-buf);
-  if( fd_snapshot_read_is_complete( restore ) )
-    if( FD_UNLIKELY( 0!=fd_snapshot_restore_account_hdr( restore ) ) )
-      return NULL;
-  return end;
-}
-
 /* fd_snapshot_read_account_chunk reads partial account content. */
-
-static uchar const *
-fd_snapshot_read_account_chunk( fd_snapshot_restore_t * restore,
-                                uchar const *           buf,
-                                ulong                   bufsz ) {
-
-  ulong data_sz = fd_ulong_min( restore->acc_sz, bufsz );
-  if( FD_LIKELY( restore->acc_data ) ) {
-    fd_memcpy( restore->acc_data, buf, data_sz );
-    restore->acc_data += data_sz;
-  }
-  if( FD_UNLIKELY( data_sz > restore->accv_sz ) )
-    FD_LOG_CRIT(( "OOB account vec read: data_sz=%lu accv_sz=%lu", data_sz, restore->accv_sz ));
-
-  buf               += data_sz;
-  bufsz             -= data_sz;
-  restore->acc_sz   -= data_sz;
-  restore->accv_sz  -= data_sz;
-
-  if( restore->acc_sz == 0UL ) {
-    ulong pad_sz = fd_ulong_min( fd_ulong_min( restore->acc_pad, bufsz ), restore->accv_sz );
-    buf              += pad_sz;
-    bufsz            -= pad_sz;
-    restore->acc_pad -= pad_sz;
-    restore->accv_sz -= pad_sz;
-
-    if( restore->accv_sz == 0UL ) {
-      restore->state = STATE_IGNORE;
-      return buf;
-    }
-    if( restore->acc_pad == 0UL )
-      return (0==fd_snapshot_expect_account_hdr( restore )) ? buf : NULL;
-  }
-
-  return buf;
-}
 
 /* fd_snapshot_read_manifest_chunk reads partial manifest content. */
 
@@ -658,14 +634,344 @@ fd_snapshot_read_status_cache_chunk( fd_snapshot_restore_t * restore,
   return end;
 }
 
+// static uchar const *
+// fd_snapshot_read_account_hdr_chunk_prepare( fd_snapshot_restore_t * restore,
+//                                             uchar const *           buf,
+//                                             ulong                   bufsz,
+//                                             uchar const *           tpool_buf[128*1024],
+//                                             ulong *                 tpool_buf_idx ) {
+//   if( !restore->accv_sz ) {
+//     /* Reached end of AppendVec */
+//     restore->state   = STATE_IGNORE;
+//     restore->buf_ctr = restore->buf_sz = 0UL;
+//     return buf;
+//   }
+
+//   uchar const * buf_ = buf;
+//   if( restore->acc_sz == 0 ) {
+//     // FD_LOG_WARNING(("processing account header!"));
+//     if( bufsz >= sizeof(fd_solana_account_hdr_t) && restore->buf_ctr == 0) {
+//       tpool_buf[*tpool_buf_idx] = buf;
+//     } else {
+//       // FD_LOG_WARNING(("memcopying partial acc header!"));
+//       ulong sz = sizeof(fd_solana_account_hdr_t) - restore->buf_ctr;
+//       if( sz>bufsz ) sz = bufsz;
+
+//       fd_memcpy(restore->buf + restore->buf_ctr, buf, sz);
+//       tpool_buf[*tpool_buf_idx] = restore->buf;
+//       buf += sz;
+//       restore->accv_sz -= sz;
+//       restore->buf_ctr += sz;
+
+//       if( restore->buf_ctr >= sizeof(fd_solana_account_hdr_t) ) {
+//         restore->buf_ctr = 0;
+//         buf_ = restore->buf;
+//       }
+//       else {
+//         goto done;
+//       }
+//     }
+
+//     fd_solana_account_hdr_t const * hdr = fd_type_pun_const( buf_ );
+//     ulong data_sz = hdr->meta.data_len;
+//     ulong data_sz_real = fd_ulong_min( data_sz, bufsz -  sizeof(fd_solana_account_hdr_t) );
+//     // FD_LOG_WARNING(("data sz is %lu", data_sz));
+//     // FD_LOG_WARNING(("data sz real is %lu", data_sz_real));
+//     char keystr[ FD_BASE58_ENCODED_32_SZ ];
+//     fd_base58_encode_32( hdr->meta.pubkey, NULL, keystr );
+//     // FD_LOG_WARNING(("pubkey is %s", keystr));
+
+//     restore->acc_sz  = data_sz;
+//     restore->acc_pad = fd_ulong_align_up( data_sz, FD_SNAPSHOT_ACC_ALIGN ) - data_sz;
+//     restore->accv_sz  -= (sizeof(fd_solana_account_hdr_t) + data_sz_real);
+//     buf += sizeof(fd_solana_account_hdr_t);
+//     buf += data_sz_real;
+//     restore->acc_sz -= data_sz_real;
+//   }
+//   else {
+//     // FD_LOG_WARNING(("processing account data!"));
+//     // FD_LOG_WARNING(("account data remaining size: %lu", restore->acc_sz));
+//     ulong data_sz = fd_ulong_min( restore->acc_sz, bufsz );
+//     buf += data_sz;
+//     bufsz -= data_sz;
+//     restore->acc_sz -= data_sz;
+//     restore->accv_sz -= data_sz;
+//   }
+
+//   // FD_LOG_WARNING(("bufsz is %lu", bufsz));
+//   // FD_LOG_WARNING(("appendvec size is %lu", restore->accv_sz));
+
+//   if( restore->acc_sz == 0UL ) {
+//     // FD_LOG_WARNING(("done with account data!"));
+//     (*tpool_buf_idx)++;
+//     ulong pad_sz = fd_ulong_min( fd_ulong_min( restore->acc_pad, bufsz ), restore->accv_sz );
+//     // FD_LOG_WARNING(("pad sz is %lu", pad_sz));
+//     buf              += pad_sz;
+//     bufsz            -= pad_sz;
+//     restore->acc_pad -= pad_sz;
+//     restore->accv_sz -= pad_sz;
+
+//     if( restore->accv_sz == 0UL ) {
+//       restore->state = STATE_IGNORE;
+//       // FD_LOG_ERR(("stop1!"));
+//       return buf;
+//     }
+//     if( restore->acc_pad == 0UL ) {
+//       // FD_LOG_ERR(("stop2!"));
+//       return (0==fd_snapshot_expect_account_hdr( restore )) ? buf : NULL;
+//     }
+//   }
+
+//   // FD_LOG_ERR(("stop3!"));
+//   // if( num_times_exec == 2) {
+//   //   FD_LOG_ERR(("stop!"));
+//   // }
+// done:
+//   return (0==fd_snapshot_expect_account_hdr( restore )) ? buf : NULL;
+// }
+
 /* fd_snapshot_restore_chunk1 consumes at least one byte from the given
    buffer (unless bufsz==0).  Returns pointer to first byte that has
    not been consumed yet. */
 
+#define NUM_ACCOUNT_WRITERS 12
+
+struct fd_snapshot_write_account_args {
+  fd_snapshot_restore_t * restore;
+  uchar const ** tpool_buf;
+};
+typedef struct fd_snapshot_write_account_args fd_snapshot_write_account_args_t;
+
+int
+fd_snapshot_write_account( fd_snapshot_restore_t * restore, uchar const * buf ) {
+  if( !buf ) {
+    FD_LOG_ERR(("buf is null!"));
+    return 0;
+  }
+  // FD_LOG_WARNING(("writing account at buf %lu", (ulong)buf));
+  fd_solana_account_hdr_t const * hdr = fd_type_pun_const( buf );
+
+  /* Prepare for account lookup */
+  fd_funk_t *         funk     = restore->funk;
+  fd_funk_txn_t *     funk_txn = restore->funk_txn;
+  fd_pubkey_t const * key      = fd_type_pun_const( hdr->meta.pubkey );
+  FD_TXN_ACCOUNT_DECL( rec );
+  char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
+
+  /* Sanity checks */
+  if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
+    FD_LOG_WARNING(( "accounts/%lu.%lu: account %s too large: data_len=%lu",
+                     restore->accv_slot, restore->accv_id, fd_acct_addr_cstr( key_cstr, key->uc ), hdr->meta.data_len ));
+    FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
+    return EINVAL;
+  }
+
+  int is_dupe = 0;
+  // char keystr[ FD_BASE58_ENCODED_32_SZ ];
+  // fd_base58_encode_32( key->uc, NULL, keystr );
+  // FD_LOG_WARNING(("writing account pubkey %s", keystr));
+
+  /* Check if account exists */
+  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, NULL, NULL, NULL );
+  if( rec_meta )
+    if( rec_meta->slot > restore->accv_slot )
+      is_dupe = 1;
+
+  /* Write account */
+  if( !is_dupe ) {
+    int write_result = fd_txn_account_init_from_funk_mutable( rec, key, funk, funk_txn, /* do_create */ 1, hdr->meta.data_len );
+    if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_txn_account_init_from_funk_mutable(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
+      return ENOMEM;
+    }
+
+    rec->vt->set_data_len( rec, hdr->meta.data_len );
+    rec->vt->set_slot( rec, restore->accv_slot );
+    rec->vt->set_hash( rec, &hdr->hash );
+    rec->vt->set_info( rec, &hdr->info );
+    if( rec->vt->get_meta( rec ) && rec->vt->get_lamports( rec ) && rec->vt->get_rent_epoch( rec ) != FD_RENT_EXEMPT_RENT_EPOCH ) {
+      restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
+    }
+    restore->acc_data = rec->vt->get_data_mut( rec );
+    ulong data_sz = hdr->meta.data_len;
+    if( data_sz ) {
+      fd_memcpy( restore->acc_data, buf + sizeof(fd_solana_account_hdr_t), data_sz );
+    }
+
+    fd_txn_account_mutable_fini( rec, funk, funk_txn );
+  }
+  return 0;
+}
+
+void
+fd_snapshot_write_account_task( void *tpool,
+                                ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                                void *args FD_PARAM_UNUSED,
+                                void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                                ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
+                                ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
+                                ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
+  fd_snapshot_write_account_args_t * task_info = (fd_snapshot_write_account_args_t *)tpool;
+
+  for( ulong i = t0; i < t1; i++) {
+    // FD_LOG_WARNING(("i is %lu", i));
+    fd_snapshot_write_account( task_info->restore, task_info->tpool_buf[i] );
+    // FD_LOG_WARNING(("finished writing account!"));
+  }
+}
+
+void
+fd_snapshot_write_account_wrapper_single_threaded( fd_tpool_t * tpool FD_PARAM_UNUSED,
+  fd_snapshot_restore_t * restore,
+  uchar const * tpool_buf[128*1024],
+  ulong num_accounts ) {
+  for( ulong i = 0; i < num_accounts; i++) {
+    // FD_LOG_WARNING(("i is %lu", i));
+    fd_snapshot_write_account( restore, tpool_buf[i] );
+    // FD_LOG_WARNING(("finished writing account!"));
+  }
+  restore->tpool_buf_idx = 0;
+}
+
+void
+fd_snapshot_write_account_wrapper( fd_tpool_t * tpool,
+                                   fd_snapshot_restore_t * restore,
+                                   uchar const * tpool_buf[128*1024],
+                                   ulong num_accounts ) {
+  // FD_LOG_WARNING(("num accounts in wrapper is %lu", num_accounts));
+  fd_snapshot_write_account_args_t * task_data = fd_spad_alloc( restore->spad,
+                                                            alignof(fd_snapshot_write_account_args_t),
+                                                            sizeof(fd_snapshot_write_account_args_t) );
+  task_data->restore = restore;
+  task_data->tpool_buf = tpool_buf;
+
+  ulong cnt_per_worker = num_accounts / NUM_ACCOUNT_WRITERS;
+
+  if( cnt_per_worker < 1 ) {
+    fd_snapshot_write_account_wrapper_single_threaded( tpool, restore, tpool_buf, num_accounts );
+  }
+  else {
+    for( ulong worker_idx=1UL; worker_idx<NUM_ACCOUNT_WRITERS; worker_idx++) {
+      ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+      ulong end_idx = worker_idx !=NUM_ACCOUNT_WRITERS-1 ? start_idx + cnt_per_worker - 1 : num_accounts - 1;
+      // FD_LOG_WARNING(("start idx is %lu", start_idx));
+      // FD_LOG_WARNING(("end idx is %lu", end_idx));
+      fd_tpool_exec( tpool, worker_idx, fd_snapshot_write_account_task, task_data, start_idx, end_idx, NULL, 0UL, 0UL, 0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
+    }
+  
+    for( ulong worker_idx=1UL; worker_idx<NUM_ACCOUNT_WRITERS; worker_idx++ ) {
+      fd_tpool_wait( tpool, worker_idx );
+    }
+    restore->tpool_buf_idx = 0; 
+  }
+}
+
+static uchar const *
+fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
+                                    uchar const *           buf,
+                                    ulong                   bufsz,
+                                    uchar const *           tpool_buf[128*1024],
+                                    ulong *                 tpool_buf_idx ) {
+
+
+  // FD_LOG_WARNING(("buf sz is %lu", bufsz));
+  // FD_LOG_WARNING(("accv sz is %lu", restore->accv_sz));
+  bufsz = fd_ulong_min( bufsz, restore->accv_sz );
+  fd_snapshot_read_buffered_acc_hdr( restore, buf, bufsz );
+  ulong sz = fd_ulong_min( bufsz, sizeof(fd_solana_account_hdr_t));
+  restore->buf_ctr += sz;
+  restore->accv_sz -= sz;
+
+  if( fd_snapshot_read_is_complete_acc_hdr( restore ) ) {
+    // FD_LOG_WARNING(("restore->buf_ctr is %lu", restore->buf_ctr));
+    // FD_LOG_WARNING(("restore->buf_cap is %lu", restore->buf_cap));
+    // FD_LOG_WARNING(("tpool buf idx is %lu", *tpool_buf_idx));
+    // FD_LOG_WARNING(("tpool buf value is %lu", (ulong)tpool_buf[*tpool_buf_idx]));
+    (*tpool_buf_idx)++;
+
+    if( *tpool_buf_idx == 128*1024 ) {
+      FD_LOG_WARNING(("bufsz is %lu", bufsz));
+      FD_LOG_WARNING(("accv_sz is %lu", restore->accv_sz));
+      FD_LOG_ERR(("not enough space in tpool buf!"));
+    }
+
+    restore->state    = STATE_READ_ACCOUNT_DATA;
+
+    fd_solana_account_hdr_t const * hdr = fd_type_pun_const( buf + restore->buf_ctr - sizeof(fd_solana_account_hdr_t) );
+    ulong data_sz    = hdr->meta.data_len;
+    restore->acc_sz  = data_sz;
+    restore->acc_pad = fd_ulong_align_up( data_sz, FD_SNAPSHOT_ACC_ALIGN ) - data_sz;
+    fd_pubkey_t const * pubkey = fd_type_pun_const( hdr->meta.pubkey );
+    char keystr[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( pubkey->uc, NULL, keystr );
+    // FD_LOG_WARNING(("pubkey in hdr is %s", keystr));
+    // FD_LOG_WARNING(("data sz is %lu", data_sz));
+  }
+
+  if( restore->accv_sz==0UL ) {
+    /* Reached end of AppendVec */
+    restore->state   = STATE_IGNORE;
+    restore->buf_ctr = restore->buf_sz = 0UL;
+    // FD_LOG_WARNING(("reached end of appendvec in hdr processing!"));
+    restore->state = STATE_IGNORE;
+    if( *tpool_buf_idx > 0) {
+      fd_snapshot_write_account_wrapper( restore->tpool, restore, tpool_buf, *tpool_buf_idx );
+    }
+    return buf;
+  }
+  return buf + sz;
+}
+
+static uchar const *
+fd_snapshot_read_account_chunk( fd_snapshot_restore_t * restore,
+                                uchar const *           buf,
+                                ulong                   bufsz,
+                                uchar const *           tpool_buf[128*1024],
+                                ulong *                 tpool_buf_idx ) {
+
+  ulong data_sz = fd_ulong_min( restore->acc_sz, bufsz );
+  restore->buf_ctr += data_sz;
+  if( FD_UNLIKELY( data_sz > restore->accv_sz ) )
+    FD_LOG_CRIT(( "OOB account vec read: data_sz=%lu accv_sz=%lu", data_sz, restore->accv_sz ));
+
+  buf               += data_sz;
+  bufsz             -= data_sz;
+  restore->acc_sz   -= data_sz;
+  restore->accv_sz  -= data_sz;
+
+  int done = 0;
+
+  if( restore->acc_sz == 0UL ) {
+    ulong pad_sz = fd_ulong_min( fd_ulong_min( restore->acc_pad, bufsz ), restore->accv_sz );
+    buf              += pad_sz;
+    bufsz            -= pad_sz;
+    restore->acc_pad -= pad_sz;
+    restore->accv_sz -= pad_sz;
+    restore->buf_ctr += pad_sz;
+
+    if( restore->acc_pad == 0UL ) done = 1;
+  }
+
+  if( restore->accv_sz == 0UL ) {
+    // FD_LOG_WARNING(("reached end of appendvec in data processing!"));
+    restore->state = STATE_IGNORE;
+    if( *tpool_buf_idx > 0) {
+      fd_snapshot_write_account_wrapper( restore->tpool, restore, tpool_buf, *tpool_buf_idx );
+    }
+  }
+
+  if( done )
+    return (0==fd_snapshot_expect_account_hdr( restore )) ? buf : NULL;
+
+  return buf;
+}
+
 static uchar const *
 fd_snapshot_restore_chunk1( fd_snapshot_restore_t * restore,
                             uchar const *           buf,
-                            ulong                   bufsz ) {
+                            ulong                   bufsz,
+                            uchar const *           tpool_buf[128*1024],
+                            ulong *                 tpool_buf_idx ) {
 
   switch( restore->state ) {
   case STATE_IGNORE:
@@ -673,10 +979,12 @@ fd_snapshot_restore_chunk1( fd_snapshot_restore_t * restore,
   case STATE_DONE:
     FD_LOG_WARNING(( "unexpected trailing data" ));
     return NULL;
-  case STATE_READ_ACCOUNT_HDR:
-    return fd_snapshot_read_account_hdr_chunk  ( restore, buf, bufsz );
-  case STATE_READ_ACCOUNT_DATA:
-    return fd_snapshot_read_account_chunk      ( restore, buf, bufsz );
+  case STATE_READ_ACCOUNT_HDR: {
+    return fd_snapshot_read_account_hdr_chunk  ( restore, buf, bufsz, tpool_buf, tpool_buf_idx );
+  }
+  case STATE_READ_ACCOUNT_DATA: {
+    return fd_snapshot_read_account_chunk      ( restore, buf, bufsz, tpool_buf, tpool_buf_idx );
+  }
   case STATE_READ_MANIFEST:
     return fd_snapshot_read_manifest_chunk     ( restore, buf, bufsz );
   case STATE_READ_STATUS_CACHE:
@@ -697,15 +1005,30 @@ fd_snapshot_restore_chunk( void *       restore_,
 
   if( restore->failed ) return EINVAL;
 
+  // uchar const * tpool_buf[128*1024];
+  // memset( tpool_buf, 0, 128*1024*8);
+  // ulong tpool_buf_idx = 0;
+
   while( bufsz ) {
-    uchar const * buf_new = fd_snapshot_restore_chunk1( restore, buf, bufsz );
+
+    uchar const * buf_new = fd_snapshot_restore_chunk1( restore, buf, bufsz, restore->tpool_buf, &restore->tpool_buf_idx );
     if( FD_UNLIKELY( !buf_new ) ) {
       FD_LOG_WARNING(( "Aborting snapshot read" ));
       return EINVAL;
     }
+    // ulong size_diff = (ulong)(buf_new-buf);
+    // if( bufsz > 128*1024 ) {
+    //   FD_LOG_WARNING(("size diff was %lu", size_diff));
+    // }
     bufsz -= (ulong)(buf_new-buf);
     buf    = buf_new;
   }
+
+  // if( tpool_buf[tpool_buf_idx+1] != NULL ) {
+  //   tpool_buf[0] = tpool_buf[tpool_buf_idx+1];
+  // }
+
+  // restore->tpool_buf_idx = 0;
 
   if( restore->manifest_done==MANIFEST_DONE_NOT_SEEN ) {
     restore->manifest_done = MANIFEST_DONE_SEEN;

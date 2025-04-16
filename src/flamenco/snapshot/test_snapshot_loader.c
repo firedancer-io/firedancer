@@ -31,10 +31,10 @@ int main( int     argc,
 
   fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 4*1024*1024 * 1024UL ), static_tag ), 4*1024*1024 * 1024UL );
 
-  FD_LOG_NOTICE(("setting up tpool with 4 workers! "));
+  FD_LOG_NOTICE(("setting up tpool with 12 workers! "));
   /* tpool setup */
   uchar _tpool[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
-  ulong worker_cnt = 10UL;
+  ulong worker_cnt = 12UL;
   fd_tpool_t * tpool = fd_tpool_init( _tpool, worker_cnt );
   if( tpool == NULL ) {
     FD_LOG_ERR(( "failed to create thread pool" ));
@@ -87,16 +87,19 @@ int main( int     argc,
     slot_ctx->funk      = funk;
     slot_ctx->epoch_ctx = epoch_ctx;
 
+    long start = fd_log_wallclock();
     fd_snapshot_load_all( snapshot,
                           slot_ctx,
                           NULL,
                           tpool,
-                          1,
-                          1,
+                          0,
+                          0,
                           FD_SNAPSHOT_TYPE_FULL,
                           NULL,
                           0,
                           runtime_spad );
+    long end = fd_log_wallclock();
+    FD_LOG_NOTICE(( "snapshot loading took %ld nanos %f seconds %f ops/sec", end-start, ((double)(end-start))/(1000000000UL), 16UL*1048576UL*3UL*1000000000UL/((double)(end-start)) ));
     fd_spad_pop( _spad );
   } while(0);
 

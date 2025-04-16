@@ -21,6 +21,7 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
 
   /* only used when obtaining a mutable fd_txn_account_t from funk */
   fd_funk_rec_prepare_t           prepared_rec;
+  fd_funk_rec_query_t             query;
 
   fd_txn_account_vtable_t const * vt;
 };

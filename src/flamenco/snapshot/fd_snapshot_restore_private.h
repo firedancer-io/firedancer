@@ -81,6 +81,7 @@ struct fd_snapshot_restore {
   ulong   buf_ctr;  /* number of bytes allocated in buffer */
   ulong   buf_sz;   /* target buffer size (buf_ctr<buf_sz implies incomplete read) */
   ulong   buf_cap;  /* byte capacity of buffer */
+  ulong   buf_ctr_start;
 
   /* Account vec params.  Sadly, Solana Labs encodes account vecs with
      garbage at the end of the file.  The actual account vec sz can be
@@ -97,6 +98,11 @@ struct fd_snapshot_restore {
   ulong   acc_sz;    /* acc bytes pending write */
   uchar * acc_data;  /* pointer into funk acc data pending write */
   ulong   acc_pad;   /* padding size at end of account */
+
+  uchar const * tpool_buf[128*1024];
+  ulong tpool_buf_idx;
+
+  fd_tpool_t * tpool;
 
   /* Consumer callback */
 
