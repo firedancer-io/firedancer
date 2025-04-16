@@ -80,6 +80,10 @@ struct fd_snapshot_http {
   /* Total downloaded so far */
 
   ulong dl_total;
+
+  /* Total written out so far */
+
+  ulong write_total;
 };
 
 typedef struct fd_snapshot_http fd_snapshot_http_t;

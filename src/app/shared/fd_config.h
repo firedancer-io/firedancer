@@ -406,8 +406,10 @@ struct fd_config {
       char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
+      char  incremental_url[ PATH_MAX ];
       char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
+      char  snapshot_url[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];

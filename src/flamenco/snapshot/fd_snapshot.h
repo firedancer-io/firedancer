@@ -65,7 +65,8 @@ fd_snapshot_load_ctx_footprint( void );
 
 fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                 mem,
-                      const char *            snapshot_file,
+                      const char *            snapshot_src,
+                      int                     snapshot_src_type,
                       fd_exec_slot_ctx_t *    slot_ctx,
                       uint                    verify_hash,
                       uint                    check_hash,
@@ -92,6 +93,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx );
 
 void
 fd_snapshot_load_all( const char *         source_cstr,
+                      int                  source_type,
                       fd_exec_slot_ctx_t * slot_ctx,
                       ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
