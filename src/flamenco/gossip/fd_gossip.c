@@ -27,12 +27,6 @@
 #define FD_PENDING_MAX (1<<9)
 /* Sample rate of bloom filters. */
 #define FD_BLOOM_SAMPLE_RATE 8U
-/* Number of bloom filter bits in an outgoing pull request packet */
-#define FD_BLOOM_NUM_BITS (512U*8U) /* 0.5 Kbyte */
-/* Max number of bloom filter keys in an outgoing pull request packet */
-#define FD_BLOOM_MAX_KEYS 32U
-/* Max number of packets in an outgoing pull request batch */
-#define FD_BLOOM_MAX_PACKETS 32U
 /* Number of bloom bits in a push prune filter */
 #define FD_PRUNE_NUM_BITS (512U*8U) /* 0.5 Kbyte */
 /* Number of bloom keys in a push prune filter */
@@ -404,9 +398,7 @@ typedef struct fd_stats_elem fd_stats_elem_t;
 #define MAP_T        fd_stats_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
-#define SET_NAME fd_gossip_filter_selection
-#define SET_MAX  FD_BLOOM_MAX_PACKETS
-#include "../../util/tmpl/fd_smallset.c"
+#include "fd_counting_bloom.c"
 
 struct fd_msg_stats_elem {
   ulong bytes_rx_cnt;
@@ -492,7 +484,9 @@ struct fd_gossip {
 
     /* Table of crds metadata, keyed by hash of the encoded data */
     fd_value_meta_t * value_metas;
-    fd_value_t * values; /* Vector of full values */
+    fd_value_t * values; /* Vector of full values for fast iteration */
+    fd_gossip_counting_bloom_t bloom; /* Bloom filter for values */
+
     /* The last timestamp that we pushed our own contact info */
     long last_contact_time;
     fd_hash_t last_contact_info_v2_key;
@@ -602,6 +596,8 @@ fd_gossip_new ( void * shmem, ulong seed ) {
 
   shm = FD_SCRATCH_ALLOC_APPEND(l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX));
   glob->push_states_pool = fd_push_states_pool_join( fd_push_states_pool_new( shm, FD_PUSH_LIST_MAX ) );
+
+  fd_bloom_setup( &glob->bloom, glob->rng, FD_VALUE_KEY_MAX / 2 );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, fd_gossip_align() );
   if ( scratch_top > (ulong)shmem + fd_gossip_footprint() ) {
@@ -1177,16 +1173,6 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   (*glob->sign_fun)( glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
-/* Convert a hash to a bloom filter bit position
-   https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L136 */
-static ulong
-fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
-  for ( ulong i = 0; i < 32U; ++i) {
-    key ^= (ulong)(hash->uc[i]);
-    key *= 1099511628211UL; // FNV prime
-  }
-  return key % nbits;
-}
 
 /* Choose a random active peer with good ping count */
 static fd_active_elem_t *
@@ -1245,39 +1231,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   if (ele == NULL)
     return;
 
-  /* Compute the number of packets needed for all the bloom filter parts
-     with a desired false positive rate <0.1% (upper bounded by FD_BLOOM_MAX_PACKETS ) */
-  ulong nitems = fd_value_meta_map_key_cnt( glob->value_metas );
-  ulong nkeys = 1;
-  ulong npackets = 1;
-  uint nmaskbits = 0;
-  double e = 0;
-  if (nitems > 0) {
-    do {
-      double n = ((double)nitems)/((double)npackets); /* Assume even division of values */
-      double m = (double)FD_BLOOM_NUM_BITS;
-      nkeys = fd_ulong_max(1U, (ulong)((m/n)*0.69314718055994530941723212145818 /* ln(2) */));
-      nkeys = fd_ulong_min(nkeys, FD_BLOOM_MAX_KEYS);
-      if (npackets == FD_BLOOM_MAX_PACKETS)
-        break;
-      double k = (double)nkeys;
-      e = pow(1.0 - exp(-k*n/m), k);
-      if (e < 0.001)
-        break;
-      nmaskbits++;
-      npackets = 1U<<nmaskbits;
-    } while (1);
-  }
-  FD_LOG_DEBUG(("making bloom filter for %lu items with %lu packets, %u maskbits and %lu keys %g error", nitems, npackets, nmaskbits, nkeys, e));
-
-  /* Generate random keys */
-  ulong keys[FD_BLOOM_MAX_KEYS];
-  for (ulong i = 0; i < nkeys; ++i)
-    keys[i] = fd_rng_ulong(glob->rng);
-  /* Set all the bits */
-  ulong num_bits_set[FD_BLOOM_MAX_PACKETS];
-  for (ulong i = 0; i < npackets; ++i)
-    num_bits_set[i] = 0;
+  fd_gossip_counting_bloom_t * b = &glob->bloom;
 
   /* Bloom filter set sampling
 
@@ -1293,81 +1247,22 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
       * rate measured in values/minute
     https://github.com/anza-xyz/agave/blob/v2.1.11/gossip/src/crds_gossip_pull.rs#L157-L163 */
-  ushort indices[FD_BLOOM_MAX_PACKETS];
-  for( ushort i = 0; i < npackets; ++i) {
+  ushort indices[ FD_BLOOM_MAX_CHUNKS ];
+  for( ushort i = 0; i < b->nchunks; ++i) {
     indices[i] = i;
   }
-  ushort indices_len = (ushort)npackets;
-  ulong filter_sample_size = (indices_len + FD_BLOOM_SAMPLE_RATE - 1) / FD_BLOOM_SAMPLE_RATE;
-  FD_TEST( filter_sample_size <= FD_BLOOM_MAX_PACKETS );
-
-  fd_gossip_filter_selection_t selected_filters = fd_gossip_filter_selection_null();
-
-  for( ushort i = 0; i < filter_sample_size; ++i) {
-    ulong idx = fd_rng_ushort( glob->rng ) % indices_len;
-
-    /* swap and remove */
-    ushort filter_idx = indices[ idx ];
-    indices[ idx ] = indices[ --indices_len ];
-
-    /* insert */
-    selected_filters = fd_gossip_filter_selection_insert( selected_filters, filter_idx );
-  }
-
-  FD_TEST( fd_gossip_filter_selection_cnt( selected_filters ) == filter_sample_size );
-
-
-#define CHUNKSIZE (FD_BLOOM_NUM_BITS/64U)
-  ulong bits[CHUNKSIZE * FD_BLOOM_MAX_PACKETS]; /* TODO: can we bound size based on sample rate instead? */
-  fd_memset(bits, 0, CHUNKSIZE*8U*npackets);
-  ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_VALUE_EXPIRE;
-  for( fd_value_meta_map_iter_t iter = fd_value_meta_map_iter_init( glob->value_metas );
-       !fd_value_meta_map_iter_done( glob->value_metas, iter );
-       iter = fd_value_meta_map_iter_next( glob->value_metas, iter ) ) {
-    fd_value_meta_t * ele = fd_value_meta_map_iter_ele( glob->value_metas, iter );
-    fd_hash_t * hash = &(ele->key);
-
-    /* Purge expired value's data entry */
-    if( ele->wallclock<expire && ele->value!=NULL ) {
-      ele->value->del = 1; // Mark for deletion
-      ele->value = NULL;
-      continue;
-    }
-    /* Choose which filter packet based on the high bits in the hash,
-       https://github.com/anza-xyz/agave/blob/v2.1.7/gossip/src/crds_gossip_pull.rs#L167
-
-       skip if packet not part of sample
-       https://github.com/anza-xyz/agave/blob/v2.1.11/gossip/src/crds_gossip_pull.rs#L175-L177
-      */
-
-    ulong index = (nmaskbits == 0 ? 0UL : ( hash->ul[0] >> (64U - nmaskbits) ));
-    if( FD_LIKELY( !fd_gossip_filter_selection_test( selected_filters, index ) ) ) {
-      continue;
-    };
-
-    ulong * chunk = bits + (index*CHUNKSIZE);
-
-    /* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L191 */
-    for (ulong i = 0; i < nkeys; ++i) {
-      ulong pos = fd_gossip_bloom_pos(hash, keys[i], FD_BLOOM_NUM_BITS);
-      /* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L182-L185 */
-      ulong * j = chunk + (pos>>6U); /* divide by 64 */
-      ulong bit = 1UL<<(pos & 63U);
-      if (!((*j) & bit)) {
-        *j |= bit;
-        num_bits_set[index]++;
-      }
-    }
-  }
+  ushort indices_len = (ushort)b->nchunks;
+  ulong chunk_sample_size = (indices_len + FD_BLOOM_SAMPLE_RATE - 1) / FD_BLOOM_SAMPLE_RATE;
+  FD_TEST( chunk_sample_size <= FD_BLOOM_MAX_CHUNKS );
 
   /* Assemble the packets */
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_req);
   fd_gossip_pull_req_t * req = &gmsg.inner.pull_req;
   fd_crds_filter_t * filter = &req->filter;
-  filter->mask_bits = nmaskbits;
-  filter->filter.keys_len = nkeys;
-  filter->filter.keys = keys;
+  filter->mask_bits = b->nmaskbits;
+  filter->filter.keys_len = b->nkeys;
+  filter->filter.keys = b->keys;
   fd_gossip_bitvec_u64_t * bitvec = &filter->filter.bits;
   bitvec->len = FD_BLOOM_NUM_BITS;
   bitvec->has_bits = 1;
@@ -1380,13 +1275,31 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_memcpy(ci, &glob->my_contact.crd.inner.contact_info_v2, sizeof(fd_gossip_contact_info_v2_t) );
   fd_gossip_sign_crds_value(glob, value);
 
-  for( fd_gossip_filter_selection_iter_t iter = fd_gossip_filter_selection_iter_init( selected_filters );
-       !fd_gossip_filter_selection_iter_done( iter );
-       iter = fd_gossip_filter_selection_iter_next( iter ) ){
-    ulong index = fd_gossip_filter_selection_iter_idx( iter );
-    filter->mask = (nmaskbits == 0 ? ~0UL : ((index << (64U - nmaskbits)) | (~0UL >> nmaskbits)));
-    filter->filter.num_bits_set = num_bits_set[index];
-    bitvec->bits.vec = bits + (index*CHUNKSIZE);
+#define CHUNKSIZE (FD_BLOOM_NUM_BITS/64U)
+  ulong bits[CHUNKSIZE];
+  for( ushort i = 0; i < chunk_sample_size; ++i) {
+    ulong num_bits_set = 0UL;
+    fd_memset(bits, 0, CHUNKSIZE*8U);
+    ulong idx = fd_rng_ushort( glob->rng ) % indices_len;
+
+    /* swap and remove */
+    ushort chunk_idx = indices[ idx ];
+    indices[ idx ] = indices[ --indices_len ];
+
+    uint * count_chunk = glob->bloom.count_filter_chunks[ chunk_idx ];
+
+    /* TODO: Vectorize? */
+    for( ulong j = 0; j < FD_BLOOM_NUM_BITS; ++j ) {
+      if( !!(count_chunk[j]) ){
+        ulong bit = 1UL<<(j & 63U);
+        bits[ j>>6U ] |= bit; /* set bloom bit */
+        num_bits_set++;
+      }
+    }
+
+    filter->mask = ( b->nmaskbits == 0 ? ~0UL : (((ulong)chunk_idx << (64U - b->nmaskbits)) | (~0UL >> b->nmaskbits)) );
+    filter->filter.num_bits_set = num_bits_set;
+    bitvec->bits.vec = bits;
     fd_gossip_send(glob, &ele->key, &gmsg);
   }
 }
@@ -1668,6 +1581,8 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
                                   val->wallclock,
                                   val );
 
+    /* Insert into the bloom filter */
+    fd_bloom_insert( &glob->bloom, &val->key );
 
     fd_crds_value_t * crd = retained_crds[ i ];
 
@@ -1819,7 +1734,7 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   for (ulong i = 0; i < msg->data.prunes_len; ++i) {
     fd_pubkey_t * p = msg->data.prunes + i;
     for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j) {
-      ulong pos = fd_gossip_bloom_pos(p, ps->prune_keys[j], FD_PRUNE_NUM_BITS);
+      ulong pos = fd_bloom_pos(p, ps->prune_keys[j], FD_PRUNE_NUM_BITS);
       ulong * j = ps->prune_bits + (pos>>6U); /* divide by 64 */
       ulong bit = 1UL<<(pos & 63U);
       *j |= bit;
@@ -1924,7 +1839,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     }
     int miss = 0;
     for (ulong i = 0; i < nkeys; ++i) {
-      ulong pos = fd_gossip_bloom_pos(hash, keys[i], bitvec->len);
+      ulong pos = fd_bloom_pos(hash, keys[i], bitvec->len);
       ulong * j = bitvec2 + (pos>>6U); /* divide by 64 */
       ulong bit = 1UL<<(pos & 63U);
       if (!((*j) & bit)) {
@@ -2143,7 +2058,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       /* Apply the pruning bloom filter */
       int pass = 0;
       for( ulong j = 0; j<FD_PRUNE_NUM_KEYS; ++j ) {
-        ulong pos = fd_gossip_bloom_pos( &msg->origin, s->prune_keys[j], FD_PRUNE_NUM_BITS );
+        ulong pos = fd_bloom_pos( &msg->origin, s->prune_keys[j], FD_PRUNE_NUM_BITS );
         ulong * j = s->prune_bits + (pos>>6U); /* divide by 64 */
         ulong bit = 1UL<<(pos & 63U);
         if( !(*j & bit) ) {
@@ -2241,6 +2156,7 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   fd_value_meta_map_value_init( ele,
                                 val->wallclock,
                                 val );
+  fd_bloom_insert( &glob->bloom, &val->key );
 
   glob->metrics.push_crds_queue_cnt = fd_value_vec_cnt( glob->values ) - glob->need_push_head;
   glob->metrics.push_crds[ data->discriminant ] += 1UL;
@@ -2462,6 +2378,7 @@ fd_gossip_cleanup_values( fd_gossip_t * glob,
         ele->value->del = 1UL;
       }
       fd_value_meta_map_remove( glob->value_metas, &ele->key ); /* Remove from the value set */
+      fd_bloom_remove( &glob->bloom, &ele->key ); /* Remove from the bloom filter */
     }
   }
 
