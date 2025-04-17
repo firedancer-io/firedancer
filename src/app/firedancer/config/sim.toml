@@ -1,0 +1,38 @@
+# This is an example toml for playback shreds from rocksdb
+# Usage:
+# sudo gdb --args build/native/gcc/bin/firedancer-dev sim --config src/app/firedancer/config/sim.toml
+
+[layout]
+    affinity = "auto"
+    bank_tile_count = 1
+    shred_tile_count = 4
+    exec_tile_count = 8
+[tiles]
+    [tiles.metric]
+        prometheus_listen_address = "0.0.0.0"
+    [tiles.archiver]
+        enabled = true
+        archiver_path = "rocksdb:/tmp/mainnet-327324660/rocksdb"
+    [tiles.replay]
+        snapshot = "/tmp/mainnet-327324660/snapshot-327324659-85G1Hp5JsY1EiixLgFk1VRacP9bu1EGczBunvuJWgMDw.tar.zst"
+        funk_sz_gb = 60
+        funk_txn_max = 4096
+        funk_rec_max = 150000000
+        cluster_version = "2.1.14"
+        disable_bank_hash_cmp = true
+[blockstore]
+    shred_max = 16777216
+    block_max = 8192
+    txn_max = 1048576
+    alloc_max = 10737418240
+[consensus]
+    expected_shred_version = 50093
+    identity_path = "/tmp/sim-identity.json"
+    vote_account_path = "/tmp/sim-vote.json"
+    vote = false
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true
+[log]
+    path = "/tmp/sim.log"

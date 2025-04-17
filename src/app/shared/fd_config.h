@@ -411,6 +411,7 @@ struct fd_config {
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
+      int   disable_bank_hash_cmp;
     } replay;
 
     struct {

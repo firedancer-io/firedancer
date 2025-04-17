@@ -297,6 +297,8 @@ typedef struct {
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
+
+      int   disable_bank_hash_cmp;
     } replay;
 
     struct {
