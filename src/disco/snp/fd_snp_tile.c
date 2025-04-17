@@ -28,6 +28,7 @@
     are called inside topology.c (in the corresponding folder) */
 #define NET_OUT_IDX      (0)
 #define SHRED_OUT_IDX    (1)
+#define SIGN_OUT_IDX     (2)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -44,8 +45,7 @@ typedef struct {
   ulong            round_robin_cnt;
 
   fd_keyswitch_t * keyswitch;
-  /* TODO pending */
-  // fd_keyguard_client_t keyguard_client[1];
+  fd_keyguard_client_t keyguard_client[1];
 
   fd_stake_ci_t  * stake_ci;
   /* These are used in between during_frag and after_frag */
@@ -116,12 +116,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) { /* TODO */
 static inline void
 during_housekeeping( fd_snp_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    /* TODO necessary? */
-    // ulong seq_must_complete = ctx->keyswitch->param;
+    // ulong seq_must_complete = ctx->keyswitch->param; /* TODO necessary? */
     fd_memcpy( ctx->identity_key->uc, ctx->keyswitch->bytes, 32UL );
     fd_stake_ci_set_identity( ctx->stake_ci, ctx->identity_key );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
+
+  /* TODO pending usage - leaving here as a reference */
+  // fd_keyguard_client_sign( ctx->keyguard_client, signature, sign_data, 40UL /*sign_data_len*/, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static inline void
@@ -350,12 +352,15 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_LIKELY( tile->out_cnt==2UL ) ) { /* frankendancer */
+  /* TODO combine if no difference between frankendancer and firedancer */
+  if( FD_LIKELY( tile->out_cnt==3UL ) ) { /* frankendancer */
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "snp_net"    ) );
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SHRED_OUT_IDX]].name,  "snp_shred"  ) );
-  } else if( FD_LIKELY( tile->out_cnt==2UL ) ) { /* firedancer */
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "snp_sign"   ) );
+  } else if( FD_LIKELY( tile->out_cnt==3UL ) ) { /* firedancer */
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "snp_net"    ) );
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SHRED_OUT_IDX]].name,  "snp_shred"  ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "snp_sign"   ) );
   } else {
     FD_LOG_ERR(( "snp tile has unexpected cnt of output links %lu", tile->out_cnt ));
   }
@@ -398,6 +403,21 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
+#define NONNULL( x ) (__extension__({                                        \
+      __typeof__((x)) __x = (x);                                             \
+      if( FD_UNLIKELY( !__x ) ) FD_LOG_ERR(( #x " was unexpectedly NULL" )); \
+      __x; }))
+
+  ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_snp", tile->kind_id );
+  FD_TEST( sign_in_idx!=ULONG_MAX );
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
+  NONNULL( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                            sign_out->mcache,
+                                                            sign_out->dcache,
+                                                            sign_in->mcache,
+                                                            sign_in->dcache ) ) );
+
   ctx->net_id   = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->net_hdr, 0, 0, 8003 ); //FIXME: remove / configure by app
 
@@ -411,7 +431,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CRDS;  /* TODO reusing crds_shred */
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     // else if( FD_LIKELY( !strcmp( link->name, "gossip_snp"  ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP; /* TODO pending implementation */
-    // else if( FD_LIKELY( !strcmp( link->name, "sign_snp"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN; /* TODO pending implementation */
+    else if( FD_LIKELY( !strcmp( link->name, "sign_snp"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

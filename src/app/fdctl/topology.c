@@ -49,6 +49,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "shred_sign"   );
   fd_topob_wksp( topo, "sign_shred"   );
 
+  fd_topob_wksp( topo, "snp_sign"     );
+  fd_topob_wksp( topo, "sign_snp"     );
+
   fd_topob_wksp( topo, "quic"         );
   fd_topob_wksp( topo, "verify"       );
   fd_topob_wksp( topo, "dedup"        );
@@ -92,6 +95,9 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                   1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   128UL,                                    64UL,                   1UL );
+
+  FOR(snp_tile_cnt)    fd_topob_link( topo, "snp_sign",     "snp_sign",     128UL,                                    40UL,                   1UL );
+  FOR(snp_tile_cnt)    fd_topob_link( topo, "sign_snp",     "sign_snp",     128UL,                                    64UL,                   1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -213,6 +219,13 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",     i                                                  );
     /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",     i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",     i                                                  );
+  }
+
+  for( ulong i=0UL; i<snp_tile_cnt; i++ ) {
+    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "snp_sign",       i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out( topo, "snp",    i,                          "snp_sign",       i                                                  );
+    /**/               fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "sign_snp",       i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_snp",       i                                                  );
   }
 
   /* PoH tile represents the Agave address space, so it's
