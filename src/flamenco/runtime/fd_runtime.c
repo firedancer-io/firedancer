@@ -4064,9 +4064,8 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                       &slot_ctx->slot_bank,
                       &slot_ctx->slot_bank.epoch_account_hash,
                       runtime_spad,
-                      0,
                       &slot_ctx->epoch_ctx->features,
-                      &exec_para_ctx );
+                      &exec_para_ctx, NULL );
   }
 
   return 0;
