@@ -52,7 +52,7 @@ main( int     argc,
     FD_TEST( !memcmp( vec, ref, cnt*sizeof(MYVEC_T) ) );
 
     uint r  = fd_rng_uint( rng );
-    int  op = (int)(r & 3U); r>>=2;
+    int  op = (int)(r & 7U); r>>=3;
 
     switch( op ) {
     default:
@@ -78,19 +78,28 @@ main( int     argc,
       break;
     }
 
-    case 2: { /* remove with backfill */
+    case 2: { /* remove with backfill via idx */
       if( !cnt ) break;
       ulong idx = fd_rng_ulong_roll( rng, cnt );
-      FD_TEST( myvec_remove( vec, idx )==vec );
+      FD_TEST( myvec_remove_idx( vec, idx )==vec );
       cnt--;
       ref[idx] = ref[cnt];
       break;
     }
 
-    case 3: { /* remove with compaction */
+    case 3: { /* remove with backfill via ptr */
       if( !cnt ) break;
       ulong idx = fd_rng_ulong_roll( rng, cnt );
-      FD_TEST( myvec_remove_compact( vec, idx )==vec );
+      FD_TEST( myvec_remove_ele( vec, &vec[idx] )==vec );
+      cnt--;
+      ref[idx] = ref[cnt];
+      break;
+    }
+
+    case 4: { /* remove with compaction */
+      if( !cnt ) break;
+      ulong idx = fd_rng_ulong_roll( rng, cnt );
+      FD_TEST( myvec_remove_compact_idx( vec, idx )==vec );
       cnt--;
       for( ; idx<cnt; idx++ ) ref[idx] = ref[idx+1UL];
       break;
