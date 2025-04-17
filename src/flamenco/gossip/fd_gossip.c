@@ -5,7 +5,7 @@
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
 /* How long do we remember values (in millisecs) */
-#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(3600e3))   /* 1 hr */
+#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(1800e3))   /* 30min */
 /* Max age that values can be pushed/pulled (in millisecs) */
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be actively pinged */
@@ -21,7 +21,7 @@
    Purged values are counted because:
     - Our table (currently) does not "purge" values in the same sense Agave does
     - Purged values are included in bloom filter construction, so we need them anyway */
-#define FD_VALUE_KEY_MAX (1<<24) // includes purged values
+#define FD_VALUE_KEY_MAX (1<<24) /* includes purged values */
 #define FD_VALUE_DATA_MAX (1<<21)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
