@@ -796,11 +796,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      fd_sol_sysvar_clock_t clock = {0};
-      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
-                                              instr_ctx->txn_ctx->sysvar_cache,
-                                              instr_ctx->txn_ctx->funk,
-                                              instr_ctx->txn_ctx->funk_txn ) ) ) {
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->sysvar_cache,
+                                                                  instr_ctx->txn_ctx->funk,
+                                                                  instr_ctx->txn_ctx->funk_txn,
+                                                                  instr_ctx->txn_ctx->spad,
+                                                                  instr_ctx->txn_ctx->runtime_pub_wksp );
+      if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
 
@@ -1038,7 +1039,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_bpf_upgradeable_loader_state_t programdata_loader_state = {
           .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
           .inner.program_data = {
-            .slot                      = clock.slot,
+            .slot                      = clock->slot,
             .upgrade_authority_address = (fd_pubkey_t *)authority_key,
           },
         };
@@ -1229,7 +1230,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       ulong                               programdata_data_offset      = PROGRAMDATA_METADATA_SIZE;
       fd_bpf_upgradeable_loader_state_t * programdata_state            = NULL;
-      fd_sol_sysvar_clock_t               clock                        = {0};
       ulong                               programdata_balance_required = 0UL;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L778-L779 */
@@ -1253,15 +1253,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
-                                              instr_ctx->txn_ctx->sysvar_cache,
-                                              instr_ctx->txn_ctx->funk,
-                                              instr_ctx->txn_ctx->funk_txn ) ) ) {
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->sysvar_cache,
+                                                                  instr_ctx->txn_ctx->funk,
+                                                                  instr_ctx->txn_ctx->funk_txn,
+                                                                  instr_ctx->txn_ctx->spad,
+                                                                  instr_ctx->txn_ctx->runtime_pub_wksp );
+      if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
 
       if( fd_bpf_upgradeable_loader_state_is_program_data( programdata_state ) ) {
-        if( FD_UNLIKELY( clock.slot==programdata_state->inner.program_data.slot ) ) {
+        if( FD_UNLIKELY( clock->slot==programdata_state->inner.program_data.slot ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program was deployed in this block already" );
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
@@ -1311,7 +1313,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Update the ProgramData account, record the upgraded data, and zero the rest in a local scope */
       do {
         programdata_state->discriminant                                 = fd_bpf_upgradeable_loader_state_enum_program_data;
-        programdata_state->inner.program_data.slot                      = clock.slot;
+        programdata_state->inner.program_data.slot                      = clock->slot;
         programdata_state->inner.program_data.upgrade_authority_address = (fd_pubkey_t *)authority_key;
         err = fd_bpf_loader_v3_program_set_state( &programdata, programdata_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
@@ -1665,14 +1667,15 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
         }
-        fd_sol_sysvar_clock_t clock = {0};
-        if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
-                                                instr_ctx->txn_ctx->sysvar_cache,
-                                                instr_ctx->txn_ctx->funk,
-                                                instr_ctx->txn_ctx->funk_txn ) ) ) {
+        fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->sysvar_cache,
+                                                                    instr_ctx->txn_ctx->funk,
+                                                                    instr_ctx->txn_ctx->funk_txn,
+                                                                    instr_ctx->txn_ctx->spad,
+                                                                    instr_ctx->txn_ctx->runtime_pub_wksp );
+        if( FD_UNLIKELY( !clock ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
         }
-        if( FD_UNLIKELY( clock.slot==close_account_state->inner.program_data.slot ) ) {
+        if( FD_UNLIKELY( clock->slot==close_account_state->inner.program_data.slot ) ) {
           fd_log_collector_msg_literal( instr_ctx,"Program was deployed in this block already" );
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
@@ -1789,14 +1792,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
       }
 
-      fd_sol_sysvar_clock_t clock = {0};
-      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock,
-                                              instr_ctx->txn_ctx->sysvar_cache,
-                                              instr_ctx->txn_ctx->funk,
-                                              instr_ctx->txn_ctx->funk_txn ) ) ) {
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->sysvar_cache,
+                                                                  instr_ctx->txn_ctx->funk,
+                                                                  instr_ctx->txn_ctx->funk_txn,
+                                                                  instr_ctx->txn_ctx->spad,
+                                                                  instr_ctx->txn_ctx->runtime_pub_wksp );
+      if( FD_UNLIKELY( !clock ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
-
 
       fd_pubkey_t * upgrade_authority_address = NULL;
       fd_bpf_upgradeable_loader_state_t * programdata_state = fd_bpf_loader_program_get_state( programdata_account.acct, spad, &err );
@@ -1804,7 +1807,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
       if( fd_bpf_upgradeable_loader_state_is_program_data( programdata_state ) ) {
-        if( FD_UNLIKELY( clock.slot==programdata_state->inner.program_data.slot ) ) {
+        if( FD_UNLIKELY( clock->slot==programdata_state->inner.program_data.slot ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program was extended in this block already" );
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
@@ -1918,7 +1921,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata_account );
 
       programdata_state->discriminant                                 = fd_bpf_upgradeable_loader_state_enum_program_data;
-      programdata_state->inner.program_data.slot                      = clock.slot;
+      programdata_state->inner.program_data.slot                      = clock->slot;
       programdata_state->inner.program_data.upgrade_authority_address = upgrade_authority_address;
 
       err = fd_bpf_loader_v3_program_set_state( &programdata_account, programdata_state );
@@ -1968,7 +1971,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1356-L1359 */
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
       if( FD_UNLIKELY( clock==NULL ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }

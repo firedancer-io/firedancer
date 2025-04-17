@@ -1588,6 +1588,10 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx->funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx->funk_txn, &xid, 1);
   fd_funk_txn_end_write( ctx->funk );
 
+  /* We must invalidate all of the sysvar cache entries in the case that
+     their memory is no longer valid/the cache contains stale data. */
+  fd_sysvar_cache_invalidate( fork->slot_ctx->sysvar_cache );
+
   int is_epoch_boundary = 0;
   /* TODO: Currently all of the epoch boundary/rewards logic is not
      multhreaded at the epoch boundary. */
@@ -1622,7 +1626,11 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Read slot history into slot ctx */
-  fork->slot_ctx->slot_history = fd_sysvar_slot_history_read( fork->slot_ctx->funk, fork->slot_ctx->funk_txn, ctx->runtime_spad );
+  fork->slot_ctx->slot_history = fd_sysvar_slot_history_read( fork->slot_ctx->sysvar_cache,
+                                                              fork->slot_ctx->funk,
+                                                              fork->slot_ctx->funk_txn,
+                                                              ctx->runtime_spad,
+                                                              fork->slot_ctx->runtime_wksp );
 
   if( is_new_epoch_in_new_block ) {
     publish_stake_weights( ctx, stem, fork->slot_ctx );
@@ -2656,9 +2664,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /**************************************************************************************************/
     /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
     /**************************************************************************************************/
-
-    /* Destroy the slot history */
-    fd_slot_history_destroy( fork->slot_ctx->slot_history );
 
     fd_runtime_block_info_t runtime_block_info[1];
     runtime_block_info->signature_cnt = fork->slot_ctx->signature_cnt;

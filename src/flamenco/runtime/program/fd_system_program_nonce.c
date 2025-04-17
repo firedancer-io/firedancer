@@ -33,7 +33,7 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
   if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -51,12 +51,12 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache );
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
   if( FD_UNLIKELY( !rbh_global ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
-  (*out)->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp, rbh_global->hashes_gaddr ) );
+  (*out)->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

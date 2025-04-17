@@ -47,7 +47,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_sysvar_cache_t *         sysvar_cache;
 
   fd_txncache_t *             status_cache;
-  fd_slot_history_t *         slot_history;
+  fd_slot_history_global_t *  slot_history;
 
   int                         enable_exec_recording; /* Enable/disable execution metadata
                                                         recording, e.g. txn logs.  Analogue

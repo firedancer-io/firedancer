@@ -12,6 +12,7 @@
 struct fd_runtime_fuzz_runner {
     fd_funk_t * funk;
     fd_spad_t * spad;
+    fd_wksp_t * wksp;
 };
 typedef struct fd_runtime_fuzz_runner fd_runtime_fuzz_runner_t;
 

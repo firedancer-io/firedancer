@@ -1414,7 +1414,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
     /* We've got full snapshots that contain all 0s for the account
        hash in account meta.  Running hash verify allows us to
        populate the hash in account meta with real values. */
-    FD_LOG_WARNING(( "verify-acc-hash needs to be 1" ));
+    FD_LOG_WARNING(( "verify-acc-hash should be 1" ));
   }
 
   // TODO: Add argument validation. Make sure that we aren't including any arguments that aren't parsed for

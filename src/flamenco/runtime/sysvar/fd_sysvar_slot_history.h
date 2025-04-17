@@ -25,12 +25,15 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx,
                                fd_spad_t *          runtime_spad );
 
 /* Reads the current value of the slot history sysvar */
-fd_slot_history_t *
-fd_sysvar_slot_history_read( fd_funk_t *     funk,
-                             fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad );
+fd_slot_history_global_t *
+fd_sysvar_slot_history_read( fd_sysvar_cache_t const * sysvar_cache,
+                             fd_funk_t *               funk,
+                             fd_funk_txn_t *           funk_txn,
+                             fd_spad_t *               spad,
+                             fd_wksp_t *               wksp );
 
 int
-fd_sysvar_slot_history_find_slot( fd_slot_history_t const * history,
-                                  ulong                     slot );
+fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
+                                  ulong                            slot,
+                                  fd_wksp_t *                      wksp );
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_history_h */

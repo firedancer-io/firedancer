@@ -33,15 +33,15 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_sol_sysvar_last_restart_slot_t *
-fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
-                                  fd_sysvar_cache_t const *           sysvar_cache,
-                                  fd_funk_t *                         funk,
-                                  fd_funk_txn_t *                     funk_txn ) {
+fd_sysvar_last_restart_slot_read( fd_sysvar_cache_t const * sysvar_cache,
+                                  fd_funk_t *               funk,
+                                  fd_funk_txn_t *           funk_txn,
+                                  fd_spad_t *               spad,
+                                  fd_wksp_t *               wksp ) {
 
-  fd_sol_sysvar_last_restart_slot_t const * ret = fd_sysvar_cache_last_restart_slot( sysvar_cache );
-  if( FD_UNLIKELY( NULL != ret ) ) {
-    fd_memcpy(result, ret, sizeof(fd_sol_sysvar_last_restart_slot_t));
-    return result;
+  fd_sol_sysvar_last_restart_slot_t * ret = fd_sysvar_cache_last_restart_slot( sysvar_cache, wksp );
+  if( !!ret ) {
+    return ret;
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
@@ -59,34 +59,36 @@ fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
     return NULL;
   }
 
-  /* This assumes that the result has been setup already with the correct
-     memory layout (pointers point to valid sized buffers, etc) */
+  uchar * mem = fd_spad_alloc( spad, fd_sol_sysvar_last_restart_slot_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "failed to allocate memory for sysvar last restart slot" ));
+  }
 
-  fd_sol_sysvar_last_restart_slot_decode( result, &decode );
-  return result;
+  fd_sol_sysvar_last_restart_slot_decode( mem, &decode );
+  return (fd_sol_sysvar_last_restart_slot_t *)mem;
 }
 
 /* fd_sysvar_last_restart_slot_update is equivalent to
    Agave's solana_runtime::bank::Bank::update_last_restart_slot */
 
 void
-fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) return;
 
   int   has_current_last_restart_slot = 0;
-  ulong     current_last_restart_slot = 0UL;
+  ulong current_last_restart_slot     = 0UL;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
-  fd_sol_sysvar_last_restart_slot_t old_account;
-  if( fd_sysvar_last_restart_slot_read( &old_account,
-                                        slot_ctx->sysvar_cache,
-                                        slot_ctx->funk,
-                                        slot_ctx->funk_txn ) ) {
-    has_current_last_restart_slot = 1;
-        current_last_restart_slot = old_account.slot;
-  }
+  fd_sol_sysvar_last_restart_slot_t * old_account = fd_sysvar_last_restart_slot_read( slot_ctx->sysvar_cache,
+                                                                                     slot_ctx->funk,
+                                                                                     slot_ctx->funk_txn,
+                                                                                     runtime_spad,
+                                                                                     slot_ctx->runtime_wksp );
+  ulong old_account_slot        = old_account ? old_account->slot : 0UL;
+  has_current_last_restart_slot = 1;
+  current_last_restart_slot     = old_account_slot;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2108-L2120 */
   /* FIXME: Query hard forks list */

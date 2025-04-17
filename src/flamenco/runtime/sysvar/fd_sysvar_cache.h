@@ -44,28 +44,25 @@
   X( fd_slot_hashes,                  slot_hashes,         1 ) \
   X( fd_recent_block_hashes,          recent_block_hashes, 1 ) \
   X( fd_stake_history,                stake_history,       0 ) \
-  X( fd_sol_sysvar_last_restart_slot, last_restart_slot,   0 )
+  X( fd_sol_sysvar_last_restart_slot, last_restart_slot,   0 ) \
+  X( fd_slot_history,                 slot_history,        1 )
 
 /* The memory of fd_sysvar_cache_t fits as much sysvar information into
    the struct as possible.  Unfortunately some parts of the sysvar
    spill out onto the heap due to how the type generator works.
 
    The has_{...} bits specify whether a sysvar logically exists.
-   The val_{...} structs contain the top-level struct of each sysvar.
+   The gaddr_{...} ulong contains the address of the sysvar.
    If has_{...}==0 then any heap pointers in val_{...} are NULL,
    allowing for safe idempotent calls to fd_sol_sysvar_{...}_destroy() */
 
 struct __attribute__((aligned(16UL))) fd_sysvar_cache_private {
   ulong magic; /* ==FD_SYSVAR_CACHE_MAGIC */
 
-  /* Declare the val_{...} values */
-  /* Define two macro handlers - one for global types, one for local types */
-  #define HANDLE_GLOBAL_1(type, name, is_global) type##_global_t val_##name[1];
-  #define HANDLE_GLOBAL_0(type, name, is_global) type##_t val_##name[1];
-
   /* Process for global types (is_global==1) */
+
   #define X(type, name, is_global) \
-      HANDLE_GLOBAL_##is_global(type, name, is_global)
+  ulong gaddr_##name;
   FD_SYSVAR_CACHE_ITER(X)
   #undef X
 
@@ -125,6 +122,9 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_spad_t *         runtime_spad,
                          fd_wksp_t *         wksp );
 
+void
+fd_sysvar_cache_invalidate( fd_sysvar_cache_t * cache );
+
 /* fd_sysvar_cache_restore_{name} restores only the given sysvar object from the given slot context */
 
 # define X( type, name, is_global )                                    \
@@ -139,15 +139,16 @@ fd_sysvar_cache_restore_##name( fd_sysvar_cache_t * cache,             \
 
 /* Accessors for sysvars.  May return NULL. */
 
-FD_FN_PURE fd_sol_sysvar_clock_t             const * fd_sysvar_cache_clock              ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_epoch_schedule_t               const * fd_sysvar_cache_epoch_schedule     ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_sysvar_epoch_rewards_t         const * fd_sysvar_cache_epoch_rewards      ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_sysvar_fees_t                  const * fd_sysvar_cache_fees               ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_rent_t                         const * fd_sysvar_cache_rent               ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_slot_hashes_global_t           const * fd_sysvar_cache_slot_hashes        ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_recent_block_hashes_global_t   const * fd_sysvar_cache_recent_block_hashes( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_stake_history_t                const * fd_sysvar_cache_stake_history      ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_cache_last_restart_slot  ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_sol_sysvar_clock_t             * fd_sysvar_cache_clock              ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_epoch_schedule_t               * fd_sysvar_cache_epoch_schedule     ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_sysvar_epoch_rewards_t         * fd_sysvar_cache_epoch_rewards      ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_sysvar_fees_t                  * fd_sysvar_cache_fees               ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_rent_t                         * fd_sysvar_cache_rent               ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_slot_hashes_global_t           * fd_sysvar_cache_slot_hashes        ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_recent_block_hashes_global_t   * fd_sysvar_cache_recent_block_hashes( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_stake_history_t                * fd_sysvar_cache_stake_history      ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_sol_sysvar_last_restart_slot_t * fd_sysvar_cache_last_restart_slot  ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
+FD_FN_PURE fd_slot_history_global_t          * fd_sysvar_cache_slot_history       ( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp );
 
 /* fd_sysvar_from_instr_acct_{...} pretends to read a sysvar from an
    instruction account.  Checks that a given instruction account has

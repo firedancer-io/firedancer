@@ -124,9 +124,11 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_runtime_sysvar_cache_load( slot_ctx, runner->spad );
 
   /* Finish init epoch bank sysvars */
-  fd_memcpy( &epoch_bank->epoch_schedule, slot_ctx->sysvar_cache->val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  fd_memcpy( &epoch_bank->rent_epoch_schedule, slot_ctx->sysvar_cache->val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  fd_memcpy( &epoch_bank->rent, slot_ctx->sysvar_cache->val_rent, sizeof(fd_rent_t) );
+  uchar * val_epoch_schedule = fd_wksp_laddr_fast( runner->wksp, slot_ctx->sysvar_cache->gaddr_epoch_schedule );
+  fd_memcpy( &epoch_bank->epoch_schedule, val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  fd_memcpy( &epoch_bank->rent_epoch_schedule, val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  uchar * val_rent = fd_wksp_laddr_fast( runner->wksp, slot_ctx->sysvar_cache->gaddr_rent );
+  fd_memcpy( &epoch_bank->rent, val_rent, sizeof(fd_rent_t) );
   epoch_bank->stakes.epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->prev_slot, NULL );
 
   /* Update stake cache for epoch T */
@@ -251,10 +253,10 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_memset( slot_bank->block_hash_queue.last_hash, 0, sizeof(fd_hash_t) );
 
   // Use the latest lamports per signature
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( fd_wksp_containing( runner->spad ), rbh_global->hashes_gaddr ) );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {

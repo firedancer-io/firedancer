@@ -40,6 +40,7 @@ fd_runtime_fuzz_runner_new( void * mem,
 
   /* Create spad */
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
+  runner->wksp = fd_wksp_containing( runner->spad );
   return runner;
 }
 
