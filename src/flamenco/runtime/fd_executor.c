@@ -81,36 +81,54 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #undef PERFECT_HASH
 
 #define MAP_PERFECT_NAME fd_native_precompile_program_fn_lookup_tbl
-#define MAP_PERFECT_LG_TBL_SZ 4
+#define MAP_PERFECT_LG_TBL_SZ 2
 #define MAP_PERFECT_T fd_native_prog_info_t
-#define MAP_PERFECT_HASH_C 478U
+#define MAP_PERFECT_HASH_C 63546U
 #define MAP_PERFECT_KEY key.uc
 #define MAP_PERFECT_KEY_T fd_pubkey_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
 #define MAP_PERFECT_COMPLEX_KEY 1
 #define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
 
-#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>28)&0xFU)
+#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>30)&0x3U)
 
 #define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
                              a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
-                                          PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
-#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr + 8UL ) )
+                                          PERFECT_HASH( (a00 | (a01<<8)) )
+#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_2( (uchar const *)ptr ) )
 
-#define MAP_PERFECT_0      ( ED25519_SV_PROG_ID      ), .fn = fd_precompile_ed25519_execute
-#define MAP_PERFECT_1      ( KECCAK_SECP_PROG_ID     ), .fn = fd_precompile_secp256k1_execute
-#define MAP_PERFECT_2      ( SECP256R1_PROG_ID       ), .fn = fd_precompile_secp256r1_execute
+#define MAP_PERFECT_0      ( ED25519_SV_PROG_ID      ), .fn = fd_precompile_ed25519_verify
+#define MAP_PERFECT_1      ( KECCAK_SECP_PROG_ID     ), .fn = fd_precompile_secp256k1_verify
+#define MAP_PERFECT_2      ( SECP256R1_PROG_ID       ), .fn = fd_precompile_secp256r1_verify
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
 
-/* https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L520-L544 */
-int
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc ) {
+  fd_pubkey_t const * pubkey                = prog_acc->pubkey;
+  const fd_native_prog_info_t null_function = {0};
+  return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
+}
+
+/* fd_executor_lookup_native_program returns the appropriate instruction processor for the given
+   native program ID. Returns NULL if given ID is not a recognized native program.
+   https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L520-L544 */
+static int
 fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
                                    fd_exec_txn_ctx_t *      txn_ctx,
-                                   fd_exec_instr_fn_t *     native_prog_fn ) {
-  fd_pubkey_t const * pubkey        = prog_acc->pubkey;
-  fd_pubkey_t const * owner         = prog_acc->vt->get_owner( prog_acc );
+                                   fd_exec_instr_fn_t *     native_prog_fn,
+                                   uchar *                  is_precompile ) {
+  /* First lookup to see if the program key is a precompile */
+  *is_precompile = 0;
+  *native_prog_fn = fd_executor_lookup_native_precompile_program( prog_acc );
+  if( FD_UNLIKELY( *native_prog_fn!=NULL ) ) {
+    *is_precompile = 1;
+    return 0;
+  }
+
+  fd_pubkey_t const * pubkey = prog_acc->pubkey;
+  fd_pubkey_t const * owner  = prog_acc->vt->get_owner( prog_acc );
 
   /* Native programs should be owned by the native loader...
      This will not be the case though once core programs are migrated to BPF. */
@@ -125,23 +143,10 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
     }
   }
 
-  if( FD_UNLIKELY( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t) ) &&
-                   !memcmp( owner,  fd_solana_system_program_id.key,             sizeof(fd_pubkey_t) ) ) ) {
-    /* ... except for the special case for testnet ed25519, which is
-       bizarrely owned by the system program. */
-    is_native_program = 1;
-  }
-  fd_pubkey_t const * lookup_pubkey         = is_native_program ? pubkey : owner;
-  const fd_native_prog_info_t null_function = {0};
+  fd_pubkey_t const *         lookup_pubkey = is_native_program ? pubkey : owner;
+  fd_native_prog_info_t const null_function = {0};
   *native_prog_fn = fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
   return 0;
-}
-
-fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc ) {
-  fd_pubkey_t const * pubkey                = prog_acc->pubkey;
-  const fd_native_prog_info_t null_function = {0};
-  return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
 }
 
 /* Returns 1 if the sysvar instruction is used, 0 otherwise */
@@ -336,33 +341,48 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/verify_precompiles.rs#L11-L34 */
 int
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
-  ushort                 instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
-  fd_acct_addr_t const * tx_accs   = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
-  int                    err       = 0;
+  ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
+  int    err       = 0;
+
   for( ushort i=0; i<instr_cnt; i++ ) {
-    fd_txn_instr_t  const * instr      = &txn_ctx->txn_descriptor->instr[i];
-    fd_acct_addr_t  const * program_id = tx_accs + instr->program_id;
-    if( !memcmp( program_id, &fd_solana_ed25519_sig_verify_program_id, sizeof(fd_pubkey_t) ) ) {
-      err = fd_precompile_ed25519_verify( txn_ctx, instr );
-      if( FD_UNLIKELY( err ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
-        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-      }
-    } else if( !memcmp( program_id, &fd_solana_keccak_secp_256k_program_id, sizeof(fd_pubkey_t) )) {
-      err = fd_precompile_secp256k1_verify( txn_ctx, instr );
-      if( FD_UNLIKELY( err ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
-        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-      }
-    } else if( !memcmp( program_id, &fd_solana_secp256r1_program_id, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, enable_secp256r1_precompile ) ) {
-      err = fd_precompile_secp256r1_verify( txn_ctx, instr );
-      if( FD_UNLIKELY( err ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
-        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-      }
+    fd_instr_info_t const *  instr         = &txn_ctx->instr_infos[i];
+    fd_txn_account_t const * program_acc   = &txn_ctx->accounts[ instr->program_id ];
+    fd_exec_instr_fn_t       precompile_fn = fd_executor_lookup_native_precompile_program( program_acc );
+
+    /* We need to handle feature-gated precompiles here as well since they're not accounted for in the precompile lookup table. */
+    if( FD_LIKELY( precompile_fn==NULL ||
+                   ( !memcmp( program_acc->pubkey->key, &fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) ) &&
+                     !FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, enable_secp256r1_precompile ) ) ) ) {
+      continue;
+    }
+
+    /* We can create a mock instr_ctx since we only need the txn_ctx and instr fields */
+    fd_exec_instr_ctx_t instr_ctx = {
+      .txn_ctx = txn_ctx,
+      .instr   = instr,
+    };
+
+    err = precompile_fn( &instr_ctx );
+    if( FD_UNLIKELY( err ) ) {
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
+      return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
   }
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+static void
+fd_executor_setup_instr_infos_from_txn_instrs( fd_exec_txn_ctx_t * txn_ctx ) {
+  ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
+
+  /* Set up the instr infos for the transaction */
+  for( ushort i=0; i<instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
+    fd_instr_info_init_from_txn_instr( &txn_ctx->instr_infos[i], txn_ctx, instr );
+  }
+
+  txn_ctx->instr_info_cnt = instr_cnt;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L410-427 */
@@ -432,18 +452,9 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
    https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L393-L534 */
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  ulong  requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
-  ushort instr_cnt                           = txn_ctx->txn_descriptor->instr_cnt;
-
-  /* Set up the instr infos for the transaction */
-  for( ushort i=0; i<instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
-    fd_instr_info_init_from_txn_instr( &txn_ctx->instr_infos[i], txn_ctx, instr );
-  }
-  txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
-
-  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
-  ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
+  ulong                       requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
+  fd_epoch_schedule_t const * schedule                            = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  ulong                       epoch                               = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
@@ -481,6 +492,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* TODO: Consider using a hash set (if its more performant) */
+  ushort      instr_cnt             = txn_ctx->txn_descriptor->instr_cnt;
   fd_pubkey_t validated_loaders[instr_cnt];
   ushort      validated_loaders_cnt = 0;
 
@@ -1065,28 +1077,42 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .stack_height = txn_ctx->instr_stack_sz,
     };
 
-    /* Lookup whether the program is a native precompiled program first
+    /* Look up the native program. We check for precompiles within the lookup function as well.
        https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/message_processor.rs#L88 */
-    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_precompile_program( &txn_ctx->accounts[ instr->program_id ] );
+    fd_exec_instr_fn_t native_prog_fn;
+    uchar              is_precompile;
+    int                err = fd_executor_lookup_native_program( &txn_ctx->accounts[ instr->program_id ],
+                                                                txn_ctx,
+                                                                &native_prog_fn,
+                                                                &is_precompile );
 
-    if( FD_LIKELY( native_prog_fn == NULL ) ) {
-      /* Lookup a native builtin program if the program is not a precompiled program */
-      int err = fd_executor_lookup_native_program( &txn_ctx->accounts[ instr->program_id ], txn_ctx, &native_prog_fn );
-      if( FD_UNLIKELY( err ) ) {
-        FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
-        return err;
-      }
-      /* Only reset the return data when executing a native builtin program (not a precompile)
-         https://github.com/anza-xyz/agave/blob/v2.1.6/program-runtime/src/invoke_context.rs#L536-L537 */
-      fd_exec_txn_ctx_reset_return_data( txn_ctx );
+    if( FD_UNLIKELY( err ) ) {
+      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
+      return err;
     }
 
-    if( FD_LIKELY( native_prog_fn != NULL ) ) {
-      /* Log program invokation (internally caches program_id base58) */
+    if( FD_LIKELY( native_prog_fn!=NULL ) ) {
+      /* If this branch is taken, we've found an entrypoint to execute. */
       fd_log_collector_program_invoke( ctx );
-      instr_exec_result = native_prog_fn( ctx );
+
+      /* Only reset the return data when executing a native builtin program (not a precompile)
+         https://github.com/anza-xyz/agave/blob/v2.1.6/program-runtime/src/invoke_context.rs#L536-L537 */
+      if( FD_LIKELY( !is_precompile ) ) {
+        fd_exec_txn_ctx_reset_return_data( txn_ctx );
+      }
+
+      /* Unconditionally execute the native program if precompile verification has been moved to svm,
+         or if the native program is not a precompile */
+      if( FD_LIKELY( FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, move_precompile_verification_to_svm ) ||
+                    !is_precompile ) ) {
+        instr_exec_result = native_prog_fn( ctx );
+      } else {
+        /* The precompile was already executed at the transaction level, return success */
+        instr_exec_result = FD_EXECUTOR_INSTR_SUCCESS;
+      }
     } else {
+      /* Unknown program */
       instr_exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -1257,6 +1283,9 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
   txn_ctx->nonce_account_idx_in_txn = ULONG_MAX;
   txn_ctx->executable_cnt           = j;
+
+  /* Set up instr infos from the txn descriptor. No Agave equivalent to this function. */
+  fd_executor_setup_instr_infos_from_txn_instrs( txn_ctx );
 }
 
 /* Stuff to be done before multithreading can begin */
