@@ -317,6 +317,7 @@ typedef struct {
   fd_gossip_peer_addr_t tpu;
   fd_gossip_peer_addr_t tpu_quic;
   fd_gossip_peer_addr_t tpu_vote;
+  fd_gossip_peer_addr_t tpu_vote_quic;
 } fd_gossip_node_addrs_t;
 
 /* Global data for gossip service */
@@ -662,8 +663,9 @@ fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs,
   ushort serve_repair_port = fd_ushort_bswap( addrs->serve_repair.port );
   ushort tvu_port = fd_ushort_bswap( addrs->tvu.port );
   ushort tpu_port = fd_ushort_bswap( addrs->tpu.port );
-  ushort tpu_quic_port = fd_ushort_bswap( (ushort)(addrs->tpu_quic.port) );
+  ushort tpu_quic_port = fd_ushort_bswap( addrs->tpu_quic.port );
   ushort tpu_vote_port = fd_ushort_bswap( addrs->tpu_vote.port );
+  ushort tpu_vote_quic_port = fd_ushort_bswap( addrs->tpu_vote_quic.port );
 
   /* Loop is bounded by number of if( xx_port > 0 ... ) statements  + 1, so 7. */
   for(;;) {
@@ -702,6 +704,11 @@ fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs,
       min_addr = &addrs->tpu_vote;
       min_port = tpu_vote_port;
     }
+    if( tpu_vote_quic_port > 0 && tpu_vote_quic_port > last_port && tpu_vote_quic_port < min_port ) {
+      min_key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC;
+      min_addr = &addrs->tpu_vote_quic;
+      min_port = tpu_vote_quic_port;
+    }
     if( min_port==USHORT_MAX ) {
       break;
     }
@@ -735,10 +742,16 @@ fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs,
     if( FD_UNLIKELY( min_key == FD_GOSSIP_SOCKET_TAG_TPU ) ){
       /* FIXME: This is a hack around the fact that TPU and TPU vote
          share the same port. */
-        info->sockets[ sock_cnt ].index = min_addr_idx;
-        info->sockets[ sock_cnt ].offset = 0U;
-        info->sockets[ sock_cnt ].key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
-        sock_cnt++;
+      info->sockets[ sock_cnt ].index = min_addr_idx;
+      info->sockets[ sock_cnt ].offset = 0U;
+      info->sockets[ sock_cnt ].key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
+      sock_cnt++;
+    }
+    if( FD_UNLIKELY( min_key == FD_GOSSIP_SOCKET_TAG_TPU_QUIC ) )  {
+      info->sockets[ sock_cnt ].index = min_addr_idx;
+      info->sockets[ sock_cnt ].offset = 0U;
+      info->sockets[ sock_cnt ].key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC;
+      sock_cnt++;
     }
   }
 
