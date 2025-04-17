@@ -12,7 +12,7 @@ PB_BIND(FD_EXEC_TEST_TYPE_CONTEXT, fd_exec_test_type_context_t, AUTO)
 PB_BIND(FD_EXEC_TEST_TYPE_EFFECTS, fd_exec_test_type_effects_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_TYPE_COMPUTE_BUDGET_FIXTURE, fd_exec_test_type_compute_budget_fixture_t, AUTO)
+PB_BIND(FD_EXEC_TEST_TYPE_FIXTURE, fd_exec_test_type_fixture_t, AUTO)
 
 
 
