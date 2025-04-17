@@ -350,6 +350,8 @@ during_frag( fd_shred_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
+    ctx->send_fec_set_idx = ULONG_MAX;
+
     if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_FEAT_ACT_SLOT) ) ) {
       /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
           the shred tile needs to be aware of.  Since this requires the
@@ -429,7 +431,6 @@ during_frag( fd_shred_ctx_t * ctx,
 
       int last_in_batch = entry_meta->block_complete | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
 
-      ctx->send_fec_set_idx = ULONG_MAX;
       if( FD_UNLIKELY( last_in_batch )) {
         if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
           /* If it's our turn, shred this batch. FD_UNLIKELY because shred tile cnt generally >= 2 */
