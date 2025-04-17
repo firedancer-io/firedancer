@@ -234,8 +234,8 @@ sol_compat_decode_type( fd_spad_t *   spad,
     }
 
     // Decode the object
-    err = type_meta.decode_fun( decoded, &decode_ctx );
-    if( err != FD_BINCODE_SUCCESS ) {
+    void* result = type_meta.decode_fun(decoded, &decode_ctx);
+    if (result == NULL) {
       *output_sz = 0;
       return 0;
     }
