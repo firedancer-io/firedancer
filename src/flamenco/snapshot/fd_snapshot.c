@@ -232,7 +232,6 @@ fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
 
 void
 fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
-
   fd_snapshot_name_t const * name  = fd_snapshot_loader_get_name( ctx->loader );
   fd_hash_t          const * fhash = &name->fhash;
 
@@ -244,9 +243,11 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
 
+  int snapshots_lt_hash = FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, snapshots_lt_hash );
+  int accounts_lt_hash = FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, accounts_lt_hash );
+
   // https://github.com/anza-xyz/agave/blob/766cd682423b8049ddeac3c0ec6cebe0a1356e9e/runtime/src/bank.rs#L1831
-  int always_hash = 0;
-  if( FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) {
+  if( accounts_lt_hash ) {
     ulong *p = (ulong *) ctx->slot_ctx->slot_bank.lthash.lthash;
     ulong *e = (ulong *) &ctx->slot_ctx->slot_bank.lthash.lthash[sizeof(ctx->slot_ctx->slot_bank.lthash.lthash)];
     while (p < e) {
@@ -254,22 +255,34 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
         break;
     }
     if (p >= e) {
-      // anza treats this as a failure but we are supporting recalculating the hash so that old test cases
-      // continue to run...
-      FD_LOG_WARNING(( "snapshot must have an accounts lt hash if the feature is enabled.. calculating it all again" ));
-      always_hash = 1;
+      FD_LOG_ERR(( "snapshot must have an accounts lt hash if the feature is enabled.. calculating it all again" ));
+    } else {
+      FD_LOG_NOTICE(( "accounts_lthash found %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
     }
   }
 
-  if( ctx->verify_hash || always_hash ) {
+  if( ctx->verify_hash ) {
     if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
       fd_hash_t accounts_hash;
-      fd_lthash_value_t *lthash = (always_hash) ? (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash) : NULL;
+      fd_lthash_value_t *lthash = NULL;
+      fd_lthash_value_t lthash_buf;
+      if ( snapshots_lt_hash ) {
+        fd_lthash_zero(&lthash_buf);
+        lthash = &lthash_buf;
+      }
+
       FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
         fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx, lthash );
       } FD_SPAD_FRAME_END;
 
-      if( ctx->verify_hash ) {
+      if ( snapshots_lt_hash ) {
+        if( memcmp( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) ) ) {
+          FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s",
+              FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash) ), FD_LTHASH_ENC_32_ALLOCA( lthash ) ));
+        } else {
+          FD_LOG_NOTICE(( "accounts_lthash found %s verified successfully", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
+        }
+      } else {
         if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
           FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ), FD_BASE58_ENC_32_ALLOCA( fhash->uc ) ));
         } else {
@@ -288,12 +301,10 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
         fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx, &lthash );
       }
 
-      if( ctx->verify_hash ) {
-        if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
-          FD_LOG_ERR(( "incremental accounts_hash %s != %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ), FD_BASE58_ENC_32_ALLOCA( fhash->uc ) ));
-        } else {
-          FD_LOG_NOTICE(( "incremental accounts_hash %s verified successfully", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ) ));
-        }
+      if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
+        FD_LOG_ERR(( "incremental accounts_hash %s != %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ), FD_BASE58_ENC_32_ALLOCA( fhash->uc ) ));
+      } else {
+        FD_LOG_NOTICE(( "incremental accounts_hash %s verified successfully", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ) ));
       }
     } else {
       FD_LOG_ERR(( "invalid snapshot type %d", ctx->snapshot_type ));
@@ -308,8 +319,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   }
 
   fd_hashes_load( ctx->slot_ctx, ctx->runtime_spad );
-
-  FD_LOG_NOTICE(( "accounts_lthash %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
 
   /* We don't need to free any of the loader memory since it is allocated
      from a spad. */
