@@ -69,8 +69,8 @@ init( config_t const * config ) {
 
   ulong batch_sz = sizeof(ulong)+ticks_per_slot*sizeof(fd_entry_batch_header_t);
 
-  FD_TEST( fd_shredder_count_data_shreds  ( batch_sz )<=34UL );
-  FD_TEST( fd_shredder_count_parity_shreds( batch_sz )<=34UL );
+  FD_TEST( fd_shredder_count_data_shreds  ( batch_sz, FD_SHRED_TYPE_MERKLE_DATA )<=34UL );
+  FD_TEST( fd_shredder_count_parity_shreds( batch_sz, FD_SHRED_TYPE_MERKLE_CODE )<=34UL );
 
   fd_shred34_t data, parity;
   fd_fec_set_t fec;
@@ -91,7 +91,7 @@ init( config_t const * config ) {
   fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder, zero_signer, NULL, shred_version ) );
 
   fd_shredder_init_batch( shredder, &batch, batch_sz, 0UL, meta );
-  fd_shredder_next_fec_set( shredder, &fec );
+  fd_shredder_next_fec_set( shredder, &fec, /* chained */ NULL );
 
   /* Fork off a new process for inserting the shreds to the blockstore.
      RocksDB creates a dozen background workers, and doesn't close them

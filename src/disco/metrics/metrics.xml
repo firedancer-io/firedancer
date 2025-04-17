@@ -480,6 +480,7 @@ metric introduced.
         <summary>Number of contact infos in the cluster contact info message</summary>
     </histogram>
     <counter name="MicroblocksAbandoned" summary="The number of microblocks that were abandoned because we switched slots without finishing the current slot" />
+    <counter name="InvalidBlockId" summary="The number of times a block was created with unknown parent block_id" />
     <histogram name="BatchSz" min="1024" max="65536">
         <summary>The size (in bytes) of each microblock batch that is shredded</summary>
     </histogram>
