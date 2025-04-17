@@ -284,9 +284,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "repair_store", "repair_store", 1024UL*1024UL,                            FD_SHRED_MAX_SZ,               128UL );
   /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL   );
   /**/                 fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    2048UL,                        1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_repair", "shred_repair", pending_fec_shreds_depth,                 FD_SHRED_REPAIR_MTU,           2UL * shred_tile_cnt /* at most 2 msgs per after_frag*/ );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_repair", "shred_repair", pending_fec_shreds_depth,                 FD_SHRED_REPAIR_MTU,           2UL /* at most 2 msgs per after_frag*/ );
 
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "repair_shred", 128UL,                                    FD_SHRED_MAX_SZ,               1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "repair_shred", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t) ,     1UL );
   /**/                 fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    64UL,                          1UL );
   /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 2048UL,                                   sizeof(ulong),                 1UL   );
   /**/                 fd_topob_link( topo, "store_replay", "store_replay", 32768UL,                                  sizeof(ulong),                 64UL  );

@@ -813,15 +813,18 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
   set_ctx_t * done_map         = resolver->done_map;
   ulong       done_depth       = resolver->done_depth;
 
+  fd_fec_set_t        * set  = ctx->set;
+  fd_bmtree_commit_t  * tree = ctx->tree;
+
   ctx_ll_insert( done_ll_sentinel, ctx_map_insert( done_map, ctx->sig ) );
   if( FD_UNLIKELY( ctx_map_key_cnt( done_map ) > done_depth ) ) ctx_map_remove( done_map, ctx_ll_remove( done_ll_sentinel->prev ) );
   ctx_map_remove( curr_map, ctx_ll_remove( ctx ) );
 
-  bmtrlist_push_tail( resolver->bmtree_free_list, ctx->tree );
-  freelist_push_tail( resolver->complete_list, ctx->set );
+  bmtrlist_push_tail( resolver->bmtree_free_list, tree );
+  freelist_push_tail( resolver->complete_list, set );
   freelist_push_tail( resolver->free_list, freelist_pop_head( resolver->complete_list ) );
 
-  *out_fec_set = ctx->set;
+  *out_fec_set = set;
 
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
 }
