@@ -12,11 +12,12 @@ fd_rent_t *
 fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
                      fd_funk_t *               funk,
                      fd_funk_txn_t *           funk_txn,
-                     fd_spad_t *               spad ) {
+                     fd_spad_t *               spad,
+                     fd_wksp_t *               wksp ) {
 
-  fd_rent_t const * ret = fd_sysvar_cache_rent( sysvar_cache );
+  fd_rent_t * ret = fd_sysvar_cache_rent( sysvar_cache, wksp );
   if( FD_UNLIKELY( ret ) ) {
-    return (fd_rent_t*)ret;
+    return ret;
   }
 
   FD_TXN_ACCOUNT_DECL( rent_rec );

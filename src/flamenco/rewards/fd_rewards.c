@@ -389,6 +389,7 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                    slot_ctx->sysvar_cache,
                                                    &slot_ctx->epoch_ctx->features,
+                                                   slot_ctx->runtime_wksp,
                                                    new_warmup_cooldown_rate_epoch,
                                                    _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -604,7 +605,8 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                    slot_ctx->sysvar_cache,
-                                                    &slot_ctx->epoch_ctx->features,
+                                                   &slot_ctx->epoch_ctx->features,
+                                                   slot_ctx->runtime_wksp,
                                                    new_warmup_cooldown_rate_epoch,
                                                    _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -695,7 +697,8 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              ulong                                     exec_spad_cnt,
                              fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( !stake_history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
@@ -1176,11 +1179,12 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t * *        exec_spads,
                                             ulong                exec_spad_cnt,
                                             fd_spad_t *          runtime_spad ) {
-  fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
-                                                 slot_ctx->sysvar_cache,
-                                                 slot_ctx->funk,
-                                                 slot_ctx->funk_txn )==NULL ) ) {
+  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( slot_ctx->sysvar_cache,
+                                                                            slot_ctx->funk,
+                                                                            slot_ctx->funk_txn,
+                                                                            runtime_spad,
+                                                                            slot_ctx->runtime_wksp );
+  if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
     FD_LOG_NOTICE(( "failed to read sysvar epoch rewards - the sysvar may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
     return;
@@ -1211,12 +1215,14 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                      slot_ctx->sysvar_cache,
                                                      &slot_ctx->epoch_ctx->features,
-                                                     new_warmup_cooldown_rate_epoch, _err );
+                                                     slot_ctx->runtime_wksp,
+                                                     new_warmup_cooldown_rate_epoch,
+                                                     _err );
     if( FD_UNLIKELY( !is_some ) ) {
       new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
     if( FD_UNLIKELY( !stake_history ) ) {
       FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
     }

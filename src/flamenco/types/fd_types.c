@@ -1019,6 +1019,20 @@ int fd_hard_forks_encode( fd_hard_forks_t const * self, fd_bincode_encode_ctx_t 
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_hard_forks_encode_global( fd_hard_forks_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->hard_forks_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->hard_forks_len ) {
+    uchar * hard_forks_laddr = fd_wksp_laddr_fast( ctx->wksp, self->hard_forks_gaddr );
+    fd_slot_pair_t * hard_forks = (fd_slot_pair_t *)hard_forks_laddr;
+    for( ulong i=0; i < self->hard_forks_len; i++ ) {
+      err = fd_slot_pair_encode( &hard_forks[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_hard_forks_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_hard_forks_t);
   void const * start_data = ctx->data;
@@ -1063,6 +1077,30 @@ void fd_hard_forks_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
     }
   } else
     self->hard_forks = NULL;
+}
+void * fd_hard_forks_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_hard_forks_global_t * self = (fd_hard_forks_global_t *)mem;
+  fd_hard_forks_new( (fd_hard_forks_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_hard_forks_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_hard_forks_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_hard_forks_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_hard_forks_global_t * self = (fd_hard_forks_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->hard_forks_len, ctx );
+  if( self->hard_forks_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_SLOT_PAIR_ALIGN );
+    self->hard_forks_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_PAIR_FOOTPRINT*self->hard_forks_len;
+    for( ulong i=0; i < self->hard_forks_len; i++ ) {
+      fd_slot_pair_new( (fd_slot_pair_t *)fd_type_pun(cur_mem + FD_SLOT_PAIR_FOOTPRINT * i) );
+      fd_slot_pair_decode_inner( cur_mem + FD_SLOT_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->hard_forks_gaddr = 0UL;
+  }
 }
 void fd_hard_forks_new(fd_hard_forks_t * self) {
   fd_memset( self, 0, sizeof(fd_hard_forks_t) );
@@ -1587,6 +1625,25 @@ int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encod
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_solana_account_encode_global( fd_solana_account_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->lamports, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->data_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->data_len ) {
+    uchar * data_laddr = fd_wksp_laddr_fast( ctx->wksp, self->data_gaddr );
+    err = fd_bincode_bytes_encode( data_laddr, self->data_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_pubkey_encode( &self->owner, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_bool_encode( (uchar)(self->executable), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->rent_epoch, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_solana_account_t);
   void const * start_data = ctx->data;
@@ -1638,6 +1695,29 @@ void fd_solana_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_b
   fd_bincode_bool_decode_unsafe( &self->executable, ctx );
   fd_bincode_uint64_decode_unsafe( &self->rent_epoch, ctx );
 }
+void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_solana_account_global_t * self = (fd_solana_account_global_t *)mem;
+  fd_solana_account_new( (fd_solana_account_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_solana_account_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_solana_account_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_solana_account_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_solana_account_global_t * self = (fd_solana_account_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->lamports, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->data_len, ctx );
+  if( self->data_len ) {
+    self->data_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->data_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->data_len;
+  } else {
+    self->data_gaddr = 0UL;
+  }
+  fd_pubkey_decode_inner( &self->owner, alloc_mem, ctx );
+  fd_bincode_bool_decode_unsafe( &self->executable, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->rent_epoch, ctx );
+}
 void fd_solana_account_new(fd_solana_account_t * self) {
   fd_memset( self, 0, sizeof(fd_solana_account_t) );
   fd_pubkey_new( &self->owner );
@@ -1684,6 +1764,16 @@ int fd_vote_accounts_pair_encode( fd_vote_accounts_pair_t const * self, fd_binco
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_vote_accounts_pair_encode_global( fd_vote_accounts_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->key, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->stake, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_solana_account_encode_global( &self->value, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_vote_accounts_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_vote_accounts_pair_t);
   void const * start_data = ctx->data;
@@ -1716,6 +1806,20 @@ void fd_vote_accounts_pair_decode_inner( void * struct_mem, void * * alloc_mem, 
   fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->stake, ctx );
   fd_solana_account_decode_inner( &self->value, alloc_mem, ctx );
+}
+void * fd_vote_accounts_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_vote_accounts_pair_global_t * self = (fd_vote_accounts_pair_global_t *)mem;
+  fd_vote_accounts_pair_new( (fd_vote_accounts_pair_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_vote_accounts_pair_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_vote_accounts_pair_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_vote_accounts_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_vote_accounts_pair_global_t * self = (fd_vote_accounts_pair_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->stake, ctx );
+  fd_solana_account_decode_inner_global( &self->value, alloc_mem, ctx );
 }
 void fd_vote_accounts_pair_new(fd_vote_accounts_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_pair_t) );
@@ -1764,14 +1868,14 @@ int fd_vote_accounts_encode( fd_vote_accounts_t const * self, fd_bincode_encode_
 }
 int fd_vote_accounts_encode_global( fd_vote_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = fd_vote_accounts_pair_t_map_join( fd_wksp_laddr_fast( ctx->wksp, self->vote_accounts_root_gaddr ) );
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_wksp_laddr_fast( ctx->wksp, self->vote_accounts_pool_gaddr ) );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_pair_global_t_map_join( fd_wksp_laddr_fast( ctx->wksp, self->vote_accounts_root_gaddr ) );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join( fd_wksp_laddr_fast( ctx->wksp, self->vote_accounts_pool_gaddr ) );
   if( vote_accounts_root ) {
-    ulong vote_accounts_len = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
+    ulong vote_accounts_len = fd_vote_accounts_pair_global_t_map_size( vote_accounts_pool, vote_accounts_root );
     err = fd_bincode_uint64_encode( vote_accounts_len, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( vote_accounts_pool, vote_accounts_root ); n; n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
-      err = fd_vote_accounts_pair_encode( &n->elem, ctx );
+    for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root ); n; n = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, n ) ) {
+      err = fd_vote_accounts_pair_encode_global( &n->elem, ctx );
       if( FD_UNLIKELY( err ) ) return err;
     }
   } else {
@@ -1836,17 +1940,17 @@ void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem
   fd_vote_accounts_global_t * self = (fd_vote_accounts_global_t *)struct_mem;
   ulong vote_accounts_len;
   fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_accounts_pair_t_map_align() );
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_t_map_join_new( alloc_mem, fd_ulong_max( vote_accounts_len, 15000 ) );
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = NULL;
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_accounts_pair_global_t_map_align() );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_pair_global_t_map_join_new( alloc_mem, fd_ulong_max( vote_accounts_len, 15000 ) );
+  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = NULL;
   for( ulong i=0; i < vote_accounts_len; i++ ) {
-    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( vote_accounts_pool );
+    fd_vote_accounts_pair_global_t_mapnode_t * node = fd_vote_accounts_pair_global_t_map_acquire( vote_accounts_pool );
     fd_vote_accounts_pair_new( (fd_vote_accounts_pair_t *)fd_type_pun(&node->elem) );
-    fd_vote_accounts_pair_decode_inner( &node->elem, alloc_mem, ctx );
-    fd_vote_accounts_pair_t_map_insert( vote_accounts_pool, &vote_accounts_root, node );
+    fd_vote_accounts_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
+    fd_vote_accounts_pair_global_t_map_insert( vote_accounts_pool, &vote_accounts_root, node );
   }
-  self->vote_accounts_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, fd_vote_accounts_pair_t_map_leave( vote_accounts_pool ) );
-  self->vote_accounts_root_gaddr = fd_wksp_gaddr_fast( ctx->wksp, fd_vote_accounts_pair_t_map_leave( vote_accounts_root ) );
+  self->vote_accounts_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, fd_vote_accounts_pair_global_t_map_leave( vote_accounts_pool ) );
+  self->vote_accounts_root_gaddr = fd_wksp_gaddr_fast( ctx->wksp, fd_vote_accounts_pair_global_t_map_leave( vote_accounts_root ) );
 }
 void fd_vote_accounts_new(fd_vote_accounts_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_t) );
@@ -3024,6 +3128,22 @@ int fd_node_vote_accounts_encode( fd_node_vote_accounts_t const * self, fd_binco
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_node_vote_accounts_encode_global( fd_node_vote_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->vote_accounts_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->vote_accounts_len ) {
+    uchar * vote_accounts_laddr = fd_wksp_laddr_fast( ctx->wksp, self->vote_accounts_gaddr );
+    fd_pubkey_t * vote_accounts = (fd_pubkey_t *)vote_accounts_laddr;
+    for( ulong i=0; i < self->vote_accounts_len; i++ ) {
+      err = fd_pubkey_encode( &vote_accounts[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->total_stake, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_node_vote_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_node_vote_accounts_t);
   void const * start_data = ctx->data;
@@ -3072,6 +3192,31 @@ void fd_node_vote_accounts_decode_inner( void * struct_mem, void * * alloc_mem, 
     self->vote_accounts = NULL;
   fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
 }
+void * fd_node_vote_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_node_vote_accounts_global_t * self = (fd_node_vote_accounts_global_t *)mem;
+  fd_node_vote_accounts_new( (fd_node_vote_accounts_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_node_vote_accounts_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_node_vote_accounts_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_node_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_node_vote_accounts_global_t * self = (fd_node_vote_accounts_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->vote_accounts_len, ctx );
+  if( self->vote_accounts_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->vote_accounts_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->vote_accounts_len;
+    for( ulong i=0; i < self->vote_accounts_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->vote_accounts_gaddr = 0UL;
+  }
+  fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
+}
 void fd_node_vote_accounts_new(fd_node_vote_accounts_t * self) {
   fd_memset( self, 0, sizeof(fd_node_vote_accounts_t) );
 }
@@ -3116,6 +3261,14 @@ int fd_pubkey_node_vote_accounts_pair_encode( fd_pubkey_node_vote_accounts_pair_
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_pubkey_node_vote_accounts_pair_encode_global( fd_pubkey_node_vote_accounts_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->key, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_node_vote_accounts_encode_global( &self->value, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_pubkey_node_vote_accounts_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_pubkey_node_vote_accounts_pair_t);
   void const * start_data = ctx->data;
@@ -3145,6 +3298,19 @@ void fd_pubkey_node_vote_accounts_pair_decode_inner( void * struct_mem, void * *
   fd_pubkey_node_vote_accounts_pair_t * self = (fd_pubkey_node_vote_accounts_pair_t *)struct_mem;
   fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
   fd_node_vote_accounts_decode_inner( &self->value, alloc_mem, ctx );
+}
+void * fd_pubkey_node_vote_accounts_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pubkey_node_vote_accounts_pair_global_t * self = (fd_pubkey_node_vote_accounts_pair_global_t *)mem;
+  fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_pubkey_node_vote_accounts_pair_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_pubkey_node_vote_accounts_pair_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_pubkey_node_vote_accounts_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pubkey_node_vote_accounts_pair_global_t * self = (fd_pubkey_node_vote_accounts_pair_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
+  fd_node_vote_accounts_decode_inner_global( &self->value, alloc_mem, ctx );
 }
 void fd_pubkey_node_vote_accounts_pair_new(fd_pubkey_node_vote_accounts_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_pubkey_node_vote_accounts_pair_t) );
@@ -3270,9 +3436,9 @@ int fd_epoch_stakes_encode_global( fd_epoch_stakes_global_t const * self, fd_bin
   if( FD_UNLIKELY( err ) ) return err;
   if( self->node_id_to_vote_accounts_len ) {
     uchar * node_id_to_vote_accounts_laddr = fd_wksp_laddr_fast( ctx->wksp, self->node_id_to_vote_accounts_gaddr );
-    fd_pubkey_node_vote_accounts_pair_t * node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t *)node_id_to_vote_accounts_laddr;
+    fd_pubkey_node_vote_accounts_pair_global_t * node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_global_t *)node_id_to_vote_accounts_laddr;
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      err = fd_pubkey_node_vote_accounts_pair_encode( &node_id_to_vote_accounts[i], ctx );
+      err = fd_pubkey_node_vote_accounts_pair_encode_global( &node_id_to_vote_accounts[i], ctx );
       if( FD_UNLIKELY( err ) ) return err;
     }
   }
@@ -3380,7 +3546,7 @@ void fd_epoch_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem,
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len;
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
       fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i) );
-      fd_pubkey_node_vote_accounts_pair_decode_inner( cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+      fd_pubkey_node_vote_accounts_pair_decode_inner_global( cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i, alloc_mem, ctx );
     }
   } else {
     self->node_id_to_vote_accounts_gaddr = 0UL;
@@ -3628,6 +3794,40 @@ int fd_unused_accounts_encode( fd_unused_accounts_t const * self, fd_bincode_enc
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_unused_accounts_encode_global( fd_unused_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->unused1_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->unused1_len ) {
+    uchar * unused1_laddr = fd_wksp_laddr_fast( ctx->wksp, self->unused1_gaddr );
+    fd_pubkey_t * unused1 = (fd_pubkey_t *)unused1_laddr;
+    for( ulong i=0; i < self->unused1_len; i++ ) {
+      err = fd_pubkey_encode( &unused1[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->unused2_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->unused2_len ) {
+    uchar * unused2_laddr = fd_wksp_laddr_fast( ctx->wksp, self->unused2_gaddr );
+    fd_pubkey_t * unused2 = (fd_pubkey_t *)unused2_laddr;
+    for( ulong i=0; i < self->unused2_len; i++ ) {
+      err = fd_pubkey_encode( &unused2[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->unused3_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->unused3_len ) {
+    uchar * unused3_laddr = fd_wksp_laddr_fast( ctx->wksp, self->unused3_gaddr );
+    fd_pubkey_u64_pair_t * unused3 = (fd_pubkey_u64_pair_t *)unused3_laddr;
+    for( ulong i=0; i < self->unused3_len; i++ ) {
+      err = fd_pubkey_u64_pair_encode( &unused3[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_unused_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_unused_accounts_t);
   void const * start_data = ctx->data;
@@ -3714,6 +3914,56 @@ void fd_unused_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_
     }
   } else
     self->unused3 = NULL;
+}
+void * fd_unused_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_unused_accounts_global_t * self = (fd_unused_accounts_global_t *)mem;
+  fd_unused_accounts_new( (fd_unused_accounts_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_unused_accounts_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_unused_accounts_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_unused_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_unused_accounts_global_t * self = (fd_unused_accounts_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->unused1_len, ctx );
+  if( self->unused1_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->unused1_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->unused1_len;
+    for( ulong i=0; i < self->unused1_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->unused1_gaddr = 0UL;
+  }
+  fd_bincode_uint64_decode_unsafe( &self->unused2_len, ctx );
+  if( self->unused2_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->unused2_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->unused2_len;
+    for( ulong i=0; i < self->unused2_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->unused2_gaddr = 0UL;
+  }
+  fd_bincode_uint64_decode_unsafe( &self->unused3_len, ctx );
+  if( self->unused3_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_U64_PAIR_ALIGN );
+    self->unused3_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_U64_PAIR_FOOTPRINT*self->unused3_len;
+    for( ulong i=0; i < self->unused3_len; i++ ) {
+      fd_pubkey_u64_pair_new( (fd_pubkey_u64_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_U64_PAIR_FOOTPRINT * i) );
+      fd_pubkey_u64_pair_decode_inner( cur_mem + FD_PUBKEY_U64_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->unused3_gaddr = 0UL;
+  }
 }
 void fd_unused_accounts_new(fd_unused_accounts_t * self) {
   fd_memset( self, 0, sizeof(fd_unused_accounts_t) );
@@ -3888,7 +4138,7 @@ int fd_versioned_bank_encode_global( fd_versioned_bank_global_t const * self, fd
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->parent_slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hard_forks_encode( &self->hard_forks, ctx );
+  err = fd_hard_forks_encode_global( &self->hard_forks, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->transaction_count, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -3944,7 +4194,7 @@ int fd_versioned_bank_encode_global( fd_versioned_bank_global_t const * self, fd
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_stakes_encode_global( &self->stakes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_unused_accounts_encode( &self->unused_accounts, ctx );
+  err = fd_unused_accounts_encode_global( &self->unused_accounts, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->epoch_stakes_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -4162,7 +4412,7 @@ void fd_versioned_bank_decode_inner_global( void * struct_mem, void * * alloc_me
   fd_hash_decode_inner( &self->hash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->parent_hash, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->parent_slot, ctx );
-  fd_hard_forks_decode_inner( &self->hard_forks, alloc_mem, ctx );
+  fd_hard_forks_decode_inner_global( &self->hard_forks, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
   fd_bincode_uint64_decode_unsafe( &self->tick_height, ctx );
   fd_bincode_uint64_decode_unsafe( &self->signature_count, ctx );
@@ -4197,7 +4447,7 @@ void fd_versioned_bank_decode_inner_global( void * struct_mem, void * * alloc_me
   fd_epoch_schedule_decode_inner( &self->epoch_schedule, alloc_mem, ctx );
   fd_inflation_decode_inner( &self->inflation, alloc_mem, ctx );
   fd_stakes_decode_inner_global( &self->stakes, alloc_mem, ctx );
-  fd_unused_accounts_decode_inner( &self->unused_accounts, alloc_mem, ctx );
+  fd_unused_accounts_decode_inner_global( &self->unused_accounts, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->epoch_stakes_len, ctx );
   if( self->epoch_stakes_len ) {
     *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN );
@@ -4647,6 +4897,22 @@ int fd_snapshot_slot_acc_vecs_encode( fd_snapshot_slot_acc_vecs_t const * self, 
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_snapshot_slot_acc_vecs_encode_global( fd_snapshot_slot_acc_vecs_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->account_vecs_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->account_vecs_len ) {
+    uchar * account_vecs_laddr = fd_wksp_laddr_fast( ctx->wksp, self->account_vecs_gaddr );
+    fd_snapshot_acc_vec_t * account_vecs = (fd_snapshot_acc_vec_t *)account_vecs_laddr;
+    for( ulong i=0; i < self->account_vecs_len; i++ ) {
+      err = fd_snapshot_acc_vec_encode( &account_vecs[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_snapshot_slot_acc_vecs_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_snapshot_slot_acc_vecs_t);
   void const * start_data = ctx->data;
@@ -4694,6 +4960,31 @@ void fd_snapshot_slot_acc_vecs_decode_inner( void * struct_mem, void * * alloc_m
     }
   } else
     self->account_vecs = NULL;
+}
+void * fd_snapshot_slot_acc_vecs_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_snapshot_slot_acc_vecs_global_t * self = (fd_snapshot_slot_acc_vecs_global_t *)mem;
+  fd_snapshot_slot_acc_vecs_new( (fd_snapshot_slot_acc_vecs_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_snapshot_slot_acc_vecs_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_snapshot_slot_acc_vecs_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_snapshot_slot_acc_vecs_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_snapshot_slot_acc_vecs_global_t * self = (fd_snapshot_slot_acc_vecs_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->account_vecs_len, ctx );
+  if( self->account_vecs_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_SNAPSHOT_ACC_VEC_ALIGN );
+    self->account_vecs_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_SNAPSHOT_ACC_VEC_FOOTPRINT*self->account_vecs_len;
+    for( ulong i=0; i < self->account_vecs_len; i++ ) {
+      fd_snapshot_acc_vec_new( (fd_snapshot_acc_vec_t *)fd_type_pun(cur_mem + FD_SNAPSHOT_ACC_VEC_FOOTPRINT * i) );
+      fd_snapshot_acc_vec_decode_inner( cur_mem + FD_SNAPSHOT_ACC_VEC_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->account_vecs_gaddr = 0UL;
+  }
 }
 void fd_snapshot_slot_acc_vecs_new(fd_snapshot_slot_acc_vecs_t * self) {
   fd_memset( self, 0, sizeof(fd_snapshot_slot_acc_vecs_t) );
@@ -4915,6 +5206,46 @@ int fd_solana_accounts_db_fields_encode( fd_solana_accounts_db_fields_t const * 
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_solana_accounts_db_fields_encode_global( fd_solana_accounts_db_fields_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->storages_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->storages_len ) {
+    uchar * storages_laddr = fd_wksp_laddr_fast( ctx->wksp, self->storages_gaddr );
+    fd_snapshot_slot_acc_vecs_global_t * storages = (fd_snapshot_slot_acc_vecs_global_t *)storages_laddr;
+    for( ulong i=0; i < self->storages_len; i++ ) {
+      err = fd_snapshot_slot_acc_vecs_encode_global( &storages[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->version, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bank_hash_info_encode( &self->bank_hash_info, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->historical_roots_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->historical_roots_len ) {
+    uchar * historical_roots_laddr = fd_wksp_laddr_fast( ctx->wksp, self->historical_roots_gaddr );
+    ulong * historical_roots = (ulong *)historical_roots_laddr;
+    for( ulong i=0; i < self->historical_roots_len; i++ ) {
+      err = fd_bincode_uint64_encode( historical_roots[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->historical_roots_with_hash_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->historical_roots_with_hash_len ) {
+    uchar * historical_roots_with_hash_laddr = fd_wksp_laddr_fast( ctx->wksp, self->historical_roots_with_hash_gaddr );
+    fd_slot_map_pair_t * historical_roots_with_hash = (fd_slot_map_pair_t *)historical_roots_with_hash_laddr;
+    for( ulong i=0; i < self->historical_roots_with_hash_len; i++ ) {
+      err = fd_slot_map_pair_encode( &historical_roots_with_hash[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_solana_accounts_db_fields_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_solana_accounts_db_fields_t);
   void const * start_data = ctx->data;
@@ -5009,6 +5340,58 @@ void fd_solana_accounts_db_fields_decode_inner( void * struct_mem, void * * allo
     }
   } else
     self->historical_roots_with_hash = NULL;
+}
+void * fd_solana_accounts_db_fields_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_solana_accounts_db_fields_global_t * self = (fd_solana_accounts_db_fields_global_t *)mem;
+  fd_solana_accounts_db_fields_new( (fd_solana_accounts_db_fields_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_solana_accounts_db_fields_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_solana_accounts_db_fields_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_solana_accounts_db_fields_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_solana_accounts_db_fields_global_t * self = (fd_solana_accounts_db_fields_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->storages_len, ctx );
+  if( self->storages_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN );
+    self->storages_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT*self->storages_len;
+    for( ulong i=0; i < self->storages_len; i++ ) {
+      fd_snapshot_slot_acc_vecs_new( (fd_snapshot_slot_acc_vecs_t *)fd_type_pun(cur_mem + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT * i) );
+      fd_snapshot_slot_acc_vecs_decode_inner_global( cur_mem + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->storages_gaddr = 0UL;
+  }
+  fd_bincode_uint64_decode_unsafe( &self->version, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
+  fd_bank_hash_info_decode_inner( &self->bank_hash_info, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->historical_roots_len, ctx );
+  if( self->historical_roots_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+    self->historical_roots_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->historical_roots_len;
+    for( ulong i=0; i < self->historical_roots_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
+    }
+  } else {
+    self->historical_roots_gaddr = 0UL;
+  }
+  fd_bincode_uint64_decode_unsafe( &self->historical_roots_with_hash_len, ctx );
+  if( self->historical_roots_with_hash_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_SLOT_MAP_PAIR_ALIGN );
+    self->historical_roots_with_hash_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_MAP_PAIR_FOOTPRINT*self->historical_roots_with_hash_len;
+    for( ulong i=0; i < self->historical_roots_with_hash_len; i++ ) {
+      fd_slot_map_pair_new( (fd_slot_map_pair_t *)fd_type_pun(cur_mem + FD_SLOT_MAP_PAIR_FOOTPRINT * i) );
+      fd_slot_map_pair_decode_inner( cur_mem + FD_SLOT_MAP_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->historical_roots_with_hash_gaddr = 0UL;
+  }
 }
 void fd_solana_accounts_db_fields_new(fd_solana_accounts_db_fields_t * self) {
   fd_memset( self, 0, sizeof(fd_solana_accounts_db_fields_t) );
@@ -5115,9 +5498,9 @@ int fd_versioned_epoch_stakes_current_encode_global( fd_versioned_epoch_stakes_c
   if( FD_UNLIKELY( err ) ) return err;
   if( self->node_id_to_vote_accounts_len ) {
     uchar * node_id_to_vote_accounts_laddr = fd_wksp_laddr_fast( ctx->wksp, self->node_id_to_vote_accounts_gaddr );
-    fd_pubkey_node_vote_accounts_pair_t * node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t *)node_id_to_vote_accounts_laddr;
+    fd_pubkey_node_vote_accounts_pair_global_t * node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_global_t *)node_id_to_vote_accounts_laddr;
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      err = fd_pubkey_node_vote_accounts_pair_encode( &node_id_to_vote_accounts[i], ctx );
+      err = fd_pubkey_node_vote_accounts_pair_encode_global( &node_id_to_vote_accounts[i], ctx );
       if( FD_UNLIKELY( err ) ) return err;
     }
   }
@@ -5225,7 +5608,7 @@ void fd_versioned_epoch_stakes_current_decode_inner_global( void * struct_mem, v
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len;
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
       fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i) );
-      fd_pubkey_node_vote_accounts_pair_decode_inner( cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+      fd_pubkey_node_vote_accounts_pair_decode_inner_global( cur_mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT * i, alloc_mem, ctx );
     }
   } else {
     self->node_id_to_vote_accounts_gaddr = 0UL;
@@ -5723,7 +6106,7 @@ int fd_solana_manifest_encode_global( fd_solana_manifest_global_t const * self, 
   int err;
   err = fd_versioned_bank_encode_global( &self->bank, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_solana_accounts_db_fields_encode( &self->accounts_db, ctx );
+  err = fd_solana_accounts_db_fields_encode_global( &self->accounts_db, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->lamports_per_signature, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -5911,7 +6294,7 @@ void * fd_solana_manifest_decode_global( void * mem, fd_bincode_decode_ctx_t * c
 void fd_solana_manifest_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_solana_manifest_global_t * self = (fd_solana_manifest_global_t *)struct_mem;
   fd_versioned_bank_decode_inner_global( &self->bank, alloc_mem, ctx );
-  fd_solana_accounts_db_fields_decode_inner( &self->accounts_db, alloc_mem, ctx );
+  fd_solana_accounts_db_fields_decode_inner_global( &self->accounts_db, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->lamports_per_signature, ctx );
   if( ctx->data == ctx->dataend ) return;
   {
@@ -6427,6 +6810,14 @@ int fd_pubkey_account_pair_encode( fd_pubkey_account_pair_t const * self, fd_bin
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_pubkey_account_pair_encode_global( fd_pubkey_account_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->key, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_solana_account_encode_global( &self->account, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_pubkey_account_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_pubkey_account_pair_t);
   void const * start_data = ctx->data;
@@ -6456,6 +6847,19 @@ void fd_pubkey_account_pair_decode_inner( void * struct_mem, void * * alloc_mem,
   fd_pubkey_account_pair_t * self = (fd_pubkey_account_pair_t *)struct_mem;
   fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
   fd_solana_account_decode_inner( &self->account, alloc_mem, ctx );
+}
+void * fd_pubkey_account_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pubkey_account_pair_global_t * self = (fd_pubkey_account_pair_global_t *)mem;
+  fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_pubkey_account_pair_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_pubkey_account_pair_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_pubkey_account_pair_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pubkey_account_pair_global_t * self = (fd_pubkey_account_pair_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
+  fd_solana_account_decode_inner_global( &self->account, alloc_mem, ctx );
 }
 void fd_pubkey_account_pair_new(fd_pubkey_account_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_pubkey_account_pair_t) );
@@ -6539,9 +6943,9 @@ int fd_genesis_solana_encode_global( fd_genesis_solana_global_t const * self, fd
   if( FD_UNLIKELY( err ) ) return err;
   if( self->accounts_len ) {
     uchar * accounts_laddr = fd_wksp_laddr_fast( ctx->wksp, self->accounts_gaddr );
-    fd_pubkey_account_pair_t * accounts = (fd_pubkey_account_pair_t *)accounts_laddr;
+    fd_pubkey_account_pair_global_t * accounts = (fd_pubkey_account_pair_global_t *)accounts_laddr;
     for( ulong i=0; i < self->accounts_len; i++ ) {
-      err = fd_pubkey_account_pair_encode( &accounts[i], ctx );
+      err = fd_pubkey_account_pair_encode_global( &accounts[i], ctx );
       if( FD_UNLIKELY( err ) ) return err;
     }
   }
@@ -6559,9 +6963,9 @@ int fd_genesis_solana_encode_global( fd_genesis_solana_global_t const * self, fd
   if( FD_UNLIKELY( err ) ) return err;
   if( self->rewards_pools_len ) {
     uchar * rewards_pools_laddr = fd_wksp_laddr_fast( ctx->wksp, self->rewards_pools_gaddr );
-    fd_pubkey_account_pair_t * rewards_pools = (fd_pubkey_account_pair_t *)rewards_pools_laddr;
+    fd_pubkey_account_pair_global_t * rewards_pools = (fd_pubkey_account_pair_global_t *)rewards_pools_laddr;
     for( ulong i=0; i < self->rewards_pools_len; i++ ) {
-      err = fd_pubkey_account_pair_encode( &rewards_pools[i], ctx );
+      err = fd_pubkey_account_pair_encode_global( &rewards_pools[i], ctx );
       if( FD_UNLIKELY( err ) ) return err;
     }
   }
@@ -6721,7 +7125,7 @@ void fd_genesis_solana_decode_inner_global( void * struct_mem, void * * alloc_me
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->accounts_len;
     for( ulong i=0; i < self->accounts_len; i++ ) {
       fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i) );
-      fd_pubkey_account_pair_decode_inner( cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+      fd_pubkey_account_pair_decode_inner_global( cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i, alloc_mem, ctx );
     }
   } else {
     self->accounts_gaddr = 0UL;
@@ -6747,7 +7151,7 @@ void fd_genesis_solana_decode_inner_global( void * struct_mem, void * * alloc_me
     *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->rewards_pools_len;
     for( ulong i=0; i < self->rewards_pools_len; i++ ) {
       fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)fd_type_pun(cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i) );
-      fd_pubkey_account_pair_decode_inner( cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+      fd_pubkey_account_pair_decode_inner_global( cur_mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT * i, alloc_mem, ctx );
     }
   } else {
     self->rewards_pools_gaddr = 0UL;
@@ -10120,6 +10524,20 @@ int fd_slot_history_inner_encode( fd_slot_history_inner_t const * self, fd_binco
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_slot_history_inner_encode_global( fd_slot_history_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->blocks_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->blocks_len ) {
+    uchar * blocks_laddr = fd_wksp_laddr_fast( ctx->wksp, self->blocks_gaddr );
+    ulong * blocks = (ulong *)blocks_laddr;
+    for( ulong i=0; i < self->blocks_len; i++ ) {
+      err = fd_bincode_uint64_encode( blocks[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_slot_history_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_slot_history_inner_t);
   void const * start_data = ctx->data;
@@ -10163,6 +10581,29 @@ void fd_slot_history_inner_decode_inner( void * struct_mem, void * * alloc_mem, 
     }
   } else
     self->blocks = NULL;
+}
+void * fd_slot_history_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_slot_history_inner_global_t * self = (fd_slot_history_inner_global_t *)mem;
+  fd_slot_history_inner_new( (fd_slot_history_inner_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_slot_history_inner_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_slot_history_inner_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_slot_history_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_slot_history_inner_global_t * self = (fd_slot_history_inner_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->blocks_len, ctx );
+  if( self->blocks_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+    self->blocks_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->blocks_len;
+    for( ulong i=0; i < self->blocks_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
+    }
+  } else {
+    self->blocks_gaddr = 0UL;
+  }
 }
 void fd_slot_history_inner_new(fd_slot_history_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_history_inner_t) );
@@ -10215,8 +10656,8 @@ int fd_slot_history_bitvec_encode_global( fd_slot_history_bitvec_global_t const 
   if( self->bits_gaddr ) {
     err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    fd_slot_history_inner_t * bits = fd_wksp_laddr_fast( ctx->wksp, self->bits_gaddr );
-    err = fd_slot_history_inner_encode( bits, ctx );
+    fd_slot_history_inner_global_t * bits = fd_wksp_laddr_fast( ctx->wksp, self->bits_gaddr );
+    err = fd_slot_history_inner_encode_global( bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
     err = fd_bincode_bool_encode( 0, ctx );
@@ -10294,7 +10735,7 @@ void fd_slot_history_bitvec_decode_inner_global( void * struct_mem, void * * all
       self->bits_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
       fd_slot_history_inner_new( *alloc_mem );
       *alloc_mem = (uchar *)*alloc_mem + FD_SLOT_HISTORY_INNER_FOOTPRINT;
-      fd_slot_history_inner_decode_inner( fd_wksp_laddr_fast( ctx->wksp, self->bits_gaddr ), alloc_mem, ctx );
+      fd_slot_history_inner_decode_inner_global( fd_wksp_laddr_fast( ctx->wksp, self->bits_gaddr ), alloc_mem, ctx );
     } else {
       self->bits_gaddr = 0UL;
     }
@@ -10875,6 +11316,44 @@ int fd_slot_meta_encode( fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * 
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_slot_meta_encode_global( fd_slot_meta_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->consumed, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->received, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( (ulong)self->first_shred_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->last_index, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->parent_slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->next_slot_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->next_slot_len ) {
+    uchar * next_slot_laddr = fd_wksp_laddr_fast( ctx->wksp, self->next_slot_gaddr );
+    ulong * next_slot = (ulong *)next_slot_laddr;
+    for( ulong i=0; i < self->next_slot_len; i++ ) {
+      err = fd_bincode_uint64_encode( next_slot[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint8_encode( (uchar)(self->is_connected), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->entry_end_indexes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->entry_end_indexes_len ) {
+    uchar * entry_end_indexes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->entry_end_indexes_gaddr );
+    uint * entry_end_indexes = (uint *)entry_end_indexes_laddr;
+    for( ulong i=0; i < self->entry_end_indexes_len; i++ ) {
+      err = fd_bincode_uint32_encode( entry_end_indexes[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_slot_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_slot_meta_t);
   void const * start_data = ctx->data;
@@ -10959,6 +11438,48 @@ void fd_slot_meta_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincod
     }
   } else
     self->entry_end_indexes = NULL;
+}
+void * fd_slot_meta_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_slot_meta_global_t * self = (fd_slot_meta_global_t *)mem;
+  fd_slot_meta_new( (fd_slot_meta_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_slot_meta_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_slot_meta_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_slot_meta_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_slot_meta_global_t * self = (fd_slot_meta_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->consumed, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->received, ctx );
+  fd_bincode_uint64_decode_unsafe( (ulong *) &self->first_shred_timestamp, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->last_index, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->parent_slot, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->next_slot_len, ctx );
+  if( self->next_slot_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+    self->next_slot_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->next_slot_len;
+    for( ulong i=0; i < self->next_slot_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
+    }
+  } else {
+    self->next_slot_gaddr = 0UL;
+  }
+  fd_bincode_uint8_decode_unsafe( &self->is_connected, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->entry_end_indexes_len, ctx );
+  if( self->entry_end_indexes_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+    self->entry_end_indexes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(uint)*self->entry_end_indexes_len;
+    for( ulong i=0; i < self->entry_end_indexes_len; i++ ) {
+      fd_bincode_uint32_decode_unsafe( (uint*)(cur_mem + sizeof(uint) * i), ctx );
+    }
+  } else {
+    self->entry_end_indexes_gaddr = 0UL;
+  }
 }
 void fd_slot_meta_new(fd_slot_meta_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_meta_t) );
@@ -11456,6 +11977,24 @@ int fd_stake_config_encode( fd_stake_config_t const * self, fd_bincode_encode_ct
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_stake_config_encode_global( fd_stake_config_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_compact_u16_encode( &self->config_keys_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->config_keys_len ) {
+    uchar * config_keys_laddr = fd_wksp_laddr_fast( ctx->wksp, self->config_keys_gaddr );
+    fd_config_keys_pair_t * config_keys = (fd_config_keys_pair_t *)config_keys_laddr;
+    for( ulong i=0; i < self->config_keys_len; i++ ) {
+      err = fd_config_keys_pair_encode( &config_keys[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_double_encode( self->warmup_cooldown_rate, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_encode( (uchar)(self->slash_penalty), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_stake_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_stake_config_t);
   void const * start_data = ctx->data;
@@ -11504,6 +12043,32 @@ void fd_stake_config_decode_inner( void * struct_mem, void * * alloc_mem, fd_bin
     }
   } else
     self->config_keys = NULL;
+  fd_bincode_double_decode_unsafe( &self->warmup_cooldown_rate, ctx );
+  fd_bincode_uint8_decode_unsafe( &self->slash_penalty, ctx );
+}
+void * fd_stake_config_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_stake_config_global_t * self = (fd_stake_config_global_t *)mem;
+  fd_stake_config_new( (fd_stake_config_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_stake_config_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_stake_config_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_stake_config_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_stake_config_global_t * self = (fd_stake_config_global_t *)struct_mem;
+  fd_bincode_compact_u16_decode_unsafe( &self->config_keys_len, ctx );
+  if( self->config_keys_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_CONFIG_KEYS_PAIR_ALIGN );
+    self->config_keys_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_CONFIG_KEYS_PAIR_FOOTPRINT*self->config_keys_len;
+    for( ulong i=0; i < self->config_keys_len; i++ ) {
+      fd_config_keys_pair_new( (fd_config_keys_pair_t *)fd_type_pun(cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i) );
+      fd_config_keys_pair_decode_inner( cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->config_keys_gaddr = 0UL;
+  }
   fd_bincode_double_decode_unsafe( &self->warmup_cooldown_rate, ctx );
   fd_bincode_uint8_decode_unsafe( &self->slash_penalty, ctx );
 }
@@ -12232,6 +12797,22 @@ int fd_rent_fresh_accounts_encode( fd_rent_fresh_accounts_t const * self, fd_bin
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_rent_fresh_accounts_encode_global( fd_rent_fresh_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->total_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->fresh_accounts_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->fresh_accounts_len ) {
+    uchar * fresh_accounts_laddr = fd_wksp_laddr_fast( ctx->wksp, self->fresh_accounts_gaddr );
+    fd_rent_fresh_account_t * fresh_accounts = (fd_rent_fresh_account_t *)fresh_accounts_laddr;
+    for( ulong i=0; i < self->fresh_accounts_len; i++ ) {
+      err = fd_rent_fresh_account_encode( &fresh_accounts[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_rent_fresh_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_rent_fresh_accounts_t);
   void const * start_data = ctx->data;
@@ -12279,6 +12860,31 @@ void fd_rent_fresh_accounts_decode_inner( void * struct_mem, void * * alloc_mem,
     }
   } else
     self->fresh_accounts = NULL;
+}
+void * fd_rent_fresh_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_fresh_accounts_global_t * self = (fd_rent_fresh_accounts_global_t *)mem;
+  fd_rent_fresh_accounts_new( (fd_rent_fresh_accounts_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_rent_fresh_accounts_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_rent_fresh_accounts_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_rent_fresh_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_fresh_accounts_global_t * self = (fd_rent_fresh_accounts_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->total_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->fresh_accounts_len, ctx );
+  if( self->fresh_accounts_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_RENT_FRESH_ACCOUNT_ALIGN );
+    self->fresh_accounts_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_RENT_FRESH_ACCOUNT_FOOTPRINT*self->fresh_accounts_len;
+    for( ulong i=0; i < self->fresh_accounts_len; i++ ) {
+      fd_rent_fresh_account_new( (fd_rent_fresh_account_t *)fd_type_pun(cur_mem + FD_RENT_FRESH_ACCOUNT_FOOTPRINT * i) );
+      fd_rent_fresh_account_decode_inner( cur_mem + FD_RENT_FRESH_ACCOUNT_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->fresh_accounts_gaddr = 0UL;
+  }
 }
 void fd_rent_fresh_accounts_new(fd_rent_fresh_accounts_t * self) {
   fd_memset( self, 0, sizeof(fd_rent_fresh_accounts_t) );
@@ -14211,9 +14817,9 @@ int fd_slot_bank_encode_global( fd_slot_bank_global_t const * self, fd_bincode_e
     err = fd_bincode_uint64_encode( self->use_preceeding_epoch_stakes, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_hard_forks_encode( &self->hard_forks, ctx );
+  err = fd_hard_forks_encode_global( &self->hard_forks, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_rent_fresh_accounts_encode( &self->rent_fresh_accounts, ctx );
+  err = fd_rent_fresh_accounts_encode_global( &self->rent_fresh_accounts, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_reward_status_encode_global( &self->epoch_reward_status, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14383,8 +14989,8 @@ void fd_slot_bank_decode_inner_global( void * struct_mem, void * * alloc_mem, fd
       fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
     }
   }
-  fd_hard_forks_decode_inner( &self->hard_forks, alloc_mem, ctx );
-  fd_rent_fresh_accounts_decode_inner( &self->rent_fresh_accounts, alloc_mem, ctx );
+  fd_hard_forks_decode_inner_global( &self->hard_forks, alloc_mem, ctx );
+  fd_rent_fresh_accounts_decode_inner_global( &self->rent_fresh_accounts, alloc_mem, ctx );
   fd_epoch_reward_status_decode_inner_global( &self->epoch_reward_status, alloc_mem, ctx );
 }
 void fd_slot_bank_new(fd_slot_bank_t * self) {
@@ -20866,6 +21472,20 @@ int fd_config_keys_encode( fd_config_keys_t const * self, fd_bincode_encode_ctx_
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_config_keys_encode_global( fd_config_keys_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_compact_u16_encode( &self->keys_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->keys_len ) {
+    uchar * keys_laddr = fd_wksp_laddr_fast( ctx->wksp, self->keys_gaddr );
+    fd_config_keys_pair_t * keys = (fd_config_keys_pair_t *)keys_laddr;
+    for( ulong i=0; i < self->keys_len; i++ ) {
+      err = fd_config_keys_pair_encode( &keys[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_config_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_config_keys_t);
   void const * start_data = ctx->data;
@@ -20910,6 +21530,30 @@ void fd_config_keys_decode_inner( void * struct_mem, void * * alloc_mem, fd_binc
     }
   } else
     self->keys = NULL;
+}
+void * fd_config_keys_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_config_keys_global_t * self = (fd_config_keys_global_t *)mem;
+  fd_config_keys_new( (fd_config_keys_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_config_keys_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_config_keys_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_config_keys_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_config_keys_global_t * self = (fd_config_keys_global_t *)struct_mem;
+  fd_bincode_compact_u16_decode_unsafe( &self->keys_len, ctx );
+  if( self->keys_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_CONFIG_KEYS_PAIR_ALIGN );
+    self->keys_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_CONFIG_KEYS_PAIR_FOOTPRINT*self->keys_len;
+    for( ulong i=0; i < self->keys_len; i++ ) {
+      fd_config_keys_pair_new( (fd_config_keys_pair_t *)fd_type_pun(cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i) );
+      fd_config_keys_pair_decode_inner( cur_mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->keys_gaddr = 0UL;
+  }
 }
 void fd_config_keys_new(fd_config_keys_t * self) {
   fd_memset( self, 0, sizeof(fd_config_keys_t) );
@@ -20958,6 +21602,19 @@ int fd_bpf_loader_program_instruction_write_encode( fd_bpf_loader_program_instru
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_bpf_loader_program_instruction_write_encode_global( fd_bpf_loader_program_instruction_write_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->offset, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->bytes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->bytes_len ) {
+    uchar * bytes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->bytes_gaddr );
+    err = fd_bincode_bytes_encode( bytes_laddr, self->bytes_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_bpf_loader_program_instruction_write_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_bpf_loader_program_instruction_write_t);
   void const * start_data = ctx->data;
@@ -20999,6 +21656,26 @@ void fd_bpf_loader_program_instruction_write_decode_inner( void * struct_mem, vo
     *alloc_mem = (uchar *)(*alloc_mem) + self->bytes_len;
   } else
     self->bytes = NULL;
+}
+void * fd_bpf_loader_program_instruction_write_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_loader_program_instruction_write_global_t * self = (fd_bpf_loader_program_instruction_write_global_t *)mem;
+  fd_bpf_loader_program_instruction_write_new( (fd_bpf_loader_program_instruction_write_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_bpf_loader_program_instruction_write_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_bpf_loader_program_instruction_write_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_bpf_loader_program_instruction_write_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_loader_program_instruction_write_global_t * self = (fd_bpf_loader_program_instruction_write_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->offset, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->bytes_len, ctx );
+  if( self->bytes_len ) {
+    self->bytes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->bytes_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->bytes_len;
+  } else {
+    self->bytes_gaddr = 0UL;
+  }
 }
 void fd_bpf_loader_program_instruction_write_new(fd_bpf_loader_program_instruction_write_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_loader_program_instruction_write_t) );
@@ -21075,6 +21752,17 @@ void fd_bpf_loader_program_instruction_inner_decode_inner( fd_bpf_loader_program
   }
   }
 }
+void fd_bpf_loader_program_instruction_inner_decode_inner_global( fd_bpf_loader_program_instruction_inner_global_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    fd_bpf_loader_program_instruction_write_decode_inner_global( &self->write, alloc_mem, ctx );
+    break;
+  }
+  case 1: {
+    break;
+  }
+  }
+}
 void fd_bpf_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
@@ -21087,6 +21775,36 @@ void * fd_bpf_loader_program_instruction_decode( void * mem, fd_bincode_decode_c
   void * * alloc_mem = &alloc_region;
   fd_bpf_loader_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
+}
+int fd_bpf_loader_program_instruction_inner_encode_global( fd_bpf_loader_program_instruction_inner_global_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_bpf_loader_program_instruction_write_encode_global( &self->write, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_bpf_loader_program_instruction_encode_global( fd_bpf_loader_program_instruction_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_bpf_loader_program_instruction_inner_encode_global( &self->inner, self->discriminant, ctx );
+}
+
+void * fd_bpf_loader_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)mem;
+  fd_bpf_loader_program_instruction_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_bpf_loader_program_instruction_t);
+  void * * alloc_mem = &alloc_region;
+  fd_bpf_loader_program_instruction_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_bpf_loader_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_loader_program_instruction_global_t * self = (fd_bpf_loader_program_instruction_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_bpf_loader_program_instruction_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );
 }
 void fd_bpf_loader_program_instruction_inner_new( fd_bpf_loader_program_instruction_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
@@ -21180,6 +21898,19 @@ int fd_loader_v4_program_instruction_write_encode( fd_loader_v4_program_instruct
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_loader_v4_program_instruction_write_encode_global( fd_loader_v4_program_instruction_write_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->offset, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->bytes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->bytes_len ) {
+    uchar * bytes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->bytes_gaddr );
+    err = fd_bincode_bytes_encode( bytes_laddr, self->bytes_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_loader_v4_program_instruction_write_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_loader_v4_program_instruction_write_t);
   void const * start_data = ctx->data;
@@ -21221,6 +21952,26 @@ void fd_loader_v4_program_instruction_write_decode_inner( void * struct_mem, voi
     *alloc_mem = (uchar *)(*alloc_mem) + self->bytes_len;
   } else
     self->bytes = NULL;
+}
+void * fd_loader_v4_program_instruction_write_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_write_global_t * self = (fd_loader_v4_program_instruction_write_global_t *)mem;
+  fd_loader_v4_program_instruction_write_new( (fd_loader_v4_program_instruction_write_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_write_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_loader_v4_program_instruction_write_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_loader_v4_program_instruction_write_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_write_global_t * self = (fd_loader_v4_program_instruction_write_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->offset, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->bytes_len, ctx );
+  if( self->bytes_len ) {
+    self->bytes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->bytes_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->bytes_len;
+  } else {
+    self->bytes_gaddr = 0UL;
+  }
 }
 void fd_loader_v4_program_instruction_write_new(fd_loader_v4_program_instruction_write_t * self) {
   fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_write_t) );
@@ -21468,6 +22219,34 @@ void fd_loader_v4_program_instruction_inner_decode_inner( fd_loader_v4_program_i
   }
   }
 }
+void fd_loader_v4_program_instruction_inner_decode_inner_global( fd_loader_v4_program_instruction_inner_global_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    fd_loader_v4_program_instruction_write_decode_inner_global( &self->write, alloc_mem, ctx );
+    break;
+  }
+  case 1: {
+    fd_loader_v4_program_instruction_copy_decode_inner( &self->copy, alloc_mem, ctx );
+    break;
+  }
+  case 2: {
+    fd_loader_v4_program_instruction_set_program_length_decode_inner( &self->set_program_length, alloc_mem, ctx );
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  }
+}
 void fd_loader_v4_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
@@ -21480,6 +22259,46 @@ void * fd_loader_v4_program_instruction_decode( void * mem, fd_bincode_decode_ct
   void * * alloc_mem = &alloc_region;
   fd_loader_v4_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
+}
+int fd_loader_v4_program_instruction_inner_encode_global( fd_loader_v4_program_instruction_inner_global_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_loader_v4_program_instruction_write_encode_global( &self->write, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 1: {
+    err = fd_loader_v4_program_instruction_copy_encode( &self->copy, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 2: {
+    err = fd_loader_v4_program_instruction_set_program_length_encode( &self->set_program_length, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_loader_v4_program_instruction_encode_global( fd_loader_v4_program_instruction_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_loader_v4_program_instruction_inner_encode_global( &self->inner, self->discriminant, ctx );
+}
+
+void * fd_loader_v4_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)mem;
+  fd_loader_v4_program_instruction_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_t);
+  void * * alloc_mem = &alloc_region;
+  fd_loader_v4_program_instruction_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_loader_v4_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_loader_v4_program_instruction_global_t * self = (fd_loader_v4_program_instruction_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_loader_v4_program_instruction_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );
 }
 void fd_loader_v4_program_instruction_inner_new( fd_loader_v4_program_instruction_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
@@ -21638,6 +22457,19 @@ int fd_bpf_upgradeable_loader_program_instruction_write_encode( fd_bpf_upgradeab
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_bpf_upgradeable_loader_program_instruction_write_encode_global( fd_bpf_upgradeable_loader_program_instruction_write_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->offset, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->bytes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->bytes_len ) {
+    uchar * bytes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->bytes_gaddr );
+    err = fd_bincode_bytes_encode( bytes_laddr, self->bytes_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_bpf_upgradeable_loader_program_instruction_write_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_bpf_upgradeable_loader_program_instruction_write_t);
   void const * start_data = ctx->data;
@@ -21679,6 +22511,26 @@ void fd_bpf_upgradeable_loader_program_instruction_write_decode_inner( void * st
     *alloc_mem = (uchar *)(*alloc_mem) + self->bytes_len;
   } else
     self->bytes = NULL;
+}
+void * fd_bpf_upgradeable_loader_program_instruction_write_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_upgradeable_loader_program_instruction_write_global_t * self = (fd_bpf_upgradeable_loader_program_instruction_write_global_t *)mem;
+  fd_bpf_upgradeable_loader_program_instruction_write_new( (fd_bpf_upgradeable_loader_program_instruction_write_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_write_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_bpf_upgradeable_loader_program_instruction_write_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_bpf_upgradeable_loader_program_instruction_write_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_upgradeable_loader_program_instruction_write_global_t * self = (fd_bpf_upgradeable_loader_program_instruction_write_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->offset, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->bytes_len, ctx );
+  if( self->bytes_len ) {
+    self->bytes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->bytes_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->bytes_len;
+  } else {
+    self->bytes_gaddr = 0UL;
+  }
 }
 void fd_bpf_upgradeable_loader_program_instruction_write_new(fd_bpf_upgradeable_loader_program_instruction_write_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_program_instruction_write_t) );
@@ -21930,6 +22782,40 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner( fd_bpf_up
   }
   }
 }
+void fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner_global( fd_bpf_upgradeable_loader_program_instruction_inner_global_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_bpf_upgradeable_loader_program_instruction_write_decode_inner_global( &self->write, alloc_mem, ctx );
+    break;
+  }
+  case 2: {
+    fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode_inner( &self->deploy_with_max_data_len, alloc_mem, ctx );
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_inner( &self->extend_program, alloc_mem, ctx );
+    break;
+  }
+  case 7: {
+    break;
+  }
+  case 8: {
+    break;
+  }
+  }
+}
 void fd_bpf_upgradeable_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
@@ -21942,6 +22828,46 @@ void * fd_bpf_upgradeable_loader_program_instruction_decode( void * mem, fd_binc
   void * * alloc_mem = &alloc_region;
   fd_bpf_upgradeable_loader_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
+}
+int fd_bpf_upgradeable_loader_program_instruction_inner_encode_global( fd_bpf_upgradeable_loader_program_instruction_inner_global_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 1: {
+    err = fd_bpf_upgradeable_loader_program_instruction_write_encode_global( &self->write, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 2: {
+    err = fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_encode( &self->deploy_with_max_data_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 6: {
+    err = fd_bpf_upgradeable_loader_program_instruction_extend_program_encode( &self->extend_program, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_bpf_upgradeable_loader_program_instruction_encode_global( fd_bpf_upgradeable_loader_program_instruction_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_bpf_upgradeable_loader_program_instruction_inner_encode_global( &self->inner, self->discriminant, ctx );
+}
+
+void * fd_bpf_upgradeable_loader_program_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)mem;
+  fd_bpf_upgradeable_loader_program_instruction_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_t);
+  void * * alloc_mem = &alloc_region;
+  fd_bpf_upgradeable_loader_program_instruction_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_bpf_upgradeable_loader_program_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bpf_upgradeable_loader_program_instruction_global_t * self = (fd_bpf_upgradeable_loader_program_instruction_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );
 }
 void fd_bpf_upgradeable_loader_program_instruction_inner_new( fd_bpf_upgradeable_loader_program_instruction_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
@@ -23055,7 +23981,7 @@ void fd_lookup_table_meta_decode_inner_global( void * struct_mem, void * * alloc
     fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_authority = !!o;
     if( o ) {
-      fd_pubkey_new( &self->authority );
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun( &self->authority ) );
       fd_pubkey_decode_inner( &self->authority, alloc_mem, ctx );
     }
   }
@@ -23364,6 +24290,17 @@ int fd_gossip_bitvec_u8_inner_encode( fd_gossip_bitvec_u8_inner_t const * self, 
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_bitvec_u8_inner_encode_global( fd_gossip_bitvec_u8_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->vec_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->vec_len ) {
+    uchar * vec_laddr = fd_wksp_laddr_fast( ctx->wksp, self->vec_gaddr );
+    err = fd_bincode_bytes_encode( vec_laddr, self->vec_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_bitvec_u8_inner_t);
   void const * start_data = ctx->data;
@@ -23402,6 +24339,25 @@ void fd_gossip_bitvec_u8_inner_decode_inner( void * struct_mem, void * * alloc_m
     *alloc_mem = (uchar *)(*alloc_mem) + self->vec_len;
   } else
     self->vec = NULL;
+}
+void * fd_gossip_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_bitvec_u8_inner_global_t * self = (fd_gossip_bitvec_u8_inner_global_t *)mem;
+  fd_gossip_bitvec_u8_inner_new( (fd_gossip_bitvec_u8_inner_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u8_inner_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_bitvec_u8_inner_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_bitvec_u8_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_bitvec_u8_inner_global_t * self = (fd_gossip_bitvec_u8_inner_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->vec_len, ctx );
+  if( self->vec_len ) {
+    self->vec_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->vec_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->vec_len;
+  } else {
+    self->vec_gaddr = 0UL;
+  }
 }
 void fd_gossip_bitvec_u8_inner_new(fd_gossip_bitvec_u8_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_bitvec_u8_inner_t) );
@@ -23446,7 +24402,7 @@ int fd_gossip_bitvec_u8_encode_global( fd_gossip_bitvec_u8_global_t const * self
   err = fd_bincode_bool_encode( self->has_bits, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_bits ) {
-    err = fd_gossip_bitvec_u8_inner_encode( &self->bits, ctx );
+    err = fd_gossip_bitvec_u8_inner_encode_global( &self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode( self->len, ctx );
@@ -23513,8 +24469,8 @@ void fd_gossip_bitvec_u8_decode_inner_global( void * struct_mem, void * * alloc_
     fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_bits = !!o;
     if( o ) {
-      fd_gossip_bitvec_u8_inner_new( &self->bits );
-      fd_gossip_bitvec_u8_inner_decode_inner( &self->bits, alloc_mem, ctx );
+      fd_gossip_bitvec_u8_inner_new( (fd_gossip_bitvec_u8_inner_t *)fd_type_pun( &self->bits ) );
+      fd_gossip_bitvec_u8_inner_decode_inner_global( &self->bits, alloc_mem, ctx );
     }
   }
   fd_bincode_uint64_decode_unsafe( &self->len, ctx );
@@ -23563,6 +24519,20 @@ int fd_gossip_bitvec_u64_inner_encode( fd_gossip_bitvec_u64_inner_t const * self
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_bitvec_u64_inner_encode_global( fd_gossip_bitvec_u64_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->vec_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->vec_len ) {
+    uchar * vec_laddr = fd_wksp_laddr_fast( ctx->wksp, self->vec_gaddr );
+    ulong * vec = (ulong *)vec_laddr;
+    for( ulong i=0; i < self->vec_len; i++ ) {
+      err = fd_bincode_uint64_encode( vec[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_bitvec_u64_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_bitvec_u64_inner_t);
   void const * start_data = ctx->data;
@@ -23606,6 +24576,29 @@ void fd_gossip_bitvec_u64_inner_decode_inner( void * struct_mem, void * * alloc_
     }
   } else
     self->vec = NULL;
+}
+void * fd_gossip_bitvec_u64_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_bitvec_u64_inner_global_t * self = (fd_gossip_bitvec_u64_inner_global_t *)mem;
+  fd_gossip_bitvec_u64_inner_new( (fd_gossip_bitvec_u64_inner_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u64_inner_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_bitvec_u64_inner_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_bitvec_u64_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_bitvec_u64_inner_global_t * self = (fd_gossip_bitvec_u64_inner_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->vec_len, ctx );
+  if( self->vec_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+    self->vec_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->vec_len;
+    for( ulong i=0; i < self->vec_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
+    }
+  } else {
+    self->vec_gaddr = 0UL;
+  }
 }
 void fd_gossip_bitvec_u64_inner_new(fd_gossip_bitvec_u64_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_bitvec_u64_inner_t) );
@@ -23655,7 +24648,7 @@ int fd_gossip_bitvec_u64_encode_global( fd_gossip_bitvec_u64_global_t const * se
   err = fd_bincode_bool_encode( self->has_bits, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_bits ) {
-    err = fd_gossip_bitvec_u64_inner_encode( &self->bits, ctx );
+    err = fd_gossip_bitvec_u64_inner_encode_global( &self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode( self->len, ctx );
@@ -23722,8 +24715,8 @@ void fd_gossip_bitvec_u64_decode_inner_global( void * struct_mem, void * * alloc
     fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_bits = !!o;
     if( o ) {
-      fd_gossip_bitvec_u64_inner_new( &self->bits );
-      fd_gossip_bitvec_u64_inner_decode_inner( &self->bits, alloc_mem, ctx );
+      fd_gossip_bitvec_u64_inner_new( (fd_gossip_bitvec_u64_inner_t *)fd_type_pun( &self->bits ) );
+      fd_gossip_bitvec_u64_inner_decode_inner_global( &self->bits, alloc_mem, ctx );
     }
   }
   fd_bincode_uint64_decode_unsafe( &self->len, ctx );
@@ -24012,6 +25005,28 @@ int fd_gossip_prune_data_encode( fd_gossip_prune_data_t const * self, fd_bincode
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_prune_data_encode_global( fd_gossip_prune_data_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->pubkey, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->prunes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->prunes_len ) {
+    uchar * prunes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->prunes_gaddr );
+    fd_pubkey_t * prunes = (fd_pubkey_t *)prunes_laddr;
+    for( ulong i=0; i < self->prunes_len; i++ ) {
+      err = fd_pubkey_encode( &prunes[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_signature_encode( &self->signature, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->destination, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->wallclock, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_prune_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_prune_data_t);
   void const * start_data = ctx->data;
@@ -24065,6 +25080,34 @@ void fd_gossip_prune_data_decode_inner( void * struct_mem, void * * alloc_mem, f
     }
   } else
     self->prunes = NULL;
+  fd_signature_decode_inner( &self->signature, alloc_mem, ctx );
+  fd_pubkey_decode_inner( &self->destination, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
+}
+void * fd_gossip_prune_data_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_prune_data_global_t * self = (fd_gossip_prune_data_global_t *)mem;
+  fd_gossip_prune_data_new( (fd_gossip_prune_data_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_prune_data_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_prune_data_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_prune_data_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_prune_data_global_t * self = (fd_gossip_prune_data_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->pubkey, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->prunes_len, ctx );
+  if( self->prunes_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->prunes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->prunes_len;
+    for( ulong i=0; i < self->prunes_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->prunes_gaddr = 0UL;
+  }
   fd_signature_decode_inner( &self->signature, alloc_mem, ctx );
   fd_pubkey_decode_inner( &self->destination, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
@@ -24135,6 +25178,26 @@ int fd_gossip_prune_sign_data_encode( fd_gossip_prune_sign_data_t const * self, 
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_prune_sign_data_encode_global( fd_gossip_prune_sign_data_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->pubkey, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->prunes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->prunes_len ) {
+    uchar * prunes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->prunes_gaddr );
+    fd_pubkey_t * prunes = (fd_pubkey_t *)prunes_laddr;
+    for( ulong i=0; i < self->prunes_len; i++ ) {
+      err = fd_pubkey_encode( &prunes[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_pubkey_encode( &self->destination, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->wallclock, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_prune_sign_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_prune_sign_data_t);
   void const * start_data = ctx->data;
@@ -24186,6 +25249,33 @@ void fd_gossip_prune_sign_data_decode_inner( void * struct_mem, void * * alloc_m
     }
   } else
     self->prunes = NULL;
+  fd_pubkey_decode_inner( &self->destination, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
+}
+void * fd_gossip_prune_sign_data_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_prune_sign_data_global_t * self = (fd_gossip_prune_sign_data_global_t *)mem;
+  fd_gossip_prune_sign_data_new( (fd_gossip_prune_sign_data_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_prune_sign_data_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_prune_sign_data_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_prune_sign_data_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_prune_sign_data_global_t * self = (fd_gossip_prune_sign_data_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->pubkey, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->prunes_len, ctx );
+  if( self->prunes_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->prunes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->prunes_len;
+    for( ulong i=0; i < self->prunes_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->prunes_gaddr = 0UL;
+  }
   fd_pubkey_decode_inner( &self->destination, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
 }
@@ -24254,7 +25344,7 @@ int fd_gossip_prune_sign_data_with_prefix_encode_global( fd_gossip_prune_sign_da
     err = fd_bincode_bytes_encode( prefix_laddr, self->prefix_len, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_gossip_prune_sign_data_encode( &self->data, ctx );
+  err = fd_gossip_prune_sign_data_encode_global( &self->data, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -24320,7 +25410,7 @@ void fd_gossip_prune_sign_data_with_prefix_decode_inner_global( void * struct_me
   } else {
     self->prefix_gaddr = 0UL;
   }
-  fd_gossip_prune_sign_data_decode_inner( &self->data, alloc_mem, ctx );
+  fd_gossip_prune_sign_data_decode_inner_global( &self->data, alloc_mem, ctx );
 }
 void fd_gossip_prune_sign_data_with_prefix_new(fd_gossip_prune_sign_data_with_prefix_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_prune_sign_data_with_prefix_t) );
@@ -24970,6 +26060,32 @@ int fd_gossip_lowest_slot_encode( fd_gossip_lowest_slot_t const * self, fd_binco
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_lowest_slot_encode_global( fd_gossip_lowest_slot_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint8_encode( (uchar)(self->u8), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->from, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->root, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->lowest, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->slots_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->slots_len ) {
+    uchar * slots_laddr = fd_wksp_laddr_fast( ctx->wksp, self->slots_gaddr );
+    ulong * slots = (ulong *)slots_laddr;
+    for( ulong i=0; i < self->slots_len; i++ ) {
+      err = fd_bincode_uint64_encode( slots[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->i_dont_know, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->wallclock, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_lowest_slot_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_lowest_slot_t);
   void const * start_data = ctx->data;
@@ -25029,6 +26145,35 @@ void fd_gossip_lowest_slot_decode_inner( void * struct_mem, void * * alloc_mem, 
     }
   } else
     self->slots = NULL;
+  fd_bincode_uint64_decode_unsafe( &self->i_dont_know, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
+}
+void * fd_gossip_lowest_slot_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_lowest_slot_global_t * self = (fd_gossip_lowest_slot_global_t *)mem;
+  fd_gossip_lowest_slot_new( (fd_gossip_lowest_slot_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_lowest_slot_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_lowest_slot_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_lowest_slot_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_lowest_slot_global_t * self = (fd_gossip_lowest_slot_global_t *)struct_mem;
+  fd_bincode_uint8_decode_unsafe( &self->u8, ctx );
+  fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->root, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->lowest, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->slots_len, ctx );
+  if( self->slots_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+    self->slots_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->slots_len;
+    for( ulong i=0; i < self->slots_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
+    }
+  } else {
+    self->slots_gaddr = 0UL;
+  }
   fd_bincode_uint64_decode_unsafe( &self->i_dont_know, ctx );
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
 }
@@ -25093,6 +26238,24 @@ int fd_gossip_slot_hashes_encode( fd_gossip_slot_hashes_t const * self, fd_binco
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_slot_hashes_encode_global( fd_gossip_slot_hashes_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->from, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->hashes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->hashes_len ) {
+    uchar * hashes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->hashes_gaddr );
+    fd_slot_hash_t * hashes = (fd_slot_hash_t *)hashes_laddr;
+    for( ulong i=0; i < self->hashes_len; i++ ) {
+      err = fd_slot_hash_encode( &hashes[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->wallclock, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_slot_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_slot_hashes_t);
   void const * start_data = ctx->data;
@@ -25142,6 +26305,32 @@ void fd_gossip_slot_hashes_decode_inner( void * struct_mem, void * * alloc_mem, 
     }
   } else
     self->hashes = NULL;
+  fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
+}
+void * fd_gossip_slot_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_slot_hashes_global_t * self = (fd_gossip_slot_hashes_global_t *)mem;
+  fd_gossip_slot_hashes_new( (fd_gossip_slot_hashes_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_slot_hashes_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_slot_hashes_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_slot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_slot_hashes_global_t * self = (fd_gossip_slot_hashes_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->hashes_len, ctx );
+  if( self->hashes_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_SLOT_HASH_ALIGN );
+    self->hashes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_HASH_FOOTPRINT*self->hashes_len;
+    for( ulong i=0; i < self->hashes_len; i++ ) {
+      fd_slot_hash_new( (fd_slot_hash_t *)fd_type_pun(cur_mem + FD_SLOT_HASH_FOOTPRINT * i) );
+      fd_slot_hash_decode_inner( cur_mem + FD_SLOT_HASH_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->hashes_gaddr = 0UL;
+  }
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
 }
 void fd_gossip_slot_hashes_new(fd_gossip_slot_hashes_t * self) {
@@ -25291,6 +26480,21 @@ int fd_gossip_flate2_slots_encode( fd_gossip_flate2_slots_t const * self, fd_bin
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_flate2_slots_encode_global( fd_gossip_flate2_slots_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->first_slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->num, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->compressed_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->compressed_len ) {
+    uchar * compressed_laddr = fd_wksp_laddr_fast( ctx->wksp, self->compressed_gaddr );
+    err = fd_bincode_bytes_encode( compressed_laddr, self->compressed_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_flate2_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_flate2_slots_t);
   void const * start_data = ctx->data;
@@ -25335,6 +26539,27 @@ void fd_gossip_flate2_slots_decode_inner( void * struct_mem, void * * alloc_mem,
     *alloc_mem = (uchar *)(*alloc_mem) + self->compressed_len;
   } else
     self->compressed = NULL;
+}
+void * fd_gossip_flate2_slots_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_flate2_slots_global_t * self = (fd_gossip_flate2_slots_global_t *)mem;
+  fd_gossip_flate2_slots_new( (fd_gossip_flate2_slots_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_flate2_slots_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_flate2_slots_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_flate2_slots_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_flate2_slots_global_t * self = (fd_gossip_flate2_slots_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->first_slot, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->num, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->compressed_len, ctx );
+  if( self->compressed_len ) {
+    self->compressed_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->compressed_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->compressed_len;
+  } else {
+    self->compressed_gaddr = 0UL;
+  }
 }
 void fd_gossip_flate2_slots_new(fd_gossip_flate2_slots_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_flate2_slots_t) );
@@ -25419,7 +26644,7 @@ void fd_gossip_slots_enum_inner_decode_inner( fd_gossip_slots_enum_inner_t * sel
 void fd_gossip_slots_enum_inner_decode_inner_global( fd_gossip_slots_enum_inner_global_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_flate2_slots_decode_inner( &self->flate2, alloc_mem, ctx );
+    fd_gossip_flate2_slots_decode_inner_global( &self->flate2, alloc_mem, ctx );
     break;
   }
   case 1: {
@@ -25445,7 +26670,7 @@ int fd_gossip_slots_enum_inner_encode_global( fd_gossip_slots_enum_inner_global_
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_gossip_flate2_slots_encode( &self->flate2, ctx );
+    err = fd_gossip_flate2_slots_encode_global( &self->flate2, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -26256,6 +27481,33 @@ int fd_gossip_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * self, 
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_duplicate_shred_encode_global( fd_gossip_duplicate_shred_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint16_encode( self->duplicate_shred_index, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->from, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->wallclock, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->_unused, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_encode( (uchar)(self->_unused_shred_type), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_encode( (uchar)(self->num_chunks), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_encode( (uchar)(self->chunk_index), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->chunk_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->chunk_len ) {
+    uchar * chunk_laddr = fd_wksp_laddr_fast( ctx->wksp, self->chunk_gaddr );
+    err = fd_bincode_bytes_encode( chunk_laddr, self->chunk_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_duplicate_shred_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_duplicate_shred_t);
   void const * start_data = ctx->data;
@@ -26319,6 +27571,33 @@ void fd_gossip_duplicate_shred_decode_inner( void * struct_mem, void * * alloc_m
   } else
     self->chunk = NULL;
 }
+void * fd_gossip_duplicate_shred_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_duplicate_shred_global_t * self = (fd_gossip_duplicate_shred_global_t *)mem;
+  fd_gossip_duplicate_shred_new( (fd_gossip_duplicate_shred_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_duplicate_shred_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_duplicate_shred_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_duplicate_shred_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_duplicate_shred_global_t * self = (fd_gossip_duplicate_shred_global_t *)struct_mem;
+  fd_bincode_uint16_decode_unsafe( &self->duplicate_shred_index, ctx );
+  fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->_unused, ctx );
+  fd_bincode_uint8_decode_unsafe( &self->_unused_shred_type, ctx );
+  fd_bincode_uint8_decode_unsafe( &self->num_chunks, ctx );
+  fd_bincode_uint8_decode_unsafe( &self->chunk_index, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->chunk_len, ctx );
+  if( self->chunk_len ) {
+    self->chunk_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->chunk_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->chunk_len;
+  } else {
+    self->chunk_gaddr = 0UL;
+  }
+}
 void fd_gossip_duplicate_shred_new(fd_gossip_duplicate_shred_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_duplicate_shred_t) );
   fd_pubkey_new( &self->from );
@@ -26381,6 +27660,26 @@ int fd_gossip_incremental_snapshot_hashes_encode( fd_gossip_incremental_snapshot
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_incremental_snapshot_hashes_encode_global( fd_gossip_incremental_snapshot_hashes_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->from, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_slot_hash_encode( &self->base_hash, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->hashes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->hashes_len ) {
+    uchar * hashes_laddr = fd_wksp_laddr_fast( ctx->wksp, self->hashes_gaddr );
+    fd_slot_hash_t * hashes = (fd_slot_hash_t *)hashes_laddr;
+    for( ulong i=0; i < self->hashes_len; i++ ) {
+      err = fd_slot_hash_encode( &hashes[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->wallclock, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_incremental_snapshot_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_incremental_snapshot_hashes_t);
   void const * start_data = ctx->data;
@@ -26433,6 +27732,33 @@ void fd_gossip_incremental_snapshot_hashes_decode_inner( void * struct_mem, void
     }
   } else
     self->hashes = NULL;
+  fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
+}
+void * fd_gossip_incremental_snapshot_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_incremental_snapshot_hashes_global_t * self = (fd_gossip_incremental_snapshot_hashes_global_t *)mem;
+  fd_gossip_incremental_snapshot_hashes_new( (fd_gossip_incremental_snapshot_hashes_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_incremental_snapshot_hashes_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_incremental_snapshot_hashes_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_incremental_snapshot_hashes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_incremental_snapshot_hashes_global_t * self = (fd_gossip_incremental_snapshot_hashes_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
+  fd_slot_hash_decode_inner( &self->base_hash, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->hashes_len, ctx );
+  if( self->hashes_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_SLOT_HASH_ALIGN );
+    self->hashes_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_SLOT_HASH_FOOTPRINT*self->hashes_len;
+    for( ulong i=0; i < self->hashes_len; i++ ) {
+      fd_slot_hash_new( (fd_slot_hash_t *)fd_type_pun(cur_mem + FD_SLOT_HASH_FOOTPRINT * i) );
+      fd_slot_hash_decode_inner( cur_mem + FD_SLOT_HASH_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->hashes_gaddr = 0UL;
+  }
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
 }
 void fd_gossip_incremental_snapshot_hashes_new(fd_gossip_incremental_snapshot_hashes_t * self) {
@@ -26583,6 +27909,50 @@ int fd_gossip_contact_info_v2_encode( fd_gossip_contact_info_v2_t const * self, 
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_contact_info_v2_encode_global( fd_gossip_contact_info_v2_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->from, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_varint_encode( self->wallclock, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->outset, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->shred_version, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_gossip_version_v3_encode( &self->version, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_compact_u16_encode( &self->addrs_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->addrs_len ) {
+    uchar * addrs_laddr = fd_wksp_laddr_fast( ctx->wksp, self->addrs_gaddr );
+    fd_gossip_ip_addr_t * addrs = (fd_gossip_ip_addr_t *)addrs_laddr;
+    for( ulong i=0; i < self->addrs_len; i++ ) {
+      err = fd_gossip_ip_addr_encode( &addrs[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_compact_u16_encode( &self->sockets_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->sockets_len ) {
+    uchar * sockets_laddr = fd_wksp_laddr_fast( ctx->wksp, self->sockets_gaddr );
+    fd_gossip_socket_entry_t * sockets = (fd_gossip_socket_entry_t *)sockets_laddr;
+    for( ulong i=0; i < self->sockets_len; i++ ) {
+      err = fd_gossip_socket_entry_encode( &sockets[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_compact_u16_encode( &self->extensions_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->extensions_len ) {
+    uchar * extensions_laddr = fd_wksp_laddr_fast( ctx->wksp, self->extensions_gaddr );
+    uint * extensions = (uint *)extensions_laddr;
+    for( ulong i=0; i < self->extensions_len; i++ ) {
+      err = fd_bincode_uint32_encode( extensions[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_contact_info_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_contact_info_v2_t);
   void const * start_data = ctx->data;
@@ -26683,6 +28053,60 @@ void fd_gossip_contact_info_v2_decode_inner( void * struct_mem, void * * alloc_m
     }
   } else
     self->extensions = NULL;
+}
+void * fd_gossip_contact_info_v2_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_contact_info_v2_global_t * self = (fd_gossip_contact_info_v2_global_t *)mem;
+  fd_gossip_contact_info_v2_new( (fd_gossip_contact_info_v2_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_contact_info_v2_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_contact_info_v2_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_contact_info_v2_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_contact_info_v2_global_t * self = (fd_gossip_contact_info_v2_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
+  fd_bincode_varint_decode_unsafe( &self->wallclock, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->outset, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->shred_version, ctx );
+  fd_gossip_version_v3_decode_inner( &self->version, alloc_mem, ctx );
+  fd_bincode_compact_u16_decode_unsafe( &self->addrs_len, ctx );
+  if( self->addrs_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_GOSSIP_IP_ADDR_ALIGN );
+    self->addrs_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_GOSSIP_IP_ADDR_FOOTPRINT*self->addrs_len;
+    for( ulong i=0; i < self->addrs_len; i++ ) {
+      fd_gossip_ip_addr_new( (fd_gossip_ip_addr_t *)fd_type_pun(cur_mem + FD_GOSSIP_IP_ADDR_FOOTPRINT * i) );
+      fd_gossip_ip_addr_decode_inner( cur_mem + FD_GOSSIP_IP_ADDR_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->addrs_gaddr = 0UL;
+  }
+  fd_bincode_compact_u16_decode_unsafe( &self->sockets_len, ctx );
+  if( self->sockets_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_GOSSIP_SOCKET_ENTRY_ALIGN );
+    self->sockets_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT*self->sockets_len;
+    for( ulong i=0; i < self->sockets_len; i++ ) {
+      fd_gossip_socket_entry_new( (fd_gossip_socket_entry_t *)fd_type_pun(cur_mem + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT * i) );
+      fd_gossip_socket_entry_decode_inner( cur_mem + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->sockets_gaddr = 0UL;
+  }
+  fd_bincode_compact_u16_decode_unsafe( &self->extensions_len, ctx );
+  if( self->extensions_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+    self->extensions_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(uint)*self->extensions_len;
+    for( ulong i=0; i < self->extensions_len; i++ ) {
+      fd_bincode_uint32_decode_unsafe( (uint*)(cur_mem + sizeof(uint) * i), ctx );
+    }
+  } else {
+    self->extensions_gaddr = 0UL;
+  }
 }
 void fd_gossip_contact_info_v2_new(fd_gossip_contact_info_v2_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_contact_info_v2_t) );
@@ -26829,6 +28253,20 @@ int fd_restart_run_length_encoding_encode( fd_restart_run_length_encoding_t cons
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_restart_run_length_encoding_encode_global( fd_restart_run_length_encoding_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->offsets_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->offsets_len ) {
+    uchar * offsets_laddr = fd_wksp_laddr_fast( ctx->wksp, self->offsets_gaddr );
+    fd_restart_run_length_encoding_inner_t * offsets = (fd_restart_run_length_encoding_inner_t *)offsets_laddr;
+    for( ulong i=0; i < self->offsets_len; i++ ) {
+      err = fd_restart_run_length_encoding_inner_encode( &offsets[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_restart_run_length_encoding_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_restart_run_length_encoding_t);
   void const * start_data = ctx->data;
@@ -26874,6 +28312,30 @@ void fd_restart_run_length_encoding_decode_inner( void * struct_mem, void * * al
   } else
     self->offsets = NULL;
 }
+void * fd_restart_run_length_encoding_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_restart_run_length_encoding_global_t * self = (fd_restart_run_length_encoding_global_t *)mem;
+  fd_restart_run_length_encoding_new( (fd_restart_run_length_encoding_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_restart_run_length_encoding_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_restart_run_length_encoding_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_restart_run_length_encoding_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_restart_run_length_encoding_global_t * self = (fd_restart_run_length_encoding_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->offsets_len, ctx );
+  if( self->offsets_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_RESTART_RUN_LENGTH_ENCODING_INNER_ALIGN );
+    self->offsets_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT*self->offsets_len;
+    for( ulong i=0; i < self->offsets_len; i++ ) {
+      fd_restart_run_length_encoding_inner_new( (fd_restart_run_length_encoding_inner_t *)fd_type_pun(cur_mem + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT * i) );
+      fd_restart_run_length_encoding_inner_decode_inner( cur_mem + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->offsets_gaddr = 0UL;
+  }
+}
 void fd_restart_run_length_encoding_new(fd_restart_run_length_encoding_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_run_length_encoding_t) );
 }
@@ -26918,6 +28380,17 @@ int fd_restart_raw_offsets_bitvec_u8_inner_encode( fd_restart_raw_offsets_bitvec
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_restart_raw_offsets_bitvec_u8_inner_encode_global( fd_restart_raw_offsets_bitvec_u8_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->bits_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->bits_len ) {
+    uchar * bits_laddr = fd_wksp_laddr_fast( ctx->wksp, self->bits_gaddr );
+    err = fd_bincode_bytes_encode( bits_laddr, self->bits_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t);
   void const * start_data = ctx->data;
@@ -26956,6 +28429,25 @@ void fd_restart_raw_offsets_bitvec_u8_inner_decode_inner( void * struct_mem, voi
     *alloc_mem = (uchar *)(*alloc_mem) + self->bits_len;
   } else
     self->bits = NULL;
+}
+void * fd_restart_raw_offsets_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_restart_raw_offsets_bitvec_u8_inner_global_t * self = (fd_restart_raw_offsets_bitvec_u8_inner_global_t *)mem;
+  fd_restart_raw_offsets_bitvec_u8_inner_new( (fd_restart_raw_offsets_bitvec_u8_inner_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_restart_raw_offsets_bitvec_u8_inner_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_restart_raw_offsets_bitvec_u8_inner_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_restart_raw_offsets_bitvec_u8_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_restart_raw_offsets_bitvec_u8_inner_global_t * self = (fd_restart_raw_offsets_bitvec_u8_inner_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
+  if( self->bits_len ) {
+    self->bits_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->bits_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->bits_len;
+  } else {
+    self->bits_gaddr = 0UL;
+  }
 }
 void fd_restart_raw_offsets_bitvec_u8_inner_new(fd_restart_raw_offsets_bitvec_u8_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t) );
@@ -27000,7 +28492,7 @@ int fd_restart_raw_offsets_bitvec_encode_global( fd_restart_raw_offsets_bitvec_g
   err = fd_bincode_bool_encode( self->has_bits, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_bits ) {
-    err = fd_restart_raw_offsets_bitvec_u8_inner_encode( &self->bits, ctx );
+    err = fd_restart_raw_offsets_bitvec_u8_inner_encode_global( &self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode( self->len, ctx );
@@ -27067,8 +28559,8 @@ void fd_restart_raw_offsets_bitvec_decode_inner_global( void * struct_mem, void 
     fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_bits = !!o;
     if( o ) {
-      fd_restart_raw_offsets_bitvec_u8_inner_new( &self->bits );
-      fd_restart_raw_offsets_bitvec_u8_inner_decode_inner( &self->bits, alloc_mem, ctx );
+      fd_restart_raw_offsets_bitvec_u8_inner_new( (fd_restart_raw_offsets_bitvec_u8_inner_t *)fd_type_pun( &self->bits ) );
+      fd_restart_raw_offsets_bitvec_u8_inner_decode_inner_global( &self->bits, alloc_mem, ctx );
     }
   }
   fd_bincode_uint64_decode_unsafe( &self->len, ctx );
@@ -27232,7 +28724,7 @@ void fd_restart_slots_offsets_inner_decode_inner( fd_restart_slots_offsets_inner
 void fd_restart_slots_offsets_inner_decode_inner_global( fd_restart_slots_offsets_inner_global_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {
-    fd_restart_run_length_encoding_decode_inner( &self->run_length_encoding, alloc_mem, ctx );
+    fd_restart_run_length_encoding_decode_inner_global( &self->run_length_encoding, alloc_mem, ctx );
     break;
   }
   case 1: {
@@ -27258,7 +28750,7 @@ int fd_restart_slots_offsets_inner_encode_global( fd_restart_slots_offsets_inner
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_restart_run_length_encoding_encode( &self->run_length_encoding, ctx );
+    err = fd_restart_run_length_encoding_encode_global( &self->run_length_encoding, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -27808,15 +29300,15 @@ void fd_crds_data_inner_decode_inner_global( fd_crds_data_inner_global_t * self,
     break;
   }
   case 2: {
-    fd_gossip_lowest_slot_decode_inner( &self->lowest_slot, alloc_mem, ctx );
+    fd_gossip_lowest_slot_decode_inner_global( &self->lowest_slot, alloc_mem, ctx );
     break;
   }
   case 3: {
-    fd_gossip_slot_hashes_decode_inner( &self->snapshot_hashes, alloc_mem, ctx );
+    fd_gossip_slot_hashes_decode_inner_global( &self->snapshot_hashes, alloc_mem, ctx );
     break;
   }
   case 4: {
-    fd_gossip_slot_hashes_decode_inner( &self->accounts_hashes, alloc_mem, ctx );
+    fd_gossip_slot_hashes_decode_inner_global( &self->accounts_hashes, alloc_mem, ctx );
     break;
   }
   case 5: {
@@ -27836,15 +29328,15 @@ void fd_crds_data_inner_decode_inner_global( fd_crds_data_inner_global_t * self,
     break;
   }
   case 9: {
-    fd_gossip_duplicate_shred_decode_inner( &self->duplicate_shred, alloc_mem, ctx );
+    fd_gossip_duplicate_shred_decode_inner_global( &self->duplicate_shred, alloc_mem, ctx );
     break;
   }
   case 10: {
-    fd_gossip_incremental_snapshot_hashes_decode_inner( &self->incremental_snapshot_hashes, alloc_mem, ctx );
+    fd_gossip_incremental_snapshot_hashes_decode_inner_global( &self->incremental_snapshot_hashes, alloc_mem, ctx );
     break;
   }
   case 11: {
-    fd_gossip_contact_info_v2_decode_inner( &self->contact_info_v2, alloc_mem, ctx );
+    fd_gossip_contact_info_v2_decode_inner_global( &self->contact_info_v2, alloc_mem, ctx );
     break;
   }
   case 12: {
@@ -27884,17 +29376,17 @@ int fd_crds_data_inner_encode_global( fd_crds_data_inner_global_t const * self, 
     break;
   }
   case 2: {
-    err = fd_gossip_lowest_slot_encode( &self->lowest_slot, ctx );
+    err = fd_gossip_lowest_slot_encode_global( &self->lowest_slot, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   case 3: {
-    err = fd_gossip_slot_hashes_encode( &self->snapshot_hashes, ctx );
+    err = fd_gossip_slot_hashes_encode_global( &self->snapshot_hashes, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   case 4: {
-    err = fd_gossip_slot_hashes_encode( &self->accounts_hashes, ctx );
+    err = fd_gossip_slot_hashes_encode_global( &self->accounts_hashes, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -27919,17 +29411,17 @@ int fd_crds_data_inner_encode_global( fd_crds_data_inner_global_t const * self, 
     break;
   }
   case 9: {
-    err = fd_gossip_duplicate_shred_encode( &self->duplicate_shred, ctx );
+    err = fd_gossip_duplicate_shred_encode_global( &self->duplicate_shred, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   case 10: {
-    err = fd_gossip_incremental_snapshot_hashes_encode( &self->incremental_snapshot_hashes, ctx );
+    err = fd_gossip_incremental_snapshot_hashes_encode_global( &self->incremental_snapshot_hashes, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
   case 11: {
-    err = fd_gossip_contact_info_v2_encode( &self->contact_info_v2, ctx );
+    err = fd_gossip_contact_info_v2_encode_global( &self->contact_info_v2, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -29022,6 +30514,14 @@ int fd_gossip_prune_msg_encode( fd_gossip_prune_msg_t const * self, fd_bincode_e
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+int fd_gossip_prune_msg_encode_global( fd_gossip_prune_msg_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->pubkey, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_gossip_prune_data_encode_global( &self->data, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_gossip_prune_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_gossip_prune_msg_t);
   void const * start_data = ctx->data;
@@ -29051,6 +30551,19 @@ void fd_gossip_prune_msg_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_gossip_prune_msg_t * self = (fd_gossip_prune_msg_t *)struct_mem;
   fd_pubkey_decode_inner( &self->pubkey, alloc_mem, ctx );
   fd_gossip_prune_data_decode_inner( &self->data, alloc_mem, ctx );
+}
+void * fd_gossip_prune_msg_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_prune_msg_global_t * self = (fd_gossip_prune_msg_global_t *)mem;
+  fd_gossip_prune_msg_new( (fd_gossip_prune_msg_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_prune_msg_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_prune_msg_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_prune_msg_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_prune_msg_global_t * self = (fd_gossip_prune_msg_global_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->pubkey, alloc_mem, ctx );
+  fd_gossip_prune_data_decode_inner_global( &self->data, alloc_mem, ctx );
 }
 void fd_gossip_prune_msg_new(fd_gossip_prune_msg_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_prune_msg_t) );
@@ -29191,7 +30704,7 @@ void fd_gossip_msg_inner_decode_inner_global( fd_gossip_msg_inner_global_t * sel
     break;
   }
   case 3: {
-    fd_gossip_prune_msg_decode_inner( &self->prune_msg, alloc_mem, ctx );
+    fd_gossip_prune_msg_decode_inner_global( &self->prune_msg, alloc_mem, ctx );
     break;
   }
   case 4: {
@@ -29236,7 +30749,7 @@ int fd_gossip_msg_inner_encode_global( fd_gossip_msg_inner_global_t const * self
     break;
   }
   case 3: {
-    err = fd_gossip_prune_msg_encode( &self->prune_msg, ctx );
+    err = fd_gossip_prune_msg_encode_global( &self->prune_msg, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -29527,6 +31040,20 @@ int fd_addrlut_extend_encode( fd_addrlut_extend_t const * self, fd_bincode_encod
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_addrlut_extend_encode_global( fd_addrlut_extend_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->new_addrs_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->new_addrs_len ) {
+    uchar * new_addrs_laddr = fd_wksp_laddr_fast( ctx->wksp, self->new_addrs_gaddr );
+    fd_pubkey_t * new_addrs = (fd_pubkey_t *)new_addrs_laddr;
+    for( ulong i=0; i < self->new_addrs_len; i++ ) {
+      err = fd_pubkey_encode( &new_addrs[i], ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_addrlut_extend_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_addrlut_extend_t);
   void const * start_data = ctx->data;
@@ -29571,6 +31098,30 @@ void fd_addrlut_extend_decode_inner( void * struct_mem, void * * alloc_mem, fd_b
     }
   } else
     self->new_addrs = NULL;
+}
+void * fd_addrlut_extend_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_addrlut_extend_global_t * self = (fd_addrlut_extend_global_t *)mem;
+  fd_addrlut_extend_new( (fd_addrlut_extend_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_addrlut_extend_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_addrlut_extend_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_addrlut_extend_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_addrlut_extend_global_t * self = (fd_addrlut_extend_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->new_addrs_len, ctx );
+  if( self->new_addrs_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->new_addrs_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->new_addrs_len;
+    for( ulong i=0; i < self->new_addrs_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)fd_type_pun(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_decode_inner( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else {
+    self->new_addrs_gaddr = 0UL;
+  }
 }
 void fd_addrlut_extend_new(fd_addrlut_extend_t * self) {
   fd_memset( self, 0, sizeof(fd_addrlut_extend_t) );
@@ -29683,6 +31234,27 @@ void fd_addrlut_instruction_inner_decode_inner( fd_addrlut_instruction_inner_t *
   }
   }
 }
+void fd_addrlut_instruction_inner_decode_inner_global( fd_addrlut_instruction_inner_global_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    fd_addrlut_create_decode_inner( &self->create_lut, alloc_mem, ctx );
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    fd_addrlut_extend_decode_inner_global( &self->extend_lut, alloc_mem, ctx );
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  }
+}
 void fd_addrlut_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
@@ -29695,6 +31267,41 @@ void * fd_addrlut_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
   void * * alloc_mem = &alloc_region;
   fd_addrlut_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
+}
+int fd_addrlut_instruction_inner_encode_global( fd_addrlut_instruction_inner_global_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_addrlut_create_encode( &self->create_lut, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 2: {
+    err = fd_addrlut_extend_encode_global( &self->extend_lut, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_addrlut_instruction_encode_global( fd_addrlut_instruction_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_addrlut_instruction_inner_encode_global( &self->inner, self->discriminant, ctx );
+}
+
+void * fd_addrlut_instruction_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)mem;
+  fd_addrlut_instruction_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_addrlut_instruction_t);
+  void * * alloc_mem = &alloc_region;
+  fd_addrlut_instruction_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_addrlut_instruction_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_addrlut_instruction_global_t * self = (fd_addrlut_instruction_global_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_addrlut_instruction_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );
 }
 void fd_addrlut_instruction_inner_new( fd_addrlut_instruction_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
@@ -33711,8 +35318,8 @@ int fd_optional_account_encode_global( fd_optional_account_global_t const * self
   if( self->account_gaddr ) {
     err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    fd_solana_account_t * account = fd_wksp_laddr_fast( ctx->wksp, self->account_gaddr );
-    err = fd_solana_account_encode( account, ctx );
+    fd_solana_account_global_t * account = fd_wksp_laddr_fast( ctx->wksp, self->account_gaddr );
+    err = fd_solana_account_encode_global( account, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
     err = fd_bincode_bool_encode( 0, ctx );
@@ -33785,7 +35392,7 @@ void fd_optional_account_decode_inner_global( void * struct_mem, void * * alloc_
       self->account_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
       fd_solana_account_new( *alloc_mem );
       *alloc_mem = (uchar *)*alloc_mem + FD_SOLANA_ACCOUNT_FOOTPRINT;
-      fd_solana_account_decode_inner( fd_wksp_laddr_fast( ctx->wksp, self->account_gaddr ), alloc_mem, ctx );
+      fd_solana_account_decode_inner_global( fd_wksp_laddr_fast( ctx->wksp, self->account_gaddr ), alloc_mem, ctx );
     } else {
       self->account_gaddr = 0UL;
     }
@@ -33972,6 +35579,24 @@ int fd_duplicate_slot_proof_encode( fd_duplicate_slot_proof_t const * self, fd_b
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_duplicate_slot_proof_encode_global( fd_duplicate_slot_proof_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->shred1_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->shred1_len ) {
+    uchar * shred1_laddr = fd_wksp_laddr_fast( ctx->wksp, self->shred1_gaddr );
+    err = fd_bincode_bytes_encode( shred1_laddr, self->shred1_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->shred2_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->shred2_len ) {
+    uchar * shred2_laddr = fd_wksp_laddr_fast( ctx->wksp, self->shred2_gaddr );
+    err = fd_bincode_bytes_encode( shred2_laddr, self->shred2_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 int fd_duplicate_slot_proof_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_duplicate_slot_proof_t);
   void const * start_data = ctx->data;
@@ -34025,6 +35650,33 @@ void fd_duplicate_slot_proof_decode_inner( void * struct_mem, void * * alloc_mem
     *alloc_mem = (uchar *)(*alloc_mem) + self->shred2_len;
   } else
     self->shred2 = NULL;
+}
+void * fd_duplicate_slot_proof_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_duplicate_slot_proof_global_t * self = (fd_duplicate_slot_proof_global_t *)mem;
+  fd_duplicate_slot_proof_new( (fd_duplicate_slot_proof_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_duplicate_slot_proof_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_duplicate_slot_proof_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_duplicate_slot_proof_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_duplicate_slot_proof_global_t * self = (fd_duplicate_slot_proof_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->shred1_len, ctx );
+  if( self->shred1_len ) {
+    self->shred1_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->shred1_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->shred1_len;
+  } else {
+    self->shred1_gaddr = 0UL;
+  }
+  fd_bincode_uint64_decode_unsafe( &self->shred2_len, ctx );
+  if( self->shred2_len ) {
+    self->shred2_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->shred2_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->shred2_len;
+  } else {
+    self->shred2_gaddr = 0UL;
+  }
 }
 void fd_duplicate_slot_proof_new(fd_duplicate_slot_proof_t * self) {
   fd_memset( self, 0, sizeof(fd_duplicate_slot_proof_t) );
@@ -35050,6 +36702,13 @@ long fd_hash_hash_age_pair_t_map_compare( fd_hash_hash_age_pair_t_mapnode_t * le
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
 long fd_vote_accounts_pair_t_map_compare( fd_vote_accounts_pair_t_mapnode_t * left, fd_vote_accounts_pair_t_mapnode_t * right ) {
+  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
+}
+#define REDBLK_T fd_vote_accounts_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_vote_accounts_pair_global_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+long fd_vote_accounts_pair_global_t_map_compare( fd_vote_accounts_pair_global_t_mapnode_t * left, fd_vote_accounts_pair_global_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }
 #define REDBLK_T fd_account_keys_pair_t_mapnode_t
