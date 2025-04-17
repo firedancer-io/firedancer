@@ -452,7 +452,7 @@ class VectorMember(TypeNode):
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
     def isFlat(self):
-        return self.element in flattypes
+        return False
 
     def emitPreamble(self):
         pass
@@ -2506,7 +2506,7 @@ class OptionMember(TypeNode):
             else:
                 el = f'{namespace}_{self.element}'
                 el = el.upper()
-                print(f'      {namespace}_{self.element}_new( &self->{self.name} );', file=body)
+                print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun( &self->{self.name} ) );', file=body)
                 if self.element in flattypes:
                     print(f'      {namespace}_{self.element}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
                 else:
@@ -2845,7 +2845,6 @@ class OpaqueType(TypeNode):
         pass
 
     def isFlat(self):
-        #print("here")
         return True
 
     def isFixedSize(self):
@@ -2960,6 +2959,7 @@ class StructType(TypeNode):
         if not self.produce_global:
             flattypes.add( self.name )
 
+
     def isFixedSize(self):
         for f in self.fields:
             if not f.isFixedSize():
@@ -2967,7 +2967,6 @@ class StructType(TypeNode):
         return True
 
     def isFlat(self):
-        #print("Here2")
         for f in self.fields:
             if not f.isFlat():
                 return False

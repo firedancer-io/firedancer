@@ -33,32 +33,28 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 }
 
 static void
-write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
+write_epoch_schedule( fd_exec_slot_ctx_t *  slot_ctx,
                       fd_epoch_schedule_t * epoch_schedule ) {
-  ulong sz  = fd_epoch_schedule_size( epoch_schedule );
+  ulong sz = fd_epoch_schedule_size( epoch_schedule );
   FD_LOG_INFO(("Writing epoch schedule size %lu", sz));
   /* TODO remove alloca */
   uchar enc[ sz ];
   memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
-  ctx.dataend = enc + sz;
-  if ( fd_epoch_schedule_encode( epoch_schedule, &ctx ) )
+  fd_bincode_encode_ctx_t ctx = {
+    .data    = enc,
+    .dataend = enc + sz
+  };
+  if( fd_epoch_schedule_encode( epoch_schedule, &ctx ) ) {
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
+  }
 
   fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t *     result,
-                               fd_sysvar_cache_t const * sysvar_cache,
-                               fd_funk_t *               funk,
-                               fd_funk_txn_t *           funk_txn ) {
-  fd_epoch_schedule_t const * ret = fd_sysvar_cache_epoch_schedule( sysvar_cache );
-  if( FD_UNLIKELY( NULL != ret ) ) {
-    fd_memcpy(result, ret, sizeof(fd_epoch_schedule_t));
-    return result;
-  }
+fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
+                               fd_funk_txn_t * funk_txn,
+                               fd_spad_t *     spad ) {
 
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, funk_txn );
@@ -76,11 +72,12 @@ fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t *     result,
     return NULL;
   }
 
-  /* Assumes that result has been properly allocated and setup by the caller. */
+  uchar * mem = fd_spad_alloc( spad, fd_epoch_schedule_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "fd_spad_alloc failed" ));
+  }
 
-  fd_epoch_schedule_decode( result, &decode );
-
-  return result;
+  return (fd_epoch_schedule_t *)fd_epoch_schedule_decode( mem, &decode );
 }
 
 void

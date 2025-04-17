@@ -273,7 +273,8 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
      We already know that the post deposit balance is >0 because we are paying a >0 amount.
      So TLDR we just check if the account is rent exempt.
    */
-  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->vt->get_data_len( collector ) );
+  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp ),
+                                                 collector->vt->get_data_len( collector ) );
   if( FD_UNLIKELY( collector->vt->get_lamports( collector ) + fee < minbal ) ) {
     FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
     FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
@@ -467,7 +468,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar) )
-    fd_sysvar_fees_update(slot_ctx);
+    fd_sysvar_fees_update( slot_ctx, runtime_spad );
 
   ulong fees = 0UL;
   ulong burn = 0UL;
@@ -531,6 +532,9 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   FD_LOG_DEBUG(( "fd_runtime_freeze: capitalization %lu ", slot_ctx->slot_bank.capitalization));
   slot_ctx->slot_bank.collected_rent = 0;
+
+  /* At this point we want to invalidate the sysvar cache entries. */
+  fd_sysvar_cache_invalidate( slot_ctx->sysvar_cache );
 }
 
 #define FD_RENT_EXEMPT (-1L)
@@ -990,13 +994,13 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   double clock_update_time_ms = (double)clock_update_time * 1e-6;
   FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, clock_update_time_ms ));
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ) ) {
-    fd_sysvar_fees_update(slot_ctx);
+    fd_sysvar_fees_update( slot_ctx, runtime_spad );
   }
   // It has to go into the current txn previous info but is not in slot 0
   if( slot_ctx->slot_bank.slot != 0 ) {
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
   }
-  fd_sysvar_last_restart_slot_update( slot_ctx );
+  fd_sysvar_last_restart_slot_update( slot_ctx, runtime_spad );
 
   return 0;
 }
@@ -2321,7 +2325,7 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L89-L90 */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2394,7 +2398,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L127-L132 */
-  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2839,6 +2843,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   int     is_some                       = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                                              slot_ctx->sysvar_cache,
                                                                              &slot_ctx->epoch_ctx->features,
+                                                                             slot_ctx->runtime_wksp,
                                                                              new_rate_activation_epoch,
                                                                              _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -2871,7 +2876,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( !history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }

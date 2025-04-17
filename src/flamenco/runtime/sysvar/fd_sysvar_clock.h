@@ -28,13 +28,12 @@ int
 fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
                         fd_spad_t *          runtime_spad );
 
-/* Reads the current value of the clock sysvar */
+/* Reads the current value of the clock sysvar from funk. */
 
-fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_sol_sysvar_clock_t *   result,
-                      fd_sysvar_cache_t const * sysvar_cache,
-                      fd_funk_t *               funk,
-                      fd_funk_txn_t *           funk_txn );
+fd_sol_sysvar_clock_t const *
+fd_sysvar_clock_read( fd_funk_t *     funk,
+                      fd_funk_txn_t * funk_txn,
+                      fd_spad_t *     spad );
 
 /* fd_slot_cnt_2day returns the number of slots in two days.
    Used in rent collection. */
