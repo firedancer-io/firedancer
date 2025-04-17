@@ -2374,6 +2374,7 @@ fd_gossip_cleanup_values( fd_gossip_t * glob,
   (void)arg;
   fd_gossip_add_pending( glob, fd_gossip_cleanup_values, fd_pending_event_arg_null(), glob->now + (long)15e9 );
 
+  ulong num_purged = 0UL;
   ulong now = FD_NANOSEC_TO_MILLI(glob->now);
   for( fd_value_meta_map_iter_t iter = fd_value_meta_map_iter_init( glob->value_metas );
        !fd_value_meta_map_iter_done( glob->value_metas, iter );
@@ -2387,9 +2388,23 @@ fd_gossip_cleanup_values( fd_gossip_t * glob,
       fd_bloom_remove( &glob->bloom, &ele->key ); /* Remove from the bloom filter */
     } else if( !fd_gossip_in_window( ele->wallclock, now, FD_GOSSIP_PULL_TIMEOUT ) ) {
       /* Purge */
-      if( ele->value != NULL )
+      if( ele->value != NULL ){
         ele->value->del = 1;
+        num_purged++;
+      }
       ele->value = NULL;
+    }
+  }
+
+  /* Exceeds 80% of max: purge additional MAX*0.25 entries from top */
+  if( FD_UNLIKELY( (fd_value_vec_cnt( glob->values ) - num_purged)>(ulong)(FD_VALUE_DATA_MAX * 0.8) ) ) {
+    for( ulong i = 0; i<(FD_VALUE_DATA_MAX >> 2); ) {
+      if( !!(glob->values[i].del) ) {
+        continue;
+      } else {
+        glob->values[i].del = 1;
+        i++;
+      }
     }
   }
 
