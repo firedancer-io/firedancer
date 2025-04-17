@@ -35,14 +35,11 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_CLOCK, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
 
-  /* FIXME: is it possible to do the read in-place? */
-  fd_sol_sysvar_clock_t clock[1];
-  fd_sol_sysvar_clock_new( clock ); /* FIXME: probably should be init as not a distributed persistent object */
-  fd_sysvar_clock_read( clock,
-                        instr_ctx->txn_ctx->sysvar_cache,
-                        instr_ctx->txn_ctx->funk,
-                        instr_ctx->txn_ctx->funk_txn );
-  /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache,
+                                                               instr_ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !clock ) ) {
+    FD_LOG_ERR(( "failed to read sysvar clock" ));
+  }
 
   memcpy( out, clock, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
 
@@ -74,14 +71,11 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE, FD_EPOCH_SCHEDULE_FOOTPRINT );
 
-  /* FIXME: is it possible to do the read in-place? */
-  fd_epoch_schedule_t schedule[1];
-  fd_epoch_schedule_new( schedule ); /* FIXME: probably should be init as not a distributed persistent object */
-  fd_sysvar_epoch_schedule_read( schedule,
-                                 instr_ctx->txn_ctx->sysvar_cache,
-                                 instr_ctx->txn_ctx->funk,
-                                 instr_ctx->txn_ctx->funk_txn );
-  /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
+  fd_epoch_schedule_t * schedule = fd_sysvar_cache_epoch_schedule( instr_ctx->txn_ctx->sysvar_cache,
+                                                                   instr_ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( schedule == NULL ) ) {
+    FD_LOG_ERR(( "failed to read sysvar epoch schedule" ));
+  }
 
   memcpy( out, schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
 
@@ -113,14 +107,11 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_FEES, FD_SYSVAR_FEES_FOOTPRINT );
 
-  /* FIXME: is it possible to do the read in-place? */
-  fd_sysvar_fees_t fees[1];
-  fd_sysvar_fees_new( fees ); /* FIXME: probably should be init as not a distributed persistent object */
-  fd_sysvar_fees_read( fees,
-                       instr_ctx->txn_ctx->sysvar_cache,
-                       instr_ctx->txn_ctx->funk,
-                       instr_ctx->txn_ctx->funk_txn );
-  /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
+  fd_sysvar_fees_t * fees = fd_sysvar_cache_fees( instr_ctx->txn_ctx->sysvar_cache,
+                                                  instr_ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !fees ) ) {
+    FD_LOG_ERR(( "failed to read sysvar fees" ));
+  }
 
   memcpy( out, fees, FD_SYSVAR_FEES_FOOTPRINT );
 
@@ -152,12 +143,11 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_RENT, FD_RENT_FOOTPRINT );
 
-  /* FIXME: is it possible to do the read in-place? */
-  fd_rent_t * rent = fd_sysvar_rent_read( instr_ctx->txn_ctx->sysvar_cache,
-                                          instr_ctx->txn_ctx->funk,
-                                          instr_ctx->txn_ctx->funk_txn,
-                                          instr_ctx->txn_ctx->spad );
-  /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
+  fd_rent_t * rent = fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache,
+                                           instr_ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !rent ) ) {
+    FD_LOG_ERR(( "failed to read sysvar rent" ));
+  }
 
   memcpy( out, rent, FD_RENT_FOOTPRINT );
 
@@ -178,14 +168,17 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT ) );
 
-  fd_sol_sysvar_last_restart_slot_t * out =
-    FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
-  if( FD_UNLIKELY( fd_sysvar_last_restart_slot_read( out,
-                                                     vm->instr_ctx->txn_ctx->sysvar_cache,
-                                                     vm->instr_ctx->txn_ctx->funk,
-                                                     vm->instr_ctx->txn_ctx->funk_txn ) == NULL ) ) {
-    return FD_VM_SYSCALL_ERR_ABORT;
+  fd_sol_sysvar_last_restart_slot_t * out = FD_VM_MEM_HADDR_ST( vm,
+                                                                out_vaddr,
+                                                                FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT,
+                                                                FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
+
+  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_sysvar_cache_last_restart_slot( vm->instr_ctx->txn_ctx->sysvar_cache,
+                                                                                             vm->instr_ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !last_restart_slot ) ) {
+    FD_LOG_ERR(( "failed to read sysvar last restart slot" ));
   }
+  memcpy( out, last_restart_slot, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -639,14 +632,13 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SYSVAR_EPOCH_REWARDS_ALIGN, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
 
-  fd_sysvar_epoch_rewards_t var[1];
-  fd_sysvar_epoch_rewards_new ( var );
-  fd_sysvar_epoch_rewards_read( var,
-                                instr_ctx->txn_ctx->sysvar_cache,
-                                instr_ctx->txn_ctx->funk,
-                                instr_ctx->txn_ctx->funk_txn );
+  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_cache_epoch_rewards( instr_ctx->txn_ctx->sysvar_cache,
+                                                                             instr_ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !epoch_rewards ) ) {
+    FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
+  }
 
-  memcpy( out, var, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
+  memcpy( out, epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;

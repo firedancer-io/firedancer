@@ -16,7 +16,9 @@
 FD_PROTOTYPES_BEGIN
 
 /* Initialize the slot hashes sysvar account (used for tests currently) */
-void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t * slot_hashes );
+void
+fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t *      slot_ctx,
+                            fd_slot_hashes_global_t * slot_hashes_global );
 
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void
@@ -26,7 +28,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
    accounts manager.  On success, returns 0 and writes deserialized
    value into *result.  On failure, returns the bincode/acc_mgr error
    code. */
-fd_slot_hashes_t *
+fd_slot_hashes_global_t *
 fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t * slot_ctx,
                             fd_spad_t *          runtime_spad );
 

@@ -62,18 +62,20 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
   return (void *)cache;
 }
 
-#define HANDLE_GLOBAL_1(type, name, is_global)                       \
-type##_global_t const *                                              \
-fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache ) {          \
-  type##_global_t const * val = cache->val_##name;                   \
-  return (cache->has_##name) ? val : NULL;                           \
+#define HANDLE_GLOBAL_1(type, name, is_global)                                   \
+type##_global_t *                                                                \
+fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp ) {    \
+  if( !cache->has_##name ) { return NULL; }                                      \
+  type##_global_t * val = fd_wksp_laddr_fast( wksp, cache->gaddr_##name );       \
+  return val;                                                                    \
 }
 
-#define HANDLE_GLOBAL_0(type, name, is_global)                       \
-type##_t const *                                                     \
-fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache ) {          \
-  type##_t const * val = cache->val_##name;                          \
-  return (cache->has_##name) ? val : NULL;                           \
+#define HANDLE_GLOBAL_0(type, name, is_global)                                   \
+type##_t *                                                                       \
+fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache, fd_wksp_t * wksp ) {    \
+  if( !cache->has_##name ) { return NULL; }                                      \
+  type##_t * val = fd_wksp_laddr_fast( wksp, cache->gaddr_##name );              \
+  return val;                                                                    \
 }
 
 /* Provide accessor methods */
@@ -105,7 +107,7 @@ fd_sysvar_cache_restore_##name(                                                 
                                                            pubkey,                        \
                                                            funk,                          \
                                                            funk_txn );                    \
-    if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;                                 \
+    if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) { break; }                             \
                                                                                           \
     if( view_err!=FD_ACC_MGR_SUCCESS ) {                                                  \
       char pubkey_cstr[ FD_BASE58_ENCODED_32_SZ ];                                        \
@@ -114,7 +116,7 @@ fd_sysvar_cache_restore_##name(                                                 
                    view_err, fd_acc_mgr_strerror( view_err ) ));                          \
     }                                                                                     \
                                                                                           \
-    if( account->vt->get_lamports( account ) == 0UL ) break;                              \
+    if( account->vt->get_lamports( account ) == 0UL ) { break; }                          \
                                                                                           \
     /* Decode new value                                                                   \
       type##_decode() does not do heap allocations on failure */                          \
@@ -130,7 +132,6 @@ fd_sysvar_cache_restore_##name(                                                 
       FD_LOG_WARNING(( "failed to decode footprint" ));                                   \
       break;                                                                              \
     }                                                                                     \
-                                                                                          \
     type##_t * mem = fd_spad_alloc( runtime_spad,                                         \
                                     type##_align(),                                       \
                                     total_sz );                                           \
@@ -138,7 +139,7 @@ fd_sysvar_cache_restore_##name(                                                 
       FD_LOG_ERR(( "memory allocation failed" ));                                         \
     }                                                                                     \
     HANDLE_GLOBAL_##is_global( type, mem, decode )                                        \
-    fd_memcpy( cache->val_##name, mem, sizeof(type##_t) );                                \
+    cache->gaddr_##name = fd_wksp_gaddr_fast( wksp, mem );                                \
   } while(0);                                                                             \
 }
   FD_SYSVAR_CACHE_ITER(X)
@@ -154,67 +155,74 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_spad_t *         runtime_spad,
                          fd_wksp_t *         wksp ) {
 # define X( type, name, is_global )                                            \
-fd_sysvar_cache_restore_##name( cache, funk, funk_txn, runtime_spad, wksp );
+  fd_sysvar_cache_restore_##name( cache, funk, funk_txn, runtime_spad, wksp );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 }
 
-
-/* Define macros with appropriate parameters */
-#define HANDLE_GLOBAL_1(type, name, is_global)                                \
-type##_global_t const *                                                       \
-fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,            \
-                                 ulong                       idx,             \
-                                 int *                       err ) {          \
-                                                                              \
-  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {                          \
-    *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                         \
-    return NULL;                                                              \
-  }                                                                           \
-                                                                              \
-  fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;               \
-  type##_global_t const * val = fd_sysvar_cache_##name ( cache );             \
-                                                                              \
-  ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;         \
-  fd_pubkey_t const * addr_have = &ctx->txn_ctx->account_keys[ idx_in_txn ];  \
-  fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;                     \
-  if( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) {              \
-    *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                                 \
-    return NULL;                                                              \
-  }                                                                           \
-                                                                              \
-  *err = val ?                                                                \
-         FD_EXECUTOR_INSTR_SUCCESS :                                          \
-         FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                            \
-  return val;                                                                 \
+void
+fd_sysvar_cache_invalidate( fd_sysvar_cache_t * cache ) {
+  # define X( type, name, is_global ) \
+    cache->has_##name = 0;
+  FD_SYSVAR_CACHE_ITER(X)
+  # undef X
 }
 
-#define HANDLE_GLOBAL_0(type, name, is_global)                                \
-type##_t const *                                                              \
-fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,            \
-                                 ulong                       idx,             \
-                                 int *                       err ) {          \
-                                                                              \
-  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {                          \
-    *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                         \
-    return NULL;                                                              \
-  }                                                                           \
-                                                                              \
-  fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;               \
-  type##_t const * val = fd_sysvar_cache_##name ( cache );                    \
-                                                                              \
-  ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;         \
-  fd_pubkey_t const * addr_have = &ctx->txn_ctx->account_keys[ idx_in_txn ];  \
-  fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;                     \
-  if( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) {              \
-    *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                                 \
-    return NULL;                                                              \
-  }                                                                           \
-                                                                              \
-  *err = val ?                                                                \
-         FD_EXECUTOR_INSTR_SUCCESS :                                          \
-         FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                            \
-  return val;                                                                 \
+/* Define macros with appropriate parameters */
+#define HANDLE_GLOBAL_1(type, name, is_global)                                                   \
+type##_global_t const *                                                                          \
+fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,                               \
+                                 ulong                       idx,                                \
+                                 int *                       err ) {                             \
+                                                                                                 \
+  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {                                             \
+    *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                                            \
+    return NULL;                                                                                 \
+  }                                                                                              \
+                                                                                                 \
+  fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;                                  \
+  type##_global_t const * val = fd_sysvar_cache_##name( cache, ctx->txn_ctx->runtime_pub_wksp ); \
+                                                                                                 \
+  ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;                            \
+  fd_pubkey_t const * addr_have = &ctx->txn_ctx->account_keys[ idx_in_txn ];                     \
+  fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;                                        \
+  if( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) {                                 \
+    *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                                                    \
+    return NULL;                                                                                 \
+  }                                                                                              \
+                                                                                                 \
+  *err = val ?                                                                                   \
+         FD_EXECUTOR_INSTR_SUCCESS :                                                             \
+         FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                                               \
+  return val;                                                                                    \
+}
+
+#define HANDLE_GLOBAL_0(type, name, is_global)                                            \
+type##_t const *                                                                          \
+fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,                        \
+                                 ulong                       idx,                         \
+                                 int *                       err ) {                      \
+                                                                                          \
+  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {                                      \
+    *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                                     \
+    return NULL;                                                                          \
+  }                                                                                       \
+                                                                                          \
+  fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;                           \
+  type##_t const * val = fd_sysvar_cache_##name( cache, ctx->txn_ctx->runtime_pub_wksp ); \
+                                                                                          \
+  ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;                     \
+  fd_pubkey_t const * addr_have = &ctx->txn_ctx->account_keys[ idx_in_txn ];              \
+  fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;                                 \
+  if( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) {                          \
+    *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                                             \
+    return NULL;                                                                          \
+  }                                                                                       \
+                                                                                          \
+  *err = val ?                                                                            \
+         FD_EXECUTOR_INSTR_SUCCESS :                                                      \
+         FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                                        \
+  return val;                                                                             \
 }
 
 /* Define the X macro properly */

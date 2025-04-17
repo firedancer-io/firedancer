@@ -278,11 +278,14 @@ status_check_tower( ulong slot, void * _ctx ) {
     return 1;
   }
 
-  fd_slot_history_t * slot_history = fd_sysvar_slot_history_read( ctx->funk,
-                                                                  ctx->funk_txn,
-                                                                  ctx->spad );
+  fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk,
+                                                                         ctx->funk_txn,
+                                                                         ctx->spad,
+                                                                         ctx->spad_wksp );
 
-  if( fd_sysvar_slot_history_find_slot( slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
+  if( fd_sysvar_slot_history_find_slot( slot_history,
+                                        slot,
+                                        ctx->runtime_pub_wksp ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
     return 1;
   }
 
@@ -453,7 +456,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong                       requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
-  fd_epoch_schedule_t const * schedule                            = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule                            = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache, txn_ctx->runtime_pub_wksp );
   ulong                       epoch                               = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
@@ -823,7 +826,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Collect rent from the fee payer and set the starting lamports (to avoid unbalanced lamports issues in instruction execution)
      https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L438-L445 */
-  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache, txn_ctx->runtime_pub_wksp );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
   txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
                                                                    &txn_ctx->schedule,
@@ -861,7 +864,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( txn_ctx->sysvar_cache );
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( txn_ctx->sysvar_cache, txn_ctx->runtime_pub_wksp );
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
@@ -1438,7 +1441,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
 int
 fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->sysvar_cache, txn_ctx->runtime_pub_wksp );
 
   ulong starting_lamports_l = 0;
   ulong starting_lamports_h = 0;

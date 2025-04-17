@@ -9,15 +9,9 @@
 #define ACCOUNT_STORAGE_OVERHEAD (128)
 
 fd_rent_t *
-fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
-                     fd_funk_t *               funk,
-                     fd_funk_txn_t *           funk_txn,
-                     fd_spad_t *               spad ) {
-
-  fd_rent_t const * ret = fd_sysvar_cache_rent( sysvar_cache );
-  if( FD_UNLIKELY( ret ) ) {
-    return (fd_rent_t*)ret;
-  }
+fd_sysvar_rent_read( fd_funk_t *     funk,
+                     fd_funk_txn_t * funk_txn,
+                     fd_spad_t *     spad ) {
 
   FD_TXN_ACCOUNT_DECL( rent_rec );
 
