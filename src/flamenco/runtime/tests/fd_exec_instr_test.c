@@ -2273,7 +2273,6 @@ fd_exec_type_test_run( fd_exec_instr_test_runner_t * runner,
   fd_exec_test_type_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_type_effects_t **      output = fd_type_pun( output_ );
 
-  // Allocate space for captured effects
   ulong output_end = (ulong)output_buf + output_bufsz;
   FD_SCRATCH_ALLOC_INIT(l, output_buf);
 
@@ -2281,6 +2280,14 @@ fd_exec_type_test_run( fd_exec_instr_test_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_exec_test_type_effects_t),
                             sizeof(fd_exec_test_type_effects_t));
   if (FD_UNLIKELY(_l > output_end)) {
+    return 0UL;
+  }
+
+  if( input == NULL || input->content == NULL ) {
+    return 0UL;
+  }
+
+  if(input->content->size == 0) {
     return 0UL;
   }
 

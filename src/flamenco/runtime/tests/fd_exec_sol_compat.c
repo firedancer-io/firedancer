@@ -911,7 +911,9 @@ sol_compat_type_execute_v1( uchar *       out,
 
   } FD_SPAD_FRAME_END;
 
-  // Check wksp usage is 0
+  pb_release( &fd_exec_test_type_context_t_msg, input );
+  sol_compat_cleanup_runner( runner );
+
   sol_compat_check_wksp_usage();
 
   return ok;
