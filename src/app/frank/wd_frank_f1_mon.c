@@ -330,6 +330,9 @@ int pretty_num(char* st, uint64_t cnt, char* suffix)
     return sel;
 }
 
+#define MAX_LINES 128
+#define MAX_LINE_WIDTH 256
+
 void* mon_thread(void* arg)
 {
     uint64_t cnts[2][64];
@@ -337,6 +340,9 @@ void* mon_thread(void* arg)
     wd_mon_state_t* state = (wd_mon_state_t*)arg;
 
     memset(cnts, 0, sizeof(cnts));
+
+    char buffer_prev[MAX_LINES][MAX_LINE_WIDTH] = {0};
+    char buffer_curr[MAX_LINES][MAX_LINE_WIDTH] = {0};
 
     int first = 1;
     uint32_t from[2] = {0, 0};
@@ -356,6 +362,9 @@ void* mon_thread(void* arg)
 
         if (!first)
             ascii_move_to(from, to);
+
+        if (first)
+            printf("\033[?25l\033[2J"); // hide cursor, clear screen on first frame
         
         from[0] = 0;
 
@@ -491,51 +500,40 @@ void* mon_thread(void* arg)
         }
 
         // draw ascii art
-        for (uint32_t li = 0; li < 1024; li ++)
-        {
+        for (uint32_t li = 0; li < MAX_LINES; li++) {
             if (ascii_chart[li][0] == 0)
                 break;
-            char out_st[512*64];
+
+            char* out_st = buffer_curr[li];
             int out_pos = 0;
-            for (uint32_t ci = 0;; ci ++)
-            {
+
+            for (uint32_t ci = 0;; ci++) {
                 if (ascii_chart[li][ci] == 0)
                     break;
 
                 int found = 0;
 
-                // find a matching counter
-                for (int cnt_i = 0;; cnt_i ++)
-                {
+                for (int cnt_i = 0;; cnt_i++) {
                     if (cnt_data[cnt_i][0] == 0)
                         break;
-                    if (cnt_data[cnt_i][0] != li)
-                        continue;
-                    if (cnt_data[cnt_i][1] != ci)
+                    if (cnt_data[cnt_i][0] != li || cnt_data[cnt_i][1] != ci)
                         continue;
 
                     found = 1;
-
-                    out_pos += ascii_color(out_st+out_pos, cnt_data[cnt_i][3]);
-                    out_pos += sprintf (out_st+out_pos, "%s", cnt_st[cnt_i]);
+                    out_pos += ascii_color(out_st + out_pos, cnt_data[cnt_i][3]);
+                    out_pos += sprintf(out_st + out_pos, "%s", cnt_st[cnt_i]);
                     ci += cnt_data[cnt_i][4] - 1;
                 }
 
-                // find a matching animation
-                if (!found)
-                {
-                    for (int anm_i = 0;; anm_i ++)
-                    {
+                if (!found) {
+                    for (int anm_i = 0;; anm_i++) {
                         if (anm_data[anm_i][0] == 0)
                             break;
-                        if (1
-                            & (anm_data[anm_i][0] + (anm_data[anm_i][2] * anm_data[anm_i][7]) == (int)li)
-                            & (anm_data[anm_i][1] + (anm_data[anm_i][3] * anm_data[anm_i][7]) == (int)ci)
-                            & (cnts[1][anm_data[anm_i][6]] != 0)
-                        )
-                        {
-                            out_pos += ascii_color(out_st+out_pos, (uint32_t)anm_data[anm_i][5]);
-                            out_pos += sprintf (out_st+out_pos, "%c", anm_data[anm_i][8]);
+                        if ((anm_data[anm_i][0] + anm_data[anm_i][2] * anm_data[anm_i][7]) == (int)li &&
+                            (anm_data[anm_i][1] + anm_data[anm_i][3] * anm_data[anm_i][7]) == (int)ci &&
+                            cnts[1][anm_data[anm_i][6]] != 0) {
+                            out_pos += ascii_color(out_st + out_pos, (uint32_t)anm_data[anm_i][5]);
+                            out_pos += sprintf(out_st + out_pos, "%c", anm_data[anm_i][8]);
                             found = 1;
                             break;
                         }
@@ -543,12 +541,17 @@ void* mon_thread(void* arg)
                 }
 
                 if (!found)
-                    out_pos += sprintf (out_st+out_pos, "%c", ascii_chart[li][ci]);
+                    out_pos += sprintf(out_st + out_pos, "%c", ascii_chart[li][ci]);
                 else
-                    out_pos += ascii_color(out_st+out_pos, 0);
+                    out_pos += ascii_color(out_st + out_pos, 0);
             }
-            printf ("%s\n", out_st);
-            from[0] ++;
+            out_st[out_pos] = '\0';
+
+            // only print changed lines
+            if (strcmp(buffer_prev[li], buffer_curr[li]) != 0) {
+                printf("\033[%d;1H%s", li + 1, buffer_curr[li]);
+                strcpy(buffer_prev[li], buffer_curr[li]);
+            }
         }
 
         // update animation states
@@ -574,5 +577,8 @@ void* mon_thread(void* arg)
         fflush(stdout);
     }
     state->stopped = 1;
+
+    printf("\033[?25h"); // show cursor
+
     return 0;
 }
