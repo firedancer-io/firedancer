@@ -918,7 +918,7 @@ fd_accounts_hash( fd_funk_t *             funk,
                   fd_exec_para_cb_ctx_t * exec_para_ctx,
                   fd_lthash_value_t *     lt_hash  ) {
 
-  int lthash_enabled = (NULL != lt_hash) && FD_FEATURE_ACTIVE( slot_bank->slot, *features, snapshots_lt_hash );
+  int lthash_enabled = (NULL != lt_hash) && (FD_FEATURE_ACTIVE( slot_bank->slot, *features, snapshots_lt_hash ) || FD_FEATURE_ACTIVE( slot_bank->slot, *features, accounts_lt_hash ) );
 
   FD_LOG_NOTICE(("accounts_hash start"));
 

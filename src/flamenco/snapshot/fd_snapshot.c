@@ -259,18 +259,14 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
       FD_LOG_WARNING(( "snapshot must have an accounts lt hash if the feature is enabled.. calculating it all again" ));
       always_hash = 1;
     }
-    if ( ctx->verify_hash ) {
-      // reset this to 0 since the verify_hash path recalculates it...
-      fd_memset(&ctx->slot_ctx->slot_bank.lthash.lthash[0], 0, sizeof(ctx->slot_ctx->slot_bank.lthash.lthash));
-    }
   }
 
   if( ctx->verify_hash || always_hash ) {
     if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
       fd_hash_t accounts_hash;
-      fd_lthash_value_t lthash;
+      fd_lthash_value_t *lthash = (always_hash) ? (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash) : NULL;
       FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-        fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx, &lthash );
+        fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx, lthash );
       } FD_SPAD_FRAME_END;
 
       if( ctx->verify_hash ) {
@@ -312,6 +308,8 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   }
 
   fd_hashes_load( ctx->slot_ctx, ctx->runtime_spad );
+
+  FD_LOG_NOTICE(( "accounts_lthash %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
 
   /* We don't need to free any of the loader memory since it is allocated
      from a spad. */
