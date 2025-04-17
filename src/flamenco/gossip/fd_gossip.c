@@ -1330,25 +1330,25 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   /* Try again in 1 sec */
   fd_gossip_add_pending( glob,
                          fd_gossip_random_ping, fd_pending_event_arg_null(),
-                         glob->now + (long)100e8 );
+                         glob->now + (long)100e6 );
 
-  ulong cnt = fd_active_table_key_cnt(glob->actives);
-  if (cnt == 0 && glob->inactives_cnt == 0)
+  ulong cnt = fd_active_table_key_cnt( glob->actives );
+  if( cnt == 0 && glob->inactives_cnt == 0 )
     return;
   fd_gossip_peer_addr_t * addr = NULL;
-  if (glob->inactives_cnt > 0 && cnt < FD_ACTIVE_KEY_MAX)
+  if( glob->inactives_cnt > 0 && cnt < FD_ACTIVE_KEY_MAX )
     /* Try a new peer */
     addr = glob->inactives + (--(glob->inactives_cnt));
   else {
     /* Choose a random active peer */
-    ulong i = fd_rng_ulong(glob->rng) % cnt;
+    ulong i = fd_rng_ulong( glob->rng ) % cnt;
     ulong j = 0;
     for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
          !fd_active_table_iter_done( glob->actives, iter );
          iter = fd_active_table_iter_next( glob->actives, iter ) ) {
-      if (i == j++) {
+      if( FD_UNLIKELY( i==j++ ) ) {
         fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
-        if (glob->now - ele->pingtime < (long)60e9) /* minute cooldown */
+        if( (glob->now - ele->pingtime)<(long)60e9 ) /* minute cooldown */
           return;
         ele->pingcount = 0;
         ele->pongtime = 0;
@@ -1357,10 +1357,9 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       }
     }
   }
-
   fd_pending_event_arg_t arg2;
-  fd_gossip_peer_addr_copy(&arg2.key, addr);
-  fd_gossip_make_ping(glob, &arg2);
+  fd_gossip_peer_addr_copy( &arg2.key, addr );
+  fd_gossip_make_ping( glob, &arg2 );
 }
 
 /* CRDS processing utils.
@@ -2364,8 +2363,8 @@ fd_gossip_gettime( fd_gossip_t * glob ) {
 int
 fd_gossip_start( fd_gossip_t * glob ) {
   fd_gossip_lock( glob );
-  fd_gossip_add_pending( glob, fd_gossip_random_pull,         fd_pending_event_arg_null(), glob->now + (long) 1e9 );
-  fd_gossip_add_pending( glob, fd_gossip_random_ping,         fd_pending_event_arg_null(), glob->now + (long) 5e9 );
+  fd_gossip_add_pending( glob, fd_gossip_random_pull,         fd_pending_event_arg_null(), glob->now + (long) 2e9 );
+  fd_gossip_add_pending( glob, fd_gossip_random_ping,         fd_pending_event_arg_null(), glob->now + (long) 1e9 );
   fd_gossip_add_pending( glob, fd_gossip_log_stats,           fd_pending_event_arg_null(), glob->now + (long)60e9 );
   fd_gossip_add_pending( glob, fd_gossip_refresh_push_states, fd_pending_event_arg_null(), glob->now + (long)20e9 );
   fd_gossip_add_pending( glob, fd_gossip_push,                fd_pending_event_arg_null(), glob->now + (long) 1e8 );
