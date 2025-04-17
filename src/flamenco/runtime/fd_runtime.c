@@ -1749,6 +1749,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
                               general transaction execution
 
   */
+
   if( !FD_FEATURE_ACTIVE_( txn_ctx->slot, txn_ctx->features, move_precompile_verification_to_svm ) ) {
     err = fd_executor_verify_precompiles( txn_ctx );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
