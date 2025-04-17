@@ -56,7 +56,7 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
-  (*out)->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp, rbh_global->hashes_gaddr ) );
+  (*out)->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

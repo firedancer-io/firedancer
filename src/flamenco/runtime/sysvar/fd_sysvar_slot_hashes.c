@@ -49,7 +49,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
       FD_LOG_ERR(( "Unable to allocate memory for slot hashes" ));
     }
   } else {
-    hashes = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( slot_ctx->runtime_wksp, slot_hashes_global->hashes_gaddr ) );
+    hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
   }
 
   uchar found = 0;
