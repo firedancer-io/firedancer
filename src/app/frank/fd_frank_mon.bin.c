@@ -23,126 +23,110 @@
 #define TEXT_YELLOW "\033[93m"
 #define TEXT_RED    "\033[31m"
 
-/* printf_age prints _dt in ns as an age to stdout, will be exactly 10
-   char wide.  Since pretty printing this value will often require
-   rounding it, the rounding is in a round toward zero sense. */
-
-static void
-printf_age( long _dt ) {
-  if( FD_UNLIKELY( _dt< 0L ) ) { printf( "   invalid" ); return; }
-  if( FD_UNLIKELY( _dt==0L ) ) { printf( "        0s" ); return; }
-  ulong rem = (ulong)_dt;
-  ulong ns = rem % 1000UL; rem /= 1000UL; if( !rem /*no u*/ ) { printf( "      %3lun",           ns                   ); return; }
-  ulong us = rem % 1000UL; rem /= 1000UL; if( !rem /*no m*/ ) { printf( "  %3lu.%03luu",         us, ns               ); return; }
-  ulong ms = rem % 1000UL; rem /= 1000UL; if( !rem /*no s*/ ) { printf( "%3lu.%03lu%02lum",      ms, us, ns/10UL      ); return; }
-  ulong  s = rem %   60UL; rem /=   60UL; if( !rem /*no m*/ ) { printf( "%2lu.%03lu%03lus",      s,  ms, us           ); return; }
-  ulong  m = rem %   60UL; rem /=   60UL; if( !rem /*no h*/ ) { printf( "%2lu:%02lu.%03lu%1lu",  m,  s,  ms, us/100UL ); return; }
-  ulong  h = rem %   24UL; rem /=   24UL; if( !rem /*no d*/ ) { printf( "%2lu:%02lu:%02lu.%1lu", h,  m,  s,  ms/100UL ); return; }
-  ulong  d = rem %    7UL; rem /=    7UL; if( !rem /*no w*/ ) { printf( "  %1lud %2lu:%02lu",    d,  h,  m            ); return; }
-  ulong  w = rem;                         if( w<=99UL       ) { printf( "%2luw %1lud %2luh",     w,  d,  h            ); return; }
-  /* note that this can handle LONG_MAX fine */                 printf( "%6luw %1lud",           w,  d                );
-}
-
-/* printf_stale is printf_age with the tweak that ages less than or
-   equal to expire (in ns) will be suppressed to limit visual chatter.
-   Will be exactly 10 char wide and color coded. */
-
-static void
-printf_stale( long age,
-              long expire ) {
-  if( FD_UNLIKELY( age>expire ) ) {
-    printf( TEXT_YELLOW );
-    printf_age( age );
-    printf( TEXT_NORMAL );
-    return;
-  }
-  printf( TEXT_GREEN "         -" TEXT_NORMAL );
-}
-
-/* printf_heart will print to stdout whether or not a heartbeat was
-   detected.  Will be exactly 5 char wide and color coded. */
-
-static void
-printf_heart( long hb_now,
-              long hb_then ) {
-  long dt = hb_now - hb_then;
-  printf( "%s", (dt>0L) ? (TEXT_GREEN "    -" TEXT_NORMAL) :
-                (!dt)   ? (TEXT_RED   " NONE" TEXT_NORMAL) :
-                          (TEXT_BLUE  "RESET" TEXT_NORMAL) );
-}
-
-/* printf_sig will print the current and previous value of a cnc signal.
-   to stdout.  Will be exactly 10 char wide and color coded. */
+/* sig_color returns ANSI color code based on signal type */
 
 static char const *
 sig_color( ulong sig ) {
   switch( sig ) {
-  case FD_CNC_SIGNAL_BOOT: return TEXT_BLUE;   break; /* Blue -> waiting for tile to start */
-  case FD_CNC_SIGNAL_HALT: return TEXT_YELLOW; break; /* Yellow -> waiting for tile to process */
-  case FD_CNC_SIGNAL_RUN:  return TEXT_GREEN;  break; /* Green -> Normal */
-  case FD_CNC_SIGNAL_FAIL: return TEXT_RED;    break; /* Red -> Definitely abnormal */
-  default: break; /* Unknown, don't colorize */
+  case FD_CNC_SIGNAL_BOOT: return TEXT_BLUE;   /* Blue -> waiting for tile to start */
+  case FD_CNC_SIGNAL_HALT: return TEXT_YELLOW; /* Yellow -> waiting for tile to process */
+  case FD_CNC_SIGNAL_RUN:  return TEXT_GREEN;  /* Green -> Normal */
+  case FD_CNC_SIGNAL_FAIL: return TEXT_RED;    /* Red -> Definitely abnormal */
+  default: return TEXT_NORMAL;                 /* Unknown, use default */
   }
-  return TEXT_NORMAL;
 }
 
-static void
-printf_sig( ulong sig_now,
-            ulong sig_then ) {
+/* snprintf_age formats _dt in ns as an age string. Will be exactly 10
+   char wide. Rounded toward zero. */
+
+static int
+snprintf_age( char * buf, size_t sz, long _dt ) {
+  if( FD_UNLIKELY( _dt< 0L ) ) return snprintf( buf, sz, "   invalid" );
+  if( FD_UNLIKELY( _dt==0L ) ) return snprintf( buf, sz, "        0s" );
+  ulong rem = (ulong)_dt;
+  ulong ns = rem % 1000UL; rem /= 1000UL; if( !rem ) return snprintf( buf, sz, "      %3lun", ns );
+  ulong us = rem % 1000UL; rem /= 1000UL; if( !rem ) return snprintf( buf, sz, "  %3lu.%03luu", us, ns );
+  ulong ms = rem % 1000UL; rem /= 1000UL; if( !rem ) return snprintf( buf, sz, "%3lu.%03lu%02lum", ms, us, ns/10UL );
+  ulong  s = rem %   60UL; rem /=   60UL; if( !rem ) return snprintf( buf, sz, "%2lu.%03lu%03lus", s, ms, us );
+  ulong  m = rem %   60UL; rem /=   60UL; if( !rem ) return snprintf( buf, sz, "%2lu:%02lu.%03lu%1lu", m, s, ms, us/100UL );
+  ulong  h = rem %   24UL; rem /=   24UL; if( !rem ) return snprintf( buf, sz, "%2lu:%02lu:%02lu.%1lu", h, m, s, ms/100UL );
+  ulong  d = rem %    7UL; rem /=    7UL; if( !rem ) return snprintf( buf, sz, "  %1lud %2lu:%02lu", d, h, m );
+  ulong  w = rem;                        if( w<=99UL ) return snprintf( buf, sz, "%2luw %1lud %2luh", w, d, h );
+  return snprintf( buf, sz, "%6luw %1lud", w, d );
+}
+
+/* snprintf_stale formats age or placeholder if recent. Width 10, color-coded. */
+
+static int
+snprintf_stale( char * buf, size_t sz, long age, long expire ) {
+  if( FD_UNLIKELY( age <= expire ) )
+    return snprintf( buf, sz, TEXT_GREEN "         -" TEXT_NORMAL );
+  char tmp[32];
+  snprintf_age(tmp, sizeof(tmp), age);
+  return snprintf( buf, sz, TEXT_YELLOW "%s" TEXT_NORMAL, tmp );
+}
+
+/* snprintf_heart formats heartbeat delta. Width 5, color-coded. */
+
+static int
+snprintf_heart( char * buf, size_t sz, long hb_now, long hb_then ) {
+  long dt = hb_now - hb_then;
+  return snprintf( buf, sz, "%s",
+    (dt>0L) ? TEXT_GREEN "    -" TEXT_NORMAL :
+    (!dt)   ? TEXT_RED   " NONE" TEXT_NORMAL :
+              TEXT_BLUE  "RESET" TEXT_NORMAL );
+}
+
+/* snprintf_sig formats signal state and transition. Width 10, color-coded. */
+
+static int
+snprintf_sig( char * buf, size_t sz, ulong sig_now, ulong sig_then ) {
   char buf0[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
   char buf1[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
-  printf( "%s%4s" TEXT_NORMAL "(%s%4s" TEXT_NORMAL ")",
-          sig_color( sig_now  ), fd_cnc_signal_cstr( sig_now,  buf0 ),
-          sig_color( sig_then ), fd_cnc_signal_cstr( sig_then, buf1 ) );
+  char const * c0 = sig_color( sig_now );
+  char const * c1 = sig_color( sig_then );
+  return snprintf( buf, sz, "%s%4s" TEXT_NORMAL "(%s%4s" TEXT_NORMAL ")",
+                   c0, fd_cnc_signal_cstr( sig_now, buf0 ),
+                   c1, fd_cnc_signal_cstr( sig_then, buf1 ) );
 }
 
-/* printf_err_bool will print to stdout a boolean flag that indicates
-   if error condition was present now and then.  Will be exactly 12 char
-   wide and color coded. */
+/* snprintf_err_bool formats boolean error flag transitions. Width 12, color-coded. */
 
-static void
-printf_err_bool( ulong err_now,
-                 ulong err_then ) {
-  printf( "%5s(%5s)", err_now  ? TEXT_RED "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL,
-                      err_then ? TEXT_RED "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL );
+static int
+snprintf_err_bool( char * buf, size_t sz, ulong err_now, ulong err_then ) {
+  return snprintf( buf, sz, "%5s(%5s)",
+    err_now  ? TEXT_RED   "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL,
+    err_then ? TEXT_RED   "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL );
 }
 
-/* printf_err_cnt will print to stdout a 64-bit counter holding the
-   number of times an error condition has happened and how it has
-   changed between now and then.  Will be exactly 19 char wide and color
-   coded.  (The 64-bit counter will be truncated to 32-bit before pretty
-   printing to make it more compact as cumulative value of such counters
-   is often less important than how it is changed between now and then.) */
+/* snprintf_err_cnt formats error count deltas. Width 19, color-coded. */
 
-static void
-printf_err_cnt( ulong cnt_now,
-                ulong cnt_then ) {
+static int
+snprintf_err_cnt( char * buf, size_t sz, ulong cnt_now, ulong cnt_then ) {
   long delta = (long)(cnt_now - cnt_then);
   char const * color = (!delta)   ? TEXT_GREEN  /* no new error counts */
                      : (delta>0L) ? TEXT_RED    /* new error counts */
                      : (cnt_now)  ? TEXT_YELLOW /* decrease of existing error counts?? */
                      :              TEXT_BLUE;  /* reset of the error counter */
-  if(      delta> 99999L ) printf( "%10u(%s>+99999" TEXT_NORMAL ")", (uint)cnt_now, color        );
-  else if( delta<-99999L ) printf( "%10u(%s<-99999" TEXT_NORMAL ")", (uint)cnt_now, color        );
-  else                     printf( "%10u(%s %+6li"  TEXT_NORMAL ")", (uint)cnt_now, color, delta );
+  if(      delta >  99999L ) return snprintf( buf, sz, "%10u(%s>+99999" TEXT_NORMAL ")", (uint)cnt_now, color );
+  else if (delta < -99999L ) return snprintf( buf, sz, "%10u(%s<-99999" TEXT_NORMAL ")", (uint)cnt_now, color );
+  else                      return snprintf( buf, sz, "%10u(%s %+6li"  TEXT_NORMAL ")", (uint)cnt_now, color, delta );
 }
 
-/* printf_seq will print to stdout a 64-bit sequence number and how it
-   has changed between now and then.  Will be exactly 25 char wide and
-   color coded. */
+/* snprintf_seq formats sequence deltas. Width 25, color-coded. */
 
-static void
-printf_seq( ulong seq_now,
-            ulong seq_then ) {
+static int
+snprintf_seq( char * buf, size_t sz, ulong seq_now, ulong seq_then ) {
   long delta = (long)(seq_now - seq_then);
   char const * color = (!delta)   ? TEXT_YELLOW /* no sequence numbers published */
                      : (delta>0L) ? TEXT_GREEN  /* new sequence numbers published */
                      : (seq_now)  ? TEXT_RED    /* sequence number went backward */
                      :              TEXT_BLUE;  /* sequence number reset */
-  if(      delta> 99999L ) printf( "%16lx(%s>+99999" TEXT_NORMAL ")", seq_now, color        );
-  else if( delta<-99999L ) printf( "%16lx(%s<-99999" TEXT_NORMAL ")", seq_now, color        );
-  else                     printf( "%16lx(%s %+6li"  TEXT_NORMAL ")", seq_now, color, delta );
+  if(      delta >  99999L ) return snprintf( buf, sz, "%16lx(%s>+99999" TEXT_NORMAL ")", seq_now, color );
+  else if (delta < -99999L ) return snprintf( buf, sz, "%16lx(%s<-99999" TEXT_NORMAL ")", seq_now, color );
+  else                      return snprintf( buf, sz, "%16lx(%s %+6li"  TEXT_NORMAL ")", seq_now, color, delta );
 }
+
 
 /**********************************************************************/
 
@@ -239,9 +223,16 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
 
 /**********************************************************************/
 
+#define MAX_ROWS 128
+#define MAX_LINE_LEN 512
+
 int
 main( int     argc,
       char ** argv ) {
+
+  char buffer_prev[MAX_ROWS][MAX_LINE_LEN] = {{0}};
+  char buffer_curr[MAX_ROWS][MAX_LINE_LEN] = {{0}};
+
   fd_boot( &argc, &argv );
 
   /* Parse command line arguments */
@@ -391,8 +382,10 @@ main( int     argc,
   double ns_per_tic = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during first wait */
 
   /* Setup TTY */
-
   printf( TEXT_CUP_HOME );
+
+  /* put monitor on its own clean alternate screen */
+  printf( TEXT_ALTBUF_ENABLE TEXT_ED TEXT_CUP_HOME );
 
   long stop = then + duration;
   for(;;) {
@@ -413,44 +406,89 @@ main( int     argc,
     /* FIXME: CONSIDER INCLUDING TILE UPTIME */
     /* FIXME: CONSIDER ADDING INFO LIKE PID OF INSTANCE */
 
+    char line[ MAX_LINE_LEN ];
+    uint row = 0;
+
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    printf( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile  |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq"  TEXT_NEWLINE );
-    printf( "--------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------" TEXT_NEWLINE );
+    snprintf(line, MAX_LINE_LEN, "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ));
+    strcpy(buffer_curr[row++], line);
+
+    snprintf(line, MAX_LINE_LEN,
+        "  tile  |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq" TEXT_NEWLINE);
+    strcpy(buffer_curr[row++], line);
+
+    snprintf(line, MAX_LINE_LEN,
+        "--------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------" TEXT_NEWLINE);
+    strcpy(buffer_curr[row++], line);
+
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-      snap_t * prv = &snap_prv[ tile_idx ];
-      snap_t * cur = &snap_cur[ tile_idx ];
-      printf( " %6s", tile_name[ tile_idx ] );
-      if( FD_LIKELY( cur->pmap & 1UL ) ) {
-        printf( " | " ); printf_stale   ( (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), dt_min );
-        printf( " | " ); printf_heart   ( cur->cnc_heartbeat,        prv->cnc_heartbeat        );
-        printf( " | " ); printf_sig     ( cur->cnc_signal,           prv->cnc_signal           );
-        printf( " | " ); printf_err_bool( cur->cnc_diag_in_backp,    prv->cnc_diag_in_backp    );
-        printf( " | " ); printf_err_cnt ( cur->cnc_diag_backp_cnt,   prv->cnc_diag_backp_cnt   );
-        printf( " | " ); printf_err_cnt ( cur->cnc_diag_sv_filt_cnt, prv->cnc_diag_sv_filt_cnt );
-      } else {
-        printf(       " |          - |     - |          - |        - |                   -" );
-      }
-      if( FD_LIKELY( cur->pmap & 2UL ) ) {
-        printf( " | " ); printf_seq( cur->mcache_seq, prv->mcache_seq );
-      } else {
-        printf( " |                         -" );
-      }
-      if( FD_LIKELY( cur->pmap & 4UL ) ) {
-        printf( " | " ); printf_seq( cur->fseq_seq, prv->fseq_seq );
-      } else {
-        printf( " |                         -" );
-      }
-      printf( TEXT_NEWLINE );
+        snap_t * prv = &snap_prv[ tile_idx ];
+        snap_t * cur = &snap_cur[ tile_idx ];
+
+        char * out = buffer_curr[row];
+        int pos = 0;
+
+        pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " %6s", tile_name[ tile_idx ]);
+
+        if( FD_LIKELY( cur->pmap & 1UL ) ) {
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_stale(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                  (long)(0.5 + ns_per_tic * (double)(toc - cur->cnc_heartbeat)),
+                                  dt_min);
+
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_heart(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                  cur->cnc_heartbeat, prv->cnc_heartbeat);
+
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_sig(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                cur->cnc_signal, prv->cnc_signal);
+
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_err_bool(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                     cur->cnc_diag_in_backp, prv->cnc_diag_in_backp);
+
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_err_cnt(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                    cur->cnc_diag_backp_cnt, prv->cnc_diag_backp_cnt);
+
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_err_cnt(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                    cur->cnc_diag_sv_filt_cnt, prv->cnc_diag_sv_filt_cnt);
+        } else {
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                            " |          - |     - |          - |        - |                   - |                   -");
+        }
+
+        if( FD_LIKELY( cur->pmap & 2UL ) ) {
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_seq(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                cur->mcache_seq, prv->mcache_seq);
+        } else {
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " |                         -");
+        }
+
+        if( FD_LIKELY( cur->pmap & 4UL ) ) {
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " | ");
+            pos += snprintf_seq(out + pos, (size_t)(MAX_LINE_LEN - pos),
+                                cur->fseq_seq, prv->fseq_seq);
+        } else {
+            pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), " |                         -");
+        }
+
+        pos += snprintf(out + pos, (size_t)(MAX_LINE_LEN - pos), TEXT_NEWLINE);
+        row++;
     }
-    printf( TEXT_NEWLINE );
 
     /* Switch to alternate screen and erase junk below
        TODO ideally we'd have the last iteration on the main buffer and only the rest on ALTBUF */
 
-    printf( TEXT_ALTBUF_ENABLE
-            TEXT_ED
-            TEXT_CUP_HOME );
+    for (uint i = 0; i < row; i++) {
+        if (strcmp(buffer_prev[i], buffer_curr[i]) != 0) {
+            printf("\033[%d;1H%s", i + 1, buffer_curr[i]);
+            strcpy(buffer_prev[i], buffer_curr[i]);
+        }
+    }
 
     /* Stop once we've been monitoring for duration ns */
 
