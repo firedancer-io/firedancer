@@ -22,7 +22,8 @@ fd_rent_t *
 fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
                      fd_funk_t *               funk,
                      fd_funk_txn_t *           funk_txn,
-                     fd_spad_t *               spad );
+                     fd_spad_t *               spad,
+                     fd_wksp_t *               wksp );
 
 /* fd_rent_exempt_minimum_balance returns the minimum balance needed
    for an account with the given data_len to be rent exempt.  rent

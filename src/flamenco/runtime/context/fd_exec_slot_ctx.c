@@ -25,7 +25,11 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *)mem;
   fd_slot_bank_new( &self->slot_bank );
 
-  self->sysvar_cache = fd_sysvar_cache_new( fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ) );
+  uchar * sysvar_cache_mem = fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() );
+  if( FD_UNLIKELY( !sysvar_cache_mem ) ) {
+    FD_LOG_WARNING(( "failed to allocate sysvar cache" ));
+  }
+  self->sysvar_cache = fd_sysvar_cache_new( sysvar_cache_mem );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
