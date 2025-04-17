@@ -138,7 +138,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
     memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
 
-    default_slot_hashes_global->hashes_gaddr_off = (ulong)deq_fd_slot_hash_t_leave( slot_hashes ) - (ulong)default_slot_hashes_global;
+    default_slot_hashes_global->hashes_offset = (ulong)deq_fd_slot_hash_t_leave( slot_hashes ) - (ulong)default_slot_hashes_global;
     fd_sysvar_slot_hashes_init( slot_ctx, default_slot_hashes_global );
   }
 
@@ -211,7 +211,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_gaddr_off );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {

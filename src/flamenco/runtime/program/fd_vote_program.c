@@ -2644,7 +2644,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_from_instr_acct_slot_hashes( ctx, 1, &err );
     fd_slot_hashes_t slot_hashes[1];
     if( FD_LIKELY( slot_hashes_global ) ) {
-      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_gaddr_off );
+      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
     } else {
       return err;
     }
@@ -2698,7 +2698,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
     fd_slot_hashes_t slot_hashes[1];
     if( FD_LIKELY( slot_hashes_global ) ) {
-      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_gaddr_off );
+      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
     } else {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     }
@@ -2763,7 +2763,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
     fd_slot_hashes_t slot_hashes[1];
     if( FD_LIKELY( slot_hashes_global ) ) {
-      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_gaddr_off );
+      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
     } else {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     }
@@ -2800,7 +2800,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
     fd_slot_hashes_t slot_hashes[1];
     if( FD_LIKELY( slot_hashes_global ) ) {
-      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_gaddr_off );
+      slot_hashes->hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
     }
 
     fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );

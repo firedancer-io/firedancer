@@ -22,8 +22,8 @@ fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
     return;
   }
 
-  fd_slot_history_inner_global_t * inner      = (fd_slot_history_inner_global_t *)((uchar*)&history->bits + history->bits.bits_gaddr_off);
-  ulong *                          blocks     = (ulong *)((uchar*)inner + inner->blocks_gaddr_off);
+  fd_slot_history_inner_global_t * inner      = (fd_slot_history_inner_global_t *)((uchar*)&history->bits + history->bits.bits_offset);
+  ulong *                          blocks     = (ulong *)((uchar*)inner + inner->blocks_offset);
   ulong                            blocks_len = inner->blocks_len;
 
   // Skipped slots, delete them from history
@@ -188,11 +188,11 @@ fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
                                   ulong                            slot,
                                   fd_wksp_t *                      wksp ) {
   (void)wksp;
-  fd_slot_history_inner_global_t * inner = (fd_slot_history_inner_global_t *)((uchar*)&history->bits + history->bits.bits_gaddr_off);
+  fd_slot_history_inner_global_t * inner = (fd_slot_history_inner_global_t *)((uchar*)&history->bits + history->bits.bits_offset);
   if( FD_UNLIKELY( !inner ) ) {
     FD_LOG_ERR(( "Unable to find slot history inner" ));
   }
-  ulong * blocks = (ulong *)((uchar*)inner + inner->blocks_gaddr_off);
+  ulong * blocks = (ulong *)((uchar*)inner + inner->blocks_offset);
   if( FD_UNLIKELY( !blocks ) ) {
     FD_LOG_ERR(( "Unable to find slot history blocks" ));
   }
