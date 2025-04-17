@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_shred_fd_fec_resolver_h
 #include "../../ballet/shred/fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
@@ -89,6 +90,8 @@
 #define FD_FEC_RESOLVER_ALIGN (128UL)
 struct fd_fec_resolver;
 typedef struct fd_fec_resolver fd_fec_resolver_t;
+
+#define SHRED_CNT_NOT_SET      (UINT_MAX/2U)
 
 /* fd_fec_resolver_sign_fn: used to sign shreds that require a
    retransmitter signature. */
@@ -194,6 +197,31 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_fec_set_t const * * out_fec_set,
                                fd_shred_t const   * * out_shred,
                                fd_bmtree_node_t     * out_merkle_root );
+
+
+/* fd_fec_resolver_done_contains checks if the the FEC with signature
+   lives in the done_map, and thus means it has been completed. */
+int
+fd_fec_resolver_done_contains( fd_fec_resolver_t      * resolver,
+                               fd_ed25519_sig_t const * signature );
+
+/* fd_fec_resolver_shred_query returns the data shred in the FEC set
+   with signature at shred_idx. The return shred is copied to the region
+   of memory pointed to by out_shred.  Note: no validation on shred idx
+   bounds is performed, so it is up to the user to ensure that provided
+   shred_idx is between [0, data_cnt).  No validation that the shred at
+   shred_idx has been recieved is performed either. Assumes that the FEC
+   set with signature lives in the curr_map (i.e., is an in-progress FEC
+   set).
+
+   The use case for this function is solely for the force completion
+   API, which requires the last shred in a FEC set. This function should
+   be removed at the time when force completion is removed. */
+int
+fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
+                             fd_ed25519_sig_t const * signature,
+                             uint                     shred_idx,
+                             fd_shred_t             * out_shred );
 
 /* fd_fec_resolver_force_complete forces completion of a partial FEC set
    in the FEC resolver.
