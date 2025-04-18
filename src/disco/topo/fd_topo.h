@@ -188,9 +188,12 @@ typedef struct {
     } dedup;
 
     struct {
-      char url[ 256 ];
-      char tls_domain_name[ 256 ];
-      char identity_key_path[ PATH_MAX ];
+      char  url[ 256 ];
+      ulong url_len;
+      char  sni[ 256 ];
+      ulong sni_len;
+      char  identity_key_path[ PATH_MAX ];
+      char  key_log_path[ PATH_MAX ];
     } bundle;
 
     struct {
