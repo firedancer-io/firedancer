@@ -3,6 +3,8 @@
 
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../waltz/quic/fd_quic.h"
+#include "../../../../util/net/fd_pcapng.h"
+#include "../../../../waltz/quic/tests/fd_quic_test_helpers.h"
 #include "../../../../waltz/tls/test_tls_helper.h"
 
 #include <errno.h>
@@ -141,6 +143,14 @@ service_quic( fd_benchs_ctx_t * ctx ) {
           /* set protocol */
           buf[9] = 17;
 
+          /* set udp source port */
+          buf[20 + 0] = (uchar)( 9007 >> 8 );
+          buf[20 + 1] = (uchar)( 9007      );
+
+          /* set udp dest port */
+          buf[20 + 2] = (uchar)( 12000 >> 8 );
+          buf[20 + 3] = (uchar)( 12000      );
+
           /* set udp length */
           buf[20 + 4] = (uchar)( udp_len >> 8 );
           buf[20 + 5] = (uchar)( udp_len      );
@@ -149,6 +159,7 @@ service_quic( fd_benchs_ctx_t * ctx ) {
           buf[2] = (uchar)( ip_len >> 8 );
           buf[3] = (uchar)( ip_len      );
 
+          fd_pcapng_fwrite_pkt( fd_log_wallclock(), buf, ip_len, fd_quic_test_pcap );
           fd_quic_process_packet( ctx->quic, buf, ip_len );
         }
       } else if( FD_UNLIKELY( revents & POLLERR ) ) {
@@ -299,7 +310,7 @@ during_frag( fd_benchs_ctx_t * ctx,
 
       /* try to connect */
       uint   dest_ip   = 0;
-      ushort dest_port = fd_ushort_bswap( ctx->quic_port );
+      ushort dest_port = ctx->quic_port;
 
       ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port, 0U, 12000 );
 
@@ -504,8 +515,14 @@ unprivileged_init( fd_topo_t *      topo,
     quic->cb.now              = quic_now;
     quic->cb.now_ctx          = NULL;
     quic->cb.quic_ctx         = ctx;
+    quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
 
-    fd_quic_set_aio_net_tx( quic, quic_tx_aio );
+    fd_quic_test_pcap = fopen( "bench.pcapng", "w" );
+    fd_aio_pcapng_start_l3( fd_quic_test_pcap );
+
+    static fd_aio_pcapng_t pcapng_tx[1];
+    fd_aio_pcapng_join( pcapng_tx, quic_tx_aio, fd_quic_test_pcap );
+    fd_quic_set_aio_net_tx(quic, fd_aio_pcapng_get_aio( pcapng_tx ));
     if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
     ulong hdr_sz = 20 + 8;
