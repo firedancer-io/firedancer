@@ -1,6 +1,6 @@
 #include "fd_keyguard.h"
 #include "fd_keyguard_client.h"
-#include "../plugin/fd_bundle_crank_constants.h"
+#include "../bundle/fd_bundle_crank_constants.h"
 
 struct fd_keyguard_sign_req {
   fd_keyguard_authority_t * authority;
