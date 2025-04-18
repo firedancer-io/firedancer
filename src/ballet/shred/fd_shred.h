@@ -32,7 +32,7 @@
       | Merkle node #1         | 20 bytes
       ..........................
 
-       for resigned shreds shreds, followed by:
+       for resigned shreds, followed by:
 
       +------------------------+
       | signature              | 64 bytes

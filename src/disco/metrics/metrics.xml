@@ -47,7 +47,7 @@ metric introduced.
     <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
     <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
     <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
-    <counter name="BackpressureCount" summary="Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." />
+    <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing." />
     <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
 </common>
 

@@ -124,7 +124,7 @@
 #define FD_METRICS_COUNTER_TILE_BACKPRESSURE_COUNT_OFF  (7UL)
 #define FD_METRICS_COUNTER_TILE_BACKPRESSURE_COUNT_NAME "tile_backpressure_count"
 #define FD_METRICS_COUNTER_TILE_BACKPRESSURE_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_TILE_BACKPRESSURE_COUNT_DESC "Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing."
+#define FD_METRICS_COUNTER_TILE_BACKPRESSURE_COUNT_DESC "Number of times the tile has had to wait for one of more consumers to catch up to resume publishing."
 #define FD_METRICS_COUNTER_TILE_BACKPRESSURE_COUNT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_TILE_REGIME_DURATION_NANOS_OFF  (8UL)

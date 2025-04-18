@@ -55,8 +55,8 @@ fd_deshredder_init( fd_deshredder_t *          shredder,
    Concatenates a batch of shreds provided by the caller in
    `fd_deshredder_init`.
 
-   Note that it usually takes multiple calls to process to process all
-   provided shreds because each block can have numerous batches.
+   Note that it usually takes multiple calls to process all provided
+   shreds because each block can have numerous batches.
 
    If at least one shred was consumed, returns the number of bytes
    written to `buf` which the caller previously provided in

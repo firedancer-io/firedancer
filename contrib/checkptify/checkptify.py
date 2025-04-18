@@ -13,9 +13,9 @@ FULL_ENDPOINT="/snapshot.tar.bz2"
 NUM_PAGES=200
 INDEX_MAX=75000000
 
-# Example Command: python3 checkptify.py --firedancer-dir /home/svc-firedancer/firedancer/ 
-#                  --output-dir /data/snapshot_converter/snapshots/ 
-#                  --solana-url http://entrypoint2.mainnet-beta.solana.com:8899 
+# Example Command: python3 checkptify.py --firedancer-dir /home/svc-firedancer/firedancer/
+#                  --output-dir /data/snapshot_converter/snapshots/
+#                  --solana-url http://entrypoint2.mainnet-beta.solana.com:8899
 #                  --num-pages 200 --index-max 75000000 --pull-clean True --keep-checkpts 2
 
 parser = argparse.ArgumentParser( description="Ingest snapshots, convert to checkpoints, and upload to gcloud" )
@@ -40,7 +40,7 @@ keep_checkpts   = args.keep_checkpts
 os.chdir( firedancer_dir )
 if not pull_clean:
     subprocess.run( "git pull", shell = True )
-    subprocess.run( "make distclean; make -j", shell = True ) 
+    subprocess.run( "make distclean; make -j", shell = True )
 
 # Go to snapshot directory remove all incremental snapshots and checkpoints
 os.chdir( output_dir )
@@ -67,7 +67,7 @@ print( " ".join(  full_command ) )
 subprocess.run( " ".join(  full_command ), shell = True )
 
 # If the incremental snapshot matches the full snapshot, don't do anything. However,
-# it it doesn't remove and redownload the main snapshot
+# it doesn't remove and redownload the main snapshot
 incremental_start_slot    = 0
 incremental_end_slot      = 0
 incremental_snapshot_file = ""
@@ -77,7 +77,7 @@ for file in os.listdir( output_dir ):
         incremental_end_slot   = int( file.split( "-" )[3] )
         print( output_dir + file + " with start slot " + str(incremental_start_slot) + " and end slot " + str(incremental_end_slot) )
         incremental_snapshot_file = file
-    
+
 if full_snapshot_slot != incremental_start_slot:
     if full_snapshot_file != "":
         os.remove( output_dir + full_snapshot_file )
@@ -88,7 +88,7 @@ if full_snapshot_slot != incremental_start_slot:
 for file in os.listdir( OUTPUT_DIR ):
     if "snapshot" in file and "incremental" not in file:
         full_snapshot_file = file
-    
+
 print( "full snapshot file: {}".format( full_snapshot_file ) )
 print( "incremental snapshot file: {}".format( incremental_snapshot_file ) )
 

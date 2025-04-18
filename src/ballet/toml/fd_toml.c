@@ -1570,7 +1570,7 @@ add:
 
 static int
 fd_toml_parse_val( fd_toml_parser_t * parser ) {
-  /* consider consider some lookahead for better performance */
+  /* consider some lookahead for better performance */
   if( SUB_PARSE( fd_toml_parse_string      ( parser ) ) ) return 1;
   if( SUB_PARSE( fd_toml_parse_boolean     ( parser ) ) ) return 1;
   if( SUB_PARSE( fd_toml_parse_array       ( parser ) ) ) return 1;
