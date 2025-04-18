@@ -72,4 +72,4 @@ read: (or (eq (arg 0) tmp_fd)
           (eq (arg 0) tmp_inc_fd))
 
 # snapshot
-readlink:
+readlink
