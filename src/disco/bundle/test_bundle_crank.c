@@ -6,7 +6,7 @@
 
 /* crank2:  */
 FD_IMPORT_BINARY( payload_2ni,
-    "src/disco/plugin/fixtures/2niAy2BYpfqTuBM7pZtTkHFnWM2x7bFcFL1oyR1ixqGRcG5uydjZiG5AR8PRYHAaQ3JqA8JYyCRoc3VCwohQVwYP.bin" );
+    "src/disco/bundle/fixtures/2niAy2BYpfqTuBM7pZtTkHFnWM2x7bFcFL1oyR1ixqGRcG5uydjZiG5AR8PRYHAaQ3JqA8JYyCRoc3VCwohQVwYP.bin" );
 
 FD_STATIC_ASSERT( sizeof(fd_bundle_crank_2_t)==FD_BUNDLE_CRANK_2_SZ, crank );
 FD_STATIC_ASSERT( sizeof(fd_bundle_crank_3_t)==FD_BUNDLE_CRANK_3_SZ, crank );
