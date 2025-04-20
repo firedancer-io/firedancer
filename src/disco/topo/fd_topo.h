@@ -481,6 +481,7 @@ typedef struct {
   ulong        rlimit_address_space;
   ulong        rlimit_data;
   int          for_tpool;
+  int          disable_sandbox;
 
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
