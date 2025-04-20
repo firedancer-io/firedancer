@@ -64,13 +64,9 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   }
   ctx->tcp_sock = tcp_sock;
 
-  //if( FD_UNLIKELY( 0!=setsockopt( tcp_sock, SOL_SOCKET, SO_RCVBUF, ... ) ) ) {
-  //  FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", so_rcvbuf, errno, fd_io_strerror( errno ) ));
-  //}
-
-  //if( FD_UNLIKELY( 0!=setsockopt( tcp_sock, SOL_SOCKET, SO_SNDBUF, ... ) ) ) {
-  //  FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", so_rcvbuf, errno, fd_io_strerror( errno ) ));
-  //}
+  if( FD_UNLIKELY( 0!=setsockopt( tcp_sock, SOL_SOCKET, SO_RCVBUF, &ctx->so_rcvbuf, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", ctx->so_rcvbuf, errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( fcntl( tcp_sock, F_SETFL, O_NONBLOCK )==-1 ) ) {
     FD_LOG_ERR(( "fcntl(tcp_sock,F_SETFL,O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -226,6 +222,8 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
     *charge_busy = 1;
     return;
   }
+  long io_ts = fd_tickcount();
+  if( *charge_busy ) ctx->last_io_ts = io_ts;
 
   /* Any new error? */
   if( FD_UNLIKELY( ctx->defer_reset ) ) {
@@ -236,7 +234,7 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
 
   /* Are we ready to issue a new request? */
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
-  if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, fd_tickcount() ) ) ) return;
+  if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, io_ts ) ) ) return;
 
   /* Drive auth */
   if( FD_UNLIKELY( ctx->auther.needs_poll ) ) {

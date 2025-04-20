@@ -63,8 +63,14 @@ struct fd_bundle_tile {
 
   /* TCP socket */
   int  tcp_sock;
+  int  so_rcvbuf;
   uint tcp_sock_connected : 1;
   uint defer_reset : 1;
+
+  /* Idle pings */
+  long last_io_ts;
+  long next_ping_ts;
+  long ping_threshold_ticks;
 
   /* gRPC client */
   void *                   grpc_client_mem;

@@ -200,6 +200,7 @@ typedef struct {
       ulong sni_len;
       char  identity_key_path[ PATH_MAX ];
       char  key_log_path[ PATH_MAX ];
+      ulong buf_sz;
     } bundle;
 
     struct {

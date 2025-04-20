@@ -337,7 +337,7 @@ unprivileged_init( fd_topo_t *      topo,
       sign_in->mcache,
       sign_in->dcache
   ) ) ) ) {
-    FD_LOG_ERR(( "fd_keyguard_client_join failed" )); /* unreachable */
+    FD_LOG_ERR(( "fd_keyguard_client_join failed" )); /* unreacha ble */
   }
 
   ctx->identity_switched = 0;
@@ -346,6 +346,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->verify_out = out1   ( topo, tile, "bundle_verif" );
   ctx->plugin_out = out1opt( topo, tile, "bundle_plugi" );
+
+  /* Set socket receive buffer size */
+  ulong so_rcvbuf = tile->bundle.buf_sz + 65536UL;
+  if( so_rcvbuf > INT_MAX ) FD_LOG_ERR(( "Invalid [development.bundle.buffer_size_kib]: too large" ));
+  ctx->so_rcvbuf = (int)so_rcvbuf;
+
+  /* Set idle ping timer */
+  ctx->ping_threshold_ticks = (long)( 3e9 * fd_tempo_tick_per_ns( NULL ) );
 }
 
 static ulong
