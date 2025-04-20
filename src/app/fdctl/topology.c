@@ -7,6 +7,7 @@
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../waltz/http/fd_url.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
 
@@ -248,6 +249,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
+  fd_topo_obj_t * dns_cache_obj = NULL;
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     fd_topob_wksp( topo, "bundle_verif" );
     fd_topob_wksp( topo, "bundle_sign"  );
@@ -255,6 +257,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "pack_sign"    );
     fd_topob_wksp( topo, "sign_pack"    );
     fd_topob_wksp( topo, "bundle"       );
+    fd_topob_wksp( topo, "dns"          );
+    fd_topob_wksp( topo, "dns_cache"    );
 
     /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
     /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  9UL,                       1UL );
@@ -262,7 +266,8 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_link( topo, "pack_sign",    "pack_sign",    65536UL,                                  1232UL,                    1UL );
     /**/                 fd_topob_link( topo, "sign_pack",    "sign_pack",    128UL,                                    64UL,                      1UL );
 
-    /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+    fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+    fd_topo_tile_t * dns_tile    = fd_topob_tile( topo, "dns",     "dns",     "metric_in", ULONG_MAX,                     0, 0 );
 
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL, "bundle_verif", 0UL );
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "verify", i,             "metric_in", "bundle_verif",   0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -276,6 +281,15 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_out( topo, "pack",   0UL,                        "pack_sign",      0UL                                                );
     /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "sign_pack",      0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
+
+    dns_cache_obj = fd_topob_obj( topo, "dns_cache", "dns_cache" );
+    fd_topob_tile_uses( topo, dns_tile,    dns_cache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, bundle_tile, dns_cache_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+    FD_TEST( fd_pod_insertf_ulong( topo->props,  4, "obj.%lu.name_max", dns_cache_obj->id ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, 32, "obj.%lu.addr_max", dns_cache_obj->id ) );
+    ulong seed;
+    FD_TEST( fd_rng_secure( &seed, sizeof(ulong) ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, seed, "obj.%lu.seed", dns_cache_obj->id ) );
 
     if( plugins_enabled ) {
       fd_topob_wksp( topo, "bundle_plugi" );
@@ -365,6 +379,19 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
       /* already configured */
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "dns" ) ) ) {
+
+      fd_url_t url[1];
+      if( FD_UNLIKELY( !fd_url_parse_cstr( url, config->tiles.bundle.url, strlen( config->tiles.bundle.url ), NULL ) ) ) {
+        FD_LOG_ERR(( "Invalid [tiles.bundle.url]: not a valid HTTP URL" ));
+      }
+      if( FD_UNLIKELY( url->host_len > 255 ) ) {
+        FD_LOG_ERR(( "Invalid [tiles.bundle.url]: host name too long" ));
+      }
+      fd_memcpy( tile->dns.bundle_domain, url->host, url->host_len );
+      tile->dns.bundle_domain_len = (uchar)url->host_len;
+      tile->dns.dns_cache_obj_id = dns_cache_obj->id;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
 
