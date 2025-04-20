@@ -2,6 +2,7 @@
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_ip6.h"
+#include <stdlib.h>
 
 int
 main( int     argc,

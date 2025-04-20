@@ -169,6 +169,12 @@ typedef struct {
     } netlink;
 
     struct {
+      ulong dns_cache_obj_id;
+      uchar bundle_domain_len;
+      char  bundle_domain[ 255 ]; /* not a cstr */
+    } dns;
+
+    struct {
       uint   out_depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
