@@ -187,6 +187,8 @@ agave_boot( config_t const * config ) {
     if( FD_UNLIKELY( setenv( "SOLANA_METRICS_CONFIG", config->reporting.solana_metrics_config, 1 ) ) )
       FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+  if( FD_UNLIKELY( setenv( "RUST_BACKTRACE", "1", 1 ) ) )
+    FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_LOG_INFO(( "Running Agave validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
