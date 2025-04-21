@@ -4,12 +4,13 @@
 #include "generated/fd_repair_tile_seccomp.h"
 
 #include "../store/util.h"
-
 #include "../../flamenco/repair/fd_repair.h"
+
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/topo/fd_pod_format.h"
@@ -80,6 +81,8 @@ struct fd_repair_tile_ctx {
   fd_forest_t  * forest;
   fd_fec_repair_t  * fec_repair;
   fd_fec_chainer_t * fec_chainer;
+  ulong curr_turbine_slot;
+  ulong repairing_slot;
 
   uchar       identity_private_key[ 32 ];
   fd_pubkey_t identity_public_key;
@@ -152,7 +155,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint( FD_NEEDED_KEY_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),             fd_forest_footprint( FD_FOREST_ELE_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( FD_FOREST_ELE_MAX * 4 ) ); // TODO: fix this
@@ -227,39 +230,6 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
 
     fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
   }
-}
-
-FD_FN_UNUSED static inline void
-handle_new_repair_requests( fd_repair_tile_ctx_t * ctx,
-                            uchar const *          buf,
-                            ulong                  buf_sz ) {
-
-  fd_repair_request_t const * repair_reqs = (fd_repair_request_t const *) buf;
-  ulong repair_req_cnt = buf_sz / sizeof(fd_repair_request_t);
-
-  for( ulong i=0UL; i<repair_req_cnt; i++ ) {
-    fd_repair_request_t const * repair_req = &repair_reqs[i];
-    int rc = 0;
-    switch(repair_req->type) {
-      case FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX: {
-        rc = fd_repair_need_window_index( ctx->repair, repair_req->slot, repair_req->shred_index );
-        break;
-      }
-      case FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX: {
-        rc = fd_repair_need_highest_window_index( ctx->repair, repair_req->slot, repair_req->shred_index );
-        break;
-      }
-      case FD_REPAIR_REQ_TYPE_NEED_ORPHAN: {
-        rc = fd_repair_need_orphan( ctx->repair, repair_req->slot );
-        break;
-      }
-    }
-
-    if( rc < 0 ) {
-      FD_LOG_DEBUG(( "failed to issue repair request" ));
-    }
-  }
-
 }
 
 static inline void
@@ -492,11 +462,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_STORE ) ) {
-    // handle_new_repair_requests( ctx, ctx->buffer, sz );
-    return;
-  }
-
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
     if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
       fd_forest_init( ctx->forest, fd_fseq_query( ctx->wmark ) );
@@ -508,6 +473,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     uint shred_tile_idx = (uint)( in_idx - ctx->shred_out_ctx[0].idx );
     int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
     fd_fec_intra_t * fec            = NULL;
+    FD_LOG_INFO(("repair tile received shred: %lu, %u, fec: %u", shred->slot, shred->idx, shred->fec_set_idx));
+    ctx->curr_turbine_slot = fd_ulong_max( ctx->curr_turbine_slot, shred->slot );
     if( FD_LIKELY( !is_code ) ) {
       fec = fd_fec_repair_insert( ctx->fec_repair, shred->slot, shred->fec_set_idx, shred->idx, 0, is_code, shred_tile_idx );
       fec->parent_off = shred->data.parent_off;
@@ -531,6 +498,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
       int data_complete = shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE;
       int slot_complete = shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+      FD_LOG_INFO(("repair tile CHAINER INSERT shred: %lu, idx %u, fec: %u", shred->slot, shred->idx, shred->fec_set_idx));
       FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, fec->data_cnt, data_complete, slot_complete, shred->data.parent_off, merkle, merkle ) );
       fd_fec_repair_remove( ctx->fec_repair, fec->key );
       /* TODO set range ops */
@@ -610,6 +578,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem FD_PARAM_UNUSED,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
+
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;
@@ -617,6 +586,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsrepair < (long)50e6 ) ) return;
   ctx->tsrepair = now;
+  fd_repair_settime( ctx->repair, now );
 
   if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) return;
 
@@ -625,6 +595,18 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   ulong                  null     = fd_forest_pool_idx_null( pool );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
   fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
+
+  fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
+  get_peers( ctx->repair, ids, FD_REPAIR_NUM_NEEDED_PEERS );
+
+#define LOOP_PEERS_AND_SEND( tag ) \
+  for( int i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {                          \
+    if( FD_LIKELY( ids[i] ) ) {                                                \
+      fd_active_elem_t * peer = fd_repair_active_query( ctx->repair, ids[i] ); \
+      fd_repair_send_request( ctx->repair, tag, peer );                        \
+    }                                                                          \
+  }
+
   for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
        !fd_forest_frontier_iter_done( iter, frontier, pool );
        iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
@@ -633,11 +615,23 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     fd_forest_ele_t *       tail = head;
     fd_forest_ele_t *       prev = NULL;
     while( FD_LIKELY( head ) ) {
-      for( uint idx = head->buffered_idx + 1; idx < fd_ulong_min( head->complete_idx, FD_REEDSOL_DATA_SHREDS_MAX); idx++ ) {
+
+      /*if( FD_UNLIKELY( head->complete_idx == UINT_MAX ) ) {
+        uint highest = head->buffered_idx == UINT_MAX ? 0 : head->buffered_idx;
+        ulong tag = fd_repair_need_highest_window_index( ctx->repair, head->slot, highest );
+        if( !tag ) break;
+        LOOP_PEERS_AND_SEND( tag );
+      }*/
+
+      for( uint idx = head->buffered_idx + 1; idx < fd_ulong_min( head->complete_idx, head->buffered_idx + 5 ); idx++ ) {
         if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
-          fd_repair_need_window_index( ctx->repair, head->slot, idx );
+          ulong tag = fd_repair_need_window_index( ctx->repair, head->slot, idx );
+          if( !tag ) continue;
+          LOOP_PEERS_AND_SEND( tag );
         };
       }
+      ctx->repairing_slot = head->slot;
+      break; // only sending to root of each frontier for now
       fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
       while( FD_LIKELY( child ) ) { /* append children to frontier */
         tail->prev     = fd_forest_pool_idx( pool, child );
@@ -655,7 +649,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
        !fd_forest_orphaned_iter_done( iter, orphaned, pool );
        iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
-    fd_repair_need_orphan( ctx->repair, orphan->slot );
+    ulong tag = 0;
+    if( FD_LIKELY( tag = fd_repair_need_orphan( ctx->repair, orphan->slot ) ) ){
+      LOOP_PEERS_AND_SEND( tag );
+    }
 
     // fd_forest_ele_t * head = orphan;
     // fd_forest_ele_t * tail = head;
@@ -699,6 +696,8 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
 
   fd_repair_continue( ctx->repair );
+
+  FD_LOG_INFO(("done with this after_credit iter"));
 }
 
 static inline void
@@ -709,6 +708,20 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( now - ctx->tsprint > (long)1e9 ) ) {
     fd_forest_print( ctx->forest );
     ctx->tsprint = fd_log_wallclock();
+
+    if( ctx->curr_turbine_slot == 0 || ctx->repairing_slot == 0 ) {
+      return;
+    }
+
+    FD_LOG_NOTICE( ( "\n\n[Repair]\n"
+      "current turbine: %lu\n"
+      "repairing:       %lu\n"
+      "slots behind:    %lu\n"
+      "live:            %d\n",
+      ctx->curr_turbine_slot,
+      ctx->repairing_slot,
+      ctx->curr_turbine_slot - ctx->repairing_slot,
+      ( ctx->curr_turbine_slot - ctx->repairing_slot ) < 5 ) );
   }
 
   if( FD_UNLIKELY( !ctx->stem ) ) {
@@ -922,7 +935,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Scratch mem setup */
 
   ctx->blockstore = &ctx->blockstore_ljoin;
-  ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+  ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint( FD_NEEDED_KEY_MAX ) );
   ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( FD_FOREST_ELE_MAX ) );
   ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
@@ -978,7 +991,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Repair set up */
 
-  ctx->repair      = fd_repair_join( fd_repair_new( ctx->repair, ctx->repair_seed ) );
+  ctx->repair      = fd_repair_join( fd_repair_new( ctx->repair, FD_NEEDED_KEY_MAX, ctx->repair_seed ) );
   ctx->forest  = fd_forest_join( fd_forest_new( ctx->forest, FD_FOREST_ELE_MAX, ctx->repair_seed ) );
   ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
   ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, FD_FOREST_ELE_MAX * 4, 0 ) );

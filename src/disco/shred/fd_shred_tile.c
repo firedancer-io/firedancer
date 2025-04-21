@@ -572,13 +572,12 @@ after_frag( fd_shred_ctx_t *    ctx,
       return;
     } /* FIXME: Is there a chance something will be freed so fast that the sig lives in free_list? */
 
-    FD_LOG_INFO(( "FEC completion message from repair tile, and shred tile %lu has not completed it yet.", ctx->round_robin_id ));
-
     uint last_idx = fd_disco_repair_shred_sig_last_shred_idx( sig );
     fd_shred_t out_last_shred[1] = { 0 };
     int rv = fd_fec_resolver_last_shred_query( ctx->resolver, shred_sig, last_idx, out_last_shred );
     if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_OKAY ) ) FD_LOG_ERR(( "Shred tile %lu does not have the shred stored in fec_resolver", ctx->round_robin_id ));
 
+    FD_LOG_INFO(( "FEC completion message for slot %lu, fec %u from repair tile, and shred tile %lu has not completed it yet.", out_last_shred[0].slot, out_last_shred[0].fec_set_idx, ctx->round_robin_id ));
     fd_fec_set_t const * out_fec_set[1];
     rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
     if( rv != FD_FEC_RESOLVER_SHRED_COMPLETES )
@@ -609,6 +608,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];
+
+    FD_LOG_INFO(( "processing shred %lu, idx %u, code %d?", shred->slot, shred->idx, fd_shred_is_code( fd_shred_type( shred->variant ) ) ));
 
     long add_shred_timing  = -fd_tickcount();
     int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &out_merkle_root );
@@ -648,12 +649,19 @@ after_frag( fd_shred_ctx_t *    ctx,
         ulong sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
+        ulong repair_nonce_sz = fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR*4;
+        uint  nonce = 0U;
+        if( repair_nonce_sz ) {
+          nonce = fd_uint_load_4( shred_buffer + shred_buffer_sz );
+        }
 
         ulong sz = fd_shred_header_sz( shred->variant );
-        fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), shred, sz );
+        uchar * dst = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
+        fd_memcpy( dst, shred, sz );
+        FD_STORE( uint, dst + sz, nonce );
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
-        ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
+        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz+sizeof(uint), 0UL, ctx->tsorig, tspub );
+        ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz+sizeof(uint), ctx->repair_out_chunk0, ctx->repair_out_wmark );
       }
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
@@ -726,6 +734,9 @@ after_frag( fd_shred_ctx_t *    ctx,
      repair will finish validating the FEC set first. */
 
     fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ data_shred_cnt - 1 ] );
+
+    FD_LOG_INFO(("SHRED TILE completing slot %lu, fec_set_idx %u, data_shred_cnt %lu. This was triggered from IN_KIND_NET? %d. If not, it was triggered from %lu, seq: %lu",
+                  last->slot, last->fec_set_idx, data_shred_cnt, ctx->in_kind[in_idx]==IN_KIND_NET, in_idx, seq ));
 
     /* Copy the last shred and merkle root of the FEC set into the frag. */
     ulong   sig   =  fd_disco_shred_repair_fec_sig( last->slot, last->fec_set_idx, (uint)data_shred_cnt, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );

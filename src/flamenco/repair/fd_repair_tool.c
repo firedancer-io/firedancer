@@ -288,8 +288,8 @@ int main(int argc, char **argv) {
 
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
-  void * shm = fd_valloc_malloc(valloc, fd_repair_align(), fd_repair_footprint());
-  fd_repair_t * glob = fd_repair_join(fd_repair_new(shm, seed ));
+  void * shm = fd_valloc_malloc(valloc, fd_repair_align(), fd_repair_footprint( FD_NEEDED_KEY_MAX ));
+  fd_repair_t * glob = fd_repair_join(fd_repair_new(shm, FD_NEEDED_KEY_MAX, seed ));
 
   if ( fd_repair_set_config(glob, &config) )
     return 1;
