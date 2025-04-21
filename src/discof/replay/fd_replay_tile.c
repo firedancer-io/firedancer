@@ -2165,11 +2165,6 @@ read_snapshot( void *              _ctx,
                                                        ctx->runtime_spad,
                                                        &exec_para_ctx );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-
-  fd_blockstore_init( ctx->slot_ctx->blockstore,
-                      ctx->blockstore_fd,
-                      FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
-                      &ctx->slot_ctx->slot_bank );
 }
 
 static void
@@ -2321,6 +2316,11 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->capture_ctx,
                            NULL,
                            ctx->runtime_spad );
+  fd_blockstore_init( ctx->slot_ctx->blockstore,
+                      ctx->blockstore_fd,
+                      FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
+                      &ctx->slot_ctx->slot_bank );
+
   ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
   init_after_snapshot( ctx, stem );
