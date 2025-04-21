@@ -61,16 +61,17 @@ int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
   sprintf(fp, "%s_size", type);
   t->size_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  if ((  t->footprint_fun == NULL) ||
-      (  t->align_fun == NULL) ||
-      (  t->new_fun == NULL) ||
-      (  t->decode_fun == NULL) ||
-      (  t->decode_footprint_fun == NULL) ||
-      (  t->walk_fun == NULL) ||
-      (  t->encode_fun == NULL) ||
-      (  t->destroy_fun == NULL) ||
-      (  t->size_fun == NULL))
+  if(( t->footprint_fun == NULL ) ||
+     ( t->align_fun == NULL ) ||
+     ( t->new_fun == NULL ) ||
+     ( t->decode_footprint_fun == NULL ) ||
+     ( t->decode_fun == NULL ) ||
+     ( t->walk_fun == NULL ) ||
+     ( t->encode_fun == NULL ) ||
+     ( t->destroy_fun == NULL ) ||
+     ( t->size_fun == NULL )) {
     return -1;
+  }
   return 0;
 }
 

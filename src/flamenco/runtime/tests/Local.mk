@@ -1,5 +1,5 @@
-$(call add-hdrs,harness/generated/context.pb.h,harness/generated/elf.pb.h,harness/generated/invoke.pb.h,harness/generated/txn.pb.h,harness/generated/block.pb.h,harness/generated/vm.pb.h,harness/generated/shred.pb.h harness/generated/metadata.pb.h harness/generated/pack.pb.h)
-$(call add-objs,harness/generated/context.pb harness/generated/elf.pb harness/generated/invoke.pb harness/generated/txn.pb harness/generated/block.pb harness/generated/vm.pb harness/generated/shred.pb harness/generated/metadata.pb harness/generated/pack.pb,fd_flamenco)
+$(call add-hdrs,harness/generated/context.pb.h,harness/generated/elf.pb.h,harness/generated/invoke.pb.h,harness/generated/txn.pb.h,harness/generated/block.pb.h,harness/generated/vm.pb.h,harness/generated/type.pb.h,harness/generated/shred.pb.h harness/generated/metadata.pb.h harness/generated/pack.pb.h)
+$(call add-objs,harness/generated/context.pb harness/generated/elf.pb harness/generated/invoke.pb harness/generated/txn.pb harness/generated/block.pb harness/generated/vm.pb harness/generated/type.pb harness/generated/shred.pb harness/generated/metadata.pb harness/generated/pack.pb,fd_flamenco)
 
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
