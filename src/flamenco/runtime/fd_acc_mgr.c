@@ -62,27 +62,33 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
                               ulong                   min_data_sz,
                               fd_funk_rec_t **        opt_out_rec,
                               fd_funk_rec_prepare_t * out_prepare,
+                              fd_funk_rec_query_t   * out_query,
                               int *                   opt_err ) {
   fd_wksp_t *       wksp = fd_funk_wksp(funk);
   fd_funk_rec_key_t id   = fd_funk_acc_key( pubkey );
 
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, txn, &id, query );
+  fd_funk_rec_t const * rec_ = fd_funk_rec_query_try( funk, txn, &id, query );
+  char keystr[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( pubkey->uc, NULL, keystr );
+  // FD_LOG_WARNING(("getting account meta for pubkey: %s", keystr));
 
   int funk_err = 0;
 
   /* the record does not exist in the current funk transaction */
-  if( !rec ) {
+  if( !rec_ ) {
     /* clones a record from an ancestor transaction */
-    rec = fd_funk_rec_clone( funk, txn, &id, out_prepare, &funk_err );
+    // FD_LOG_WARNING(("cloning record!"));
+    rec_ = fd_funk_rec_clone( funk, txn, &id, out_prepare, &funk_err );
 
-    if( rec == NULL ) {
+    if( rec_ == NULL ) {
       /* the record does not exist at all */
       if( FD_LIKELY( funk_err==FD_FUNK_ERR_KEY ) ) {
         /* create a new record */
         if( do_create ) {
-          rec = fd_funk_rec_prepare( funk, txn, &id, out_prepare, &funk_err );
-          if( rec == NULL ) {
+          // FD_LOG_WARNING(("creating record!"));
+          rec_ = fd_funk_rec_prepare( funk, txn, &id, out_prepare, &funk_err );
+          if( rec_ == NULL ) {
             /* Irrecoverable funky internal error [[noreturn]] */
             FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funk_strerror( funk_err ) ));
           }
@@ -95,7 +101,17 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
         FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funk_strerror( funk_err ) ));
       }
     }
+
+    if( fd_funk_rec_query_try( funk, txn, &id, query )!=NULL ) {
+      // FD_LOG_WARNING(("canceling record because it was already published!"));
+      fd_funk_rec_cancel( out_prepare );
+    }
+
+    /* publish record here */
+    fd_funk_rec_publish( out_prepare );
   }
+
+  fd_funk_rec_t * rec = fd_funk_rec_modify_prepare( funk, txn, &id, out_query );
 
   ulong sz = sizeof(fd_account_meta_t)+min_data_sz;
   void * val;

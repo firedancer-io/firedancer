@@ -199,6 +199,7 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
                               ulong                   min_data_sz,
                               fd_funk_rec_t **        opt_out_rec,
                               fd_funk_rec_prepare_t * out_prepare,
+                              fd_funk_rec_query_t *   out_query,
                               int *                   opt_err );
 
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human

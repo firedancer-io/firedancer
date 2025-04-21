@@ -137,6 +137,8 @@ fd_tar_io_reader_delete( fd_tar_io_reader_t * this ) {
 int
 fd_tar_io_reader_advance( fd_tar_io_reader_t * this ) {
 
+  static ulong total_bytes_read = 0UL;
+
   uchar buf[ 16384 ];
   ulong buf_sz = 0UL;
   int read_err = fd_io_istream_obj_read( &this->src, buf, sizeof(buf), &buf_sz );
@@ -147,7 +149,9 @@ fd_tar_io_reader_advance( fd_tar_io_reader_t * this ) {
     return read_err;
   }
 
-  int tar_err = fd_tar_read( this->reader, buf, buf_sz, MANIFEST_DONE );
+  ulong bytes_read = 0;
+  int tar_err = fd_tar_read( this->reader, buf, buf_sz, MANIFEST_DONE, &bytes_read, total_bytes_read );
+  total_bytes_read += bytes_read;
   if( tar_err==MANIFEST_DONE ) {
     FD_LOG_NOTICE(( "Finished reading manifest" ));
     return tar_err;

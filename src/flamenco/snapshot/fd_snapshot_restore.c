@@ -266,7 +266,9 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   /* Decode manifest placing dynamic data structures onto slot context
      heap.  Once the epoch context heap is separated out, we need to
      revisit this. */
+    FD_LOG_WARNING(("restoring manifest!"));
 
+     FD_LOG_WARNING(("restore->buf_sz: %lu", restore->buf_sz));
   fd_bincode_decode_ctx_t decode = {
     .data    = restore->buf,
     .dataend = restore->buf + restore->buf_sz
@@ -440,7 +442,8 @@ fd_snapshot_restore_accv_prepare( fd_snapshot_restore_t * const restore,
 
 static int
 fd_snapshot_restore_manifest_prepare( fd_snapshot_restore_t * restore,
-                                      ulong                   sz ) {
+                                     ulong                   sz ) {
+  FD_LOG_WARNING(("preparing manifest with buffer %lu", sz));
   /* Only read once */
   if( restore->manifest_done ) {
     restore->state = STATE_IGNORE;
@@ -567,6 +570,13 @@ static uchar const *
 fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
                                     uchar const *           buf,
                                     ulong                   bufsz ) {
+  static int times = 0;
+  if( times == 0 ) {
+    FD_LOG_WARNING(("appendvec size is %lu", restore->accv_sz));
+    fd_solana_account_hdr_t const * hdr = fd_type_pun_const( buf );
+    FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
+    times++;
+  }
   if( !restore->accv_sz ) {
     /* Reached end of AppendVec */
     restore->state   = STATE_IGNORE;
@@ -626,6 +636,7 @@ static uchar const *
 fd_snapshot_read_manifest_chunk( fd_snapshot_restore_t * restore,
                                  uchar const *           buf,
                                  ulong                   bufsz ) {
+  FD_LOG_WARNING(("reading manifest chunk!"));
   uchar const * end = fd_snapshot_read_buffered( restore, buf, bufsz );
   if( fd_snapshot_read_is_complete( restore ) ) {
     int err = fd_snapshot_restore_manifest( restore );

@@ -63,6 +63,7 @@ fd_tar_process_hdr( fd_tar_reader_t * reader ) {
     FD_LOG_WARNING(( "Failed to parse file size in tar header" ));
     return EPROTO;
   }
+  FD_LOG_WARNING(("file size is %lu", file_sz));
   reader->file_sz = file_sz;
   reader->buf_ctr = (ushort)0U;
 
@@ -77,7 +78,9 @@ fd_tar_process_hdr( fd_tar_reader_t * reader ) {
 static int
 fd_tar_read_hdr( fd_tar_reader_t * reader,
                  uchar const **    pcur,
-                 uchar const *     end ) {
+                 uchar const *     end,
+                 ulong *           bytes_read FD_PARAM_UNUSED,
+                 ulong             total_bytes_read FD_PARAM_UNUSED ) {
 
   uchar const * cur = *pcur;
 
@@ -110,7 +113,9 @@ fd_tar_read_hdr( fd_tar_reader_t * reader,
 static int
 fd_tar_read_data( fd_tar_reader_t * reader,
                   uchar const **    pcur,
-                  uchar const *     end ) {
+                  uchar const *     end,
+                  ulong *           bytes_read FD_PARAM_UNUSED,
+                  ulong             total_bytes_read FD_PARAM_UNUSED ) {
 
   uchar const * cur = *pcur;
   FD_TEST( cur<=end );
@@ -121,6 +126,8 @@ fd_tar_read_data( fd_tar_reader_t * reader,
   if( avail_sz < chunk_sz ) chunk_sz = avail_sz;
 
   /* Call back to recipient */
+  // FD_LOG_WARNING(("total bytes read: %lu", total_bytes_read));
+  // FD_LOG_WARNING(("bytes read before callback is %lu", *bytes_read + total_bytes_read));
   int err = reader->cb_vt.read( reader->cb_arg, cur, chunk_sz );
 
   /* Consume bytes */
@@ -136,7 +143,9 @@ int
 fd_tar_read( void *        const reader_,
              uchar const * const data,
              ulong         const data_sz,
-             int           const track_err ) {
+             int           const track_err,
+             ulong *       bytes_read,
+             ulong         total_bytes_read ) {
 
   fd_tar_reader_t * reader = reader_;
   ulong const pos = reader->pos;
@@ -150,7 +159,9 @@ fd_tar_read( void *        const reader_,
 
   while( cur!=end ) {
     if( reader->file_sz ) {
-      int err = fd_tar_read_data( reader, &cur, end );
+      *bytes_read = (ulong)(cur-data);
+      // FD_LOG_WARNING(("reading data! bytes read is %lu", (ulong)(cur-data)));
+      int err = fd_tar_read_data( reader, &cur, end, bytes_read, total_bytes_read );
       if( FD_UNLIKELY( !!err && err!=track_err ) ) return err;
       if( err==track_err ) {
         seen_tracked_err = 1;
@@ -158,9 +169,11 @@ fd_tar_read( void *        const reader_,
       reader->pos = pos + (ulong)( cur-data );
     }
     if( !reader->file_sz ) {
-      int err = fd_tar_read_hdr( reader, &cur, end );
+      int err = fd_tar_read_hdr( reader, &cur, end, bytes_read, total_bytes_read );
       if( FD_UNLIKELY( !!err ) ) return err;
       reader->pos = pos + (ulong)( cur-data );
+      // FD_LOG_WARNING(("after reading hdr: bytes read is %lu", (ulong)(cur-data)));
+      // FD_LOG_WARNING(("file size is %lu", reader->file_sz));
     }
   }
 
@@ -168,6 +181,7 @@ fd_tar_read( void *        const reader_,
     return track_err;
   }
 
+  *bytes_read = (ulong)(cur-data);
   return 0;
 }
 

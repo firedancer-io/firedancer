@@ -222,6 +222,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
   fd_txn_account_init( acct );
 
   fd_funk_rec_prepare_t prepare = {0};
+  fd_funk_rec_query_t  query = {0};
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t * meta = fd_funk_get_acc_meta_mutable( funk,
                                                            funk_txn,
@@ -230,6 +231,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
                                                            min_data_sz,
                                                            &acct->private_state.rec,
                                                            &prepare,
+                                                           &query,
                                                            &err );
 
   if( FD_UNLIKELY( !meta ) ) {
@@ -244,6 +246,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
      meta and data should never be used. Instead, populate the prepared_rec
      field so that any created records can be published with fd_txn_account_mutable_fini. */
   acct->prepared_rec = prepare;
+  acct->query        = query;
   fd_txn_account_setup_mutable( acct, pubkey, meta );
 
   /* trigger a segfault if the exec tile calls this function,
@@ -312,40 +315,44 @@ fd_txn_account_save( fd_txn_account_t * acct,
 
 void
 fd_txn_account_mutable_fini( fd_txn_account_t * acct,
-                             fd_funk_t *        funk,
-                             fd_funk_txn_t *    txn ) {
-  fd_funk_rec_query_t query[1];
-
-  fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
-  fd_funk_rec_t *   rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, txn, &key, query );
-
-  /* Check that the prepared record is still valid -
-     if these invariants are broken something is very wrong. */
-  if( acct->prepared_rec.rec ) {
-    /* Check that the prepared record is not the Funk null value */
-    if( !acct->prepared_rec.rec->val_gaddr ) {
-      FD_LOG_ERR(( "invalid prepared record for %s: unexpected NULL funk record value. the record might have been modified by another thread",
-                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
-    }
-
-    /* Ensure that the prepared record key still matches our key. */
-    if( FD_UNLIKELY( memcmp( acct->prepared_rec.rec->pair.key, &key, sizeof(fd_funk_rec_key_t) )!=0 ) ) {
-      FD_LOG_ERR(( "invalid prepared record for %s: the record might have been modified by another thread",
-                  FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
-    }
+                             fd_funk_t *        funk FD_PARAM_UNUSED,
+                             fd_funk_txn_t *    txn FD_PARAM_UNUSED ) {
+  if( !acct->query.ele ) {
+    FD_LOG_ERR(("what happened!?"));
   }
+  fd_funk_rec_modify_publish( &acct->query );
+  // fd_funk_rec_query_t query[1];
 
-  /* We have a prepared record, but a record already exists funk */
-  if( rec!=NULL && acct->prepared_rec.rec!=NULL ) {
-    FD_LOG_ERR(( "invalid prepared record for %s: trying to publish new record that is already present",
-                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
-  }
+  // fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
+  // fd_funk_rec_t *   rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, txn, &key, query );
 
-  /* Publish the record if the record is not in the current funk transaction
-     and there exists a record in preparation in the fd_txn_account_t object */
-  if( rec==NULL && acct->prepared_rec.rec!=NULL ) {
-    fd_funk_rec_publish( &acct->prepared_rec );
-  }
+  // /* Check that the prepared record is still valid -
+  //    if these invariants are broken something is very wrong. */
+  // if( acct->prepared_rec.rec ) {
+  //   /* Check that the prepared record is not the Funk null value */
+  //   if( !acct->prepared_rec.rec->val_gaddr ) {
+  //     FD_LOG_ERR(( "invalid prepared record for %s: unexpected NULL funk record value. the record might have been modified by another thread",
+  //                  FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+  //   }
+
+  //   /* Ensure that the prepared record key still matches our key. */
+  //   if( FD_UNLIKELY( memcmp( acct->prepared_rec.rec->pair.key, &key, sizeof(fd_funk_rec_key_t) )!=0 ) ) {
+  //     FD_LOG_ERR(( "invalid prepared record for %s: the record might have been modified by another thread",
+  //                 FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+  //   }
+  // }
+
+  // /* We have a prepared record, but a record already exists funk */
+  // if( rec!=NULL && acct->prepared_rec.rec!=NULL ) {
+  //   FD_LOG_ERR(( "invalid prepared record for %s: trying to publish new record that is already present",
+  //                  FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+  // }
+
+  // /* Publish the record if the record is not in the current funk transaction
+  //    and there exists a record in preparation in the fd_txn_account_t object */
+  // if( rec==NULL && acct->prepared_rec.rec!=NULL ) {
+  //   fd_funk_rec_publish( &acct->prepared_rec );
+  // }
 }
 
 /* read/write mutual exclusion */

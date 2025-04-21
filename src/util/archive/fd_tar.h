@@ -227,7 +227,9 @@ int
 fd_tar_read( void *        reader,
              uchar const * data,
              ulong         data_sz,
-             int           track_err );
+             int           track_err,
+             ulong *       bytes_read,
+             ulong         total_bytes_read );
 
 /* Streaming writer ***************************************************/
 
