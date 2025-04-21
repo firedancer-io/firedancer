@@ -3685,85 +3685,91 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
   }
 
-  fd_genesis_solana_t genesis_block = {0};
-  fd_hash_t           genesis_hash;
-
   fd_epoch_bank_t *   epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    fd_genesis_solana_t * genesis_block;
+    fd_hash_t             genesis_hash;
     uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
     ssize_t n   = read( fd, buf, (ulong)sbuf.st_size );
     close( fd );
 
-    /* FIXME: This needs to be patched to support new decoder properly */
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = buf,
       .dataend = buf + n,
     };
 
-    fd_genesis_solana_decode( &genesis_block, &decode_ctx );
+    ulong decoded_sz = 0UL;
+    int   err        = fd_genesis_solana_decode_footprint( &decode_ctx, &decoded_sz );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_ERR(( "fd_genesis_solana_decode_footprint failed (%d)", err ));
+    }
+
+    uchar * mem = fd_spad_alloc( runtime_spad, fd_genesis_solana_align(), decoded_sz );
+    genesis_block = fd_genesis_solana_decode( mem, &decode_ctx );
 
     // The hash is generated from the raw data... don't mess with this..
     fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
 
-  } FD_SPAD_FRAME_END;
+    fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
+    epoch_bank->cluster_type = genesis_block->cluster_type;
 
-  fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
-  epoch_bank->cluster_type = genesis_block.cluster_type;
+    if( !is_snapshot ) {
+      fd_runtime_init_bank_from_genesis( slot_ctx,
+                                         genesis_block,
+                                         &genesis_hash,
+                                         runtime_spad );
 
-  if( !is_snapshot ) {
-    fd_runtime_init_bank_from_genesis( slot_ctx,
-                                       &genesis_block,
-                                       &genesis_hash,
-                                       runtime_spad );
+      fd_runtime_init_program( slot_ctx, runtime_spad );
 
-    fd_runtime_init_program( slot_ctx, runtime_spad );
+      FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
 
-    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len ));
+      for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
+        fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
 
-    for( ulong i=0; i<genesis_block.accounts_len; i++ ) {
-      fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
+        FD_TXN_ACCOUNT_DECL( rec );
 
-      FD_TXN_ACCOUNT_DECL( rec );
+        int err = fd_txn_account_init_from_funk_mutable( rec,
+                                                        &a->key,
+                                                        slot_ctx->funk,
+                                                        slot_ctx->funk_txn,
+                                                        1, /* do_create */
+                                                        a->account.data_len );
 
-      int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                       &a->key,
-                                                       slot_ctx->funk,
-                                                       slot_ctx->funk_txn,
-                                                       1, /* do_create */
-                                                       a->account.data_len );
+        if( FD_UNLIKELY( err ) ) {
+          FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
+        }
 
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
+        rec->vt->set_data( rec, a->account.data, a->account.data_len );
+        rec->vt->set_lamports( rec, a->account.lamports );
+        rec->vt->set_rent_epoch( rec, a->account.rent_epoch );
+        rec->vt->set_executable( rec, a->account.executable );
+        rec->vt->set_owner( rec, &a->account.owner );
+
+        fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
       }
 
-      rec->vt->set_data( rec, a->account.data, a->account.data_len );
-      rec->vt->set_lamports( rec, a->account.lamports );
-      rec->vt->set_rent_epoch( rec, a->account.rent_epoch );
-      rec->vt->set_executable( rec, a->account.executable );
-      rec->vt->set_owner( rec, &a->account.owner );
+      FD_LOG_DEBUG(( "end genesis accounts" ));
 
-      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
+      FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block->native_instruction_processors_len ));
+
+      for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
+        fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
+        fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
+      }
+
+      fd_features_restore( slot_ctx, runtime_spad );
+
+      slot_ctx->slot_bank.slot = 0UL;
+
+      int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, tpool, runtime_spad );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
+      }
     }
 
-    FD_LOG_DEBUG(( "end genesis accounts" ));
-
-    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block.native_instruction_processors_len ));
-
-    for( ulong i=0UL; i < genesis_block.native_instruction_processors_len; i++ ) {
-      fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
-      fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
-    }
-
-    fd_features_restore( slot_ctx, runtime_spad );
-
-    slot_ctx->slot_bank.slot = 0UL;
-
-    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, tpool, runtime_spad );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
-    }
-  }
+    fd_genesis_solana_destroy( genesis_block );
+  } FD_SPAD_FRAME_END;
 
   slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
@@ -3773,7 +3779,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
   slot_ctx->slot_bank.vote_account_keys.account_keys_pool   = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
 
-  fd_genesis_solana_destroy( &genesis_block );
 }
 
 /******************************************************************************/
