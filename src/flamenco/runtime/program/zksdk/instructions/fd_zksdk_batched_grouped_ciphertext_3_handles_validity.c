@@ -140,6 +140,10 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_3_handles_validity(
   uchar c[ 32 ];
   uchar w[ 32 ];
   fd_zksdk_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
+
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_x"), proof->zx );
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_r"), proof->zr );
+
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
   /* Compute scalars */
