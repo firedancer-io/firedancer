@@ -626,6 +626,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     }
     fd_shred_t * out_last_shred = (fd_shred_t *)fd_type_pun( buf_last_shred );
 
+    FD_LOG_INFO(( "FEC completion message for slot %lu, fec %u from repair tile, and shred tile %lu has not completed it yet.", out_last_shred[0].slot, out_last_shred[0].fec_set_idx, ctx->round_robin_id ));
     fd_fec_set_t const * out_fec_set[1];
     rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
     if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) ){
@@ -658,6 +659,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];
+
+    FD_LOG_INFO(( "processing shred %lu, idx %u, code %d?", shred->slot, shred->idx, fd_shred_is_code( fd_shred_type( shred->variant ) ) ));
 
     long add_shred_timing  = -fd_tickcount();
     int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &out_merkle_root );
@@ -729,12 +732,19 @@ after_frag( fd_shred_ctx_t *    ctx,
         ulong sig = fd_disco_shred_repair_shred_sig( !!completes, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
+        ulong repair_nonce_sz = fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR*4;
+        uint  nonce = 0U;
+        if( repair_nonce_sz ) {
+          nonce = fd_uint_load_4( shred_buffer + shred_buffer_sz );
+        }
 
         ulong sz = fd_shred_header_sz( shred->variant );
-        fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), shred, sz );
+        uchar * dst = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
+        fd_memcpy( dst, shred, sz );
+        FD_STORE( uint, dst + sz, nonce );
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
-        ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
+        fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz+sizeof(uint), 0UL, ctx->tsorig, tspub );
+        ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz+sizeof(uint), ctx->repair_out_chunk0, ctx->repair_out_wmark );
       }
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;

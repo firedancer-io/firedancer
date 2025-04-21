@@ -5,6 +5,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../../disco/metrics/generated/fd_metrics_repair.h"
+//#include "../../tango/tcache/fd_tcache.h"
 
 
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
@@ -19,17 +20,80 @@
    these constants once they are fully understood and updated. */
 #define FD_REPAIR_SCRATCH_MAX    (1UL << 30UL)
 #define FD_REPAIR_SCRATCH_DEPTH  (1UL << 11UL)
+#define FD_REPAIR_TIMEOUT_THRESH ( 1000 * 1000 * 150 ) /* 150ms */
+/* Number of peers to send requests to. */
+#define FD_REPAIR_NUM_NEEDED_PEERS (4)
+/* Max number of pending shred requests */
+#define FD_NEEDED_KEY_MAX (1<<20)
+
+
+struct req_ts {
+   ulong key; /* type(2) | slot (32) | shred_idx (15) */
+   uint  hash;
+   long  when;  /* time in nanosecs */
+   uchar signature[64]; /* cached sig */
+ };
+ typedef struct req_ts fd_req_ts_t;
+
+ #define MAP_NAME fd_req_timeout
+ #define MAP_T    fd_req_ts_t
+ #include "../../util/tmpl/fd_map_dynamic.c"
+
+typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
+
+
+/* Test if two hash values are equal */
+FD_FN_PURE static int fd_repair_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
+  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
+    if (key1->ul[i] != key2->ul[i])
+      return 0;
+  return 1;
+}
+
+/* Hash a hash value */
+FD_FN_PURE static ulong fd_repair_hash_hash( const fd_hash_t * key, ulong seed ) {
+  return key->ul[0] ^ seed;
+}
+
+/* Copy a hash value */
+static void fd_repair_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
+  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
+    keyd->ul[i] = keys->ul[i];
+}
+
+/* Active table element. This table is all validators that we are
+   asking for repairs. */
+struct fd_active_elem {
+    fd_pubkey_t key;  /* Public identifier and map key */
+    ulong next; /* used internally by fd_map_giant */
+
+    fd_repair_peer_addr_t addr;
+    ulong avg_reqs; /* Moving average of the number of requests */
+    ulong avg_reps; /* Moving average of the number of requests */
+    long  avg_lat;  /* Moving average of response latency */
+    uchar sticky;
+    long  first_request_time;
+    ulong stake;
+};
+typedef struct fd_active_elem fd_active_elem_t;
+
+/* Active table */
+#define MAP_NAME     fd_active_table
+#define MAP_KEY_T    fd_pubkey_t
+#define MAP_KEY_EQ   fd_repair_hash_eq
+#define MAP_KEY_HASH fd_repair_hash_hash
+#define MAP_KEY_COPY fd_repair_hash_copy
+#define MAP_T        fd_active_elem_t
+#include "../../util/tmpl/fd_map_giant.c"
 
 /* Global state of repair protocol */
 typedef struct fd_repair fd_repair_t;
 FD_FN_CONST ulong         fd_repair_align    ( void );
-FD_FN_CONST ulong         fd_repair_footprint( void );
-            void *        fd_repair_new      ( void * shmem, ulong seed );
+FD_FN_CONST ulong         fd_repair_footprint( ulong needed_max );
+            void *        fd_repair_new      ( void * shmem, ulong needed_max, ulong seed );
             fd_repair_t * fd_repair_join     ( void * shmap );
             void *        fd_repair_leave    ( fd_repair_t * join );
             void *        fd_repair_delete   ( void * shmap );
-
-typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 
 /* Callback when a new shred is received */
 typedef void (*fd_repair_shred_deliver_fun)( fd_shred_t const * shred, ulong shred_len, fd_repair_peer_addr_t const * from, fd_pubkey_t const * id, void * arg );
@@ -109,17 +173,26 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
 int fd_repair_is_full( fd_repair_t * glob );
 
 /* Register a request for a shred */
-int fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
+ulong fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
 
-int fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
+ulong fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
 
-int fd_repair_need_orphan( fd_repair_t * glob, ulong slot );
+ulong fd_repair_need_orphan( fd_repair_t * glob, ulong slot );
 
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
 void fd_repair_set_stake_weights( fd_repair_t * repair,
                                   fd_stake_weight_t const * stake_weights,
                                   ulong stake_weights_cnt );
+
+void
+fd_repair_send_request( fd_repair_t * glob, ulong tag, fd_active_elem_t * active );
+
+void
+get_peers( fd_repair_t * glob, fd_pubkey_t ** ids, uint max_ids );
+
+fd_active_elem_t *
+fd_repair_active_query( fd_repair_t * repair, fd_pubkey_t const * id );
 
 /* Repair Metrics */
 struct fd_repair_metrics {

@@ -507,6 +507,8 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
   if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
 
   fd_gossip_peer_addr_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
+  //FD_LOG_WARNING(("Received packet from ipaddr %u port %u", peer_addr.addr, peer_addr.port));
+  // peer_addr.addr = 767106195;//dst_ip_addr;
   fd_gossip_recv_packet( ctx->gossip, data, data_sz, &peer_addr );
 }
 
