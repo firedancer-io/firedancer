@@ -71,7 +71,7 @@ typedef struct fd_funk_txn_private fd_funk_txn_t;
 #define MAP_HASH              map_hash
 #define MAP_MAGIC             (0xf173da2ce7172db0UL) /* Firedancer txn db version 0 */
 #define MAP_IMPL_STYLE        1
-#include "../util/tmpl/fd_map_para.c"
+#include "../util/tmpl/fd_map_chain_para.c"
 #undef  MAP_HASH
 
 FD_PROTOTYPES_BEGIN

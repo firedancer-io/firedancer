@@ -28,7 +28,7 @@ typedef struct myele myele_t;
 #define MAP_MEMOIZE        1
 #define MAP_MEMO           mymemo
 #define MAP_KEY_EQ_IS_SLOW 1
-#include "fd_map_para.c"
+#include "fd_map_chain_para.c"
 
 FD_STATIC_ASSERT( FD_MAP_SUCCESS    == 0, unit_test );
 FD_STATIC_ASSERT( FD_MAP_ERR_INVAL  ==-1, unit_test );

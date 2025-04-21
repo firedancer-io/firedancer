@@ -1,23 +1,5 @@
 #define _GNU_SOURCE
-#include <dlfcn.h>
 #include "fd_exec_sol_compat.h"
-#include "../../nanopb/pb_encode.h"
-#include "../../nanopb/pb_decode.h"
-#include "generated/elf.pb.h"
-#include "generated/invoke.pb.h"
-#include "generated/shred.pb.h"
-#include "generated/vm.pb.h"
-#include <assert.h>
-#include <stdlib.h>
-#include "../../vm/fd_vm.h"
-#include "fd_vm_test.h"
-#include "fd_pack_test.h"
-#include "../../features/fd_features.h"
-#include "../fd_executor_err.h"
-#include "../../fd_flamenco.h"
-#include "../../../ballet/shred/fd_shred.h"
-#include "../fd_acc_mgr.h"
-#include "fd_types_test.h"
 
 /* FIXME: Spad isn't properly sized out or cleaned up */
 
@@ -126,19 +108,19 @@ sol_compat_get_features_v1( void ) {
   return &features;
 }
 
-fd_exec_instr_test_runner_t *
+fd_runtime_fuzz_runner_t *
 sol_compat_setup_runner( void ) {
 
   // Setup test runner
-  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, spad_mem, WKSP_EXECUTE_ALLOC_TAG );
+  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_runtime_fuzz_runner_align(), fd_runtime_fuzz_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
+  fd_runtime_fuzz_runner_t * runner = fd_runtime_fuzz_runner_new( runner_mem, spad_mem, WKSP_EXECUTE_ALLOC_TAG );
   return runner;
 }
 
 void
-sol_compat_cleanup_runner( fd_exec_instr_test_runner_t * runner ) {
+sol_compat_cleanup_runner( fd_runtime_fuzz_runner_t * runner ) {
   /* Cleanup test runner */
-  fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
+  fd_wksp_free_laddr( fd_runtime_fuzz_runner_delete( runner ) );
 }
 
 void *
@@ -169,14 +151,14 @@ sol_compat_encode( uchar *              out,
   return to_encode;
 }
 
-typedef ulong( exec_test_run_fn_t )( fd_exec_instr_test_runner_t *,
+typedef ulong( exec_test_run_fn_t )( fd_runtime_fuzz_runner_t *,
                                      void const *,
                                      void **,
                                      void *,
                                      ulong );
 
 void
-sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
+sol_compat_execute_wrapper( fd_runtime_fuzz_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
@@ -423,40 +405,9 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
 }
 
 int
-sol_compat_cmp_success_fail_only( void const * _effects,
-                                  void const * _expected ) {
-  fd_exec_test_instr_effects_t * effects  = (fd_exec_test_instr_effects_t *)_effects;
-  fd_exec_test_instr_effects_t * expected = (fd_exec_test_instr_effects_t *)_expected;
-
-  if( effects==NULL ) {
-    FD_LOG_WARNING(( "No output effects" ));
-    return 0;
-  }
-
-  if( effects->custom_err || expected->custom_err ) {
-    FD_LOG_WARNING(( "Unexpected custom error" ));
-    return 0;
-  }
-
-  int res = effects->result;
-  int exp = expected->result;
-
-  if( res==exp ) {
-    return 1;
-  }
-
-  if( res>0 && exp>0 ) {
-    FD_LOG_INFO(( "Accepted: res=%d exp=%d", res, exp ));
-    return 1;
-  }
-
-  return 0;
-}
-
-int
-sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
-                          uchar const *                 in,
-                          ulong                         in_sz ) {
+sol_compat_instr_fixture( fd_runtime_fuzz_runner_t * runner,
+                          uchar const *              in,
+                          ulong                      in_sz ) {
   // Decode fixture
   fd_exec_test_instr_fixture_t fixture[1] = {0};
   void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
@@ -469,7 +420,7 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_instr_run );
 
   // Compare effects
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg, runner->spad );
@@ -481,9 +432,9 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
 }
 
 int
-sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
-                        uchar const *                 in,
-                        ulong                         in_sz ) {
+sol_compat_txn_fixture( fd_runtime_fuzz_runner_t * runner,
+                        uchar const *              in,
+                        ulong                      in_sz ) {
   // Decode fixture
   fd_exec_test_txn_fixture_t fixture[1] = {0};
   void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
@@ -496,7 +447,7 @@ sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_txn_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_txn_run );
 
   // Compare effects
   fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
@@ -509,9 +460,9 @@ sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
 }
 
 int
-sol_compat_elf_loader_fixture( fd_exec_instr_test_runner_t * runner,
-                               uchar const *                 in,
-                               ulong                         in_sz ) {
+sol_compat_elf_loader_fixture( fd_runtime_fuzz_runner_t * runner,
+                               uchar const *              in,
+                               ulong                      in_sz ) {
   // Decode fixture
   fd_exec_test_elf_loader_fixture_t fixture[1] = {0};
   void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg );
@@ -523,7 +474,7 @@ sol_compat_elf_loader_fixture( fd_exec_instr_test_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_sbpf_program_load_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_sbpf_load_run );
 
   // Compare effects
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg, runner->spad );
@@ -535,9 +486,9 @@ sol_compat_elf_loader_fixture( fd_exec_instr_test_runner_t * runner,
 }
 
 int
-sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
-                            uchar const *                 in,
-                            ulong                         in_sz ) {
+sol_compat_syscall_fixture( fd_runtime_fuzz_runner_t * runner,
+                            uchar const *              in,
+                            ulong                      in_sz ) {
   // Decode fixture
   fd_exec_test_syscall_fixture_t fixture[1] = {0};
   if ( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
@@ -549,7 +500,7 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_syscall_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_vm_syscall_run );
 
   // Compare effects
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
@@ -561,9 +512,9 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
 }
 
 int
-sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
-                              uchar const *                 in,
-                              ulong                         in_sz ) {
+sol_compat_vm_interp_fixture( fd_runtime_fuzz_runner_t * runner,
+                              uchar const *              in,
+                              ulong                      in_sz ) {
   // Decode fixture
   fd_exec_test_syscall_fixture_t fixture[1] = {0};
   if ( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
@@ -575,7 +526,7 @@ sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_vm_interp_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_runtime_fuzz_vm_interp_run );
 
   // Compare effects
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
@@ -596,7 +547,7 @@ sol_compat_instr_execute_v1( uchar *       out,
                              uchar const * in,
                              ulong         in_sz ) {
   // Setup
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
   // Decode context
   fd_exec_test_instr_context_t input[1] = {0};
@@ -610,7 +561,7 @@ sol_compat_instr_execute_v1( uchar *       out,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_instr_run );
 
   // Encode effects
   if( output ) {
@@ -634,7 +585,7 @@ sol_compat_txn_execute_v1( uchar *       out,
                            uchar const * in,
                            ulong         in_sz ) {
   // Setup
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
   // Decode context
   fd_exec_test_txn_context_t input[1] = {0};
@@ -648,7 +599,7 @@ sol_compat_txn_execute_v1( uchar *       out,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, fd_exec_txn_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_txn_run );
 
   // Encode effects
   if( output ) {
@@ -671,7 +622,7 @@ sol_compat_block_execute_v1( uchar *       out,
                              uchar const * in,
                              ulong         in_sz ) {
   // Setup
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
   // Decode context
   fd_exec_test_block_context_t input[1] = {0};
@@ -686,7 +637,7 @@ sol_compat_block_execute_v1( uchar *       out,
     void * output = NULL;
 
     // Execute
-    sol_compat_execute_wrapper( runner, input, &output, fd_exec_block_test_run );
+    sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_block_run );
 
     // Encode effects
     if( output ) {
@@ -710,7 +661,7 @@ sol_compat_elf_loader_v1( uchar *       out,
                           uchar const * in,
                           ulong         in_sz ) {
   // Setup
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
   // Decode context
   fd_exec_test_elf_loader_ctx_t input[1] = {0};
@@ -725,7 +676,7 @@ sol_compat_elf_loader_v1( uchar *       out,
     void * output = NULL;
 
     // Execute
-    sol_compat_execute_wrapper( runner, input, &output, fd_sbpf_program_load_test_run );
+    sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_sbpf_load_run );
 
     // Encode effects
     if( output ) {
@@ -749,7 +700,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
                                   uchar const * in,
                                   ulong         in_sz ) {
   // Setup
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
   // Decode context
   fd_exec_test_syscall_context_t input[1] = {0};
@@ -763,7 +714,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, fd_exec_vm_syscall_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_vm_syscall_run );
 
   // Encode effects
   if( output ) {
@@ -798,7 +749,7 @@ sol_compat_vm_interp_v1( uchar *       out,
                          uchar const * in,
                          ulong         in_sz ) {
   // Setup
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 
   // Decode context
   fd_exec_test_syscall_context_t input[1] = {0};
@@ -813,7 +764,7 @@ sol_compat_vm_interp_v1( uchar *       out,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_interp_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_runtime_fuzz_vm_interp_run );
 
   // Encode effects
   if( output ) {
@@ -855,7 +806,7 @@ sol_compat_pack_compute_budget_v1( uchar *       out,
                                    ulong *       out_sz,
                                    uchar const * in,
                                    ulong         in_sz ) {
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner( );
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner( );
 
   fd_exec_test_pack_compute_budget_context_t input[1] = {0};
   void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_pack_compute_budget_context_t_msg );
@@ -867,7 +818,7 @@ sol_compat_pack_compute_budget_v1( uchar *       out,
   int ok = 0;
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, fd_exec_pack_cpb_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_pack_cpb_run );
 
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_pack_compute_budget_effects_t_msg );
@@ -895,7 +846,7 @@ sol_compat_type_execute_v1( uchar *       out,
 
   int ok = 0;
   FD_SPAD_FRAME_BEGIN( spad ) {
-    ok = sol_compat_decode_type( spad, in, in_sz, out, out_sz );
+    ok = fd_runtime_fuzz_decode_type_run( spad, in, in_sz, out, out_sz );
   } FD_SPAD_FRAME_END;
 
   return ok;

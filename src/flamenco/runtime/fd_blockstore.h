@@ -118,8 +118,6 @@ static const fd_shred_key_t     fd_shred_key_null = { 0 };
 #define FD_SHRED_KEY_EQ(k0,k1)  (!(((k0).slot) ^ ((k1).slot))) & !(((k0).idx) ^ (((k1).idx)))
 #define FD_SHRED_KEY_HASH(key)  ((uint)(((key).slot)<<15UL) | (((key).idx))) /* current max shred idx is 32KB = 2 << 15*/
 
-
-
 /* fd_buf_shred is a thin wrapper around fd_shred_t that facilitates
    buffering data shreds before all the shreds for a slot have been
    received. After all shreds are received, these buffered shreds are
@@ -166,7 +164,7 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #define MAP_KEY_EQ(k0,k1)      (FD_SHRED_KEY_EQ(*k0,*k1))
 #define MAP_KEY_EQ_IS_SLOW     1
 #define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key)^seed)
-#include "../../util/tmpl/fd_map_para.c"
+#include "../../util/tmpl/fd_map_chain_para.c"
 
 #define DEQUE_NAME fd_slot_deque
 #define DEQUE_T    ulong

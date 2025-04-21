@@ -291,6 +291,7 @@ struct fd_replay_tile_ctx {
   ulong * poh;  /* proof-of-history slot */
   uint poh_init_done;
   int  snapshot_init_done;
+  int  startup_init_done;
 
   int         tower_checkpt_fileno;
 
@@ -1285,6 +1286,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   FD_LOG_DEBUG(("TIMING: notify_slot_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)notify_time_ns * 1e-6));
 
   if( ctx->replay_plugin_out_mem ) {
+    /*
     fd_replay_complete_msg_t msg2 = {
       .slot = curr_slot,
       .total_txn_count = fork->slot_ctx->txn_count,
@@ -1296,7 +1298,19 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
       .priority_fee = fork->slot_ctx->slot_bank.collected_priority_fees,
       .parent_slot = ctx->parent_slot,
     };
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_COMPLETED, (uchar const *)&msg2, sizeof(msg2) );
+    */
+    ulong msg[10];
+    msg[ 0 ] = ctx->curr_slot;
+    msg[ 1 ] = fork->slot_ctx->txn_count;
+    msg[ 2 ] = fork->slot_ctx->nonvote_txn_count;
+    msg[ 3 ] = fork->slot_ctx->failed_txn_count;
+    msg[ 4 ] = fork->slot_ctx->nonvote_failed_txn_count;
+    msg[ 5 ] = fork->slot_ctx->total_compute_units_used;
+    msg[ 6 ] = fork->slot_ctx->slot_bank.collected_execution_fees;
+    msg[ 7 ] = fork->slot_ctx->slot_bank.collected_priority_fees;
+    msg[ 8 ] = 0UL; /* todo ... track tips */
+    msg[ 9 ] = ctx->parent_slot;
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_COMPLETED, (uchar const *)msg, sizeof(msg) );
   }
 }
 
@@ -1761,6 +1775,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
 
       ctx->slice_exec_ctx.txns_rem--;
       num_free_exec_tiles--;
+      fork->slot_ctx->txn_count++;
       continue;
     }
 
@@ -2033,15 +2048,6 @@ read_snapshot( void *              _ctx,
     .para_arg_2 = stem,
   };
 
-  if( ctx->replay_plugin_out_mem ) {
-    // ValidatorStartProgress::DownloadingSnapshot
-    uchar msg[56];
-    fd_memset( msg, 0, sizeof(msg) );
-    msg[0] = 2;
-    msg[1] = 1;
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-  }
-
   /* Pass the slot_ctx to snapshot_load or recover_banks */
   /* Base slot is the slot we will compare against the base slot of the incremental snapshot, to ensure that the
      base slot of the incremental snapshot is the slot of the full snapshot.
@@ -2130,17 +2136,6 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_fini( snap_ctx );
   }
 
-  /* Load incremental */
-
-  if( ctx->replay_plugin_out_mem ) {
-    // ValidatorStartProgress::DownloadingSnapshot
-    uchar msg[56];
-    fd_memset( msg, 0, sizeof(msg) );
-    msg[0] = 2;
-    msg[1] = 0;
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-  }
-
   if( strlen( incremental ) > 0 && strcmp( snapshot, "funk" ) != 0 ) {
 
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
@@ -2156,14 +2151,6 @@ read_snapshot( void *              _ctx,
                           ctx->exec_spads,
                           ctx->exec_spad_cnt,
                           ctx->runtime_spad );
-  }
-
-  if( ctx->replay_plugin_out_mem ) {
-    // ValidatorStartProgress::DownloadedFullSnapshot
-    uchar msg[56];
-    fd_memset( msg, 0, sizeof(msg) );
-    msg[0] = 3;
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
   }
 
   fd_runtime_update_leaders( ctx->slot_ctx,
@@ -2325,6 +2312,13 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
     read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental );
   }
 
+  if( ctx->replay_plugin_out_mem ) {
+    uchar msg[56];
+    fd_memset( msg, 0, sizeof(msg) );
+    msg[ 0 ] = 6;
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+  }
+
   fd_runtime_read_genesis( ctx->slot_ctx,
                            ctx->genesis,
                            is_snapshot,
@@ -2334,6 +2328,10 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
   init_after_snapshot( ctx, stem );
+
+  if( ctx->replay_plugin_out_mem && strlen( ctx->genesis ) > 0 ) {
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, ctx->epoch_ctx->epoch_bank.genesis_hash.uc, sizeof(fd_hash_t) );
+  }
 
   /* Redirect ctx->slot_ctx to point to the memory inside forks. */
 
@@ -2387,31 +2385,51 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &dec_ctx );
 
     fd_pubkey_t node_pubkey;
-    ulong       last_ts_slot;
+    ulong       commission;
+    ulong       epoch_credits;
+    fd_vote_epoch_credits_t const * _epoch_credits;
+    ulong       root_slot;
+
     switch( vsv->discriminant ) {
       case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey  = vsv->inner.v0_23_5.node_pubkey;
-        last_ts_slot = vsv->inner.v0_23_5.last_timestamp.slot;
+        node_pubkey   = vsv->inner.v0_23_5.node_pubkey;
+        commission    = vsv->inner.v0_23_5.commission;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
+        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        root_slot     = vsv->inner.v0_23_5.root_slot;
         break;
       case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey  = vsv->inner.v1_14_11.node_pubkey;
-        last_ts_slot = vsv->inner.v1_14_11.last_timestamp.slot;
+        node_pubkey   = vsv->inner.v1_14_11.node_pubkey;
+        commission    = vsv->inner.v1_14_11.commission;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
+        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        root_slot     = vsv->inner.v1_14_11.root_slot;
         break;
       case fd_vote_state_versioned_enum_current:
-        node_pubkey  = vsv->inner.current.node_pubkey;
-        last_ts_slot = vsv->inner.current.last_timestamp.slot;
+        node_pubkey   = vsv->inner.current.node_pubkey;
+        commission    = vsv->inner.current.commission;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
+        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        root_slot     = vsv->inner.v0_23_5.root_slot;
         break;
       default:
         __builtin_unreachable();
     }
+
+    fd_clock_timestamp_vote_t_mapnode_t query;
+    memcpy( query.elem.pubkey.uc, n->elem.key.uc, 32UL );
+    fd_clock_timestamp_vote_t_mapnode_t * res = fd_clock_timestamp_vote_t_map_find( fork->slot_ctx->slot_bank.timestamp_votes.votes_pool, fork->slot_ctx->slot_bank.timestamp_votes.votes_root, &query );
 
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
     memset( msg, 0, 112U );
     memcpy( msg->vote_pubkey, n->elem.key.uc, sizeof(fd_pubkey_t) );
     memcpy( msg->node_pubkey, node_pubkey.uc, sizeof(fd_pubkey_t) );
     msg->activated_stake = n->elem.stake;
-    msg->last_vote       = last_ts_slot;
-    msg->is_delinquent   = (uchar)(msg->last_vote == 0);
+    msg->last_vote       = res == NULL ? 0UL : res->elem.slot;
+    msg->root_slot       = root_slot;
+    msg->epoch_credits   = epoch_credits;
+    msg->commission      = (uchar)commission;
+    msg->is_delinquent   = (uchar)fd_int_if(ctx->curr_slot >= 128UL, msg->last_vote <= ctx->curr_slot - 128UL, msg->last_vote == 0);
     ++i;
   }
   } FD_SPAD_FRAME_END;
@@ -2547,7 +2565,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
 
-    fork->slot_ctx->txn_count = fork->slot_ctx->slot_bank.transaction_count-fork->slot_ctx->parent_transaction_count;
     FD_LOG_NOTICE(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
                     curr_slot,
                     ctx->parent_slot,
@@ -2619,7 +2636,20 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       FD_LOG_ERR(( "failed to insert ghost node %lu", curr_slot ));
     }
 #endif
+
+    ulong prev_confirmed = ctx->forks->confirmed;
+    ulong prev_finalized = ctx->forks->finalized;
     fd_forks_update( ctx->forks, ctx->epoch, ctx->funk, ctx->ghost, curr_slot );
+
+    if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed ) ) {
+      ulong msg[ 1 ] = { ctx->forks->confirmed };
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED, (uchar const *)msg, sizeof(msg) );
+    }
+
+    if (FD_UNLIKELY( prev_finalized!=ctx->forks->finalized ) ) {
+      ulong msg[ 1 ] = { ctx->forks->finalized };
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_ROOTED, (uchar const *)msg, sizeof(msg) );
+    }
 
     /**********************************************************************/
     /* Consensus: decide (1) the fork for pack; (2) the fork to vote on   */
@@ -2636,6 +2666,14 @@ after_credit( fd_replay_tile_ctx_t * ctx,
                                                      ctx->blockstore, ctx->epoch_ctx, ctx->runtime_spad );
       new_reset_fork->lock = 0;
       reset_fork = new_reset_fork;
+    }
+
+    if( FD_UNLIKELY( !ctx->startup_init_done && ctx->replay_plugin_out_mem ) ) {
+      ctx->startup_init_done = 1;
+      uchar msg[ 56 ];
+      fd_memset( msg, 0, sizeof(msg) );
+      msg[ 0 ] = 11; // ValidatorStartProgress::Running
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
     }
 
     /* Update the gui */
@@ -2793,16 +2831,15 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
 
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
+    if( ctx->replay_plugin_out_mem ) {
+      uchar msg[56];
+      fd_memset( msg, 0, sizeof(msg) );
+      msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+    }
     init_snapshot( ctx, stem );
     ctx->snapshot_init_done = 1;
     //*charge_busy = 0;
-    if( ctx->replay_plugin_out_mem ) {
-      // ValidatorStartProgress::Running
-      uchar msg[56];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[0] = 11;
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
   }
 
   long now = fd_log_wallclock();
@@ -3200,8 +3237,9 @@ unprivileged_init( fd_topo_t *      topo,
     poh_out->chunk            = poh_out->chunk0;
   }
 
-  ctx->poh_init_done = 0U;
+  ctx->poh_init_done      = 0U;
   ctx->snapshot_init_done = 0;
+  ctx->startup_init_done  = 0;
 
   /**********************************************************************/
   /* exec                                                               */

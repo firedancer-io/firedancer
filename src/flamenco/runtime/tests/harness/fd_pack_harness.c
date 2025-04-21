@@ -1,12 +1,12 @@
-#include "fd_pack_test.h"
-#include "../../../disco/pack/fd_compute_budget_program.h"
+#include "fd_pack_harness.h"
+#include "../../../../disco/pack/fd_compute_budget_program.h"
 
 ulong
-fd_exec_pack_cpb_test_run( fd_exec_instr_test_runner_t * _unused FD_PARAM_UNUSED,
-                           void const *                  input_,
-                           void **                       output_,
-                           void *                        output_buf,
-                           ulong                         output_bufsz ){
+fd_runtime_fuzz_pack_cpb_run( fd_runtime_fuzz_runner_t * _unused FD_PARAM_UNUSED,
+                              void const *               input_,
+                              void **                    output_,
+                              void *                     output_buf,
+                              ulong                      output_bufsz ){
   fd_exec_test_pack_compute_budget_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_pack_compute_budget_effects_t **      output = fd_type_pun( output_ );
 
@@ -62,5 +62,4 @@ do {
 
   *output = effects;
   return actual_end - (ulong) output_buf;
-
 }

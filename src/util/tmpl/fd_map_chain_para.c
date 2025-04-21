@@ -90,7 +90,7 @@
 
      #define MAP_NAME  mymap
      #define MAP_ELE_T myele_t
-     #include "tmpl/fd_map_para.c"
+     #include "tmpl/fd_map_chain_para.c"
 
    will declare the following APIs as a header only style library in the
    compilation unit:

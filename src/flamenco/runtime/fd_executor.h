@@ -10,8 +10,8 @@
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
 #include "../log_collector/fd_log_collector.h"
-#include "tests/generated/invoke.pb.h"
-#include "tests/generated/txn.pb.h"
+#include "tests/harness/generated/invoke.pb.h"
+#include "tests/harness/generated/txn.pb.h"
 #include "../features/fd_features.h"
 #include "fd_runtime.h"
 
@@ -40,15 +40,6 @@ get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
 
 typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
-
-/* fd_executor_lookup_native_program returns the appropriate instruction
-   processor for the given native program ID.  Returns NULL if given ID
-   is not a recognized native program. */
-
-int
-fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
-                                   fd_exec_txn_ctx_t *      txn_ctx,
-                                   fd_exec_instr_fn_t *     native_prog_fn );
 
 fd_exec_instr_fn_t
 fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc );

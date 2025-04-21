@@ -27,7 +27,7 @@ else
         # not actually respect taskset to a range of cores if those
         # cores are isolated (it will just use the first core in the
         # set) but other real time scheduling policies do.  So, we do a
-        # chrt on on the make too so we actually use the range of cores
+        # chrt on the make too so we actually use the range of cores
         # specified.
 
         NP=$(nproc --all)

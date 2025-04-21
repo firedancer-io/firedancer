@@ -666,7 +666,7 @@ fd_shmem_name_len( char const * name ) {
   while( FD_LIKELY( len<FD_SHMEM_NAME_MAX ) ) {
     char c = name[len];
     if( FD_UNLIKELY( !c ) ) break;
-    if( FD_UNLIKELY( !( (!!isalnum( c )) | ((len>0UL) & ((c=='_') | (c=='-') | (c=='.'))) ) ) ) return 0UL; /* Bad character */
+    if( FD_UNLIKELY( !( fd_isalnum( c ) | ((len>0UL) & ((c=='_') | (c=='-') | (c=='.'))) ) ) ) return 0UL; /* Bad character */
     len++;
   }
 

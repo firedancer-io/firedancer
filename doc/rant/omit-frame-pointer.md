@@ -15,4 +15,4 @@ Since then, debuggers on Linux / binary file debugging symbol info / etc got mor
 The upshot of all this, -fomit-frame-pointer is somewhere between useful and moot on modern Linux / x86_64 (and, if somebody has some compelling reason to require or remove it on modern Linux / x86_64, totally open to it).
 
 As for non-x86 and/or non-Linux, it is probably somewhere between annoying to mildly useful due to analogous considerations specific that architecture and OS (and/or there might be some other architecture-specific flags in this vein).
-The upshot being, -fomit-frame-pointer it certainly isn't a requirement to have and should be viewed much much as a platform specific flag. It is debatable how useful it is on Linux / x86_64 these days. And it is even more debatable on non-Linux and/or non-x86_64.
+The upshot being, -fomit-frame-pointer it certainly isn't a requirement to have and should be viewed much more as a platform specific flag. It is debatable how useful it is on Linux / x86_64 these days. And it is even more debatable on non-Linux and/or non-x86_64.

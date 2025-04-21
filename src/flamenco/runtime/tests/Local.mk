@@ -1,21 +1,21 @@
-$(call add-hdrs,generated/context.pb.h,generated/elf.pb.h,generated/invoke.pb.h,generated/txn.pb.h,generated/block.pb.h,generated/vm.pb.h,generated/shred.pb.h generated/metadata.pb.h generated/pack.pb.h)
-$(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb generated/txn.pb generated/block.pb generated/vm.pb generated/shred.pb generated/metadata.pb generated/pack.pb,fd_flamenco)
+$(call add-hdrs,harness/generated/context.pb.h,harness/generated/elf.pb.h,harness/generated/invoke.pb.h,harness/generated/txn.pb.h,harness/generated/block.pb.h,harness/generated/vm.pb.h,harness/generated/shred.pb.h harness/generated/metadata.pb.h harness/generated/pack.pb.h)
+$(call add-objs,harness/generated/context.pb harness/generated/elf.pb harness/generated/invoke.pb harness/generated/txn.pb harness/generated/block.pb harness/generated/vm.pb harness/generated/shred.pb harness/generated/metadata.pb harness/generated/pack.pb,fd_flamenco)
 
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
-$(call add-hdrs,fd_exec_instr_test.h fd_vm_test.h fd_pack_test.h fd_types_test.h)
-$(call add-objs,fd_exec_instr_test fd_vm_test fd_pack_test fd_types_test,fd_flamenco)
-$(call add-objs,fd_exec_sol_compat,fd_flamenco)
+$(call add-hdrs,harness/fd_elf_harness.h harness/fd_instr_harness.h harness/fd_txn_harness.h harness/fd_block_harness.h harness/fd_harness_common.h harness/fd_vm_harness.h harness/fd_pack_harness.h harness/fd_types_harness.h)
+$(call add-objs,harness/fd_elf_harness harness/fd_instr_harness harness/fd_txn_harness harness/fd_block_harness harness/fd_harness_common harness/fd_vm_harness harness/fd_pack_harness harness/fd_types_harness,fd_flamenco)
+$(call add-objs,harness/fd_exec_sol_compat,fd_flamenco)
 
 $(call make-unit-test,test_exec_sol_compat,test_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
-$(call make-shared,libfd_exec_sol_compat.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
+$(call make-shared,libfd_exec_sol_compat.so,harness/fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 
 ifdef FD_HAS_FUZZ_STUBS
 # The --wrap flag stubs out a function so that we can replace it with our own implementation in the fuzz harness(es)
-# See __wrap_fd_execute_instr in  fd_exec_instr_test.c for example
+# See __wrap_fd_execute_instr in  fd_vm_harness.c for example
 # We guard this with FD_HAS_FUZZ_STUBS because the --wrap flag may not be portable across linkers
 WRAP_FLAGS += -Xlinker --wrap=fd_execute_instr
-$(call make-shared,libfd_exec_sol_compat_stubbed.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(WRAP_FLAGS))
+$(call make-shared,libfd_exec_sol_compat_stubbed.so,harness/fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(WRAP_FLAGS))
 $(call make-unit-test,test_exec_sol_compat_stubbed,test_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(WRAP_FLAGS))
 endif
 

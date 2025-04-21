@@ -230,9 +230,9 @@ fd_loader_v4_program_instruction_copy( fd_exec_instr_ctx_t *                    
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L149-L162 */
   fd_pubkey_t const * source_owner = fd_borrowed_account_get_owner( &source_program );
   if( !memcmp( source_owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    source_offset += (uint)LOADER_V4_PROGRAM_DATA_OFFSET;
+    source_offset = fd_uint_sat_add( source_offset, (uint)LOADER_V4_PROGRAM_DATA_OFFSET );
   } else if( !memcmp( source_owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    source_offset += (uint)PROGRAMDATA_METADATA_SIZE;
+    source_offset = fd_uint_sat_add( source_offset, (uint)PROGRAMDATA_METADATA_SIZE );
   } else if( FD_UNLIKELY( memcmp( source_owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) &&
                           memcmp( source_owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Source is not a program" );
