@@ -2633,19 +2633,19 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
 #endif
 
-    ulong prev_confirmed = ctx->forks->confirmed;
-    ulong prev_finalized = ctx->forks->finalized;
+    // ulong prev_confirmed = ctx->forks->confirmed;
+    // ulong prev_finalized = ctx->forks->finalized;
     fd_forks_update( ctx->forks, ctx->epoch, ctx->funk, ctx->ghost, curr_slot );
 
-    if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed ) ) {
-      ulong msg[ 1 ] = { ctx->forks->confirmed };
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED, (uchar const *)msg, sizeof(msg) );
-    }
+    // if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed ) ) {
+    //   ulong msg[ 1 ] = { ctx->forks->confirmed };
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED, (uchar const *)msg, sizeof(msg) );
+    // }
 
-    if (FD_UNLIKELY( prev_finalized!=ctx->forks->finalized ) ) {
-      ulong msg[ 1 ] = { ctx->forks->finalized };
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_ROOTED, (uchar const *)msg, sizeof(msg) );
-    }
+    // if (FD_UNLIKELY( prev_finalized!=ctx->forks->finalized ) ) {
+    //   ulong msg[ 1 ] = { ctx->forks->finalized };
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_ROOTED, (uchar const *)msg, sizeof(msg) );
+    // }
 
     /**********************************************************************/
     /* Consensus: decide (1) the fork for pack; (2) the fork to vote on   */
