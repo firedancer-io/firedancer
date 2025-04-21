@@ -28,6 +28,7 @@
 #include "generated/invoke.pb.h"
 #include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
+#include "generated/type.pb.h"
 
 FD_PROTOTYPES_BEGIN
 

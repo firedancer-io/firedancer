@@ -838,16 +838,33 @@ sol_compat_type_execute_v1( uchar *       out,
                             ulong *       out_sz,
                             uchar const * in,
                             ulong         in_sz ) {
-  if( !in_sz ) {
+  // Setup
+  fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
+
+  // Decode context
+  fd_exec_test_type_context_t input[1] = {0};
+  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_type_context_t_msg );
+  if( res==NULL ) {
+    sol_compat_cleanup_runner( runner );
     return 0;
   }
 
-  fd_spad_t *spad = fd_spad_join( fd_spad_new( spad_mem, 1UL << 32 ) );
-
   int ok = 0;
-  FD_SPAD_FRAME_BEGIN( spad ) {
-    ok = fd_runtime_fuzz_decode_type_run( spad, in, in_sz, out, out_sz );
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
+
+    void * output = NULL;
+    sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_type_run );
+
+    if( output ) {
+      ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_type_effects_t_msg );
+    }
+
   } FD_SPAD_FRAME_END;
+
+  pb_release( &fd_exec_test_type_context_t_msg, input );
+  sol_compat_cleanup_runner( runner );
+
+  sol_compat_check_wksp_usage();
 
   return ok;
 }
