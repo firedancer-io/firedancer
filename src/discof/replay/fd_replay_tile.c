@@ -2367,6 +2367,8 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   send_exec_epoch_msg( ctx, stem, ctx->slot_ctx );
 
+  publish_slot_notifications( ctx, stem, fork, 0, ctx->curr_slot );
+
 
   FD_TEST( ctx->slot_ctx );
 }
