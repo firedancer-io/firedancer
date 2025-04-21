@@ -149,7 +149,6 @@ struct fd_store_tile_ctx {
   ulong * root_slot_fseq;
 
   int sim;
-  ulong sim_end_slot;
 
   fd_shred_cap_ctx_t shred_cap_ctx;
 
@@ -402,10 +401,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   }
 
   if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
-
-    if ( FD_UNLIKELY( ctx->sim && slot>=ctx->sim_end_slot ) ) {
-      FD_LOG_ERR(( "Finished simulation to slot %lu", ctx->sim_end_slot ));
-    }
 
     FD_LOG_NOTICE( ( "\n\n[Store]\n"
                      "slot:            %lu\n"
@@ -815,8 +810,6 @@ unprivileged_init( fd_topo_t *      topo,
     if( ctx->shred_cap_ctx.shred_cap_fileno==-1 ) FD_LOG_ERR(( "failed at opening the shredcap file" ));
   } else if( strlen( tile->store_int.shred_cap_replay )>0 ) {
     ctx->sim                           = 1;
-    ctx->sim_end_slot                  = tile->store_int.shred_cap_end_slot;
-    FD_LOG_WARNING(( "simulating to slot %lu", ctx->sim_end_slot ));
     ctx->store->blockstore->shmem->wmk = 0UL;
     while( ctx->store->blockstore->shmem->wmk==0UL ) {
       FD_LOG_DEBUG(( "Waiting for blockstore to be initialized" ));

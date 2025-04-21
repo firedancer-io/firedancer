@@ -215,6 +215,7 @@ struct fd_replay_tile_ctx {
 
   fd_voter_t *          epoch_voters; /* map chain of slot->voter */
   fd_bank_hash_cmp_t *  bank_hash_cmp;
+  int                   disable_bank_hash_cmp;
 
   /* Microblock (entry) batch buffer for replay. */
 
@@ -329,6 +330,9 @@ struct fd_replay_tile_ctx {
   int is_caught_up;
 
   int blocked_on_mblock; /* Flag used for synchronizing on mblock boundaries. */
+
+  /* Replay end slot */
+  ulong replay_end_slot;
 
   /* Metrics */
   fd_replay_tile_metrics_t metrics;
@@ -2752,43 +2756,49 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Bank hash comparison, and halt if there's a mismatch after replay  */
     /**********************************************************************/
 
-    fd_hash_t const * bank_hash = &child->slot_ctx->slot_bank.banks_hash;
-    fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx->epoch_ctx->bank_hash_cmp;
-    fd_bank_hash_cmp_lock( bank_hash_cmp );
-    fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
+    if( FD_LIKELY( !ctx->disable_bank_hash_cmp ) ) {
+      fd_hash_t const * bank_hash = &child->slot_ctx->slot_bank.banks_hash;
+      fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx->epoch_ctx->bank_hash_cmp;
+      fd_bank_hash_cmp_lock( bank_hash_cmp );
+      fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
 
-    /* Try to move the bank hash comparison watermark forward */
-    for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
-      int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
-      switch ( rc ) {
-        case -1:
+      /* Try to move the bank hash comparison watermark forward */
+      for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
+        if( FD_UNLIKELY( bank_hash_cmp->watermark+1>ctx->replay_end_slot ) ) {
+          FD_LOG_ERR(( "Finished simulation to slot %lu", ctx->replay_end_slot ));
+        }
+        int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+        switch ( rc ) {
+          case -1:
 
-          /* Mismatch */
+            /* Mismatch */
 
-          funk_cancel( ctx, cmp_slot );
-          checkpt( ctx );
-          FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+            funk_cancel( ctx, cmp_slot );
+            checkpt( ctx );
+            FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
-          break;
+            break;
 
-        case 0:
+          case 0:
 
-          /* Not ready */
+            /* Not ready */
 
-          break;
+            break;
 
-        case 1:
+          case 1:
 
-          /* Match*/
+            /* Match*/
 
-          bank_hash_cmp->watermark = cmp_slot;
-          break;
+            bank_hash_cmp->watermark = cmp_slot;
+            break;
 
-        default:;
+          default:;
+        }
       }
+
+      fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
 
-    fd_bank_hash_cmp_unlock( bank_hash_cmp );
     ctx->flags = EXEC_FLAG_READY_NEW;
   } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
 
@@ -3134,8 +3144,9 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
-  ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
-  ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
+  ctx->bank_hash_cmp          = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
+  ctx->disable_bank_hash_cmp  = tile->replay.disable_bank_hash_cmp;
+  ctx->epoch_ctx              = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {
     FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
@@ -3176,6 +3187,12 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->capture_txns = 0;
     fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
+
+  /**********************************************************************/
+  /* replay                                                             */
+  /**********************************************************************/
+
+  ctx->replay_end_slot = tile->replay.replay_end_slot ? tile->replay.replay_end_slot : ULONG_MAX;
 
   /**********************************************************************/
   /* bank                                                               */

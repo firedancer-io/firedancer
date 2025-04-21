@@ -17,6 +17,7 @@
         funk_rec_max = 10000000
         funk_txn_max = 1024
         cluster_version =  "1.18.0"
+        disable_bank_hash_cmp = false
     [tiles.pack]
         use_consumed_cus = false
     [tiles.restart]

@@ -297,6 +297,9 @@ typedef struct {
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
+
+      int   disable_bank_hash_cmp;
+      ulong replay_end_slot;
     } replay;
 
     struct {
@@ -368,7 +371,6 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
-      ulong shred_cap_end_slot;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_restore[ PATH_MAX ];
@@ -414,6 +416,7 @@ typedef struct {
 
       /* Set internally by the archiver tile */
       int archive_fd;
+      ulong replay_end_slot;
     } archiver;
 
   };

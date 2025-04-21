@@ -411,13 +411,14 @@ struct fd_config {
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
+      int   disable_bank_hash_cmp;
+      ulong replay_end_slot;
     } replay;
 
     struct {
       char  slots_pending[PATH_MAX];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
-      ulong shred_cap_end_slot;
     } store_int;
 
     struct {

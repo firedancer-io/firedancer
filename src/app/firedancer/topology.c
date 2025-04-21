@@ -699,7 +699,6 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( tile->store_int.slots_pending ) );
       strncpy( tile->store_int.shred_cap_archive, config->tiles.store_int.shred_cap_archive, sizeof(tile->store_int.shred_cap_archive) );
       strncpy( tile->store_int.shred_cap_replay, config->tiles.store_int.shred_cap_replay, sizeof(tile->store_int.shred_cap_replay) );
-      tile->store_int.shred_cap_end_slot     = config->tiles.store_int.shred_cap_end_slot;
       tile->store_int.expected_shred_version = config->consensus.expected_shred_version;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
@@ -756,6 +755,8 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.bank_tile_count = config->layout.bank_tile_count;
       tile->replay.exec_tile_count = config->layout.exec_tile_count;
       strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
+      tile->replay.disable_bank_hash_cmp = config->tiles.replay.disable_bank_hash_cmp;
+      tile->replay.replay_end_slot = config->tiles.replay.replay_end_slot;
 
       /* not specified by [tiles.replay] */
 
@@ -834,6 +835,7 @@ fd_topo_initialize( config_t * config ) {
                             !strcmp( tile->name, "arch_w" ) ) ) {
       tile->archiver.enabled = config->tiles.archiver.enabled;
       strncpy( tile->archiver.archiver_path, config->tiles.archiver.archiver_path, sizeof(tile->archiver.archiver_path) );
+      tile->archiver.replay_end_slot = config->tiles.replay.replay_end_slot;
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
