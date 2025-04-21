@@ -116,7 +116,8 @@ fd_snapshot_restore_new( void *                                         mem,
                          void *                                         cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache,
-                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account );
+                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account,
+                         fd_tpool_t *                                   tpool );
 
 /* fd_snapshot_restore_delete destroys the given restore object and
    frees any resources.  Returns allocated memory region back to

@@ -29,7 +29,8 @@ struct fd_io_istream_vt {
   (* read)( void *  _this,
             void *  _dst,
             ulong   dst_max,
-            ulong * _dst_sz );
+            ulong * _dst_sz,
+            ulong   _dst_offset );
 
 };
 
@@ -48,8 +49,9 @@ static inline int
 fd_io_istream_obj_read( fd_io_istream_obj_t * obj,
                         void *                dst,
                         ulong                 dst_max,
-                        ulong *               dst_sz ) {
-  return obj->vt->read( obj->this, dst, dst_max, dst_sz );
+                        ulong *               dst_sz,
+                        ulong                 dst_offset ) {
+  return obj->vt->read( obj->this, dst, dst_max, dst_sz, dst_offset );
 }
 
 FD_PROTOTYPES_END
@@ -87,7 +89,8 @@ int
 fd_io_istream_zstd_read( void *  _this,
                          void *  dst,
                          ulong   dst_max,
-                         ulong * dst_sz );
+                         ulong * dst_sz,
+                         ulong   dst_offset );
 
 extern fd_io_istream_vt_t const fd_io_istream_zstd_vt;
 
@@ -125,7 +128,8 @@ int
 fd_io_istream_file_read( void *  _this,
                          void *  dst,
                          ulong   dst_max,
-                         ulong * dst_sz );
+                         ulong * dst_sz,
+                         ulong   dst_offset );
 
 extern fd_io_istream_vt_t const fd_io_istream_file_vt;
 
@@ -161,6 +165,9 @@ fd_tar_io_reader_delete( fd_tar_io_reader_t * this );
 
 int
 fd_tar_io_reader_advance( fd_tar_io_reader_t * this );
+
+int
+fd_tar_io_reader_advance_file( fd_tar_io_reader_t * this, uchar * buf, ulong * buf_offset, ulong buf_cap );
 
 FD_PROTOTYPES_END
 

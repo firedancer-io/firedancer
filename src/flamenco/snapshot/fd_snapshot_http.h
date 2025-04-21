@@ -115,7 +115,8 @@ int
 fd_io_istream_snapshot_http_read( void *  _this,
                                   void *  dst,
                                   ulong   dst_max,
-                                  ulong * dst_sz );
+                                  ulong * dst_sz,
+                                  ulong   dst_offset );
 
 extern fd_io_istream_vt_t const fd_io_istream_snapshot_http_vt;
 

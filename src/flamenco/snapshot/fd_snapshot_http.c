@@ -462,7 +462,8 @@ int
 fd_io_istream_snapshot_http_read( void *  _this,
                                   void *  dst,
                                   ulong   dst_max,
-                                  ulong * dst_sz ) {
+                                  ulong * dst_sz,
+                                  ulong   dst_offset FD_PARAM_UNUSED ) {
 
   fd_snapshot_http_t * this = (fd_snapshot_http_t *)_this;
 

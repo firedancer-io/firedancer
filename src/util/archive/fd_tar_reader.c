@@ -36,7 +36,7 @@ fd_tar_reader_delete( fd_tar_reader_t * reader ) {
 }
 
 static int
-fd_tar_process_hdr( fd_tar_reader_t * reader ) {
+fd_tar_process_hdr( fd_tar_reader_t * reader, ulong * out_file_sz ) {
 
   fd_tar_meta_t const * hdr = (fd_tar_meta_t const *)reader->buf;
 
@@ -64,6 +64,9 @@ fd_tar_process_hdr( fd_tar_reader_t * reader ) {
     return EPROTO;
   }
   reader->file_sz = file_sz;
+  if( out_file_sz ) {
+    *out_file_sz = file_sz;
+  }
   reader->buf_ctr = (ushort)0U;
 
   /* Ensure name is terminated */
@@ -77,7 +80,8 @@ fd_tar_process_hdr( fd_tar_reader_t * reader ) {
 static int
 fd_tar_read_hdr( fd_tar_reader_t * reader,
                  uchar const **    pcur,
-                 uchar const *     end ) {
+                 uchar const *     end,
+                 ulong *           file_sz ) {
 
   uchar const * cur = *pcur;
 
@@ -100,8 +104,10 @@ fd_tar_read_hdr( fd_tar_reader_t * reader,
 
   /* Handle complete header */
   int ret = 0;
-  if( reader->buf_ctr == sizeof(fd_tar_meta_t) )
-    ret = fd_tar_process_hdr( reader );
+  if( reader->buf_ctr ==   sizeof(fd_tar_meta_t) ) {
+    reader->hdr_done = 1;
+    ret = fd_tar_process_hdr( reader, file_sz );
+  }
 
   *pcur = cur;
   return ret;
@@ -110,7 +116,8 @@ fd_tar_read_hdr( fd_tar_reader_t * reader,
 static int
 fd_tar_read_data( fd_tar_reader_t * reader,
                   uchar const **    pcur,
-                  uchar const *     end ) {
+                  uchar const *     end,
+                  ulong *           data_bytes ) {
 
   uchar const * cur = *pcur;
   FD_TEST( cur<=end );
@@ -121,15 +128,17 @@ fd_tar_read_data( fd_tar_reader_t * reader,
   if( avail_sz < chunk_sz ) chunk_sz = avail_sz;
 
   /* Call back to recipient */
-  int err = reader->cb_vt.read( reader->cb_arg, cur, chunk_sz );
+  // int err = reader->cb_vt.read( reader->cb_arg, cur, chunk_sz );
 
   /* Consume bytes */
   cur             += chunk_sz;
   reader->file_sz -= chunk_sz;
+  if( data_bytes )
+    *data_bytes = chunk_sz;
 
   *pcur = cur;
 
-  return err;
+  return 0;
 }
 
 int
@@ -150,7 +159,7 @@ fd_tar_read( void *        const reader_,
 
   while( cur!=end ) {
     if( reader->file_sz ) {
-      int err = fd_tar_read_data( reader, &cur, end );
+      int err = fd_tar_read_data( reader, &cur, end, NULL );
       if( FD_UNLIKELY( !!err && err!=track_err ) ) return err;
       if( err==track_err ) {
         seen_tracked_err = 1;
@@ -158,7 +167,7 @@ fd_tar_read( void *        const reader_,
       reader->pos = pos + (ulong)( cur-data );
     }
     if( !reader->file_sz ) {
-      int err = fd_tar_read_hdr( reader, &cur, end );
+      int err = fd_tar_read_hdr( reader, &cur, end, NULL );
       if( FD_UNLIKELY( !!err ) ) return err;
       reader->pos = pos + (ulong)( cur-data );
     }
@@ -168,6 +177,54 @@ fd_tar_read( void *        const reader_,
     return track_err;
   }
 
+  return 0;
+}
+
+int
+fd_tar_read_file( void *        const reader_,
+                  uchar const * const data,
+                  ulong         const data_sz,
+                  ulong *             out_file_sz,
+                  ulong *             out_bytes_consumed ) {
+  fd_tar_reader_t * reader = reader_;
+  ulong const pos = reader->pos;
+  ulong bytes_consumed = 0;
+
+  uchar const * cur   = data;
+  uchar const * end   = cur+data_sz;
+  uchar trying_hdr = 0;
+
+  /* we need to read a hdr first */
+  if( !*out_file_sz ) {
+    trying_hdr = 1;
+    // FD_LOG_WARNING(("trying to read hdr!"));
+    while( cur!=end ) {
+      // FD_LOG_WARNING(("reading tar hdr!"));
+      int err = fd_tar_read_hdr( reader, &cur, end, out_file_sz );
+      if( FD_UNLIKELY( !!err ) ) return err;
+      reader->pos = pos + (ulong)( cur-data );
+
+      /* successfully read the hdr */
+      if( reader->hdr_done ) {
+        // FD_LOG_WARNING(("consumed %lu bytes", (ulong)(cur-data)));
+        // FD_LOG_WARNING(("done reading hdr! file size is %lu", *out_file_sz));
+        reader->file_start_offset = (ulong)( cur-data );
+        break;
+      }
+    }
+  }
+
+  /* Now read data */
+  // FD_LOG_WARNING(("tar reading data now! reader->file_sz is %lu", reader->file_sz));
+  while( cur!=end && reader->file_sz ) {
+    int err = fd_tar_read_data( reader, &cur, end, NULL );
+    if( FD_UNLIKELY( !!err ) ) return err;
+    reader->pos = pos + (ulong)( cur-data );
+  }
+
+  if( !trying_hdr || (trying_hdr && reader->hdr_done ))
+    bytes_consumed += (ulong)( cur-data );
+  *out_bytes_consumed = bytes_consumed;
   return 0;
 }
 

@@ -1127,6 +1127,9 @@ ingest( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
   }
 
+  FD_LOG_ERR(("done with snapshot!"));
+  exit(-1);
+
   if( args->genesis ) {
     fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
   }
@@ -1314,6 +1317,8 @@ replay( fd_ledger_args_t * args ) {
       FD_LOG_NOTICE(( "imported from snapshot" ));
     }
   }
+
+  FD_LOG_ERR(("done with snapshot!"));
 
   if( args->genesis ) {
     fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );

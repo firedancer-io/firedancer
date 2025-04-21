@@ -1,6 +1,7 @@
 #include "fd_snapshot_loader.h"
 #include "fd_snapshot_base.h"
 #include "fd_snapshot_http.h"
+#include "fd_snapshot_create.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -13,10 +14,12 @@
 #include <netinet/in.h>
 
 #define FD_SNAPSHOT_LOADER_MAGIC (0xa78a73a69d33e6b1UL)
+#define FD_SNAPSHOT_MAX_BUF_SIZE (8UL * 1024UL * 1024UL * 1024UL)
 
 struct fd_snapshot_loader {
   ulong magic;
 
+  fd_spad_t *          spad;
   /* Source: HTTP */
 
   void *               http_mem;
@@ -48,6 +51,11 @@ struct fd_snapshot_loader {
   /* Hash and slot numbers from filename */
 
   fd_snapshot_name_t name;
+
+  /* buffer to hold a snapshot file */
+  uchar * buf;
+  ulong buf_offset;
+  ulong buf_cap;
 };
 
 typedef struct fd_snapshot_loader fd_snapshot_loader_t;
@@ -133,9 +141,15 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
                          fd_snapshot_restore_t *   restore,
                          fd_snapshot_src_t const * src,
                          ulong                     base_slot,
-                         int                       validate_slot ) {
+                         int                       validate_slot,
+                         fd_spad_t *               spad ) {
 
   d->restore = restore;
+  d->spad    = spad;
+
+  d->buf = fd_spad_alloc( spad, FD_SPAD_ALIGN, FD_SNAPSHOT_MAX_BUF_SIZE );
+  d->buf_offset = 0;
+  d->buf_cap    = FD_SNAPSHOT_MAX_BUF_SIZE;
 
   switch( src->type ) {
   case FD_SNAPSHOT_SRC_FILE:
@@ -203,7 +217,7 @@ fd_snapshot_loader_advance( fd_snapshot_loader_t * dumper ) {
 
   fd_tar_io_reader_t * vtar = dumper->vtar;
 
-  int untar_err = fd_tar_io_reader_advance( vtar );
+  int untar_err = fd_tar_io_reader_advance_file( vtar, dumper->buf, &dumper->buf_offset, dumper->buf_cap );
   if( untar_err==0 ) {
     /* Ok */
   } else if( untar_err==MANIFEST_DONE ) {

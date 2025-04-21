@@ -73,7 +73,7 @@ target_task( void * ctx ) {
 
     uchar buf[1024];
     ulong out_sz;
-    int ok = fd_io_istream_snapshot_http_read( http, buf, sizeof(buf), &out_sz );
+    int ok = fd_io_istream_snapshot_http_read( http, buf, sizeof(buf), &out_sz, 0 );
     if( ok!=0 ) {
       FD_FUZZ_MUST_BE_COVERED;
       break;

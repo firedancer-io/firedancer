@@ -42,7 +42,7 @@ struct __attribute__((packed)) fd_tar_meta {
   /* 0x1f4 */ char padding [  12 ];
 };
 
-typedef struct fd_tar_meta fd_tar_meta_t;
+typedef struct fd_tar_meta    fd_tar_meta_t;
 
 /* FD_TAR_MAGIC is the only value of fd_tar_meta::magic supported by
    fd_tar. */
@@ -142,8 +142,8 @@ typedef int
    fd_tar_reader_t consumer object. */
 
 struct fd_tar_read_vtable {
-  fd_tar_file_fn_t file;
-  fd_tar_read_fn_t read;
+  fd_tar_file_fn_t    file;
+  fd_tar_read_fn_t    read;
 };
 
 typedef struct fd_tar_read_vtable fd_tar_read_vtable_t;
@@ -168,6 +168,8 @@ struct fd_tar_reader {
   ulong pos;      /* Number of bytes consumed */
   ulong buf_ctr;  /* Write cursor in file header */
   ulong file_sz;  /* Number of file bytes left */
+  ulong file_start_offset; /* offset of data of file start */
+  uchar hdr_done;
 
   /* Callback parameters */
   fd_tar_read_vtable_t cb_vt;
@@ -228,6 +230,24 @@ fd_tar_read( void *        reader,
              uchar const * data,
              ulong         data_sz,
              int           track_err );
+
+int
+fd_tar_read_file( void *        reader,
+                  uchar const * data,
+                  ulong         data_sz,
+                  ulong *       out_file_sz ,
+                  ulong *       out_bytes_consumed);
+
+// int
+// fd_tar_read_hdr( fd_tar_reader_t * reader,
+//                  uchar const **    pcur,
+//                  uchar const *     end,
+//                  ulong *           file_sz );
+
+// static int
+// fd_tar_read_data( fd_tar_reader_t * reader,
+//                   uchar const **    pcur,
+//                   uchar const *     end );
 
 /* Streaming writer ***************************************************/
 

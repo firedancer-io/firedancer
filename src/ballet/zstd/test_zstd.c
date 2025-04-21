@@ -46,7 +46,7 @@ test_decompress( void ) {
     uchar const * in_cur = test_zstd_comp_0;
     int rc = fd_zstd_dstream_read( dstream,
                 &in_cur,  test_zstd_comp_0+sizeof(test_zstd_comp_0),
-                &out_cur, out+sizeof(out),
+                &out_cur, out+sizeof(out), 0,
                 NULL );
     FD_TEST( rc==-1 );
     FD_TEST( in_cur ==test_zstd_comp_0+sizeof(test_zstd_comp_0) );
@@ -63,7 +63,7 @@ test_decompress( void ) {
       uchar * out_end = out_cur<out+8 ? out_cur+1 : out_cur;
       if( in_cur==test_zstd_comp_1+sizeof(test_zstd_comp_1) )
         in_cur = test_zstd_comp_1;  /* cycle over input message */
-      int rc = fd_zstd_dstream_read( dstream, &in_cur, in_cur+1, &out_cur, out_end, NULL );
+      int rc = fd_zstd_dstream_read( dstream, &in_cur, in_cur+1, &out_cur, out_end, 0, NULL );
       FD_TEST( rc<=0 );
       if( rc==-1 ) break;
     }
@@ -80,7 +80,7 @@ test_decompress( void ) {
       uchar * out_end = out_cur<out+8 ? out_cur+1 : out_cur;
       if( in_cur==test_zstd_comp_1+sizeof(test_zstd_comp_1) )
         in_cur = test_zstd_comp_1;  /* cycle over input message */
-      int rc = fd_zstd_dstream_read( dstream, &in_cur, in_cur+1, &out_cur, out_end, NULL );
+      int rc = fd_zstd_dstream_read( dstream, &in_cur, in_cur+1, &out_cur, out_end, 0, NULL );
       FD_TEST( rc<=0 );
       if( rc==-1 ) break;
     }
@@ -96,7 +96,7 @@ test_decompress( void ) {
     FD_TEST( out_cur<out+4 );
     int rc = fd_zstd_dstream_read( dstream,
                  &in_cur, test_zstd_comp_1+sizeof(test_zstd_comp_1),
-                 &out_cur, out_cur+1,
+                 &out_cur, out_cur+1, 0,
                  NULL );
     FD_TEST( rc<=0 );
     if( rc==-1 ) break;
@@ -109,7 +109,7 @@ test_decompress( void ) {
   do {
     in_cur = test_zstd_comp_1;
     out_cur = out;
-    int rc = fd_zstd_dstream_read( dstream, &in_cur, in_cur+3, &out_cur, out_cur+3, NULL );
+    int rc = fd_zstd_dstream_read( dstream, &in_cur, in_cur+3, &out_cur, out_cur+3, 0, NULL );
     FD_TEST( rc==0 );
 
     fd_zstd_dstream_reset( dstream );
@@ -117,7 +117,7 @@ test_decompress( void ) {
     in_cur = test_zstd_comp_0;
     rc = fd_zstd_dstream_read( dstream,
              &in_cur,  test_zstd_comp_0+sizeof(test_zstd_comp_0),
-             &out_cur, out+sizeof(out),
+             &out_cur, out+sizeof(out), 0,
              NULL );
     FD_TEST( rc==-1 );
     FD_TEST( in_cur ==test_zstd_comp_0+sizeof(test_zstd_comp_0) );

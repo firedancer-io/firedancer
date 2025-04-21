@@ -347,12 +347,12 @@ do_dump( fd_snapshot_dumper_t *    d,
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
 
-  d->restore = fd_snapshot_restore_new( restore_mem, d->funk, funk_txn, spad, d, fd_snapshot_dumper_on_manifest, NULL, NULL );
+  d->restore = fd_snapshot_restore_new( restore_mem, d->funk, funk_txn, spad, d, fd_snapshot_dumper_on_manifest, NULL, NULL, NULL );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
   /* Set up the snapshot loader */
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src, 0UL, 1 ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src, 0UL, 1, spad ) ) ) {
     FD_LOG_WARNING(( "fd_snapshot_loader_init failed" ));
     return EXIT_FAILURE;
   }

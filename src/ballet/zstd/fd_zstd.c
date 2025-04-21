@@ -94,13 +94,14 @@ fd_zstd_dstream_read( fd_zstd_dstream_t *     dstream,
                       uchar const *           in_end,
                       uchar ** restrict       out_p,
                       uchar *                 out_end,
+                      ulong                   out_offset,
                       ulong *                 opt_errcode ) {
 
   ulong _opt_errcode[1];
   opt_errcode = opt_errcode ? opt_errcode : _opt_errcode;
 
   uchar const * in_start  = *in_p;
-  uchar *       out_start = *out_p;
+  uchar *       out_start = (*out_p  + out_offset);
 
   if( FD_UNLIKELY( ( in_start  > in_end  ) |
                    ( out_start > out_end ) ) )
@@ -114,6 +115,7 @@ fd_zstd_dstream_read( fd_zstd_dstream_t *     dstream,
     { .dst  = out_start,
       .size = (ulong)out_end - (ulong)out_start,
       .pos  = 0UL };
+
 
   ZSTD_DCtx * ctx = fd_zstd_dstream_ctx( dstream );
   ulong const rc = ZSTD_decompressStream( ctx, &out_buf, &in_buf );

@@ -152,6 +152,7 @@ fd_zstd_dstream_read( fd_zstd_dstream_t *     dstream,
                       uchar const *           in_end,
                       uchar ** restrict       out_p,
                       uchar *                 out_end,
+                      ulong                   out_offset,
                       ulong *                 opt_errcode );
 
 /* TODO: Migrate compression logic from fd_snapshot_create. to fd_zstd.h */

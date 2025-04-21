@@ -59,7 +59,7 @@ struct fd_exec_para_cb_ctx {
   void *            fn_arg_1;
   void *            fn_arg_2;
   void *            fn_arg_3;
-  void *            fn_arg_4;
+  void *              fn_arg_4;
 };
 typedef struct fd_exec_para_cb_ctx fd_exec_para_cb_ctx_t;
 
