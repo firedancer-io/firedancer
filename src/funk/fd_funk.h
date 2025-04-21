@@ -320,7 +320,11 @@ fd_funk_leave( fd_funk_t * funk );
    nobody is or will be joined to the funk.  Returns shmem on success
    and NULL on failure (logs details).  Reasons for failure include
    shfunk is NULL, misaligned shfunk, shfunk is not backed by a
-   workspace, etc. */
+   workspace, etc.
+
+   This function is NOT thread-safe, and should only be called be a single
+   thread. There should be no other threads using the funk at the time of
+   calling this function. */
 
 void *
 fd_funk_delete( void * shfunk );

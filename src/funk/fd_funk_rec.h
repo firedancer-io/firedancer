@@ -367,6 +367,8 @@ void fd_funk_all_iter_next( fd_funk_all_iter_t * iter );
 
 fd_funk_rec_t const * fd_funk_all_iter_ele_const( fd_funk_all_iter_t * iter );
 
+fd_funk_rec_t * fd_funk_all_iter_ele( fd_funk_all_iter_t * iter );
+
 /* Misc */
 
 #ifdef FD_FUNK_HANDHOLDING

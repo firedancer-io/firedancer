@@ -532,6 +532,11 @@ fd_funk_all_iter_ele_const( fd_funk_all_iter_t * iter ) {
   return fd_funk_rec_map_iter_ele_const( iter->rec_map_iter );
 }
 
+fd_funk_rec_t *
+fd_funk_all_iter_ele( fd_funk_all_iter_t * iter ) {
+  return fd_funk_rec_map_iter_ele( iter->rec_map_iter );
+}
+
 #ifdef FD_FUNK_HANDHOLDING
 int
 fd_funk_rec_verify( fd_funk_t * funk ) {
