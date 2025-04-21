@@ -1155,7 +1155,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x6a\xf9\xc2\xb7\xef\x03\x1f\xcd\x0f\x1a\x09\x23\x4e\x8a\x87\x4e\xa1\xf5\x78\x76\x05\xb9\x50\xa3\x0d\x93\x1f\xf6\x6a\x54\x99\xd6"},
                                  /* 8Cb77yHjPWe9wuWUfXeh6iszFGCDGNCoFk3tprViYHNm */
     .name                      = "enable_loader_v4",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, require_rent_exempt_split_destination)>>3,
     .id                        = {"\xb2\xb3\xf3\xc6\xb4\x1c\x24\x4b\xbf\x84\xd9\x21\x6e\x67\x6e\x0b\x45\x16\xb4\xd6\x0c\x48\xe9\x7a\x45\x26\x74\xbc\x9d\x61\x72\xe0"},
