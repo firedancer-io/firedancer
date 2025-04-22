@@ -66,8 +66,8 @@ struct fd_fec_intra {
   ulong prev; /* internal use by dlist */
   ulong next; /* internal use by map_chain */
 
-  ulong  slot; /* slot of the block this fec set is part of  */
-  ushort parent_off;
+  ulong  slot;        /* slot of the block this fec set is part of  */
+  ushort parent_off;  /* parent slot's offset from slot */
   uint   fec_set_idx; /* index of the first data shred */
   long   ts;          /* timestamp upon receiving the first shred */
   ulong  recv_cnt;    /* count of shreds received so far data + coding */
