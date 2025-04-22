@@ -30,9 +30,9 @@
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"
 
-#define IN_KIND_GOSSIP (1UL)
-#define IN_KIND_REPLAY (2UL)
-#define IN_KIND_STAKE  (3UL)
+#define IN_KIND_GOSSIP (0)
+#define IN_KIND_STAKE  (1)
+#define IN_KIND_TOWER  (2)
 
 struct fd_send_link_in {
   fd_wksp_t *  mem;
@@ -233,7 +233,7 @@ during_frag( fd_send_tile_ctx_t   * ctx,
     handle_new_cluster_contact_info( ctx, dcache_entry, sz );
   }
 
-  if( FD_UNLIKELY( kind==IN_KIND_REPLAY ) ) {
+  if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
     if( sz!=sizeof(fd_txn_p_t) ) {
       FD_LOG_ERR(( "sz %lu != expected txn size %lu", sz, sizeof(fd_txn_p_t) ));
     }
@@ -270,7 +270,7 @@ after_frag( fd_send_tile_ctx_t   * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( kind==IN_KIND_REPLAY ) ) {
+  if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)fd_type_pun(ctx->txn_buf);
 
     /* sign the txn */
@@ -368,7 +368,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_send" );
   setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "stake_out" );
-  setup_input_link( ctx, topo, tile, IN_KIND_REPLAY, "replay_send" );
+  setup_input_link( ctx, topo, tile, IN_KIND_TOWER, "tower_send" );
 
   setup_output_link( ctx->gossip_verify_out, topo, tile, "send_txns" );
   setup_output_link( ctx->net_out,           topo, tile, "send_net"  );

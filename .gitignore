@@ -64,13 +64,15 @@ deps-bundle.tar.zst
 /book/bun.lockb
 
 # TVU
-testnet.toml
 mainnet.toml
+testnet.toml
+privatenet.toml
 localnet.toml
 sim.toml
 backtest.toml
-testnet.sh
 mainnet.sh
+testnet.sh
+privatenet.sh
 localnet.sh
 sim.sh
 backtest.sh

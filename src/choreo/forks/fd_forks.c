@@ -350,12 +350,11 @@ fd_forks_update( fd_forks_t *      forks,
     fd_voter_t *             voter = &epoch_voters[i];
 
     /* Fetch the vote account's vote slot and root slot from the vote account, re-trying if there is
-       a Funk conflict.
+       a Funk conflict. */
 
-       TODO: factor this out into a convenience function. */
     ulong vote = 0UL;
     ulong root = 0UL;
-    for( ; ; ) {
+    for(;;) {
       fd_funk_rec_query_t query[1];
       fd_voter_state_t const * state = fd_voter_state( funk, query, txn, &voter->rec );
       vote = fd_voter_state_vote( state );
@@ -411,7 +410,7 @@ fd_forks_update( fd_forks_t *      forks,
 }
 
 void
-fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
+fd_forks_publish( fd_forks_t * forks, ulong slot ) {
   fd_fork_t * tail = NULL;
   fd_fork_t * curr = NULL;
 
@@ -424,9 +423,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
 
        Optimize for unlikely because there is usually just one fork. */
 
-    int stale = fork->slot < slot || !fd_ghost_is_ancestor( ghost, slot, fork->slot );
-    if( FD_UNLIKELY( !fork->lock && stale ) ) {
-      FD_LOG_NOTICE( ( "adding %lu to prune. root %lu", fork->slot, slot ) );
+    if( FD_UNLIKELY( !fork->lock && fork->slot < slot ) ) {
       if( FD_LIKELY( !curr ) ) {
         tail = fork;
         curr = fork;

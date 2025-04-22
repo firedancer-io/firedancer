@@ -639,7 +639,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Setting these parameters are not required because we are joining
      the funk that was setup in the replay tile. */
-  FD_LOG_NOTICE(( "Trying to join funk at file=%s", tile->exec.funk_file ));
+  FD_LOG_DEBUG(( "Trying to join funk at file=%s", tile->exec.funk_file ));
   fd_funk_txn_start_write( NULL );
   if( FD_UNLIKELY( !fd_funk_open_file(
       ctx->funk, tile->exec.funk_file,
@@ -649,7 +649,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_funk_txn_end_write( NULL );
   ctx->funk_wksp = fd_funk_wksp( ctx->funk );
 
-  FD_LOG_NOTICE(( "Just joined funk at file=%s", tile->exec.funk_file ));
+  FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->exec.funk_file ));
 
   //FIXME
   /********************************************************************/
