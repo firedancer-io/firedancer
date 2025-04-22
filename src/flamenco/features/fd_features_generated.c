@@ -1594,6 +1594,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "vote_only_retransmitter_signed_fec_sets",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, mask_out_rent_epoch_in_vm_serialization)>>3,
+    .id                        = {"\x06\x35\x10\xb8\x8d\xba\x0a\x21\x00\x8d\x28\x53\xaf\xe3\xa7\x61\x15\x06\x67\x97\x6d\x00\x38\x42\x50\xb5\x71\xf9\x6a\x30\x65\xf7"},
+                                 /* RENtePQcDLrAbxAsP3k8dwVcnNYQ466hi2uKvALjnXx */
+    .name                      = "mask_out_rent_epoch_in_vm_serialization",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1833,6 +1839,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xa841eda250bdcc9c: return &ids[ 230 ];
   case 0x0272a3278356fa9c: return &ids[ 231 ];
   case 0x494f963ae12b5106: return &ids[ 232 ];
+  case 0x210aba8db8103506: return &ids[ 233 ];
   default: break;
   }
   return NULL;
@@ -2071,4 +2078,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, drop_unchained_merkle_shreds         
 FD_STATIC_ASSERT( offsetof( fd_features_t, verify_retransmitter_signature                          )>>3==230UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_turbine_extended_fanout_experiments              )>>3==231UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_retransmitter_signed_fec_sets                 )>>3==232UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, mask_out_rent_epoch_in_vm_serialization                 )>>3==233UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
