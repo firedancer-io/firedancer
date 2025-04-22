@@ -60,7 +60,8 @@
 
 #define STAKE_OUT_IDX  (0UL)
 #define SENDER_OUT_IDX (1UL)
-#define POH_OUT_IDX    (2UL)
+#define TOWER_OUT_IDX  (2UL)
+#define POH_OUT_IDX    (3UL)
 
 #define EXEC_BOOT_WAIT  (0UL)
 #define EXEC_BOOT_DONE  (1UL)
@@ -153,6 +154,11 @@ struct fd_replay_tile_ctx {
   ulong       sender_out_chunk0;
   ulong       sender_out_wmark;
   ulong       sender_out_chunk;
+
+  fd_wksp_t * tower_out_mem;
+  ulong       tower_out_chunk0;
+  ulong       tower_out_wmark;
+  ulong       tower_out_chunk;
 
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
@@ -1234,7 +1240,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-static void
+FD_FN_UNUSED static void
 send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx->vote ) ) return;
   FD_LOG_NOTICE( ( "sending tower sync" ) );
@@ -2469,7 +2475,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   }
 
   ulong curr_slot   = ctx->curr_slot;
-  ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
 
   if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
@@ -2506,6 +2511,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     fd_spad_pop( ctx->runtime_spad );
     FD_LOG_NOTICE(( "Spad memory after executing block %lu", ctx->runtime_spad->mem_used ));
+
     /**********************************************************************/
     /* Push notifications for slot updates and reset block_info flag */
     /**********************************************************************/
@@ -2525,91 +2531,26 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     ctx->blockstore->shmem->lps = curr_slot;
 
-    /**********************************************************************/
-    /* Unlock the fork meaning that execution of the fork is now complete */
-    /**********************************************************************/
-
     FD_TEST(fork->slot == curr_slot);
     fork->lock = 0;
 
-    /**********************************************************************/
-    /* Consensus: update ghost and forks                                  */
-    /**********************************************************************/
+    if( FD_LIKELY( !ctx->vote || ctx->is_caught_up ) ) fd_stem_publish( stem, TOWER_OUT_IDX, curr_slot, 0UL, 0UL, 0UL, (ulong)fd_log_wallclock(), (ulong)fd_log_wallclock() );
 
-    fd_ghost_node_t const * ghost_node = fd_ghost_insert( ctx->ghost, parent_slot, curr_slot );
-#if FD_GHOST_USE_HANDHOLDING
-    if( FD_UNLIKELY( !ghost_node ) ) {
-      FD_LOG_ERR(( "failed to insert ghost node %lu", curr_slot ));
-    }
-#endif
+    // if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed && ctx->replay_plugin_out_mem ) ) {
+    //   ulong msg[ 1 ] = { ctx->forks->confirmed };
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED, (uchar const *)msg, sizeof(msg) );
+    // }
 
-    ulong prev_confirmed = ctx->forks->confirmed;
-    ulong prev_finalized = ctx->forks->finalized;
-    fd_forks_update( ctx->forks, ctx->epoch, ctx->funk, ctx->ghost, curr_slot );
-
-    if (FD_UNLIKELY( prev_confirmed!=ctx->forks->confirmed && ctx->replay_plugin_out_mem ) ) {
-      ulong msg[ 1 ] = { ctx->forks->confirmed };
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED, (uchar const *)msg, sizeof(msg) );
-    }
-
-    if (FD_UNLIKELY( prev_finalized!=ctx->forks->finalized && ctx->replay_plugin_out_mem ) ) {
-      ulong msg[ 1 ] = { ctx->forks->finalized };
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_ROOTED, (uchar const *)msg, sizeof(msg) );
-    }
-
-    fd_forks_print( ctx->forks );
-    fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
-    fd_tower_print( ctx->tower, ctx->root );
-
-    fd_fork_t * child = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
-    ulong vote_slot   = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, child->slot_ctx->funk_txn, ctx->ghost, ctx->runtime_spad );
-
-    FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
-                     "# of vote accounts: %lu\n"
-                     "best fork:          %lu\n",
-                     fd_epoch_voters_key_cnt( fd_epoch_voters( ctx->epoch ) ),
-                     fd_ghost_head( ctx->ghost, fd_ghost_root( ctx->ghost ) )->slot ) );
-
-    /**********************************************************************/
-    /* Consensus: send out a new vote by calling send_tower_sync          */
-    /**********************************************************************/
-
-    if( FD_UNLIKELY( ctx->vote && fd_fseq_query( ctx->poh ) == ULONG_MAX ) ) {
-      /* Only proceed with voting if we're caught up. */
-
-      FD_LOG_WARNING(( "still catching up. not voting." ));
-    } else {
-      if( FD_UNLIKELY( !ctx->is_caught_up ) ) {
-        ctx->is_caught_up = 1;
-      }
-
-      /* Proceed according to how local and cluster are synchronized. */
-
-      if( FD_LIKELY( vote_slot != FD_SLOT_NULL ) ) {
-
-        /* Invariant check: the vote_slot must be in the frontier */
-
-        FD_TEST( fd_forks_query_const( ctx->forks, vote_slot ) );
-
-        /* Vote locally */
-
-        ulong root = fd_tower_vote( ctx->tower, vote_slot );
-        ctx->metrics.last_voted_slot = vote_slot;
-
-        /* Update to a new root, if there is one. */
-
-        if ( FD_LIKELY ( root != FD_SLOT_NULL ) ) ctx->root = root; /* optimize for full tower (replay is keeping up) */
-      }
-
-      /* Send our updated tower to the cluster. */
-
-      send_tower_sync( ctx );
-    }
+    // if (FD_UNLIKELY( prev_finalized!=ctx->forks->finalized && ctx->replay_plugin_out_mem ) ) {
+    //   ulong msg[ 1 ] = { ctx->forks->finalized };
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_ROOTED, (uchar const *)msg, sizeof(msg) );
+    // }
 
     /**********************************************************************/
     /* Prepare bank for the next execution and write to debugging files   */
     /**********************************************************************/
 
+    fd_fork_t * child = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
     ulong prev_slot = child->slot_ctx->slot_bank.slot;
     child->slot_ctx->slot_bank.slot                     = curr_slot;
     child->slot_ctx->slot_bank.collected_execution_fees = 0UL;

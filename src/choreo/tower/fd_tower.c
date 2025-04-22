@@ -202,7 +202,7 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
                           fd_funk_t *           funk,
                           fd_funk_txn_t const * txn,
                           ulong                 slot,
-                          fd_spad_t *           runtime_spad ) {
+                          fd_tower_t *          scratch ) {
 
   /* First, simulate a vote, popping off everything that would be
      expired by voting for the current slot. */
@@ -234,40 +234,37 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
     fd_voter_t const * voter = &epoch_voters[i];
 
     /* Convert the landed_votes into tower's vote_slots interface. */
-    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-      void * mem = fd_spad_alloc( runtime_spad, fd_tower_align(), fd_tower_footprint() );
-      fd_tower_t * voter_tower = fd_tower_join( fd_tower_new( mem ) );
-      fd_tower_from_vote_acc( voter_tower, funk, txn, &voter->rec );
 
-      /* If this voter has not voted, continue. */
+    fd_tower_from_vote_acc( scratch, funk, txn, &voter->rec );
 
-      if( FD_UNLIKELY( fd_tower_votes_empty( voter_tower ) ) ) continue;
+    /* If this voter has not voted, continue. */
 
-      ulong cnt = simulate_vote( voter_tower, slot );
+    if( FD_UNLIKELY( fd_tower_votes_empty( scratch ) ) ) continue;
 
-      /* Continue if their tower is empty after simulating. */
+    ulong cnt = simulate_vote( scratch, slot );
 
-      if( FD_UNLIKELY( !cnt ) ) continue;
+    /* Continue if their tower is empty after simulating. */
 
-      /* Get their latest vote. */
+    if( FD_UNLIKELY( !cnt ) ) continue;
 
-      fd_tower_vote_t const * vote = fd_tower_votes_peek_index( voter_tower, cnt - 1 );
+    /* Get their latest vote. */
 
-      /* Count their stake towards the threshold check if their latest
-         vote slot >= our threshold slot.
+    fd_tower_vote_t const * vote = fd_tower_votes_peek_index( scratch, cnt - 1 );
 
-         Because we are iterating vote accounts on the same fork that we
-         we want to vote for, we know these slots must all occur along
-         the same fork ancestry.
+    /* Count their stake towards the threshold check if their latest
+        vote slot >= our threshold slot.
 
-         Therefore, if their latest vote slot >= our threshold slot, we
-         know that vote must be for the threshold slot itself or one of
-         threshold slot's descendants. */
+        Because we are iterating vote accounts on the same fork that we
+        we want to vote for, we know these slots must all occur along
+        the same fork ancestry.
 
-      if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
-        threshold_stake += voter->stake;
-      }
-    } FD_SPAD_FRAME_END;
+        Therefore, if their latest vote slot >= our threshold slot, we
+        know that vote must be for the threshold slot itself or one of
+        threshold slot's descendants. */
+
+    if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
+      threshold_stake += voter->stake;
+    }
   }
 
   double threshold_pct = (double)threshold_stake / (double)epoch->total_stake;
@@ -319,7 +316,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_funk_t *           funk,
                     fd_funk_txn_t const * txn,
                     fd_ghost_t const *    ghost,
-                    fd_spad_t *           runtime_spad ) {
+                    fd_tower_t *          scratch ) {
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
   fd_ghost_node_t const * root = fd_ghost_root( ghost );
@@ -346,7 +343,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, runtime_spad ) ) ) {
+    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, scratch ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
     }

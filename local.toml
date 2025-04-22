@@ -1,0 +1,40 @@
+[blockstore]
+    shred_max = 16777216
+    block_max = 4096
+    txn_max = 1024
+    alloc_max = 10737418240
+    file = "/data/chali/localnet.blockstore"
+[consensus]
+    expected_shred_version = 31196
+    identity_path = "/home/chali/.firedancer/fd1/validator-1.json"
+    vote_account_path = "/home/chali/.firedancer/fd1/vote-1.json"
+    vote = false
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true
+[gossip]
+    port = 9736
+    entrypoints = ["93.187.218.83:1024"]
+[layout]
+    affinity = "auto"
+    bank_tile_count = 1
+    shred_tile_count = 1
+[log]
+    path = "/data/chali/localnet.log"
+[rpc]
+    port = 8123
+    extended_tx_metadata_storage = true
+[tiles]
+    [tiles.repair]
+        repair_intake_listen_port = 8427
+        repair_serve_listen_port = 9819
+    [tiles.replay]
+        snapshot = "snapshot-600-8DnBQAJiJZxe2V95S5kTowhnPFwHSPosb3XyZ3K6T6ro.tar.zst"
+        funk_sz_gb = 20
+        funk_txn_max = 4096
+        funk_rec_max = 4194304
+        funk_file = "/data/chali/localnet.funk"
+        cluster_version = "2.2.3"
+    [tiles.pack]
+        use_consumed_cus = false
