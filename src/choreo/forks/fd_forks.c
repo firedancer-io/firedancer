@@ -351,12 +351,11 @@ fd_forks_update( fd_forks_t *      forks,
     fd_voter_t *             voter = &epoch_voters[i];
 
     /* Fetch the vote account's vote slot and root slot from the vote account, re-trying if there is
-       a Funk conflict.
+       a Funk conflict. */
 
-       TODO: factor this out into a convenience function. */
     ulong vote = 0UL;
     ulong root = 0UL;
-    for( ; ; ) {
+    for(;;) {
       fd_funk_rec_query_t query[1];
       fd_voter_state_t const * state = fd_voter_state( funk, query, txn, &voter->rec );
       vote = fd_voter_state_vote( state );
