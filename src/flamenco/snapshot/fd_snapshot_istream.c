@@ -171,18 +171,20 @@ int
 fd_tar_io_reader_advance_file( fd_tar_io_reader_t * this,
                                uchar * buf,
                                ulong * buf_offset,
-                               ulong   buf_cap FD_PARAM_UNUSED ) {
+                               ulong   buf_cap ) {
   // static ulong total_bytes_read = 0;
   ulong buf_sz       = 0UL;
-  ulong read_bytes   = 0UL;
   ulong file_sz      = 0UL;
+  ulong file_offset  = 0UL;
 
   while ( 1 ) {
     // FD_LOG_WARNING(("writing to buf at offset %lu", *buf_offset));
-    int read_err = fd_io_istream_obj_read( &this->src, buf + *buf_offset, 16384, &buf_sz, 0 );
+    int read_err = fd_io_istream_obj_read( &this->src, buf + *buf_offset, buf_cap - *buf_offset, &buf_sz, 0 );
     // FD_LOG_WARNING(("zstd read %lu bytes", buf_sz));
     if( FD_LIKELY( read_err==0 ) ) { /* ok */ }
-    else if( read_err<0 ) { /* EOF */ return -1; /* TODO handle unexpected EOF case */ }
+    else if( read_err<0 ) { 
+      this->reader->cb_vt.process( this->reader->cb_arg ); /* EOF */ 
+      return -1; /* TODO handle unexpected EOF case */ }
     else {
       FD_LOG_WARNING(( "Snapshot tar stream failed (%d-%s)", read_err, fd_io_strerror( read_err ) ));
       return read_err;
@@ -191,11 +193,11 @@ fd_tar_io_reader_advance_file( fd_tar_io_reader_t * this,
     ulong bytes_consumed = 0;
     *buf_offset = *buf_offset + buf_sz;
 
-    ulong data_sz = *buf_offset - (read_bytes);
+    ulong data_sz = *buf_offset - (this->reader->read_bytes);
     // FD_LOG_WARNING(("total_bytes_read is %lu", total_bytes_read));
     // if( !file_sz )
-    //   FD_LOG_WARNING(("reading tar at offset %lu", read_bytes));
-    int tar_err = fd_tar_read_file( this->reader, buf + read_bytes, data_sz, &file_sz, &bytes_consumed );
+      // FD_LOG_WARNING(("reading tar at offset %lu", read_bytes));
+    int tar_err = fd_tar_read_file( this->reader, buf + this->reader->read_bytes, data_sz, &file_sz, &bytes_consumed );
     // total_bytes_read += bytes_consumed;
     // FD_LOG_WARNING(("tar consumed %lu bytes", bytes_consumed ));
 
@@ -204,11 +206,38 @@ fd_tar_io_reader_advance_file( fd_tar_io_reader_t * this,
       return tar_err;
     }
     if( tar_err<0 ) {
+      this->reader->cb_vt.process( this->reader->cb_arg );
       FD_LOG_NOTICE(( "Encountered end of tar stream" ));
       return -1;
     }
 
-    read_bytes += bytes_consumed;
+    ulong remaining_bytes = buf_cap - *buf_offset;
+
+    if( (this->reader->hdr_done && this->reader->file_sz > remaining_bytes) || (!this->reader->hdr_done && remaining_bytes < sizeof(fd_tar_meta_t)) ) {
+      // FD_LOG_WARNING(("flushing buffer!"));
+      // FD_LOG_WARNING(("read bytes is %lu", read_bytes));
+      // FD_LOG_WARNING(("buf offset is %lu", *buf_offset));
+      // FD_LOG_WARNING(("file size const is %lu", this->reader->file_sz_const));
+      // FD_LOG_WARNING(("file size current is %lu", this->reader->file_sz));
+
+      /* move remaining bytes to start of buf */
+      if( this->reader->read_bytes < *buf_offset ) {
+        ulong new_buf_offset = *buf_offset - this->reader->read_bytes;
+        memcpy( buf, buf + this->reader->read_bytes, *buf_offset - this->reader->read_bytes );
+        *buf_offset = new_buf_offset;
+      } else {
+        *buf_offset = 0;
+      }
+
+      this->reader->read_bytes = bytes_consumed;
+
+      // FD_LOG_WARNING(("new buf offset is %lu", *buf_offset));
+
+      this->reader->cb_vt.process( this->reader->cb_arg );
+      break;
+    }
+
+    this->reader->read_bytes += bytes_consumed;
     // FD_LOG_WARNING(("file size is %lu", file_sz));
     // FD_LOG_WARNING(("read %lu bytes from buf", read_bytes));
     if( this->reader->hdr_done && this->reader->file_sz == 0 ) {
@@ -216,26 +245,47 @@ fd_tar_io_reader_advance_file( fd_tar_io_reader_t * this,
       /* call callback on buffer now that it has been untarred */
       // FD_LOG_WARNING(("buf offset is %lu", *buf_offset));
       // FD_LOG_WARNING(("file offset is %lu", this->reader->file_start_offset));
-      // FD_LOG_WARNING(("read bytes is %lu", read_bytes));
-      int err = this->reader->cb_vt.read( this->reader->cb_arg, buf+this->reader->file_start_offset, file_sz );
+      // FD_LOG_WARNING(("done with file read bytes is %lu", this->reader->read_bytes));
+      // FD_LOG_WARNING(("file sz is %lu", this->reader->file_sz_const));
+      // FD_LOG_WARNING(("file offset is %lu", file_offset));
+      // FD_LOG_WARNING(("file start offset is %lu", this->reader->file_start_offset));
+      // FD_LOG_WARNING(("reading from file offset: %lu", file_offset + this->reader->file_start_offset));
+
+      // if( this->reader->file_sz_const == 310560 ) {
+      //   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( buf + file_offset + this->reader->file_start_offset );
+      //   FD_LOG_HEXDUMP_WARNING(( "account header", hdr, 512 ));
+      // }
+      int err = this->reader->cb_vt.read( this->reader->cb_arg, buf+file_offset + this->reader->file_start_offset, this->reader->file_sz_const );
+      file_offset = this->reader->read_bytes;
+      file_sz     = 0UL;
+      this->reader->file_sz_const = 0;
+      this->reader->hdr_done = 0;
+      this->reader->hdr_consumed = 0;
+      // FD_LOG_WARNING(("next file offset is %lu", file_offset));
 
       /* move remaining bytes to start of buf */
-      if( read_bytes < *buf_offset ) {
-        ulong new_buf_offset = *buf_offset - read_bytes;
-        memcpy( buf, buf + read_bytes, *buf_offset - read_bytes );
-        *buf_offset = new_buf_offset;
-      } else {
-        *buf_offset = 0;
-      }
+      // if( read_bytes < *buf_offset ) {
+      //   ulong new_buf_offset = *buf_offset - read_bytes;
+      //   memcpy( buf, buf + read_bytes, *buf_offset - read_bytes );
+      //   *buf_offset = new_buf_offset;
+      // } else {
+      //   *buf_offset = 0;
+      // }
 
       // FD_LOG_WARNING(("new buf offset is %lu", *buf_offset));
 
       if( err==MANIFEST_DONE ) {
         FD_LOG_NOTICE(( "Finished reading manifest" ));
+        if( this->reader->read_bytes < *buf_offset ) {
+          ulong new_buf_offset = *buf_offset - this->reader->read_bytes;
+          memcpy( buf, buf + this->reader->read_bytes, *buf_offset - this->reader->read_bytes );
+          *buf_offset = new_buf_offset;
+        } else {
+          *buf_offset = 0;
+        }
+        this->reader->read_bytes = 0;
         return err;
       }
-
-      break;
     }
   }
   return 0;

@@ -98,7 +98,7 @@ struct fd_snapshot_restore {
   uchar * acc_data;  /* pointer into funk acc data pending write */
   ulong   acc_pad;   /* padding size at end of account */
 
-  uchar const * tpool_buf[128*1024];
+  uchar const * tpool_buf[1024*1024*1024];
   ulong tpool_buf_idx;
 
   fd_tpool_t * tpool;

@@ -7,7 +7,7 @@ int main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",  NULL, "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 150UL );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 250UL );
   ulong        near_cpu = fd_env_strip_cmdline_ulong ( &argc, &argv, "--near-cpu", NULL, fd_log_cpu_id() );
   char const * snapshot = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--snapshot", NULL, NULL );
 
@@ -29,7 +29,8 @@ int main( int     argc,
   fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
   FD_TEST( funk );
 
-  fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 4*1024*1024 * 1024UL ), static_tag ), 4*1024*1024 * 1024UL );
+  fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 100*1024*1024 * 1024UL ), static_tag ), 100*1024*1024 * 1024UL );
+  FD_TEST(_spad);
 
   FD_LOG_NOTICE(("setting up tpool with 4 workers! "));
   /* tpool setup */

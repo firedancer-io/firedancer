@@ -138,12 +138,16 @@ typedef int
                       void const * buf,
                       ulong        bufsz );
 
+typedef void
+(* fd_tar_process_fn_t)(void * cb_arg );
+
 /* fd_tar_read_vtable_t is the virtual function table of the
    fd_tar_reader_t consumer object. */
 
 struct fd_tar_read_vtable {
   fd_tar_file_fn_t    file;
   fd_tar_read_fn_t    read;
+  fd_tar_process_fn_t process;
 };
 
 typedef struct fd_tar_read_vtable fd_tar_read_vtable_t;
@@ -170,6 +174,9 @@ struct fd_tar_reader {
   ulong file_sz;  /* Number of file bytes left */
   ulong file_start_offset; /* offset of data of file start */
   uchar hdr_done;
+  ulong file_sz_const;
+  ulong hdr_consumed;
+  ulong read_bytes;
 
   /* Callback parameters */
   fd_tar_read_vtable_t cb_vt;

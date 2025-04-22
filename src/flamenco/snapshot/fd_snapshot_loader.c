@@ -14,7 +14,7 @@
 #include <netinet/in.h>
 
 #define FD_SNAPSHOT_LOADER_MAGIC (0xa78a73a69d33e6b1UL)
-#define FD_SNAPSHOT_MAX_BUF_SIZE (8UL * 1024UL * 1024UL * 1024UL)
+#define FD_SNAPSHOT_MAX_BUF_SIZE (16UL * 1024UL * 1024UL * 1024UL)
 
 struct fd_snapshot_loader {
   ulong magic;

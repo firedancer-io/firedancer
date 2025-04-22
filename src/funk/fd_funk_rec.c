@@ -242,7 +242,7 @@ fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
 
   /* We need a global lock to protect the prev/next update */
-  fd_funk_rec_pool_lock( &rec_pool, 1 );
+  // fd_funk_rec_pool_lock( &rec_pool, 1 );
 
   ulong rec_prev_idx;
   ulong rec_idx = (ulong)( rec - rec_pool.ele );
@@ -260,7 +260,7 @@ fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
   }
 
-  fd_funk_rec_pool_unlock( &rec_pool );
+  // fd_funk_rec_pool_unlock( &rec_pool );
 }
 
 void

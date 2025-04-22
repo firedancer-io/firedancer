@@ -133,22 +133,21 @@ fd_snapshot_restore_delete( fd_snapshot_restore_t * self ) {
    expect an account header on the next iteration.  Returns EINVAL if
    the current AppendVec doesn't fit an account header. */
 
-   #define NUM_ACCOUNT_WRITERS 1
+   #define NUM_ACCOUNT_WRITERS 3
 
    struct fd_snapshot_write_account_args {
      fd_snapshot_restore_t * restore;
-     uchar const ** tpool_buf;
    };
    typedef struct fd_snapshot_write_account_args fd_snapshot_write_account_args_t;
    
    int
-   fd_snapshot_write_account( fd_snapshot_restore_t * restore, uchar const * buf ) {
-     if( !buf ) {
+   fd_snapshot_write_account( fd_snapshot_restore_t * restore, ulong i ) {
+     if( !restore->tpool_buf[i] ) {
        FD_LOG_ERR(("buf is null!"));
        return 0;
      }
      // FD_LOG_WARNING(("writing account at buf %lu", (ulong)buf));
-     fd_solana_account_hdr_t const * hdr = fd_type_pun_const( buf );
+     fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->tpool_buf[i] );
    
      /* Prepare for account lookup */
      fd_funk_t *         funk     = restore->funk;
@@ -194,7 +193,7 @@ fd_snapshot_restore_delete( fd_snapshot_restore_t * self ) {
        restore->acc_data = rec->vt->get_data_mut( rec );
        ulong data_sz = hdr->meta.data_len;
        if( data_sz ) {
-         fd_memcpy( restore->acc_data, buf + sizeof(fd_solana_account_hdr_t), data_sz );
+         fd_memcpy( restore->acc_data, restore->tpool_buf[i] + sizeof(fd_solana_account_hdr_t), data_sz );
        }
    
        fd_txn_account_mutable_fini( rec, funk, funk_txn );
@@ -214,7 +213,7 @@ fd_snapshot_restore_delete( fd_snapshot_restore_t * self ) {
    
      for( ulong i = t0; i < t1; i++) {
        // FD_LOG_WARNING(("i is %lu", i));
-       fd_snapshot_write_account( task_info->restore, task_info->tpool_buf[i] );
+       fd_snapshot_write_account( task_info->restore, i );
        // FD_LOG_WARNING(("finished writing account!"));
      }
    }
@@ -222,49 +221,42 @@ fd_snapshot_restore_delete( fd_snapshot_restore_t * self ) {
    void
    fd_snapshot_write_account_wrapper_single_threaded( fd_tpool_t * tpool FD_PARAM_UNUSED,
      fd_snapshot_restore_t * restore,
-     uchar const * tpool_buf[128*1024],
      ulong num_accounts ) {
      for( ulong i = 0; i < num_accounts; i++) {
        // FD_LOG_WARNING(("i is %lu", i));
-       fd_snapshot_write_account( restore, tpool_buf[i] );
+       fd_snapshot_write_account( restore, i );
        // FD_LOG_WARNING(("finished writing account!"));
      }
      restore->tpool_buf_idx = 0;
    }
    
    void
-   fd_snapshot_write_account_wrapper( fd_tpool_t * tpool,
-                                      fd_snapshot_restore_t * restore,
-                                      uchar const * tpool_buf[128*1024],
-                                      ulong num_accounts ) {
+   fd_snapshot_write_account_wrapper( void * restore_ ) {
     //  FD_LOG_WARNING(("num accounts in wrapper is %lu", num_accounts));
-     FD_SPAD_FRAME_BEGIN( restore->spad ) {
-     fd_snapshot_write_account_args_t * task_data = fd_spad_alloc( restore->spad,
-                                                               alignof(fd_snapshot_write_account_args_t),
-                                                               sizeof(fd_snapshot_write_account_args_t) );
-     task_data->restore   = restore;
-     task_data->tpool_buf = tpool_buf;
+    fd_snapshot_restore_t * restore = (fd_snapshot_restore_t *)restore_;
+     fd_snapshot_write_account_args_t task_data = {
+      .restore=restore
+     };
    
-     ulong cnt_per_worker = num_accounts / NUM_ACCOUNT_WRITERS;
+     ulong cnt_per_worker = restore->tpool_buf_idx / NUM_ACCOUNT_WRITERS;
    
      if( cnt_per_worker < 1 || NUM_ACCOUNT_WRITERS==1) {
-       fd_snapshot_write_account_wrapper_single_threaded( tpool, restore, tpool_buf, num_accounts );
+       fd_snapshot_write_account_wrapper_single_threaded( restore->tpool, restore, restore->tpool_buf_idx );
      }
      else {
        for( ulong worker_idx=1UL; worker_idx<NUM_ACCOUNT_WRITERS; worker_idx++) {
          ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-         ulong end_idx = worker_idx !=NUM_ACCOUNT_WRITERS-1 ? start_idx + cnt_per_worker - 1 : num_accounts - 1;
+         ulong end_idx = worker_idx !=NUM_ACCOUNT_WRITERS-1 ? start_idx + cnt_per_worker - 1 : restore->tpool_buf_idx - 1;
          // FD_LOG_WARNING(("start idx is %lu", start_idx));
          // FD_LOG_WARNING(("end idx is %lu", end_idx));
-         fd_tpool_exec( tpool, worker_idx, fd_snapshot_write_account_task, task_data, start_idx, end_idx, NULL, 0UL, 0UL, 0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
+         fd_tpool_exec( restore->tpool, worker_idx, fd_snapshot_write_account_task, &task_data, start_idx, end_idx, NULL, 0UL, 0UL, 0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
        }
      
        for( ulong worker_idx=1UL; worker_idx<NUM_ACCOUNT_WRITERS; worker_idx++ ) {
-         fd_tpool_wait( tpool, worker_idx );
+         fd_tpool_wait( restore->tpool, worker_idx );
        }
      }
      restore->tpool_buf_idx = 0; 
-   } FD_SPAD_FRAME_END;
   }
 
 static int
@@ -703,19 +695,15 @@ fd_snapshot_read_is_complete( fd_snapshot_restore_t const * restore ) {
 static uchar const *
 fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
                                     uchar const *           buf,
-                                    ulong                   bufsz FD_PARAM_UNUSED,
-                                    uchar const *           tpool_buf[128*1024] FD_PARAM_UNUSED,
-                                    ulong *                 tpool_buf_idx FD_PARAM_UNUSED ) {
-  restore->accv_sz -= sizeof(fd_solana_account_hdr_t);
-
-  if( *tpool_buf_idx == 128*1024 ) {
-    FD_LOG_WARNING(("bufsz is %lu", bufsz));
-    FD_LOG_WARNING(("accv_sz is %lu", restore->accv_sz));
-    FD_LOG_ERR(("not enough space in tpool buf!"));
+                                    ulong                   bufsz FD_PARAM_UNUSED ) {
+  if( restore->tpool_buf_idx == 1024*1024*1024 ) {
+    // FD_LOG_WARNING(("writing accounts!"));
+    fd_snapshot_write_account_wrapper( restore );
   }
   
-  tpool_buf[*tpool_buf_idx] = buf;
-  (*tpool_buf_idx)++;
+  restore->tpool_buf[restore->tpool_buf_idx] = buf;
+  restore->tpool_buf_idx++;
+  restore->accv_sz -= sizeof(fd_solana_account_hdr_t);
 
   restore->state = STATE_READ_ACCOUNT_DATA;
 
@@ -723,6 +711,21 @@ fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
     ulong data_sz    = hdr->meta.data_len;
     restore->acc_sz  = data_sz;
     restore->acc_pad = fd_ulong_align_up( data_sz, FD_SNAPSHOT_ACC_ALIGN ) - data_sz;
+
+    // if( FD_UNLIKELY( data_sz > restore->accv_sz ) ) {
+    //   FD_LOG_WARNING(("buf sz is %lu", bufsz));
+    //   FD_LOG_WARNING(("appendvec is %lu", restore->accv_sz));
+    //   FD_LOG_HEXDUMP_WARNING(( "account header", hdr, 512 ));
+    //   fd_pubkey_t const * pubkey = fd_type_pun_const( hdr->meta.pubkey );
+    //   char keystr[ FD_BASE58_ENCODED_32_SZ ];
+    //   fd_base58_encode_32( pubkey->uc, NULL, keystr );
+    //   FD_LOG_WARNING(("pubkey in hdr is %s", keystr));
+    //   FD_LOG_WARNING(("data sz is %lu", data_sz));
+    //   FD_LOG_CRIT(( "OOB account vec read: data_sz=%lu accv_sz=%lu", data_sz, restore->accv_sz ));
+    // }
+
+    // FD_LOG_WARNING(("buf sz is %lu", bufsz));
+    // FD_LOG_WARNING(("appendvec is %lu", restore->accv_sz));
     // fd_pubkey_t const * pubkey = fd_type_pun_const( hdr->meta.pubkey );
     // char keystr[ FD_BASE58_ENCODED_32_SZ ];
     // fd_base58_encode_32( pubkey->uc, NULL, keystr );
@@ -733,10 +736,6 @@ fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
     /* Reached end of AppendVec */
     restore->state   = STATE_IGNORE;
     restore->buf_ctr = restore->buf_sz = 0UL;
-
-    if( *tpool_buf_idx > 0) {
-      fd_snapshot_write_account_wrapper( restore->tpool, restore, tpool_buf, *tpool_buf_idx );
-    }
     return buf;
   }
 
@@ -748,9 +747,7 @@ fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
 static uchar const *
 fd_snapshot_read_account_chunk( fd_snapshot_restore_t * restore,
                                 uchar const *           buf,
-                                ulong                   bufsz,
-                                uchar const *           tpool_buf[128*1024] FD_PARAM_UNUSED,
-                                ulong *                 tpool_buf_idx FD_PARAM_UNUSED ) {
+                                ulong                   bufsz ) {
 
   ulong data_sz = fd_ulong_min( restore->acc_sz, bufsz );
   restore->buf_ctr += data_sz;
@@ -778,9 +775,6 @@ fd_snapshot_read_account_chunk( fd_snapshot_restore_t * restore,
   if( restore->accv_sz == 0UL ) {
     // FD_LOG_WARNING(("reached end of appendvec in data processing!"));
     restore->state = STATE_IGNORE;
-    if( *tpool_buf_idx > 0) {
-      fd_snapshot_write_account_wrapper( restore->tpool, restore, tpool_buf, *tpool_buf_idx );
-    }
   }
 
   if( done )
@@ -834,9 +828,7 @@ fd_snapshot_read_status_cache_chunk( fd_snapshot_restore_t * restore,
 static uchar const *
 fd_snapshot_restore_chunk1( fd_snapshot_restore_t * restore,
                             uchar const *           buf,
-                            ulong                   bufsz,
-                            uchar const *           tpool_buf[128*1024],
-                            ulong *                 tpool_buf_idx ) {
+                            ulong                   bufsz ) {
 
   switch( restore->state ) {
   case STATE_IGNORE:
@@ -845,9 +837,9 @@ fd_snapshot_restore_chunk1( fd_snapshot_restore_t * restore,
     FD_LOG_WARNING(( "unexpected trailing data" ));
     return NULL;
   case STATE_READ_ACCOUNT_HDR:
-    return fd_snapshot_read_account_hdr_chunk  ( restore, buf, bufsz, tpool_buf, tpool_buf_idx );
+    return fd_snapshot_read_account_hdr_chunk  ( restore, buf, bufsz );
   case STATE_READ_ACCOUNT_DATA:
-    return fd_snapshot_read_account_chunk      ( restore, buf, bufsz, tpool_buf, tpool_buf_idx );
+    return fd_snapshot_read_account_chunk      ( restore, buf, bufsz );
   case STATE_READ_MANIFEST:
     return fd_snapshot_read_manifest_chunk     ( restore, buf, bufsz );
   case STATE_READ_STATUS_CACHE:
@@ -869,7 +861,7 @@ fd_snapshot_restore_chunk( void *       restore_,
   if( restore->failed ) return EINVAL;
 
   while( bufsz ) {
-    uchar const * buf_new = fd_snapshot_restore_chunk1( restore, buf, bufsz, restore->tpool_buf, &restore->tpool_buf_idx );
+    uchar const * buf_new = fd_snapshot_restore_chunk1( restore, buf, bufsz );
     if( FD_UNLIKELY( !buf_new ) ) {
       FD_LOG_WARNING(( "Aborting snapshot read" ));
       return EINVAL;
@@ -895,5 +887,6 @@ fd_snapshot_restore_get_slot( fd_snapshot_restore_t * restore ) {
    reader. */
 
 fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt =
-  { .file = fd_snapshot_restore_file,
-    .read = fd_snapshot_restore_chunk };
+  { .file    = fd_snapshot_restore_file,
+    .read    = fd_snapshot_restore_chunk,
+    .process = fd_snapshot_write_account_wrapper };

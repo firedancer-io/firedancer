@@ -67,6 +67,7 @@ fd_tar_process_hdr( fd_tar_reader_t * reader, ulong * out_file_sz ) {
   if( out_file_sz ) {
     *out_file_sz = file_sz;
   }
+  reader->file_sz_const = file_sz;
   reader->buf_ctr = (ushort)0U;
 
   /* Ensure name is terminated */
@@ -87,9 +88,13 @@ fd_tar_read_hdr( fd_tar_reader_t * reader,
 
   /* Skip padding */
   if( reader->buf_ctr==0UL ) {
+    // FD_LOG_WARNING(("skipping padding!"));
+    // FD_LOG_WARNING(("reader->pos is %lu", reader->pos));
+    // FD_LOG_WARNING(("data sz is %lu", (ulong)(end-cur)));
     ulong  pad_sz = fd_ulong_align_up( reader->pos, 512UL ) - reader->pos;
            pad_sz = fd_ulong_min( pad_sz, (ulong)( end-cur ) );
     cur += pad_sz;
+    // FD_LOG_WARNING(("pad sz is %lu", pad_sz));
   }
 
   /* Determine number of bytes to read */
@@ -192,11 +197,12 @@ fd_tar_read_file( void *        const reader_,
 
   uchar const * cur   = data;
   uchar const * end   = cur+data_sz;
-  uchar trying_hdr = 0;
+  // uchar trying_hdr = 0;
 
   /* we need to read a hdr first */
-  if( !*out_file_sz ) {
-    trying_hdr = 1;
+  if( !reader->file_sz_const) {
+    // FD_LOG_WARNING(("trying to read hdr!"));
+    // trying_hdr = 1;
     // FD_LOG_WARNING(("trying to read hdr!"));
     while( cur!=end ) {
       // FD_LOG_WARNING(("reading tar hdr!"));
@@ -208,9 +214,11 @@ fd_tar_read_file( void *        const reader_,
       if( reader->hdr_done ) {
         // FD_LOG_WARNING(("consumed %lu bytes", (ulong)(cur-data)));
         // FD_LOG_WARNING(("done reading hdr! file size is %lu", *out_file_sz));
-        reader->file_start_offset = (ulong)( cur-data );
+        reader->file_start_offset = (ulong)( cur-data ) + reader->hdr_consumed;
         break;
       }
+
+      reader->hdr_consumed += (ulong)( cur-data );
     }
   }
 
@@ -222,8 +230,8 @@ fd_tar_read_file( void *        const reader_,
     reader->pos = pos + (ulong)( cur-data );
   }
 
-  if( !trying_hdr || (trying_hdr && reader->hdr_done ))
-    bytes_consumed += (ulong)( cur-data );
+  // if( !trying_hdr || (trying_hdr && reader->hdr_done ))
+  bytes_consumed += (ulong)( cur-data );
   *out_bytes_consumed = bytes_consumed;
   return 0;
 }
