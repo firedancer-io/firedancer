@@ -89,6 +89,7 @@ int main( int     argc,
 
     long start = fd_log_wallclock();
     fd_snapshot_load_all( snapshot,
+                          FD_SNAPSHOT_SRC_FILE,
                           slot_ctx,
                           NULL,
                           tpool,

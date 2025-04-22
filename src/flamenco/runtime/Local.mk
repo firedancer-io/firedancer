@@ -55,6 +55,7 @@ $(call add-hdrs,fd_system_ids.h)
 $(call add-objs,fd_system_ids,fd_flamenco)
 $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_ballet)
 $(call run-unit-test,test_system_ids,)
+$(call make-unit-test,perf_acc_mgr,perf_acc_mgr,fd_flamenco fd_funk fd_util fd_ballet)
 
 ifdef FD_HAS_ROCKSDB
 $(call add-hdrs,fd_rocksdb.h)
