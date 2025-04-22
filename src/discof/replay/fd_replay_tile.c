@@ -2390,22 +2390,22 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
       case fd_vote_state_versioned_enum_v0_23_5:
         node_pubkey   = vsv->inner.v0_23_5.node_pubkey;
         commission    = vsv->inner.v0_23_5.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
-        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v0_23_5.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
+        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
         root_slot     = vsv->inner.v0_23_5.root_slot;
         break;
       case fd_vote_state_versioned_enum_v1_14_11:
         node_pubkey   = vsv->inner.v1_14_11.node_pubkey;
         commission    = vsv->inner.v1_14_11.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
-        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v1_14_11.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
+        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
         root_slot     = vsv->inner.v1_14_11.root_slot;
         break;
       case fd_vote_state_versioned_enum_current:
         node_pubkey   = vsv->inner.current.node_pubkey;
         commission    = vsv->inner.current.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
-        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.current.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
+        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
         root_slot     = vsv->inner.v0_23_5.root_slot;
         break;
       default:
