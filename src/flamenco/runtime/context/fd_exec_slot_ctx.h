@@ -60,6 +60,11 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_wksp_t *                 runtime_wksp; /* TODO: this should hold wksp for runtime_spad. */
   fd_wksp_t *                 funk_wksp; /* TODO: this should hold wksp for funk. */
+
+  /* This serializes updates to the vote account and stake account
+     related data structures in the slot bank and the epoch bank.
+   */
+  fd_rwlock_t                 vote_stake_lock[ 1 ];
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

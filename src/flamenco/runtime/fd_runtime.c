@@ -99,7 +99,7 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_pubkey_t const  * pubkey ) {
 
   /* Insert the new account into the partition */
-ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->part_width, slot_ctx->slots_per_epoch );
+  ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->part_width, slot_ctx->slots_per_epoch );
   fd_rent_fresh_accounts_t * rent_fresh_accounts = &slot_ctx->slot_bank.rent_fresh_accounts;
 
   /* See if there is an unused fresh account we can re-use */
@@ -1818,14 +1818,12 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
    executor to finalize borrowed account changes back into funk. It also
    handles txncache insertion and updates to the vote/stake cache. */
 
-int
+void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
-                         fd_execute_txn_task_info_t * task_info ) {
-
-  /* TODO: Allocations should probably not be made out of the exec_spad in this
-     function. If they are, the size of the data needs to be accounted for in
-     the calculation of the bound of the spad as defined in fd_runtime.h. */
+                         fd_execute_txn_task_info_t * task_info,
+                         fd_spad_t *                  finalize_spad,
+                         fd_wksp_t *                  finalize_spad_wksp ) {
 
   /* Store transaction info including logs */
   fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
@@ -1873,19 +1871,24 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       fd_txn_account_save( &txn_ctx->rollback_nonce_account[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
     }
 
-    fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
+    FD_SPAD_FRAME_BEGIN( finalize_spad ) {
+      fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
 
-    fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], txn_ctx->funk, txn_ctx->funk_txn );
-    memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
+      fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], slot_ctx->funk, slot_ctx->funk_txn );
+      memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
 
-    void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-    fd_txn_account_make_mutable( acct, acct_data, txn_ctx->spad_wksp );
-    int err = acct->vt->checked_sub_lamports( acct, (txn_ctx->execution_fee + txn_ctx->priority_fee) );
-    if( FD_UNLIKELY ( err ) ) {
-      return err;
-    }
+      void * acct_data = fd_spad_alloc( finalize_spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      fd_txn_account_make_mutable( acct, acct_data, finalize_spad_wksp );
+      int err = acct->vt->checked_sub_lamports( acct, (txn_ctx->execution_fee + txn_ctx->priority_fee) );
+      if( FD_UNLIKELY ( err ) ) {
+        uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+        FD_BASE58_ENCODE_64_BYTES( sig, sig_str );
+        FD_BASE58_ENCODE_32_BYTES( acct->pubkey->key, key_str );
+        FD_LOG_CRIT(( "failed to deduct fees (%lu+%lu) from account %s in txn %s slot %lu", txn_ctx->execution_fee, txn_ctx->priority_fee, key_str, sig_str, txn_ctx->slot ));
+      }
 
-    fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
+      fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, finalize_spad_wksp );
+    } FD_SPAD_FRAME_END;
   } else {
 
     int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
@@ -1901,9 +1904,8 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
       if( dirty_vote_acc && 0==memcmp( acc_rec->vt->get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-        /* lock for inserting/modifying vote accounts in slot ctx. */
         fd_vote_store_account( slot_ctx, acc_rec );
-        FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
+        FD_SPAD_FRAME_BEGIN( finalize_spad ) {
           fd_bincode_decode_ctx_t decode_vsv = {
             .data    = acc_rec->vt->get_data( acc_rec ),
             .dataend = acc_rec->vt->get_data( acc_rec ) + acc_rec->vt->get_data_len( acc_rec ),
@@ -1916,7 +1918,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
             continue;
           }
 
-          uchar * mem = fd_spad_alloc( txn_ctx->spad, 8UL, total_sz );
+          uchar * mem = fd_spad_alloc( finalize_spad, 8UL, total_sz );
           if( FD_UNLIKELY( !mem ) ) {
             FD_LOG_ERR(( "Unable to allocate memory for vote state versioned" ));
           }
@@ -1955,13 +1957,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       int fresh_account = acc_rec->vt->is_mutable( acc_rec ) &&
          acc_rec->vt->get_lamports( acc_rec ) && acc_rec->vt->get_rent_epoch( acc_rec ) != FD_RENT_EXEMPT_RENT_EPOCH;
       if( FD_UNLIKELY( fresh_account ) ) {
+        fd_rwlock_write( slot_ctx->vote_stake_lock );
         fd_runtime_register_new_fresh_account( slot_ctx, txn_ctx->accounts[0].pubkey );
+        fd_rwlock_unwrite( slot_ctx->vote_stake_lock );
       }
     }
   }
 
-  int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor,
-                                                 txn_ctx->_txn_raw->raw );
+  int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
   if( !is_vote ){
     FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, 1 );
     if( FD_UNLIKELY( exec_txn_err ) ){
@@ -1974,7 +1977,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->total_compute_units_used, txn_ctx->compute_unit_limit - txn_ctx->compute_meter );
 
-  return 0;
 }
 
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint into the executor
@@ -2062,7 +2064,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
     return;
   }
 
-  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
+  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad, task_info->txn_ctx->spad_wksp );
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
@@ -4172,8 +4174,8 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                     exec_spads,
                                     exec_spad_cnt,
                                     runtime_spad );
+      *is_epoch_boundary = 1;
     }
-    *is_epoch_boundary = 1;
   } else {
     *is_epoch_boundary = 0;
   }

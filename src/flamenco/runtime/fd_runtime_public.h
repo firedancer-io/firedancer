@@ -5,6 +5,7 @@
 #include "../features/fd_features.h"
 #include "../types/fd_types.h"
 #include "../../disco/pack/fd_microblock.h"
+#include "../../disco/fd_disco_base.h"
 
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
@@ -17,15 +18,22 @@
 #define EXEC_SNAP_HASH_ACCS_CNT_SIG    (0x191992UL)
 #define EXEC_SNAP_HASH_ACCS_GATHER_SIG (0x193992UL)
 
+#define FD_WRITER_BOOT_SIG             (0xAABB0011UL)
+#define FD_WRITER_SLOT_SIG             (0xBBBB1122UL)
+#define FD_WRITER_TXN_SIG              (0xBBCC2233UL)
+
 #define FD_EXEC_STATE_NOT_BOOTED       (0xFFFFFFFFUL)
 #define FD_EXEC_STATE_BOOTED           (1<<1UL      )
 #define FD_EXEC_STATE_EPOCH_DONE       (1<<2UL      )
 #define FD_EXEC_STATE_SLOT_DONE        (1<<3UL      )
-#define FD_EXEC_STATE_TXN_DONE         (1<<4UL      )
 #define FD_EXEC_STATE_HASH_DONE        (1<<6UL      )
 #define FD_EXEC_STATE_BPF_SCAN_DONE    (1<<7UL      )
 #define FD_EXEC_STATE_SNAP_CNT_DONE    (1<<8UL      )
 #define FD_EXEC_STATE_SNAP_GATHER_DONE (1<<9UL      )
+
+#define FD_WRITER_STATE_NOT_BOOTED     (0UL         )
+#define FD_WRITER_STATE_READY          (1UL         )
+#define FD_WRITER_STATE_TXN_DONE       (1UL<<1      )
 
 #define FD_EXEC_ID_SENTINEL            (UINT_MAX    )
 
@@ -110,18 +118,6 @@ fd_exec_fseq_set_epoch_done( void ) {
 }
 
 static ulong FD_FN_UNUSED
-fd_exec_fseq_set_txn_done( uint txn_id ) {
-  ulong state = ((ulong)txn_id << 32UL);
-  state      |= FD_EXEC_STATE_TXN_DONE;
-  return state;
-}
-
-static uint FD_FN_UNUSED
-fd_exec_fseq_get_txn_id( ulong fseq ) {
-  return (uint)(fseq >> 32UL);
-}
-
-static ulong FD_FN_UNUSED
 fd_exec_fseq_set_hash_done( void ) {
   return FD_EXEC_STATE_HASH_DONE;
 }
@@ -155,6 +151,49 @@ fd_exec_fseq_set_snap_hash_gather_done( void ) {
   return FD_EXEC_STATE_SNAP_GATHER_DONE;
 }
 
+static inline int
+fd_exec_fseq_is_not_joined( ulong fseq ) {
+  return fseq==ULONG_MAX;
+}
+
+/* Writer tile fseq management APIs ***********************************/
+
+/*
+   +----------------------------------+----------+----------------------+
+   |         Transaction ID           | Exec Tile|         State        |
+   |            (32 bits)             |   ID     |       (24 bits)      |
+   |                                  | (8 bits) |                      |
+   +----------------------------------+----------+----------------------+
+ */
+
+static inline uint
+fd_writer_fseq_get_state( ulong fseq ) {
+  return (uint)(fseq & 0x00FFFFFFU);
+}
+
+static inline ulong
+fd_writer_fseq_set_txn_done( uint txn_id, uchar exec_tile_id ) {
+  ulong state = (((ulong)txn_id) << 32);
+  state      |= (((ulong)exec_tile_id) << 24);
+  state      |= FD_WRITER_STATE_TXN_DONE;
+  return state;
+}
+
+static inline uint
+fd_writer_fseq_get_txn_id( ulong fseq ) {
+  return (uint)(fseq >> 32);
+}
+
+static inline uchar
+fd_writer_fseq_get_exec_tile_id( ulong fseq ) {
+  return (uchar)((fseq >> 24) & 0xFFUL);
+}
+
+static inline int
+fd_writer_fseq_is_not_joined( ulong fseq ) {
+  return fseq==ULONG_MAX;
+}
+
 /* FIXME: This will need to get reworked when we consolidate the
    slot/epoch ctx/bank. We will use zero-copy accesssors into a
    fork-aware funk record. This will allow us to have one object which
@@ -179,6 +218,7 @@ struct fd_runtime_public_slot_msg {
   ulong                  sysvar_cache_gaddr;
   ulong                  block_hash_queue_encoded_gaddr;
   ulong                  block_hash_queue_encoded_sz;
+  int                    enable_exec_recording;
 };
 typedef struct fd_runtime_public_slot_msg fd_runtime_public_slot_msg_t;
 
@@ -210,6 +250,25 @@ struct fd_runtime_public_snap_hash_msg {
   ulong pairs_gaddr;
 };
 typedef struct fd_runtime_public_snap_hash_msg fd_runtime_public_snap_hash_msg_t;
+
+struct fd_runtime_public_exec_writer_boot_msg {
+  uint txn_ctx_offset;
+};
+typedef struct fd_runtime_public_exec_writer_boot_msg fd_runtime_public_exec_writer_boot_msg_t;
+FD_STATIC_ASSERT( sizeof(fd_runtime_public_exec_writer_boot_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
+
+struct fd_runtime_public_exec_writer_txn_msg {
+  uint  txn_id;
+  uchar exec_tile_id;
+};
+typedef struct fd_runtime_public_exec_writer_txn_msg fd_runtime_public_exec_writer_txn_msg_t;
+FD_STATIC_ASSERT( sizeof(fd_runtime_public_exec_writer_txn_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
+
+struct fd_runtime_public_replay_writer_slot_msg {
+  ulong slot_ctx_gaddr;
+};
+typedef struct fd_runtime_public_replay_writer_slot_msg fd_runtime_public_replay_writer_slot_msg_t;
+FD_STATIC_ASSERT( sizeof(fd_runtime_public_replay_writer_slot_msg_t)<=FD_REPLAY_WRITER_MTU, replay_writer_msg_mtu );
 
 struct fd_runtime_public {
   /* FIXME:  This is a non-fork-aware copy of the currently active
