@@ -66,6 +66,13 @@ fd_blockstore_new( void * shmem,
   memset( blocks, 0, sizeof(fd_block_info_t) * block_max );
   FD_TEST( fd_block_map_new ( block_map, block_max, lock_cnt, BLOCK_INFO_PROBE_CNT, seed ) );
 
+  /* Caller is in charge of setting map_slot_para element store set to free,
+     which for block_map elements is to set slot = ULONG_MAX */
+  fd_block_info_t * blocks_ = (fd_block_info_t *)blocks;
+  for( ulong i=0UL; i<block_max; i++ ) {
+    blocks_[i].slot = ULONG_MAX;
+  }
+
   blockstore_shmem->block_idx_gaddr  = fd_wksp_gaddr( wksp, fd_block_idx_join( fd_block_idx_new( block_idx, lg_idx_max ) ) );
   blockstore_shmem->slot_deque_gaddr = fd_wksp_gaddr( wksp, fd_slot_deque_join (fd_slot_deque_new( slot_deque, block_max ) ) );
   blockstore_shmem->txn_map_gaddr    = fd_wksp_gaddr( wksp, fd_txn_map_join (fd_txn_map_new( txn_map, txn_max, seed ) ) );
@@ -143,6 +150,7 @@ fd_blockstore_join( void * ljoin, void * shblockstore ) {
                                                                                                           fd_ulong_min(blockstore->block_max, BLOCK_INFO_LOCK_CNT),
                                                                                                           BLOCK_INFO_PROBE_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_blockstore_align() );
+
 
   join->shmem = blockstore;
   fd_buf_shred_pool_join( join->shred_pool, shred_pool, shreds, blockstore->shred_max );
