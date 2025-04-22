@@ -202,7 +202,7 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
                           fd_funk_t *           funk,
                           fd_funk_txn_t const * txn,
                           ulong                 slot,
-                          fd_spad_t *           runtime_spad ) {
+                          fd_tower_t *          scratch ) {
 
   /* First, simulate a vote, popping off everything that would be
      expired by voting for the current slot. */
@@ -234,40 +234,38 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
     fd_voter_t const * voter = &epoch_voters[i];
 
     /* Convert the landed_votes into tower's vote_slots interface. */
-    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-      void * mem = fd_spad_alloc( runtime_spad, fd_tower_align(), fd_tower_footprint() );
-      fd_tower_t * voter_tower = fd_tower_join( fd_tower_new( mem ) );
-      fd_tower_from_vote_acc( voter_tower, funk, txn, &voter->rec );
 
-      /* If this voter has not voted, continue. */
+    fd_tower_votes_remove_all( scratch );
+    fd_tower_from_vote_acc( scratch, funk, txn, &voter->rec );
 
-      if( FD_UNLIKELY( fd_tower_votes_empty( voter_tower ) ) ) continue;
+    /* If this voter has not voted, continue. */
 
-      ulong cnt = simulate_vote( voter_tower, slot );
+    if( FD_UNLIKELY( fd_tower_votes_empty( scratch ) ) ) continue;
 
-      /* Continue if their tower is empty after simulating. */
+    ulong cnt = simulate_vote( scratch, slot );
 
-      if( FD_UNLIKELY( !cnt ) ) continue;
+    /* Continue if their tower is empty after simulating. */
 
-      /* Get their latest vote. */
+    if( FD_UNLIKELY( !cnt ) ) continue;
 
-      fd_tower_vote_t const * vote = fd_tower_votes_peek_index( voter_tower, cnt - 1 );
+    /* Get their latest vote. */
 
-      /* Count their stake towards the threshold check if their latest
-         vote slot >= our threshold slot.
+    fd_tower_vote_t const * vote = fd_tower_votes_peek_index( scratch, cnt - 1 );
 
-         Because we are iterating vote accounts on the same fork that we
-         we want to vote for, we know these slots must all occur along
-         the same fork ancestry.
+    /* Count their stake towards the threshold check if their latest
+        vote slot >= our threshold slot.
 
-         Therefore, if their latest vote slot >= our threshold slot, we
-         know that vote must be for the threshold slot itself or one of
-         threshold slot's descendants. */
+        Because we are iterating vote accounts on the same fork that we
+        we want to vote for, we know these slots must all occur along
+        the same fork ancestry.
 
-      if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
-        threshold_stake += voter->stake;
-      }
-    } FD_SPAD_FRAME_END;
+        Therefore, if their latest vote slot >= our threshold slot, we
+        know that vote must be for the threshold slot itself or one of
+        threshold slot's descendants. */
+
+    if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
+      threshold_stake += voter->stake;
+    }
   }
 
   double threshold_pct = (double)threshold_stake / (double)epoch->total_stake;
@@ -319,7 +317,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_funk_t *           funk,
                     fd_funk_txn_t const * txn,
                     fd_ghost_t const *    ghost,
-                    fd_spad_t *           runtime_spad ) {
+                    fd_tower_t *          scratch ) {
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
   fd_ghost_node_t const * root = fd_ghost_root( ghost );
@@ -346,7 +344,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, runtime_spad ) ) ) {
+    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, scratch ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
     }
@@ -432,15 +430,18 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
                         fd_funk_t *               funk,
                         fd_funk_txn_t const *     txn,
                         fd_funk_rec_key_t const * vote_acc ) {
-  #if FD_TOWER_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_tower_votes_empty( tower ) ) ) FD_LOG_ERR(( "[%s] cannot write to non-empty tower", __func__ ));
-  #endif
+# if FD_TOWER_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_tower_votes_empty( tower ) ) ) {
+    __asm__("int $3");
+    FD_LOG_ERR(( "[%s] cannot write to non-empty tower", __func__ ));
+  }
+# endif
 
   ulong vote_cnt            = 0UL;
   fd_tower_vote_t votes[32] = {0};
 
   /* Speculatively query the vote state from Funk, until we succeed */
-  for( ; ; ) {
+  for(;;) {
     fd_funk_rec_query_t query[1];
     fd_voter_state_t const * state = fd_voter_state( funk, query, txn, vote_acc );
     if( FD_UNLIKELY( state == NULL ) ) return;
@@ -478,43 +479,35 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
 }
 
 void
-fd_tower_to_vote_txn( fd_tower_t const *  tower,
-                      ulong               root,
-                      fd_hash_t const *   bank_hash,
-                      fd_hash_t const *   recent_blockhash,
-                      fd_pubkey_t const * validator_identity,
-                      fd_pubkey_t const * vote_authority,
-                      fd_pubkey_t const * vote_acc,
-                      fd_txn_p_t *        vote_txn,
-                      fd_spad_t *         runtime_spad ) {
+fd_tower_to_vote_txn( fd_tower_t const *    tower,
+                      ulong                 root,
+                      fd_lockout_offset_t * lockouts_scratch,
+                      fd_hash_t const *     bank_hash,
+                      fd_hash_t const *     recent_blockhash,
+                      fd_pubkey_t const *   validator_identity,
+                      fd_pubkey_t const *   vote_authority,
+                      fd_pubkey_t const *   vote_acc,
+                      fd_txn_p_t *          vote_txn ) {
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+  fd_compact_vote_state_update_t tower_sync;
+  tower_sync.root          = root;
+  tower_sync.lockouts_len  = (ushort)fd_tower_votes_cnt( tower );
+  tower_sync.lockouts      = lockouts_scratch;
+  tower_sync.timestamp     = fd_log_wallclock();
+  tower_sync.has_timestamp = 1;
 
-  fd_compact_vote_state_update_t tower_sync[1] = { 0 };
-
-  tower_sync->root          = root;
-  long ts                   = fd_log_wallclock();
-  tower_sync->has_timestamp = 1;
-  tower_sync->timestamp     = ts;
-  tower_sync->lockouts_len  = (ushort)fd_tower_votes_cnt( tower );
-  tower_sync->lockouts      = (fd_lockout_offset_t *)fd_spad_alloc( runtime_spad, alignof(fd_lockout_offset_t),tower_sync->lockouts_len * sizeof(fd_lockout_offset_t) );
-
-  ulong i         = 0UL;
-  ulong curr_slot = tower_sync->root;
-
+  ulong prev = tower_sync.root;
+  ulong i    = 0UL;
   for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower );
-       !fd_tower_votes_iter_done( tower, iter );
-       iter = fd_tower_votes_iter_next( tower, iter ) ) {
-    fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower, iter );
-    FD_TEST( vote->slot >= tower_sync->root );
-    ulong offset                               = vote->slot - curr_slot;
-    curr_slot                                  = vote->slot;
-    uchar conf                                 = (uchar)vote->conf;
-    tower_sync->lockouts[i].offset             = offset;
-    tower_sync->lockouts[i].confirmation_count = conf;
-    memcpy( tower_sync->hash.uc, bank_hash, sizeof(fd_hash_t) );
+      !fd_tower_votes_iter_done( tower, iter );
+      iter = fd_tower_votes_iter_next( tower, iter ) ) {
+    fd_tower_vote_t const * vote              = fd_tower_votes_iter_ele_const( tower, iter );
+    tower_sync.lockouts[i].offset             = vote->slot - prev;
+    tower_sync.lockouts[i].confirmation_count = (uchar)vote->conf;
+    prev                                      = vote->slot;
     i++;
   }
+  memcpy( tower_sync.hash.uc, bank_hash, sizeof(fd_hash_t) );
 
   uchar * txn_out = vote_txn->payload;
   uchar * txn_meta_out = vote_txn->_;
@@ -535,11 +528,7 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
     accts.signers_r             = NULL;
     accts.non_signers_w         = vote_acc;
     accts.non_signers_r         = &fd_solana_vote_program_id;
-    FD_TEST( fd_txn_base_generate( txn_meta_out,
-                                   txn_out,
-                                   accts.signature_cnt,
-                                   &accts,
-                                   recent_blockhash->uc ) );
+    FD_TEST( fd_txn_base_generate( txn_meta_out, txn_out, accts.signature_cnt, &accts, recent_blockhash->uc ) );
   } else {
 
     /* 0: validator identity
@@ -556,11 +545,7 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
     accts.signers_r             = vote_authority;
     accts.non_signers_w         = vote_acc;
     accts.non_signers_r         = &fd_solana_vote_program_id;
-    FD_TEST( fd_txn_base_generate( txn_meta_out,
-                                   txn_out,
-                                   accts.signature_cnt,
-                                   &accts,
-                                   recent_blockhash->uc ) );
+    FD_TEST( fd_txn_base_generate( txn_meta_out, txn_out, accts.signature_cnt, &accts, recent_blockhash->uc ) );
   }
 
   /* Add the vote instruction to the transaction. */
@@ -568,13 +553,11 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
   fd_vote_instruction_t vote_ix;
   uchar                 vote_ix_buf[FD_TXN_MTU];
   vote_ix.discriminant                    = fd_vote_instruction_enum_compact_update_vote_state;
-  vote_ix.inner.compact_update_vote_state = *tower_sync;
+  vote_ix.inner.compact_update_vote_state = tower_sync;
   fd_bincode_encode_ctx_t encode = { .data = vote_ix_buf, .dataend = ( vote_ix_buf + FD_TXN_MTU ) };
   fd_vote_instruction_encode( &vote_ix, &encode );
-  ushort vote_ix_size = (ushort)fd_vote_instruction_size( &vote_ix );
-
-  uchar ix_accs[2];
   uchar program_id;
+  uchar ix_accs[2];
   if( FD_LIKELY( same_addr ) ) {
     ix_accs[0] = 1; /* vote account address */
     ix_accs[1] = 0; /* vote authority */
@@ -584,9 +567,8 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
     ix_accs[1] = 1; /* vote authority */
     program_id = 3; /* vote program */
   }
-  vote_txn->payload_sz = fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_size );
-
-  } FD_SPAD_FRAME_END;
+  ushort vote_ix_sz = (ushort)fd_vote_instruction_size( &vote_ix );
+  vote_txn->payload_sz = fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_sz );
 }
 
 int

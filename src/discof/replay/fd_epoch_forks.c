@@ -24,8 +24,8 @@ fd_epoch_forks_new( fd_epoch_forks_t * epoch_forks, void * epoch_ctx_base ) {
 }
 
 void
-fd_epoch_forks_publish( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost, ulong root ) {
-  ulong idx = fd_epoch_forks_get_epoch_ctx( epoch_forks, ghost, root, NULL );
+fd_epoch_forks_publish( fd_epoch_forks_t * epoch_forks, ulong root ) {
+  ulong idx = fd_epoch_forks_get_epoch_ctx( epoch_forks, root, root, NULL );
 
   if( FD_LIKELY( idx == epoch_forks->curr_epoch_idx ) ) return;
 
@@ -78,7 +78,7 @@ fd_epoch_forks_prepare( fd_epoch_forks_t *      epoch_forks,
 }
 
 ulong
-fd_epoch_forks_get_epoch_ctx( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost, ulong curr_slot, ulong * opt_prev_slot ) {
+fd_epoch_forks_get_epoch_ctx( fd_epoch_forks_t * epoch_forks, ulong root, ulong curr_slot, ulong * opt_prev_slot ) {
   fd_exec_epoch_ctx_t * epoch_ctx = epoch_forks->forks[ epoch_forks->curr_epoch_idx ].epoch_ctx;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, curr_slot, NULL );
@@ -92,7 +92,7 @@ fd_epoch_forks_get_epoch_ctx( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost
 
     /* check if this fork has a parent in the entries list, and isn't the parent itself. */
     ulong slot = (opt_prev_slot == NULL) ? curr_slot : *opt_prev_slot;
-    if( elem->parent_slot != slot && elem->parent_slot >= fd_ghost_root(ghost)->slot && fd_ghost_is_ancestor( ghost, elem->parent_slot, slot ) ) {
+    if( elem->parent_slot != slot && elem->parent_slot >= root ) {
       if( elem->parent_slot > max_parent_root ) {
         max_parent_root = elem->parent_slot;
         max_idx = i;

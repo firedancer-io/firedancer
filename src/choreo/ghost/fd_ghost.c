@@ -188,7 +188,7 @@ fd_ghost_verify( fd_ghost_t const * ghost ) {
     return -1;
   }
 
-  if( FD_UNLIKELY( fd_fseq_query( fd_ghost_ver( ghost ) ) == ULONG_MAX ) ) {
+  if( FD_UNLIKELY( fd_fseq_query( fd_ghost_ver( ghost ) )==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "ghost uninitialized or invalid" ));
     return -1;
   }

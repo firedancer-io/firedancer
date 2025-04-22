@@ -79,8 +79,6 @@ typedef struct fd_eqvoc_fec fd_eqvoc_fec_t;
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
-#define FD_EQVOC_PROOF_MAX ( 2*FD_SHRED_MAX_SZ + 2*sizeof(ulong) ) /* 2 shreds prefixed with sz */
-
 /* This is the standard MTU
 
    IPv6 MTU - IP / UDP headers = 1232
@@ -88,12 +86,15 @@ typedef struct fd_eqvoc_fec fd_eqvoc_fec_t;
    DuplicateShred headers = 63
 
    https://github.com/anza-xyz/agave/blob/v2.0.3/gossip/src/cluster_info.rs#L113 */
-#define FD_EQVOC_PROOF_CHUNK_MAX ( 1232UL - 115UL - 63UL )
-#define FD_EQVOC_PROOF_CHUNK_CNT ( ( FD_EQVOC_PROOF_MAX / FD_EQVOC_PROOF_CHUNK_MAX ) + 1 ) /* 3 */
+
+#define FD_EQVOC_PROOF_CHUNK_SZ  (1232UL - 115UL - 63UL)
+#define FD_EQVOC_PROOF_CHUNK_CNT (( FD_EQVOC_PROOF_SZ / FD_EQVOC_PROOF_CHUNK_SZ ) + 1) /* 3 */
+#define FD_EQVOC_PROOF_SZ (2*FD_SHRED_MAX_SZ + 2*sizeof(ulong)) /* 2 shreds prefixed with sz, encoded in 3 chunks */
 
 /* The chunk_cnt is encoded in a UCHAR_MAX, so you can have at most
    UCHAR_MAX chunks */
-#define FD_EQVOC_PROOF_CHUNK_MIN ( ( FD_EQVOC_PROOF_MAX / UCHAR_MAX ) + 1 ) /* 20 */
+
+#define FD_EQVOC_PROOF_CHUNK_MIN ( ( FD_EQVOC_PROOF_SZ / UCHAR_MAX ) + 1 ) /* 20 */
 
 #define FD_EQVOC_PROOF_VERIFY_FAILURE           (0)
 #define FD_EQVOC_PROOF_VERIFY_SUCCESS_SIGNATURE (1)
@@ -465,7 +466,7 @@ fd_eqvoc_slot_verify( fd_eqvoc_t const * eqvoc, fd_blockstore_t * blockstore, ul
    Behavior is undefined otherwise.
 
    Does additional sanity-check validation eg. checking chunk_len <=
-   FD_eqvoc_proof_MAX.
+   FD_EQVOC_PROOF_SZ.
 
    This function is expected to be deprecated once chunks are specified
    to be fixed-length in the gossip protocol. */
@@ -478,13 +479,13 @@ fd_eqvoc_proof_from_chunks( fd_gossip_duplicate_shred_t const * chunks,
    (`chunks_out`) from shred1 and shred2.
 
    Shred1 and shred2 are concatenated (the concatenation is implemented
-   virtually) and then spliced into chunks of FD_EQVOC_PROOF_CHUNK_MAX
+   virtually) and then spliced into chunks of FD_EQVOC_PROOF_CHUNK_SZ
    size. These chunks are embedded in the body of each DuplicateShred
    msg, along with a common header across all msgs.
 
    Caller supplies `chunks_out`, which is an array that MUST contain
    `ceil(shred1_payload_sz + shred2_payload_sz /
-   FD_EQVOC_PROOF_CHUNK_MAX)` elements.  Each chunk in `chunks_out` MUST
+   FD_EQVOC_PROOF_CHUNK_SZ)` elements.  Each chunk in `chunks_out` MUST
    have a buffer of at least `chunk_len` size available in its `chunk`
    pointer field.  Behavior is undefined otherwise.
 
