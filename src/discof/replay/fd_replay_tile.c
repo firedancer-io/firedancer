@@ -704,13 +704,13 @@ before_frag( fd_replay_tile_ctx_t * ctx FD_PARAM_UNUSED,
   (void)seq;
 
   if( in_idx==REPAIR_IN_IDX ) {
-    ulong slot = fd_disco_repair_replay_sig_slot( sig );
-    uint data_cnt = fd_disco_repair_replay_sig_data_cnt( sig );
-    ushort parent_offset = fd_disco_repair_replay_sig_parent_off( sig );
-    (void)parent_offset;
-    (void)data_cnt;
-    (void)slot;
-    FD_LOG_NOTICE(( "Repair tile sent slot %lu", slot ));
+    fd_exec_slice_push_tail( ctx->exec_slice_deque, sig );
+    // ulong slot = fd_disco_repair_replay_sig_slot( sig );
+    // uint data_cnt = fd_disco_repair_replay_sig_data_cnt( sig );
+    // ushort parent_offset = fd_disco_repair_replay_sig_parent_off( sig );
+    // (void)parent_offset;
+    // (void)data_cnt;
+    // (void)slot;
     return 1;
   } else if( in_idx==SHRED_IN_IDX ) {
     return 1;
@@ -729,7 +729,10 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
   ctx->skip_frag = 0;
 
-  if( in_idx == PACK_IN_IDX ) {
+  if( in_idx == REPAIR_IN_IDX ) {
+    FD_LOG_NOTICE(( "got slot %lu data_cnt %u", fd_disco_repair_replay_sig_slot( sig ), fd_disco_repair_replay_sig_data_cnt( sig ) ));
+    fd_exec_slice_push_tail( ctx->exec_slice_deque, sig );
+  } else if( in_idx == PACK_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
     }
@@ -1864,8 +1867,8 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   }
 
   ulong  slot          = fd_disco_repair_replay_sig_slot( sig );
-  uint   data_cnt      = fd_disco_repair_replay_sig_data_cnt( sig );
   ushort parent_off    = fd_disco_repair_replay_sig_parent_off( sig );
+  uint   data_cnt      = fd_disco_repair_replay_sig_data_cnt( sig );
   int    slot_complete = fd_disco_repair_replay_sig_slot_complete( sig );
 
   if( FD_UNLIKELY( slot != ctx->curr_slot ) ) {

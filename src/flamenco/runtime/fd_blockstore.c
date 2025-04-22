@@ -797,6 +797,8 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
                            ulong *           buf_sz ) {
   /* verify that the batch idxs provided is at batch boundaries*/
 
+  // FD_LOG_NOTICE(( "querying for %lu %u %u", slot, start_idx, end_idx ));
+
   int err = FD_MAP_ERR_AGAIN;
   int invalid_idx = 0;
   while( err == FD_MAP_ERR_AGAIN ){
@@ -815,6 +817,7 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
   }
   if( FD_UNLIKELY( invalid_idx ) ) {
     FD_LOG_WARNING(( "[%s] invalid idxs: (%lu, %u, %u)", __func__, slot, start_idx, end_idx ));
+    __asm__("int $3");
     return FD_BLOCKSTORE_ERR_SHRED_INVALID;
   }
 

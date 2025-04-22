@@ -53,10 +53,10 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
   ulong child;    /* pool idx of the left-child */
   ulong sibling;  /* pool idx of the right-sibling */
 
-  uint consumed_idx; /* highest consumed shred idx */
-  uint buffered_idx; /* highest contiguosly-received shred idx */
+  uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
+  fd_forest_ele_idxs_t cmpl[fd_forest_ele_idxs_word_cnt]; /* fec complete idxs */
   fd_forest_ele_idxs_t fecs[fd_forest_ele_idxs_word_cnt]; /* fec set idxs */
   fd_forest_ele_idxs_t idxs[fd_forest_ele_idxs_word_cnt]; /* data shred idxs */
 };
@@ -289,6 +289,9 @@ fd_forest_root_slot( fd_forest_t const * forest ) {
   return fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root )->slot;
 }
 
+fd_forest_ele_t *
+fd_forest_query( fd_forest_t * forest, ulong slot );
+
 /* Operations */
 
 /* fd_forest_shred_insert inserts a new shred into the forest.
@@ -298,7 +301,7 @@ fd_forest_root_slot( fd_forest_t const * forest ) {
    Returns the inserted forest ele. */
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, uint complete_idx );
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, int data_complete, int slot_complete );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot

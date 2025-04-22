@@ -1061,8 +1061,6 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   }
 
   if (!found_peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
-    FD_LOG_WARNING( ( "SO WE TRYING AGAIN "));
     /* maybe atp we should just... send it. TODO: reevaluate wth testnet */
 
     for( ulong i=0UL; i<peer_cnt; i++ ) {

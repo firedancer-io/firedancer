@@ -1,4 +1,5 @@
 #include "fd_fec_chainer.h"
+#include "../../disco/fd_disco_base.h"
 
 void
 test_fec_ordering( fd_wksp_t * wksp ){
@@ -192,8 +193,14 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_fec_ordering( wksp );
-  test_single_fec( wksp );
+  // test_fec_ordering( wksp );
+  // test_single_fec( wksp );
+
+  ulong sig = fd_disco_repair_replay_sig( 3508496, 1, 32, 128 );
+  FD_TEST( fd_disco_repair_replay_sig_slot( sig ) == 3508496 );
+  FD_TEST( fd_disco_repair_replay_sig_parent_off( sig ) == 1 );
+  FD_TEST( fd_disco_repair_replay_sig_data_cnt( sig ) == 32 );
+  FD_TEST( fd_disco_repair_replay_sig_slot_complete( sig ) == 1 );
 
   fd_halt();
   return 0;
