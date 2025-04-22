@@ -9,11 +9,16 @@ the hashing algorithm in xxHash(r39).  xxHash(r39) can be found at
 https://github.com/Cyan4973/xxHash/releases/tag/r39 (note the xxHash
 source code repository has changed location a few times over the years).
 
-From https://github.com/Cyan4973/xxHash/archive/refs/tags/r39.zip at xxHash-r39/LICENSE:
+fd_funk_rec_key_hash is currently a modified version of xxHash3.
+xxHash3 can be found at https://github.com/Cyan4973/xxHash/releases/tag/v0.8.3.
+
+From https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.zip at xxHash-v0.8.3/LICENSE
 
 xxHash Library
-Copyright (c) 2012-2014, Yann Collet
+Copyright (c) 2012-2021, Yann Collet
 All rights reserved.
+
+BSD 2-Clause License (https://www.opensource.org/licenses/bsd-license.php)
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:

@@ -139,13 +139,54 @@ FD_PROTOTYPES_BEGIN
    but not cryptographically secure.  Assumes k is in the caller's
    address space and valid. */
 
-FD_FN_UNUSED FD_FN_PURE static ulong /* Workaround -Winline */
-fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
-                         ulong                     seed ) {
-  return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
-         (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) ) ^
-         (fd_ulong_hash( seed ^ (1UL<<4) ^ k->ul[4] ) ); /* tons of ILP */
+#if FD_HAS_INT128
+
+/* If the target supports uint128, fd_funk_rec_key_hash is seeded
+   xxHash3 with 64-bit output size. (open source BSD licensed) */
+
+static inline ulong
+fd_xxh3_mul128_fold64( ulong lhs, ulong rhs ) {
+  uint128 product = (uint128)lhs * (uint128)rhs;
+  return (ulong)product ^ (ulong)( product>>64 );
 }
+
+static inline ulong
+fd_xxh3_mix16b( ulong i0, ulong i1,
+             ulong s0, ulong s1,
+             ulong seed ) {
+  return fd_xxh3_mul128_fold64( i0 ^ (s0 + seed), i1 ^ (s1 - seed) );
+}
+
+FD_FN_PURE static inline ulong
+fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
+                      ulong                     seed ) {
+  seed ^= k->ul[4];
+  ulong acc = 32 * 0x9E3779B185EBCA87ULL;
+  acc += fd_xxh3_mix16b( k->ul[0], k->ul[1], 0xbe4ba423396cfeb8UL, 0x1cad21f72c81017cUL, seed );
+  acc += fd_xxh3_mix16b( k->ul[2], k->ul[3], 0xdb979083e96dd4deUL, 0x1f67b3b7a4a44072UL, seed );
+  acc = acc ^ (acc >> 37);
+  acc *= 0x165667919E3779F9ULL;
+  acc = acc ^ (acc >> 32);
+  return acc;
+}
+
+#else
+
+/* If the target does not support xxHash3, fallback to the 'old' funk
+   key hash function.
+
+   FIXME This version is vulnerable to HashDoS */
+
+FD_FN_PURE static inline ulong
+fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
+                      ulong                     seed ) {
+  seed ^= k->ul[4];
+  /* tons of ILP */
+  return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
+         (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) );
+}
+
+#endif /* FD_HAS_INT128 */
 
 /* fd_funk_rec_key_eq returns 1 if keys pointed to by ka and kb are
    equal and 0 otherwise.  Assumes ka and kb are in the caller's address
