@@ -415,7 +415,7 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
       continue;
     }
 
-    fd_pubkey_t const * pubkey  = fd_funk_key_to_acc( rec->pair.key );
+    fd_funk_rec_key_t const * pubkey = rec->pair.key;
 
     if (((pubkey->ul[0] == 0) & (pubkey->ul[1] == 0) & (pubkey->ul[2] == 0) & (pubkey->ul[3] == 0)))
       FD_LOG_WARNING(( "null pubkey (system program?) showed up as modified" ));
@@ -433,14 +433,11 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
-    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( rec->pair.key );
-
-    if( !fd_funk_key_is_acc( rec->pair.key  ) )
-      continue;
+    if( !fd_funk_key_is_acc( rec->pair.key ) ) continue;
 
     fd_accounts_hash_task_info_t * task_info = &task_data->info[recs_iterated++];
 
-    *task_info->acc_pubkey  = *acc_key;
+    memcpy( task_info->acc_pubkey, rec->pair.key->uc, sizeof(fd_pubkey_t) );
     task_info->slot_ctx     = slot_ctx;
     task_info->hash_changed = 0;
     task_info->should_erase = 0;

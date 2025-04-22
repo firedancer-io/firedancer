@@ -48,7 +48,7 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
   memcpy( id.uc, pubkey, sizeof(fd_pubkey_t) );
   memset( id.uc + sizeof(fd_pubkey_t), 0, sizeof(fd_funk_rec_key_t) - sizeof(fd_pubkey_t) );
 
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
+  id.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
 
   return id;
 }

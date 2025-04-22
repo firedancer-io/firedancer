@@ -9,24 +9,6 @@
 
 /* This file must not depend on fd_executor.h */
 
-fd_funk_rec_key_t
-fd_runtime_epoch_bank_key( void ) {
-  fd_funk_rec_key_t id;
-  fd_memset(&id, 1, sizeof(id));
-  id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_EPOCH_BANK_TYPE;
-
-  return id;
-}
-
-fd_funk_rec_key_t
-fd_runtime_slot_bank_key( void ) {
-  fd_funk_rec_key_t id;
-  fd_memset(&id, 1, sizeof(id));
-  id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_SLOT_BANK_TYPE;
-
-  return id;
-}
-
 int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );

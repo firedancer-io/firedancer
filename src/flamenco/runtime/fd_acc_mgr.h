@@ -79,8 +79,8 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
 FD_FN_PURE static inline fd_funk_rec_key_t
 fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
   fd_funk_rec_key_t key = {0};
-  fd_memcpy( key.c, pubkey, sizeof(fd_pubkey_t) );
-  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
+  memcpy( key.uc, pubkey, sizeof(fd_pubkey_t) );
+  key.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
   return key;
 }
 
@@ -89,15 +89,7 @@ fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
 
 FD_FN_PURE static inline int
 fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
-  return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
-}
-
-/* fd_funk_key_to_acc reinterprets a funk rec key as an account address.
-   Safe assuming fd_funk_key_is_acc( id )==1. */
-
-FD_FN_CONST static inline fd_pubkey_t const *
-fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
-  return (fd_pubkey_t const *)fd_type_pun_const( id->c );
+  return id->uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
 }
 
 /* Account Access from Funk APIs *************************************************/

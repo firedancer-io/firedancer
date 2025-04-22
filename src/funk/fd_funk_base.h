@@ -76,9 +76,9 @@
    accelerating cstr operations further but this is up to the user.) */
 
 union __attribute__((aligned(FD_FUNK_REC_KEY_ALIGN))) fd_funk_rec_key {
-  char  c [ FD_FUNK_REC_KEY_FOOTPRINT ];
   uchar uc[ FD_FUNK_REC_KEY_FOOTPRINT ];
-  ulong ul[ FD_FUNK_REC_KEY_FOOTPRINT / sizeof(ulong) ];
+  uint  ui[ 10 ];
+  ulong ul[  5 ];
 };
 
 typedef union fd_funk_rec_key fd_funk_rec_key_t;
@@ -101,7 +101,6 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
    this is more up to the application.) */
 
 union __attribute__((aligned(FD_FUNK_TXN_XID_ALIGN))) fd_funk_txn_xid {
-  char  c [ FD_FUNK_TXN_XID_FOOTPRINT ];
   uchar uc[ FD_FUNK_TXN_XID_FOOTPRINT ];
   ulong ul[ FD_FUNK_TXN_XID_FOOTPRINT / sizeof(ulong) ];
 };

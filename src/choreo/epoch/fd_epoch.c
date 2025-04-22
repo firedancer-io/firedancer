@@ -124,7 +124,7 @@ fd_epoch_init( fd_epoch_t * epoch, fd_epoch_bank_t const * epoch_bank ) {
       #endif
 
       fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, curr->elem.key );
-      voter->rec.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+      voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 
       #if FD_EPOCH_USE_HANDHOLDING
       FD_TEST( 0 == memcmp( &voter->key, &curr->elem.key, sizeof(fd_pubkey_t) ) );
