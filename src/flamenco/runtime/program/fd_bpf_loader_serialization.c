@@ -150,7 +150,8 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        fd_vm_input_region_t *    input_mem_regions,
                                        uint *                    input_mem_regions_cnt,
                                        fd_vm_acc_region_meta_t * acc_region_metas,
-                                       int                       copy_account_data ) {
+                                       int                       copy_account_data,
+                                       int                       mask_out_rent_epoch_in_vm_serialization ) {
   fd_pubkey_t * txn_accs = ctx->txn_ctx->account_keys;
 
   uchar acc_idx_seen[256] = {0};
@@ -279,7 +280,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       write_account( &view_acc, (uchar)i, &serialized_params, &curr_serialized_params_start,
                      input_mem_regions, input_mem_regions_cnt, acc_region_metas, 1, copy_account_data );
 
-      ulong rent_epoch = metadata->info.rent_epoch;
+      ulong rent_epoch = mask_out_rent_epoch_in_vm_serialization ? ULONG_MAX : metadata->info.rent_epoch;
       FD_STORE( ulong, serialized_params, rent_epoch );
       serialized_params += sizeof(ulong);
     }
@@ -447,7 +448,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_input_region_t *    input_mem_regions,
                                          uint *                    input_mem_regions_cnt,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
-                                         int                       copy_account_data ) {
+                                         int                       copy_account_data,
+                                         int                       mask_out_rent_epoch_in_vm_serialization ) {
   ulong               serialized_size = 0UL;
   fd_pubkey_t const * txn_accs        = ctx->txn_ctx->account_keys;
 
@@ -560,7 +562,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( uchar, serialized_params, is_executable );
       serialized_params += sizeof(uchar);
 
-      ulong rent_epoch = metadata->info.rent_epoch;
+      ulong rent_epoch = mask_out_rent_epoch_in_vm_serialization ? ULONG_MAX : metadata->info.rent_epoch;
       FD_STORE( ulong, serialized_params, rent_epoch );
       serialized_params += sizeof(ulong);
     }
@@ -664,6 +666,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           uint *                    input_mem_regions_cnt,
                                           fd_vm_acc_region_meta_t * acc_region_metas,
                                           int                       direct_mapping,
+                                          int                       mask_out_rent_epoch_in_vm_serialization,
                                           uchar                     is_deprecated,
                                           uchar **                  out /* output */ ) {
 
@@ -679,11 +682,13 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
   if( FD_UNLIKELY( is_deprecated ) ) {
     *out = fd_bpf_loader_input_serialize_unaligned( instr_ctx, sz, pre_lens,
                                                     input_mem_regions, input_mem_regions_cnt,
-                                                    acc_region_metas, !direct_mapping );
+                                                    acc_region_metas, !direct_mapping,
+                                                    mask_out_rent_epoch_in_vm_serialization );
   } else {
     *out = fd_bpf_loader_input_serialize_aligned( instr_ctx, sz, pre_lens,
                                                   input_mem_regions, input_mem_regions_cnt,
-                                                  acc_region_metas, !direct_mapping );
+                                                  acc_region_metas, !direct_mapping,
+                                                  mask_out_rent_epoch_in_vm_serialization );
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
