@@ -24,8 +24,11 @@
 #ifdef __has_include
 #if __has_include("../../app/fdctl/version.h")
 #include "../../app/fdctl/version.h"
-
-
+#define MAJOR_VERSION FD_STRINGIFY(FDCTL_MAJOR_VERSION)
+#define MINOR_VERSION FD_STRINGIFY(FDCTL_MINOR_VERSION)
+#define PATCH_VERSION FD_STRINGIFY(FDCTL_PATCH_VERSION)
+#endif
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -1031,7 +1034,7 @@ fd_log_private_open_path( int          cmdline,
     fd_log_wallclock_cstr( fd_log_wallclock(), tag );
     for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
     ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
-                              FIREDANCER_VERSION_MAJOR, FIREDANCER_VERSION_MINOR, FIREDANCER_VERSION_PATCH,
+      MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION,
                               fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
     if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
   }
