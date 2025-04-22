@@ -659,19 +659,22 @@ LLVMFuzzerTestOneInput( uchar const * data,
     http_server = fd_http_server_join( fd_http_server_new( shmem, PARAMS, gui_callbacks, NULL ) );
     http_server = fd_http_server_listen( http_server, ip_as_int, 0 );
 
-    struct sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
-    struct sockaddr sock_addr;
-    memset(&addr, 0, sizeof(addr));
-    memset(&sock_addr, 0, sizeof(sock_addr));
-    memcpy(&sock_addr, &addr, sizeof(addr));
+    union sockaddr_pun {
+        struct sockaddr_in addr_in;
+        struct sockaddr    sa;
+    };
 
-    if (getsockname(http_server->socket_fd, &sock_addr, &addr_len) == -1) {
+    union sockaddr_pun addr_pun;
+    memset(&addr_pun, 0, sizeof(addr_pun));
+
+    socklen_t addr_len = sizeof(addr_pun);
+
+    if (getsockname(http_server->socket_fd, &addr_pun.sa, &addr_len) == -1) {
         printf( "bind failed (%i-%s)", errno, strerror( errno ) );
         abort();
     }
 
-    port = ntohs(addr.sin_port);
+    port = ntohs(addr_pun.addr_in.sin_port);
 
     xorshift_init(&poll_rng, (uint32_t) rand_uint(&u));
 
