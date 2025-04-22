@@ -59,6 +59,22 @@ maybe_kill( config_t const * config,
     }
   }
 
+  if( FD_LIKELY( cmdline_len>=9UL ) ) {
+    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5), "firedancer" ) ) ) {
+      killed = 1;
+      FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer", proc_cmdline, pid ));
+      if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  if( FD_LIKELY( cmdline_len>=14UL ) ) {
+    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5), "firedancer-dev" ) ) ) {
+      killed = 1;
+      FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer-dev", proc_cmdline, pid ));
+      if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
   if( FD_UNLIKELY( killed ) ) return killed;
 
   char path[ PATH_MAX ];
