@@ -246,11 +246,19 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
   }
 
   if( capture_ctx != NULL && capture_ctx->capture != NULL && slot_ctx->slot_bank.slot>=capture_ctx->solcap_start_slot ) {
+    uchar *lthash = NULL;
+
+    if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) {
+      lthash = (uchar *)fd_alloca_check( 1UL, 32UL );
+      fd_lthash_hash((fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash, lthash);
+    }
+
     fd_solcap_write_bank_preimage(
         capture_ctx->capture,
         hash->hash,
         slot_ctx->slot_bank.prev_banks_hash.hash,
-        slot_ctx->account_delta_hash.hash,
+        FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ? NULL : slot_ctx->account_delta_hash.hash,
+        lthash,
         &slot_ctx->slot_bank.poh.hash,
         slot_ctx->signature_cnt );
   }
@@ -348,7 +356,10 @@ fd_account_hash( fd_funk_t *                    funk,
 
     if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
       task_info->hash_changed = 1;
+      // char *prev_lthash = FD_LTHASH_ENC_32_ALLOCA( lt_hash );
       fd_lthash_add( lt_hash, &new_lthash_value);
+      // FD_LOG_NOTICE(( "lthash %s + %s = %s (%s)", prev_lthash, FD_LTHASH_ENC_32_ALLOCA( &new_lthash_value ), FD_LTHASH_ENC_32_ALLOCA( lt_hash ),
+      //    FD_BASE58_ENC_32_ALLOCA( task_info->acc_pubkey )));
     }
   }
   if( FD_LIKELY(task_info->hash_changed && ((NULL != acc_meta_parent) && (acc_meta_parent->info.lamports != 0) ) ) ) {
@@ -364,7 +375,11 @@ fd_account_hash( fd_funk_t *                    funk,
                              acc_data,
                              FD_HASH_JUST_LTHASH,
                              features );
+
+    // char *prev_lthash = FD_LTHASH_ENC_32_ALLOCA( lt_hash );
     fd_lthash_sub( lt_hash, &old_lthash_value );
+    // FD_LOG_NOTICE(( "lthash %s - %s = %s (%s)", prev_lthash, FD_LTHASH_ENC_32_ALLOCA( &old_lthash_value ), FD_LTHASH_ENC_32_ALLOCA( lt_hash ),
+    //    FD_BASE58_ENC_32_ALLOCA( task_info->acc_pubkey )));
   }
 
   if( acc_meta->slot == slot ) {
@@ -372,7 +387,7 @@ fd_account_hash( fd_funk_t *                    funk,
   }
 }
 
-static void
+void
 fd_account_hash_task( void * tpool,
                       ulong t0, ulong t1,
                       void *args,
@@ -387,6 +402,8 @@ fd_account_hash_task( void * tpool,
 
   fd_lthash_value_t * lthash = (fd_lthash_value_t*)args;
 
+  FD_LOG_NOTICE(( "fd_account_hash_task: %lu %lu", start_idx, stop_idx));
+
   for( ulong i=start_idx; i<=stop_idx; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
     fd_exec_slot_ctx_t *           slot_ctx  = task_info->slot_ctx;
@@ -395,7 +412,8 @@ fd_account_hash_task( void * tpool,
                      task_info,
                      lthash,
                      slot_ctx->slot_bank.slot,
-                     &slot_ctx->epoch_ctx->features );
+                     &slot_ctx->epoch_ctx->features
+      );
   }
 }
 

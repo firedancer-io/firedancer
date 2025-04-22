@@ -60,7 +60,7 @@ main( int     argc,
   /* Setup slot context */
 
   ulong const txn_max =  16UL;
-  ulong const rec_max = 512UL;
+  uint const rec_max = 512UL;
 
   ulong const funk_seed = 0xeffb398d4552afbcUL;
   ulong const funk_tag  = 42UL;

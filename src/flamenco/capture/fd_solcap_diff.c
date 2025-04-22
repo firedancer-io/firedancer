@@ -748,6 +748,13 @@ fd_solcap_diff_bank( fd_solcap_differ_t * diff ) {
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].account_delta_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].account_delta_hash ) );
   }
+  if( 0!=memcmp( pre[0].accounts_lt_hash_checksum, pre[1].accounts_lt_hash_checksum, 32UL ) ) {
+    only_account_mismatch = 1;
+    printf( "(%s) accounts_lt_hash_checksum:  %s\n"
+            "(%s) accounts_lt_hash_checksum:  %s\n",
+            diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].accounts_lt_hash_checksum ),
+            diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].accounts_lt_hash_checksum ) );
+  }
   if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) {
     only_account_mismatch = 0;
     printf( "(%s) prev_bank_hash:      %s\n"
