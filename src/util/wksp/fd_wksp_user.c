@@ -302,6 +302,7 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
       }
       fd_wksp_private_unlock( wksp );
       FD_LOG_WARNING(( "too few partitions available for allocation (part_max %lu)", part_max ));
+      __asm__("int $3");
       goto fail;
     }
     idle_idx = fd_wksp_private_pinfo_idx( pinfo[ idle_idx ].parent_cidx );

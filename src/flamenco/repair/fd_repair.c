@@ -1061,8 +1061,6 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   }
 
   if (!found_peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
-    FD_LOG_WARNING( ( "SO WE TRYING AGAIN "));
     /* maybe atp we should just... send it. TODO: reevaluate wth testnet */
 
     for( ulong i=0UL; i<peer_cnt; i++ ) {
@@ -1088,7 +1086,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   if( dupelem == NULL ) {
     dupelem = fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
     dupelem->last_send_time = 0L;
-  } else if( ( dupelem->last_send_time+(long)200e6 )>glob->now ) {
+  } else if( ( dupelem->last_send_time+(long)20e6 )>glob->now ) {
     // if last send time > now - 100ms. then we don't want to add another.
     fd_repair_unlock( glob );
     //FD_LOG_INFO(("deduped request for %lu, %u", slot, shred_index));
@@ -1175,7 +1173,7 @@ fd_write_good_peer_cache_file( fd_repair_t * repair ) {
 
 int
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  FD_LOG_DEBUG(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
+  // FD_LOG_NOTICE(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
   return fd_repair_create_needed_request( glob, fd_needed_window_index, slot, shred_index );
 }
 
@@ -1187,7 +1185,7 @@ fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_
 
 int
 fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
-  FD_LOG_DEBUG( ( "[repair] need orphan %lu", slot ) );
+  // FD_LOG_NOTICE( ( "[repair] need orphan %lu", slot ) );
   return fd_repair_create_needed_request( glob, fd_needed_orphan, slot, UINT_MAX );
 }
 
