@@ -2257,10 +2257,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   fd_ghost_init( ctx->ghost, snapshot_slot );
 
   fd_funk_rec_key_t key = { 0 };
-  fd_memcpy( key.c, ctx->vote_acc, sizeof(fd_pubkey_t) );
-  key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+  memcpy( key.uc, ctx->vote_acc, sizeof(fd_pubkey_t) );
+  key.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
   fd_tower_from_vote_acc( ctx->tower, ctx->funk, snapshot_fork->slot_ctx->funk_txn, &key );
-  FD_LOG_NOTICE(( "vote account: %s", FD_BASE58_ENC_32_ALLOCA( key.c ) ));
+  FD_LOG_NOTICE(( "vote account: %s", FD_BASE58_ENC_32_ALLOCA( key.uc ) ));
   fd_tower_print( ctx->tower, ctx->root );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->epoch_ctx->bank_hash_cmp;

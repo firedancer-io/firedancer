@@ -184,7 +184,7 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
     fd_memset( &csv_rec, ' ', sizeof(csv_rec) );
 
     ulong b58sz;
-    fd_base58_encode_32( fd_funk_key_to_acc( rec->pair.key )->uc, &b58sz, csv_rec.acct_addr );
+    fd_base58_encode_32( rec->pair.key->uc, &b58sz, csv_rec.acct_addr );
     csv_rec.line[ offsetof(fd_snapshot_csv_rec_t,acct_addr)+b58sz ] = ' ';
     csv_rec.comma1 = ',';
 
