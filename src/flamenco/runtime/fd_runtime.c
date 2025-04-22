@@ -905,7 +905,7 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
    transaction logs, ...  All this info is not part of consensus but can be retrieved,
    for instance, via RPC getTransaction.  Firedancer stores txn meta in the blockstore,
    in the same binary format as Agave, protobuf TransactionStatusMeta. */
-static void
+FD_FN_UNUSED static void
 fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         slot_ctx,
                                                  fd_execute_txn_task_info_t * task_info,
                                                  ulong                        txn_cnt ) {
@@ -1828,7 +1828,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
      the calculation of the bound of the spad as defined in fd_runtime.h. */
 
   /* Store transaction info including logs */
-  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
+  // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );

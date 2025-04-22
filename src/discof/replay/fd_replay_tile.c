@@ -43,7 +43,7 @@
 
 #define DEQUE_NAME fd_exec_slice
 #define DEQUE_T    ulong
-#define DEQUE_MAX  1024UL
+#define DEQUE_MAX  USHORT_MAX + 1
 #include "../../util/tmpl/fd_deque.c"
 
 /* An estimate of the max number of transactions in a block.  If there are more
@@ -704,13 +704,9 @@ before_frag( fd_replay_tile_ctx_t * ctx FD_PARAM_UNUSED,
   (void)seq;
 
   if( in_idx==REPAIR_IN_IDX ) {
-    ulong slot = fd_disco_repair_replay_sig_slot( sig );
-    uint data_cnt = fd_disco_repair_replay_sig_data_cnt( sig );
-    ushort parent_offset = fd_disco_repair_replay_sig_parent_off( sig );
-    (void)parent_offset;
-    (void)data_cnt;
-    (void)slot;
-    FD_LOG_NOTICE(( "Repair tile sent slot %lu", slot ));
+    fd_exec_slice_push_tail( ctx->exec_slice_deque, sig );
+    // fd_exec_slice_pop_head( ctx->exec_slice_deque );
+    FD_LOG_DEBUG(( "rx slice from repair tile %lu %u", fd_disco_repair_replay_sig_slot( sig ), fd_disco_repair_replay_sig_data_cnt( sig ) ));
     return 1;
   } else if( in_idx==SHRED_IN_IDX ) {
     return 1;
@@ -1297,7 +1293,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
       .nonvote_failed_txn_count = fork->slot_ctx->nonvote_failed_txn_count,
       .compute_units = fork->slot_ctx->total_compute_units_used,
       .transaction_fee = fork->slot_ctx->slot_bank.collected_execution_fees,
-      .priority_fee = fork->slot_ctx->slot_bank.collected_priority_fees,
+      .priority_fee = fork->slot_ctx-2842>slot_bank.collected_priority_fees,
       .parent_slot = ctx->parent_slot,
     };
     */
@@ -1864,8 +1860,8 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   }
 
   ulong  slot          = fd_disco_repair_replay_sig_slot( sig );
-  uint   data_cnt      = fd_disco_repair_replay_sig_data_cnt( sig );
   ushort parent_off    = fd_disco_repair_replay_sig_parent_off( sig );
+  uint   data_cnt      = fd_disco_repair_replay_sig_data_cnt( sig );
   int    slot_complete = fd_disco_repair_replay_sig_slot_complete( sig );
 
   if( FD_UNLIKELY( slot != ctx->curr_slot ) ) {
@@ -2484,19 +2480,19 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         break;
       case FD_EXEC_STATE_BOOTED:
         if( ctx->exec_ready[ i ] == EXEC_BOOT_WAIT ) {
-          FD_LOG_NOTICE(( "Exec tile idx=%lu is booting", i ));
+          FD_LOG_INFO(( "Exec tile idx=%lu is booting", i ));
           join_txn_ctx( ctx, i, fd_exec_fseq_get_booted_offset( res ) );
         }
         break;
       case FD_EXEC_STATE_EPOCH_DONE:
         if( ctx->exec_ready[ i ]==EXEC_EPOCH_WAIT ) {
-          FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed epoch message", i ));
+          FD_LOG_INFO(( "Ack that exec tile idx=%lu has processed epoch message", i ));
           ctx->exec_ready[ i ] = EXEC_EPOCH_DONE;
         }
         break;
       case FD_EXEC_STATE_SLOT_DONE:
         if( ctx->exec_ready[ i ]==EXEC_SLOT_WAIT ) {
-          FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed slot message", i ));
+          FD_LOG_INFO(( "Ack that exec tile idx=%lu has processed slot message", i ));
           ctx->exec_ready[ i ] = EXEC_TXN_READY;
         }
         break;
@@ -2552,11 +2548,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
-  ulong bank_idx    = ctx->bank_idx;
-
-  ulong                 txn_cnt  = ctx->txn_cnt;
-  fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ bank_idx ];
-  fd_txn_p_t *          txns     = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
 
   if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
@@ -2651,67 +2642,72 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Consensus: decide (1) the fork for pack; (2) the fork to vote on   */
     /**********************************************************************/
 
-    ulong reset_slot = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
-    fd_fork_t const * reset_fork = fd_forks_query_const( ctx->forks, reset_slot );
-    if( FD_UNLIKELY( !reset_fork ) ) {
-      FD_LOG_ERR( ( "failed to find reset fork %lu", reset_slot ) );
-    }
-    if( reset_fork->lock ) {
-      FD_LOG_WARNING(("RESET FORK FROZEN: %lu", reset_fork->slot ));
-      fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx->slot_bank.prev_slot, ctx->funk,
-                                                     ctx->blockstore, ctx->epoch_ctx, ctx->runtime_spad );
-      new_reset_fork->lock = 0;
-      reset_fork = new_reset_fork;
-    }
+    // ulong reset_slot = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
+    // fd_fork_t const * reset_fork = fd_forks_query_const( ctx->forks, reset_slot );
+    // if( FD_UNLIKELY( !reset_fork ) ) {
+    //   FD_LOG_ERR( ( "failed to find reset fork %lu", reset_slot ) );
+    // }
+    // if( reset_fork->lock ) {
+    //   FD_LOG_WARNING(("RESET FORK FROZEN: %lu", reset_fork->slot ));
+    //   fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx->slot_bank.prev_slot, ctx->funk,
+    //                                                  ctx->blockstore, ctx->epoch_ctx, ctx->runtime_spad );
+    //   new_reset_fork->lock = 0;
+    //   reset_fork = new_reset_fork;
+    // }
 
-    if( FD_UNLIKELY( !ctx->startup_init_done && ctx->replay_plugin_out_mem ) ) {
-      ctx->startup_init_done = 1;
-      uchar msg[ 56 ];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[ 0 ] = 11; // ValidatorStartProgress::Running
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
+    // ulong bank_idx    = ctx->bank_idx;
+    // ulong                 txn_cnt  = ctx->txn_cnt;
+    // fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ bank_idx ];
+    // fd_txn_p_t *          txns     = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
 
-    /* Update the gui */
-    if( ctx->replay_plugin_out_mem ) {
-      /* FIXME. We need a more efficient way to compute the ancestor chain. */
-      uchar msg[4098*8] __attribute__( ( aligned( 8U ) ) );
-      fd_memset( msg, 0, sizeof(msg) );
-      ulong s = reset_fork->slot_ctx->slot_bank.slot;
-      *(ulong*)(msg + 16U) = s;
-      ulong i = 0;
-      do {
-        if( !fd_blockstore_block_info_test( ctx->blockstore, s ) ) {
-          break;
-        }
-        s = fd_blockstore_parent_slot_query( ctx->blockstore, s );
-        if( s < ctx->blockstore->shmem->wmk ) {
-          break;
-        }
+    // if( FD_UNLIKELY( !ctx->startup_init_done && ctx->replay_plugin_out_mem ) ) {
+    //   ctx->startup_init_done = 1;
+    //   uchar msg[ 56 ];
+    //   fd_memset( msg, 0, sizeof(msg) );
+    //   msg[ 0 ] = 11; // ValidatorStartProgress::Running
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+    // }
 
-        *(ulong*)(msg + 24U + i*8U) = s;
-        if( ++i == 4095U ) {
-          break;
-        }
-      } while( 1 );
-      *(ulong*)(msg + 8U) = i;
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_RESET, msg, sizeof(msg) );
-    }
+    // /* Update the gui */
+    // if( ctx->replay_plugin_out_mem ) {
+    //   /* FIXME. We need a more efficient way to compute the ancestor chain. */
+    //   uchar msg[4098*8] __attribute__( ( aligned( 8U ) ) );
+    //   fd_memset( msg, 0, sizeof(msg) );
+    //   ulong s = reset_fork->slot_ctx->slot_bank.slot;
+    //   *(ulong*)(msg + 16U) = s;
+    //   ulong i = 0;
+    //   do {
+    //     if( !fd_blockstore_block_info_test( ctx->blockstore, s ) ) {
+    //       break;
+    //     }
+    //     s = fd_blockstore_parent_slot_query( ctx->blockstore, s );
+    //     if( s < ctx->blockstore->shmem->wmk ) {
+    //       break;
+    //     }
 
-    fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
-    memcpy( microblock_trailer->hash, reset_fork->slot_ctx->slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
-    if( ctx->poh_init_done == 1 ) {
-      ulong parent_slot = reset_fork->slot_ctx->slot_bank.prev_slot;
-      ulong curr_slot = reset_fork->slot_ctx->slot_bank.slot;
-      FD_LOG_DEBUG(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, flags ));
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      ulong sig = fd_disco_replay_old_sig( curr_slot, flags );
-      fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, txn_cnt, 0UL, 0, tspub );
-      bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), bank_out->chunk0, bank_out->wmark );
-      bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
-    } else {
-      FD_LOG_DEBUG(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, ctx->parent_slot, flags ));
-    }
+    //     *(ulong*)(msg + 24U + i*8U) = s;
+    //     if( ++i == 4095U ) {
+    //       break;
+    //     }
+    //   } while( 1 );
+    //   *(ulong*)(msg + 8U) = i;
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_RESET, msg, sizeof(msg) );
+    // }
+
+    // fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
+    // memcpy( microblock_trailer->hash, reset_fork->slot_ctx->slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
+    // if( ctx->poh_init_done == 1 ) {
+    //   ulong parent_slot = reset_fork->slot_ctx->slot_bank.prev_slot;
+    //   ulong curr_slot = reset_fork->slot_ctx->slot_bank.slot;
+    //   FD_LOG_DEBUG(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, flags ));
+    //   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    //   ulong sig = fd_disco_replay_old_sig( curr_slot, flags );
+    //   fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, txn_cnt, 0UL, 0, tspub );
+    //   bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), bank_out->chunk0, bank_out->wmark );
+    //   bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
+    // } else {
+    //   FD_LOG_DEBUG(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, ctx->parent_slot, flags ));
+    // }
 
     fd_forks_print( ctx->forks );
     fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
@@ -2857,7 +2853,7 @@ during_housekeeping( void * _ctx ) {
   ulong wmark = fd_ulong_min( ctx->root, ctx->forks->finalized );
 
   if( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
-  FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
+  FD_LOG_NOTICE(( "advancing wmark %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
 
   fd_funk_txn_xid_t xid = { .ul = { wmark, wmark } };
   if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );

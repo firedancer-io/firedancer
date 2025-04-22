@@ -506,8 +506,7 @@ during_frag( fd_shred_ctx_t * ctx,
     uchar const * dcache_entry = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) + ctl;
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
-    ulong repair_nonce_sz = fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR*4;
-    fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz-repair_nonce_sz );
+    fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
     if( FD_UNLIKELY( !shred ) ) {
       ctx->skip_frag = 1;
       return;
@@ -521,7 +520,7 @@ during_frag( fd_shred_ctx_t * ctx,
       return;
     }
     fd_memcpy( ctx->shred_buffer, dcache_entry+hdr_sz, sz-hdr_sz );
-    ctx->shred_buffer_sz = sz-hdr_sz-repair_nonce_sz;
+    ctx->shred_buffer_sz = sz-hdr_sz;
   }
 }
 
