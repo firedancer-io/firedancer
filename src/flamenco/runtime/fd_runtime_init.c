@@ -72,8 +72,6 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_funk_t * funk = slot_ctx->funk;
 
-  fd_funk_rec_hard_remove( funk, slot_ctx->funk_txn, &id );
-
   fd_funk_rec_prepare_t prepare[1];
   fd_funk_rec_t * rec = fd_funk_rec_prepare(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
   if( !rec ) {

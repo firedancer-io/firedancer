@@ -302,21 +302,21 @@ fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_rec_t **          rec_out,
                     ulong                     erase_data );
 
-/*
-  fd_funk_rec_hard_remove completely removes the record from Funk,
-  and leaves no tombstone behind.
+/* fd_funk_rec_modify_prepare queries the in-prep transaction pointed to
+   by txn for the record whose key matches the key pointed to by the
+   key. If the query is successful, then we will acquire a lock on the
+   corresponding hash chain. Any updates made to the record can be
+   published into the funk transaction with a call to
+   fd_funk_rec_modify_publish. */
 
-  This is a dangerous API. An older version of the record in a
-  parent transaction might be exposed. In other words, the record may
-  appear to go backwards in time. We are effectively reverting an
-  update. Any information in an removed record is lost.
+fd_funk_rec_t *
+fd_funk_rec_modify_prepare( fd_funk_t *               funk,
+                            fd_funk_txn_t const *     txn,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_query_t *     query );
 
-  Always succeeds.
-*/
 void
-fd_funk_rec_hard_remove( fd_funk_t *               funk,
-                         fd_funk_txn_t *           txn,
-                         fd_funk_rec_key_t const * key );
+fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
 
 /* When a record is erased there is metadata stored in the five most
    significant bytes of record flags.  These are helpers to make setting

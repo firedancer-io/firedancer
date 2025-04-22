@@ -289,23 +289,46 @@ fd_txn_account_save( fd_txn_account_t * acct,
 
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
-  /* Remove previous incarnation of the account's record from the transaction, so that we don't hash it twice */
-  fd_funk_rec_hard_remove( funk, txn, &key );
+  /* There are two cases to consider here:
+     1. The account that we are attempting to save exists in the current
+        funk transaction. In this case, all we need to do is acquire an
+        exclusive write on the current hash chain using fd_funk_rec_modify_prepare
+        and write into the record.
+     2. The account that we are attempting to save does NOT exist in the
+        current transaction, but it may or may not exist in some parent
+        funk transaction. In this case, we will have to prepare and
+        publish the account into the current funk transaction. */
 
-  int err;
-  fd_funk_rec_prepare_t prepare[1];
-  fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, txn, &key, prepare, &err );
-  if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
+  fd_funk_rec_query_t query[1];
+  fd_funk_rec_t *     rec         = fd_funk_rec_modify_prepare( funk, txn, &key, query );
+  fd_wksp_t *         funk_wksp   = fd_funk_wksp( funk );
 
-  acct->private_state.rec = rec;
-  ulong reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, wksp ), wksp, &err ) == NULL ) {
-    FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+  int err = 0;
+  if( rec ) {
+    acct->private_state.rec = rec;
+    ulong reclen            = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
+    if( FD_UNLIKELY( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, funk_wksp ), funk_wksp, &err ) == NULL ) ) {
+      FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+    }
+    err = fd_txn_account_save_internal( acct, funk );
+
+    fd_funk_rec_modify_publish( query );
+  } else {
+    fd_funk_rec_prepare_t prepare[1];
+    rec = fd_funk_rec_prepare( funk, txn, &key, prepare, &err );
+    if( FD_UNLIKELY( rec == NULL ) ) {
+      FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
+    }
+
+    acct->private_state.rec = rec;
+    ulong reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
+    if( FD_UNLIKELY( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, funk_wksp ), funk_wksp, &err ) == NULL ) ) {
+      FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+    }
+
+    err = fd_txn_account_save_internal( acct, funk );
+    fd_funk_rec_publish( prepare );
   }
-  err = fd_txn_account_save_internal( acct, funk );
-
-  fd_funk_rec_publish( prepare );
 
   return err;
 }

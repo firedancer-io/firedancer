@@ -311,59 +311,6 @@ fd_funk_rec_is_full( fd_funk_t * funk ) {
   return fd_funk_rec_pool_is_empty( &rec_pool );
 }
 
-void
-fd_funk_rec_hard_remove( fd_funk_t *               funk,
-                         fd_funk_txn_t *           txn,
-                         fd_funk_rec_key_t const * key ) {
-
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_alloc_t * alloc          = fd_funk_alloc( funk, wksp );
-  fd_funk_rec_map_t rec_map   = fd_funk_rec_map( funk, wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-
-  fd_funk_xid_key_pair_t pair[1];
-  if( txn == NULL ) {
-    fd_funk_txn_xid_set_root( pair->xid );
-  } else {
-    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
-  }
-  fd_funk_rec_key_copy( pair->key, key );
-
-  fd_funk_rec_pool_lock( &rec_pool, 1 );
-
-  fd_funk_rec_t * rec = NULL;
-  for(;;) {
-    fd_funk_rec_map_query_t rec_query[1];
-    int err = fd_funk_rec_map_remove( &rec_map, pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-    if( err == FD_MAP_ERR_KEY ) {
-      fd_funk_rec_pool_unlock( &rec_pool );
-      return;
-    }
-    if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
-    rec = fd_funk_rec_map_query_ele( rec_query );
-    break;
-  }
-
-  uint prev_idx = rec->prev_idx;
-  uint next_idx = rec->next_idx;
-  if( txn == NULL ) {
-    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
-  } else {
-    if( fd_funk_rec_idx_is_null( prev_idx ) ) txn->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
-  }
-  fd_funk_rec_pool_unlock( &rec_pool );
-
-  fd_funk_val_flush( rec, alloc, wksp );
-  fd_funk_rec_pool_release( &rec_pool, rec, 1 );
-}
-
 int
 fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_txn_t *           txn,
@@ -496,6 +443,38 @@ fd_funk_rec_forget( fd_funk_t *      funk,
   }
 
   return FD_FUNK_SUCCESS;
+}
+
+fd_funk_rec_t *
+fd_funk_rec_modify_prepare( fd_funk_t *               funk,
+                            fd_funk_txn_t const *     txn,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_query_t *     query ) {
+  fd_wksp_t * wksp          = fd_funk_wksp( funk );
+  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funk_xid_key_pair_t pair[1];
+  if( txn == NULL ) {
+    fd_funk_txn_xid_set_root( pair->xid );
+  } else {
+    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
+  }
+  fd_funk_rec_key_copy( pair->key, key );
+
+  for( ;; ) {
+    int err = fd_funk_rec_map_modify_try( &rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+    if( err==FD_MAP_SUCCESS ) break;
+    if( err==FD_MAP_ERR_KEY ) return NULL;
+    if( err==FD_MAP_ERR_AGAIN ) continue;
+    FD_LOG_CRIT(( "query returned err %d", err ));
+  }
+
+  fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
+  return rec;
+}
+
+void
+fd_funk_rec_modify_publish( fd_funk_rec_query_t * query ) {
+  fd_funk_rec_map_modify_test( query );
 }
 
 static void
