@@ -579,7 +579,7 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
       if( err != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_ERR(( "failed to view account" ));
       }
-      fd_funk_rec_remove( funk, txn, rec->pair.key, NULL, rec->pair.xid->ul[0] );
+      fd_funk_rec_remove( funk, txn, rec->pair.key, NULL );
     }
   }
 
@@ -731,7 +731,6 @@ fd_accounts_sorted_subrange_count( fd_funk_t * funk,
     fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
 
     if ( !fd_funk_key_is_acc( rec->pair.key ) ||         /* not a solana record */
-        (rec->flags & FD_FUNK_REC_FLAG_ERASE) ||        /* this is a tombstone */
         (rec->pair.xid->ul[0] | rec->pair.xid->ul[1]) != 0 /* not root xid */ ) {
       continue;
     }
@@ -780,7 +779,6 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
        fd_funk_all_iter_next( iter ) ) {
     fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
     if ( !fd_funk_key_is_acc( rec->pair.key ) ||         /* not a solana record */
-        (rec->flags & FD_FUNK_REC_FLAG_ERASE) ||        /* this is a tombstone */
         (rec->pair.xid->ul[0] | rec->pair.xid->ul[1]) != 0 /* not root xid */ ) {
       continue;
     }
@@ -1002,7 +1000,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
   ulong                   num_pairs         = 0UL;
   ulong                   num_iter_accounts = 0UL;
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
-    if ( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
+    if ( !fd_funk_key_is_acc( rec->pair.key ) )
       continue;
     ++num_iter_accounts;
   }
@@ -1015,7 +1013,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
   fd_blake3_t * b3 = NULL;
 
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
-    if ( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
+    if ( !fd_funk_key_is_acc( rec->pair.key ) )
       continue;
 
     fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
@@ -1275,12 +1273,10 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
     for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
          NULL != rec;
          rec = fd_funk_txn_next_rec(funk, rec)) {
-      if ( fd_funk_key_is_acc( rec->pair.key ) && !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
+      if ( fd_funk_key_is_acc( rec->pair.key ) ) {
         accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
         if (NULL != q)
           accounts_hash_remove(hash_map, q);
-        if (!(rec->flags & FD_FUNK_REC_FLAG_ERASE))
-          accounts_hash_insert(hash_map, (fd_funk_rec_t *) rec);
       }
     }
   }
