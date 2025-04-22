@@ -176,7 +176,7 @@ struct fd_fec_ele {
 
   ulong  slot;
   uint   fec_set_idx;
-  uint   data_cnt;
+  ushort data_cnt;
   int    data_complete;
   int    slot_complete;
   ushort parent_off;
@@ -242,9 +242,13 @@ typedef struct fd_fec_children fd_fec_children_t;
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct fd_fec_out {
-  ulong slot;
-  uint  fec_set_idx;
-  int   err;
+  ulong  slot;
+  ushort parent_off;
+  uint   fec_set_idx;
+  ushort data_cnt;
+  int    data_complete;
+  int    slot_complete;
+  int    err;
 };
 typedef struct fd_fec_out fd_fec_out_t;
 
@@ -354,7 +358,7 @@ fd_fec_ele_t *
 fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
                        ulong              slot,
                        uint               fec_set_idx,
-                       uint               data_cnt,
+                       ushort             data_cnt,
                        int                data_complete,
                        int                slot_complete,
                        ushort             parent_off,

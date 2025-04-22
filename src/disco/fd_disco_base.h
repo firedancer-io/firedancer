@@ -236,16 +236,17 @@ FD_FN_CONST static inline uint fd_disco_repair_shred_sig_last_shred_idx( ulong s
 
 
 FD_FN_CONST static inline ulong
-fd_disco_repair_replay_sig( ulong slot, uint data_cnt, ushort parent_off, int slot_complete ) {
+fd_disco_repair_replay_sig( ulong slot, ushort parent_off, uint data_cnt, int slot_complete ) {
   /*
-   | slot (32) | data_cnt (15) | parent_off (15) | slot_complete(1)
-   | [32, 63]  | [17, 31]      | [1, 16]         | [0]
+   | slot (32) | parent_off (16) | data_cnt (15) | slot_complete(1)
+   | [32, 63]  | [16, 31]        | [1, 16]       | [0]
   */
   ulong slot_ul          = fd_ulong_min( slot, (ulong)UINT_MAX );
   ulong data_cnt_ul      = fd_ulong_min( (ulong)data_cnt, (ulong)FD_SHRED_BLK_MAX );
   ulong parent_off_ul    = (ulong)parent_off;
+  ulong data_cnt_ul      = fd_ulong_min( (ulong)data_cnt, (ulong)FD_SHRED_BLK_MAX );
   ulong slot_complete_ul = !!slot_complete;
-  return slot_ul << 32 | data_cnt_ul << 17 | parent_off_ul << 1 | slot_complete_ul;
+  return slot_ul << 32 | parent_off_ul << 16 | data_cnt_ul << 1 | slot_complete_ul;
 }
 
 FD_FN_CONST static inline ulong  fd_disco_repair_replay_sig_slot         ( ulong sig ) { return         fd_ulong_extract    ( sig, 32, 63 ); }
