@@ -202,7 +202,6 @@ during_frag( fd_store_tile_ctx_t * ctx,
              ulong                 chunk,
              ulong                 sz,
              ulong                 ctl FD_PARAM_UNUSED ) {
-
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
@@ -442,7 +441,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
-      fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)] = { 0 };
+      fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)] = { 0 };
       ulong  buffered_idx = 0;
       ulong  complete_idx = 0;
       for(;;) { /* speculative query */
