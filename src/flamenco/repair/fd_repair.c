@@ -1067,7 +1067,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   if( dupelem == NULL ) {
     dupelem = fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
     dupelem->last_send_time = 0L;
-  } else if( ( dupelem->last_send_time+(long)200e6 )<glob->now ) {
+  } else if( ( dupelem->last_send_time+(long)100e6 )<glob->now ) {
     fd_repair_unlock( glob );
     return 0;
   }
@@ -1077,7 +1077,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
 
   if (fd_needed_table_is_full(glob->needed)) {
     fd_repair_unlock( glob );
-    FD_LOG_NOTICE(("table full"));
+    // FD_LOG_NOTICE(("table full"));
     ( *glob->deliver_fail_fun )(ids[0], slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
