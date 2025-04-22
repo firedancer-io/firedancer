@@ -752,9 +752,8 @@ net_rx_packet( fd_net_ctx_t *      ctx,
     out = ctx->gossip_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_intake_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
-    out = ctx->repair_out;
-    // if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
-    // else                                      out = ctx->shred_out;
+    if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
+    else                                      out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
     out = ctx->repair_out;

@@ -231,7 +231,7 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
   }
 }
 
-static inline void
+FD_FN_UNUSED static inline void
 handle_new_repair_requests( fd_repair_tile_ctx_t * ctx,
                             uchar const *          buf,
                             ulong                  buf_sz ) {
@@ -495,7 +495,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_STORE ) ) {
-    handle_new_repair_requests( ctx, ctx->buffer, sz );
+    // handle_new_repair_requests( ctx, ctx->buffer, sz );
     return;
   }
 
@@ -533,7 +533,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
       int data_complete = shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE;
       int slot_complete = shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
-      FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, fec->data_cnt, data_complete, slot_complete, shred->data.parent_off, merkle, merkle ) );
+      FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, (ushort)fec->data_cnt, data_complete, slot_complete, shred->data.parent_off, merkle, merkle ) );
       fd_fec_repair_remove( ctx->fec_repair, fec->key );
       /* TODO set range ops */
       for( uint idx = shred->fec_set_idx; idx < shred->fec_set_idx + fec->data_cnt; idx++ ) {
