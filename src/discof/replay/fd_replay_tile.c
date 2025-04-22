@@ -48,7 +48,7 @@
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
-#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
+#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_BLK_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
@@ -2032,8 +2032,8 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
 
-  publish_stake_weights( ctx, stem, ctx->slot_ctx );
   fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
+  publish_stake_weights( ctx, stem, ctx->slot_ctx );
 
 }
 
@@ -2910,6 +2910,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->runtime_public ) ) {
     FD_LOG_ERR(( "no runtime_public" ));
   }
+
 
   /* Open Funk */
   fd_funk_txn_start_write( NULL );

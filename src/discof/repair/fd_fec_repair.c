@@ -33,12 +33,11 @@ fd_fec_repair_new( void * shmem, ulong fec_max, uint shred_tile_cnt, ulong seed 
 fd_fec_repair_t *
 fd_fec_repair_join( void * shfec_repair ) {
   fd_fec_repair_t * fec_repair = (fd_fec_repair_t *)shfec_repair;
-  ulong shred_tile_cnt = fec_repair->shred_tile_cnt;
 
   fec_repair->intra_pool      = fd_fec_intra_pool_join( fec_repair->intra_pool );
   fec_repair->intra_map       = fd_fec_intra_map_join( fec_repair->intra_map );
 
-  for( ulong i = 0UL; i < shred_tile_cnt; i++ ) {
+  for( ulong i = 0UL; i < fec_repair->shred_tile_cnt; i++ ) {
     fec_repair->order_pool_lst[i]  = fd_fec_order_pool_join ( fec_repair->order_pool_lst[i] );
     fec_repair->order_dlist_lst[i] = fd_fec_order_dlist_join( fec_repair->order_dlist_lst[i] );
   }
