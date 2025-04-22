@@ -60,6 +60,7 @@ fd_funk_open_file( void *       ljoin,
   int open_flags, can_resize, can_create, do_new;
   switch( mode ) {
   case FD_FUNK_READONLY:
+    FD_LOG_NOTICE(( "filename %s", filename ));
     if( filename == NULL  || filename[0] == '\0' ) {
       FD_LOG_WARNING(( "mode FD_FUNK_READONLY can not be used with an anonymous workspace, funk file required" ));
       return NULL;

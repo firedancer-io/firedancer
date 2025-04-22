@@ -1,0 +1,277 @@
+#define _GNU_SOURCE
+
+#include "../../disco/topo/fd_topo.h"
+#include "generated/fd_tower_tile_seccomp.h"
+
+#include "../../choreo/fd_choreo.h"
+
+#include "../../disco/fd_disco.h"
+#include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/shred/fd_stake_ci.h"
+#include "../../funk/fd_funk_filemap.h"
+
+#include "../../flamenco/runtime/fd_runtime.h"
+
+#define IN_KIND_GOSSIP ( 0)
+#define IN_KIND_REPLAY ( 1)
+#define IN_KIND_SHRED  ( 2)
+#define IN_KIND_SIGN   ( 3)
+#define MAX_IN_LINKS   (16)
+
+#define SIGN_OUT_IDX (0)
+
+#define VOTER_MAX       ( 4096UL )
+#define VOTER_FOOTPRINT ( 40UL ) /* serialized footprint */
+
+typedef struct {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       mtu;
+} in_ctx_t;
+
+typedef struct {
+  fd_pubkey_t       identity_key[1];
+  fd_funk_rec_key_t funk_key;
+  ulong             seed;
+
+  uchar    in_kind [MAX_IN_LINKS];
+  in_ctx_t in_links[MAX_IN_LINKS];
+
+  fd_epoch_t * epoch;
+  fd_forks_t * forks;
+  fd_ghost_t * ghost;
+  fd_tower_t * tower;
+
+  ulong        root;
+  fd_funk_t    funk[1];
+  fd_tower_t * scratch;
+  uchar *      epoch_voters_buf;
+} ctx_t;
+
+FD_FN_CONST static inline ulong
+scratch_align( void ) {
+  return 128UL;
+}
+
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_INIT,
+      alignof(ctx_t),      sizeof(ctx_t)                      ),
+      fd_epoch_align(),    fd_epoch_footprint( FD_VOTER_MAX ) ),
+      fd_forks_align(),    fd_forks_footprint( FD_BLOCK_MAX ) ),
+      fd_ghost_align(),    fd_ghost_footprint( FD_BLOCK_MAX ) ),
+      fd_tower_align(),    fd_tower_footprint()               ), /* our tower */
+      fd_tower_align(),    fd_tower_footprint()               ), /* scratch */
+      128UL,               VOTER_FOOTPRINT * VOTER_MAX        ), /* scratch */
+    scratch_align() );
+}
+
+static void
+during_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig FD_PARAM_UNUSED,
+             ulong   chunk,
+             ulong   sz,
+             ulong   ctl FD_PARAM_UNUSED ) {
+  uint in_kind = ctx->in_kind[ in_idx ];
+  FD_TEST( in_kind == IN_KIND_REPLAY );
+  in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
+  ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
+  if( FD_UNLIKELY( parent_slot == UINT_MAX /* no parent */ ) ) {
+    FD_TEST( sz > 0 ); /* this is the first replay msg which must contain the epoch voters */
+    fd_memcpy( ctx->epoch_voters_buf, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sz );
+  }
+}
+
+static void
+epoch_voters_init( ctx_t * ctx, ulong sz ) {
+  fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
+  ctx->epoch->total_stake   = 0;
+
+  ulong off = 0;
+  while( FD_LIKELY( off < sz ) ) {
+    fd_pubkey_t pubkey = *(fd_pubkey_t *)fd_type_pun( ctx->epoch_voters_buf + off );
+    off += sizeof(fd_pubkey_t);
+
+    ulong stake = *(ulong *)fd_type_pun( ctx->epoch_voters_buf + off );
+    off += sizeof(ulong);
+
+#   if FD_EPOCH_USE_HANDHOLDING
+    FD_TEST( !fd_epoch_voters_query( epoch_voters, pubkey, NULL ) );
+    FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
+#   endif
+
+    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, pubkey );
+    voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+
+#   if FD_EPOCH_USE_HANDHOLDING
+    FD_TEST( 0 == memcmp( &voter->key, &pubkey, sizeof(fd_pubkey_t) ) );
+    FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
+#   endif
+
+    voter->stake       = stake;
+    voter->replay_vote = FD_SLOT_NULL;
+    voter->gossip_vote = FD_SLOT_NULL;
+    voter->rooted_vote = FD_SLOT_NULL;
+
+    ctx->epoch->total_stake += stake;
+  }
+}
+
+static void
+after_frag( ctx_t *             ctx,
+            ulong               in_idx,
+            ulong               seq FD_PARAM_UNUSED,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub FD_PARAM_UNUSED,
+            fd_stem_context_t * stem FD_PARAM_UNUSED ) {
+  uint in_kind = ctx->in_kind[in_idx];
+  FD_TEST( in_kind == IN_KIND_REPLAY );
+
+  if( FD_UNLIKELY( sz > 0 ) ) {
+    epoch_voters_init( ctx, sz );
+    return;
+  }
+
+  ulong slot        = sig << 32;
+  ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
+
+  fd_funk_txn_xid_t   txn_xid  = { .ul = { slot, slot } };
+  fd_funk_txn_map_t * txn_map  = fd_funk_txn_map( ctx->funk );
+  fd_funk_txn_t *     funk_txn = fd_funk_txn_query( &txn_xid, txn_map );
+
+  if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) {
+    fd_tower_from_vote_acc( ctx->tower, ctx->funk, funk_txn, &ctx->funk_key );
+    fd_tower_print( ctx->tower, ctx->root );
+    return;
+  }
+
+  fd_ghost_node_t const * ghost_node = fd_ghost_insert( ctx->ghost, parent_slot, slot );
+  FD_TEST( ghost_node );
+  fd_forks_update( ctx->forks, ctx->epoch, ctx->funk, ctx->ghost, slot );
+
+  fd_forks_print( ctx->forks );
+  fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
+  fd_tower_print( ctx->tower, ctx->root );
+
+  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
+  if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
+  ulong root = fd_tower_vote( ctx->tower, vote_slot );
+  if( FD_LIKELY( root != FD_SLOT_NULL ) ) ctx->root = root;
+  // send_tower_sync( ctx );
+  // ctx->metrics.last_voted_slot = vote_slot;
+}
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t)        );
+  void * epoch_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(),             fd_epoch_footprint( FD_VOTER_MAX ) );
+  void * forks_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(),             fd_forks_footprint( FD_BLOCK_MAX ) );
+  void * ghost_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),             fd_ghost_footprint( FD_BLOCK_MAX ) );
+  void * tower_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
+  void * scratch_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
+  void * voter_mem   = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                        VOTER_FOOTPRINT * VOTER_MAX        );
+  ulong scratch_top  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                  );
+  FD_TEST( scratch_top == (ulong)scratch + scratch_footprint( tile ) );
+
+  ctx->epoch   = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX       ) );
+  ctx->forks   = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
+  ctx->ghost   = fd_ghost_join( fd_ghost_new( ghost_mem, 42UL, FD_BLOCK_MAX ) );
+  ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                     ) );
+  ctx->scratch = fd_tower_join( fd_tower_new( scratch_mem                   ) );
+
+  ctx->epoch_voters_buf = voter_mem;
+
+  fd_funk_open_file( ctx->funk, tile->exec.funk_file, 1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL );
+  FD_TEST( ctx->funk );
+
+  memcpy( ctx->identity_key->uc, fd_keyload_load( tile->replay.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
+  memset( ctx->funk_key.uc, 0, sizeof(fd_funk_rec_key_t) );
+  memcpy( ctx->funk_key.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) );
+  ctx->funk_key.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+
+  if( FD_UNLIKELY( tile->in_cnt > MAX_IN_LINKS ) ) FD_LOG_ERR(( "repair tile has too many input links" ));
+
+  for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
+    if(        0==strcmp( link->name, "gossip_tower" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
+    } else if( 0==strcmp( link->name, "replay_tower" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
+    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    } else if( 0==strcmp( link->name, "shred_tower" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
+    } else {
+      FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
+    }
+    ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in_links[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in_links[ in_idx ].mem, link->dcache );
+    ctx->in_links[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in_links[ in_idx ].mem, link->dcache, link->mtu );
+    ctx->in_links[ in_idx ].mtu    = link->mtu;
+  }
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_tower_tile_instr_cnt;
+}
+
+static ulong
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
+
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  return out_cnt;
+}
+
+#define STEM_BURST (1UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
+
+#include "../../disco/stem/fd_stem.c"
+
+fd_topo_run_tile_t fd_tile_tower = {
+    .name                     = "tower",
+    .populate_allowed_seccomp = populate_allowed_seccomp,
+    .populate_allowed_fds     = populate_allowed_fds,
+    .scratch_align            = scratch_align,
+    .scratch_footprint        = scratch_footprint,
+    .unprivileged_init        = unprivileged_init,
+    .run                      = stem_run,
+};
