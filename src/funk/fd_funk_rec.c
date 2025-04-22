@@ -225,7 +225,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     fd_funk_rec_key_copy( rec->pair.key, key );
     fd_funk_val_init( rec );
     rec->tag = 0;
-    rec->flags = 0;
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
   } else {

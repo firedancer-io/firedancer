@@ -51,7 +51,6 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 
   uint  txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
   uint  tag;       /* Internal use only */
-  ulong flags;     /* Flags that indicate how to interpret a record */
 
   /* Note: use of uint here requires FD_FUNK_REC_VAL_MAX to be at most
      UINT_MAX. */
@@ -64,6 +63,7 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
                       fd_funk_alloc(). IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
   /* Padding to FD_FUNK_REC_ALIGN here */
+  ulong padding; /* Unused field. Can be repurposed for future use. */
 };
 
 typedef struct fd_funk_rec fd_funk_rec_t;
