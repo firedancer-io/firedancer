@@ -205,6 +205,15 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
                            ulong                do_hash_verify,
                            fd_spad_t *          spad );
 
+void
+fd_account_hash_task( void * tpool,
+                      ulong t0, ulong t1,
+                      void *args,
+                      void *reduce, ulong stride,
+                      ulong l0 , ulong l1 ,
+                      ulong m0 , ulong m1 ,
+                      ulong n0 , ulong n1  );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_hashes_h */

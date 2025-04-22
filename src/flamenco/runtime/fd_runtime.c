@@ -1582,33 +1582,6 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
 
 }
 
-static void
-fd_account_hash_task( void * tpool,
-                      ulong t0, ulong t1,
-                      void *args,
-                      void *reduce, ulong stride FD_PARAM_UNUSED,
-                      ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
-                      ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
-                      ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
-
-  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)tpool;
-  ulong                          start_idx  = t0;
-  ulong                          stop_idx   = t1;
-
-  fd_lthash_value_t * lthash = (fd_lthash_value_t*)args;
-
-  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)reduce;
-  for( ulong i=start_idx; i<=stop_idx; i++ ) {
-    fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
-    fd_account_hash( slot_ctx->funk,
-                     slot_ctx->funk_txn,
-                     task_info,
-                     lthash,
-                     slot_ctx->slot_bank.slot,
-                     &slot_ctx->epoch_ctx->features );
-  }
-}
-
 void
 block_finalize_tpool_wrapper( void * para_arg_1,
                               void * para_arg_2 FD_PARAM_UNUSED,
@@ -1621,11 +1594,16 @@ block_finalize_tpool_wrapper( void * para_arg_1,
   ulong                          worker_cnt = (ulong)arg_2;
   fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
 
-  ulong cnt_per_worker = task_data->info_sz / (worker_cnt-1UL);
+  ulong cnt_per_worker = (task_data->info_sz / (worker_cnt-1UL)) + 1UL;
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-    ulong end_idx   = worker_idx!=worker_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                             fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    if( start_idx >= task_data->info_sz ) {
+      worker_cnt = worker_idx;
+      break;
+    }
+    ulong end_idx = fd_ulong_sat_sub((worker_idx) * cnt_per_worker, 1UL);
+    if( end_idx >= task_data->info_sz )
+      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );;
     fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
                    task_data, start_idx, end_idx,
                    &task_data->lthash_values[worker_idx], slot_ctx, 0UL,
