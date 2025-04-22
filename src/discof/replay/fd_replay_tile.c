@@ -2089,8 +2089,7 @@ read_snapshot( void *              _ctx,
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
     base_slot = ctx->slot_ctx->slot_bank.slot;
-    publish_stake_weights( ctx, stem, ctx->slot_ctx );
-    fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
+    kickoff_repair_orphans( ctx, stem );
   } else {
 
     /* If we have an incremental snapshot try to prefetch the snapshot slot
@@ -2343,11 +2342,13 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            is_snapshot,
                            ctx->capture_ctx,
                            ctx->runtime_spad );
-  fd_blockstore_init( ctx->slot_ctx->blockstore,
-                      ctx->blockstore_fd,
-                      FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
-                      &ctx->slot_ctx->slot_bank );
-
+  if( !is_snapshot ) {
+    /* read_snapshot calls this, so likewise we need to call here
+       to init blockstore if snapshot isn't read. We call this
+       after fd_runtime_read_genesis, which sets up the
+       slot_bank needed in blockstore_init */
+    kickoff_repair_orphans( ctx, stem );
+  }
   ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
   init_after_snapshot( ctx, stem );
