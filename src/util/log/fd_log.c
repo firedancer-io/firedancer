@@ -21,7 +21,10 @@
 #define _GNU_SOURCE
 
 #include "fd_log.h"
+#ifdef __has_include
+#if __has_include("../../app/fdctl/version.h")
 #include "../../app/fdctl/version.h"
+
 
 #include <stdio.h>
 #include <stdlib.h>
