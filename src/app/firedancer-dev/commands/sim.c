@@ -10,9 +10,7 @@
      |      repair_store      |       stake_out
      |______storei_notif______|
 
-   Some tiles are not shown such as the metric tile and the bhole tile;
-   bhole is used to take the place of tiles that do not exist above but
-   exist in the full topology such as the poh and sender tiles.
+   Some tiles are not shown such as the metric tile.
 
    The playback tile will only send the next frag to the storei tile (
    either through shred_storei or through repair_store ) after receiving
@@ -104,7 +102,6 @@ sim_topo( config_t * config ) {
 
   enum{
   metric_cpu_idx=0,
-  bhole_cpu_idx,
   playback_cpu_idx,
   storei_cpu_idx,
   replay_cpu_idx,
@@ -120,13 +117,6 @@ sim_topo( config_t * config ) {
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
-
-  /**********************************************************************/
-  /* Add the bhole tile to topo                                         */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "bhole" );
-  fd_topo_tile_t * bhole_tile = fd_topob_tile( topo, "bhole", "bhole", "metric_in", bhole_cpu_idx, 0, 0 );
-  (void) bhole_tile;
 
   /**********************************************************************/
   /* Add the playback tile to topo                                      */
@@ -208,41 +198,6 @@ sim_topo( config_t * config ) {
   FOR(exec_tile_cnt)               fd_topob_tile( topo, "exec",   "exec",   "metric_in", static_end_idx+i, 0,        0 );
 
   /**********************************************************************/
-  /* Setup links from/to the bhole                                      */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "from_bhole" );
-  const ulong nstorei_from_bhole = 1UL;
-  const char * storei_from_bhole[] = { "rstart_store" };
-  for( ulong i=0; i<nstorei_from_bhole; i++ ) {
-    fd_topob_link( topo, storei_from_bhole[i], "from_bhole", 128UL, sizeof(ulong)*2, 1UL );
-    fd_topob_tile_out( topo, "bhole", 0UL, storei_from_bhole[i], 0UL );
-  }
-
-  const ulong nreplay_from_bhole = 3UL;
-  const char * replay_from_bhole[] = { "repair_repla", "pack_replay", "batch_replay" };
-  for( ulong i=0; i<nreplay_from_bhole; i++ ) {
-    fd_topob_link( topo, replay_from_bhole[i], "from_bhole", 65536UL, USHORT_MAX, 1UL );
-    fd_topob_tile_out( topo, "bhole", 0UL, replay_from_bhole[i], 0UL );
-  }
-
-  fd_topob_wksp( topo, "to_bhole" );
-  const ulong nstorei_to_bhole = 2UL;
-  const char * storei_to_bhole[] = { "store_repair", "store_rstart" };
-  for( ulong i=0; i<nstorei_to_bhole; i++ ) {
-    fd_topob_link( topo, storei_to_bhole[i], "to_bhole", 1024UL, USHORT_MAX, 16UL );
-    fd_topob_tile_in( topo, "bhole", 0UL, "metric_in", storei_to_bhole[i], 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  }
-
-  const ulong nreplay_to_bhole = 3UL;
-  const char * replay_to_bhole[] = { "replay_notif", "replay_voter", "replay_poh" };
-  fd_topob_link( topo, replay_to_bhole[0], "to_bhole", 1UL<<15UL, 2048UL, 1UL );
-  fd_topob_link( topo, replay_to_bhole[1], "to_bhole", 128, 2112UL, 1UL );
-  fd_topob_link( topo, replay_to_bhole[2], "to_bhole", 128, 8650785UL, 1UL );
-  for( ulong i=0; i<nreplay_to_bhole; i++ ) {
-    fd_topob_tile_in( topo, "bhole", 0UL, "metric_in", replay_to_bhole[i], 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  }
-
-  /**********************************************************************/
   /* Setup playback<->storei and storei<->replay links in topo          */
   /**********************************************************************/
   fd_topob_wksp( topo, "shred_storei" );
@@ -265,26 +220,17 @@ sim_topo( config_t * config ) {
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",          0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", storei_from_bhole[0], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* restart */
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "shred_storei",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
   fd_topob_tile_out( topo, "storei",  0UL,          "store_replay",     0UL );
-  fd_topob_tile_out( topo, "storei",  0UL,          storei_to_bhole[0], 0UL ); /* repair */
-  fd_topob_tile_out( topo, "storei",  0UL,          storei_to_bhole[1], 0UL ); /* restart */
   fd_topob_tile_out( topo, "storei",  0UL,          "storei_notif",     0UL );
 
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
   fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", replay_from_bhole[0], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* repair */
-  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", replay_from_bhole[1], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* pack */
-  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", replay_from_bhole[2], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* batch */
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
   fd_topob_tile_out( topo, "replay",  0UL,          "stake_out",        0UL );
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[0], 0UL ); /* notif */
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[1], 0UL ); /* sender */
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[2], 0UL ); /* poh */
 
   /**********************************************************************/
   /* Setup replay<->exec links in topo                                  */

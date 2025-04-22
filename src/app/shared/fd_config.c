@@ -4,6 +4,7 @@
 #include "fd_config_parse.h"
 #include "fd_net_util.h"
 #include "fd_sys_util.h"
+#include "../shared_dev/commands/configure/genesis_hash.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
 
@@ -204,12 +205,14 @@ void
 fdctl_cfg_from_env( int *        pargc,
                     char ***     pargv,
                     config_t *   config,
+                    int          is_local_cluster,
                     char const * default_config1,
                     ulong        default_config1_sz,
                     char const * default_config2,
                     ulong        default_config2_sz ) {
 
   memset( config, 0, sizeof(config_t) );
+  config->topo.firedancer = !!default_config2; /* TODO: Kinda gross... */
   fdctl_cfg_load_buf( config, default_config1, default_config1_sz, "default1" );
   if( FD_LIKELY( default_config2 ) ) {
     fdctl_cfg_load_buf( config, default_config2, default_config2_sz, "default2" );
@@ -340,16 +343,6 @@ fdctl_cfg_from_env( int *        pargc,
     replace( config->consensus.identity_path, "{name}", config->name );
   }
 
-  if( FD_LIKELY( config->topo.firedancer ) ) {
-    if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
-      FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
-                                    sizeof(config->consensus.vote_account_path),
-                                    NULL,
-                                    "%s/vote-account.json",
-                                    config->scratch_directory ) );
-    }
-  }
-
   replace( config->consensus.vote_account_path, "{user}", config->user );
   replace( config->consensus.vote_account_path, "{name}", config->name );
 
@@ -401,6 +394,43 @@ fdctl_cfg_from_env( int *        pargc,
                                    NULL,
                                    "%s/identity.json",
                                    config->scratch_directory ) );
+  }
+
+  /* When running a local cluster, some options are overriden by default
+     to make starting and running in development environments a little
+     easier and less strict. */
+  if( FD_UNLIKELY( is_local_cluster ) ) {
+    /* By default only_known is true for validators to ensure secure
+       snapshot download, but in development it doesn't matter and
+       often the developer does not provide known peers. */
+    config->rpc.only_known = 0;
+
+    /* When starting from a new genesis block, this needs to be off else
+       the validator will get stuck forever. */
+    config->consensus.wait_for_vote_to_start_leader = 0;
+
+    /* We have to wait until we get a snapshot before we can join a
+       second validator to this one, so make this smaller than the
+       default.  */
+    config->snapshots.full_snapshot_interval_slots = fd_uint_min( config->snapshots.full_snapshot_interval_slots, 200U );
+
+    /* Automatically compute the shred version from genesis if it
+       exists and we don't know it.  If it doesn't exist, we'll keep it
+       set to zero and get from gossip. */
+    char genesis_path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
+    ushort shred_version = compute_shred_version( genesis_path, NULL );
+    config->consensus.expected_shred_version = shred_version;
+  
+    if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
+      FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
+                                     sizeof( config->consensus.vote_account_path ),
+                                     NULL,
+                                     "%s/vote-account.json",
+                                     config->scratch_directory ) );
+    }
+
+    strncpy( config->cluster, "development", sizeof(config->cluster) );
   }
 
   fdctl_cfg_validate( config );

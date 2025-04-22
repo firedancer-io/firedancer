@@ -73,6 +73,7 @@ void
 fd_main_init( int *        pargc,
               char ***     pargv,
               config_t   * config,
+              int          is_local_cluster,
               char const * log_path,
               char const * default_config1,
               ulong        default_config1_sz,
@@ -94,7 +95,7 @@ fd_main_init( int *        pargc,
        they can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
-    fdctl_cfg_from_env( pargc, pargv, config, default_config1, default_config1_sz, default_config2, default_config2_sz );
+    fdctl_cfg_from_env( pargc, pargv, config, is_local_cluster, default_config1, default_config1_sz, default_config2, default_config2_sz );
     topo_init( config );
     config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
     config->log.lock_fd = init_log_memfd();
@@ -204,7 +205,8 @@ fd_main( int     argc,
     }
   }
 
-  fd_main_init( &argc, &argv, &config, NULL, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
+  int is_local_cluster = action ? action->is_local_cluster : 0;
+  fd_main_init( &argc, &argv, &config, is_local_cluster, NULL, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
 
   if( FD_UNLIKELY( !action ) ) {
     for( ulong i=0UL; ACTIONS[ i ]; i++ ) {

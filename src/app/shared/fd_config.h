@@ -452,6 +452,8 @@ struct fd_action {
 
   int          is_help;
   int          is_immediate;
+  int          is_local_cluster; /* If a command is one which runs a local cluster, certain information in
+                                    the configuration file will be changed. */
   uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
@@ -475,6 +477,7 @@ FD_PROTOTYPES_BEGIN
    fdctl_cfg_from_env( int *        pargc,
                        char ***     pargv,
                        config_t *   config,
+                       int          is_local_cluster,
                        char const * default_config1,
                        ulong        default_config1_sz,
                        char const * default_config2,

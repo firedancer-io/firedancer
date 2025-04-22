@@ -19,6 +19,7 @@ void
 fd_main_init( int *        pargc,
               char ***     pargv,
               config_t   * config,
+              int          is_local_cluster,
               char const * log_path,
               char const * default_config1,
               ulong        default_config1_sz,

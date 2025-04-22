@@ -77,13 +77,6 @@ fd_dev_main( int     argc,
   fd_env_strip_cmdline_cstr( &argc, &argv, "--log-level-stderr", NULL, NULL );
   char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
 
-  fd_main_init( &argc, &argv, &config, log_path, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
-
-  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
-  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
-  config.development.no_clone = config.development.no_clone || no_clone;
-  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
-
   const char * action_name = "dev";
   if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
     action_name = argv[ 0 ];
@@ -99,6 +92,13 @@ fd_dev_main( int     argc,
   }
 
   if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
+
+  fd_main_init( &argc, &argv, &config, action->is_local_cluster, log_path, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
+
+  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
+  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+  config.development.no_clone = config.development.no_clone || no_clone;
+  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
 
   int is_allowed_live = action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )

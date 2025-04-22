@@ -77,7 +77,6 @@ extern fd_topo_run_tile_t fd_tile_sender;
 extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_restart;
-extern fd_topo_run_tile_t fd_tile_blackhole;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -104,7 +103,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_eqvoc,
   &fd_tile_rpcserv,
   &fd_tile_restart,
-  &fd_tile_blackhole,
   NULL,
 };
 

@@ -26,9 +26,6 @@ fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
-update_config_for_dev( config_t * config );
-
-void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
@@ -161,8 +158,6 @@ bench_cmd_fn( args_t *   args,
   for( ulong i=0UL; STAGES[ i ]; i++ )
     configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
-
-  update_config_for_dev( config );
 
   run_firedancer_init( config, 1 );
   fdctl_setup_netns( config, 1 );

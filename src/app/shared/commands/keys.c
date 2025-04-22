@@ -51,7 +51,8 @@ err:
 
 void FD_FN_SENSITIVE
 generate_keypair( char const *     keyfile,
-                  config_t const * config,
+                  uint             target_uid,
+                  uint             target_gid,
                   int              use_grnd_random ) {
   uint flags = use_grnd_random ? GRND_RANDOM : 0U;
 
@@ -72,8 +73,8 @@ generate_keypair( char const *     keyfile,
      are still done as root. */
   gid_t gid = getgid();
   uid_t uid = getuid();
-  if( FD_LIKELY( !gid && setegid( config->gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( !uid && seteuid( config->uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !gid && setegid( target_gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !uid && seteuid( target_uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* find last `/` in keyfile and zero it */
   char keyfile_copy[ PATH_MAX ] = {0};
@@ -81,7 +82,7 @@ generate_keypair( char const *     keyfile,
   char * last_slash = strrchr( keyfile_copy, '/' );
   if( FD_LIKELY( last_slash ) ) {
     *last_slash = '\0';
-    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( keyfile_copy, config->uid, config->gid ) ) ) {
+    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( keyfile_copy, target_uid, target_gid ) ) ) {
       FD_LOG_ERR(( "could not create keypair, `mkdir -p %s` failed (%i-%s)", keyfile_copy, errno, fd_io_strerror( errno ) ));
     }
   }
@@ -128,13 +129,13 @@ void
 keys_cmd_fn( args_t *   args,
              config_t * config ) {
   if( FD_LIKELY( args->keys.cmd == CMD_NEW_IDENTITY ) ) {
-    generate_keypair( config->consensus.identity_path, config, 1 );
+    generate_keypair( config->consensus.identity_path, config->uid, config->gid, 1 );
   } else if( FD_LIKELY( args->keys.cmd == CMD_NEW_VOTE_ACCOUNT ) ) {
     if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
       FD_LOG_ERR(( "Cannot create a vote account keypair because your validator is not configured "
                    "to vote. Please set [consensus.vote_account_path] in your configuration file." ));
 
-    generate_keypair( config->consensus.vote_account_path, config, 1 );
+    generate_keypair( config->consensus.vote_account_path, config->uid, config->gid, 1 );
   } else if( FD_LIKELY( args->keys.cmd == CMD_PUBKEY ) ) {
     keys_pubkey( args->keys.file_path );
   } else {
