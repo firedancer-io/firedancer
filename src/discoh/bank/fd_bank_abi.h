@@ -5,9 +5,9 @@
 #include "../../ballet/blake3/fd_blake3.h"
 
 #define FD_BANK_ABI_TXN_ALIGN     (8UL)
-#define FD_BANK_ABI_TXN_FOOTPRINT (248UL)
+#define FD_BANK_ABI_TXN_FOOTPRINT (392UL)
 
-/* A SanitizedTransaction is not just a 248 byte struct but also a bunch
+/* A SanitizedTransaction is not just a 392 byte struct but also a bunch
    of sidecar data that's pointed to by the struct.  All of this sidecar
    data is in the form of Vec<T>'s.  Note that we only store the actual
    vector contents in the sidecar, the metadata like capacity and length
