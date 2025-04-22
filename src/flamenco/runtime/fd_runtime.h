@@ -245,6 +245,11 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    TODO: If account lock limits are increased to 128, this macro will need to be updated. */
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
+
+/* Footprint here is dominated by vote account decode.  See above for
+   why 72/40. */
+#define FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT      (FD_ACC_SZ_MAX*72UL/40UL)
+
 /* TODO: Update this value once the bound is calculated correctly. */
 #define FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               (50000000000UL)
 
@@ -580,10 +585,12 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_spad_t *          runtime_spad,
                                               fd_cost_tracker_t *  cost_tracker_opt );
 
-int
+void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
-                         fd_execute_txn_task_info_t * task_info );
+                         fd_execute_txn_task_info_t * task_info,
+                         fd_spad_t *                  finalize_spad,
+                         fd_wksp_t *                  finalize_spad_wksp );
 
 /* Epoch Boundary *************************************************************/
 

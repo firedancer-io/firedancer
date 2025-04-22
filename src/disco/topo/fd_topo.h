@@ -284,22 +284,23 @@ typedef struct {
       char  tower_checkpt[ PATH_MAX ];
       int   plugins_enabled;
 
-      /* not specified in TOML */
-
-      int   incremental_src_type;
-      int   snapshot_src_type;
-
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
       ulong exec_tile_count;
+      ulong writer_tile_cuont;
       ulong full_interval;
       ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
+
+      /* not specified in TOML */
+
+      int   incremental_src_type;
+      int   snapshot_src_type;
     } replay;
 
     struct {
@@ -315,6 +316,10 @@ typedef struct {
     struct {
       char funk_file[ PATH_MAX ];
     } exec;
+
+    struct {
+      char funk_file[ PATH_MAX ];
+    } writer;
 
     struct {
       ushort send_to_port;

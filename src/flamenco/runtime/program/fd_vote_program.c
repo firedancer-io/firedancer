@@ -2163,6 +2163,8 @@ fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          long                 timestamp,
                                          ulong                slot ) {
+
+  fd_rwlock_write( slot_ctx->vote_stake_lock );
   fd_clock_timestamp_vote_t_mapnode_t * root = slot_ctx->slot_bank.timestamp_votes.votes_root;
   fd_clock_timestamp_vote_t_mapnode_t * pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
   if( FD_UNLIKELY( !pool ) ) {
@@ -2186,6 +2188,7 @@ fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
     fd_clock_timestamp_vote_t_map_insert( pool, &root, node );
     slot_ctx->slot_bank.timestamp_votes.votes_root = root;
   }
+  fd_rwlock_unwrite( slot_ctx->vote_stake_lock );
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L751
@@ -2981,9 +2984,11 @@ fd_vote_store_account( fd_exec_slot_ctx_t * slot_ctx,
   if (memcmp(owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) != 0) {
       return;
   }
+  fd_rwlock_write( slot_ctx->vote_stake_lock );
   if (vote_account->vt->get_lamports( vote_account ) == 0) {
     remove_vote_account( slot_ctx, vote_account );
   } else {
     upsert_vote_account( slot_ctx, vote_account );
   }
+  fd_rwlock_unwrite( slot_ctx->vote_stake_lock );
 }

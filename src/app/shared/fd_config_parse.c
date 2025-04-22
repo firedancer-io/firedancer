@@ -380,6 +380,7 @@ fdctl_pod_to_cfg( config_t * config,
   /* Firedancer-only configuration */
 
   CFG_POP      ( uint,   layout.exec_tile_count                           );
+  CFG_POP      ( uint,   layout.writer_tile_count                         );
 
   CFG_POP      ( ulong,  blockstore.shred_max                             );
   CFG_POP      ( ulong,  blockstore.block_max                             );
@@ -480,6 +481,14 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+
+  if( 0U!=cfg->layout.writer_tile_count ) {
+    if( FD_UNLIKELY( cfg->layout.writer_tile_count>cfg->layout.exec_tile_count ) ) {
+      /* There can be at most 1 in-flight transaction per exec tile
+         awaiting finalization. */
+      FD_LOG_ERR(( "More writer tiles (%u) than exec tiles (%u)", cfg->layout.writer_tile_count, cfg->layout.exec_tile_count ));
+    }
+  }
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );

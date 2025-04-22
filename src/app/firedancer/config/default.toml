@@ -2,7 +2,23 @@
     bank_tile_count = 1
 
     # TODO: add docs on exec_tile_cnt / exec tile
-    exec_tile_count = 2
+    exec_tile_count = 4
+
+    # How many writer tiles to run.  Writer tiles are responsible for
+    # writing account changes made by the exec tiles back to the
+    # accounts DB.
+    #
+    # Since the accounts DB is designed to be highly concurrent, most of
+    # the time account writeback can be done in parallel without
+    # blocking.  Multiple writer tiles exploit this parallelism supported
+    # by the accounts DB.
+    #
+    # If sufficient cores are available, it is recommended to set this to
+    # the same as the number of exec tiles.  However, there's no reason
+    # for this to exceed the number of exec tiles, because the number
+    # of in-flight transactions between exec tiles and writer tiles is
+    # bounded by the number of exec tiles.
+    writer_tile_count = 4
 
 [gossip]
     port = 8700

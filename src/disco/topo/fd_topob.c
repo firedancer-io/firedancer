@@ -367,6 +367,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
     "exec",   /* FIREDANCER only */
+    "writer", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */

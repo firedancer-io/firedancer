@@ -3307,9 +3307,11 @@ void fd_store_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t 
     is_uninit = ( prefix==fd_stake_state_v2_enum_uninitialized );
   }
 
+  fd_rwlock_write( slot_ctx->vote_stake_lock );
   if( is_empty || is_uninit ) {
     fd_stakes_remove_stake_delegation( slot_ctx, stake_account );
   } else {
     fd_stakes_upsert_stake_delegation( slot_ctx, stake_account );
   }
+  fd_rwlock_unwrite( slot_ctx->vote_stake_lock );
 }

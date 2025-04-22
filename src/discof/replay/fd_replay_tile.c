@@ -273,6 +273,10 @@ struct fd_replay_tile_ctx {
   ulong *             exec_fseq[ FD_PACK_MAX_BANK_TILES ];  /* fseq of the last executed txn */
   int                 block_finalizing;
 
+  ulong               writer_cnt;
+  ulong *             writer_fseq[ FD_PACK_MAX_BANK_TILES ];
+  fd_replay_out_ctx_t writer_out[ FD_PACK_MAX_BANK_TILES ];
+
   ulong root; /* the root slot is the most recent slot to have reached
                  max lockout in the tower  */
 
@@ -457,7 +461,7 @@ snap_hash_tiles_cb( void * para_arg_1,
   fd_pubkey_hash_pair_list_t * lists         = fd_spad_alloc( ctx->runtime_spad, alignof(fd_pubkey_hash_pair_list_t), num_lists * sizeof(fd_pubkey_hash_pair_list_t) );
   fd_lthash_value_t *          lthash_values = fd_spad_alloc( ctx->runtime_spad, FD_LTHASH_VALUE_ALIGN, num_lists * FD_LTHASH_VALUE_FOOTPRINT );
   for( ulong i = 0; i < num_lists; i++ ) {
-    fd_lthash_zero(&lthash_values[i] );
+    fd_lthash_zero( &lthash_values[i] );
   }
 
   task_info->num_lists     = num_lists;
@@ -1437,6 +1441,7 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
     slot_msg->slot                        = slot_ctx->slot_bank.slot;
     slot_msg->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
     slot_msg->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
+    slot_msg->enable_exec_recording       = slot_ctx->enable_exec_recording;
 
     /* Save the gaddr of the sysvar cache */
     slot_msg->sysvar_cache_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, slot_ctx->sysvar_cache );
@@ -1467,6 +1472,29 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
                      tsorig,
                      tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_slot_msg_t), exec_out->chunk0, exec_out->wmark );
+  }
+
+  /* Notify writer tiles as well. */
+  for( ulong i=0UL; i<ctx->writer_cnt; i++ ) {
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    fd_replay_out_ctx_t * writer_out = &ctx->writer_out[ i ];
+
+    fd_runtime_public_replay_writer_slot_msg_t * slot_msg = (fd_runtime_public_replay_writer_slot_msg_t *)fd_chunk_to_laddr( writer_out->mem, writer_out->chunk );
+
+    slot_msg->slot_ctx_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, slot_ctx );
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     writer_out->idx,
+                     FD_WRITER_SLOT_SIG,
+                     writer_out->chunk,
+                     sizeof(*slot_msg),
+                     0UL,
+                     tsorig,
+                     tspub );
+    writer_out->chunk = fd_dcache_compact_next( writer_out->chunk, sizeof(*slot_msg), writer_out->chunk0, writer_out->wmark );
   }
 }
 
@@ -1570,14 +1598,14 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                                                   ctx->runtime_spad,
                                                   &is_epoch_boundary );
 
-  if( FD_UNLIKELY( !is_epoch_boundary ) ) {
+  if( FD_UNLIKELY( is_epoch_boundary ) ) {
     send_exec_epoch_msg( ctx, stem, fork->slot_ctx );
   }
 
   /* At this point we need to notify all of the exec tiles and tell them
-    that a new slot is ready to be published. At this point, we should
-    also mark the tile as not not being ready. */
-    send_exec_slot_msg( ctx, stem, fork->slot_ctx );
+     that a new slot is ready to be published. At this point, we should
+     also mark the tile as not being ready. */
+  send_exec_slot_msg( ctx, stem, fork->slot_ctx );
 
   /* We want to push on a spad frame before we start executing a block.
      Apart from allocations made at the epoch boundary, there should be no
@@ -2471,12 +2499,11 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong res = fd_fseq_query( ctx->exec_fseq[ i ] );
-    if( FD_UNLIKELY( res==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( fd_exec_fseq_is_not_joined( res ) ) ) {
       FD_LOG_WARNING(( "Exec tile fseq idx=%lu is not booted", i ));
     }
 
     uint state  = fd_exec_fseq_get_state( res );
-    uint txn_id = FD_EXEC_ID_SENTINEL;
     switch( state ) {
       case FD_EXEC_STATE_NOT_BOOTED:
         /* Init is not complete in the exec tile for some reason. */
@@ -2484,12 +2511,15 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         break;
       case FD_EXEC_STATE_BOOTED:
         if( ctx->exec_ready[ i ] == EXEC_BOOT_WAIT ) {
-          FD_LOG_NOTICE(( "Exec tile idx=%lu is booting", i ));
+          FD_LOG_NOTICE(( "Exec tile idx=%lu is booted", i ));
           join_txn_ctx( ctx, i, fd_exec_fseq_get_booted_offset( res ) );
         }
         break;
       case FD_EXEC_STATE_EPOCH_DONE:
         if( ctx->exec_ready[ i ]==EXEC_EPOCH_WAIT ) {
+          /* This log may not always show up but that's fine because the
+             replay_exec link is reliable and so the epoch message is
+             guaranteed to be delivered. */
           FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed epoch message", i ));
           ctx->exec_ready[ i ] = EXEC_EPOCH_DONE;
         }
@@ -2498,23 +2528,6 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
         if( ctx->exec_ready[ i ]==EXEC_SLOT_WAIT ) {
           FD_LOG_NOTICE(( "Ack that exec tile idx=%lu has processed slot message", i ));
           ctx->exec_ready[ i ] = EXEC_TXN_READY;
-        }
-        break;
-      case FD_EXEC_STATE_TXN_DONE:
-        /* We must make sure that we don't try to finalize the same txn
-           twice. This would happen in the case of */
-        txn_id = fd_exec_fseq_get_txn_id( res );
-        if( ctx->exec_ready[ i ]==EXEC_TXN_BUSY && ctx->prev_ids[ i ]!=txn_id ) {
-          FD_LOG_DEBUG(( "Ack that exec tile idx=%lu has processed txn message with id=%u", i, txn_id ));
-          fd_execute_txn_task_info_t info = {0};
-          info.txn_ctx  = ctx->exec_txn_ctxs[ i ];
-          info.exec_res = info.txn_ctx->exec_err;
-
-          if( FD_LIKELY( info.txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-            fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info );
-          }
-          ctx->exec_ready[ i ] = EXEC_TXN_READY;
-          ctx->prev_ids[ i ]   = txn_id;
         }
         break;
       case FD_EXEC_STATE_HASH_DONE:
@@ -2529,12 +2542,50 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
 }
 
 static void
+handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
+
+  for( ulong i=0UL; i<ctx->writer_cnt; i++ ) {
+    ulong res = fd_fseq_query( ctx->writer_fseq[ i ] );
+    if( FD_UNLIKELY( fd_writer_fseq_is_not_joined( res ) ) ) {
+      FD_LOG_WARNING(( "writer tile fseq idx=%lu has not been joined by the corresponding writer tile", i ));
+    }
+
+    uint state = fd_writer_fseq_get_state( res );
+    switch( state ) {
+      case FD_WRITER_STATE_NOT_BOOTED:
+        FD_LOG_WARNING(( "writer tile idx=%lu is still booting", i ));
+        break;
+      case FD_WRITER_STATE_READY:
+        /* No-op. */
+        break;
+      case FD_WRITER_STATE_TXN_DONE: {
+        uint  txn_id       = fd_writer_fseq_get_txn_id( res );
+        ulong exec_tile_id = fd_writer_fseq_get_exec_tile_id( res );
+        if( ctx->exec_ready[ exec_tile_id ]==EXEC_TXN_BUSY && ctx->prev_ids[ exec_tile_id ]!=txn_id ) {
+          FD_LOG_DEBUG(( "Ack that exec tile idx=%lu txn id=%u has been finalized by writer tile %lu", exec_tile_id, txn_id, i ));
+          ctx->exec_ready[ exec_tile_id ] = EXEC_TXN_READY;
+          ctx->prev_ids[ exec_tile_id ]   = txn_id;
+          fd_fseq_update( ctx->writer_fseq[ i ], FD_WRITER_STATE_READY );
+        }
+        break;
+      }
+      default:
+        FD_LOG_CRIT(( "Unexpected fseq state from writer tile idx=%lu state=%u", i, state ));
+        break;
+    }
+  }
+
+}
+
+static void
 after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
 
   /* TODO: Consider moving state management to during_housekeeping */
+  /* Check all the writer fseqs. */
+  handle_writer_state_updates( ctx );
   /* Check all the exec fseqs and handle any updates if needed. */
   handle_exec_state_updates( ctx );
 
@@ -2625,7 +2676,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Consensus: update ghost and forks                                  */
     /**********************************************************************/
 
-    FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
     fd_ghost_node_t const * ghost_node = fd_ghost_insert( ctx->ghost, parent_slot, curr_slot );
 #if FD_GHOST_USE_HANDHOLDING
     if( FD_UNLIKELY( !ghost_node ) ) {
@@ -3191,6 +3241,10 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->vote_authority = *ctx->validator_identity; /* FIXME */
   memcpy( ctx->vote_acc, fd_keyload_load( tile->replay.vote_account_path, 1 ), sizeof(fd_pubkey_t) );
 
+  ctx->vote                           = tile->replay.vote;
+  ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
+  ctx->vote_acct_addr[ 0 ]            = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.vote_account_path, 1 ) );
+
   /**********************************************************************/
   /* entry batch                                                        */
   /**********************************************************************/
@@ -3247,6 +3301,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
   }
+  if( FD_UNLIKELY( ctx->exec_cnt>UCHAR_MAX ) ) {
+    /* Exec tile id needs to fit in a uchar for the writer tile txn done
+       message. */
+    FD_LOG_CRIT(( "too many exec tiles %lu", ctx->exec_cnt ));
+  }
 
   for( ulong i = 0UL; i < ctx->exec_cnt; i++ ) {
     /* Mark all initial state as not being ready. */
@@ -3279,10 +3338,36 @@ unprivileged_init( fd_topo_t *      topo,
     exec_out->chunk                = exec_out->chunk0;
   }
 
-  /* set up vote related items */
-  ctx->vote                           = tile->replay.vote;
-  ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
-  ctx->vote_acct_addr[ 0 ]            = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.vote_account_path, 1 ) );
+  /**********************************************************************/
+  /* writer                                                             */
+  /**********************************************************************/
+  ctx->writer_cnt = tile->replay.writer_tile_cuont;
+  if( FD_UNLIKELY( ctx->writer_cnt>FD_PACK_MAX_BANK_TILES ) ) {
+    FD_LOG_CRIT(( "replay tile has too many writer tiles %lu", ctx->writer_cnt ));
+  }
+
+  for( ulong i = 0UL; i < ctx->writer_cnt; i++ ) {
+
+    ulong writer_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "writer_fseq.%lu", i );
+    if( FD_UNLIKELY( writer_fseq_id==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "writer tile %lu has no fseq", i ));
+    }
+    ctx->writer_fseq[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, writer_fseq_id ) );
+    if( FD_UNLIKELY( !ctx->writer_fseq[ i ] ) ) {
+      FD_LOG_ERR(( "writer tile %lu has no fseq", i ));
+    }
+
+    /* Setup out links. */
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_wtr", i );
+    fd_topo_link_t * writer_out_link = &topo->links[ tile->out_link_id[ idx ] ];
+
+    fd_replay_out_ctx_t * out = &ctx->writer_out[ i ];
+    out->idx                  = idx;
+    out->mem                  = topo->workspaces[ topo->objs[ writer_out_link->dcache_obj_id ].wksp_id ].wksp;
+    out->chunk0               = fd_dcache_compact_chunk0( out->mem, writer_out_link->dcache );
+    out->wmark                = fd_dcache_compact_wmark( out->mem, writer_out_link->dcache, writer_out_link->mtu );
+    out->chunk                = out->chunk0;
+  }
 
   /**********************************************************************/
   /* tower checkpointing for wen-restart                                */
