@@ -48,6 +48,10 @@ message BankPreimage {
     // account_table_coff is offset from the first byte of the current
     // chunk to the first byte of the account table chunk.
     int64 account_table_coff = 8;
+
+    // accounts_lt_hash_checksum is the hash of all the accounts
+    bytes accounts_lt_hash_checksum = 9
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 }
 
 message AccountTableMeta {

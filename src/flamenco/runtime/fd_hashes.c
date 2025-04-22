@@ -250,7 +250,8 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
         capture_ctx->capture,
         hash->hash,
         slot_ctx->slot_bank.prev_banks_hash.hash,
-        slot_ctx->account_delta_hash.hash,
+        FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ? NULL : slot_ctx->account_delta_hash.hash,
+        FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, accounts_lt_hash ) ? FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ) : NULL,
         &slot_ctx->slot_bank.poh.hash,
         slot_ctx->signature_cnt );
   }
