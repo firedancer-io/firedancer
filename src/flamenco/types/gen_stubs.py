@@ -690,7 +690,7 @@ class VectorMember(TypeNode):
 
     def emitWalk(self, inner):
         if self.element == "uchar":
-            print(f'  fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body),
+            print(f'  fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_CSTR, "{self.element}", level );', file=body),
             return
         else:
             print(f'  if( self->{self.name}_len ) {{', file=body)

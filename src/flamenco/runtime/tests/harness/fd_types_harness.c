@@ -167,7 +167,11 @@ custom_serializer_walk( void *       _self,
       break;
     }
     case FD_FLAMENCO_TYPE_CSTR:
-      fprintf( file, "'%s',", (char const *)arg );
+      if( arg==NULL ) {
+        fprintf( file, "," );
+      } else {
+        fprintf( file, "'%s',", (char const *)arg );
+      }
       break;
     case FD_FLAMENCO_TYPE_ENUM_DISC: {
       char lowercase_variant[128];
@@ -182,7 +186,7 @@ custom_serializer_walk( void *       _self,
     default:
       FD_LOG_CRIT(( "unknown type %#x", (uint)type ));
       break;
-    }
+  }
 }
 
 static int
@@ -200,7 +204,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
 
     // First byte is the type ID
     uchar type_id = input[0];
-    if (type_id >= FD_TYPE_NAME_COUNT) {
+    if( type_id >= FD_TYPE_NAME_COUNT ) {
       FD_LOG_WARNING(( "Invalid type ID: %d", type_id ));
       *output_sz = 0;
       return 0;
@@ -277,7 +281,6 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
       *output_sz = 0;
       return 0;
     }
-
     long serialized_sz = ftell( file );
     fclose( file );
 
@@ -324,11 +327,11 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
 }
 
 ulong
-fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t *    runner,
-                          void const *                  input_,
-                          void **                       output_,
-                          void *                        output_buf,
-                          ulong                         output_bufsz ) {
+fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t * runner,
+                          void const *               input_,
+                          void **                    output_,
+                          void *                     output_buf,
+                          ulong                      output_bufsz ) {
   fd_exec_test_type_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_type_effects_t **      output = fd_type_pun( output_ );
 
@@ -356,24 +359,23 @@ fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t *    runner,
   effects->yaml = NULL;
 
   // Decode the type
-  ulong max_content_size = output_bufsz - (_l - (ulong)output_buf);
-  uchar* temp_buffer = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), max_content_size);
+  ulong   max_content_size = output_bufsz - (_l - (ulong)output_buf);
+  uchar * temp_buffer = (uchar *)_l;
   if (FD_UNLIKELY(_l > output_end)) {
     return 0UL;
   }
 
   ulong decoded_sz = max_content_size;
-  int success = fd_runtime_fuzz_decode_type_run(
-    runner,
-    input->content->bytes,
-    input->content->size,
-    temp_buffer,
-    &decoded_sz);
+  int success = fd_runtime_fuzz_decode_type_run( runner,
+                                                 input->content->bytes,
+                                                 input->content->size,
+                                                 temp_buffer,
+                                                 &decoded_sz);
 
   if (!success || decoded_sz == 0) {
-    effects->result = 0;
-  } else {
     effects->result = 1;
+  } else {
+    effects->result = 0;
 
     // The decoded data contains:
     // - serialized_sz (ulong)
@@ -386,7 +388,7 @@ fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t *    runner,
     // Allocate and copy the representation (serialized data)
     effects->representation = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
                                                     PB_BYTES_ARRAY_T_ALLOCSIZE(serialized_sz));
-    if (FD_UNLIKELY(_l > output_end)) {
+    if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
     }
     effects->representation->size = (pb_size_t)serialized_sz;
@@ -396,7 +398,7 @@ fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t *    runner,
     ulong yaml_sz = decoded_sz - sizeof(ulong) - serialized_sz;
     effects->yaml = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
                                           PB_BYTES_ARRAY_T_ALLOCSIZE(yaml_sz));
-    if (FD_UNLIKELY(_l > output_end)) {
+    if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
     }
     effects->yaml->size = (pb_size_t)yaml_sz;
