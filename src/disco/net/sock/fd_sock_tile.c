@@ -452,6 +452,7 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
   }
   ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
 done:
+  ctx->tx_ptr = ctx->tx_scratch0;
   ctx->metrics.sys_sendmmsg_cnt++;
   ctx->batch_cnt = 0;
 }
