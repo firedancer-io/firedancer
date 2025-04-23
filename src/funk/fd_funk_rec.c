@@ -215,12 +215,14 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
       rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
       prepare->rec_head_idx = &funk->rec_head_idx;
       prepare->rec_tail_idx = &funk->rec_tail_idx;
+      prepare->txn_lock     = &funk->lock;
     } else {
       fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
       fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, prepare->wksp );
       rec->txn_cidx = fd_funk_txn_cidx( (ulong)( txn - txn_pool.ele ) );
       prepare->rec_head_idx = &txn->rec_head_idx;
       prepare->rec_tail_idx = &txn->rec_tail_idx;
+      prepare->txn_lock     = &txn->lock;
     }
     fd_funk_rec_key_copy( rec->pair.key, key );
     fd_funk_val_init( rec );
@@ -242,8 +244,8 @@ fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_map_t rec_map = fd_funk_rec_map( prepare->funk, prepare->wksp );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
 
-  /* We need a global lock to protect the prev/next update */
-  fd_funk_rec_pool_lock( &rec_pool, 1 );
+  /* Lock the txn */
+  while( FD_ATOMIC_CAS( prepare->txn_lock, 0, 1 ) ) FD_SPIN_PAUSE();
 
   uint rec_prev_idx;
   uint rec_idx  = (uint)( rec - rec_pool.ele );
@@ -261,7 +263,7 @@ fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
   }
 
-  fd_funk_rec_pool_unlock( &rec_pool );
+  FD_VOLATILE( *prepare->txn_lock ) = 0;
 }
 
 void

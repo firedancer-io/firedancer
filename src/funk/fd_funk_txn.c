@@ -47,9 +47,9 @@ fd_funk_txn_end_write( fd_funk_t * funk FD_PARAM_UNUSED ) {
 
 fd_funk_txn_t *
 fd_funk_txn_prepare( fd_funk_t *               funk,
-                        fd_funk_txn_t *           parent,
-                        fd_funk_txn_xid_t const * xid,
-                        int                          verbose ) {
+                     fd_funk_txn_t *           parent,
+                     fd_funk_txn_xid_t const * xid,
+                     int                       verbose ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {
