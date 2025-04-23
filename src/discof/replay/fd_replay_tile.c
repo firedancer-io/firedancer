@@ -192,7 +192,7 @@ struct fd_replay_tile_ctx {
 
   fd_alloc_t *          alloc;
   fd_valloc_t           valloc;
-  fd_funk_t *           funk;
+  fd_funk_t             funk[1];
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_epoch_t *          epoch;
   fd_forks_t *          forks;
@@ -746,9 +746,9 @@ checkpt( fd_replay_tile_ctx_t * ctx ) {
 static void FD_FN_UNUSED
 funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
   fd_funk_txn_start_write( ctx->funk );
-  fd_funk_txn_xid_t xid        = { .ul = { mismatch_slot, mismatch_slot } };
-  fd_funk_txn_map_t txn_map    = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
-  fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, &txn_map );
+  fd_funk_txn_xid_t   xid          = { .ul = { mismatch_slot, mismatch_slot } };
+  fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
+  fd_funk_txn_t *     mismatch_txn = fd_funk_txn_query( &xid, txn_map );
   FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
   fd_funk_txn_end_write( ctx->funk );
 }
@@ -773,7 +773,7 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_start_read( ctx->funk );
 
   fd_funk_txn_t * txn = to_root_txn;
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( ctx->funk, fd_funk_wksp( ctx->funk ) );
+  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
   while( txn!=rooted_txn ) {
     ulong slot = txn->xid.ul[0];
     if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
@@ -783,7 +783,7 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
       FD_LOG_INFO(( "Registering constipated slot %lu", slot ));
       fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
     }
-    txn = fd_funk_txn_parent( txn, &txn_pool );
+    txn = fd_funk_txn_parent( txn, txn_pool );
   }
 
   fd_funk_txn_end_read( ctx->funk );
@@ -875,7 +875,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_start_write( ctx->funk );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( ctx->funk, fd_funk_wksp( ctx->funk ) );
+  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
 
   /* Try to publish into Funk */
   if( is_constipated ) {
@@ -895,7 +895,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
       if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
         FD_LOG_ERR(( "Can't publish funk transaction" ));
       }
-      txn = fd_funk_txn_parent( txn, &txn_pool );
+      txn = fd_funk_txn_parent( txn, txn_pool );
     }
 
   } else {
@@ -916,7 +916,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
          we will calculate the epoch account hash for. */
 
       fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, &txn_pool );
+      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_pool );
       while( parent_txn ) {
         /* We need to be careful here because the eah start slot may be skipped
            so the actual slot that we calculate the eah for may be greater than
@@ -931,7 +931,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
           break;
         }
         txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, &txn_pool );
+        parent_txn = fd_funk_txn_parent( txn, txn_pool );
       }
 
       /* At this point, we know txn is the funk txn that we will want to
@@ -982,17 +982,17 @@ get_rooted_txn( fd_replay_tile_ctx_t * ctx,
      we must also register it into the status cache because we don't register
      the root in txncache_publish to avoid registering the same slot multiple times. */
 
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( ctx->funk, fd_funk_wksp( ctx->funk ) );
+  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
 
   if( is_constipated ) {
 
     if( FD_UNLIKELY( !ctx->false_root ) ) {
 
       fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, &txn_pool );
+      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_pool );
       while( parent_txn ) {
         txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, &txn_pool );
+        parent_txn = fd_funk_txn_parent( txn, txn_pool );
       }
 
       ctx->false_root = txn;
@@ -1056,8 +1056,8 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
   /* Handle updates to funk and the status cache. */
 
   fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_map_t txn_map     = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
-  fd_funk_txn_t *   to_root_txn = fd_funk_txn_query( xid, &txn_map );
+  fd_funk_txn_map_t * txn_map     = fd_funk_txn_map( ctx->funk );
+  fd_funk_txn_t *     to_root_txn = fd_funk_txn_query( xid, txn_map );
   if( FD_UNLIKELY( !to_root_txn ) ) {
     FD_LOG_ERR(( "Unable to find funk transaction for xid %lu", xid->ul[0] ));
   }
@@ -2763,26 +2763,27 @@ privileged_init( fd_topo_t *      topo,
   if( strcmp( snapshot, "funk" ) == 0 ) {
     /* Funk database already exists. The parameters are actually mostly ignored. */
     funk = fd_funk_open_file(
-      tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
+        ctx->funk,
+        tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
         FD_FUNK_READ_WRITE, NULL );
   } else if( strncmp( snapshot, "wksp:", 5 ) == 0) {
     /* Recover funk database from a checkpoint. */
-    funk = fd_funk_recover_checkpoint( tile->replay.funk_file, 1, snapshot+5, NULL );
+    funk = fd_funk_recover_checkpoint( ctx->funk, tile->replay.funk_file, 1, snapshot+5, NULL );
   } else {
     FD_LOG_NOTICE(( "Trying to create new funk at file=%s", tile->replay.funk_file ));
     /* Create new funk database */
     funk = fd_funk_open_file(
-      tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
+        ctx->funk,
+        tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
         FD_FUNK_OVERWRITE, NULL );
     FD_LOG_NOTICE(( "Opened funk file at %s", tile->replay.funk_file ));
   }
-  if( FD_UNLIKELY( funk == NULL ) ) {
-    FD_LOG_ERR(( "no funk loaded" ));
+  if( FD_UNLIKELY( !funk ) ) {
+    FD_LOG_ERR(( "Failed to join funk database" ));
   }
   fd_funk_txn_end_write( NULL );
-  ctx->funk = funk;
   ctx->funk_wksp = fd_funk_wksp( funk );
   if( FD_UNLIKELY( ctx->funk_wksp == NULL ) ) {
     FD_LOG_ERR(( "no funk wksp" ));

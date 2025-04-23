@@ -193,7 +193,7 @@ slot_ctx_restore( ulong                 slot,
                   fd_exec_epoch_ctx_t * epoch_ctx,
                   fd_spad_t *           runtime_spad,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( funk );
   bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
 
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
@@ -204,11 +204,11 @@ slot_ctx_restore( ulong                 slot,
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   for( ; ; ) {
     fd_funk_txn_start_read( funk );
-    fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, &txn_map );
+    fd_funk_txn_t * txn = fd_funk_txn_query( &xid, txn_map );
     if( !txn ) {
       memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
       xid.ul[0] = slot;
-      txn       = fd_funk_txn_query( &xid, &txn_map );
+      txn       = fd_funk_txn_query( &xid, txn_map );
       if( !txn ) {
         FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
       }

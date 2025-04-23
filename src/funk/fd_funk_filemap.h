@@ -35,14 +35,15 @@ typedef struct fd_funk_close_file_args fd_funk_close_file_args_t;
    an existing file is opened without being overwritten. */
 
 fd_funk_t *
-fd_funk_open_file( const char * filename,
-                      ulong        wksp_tag,
-                      ulong        seed,
-                      ulong        txn_max,
-                      uint         rec_max,
-                      ulong        total_sz,
-                      fd_funk_file_mode_t mode,
-                      fd_funk_close_file_args_t * close_args_out );
+fd_funk_open_file( void *       ljoin,
+                   const char * filename,
+                   ulong        wksp_tag,
+                   ulong        seed,
+                   ulong        txn_max,
+                   ulong        rec_max,
+                   ulong        total_sz,
+                   fd_funk_file_mode_t mode,
+                   fd_funk_close_file_args_t * close_args_out );
 
 /* Load a workspace checkpoint containing a funk
    instance. funk_filename is the backing file, or NULL for a
@@ -52,10 +53,11 @@ fd_funk_open_file( const char * filename,
    filled in. This is needed for fd_funk_close_file. */
 
 fd_funk_t *
-fd_funk_recover_checkpoint( const char * funk_filename,
-                               ulong        wksp_tag,
-                               const char * checkpt_filename,
-                               fd_funk_close_file_args_t * close_args_out );
+fd_funk_recover_checkpoint( void *       ljoin,
+                            const char * funk_filename,
+                            ulong        wksp_tag,
+                            const char * checkpt_filename,
+                            fd_funk_close_file_args_t * close_args_out );
 
 /* Release the resources associated with a funk file map. The funk
    pointer is invalid after this is called. */

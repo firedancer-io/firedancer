@@ -75,7 +75,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
   fd_wksp_t * runtime_wksp       = fd_wksp_containing( slot_ctx );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, funk_txn );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk );
+  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk->shmem );
   ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_wksp, slot_ctx->sysvar_cache );
 
   /* Set up mock txn descriptor */

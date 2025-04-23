@@ -153,14 +153,14 @@
    for a funk.  ALIGN should be a positive integer power of 2.
    The footprint is dynamic depending on map sizes. */
 
-#define FD_FUNK_ALIGN     (4096UL)
+#define FD_FUNK_ALIGN (4096UL)
 
-/* The details of a fd_funk_private are exposed here to facilitate
+/* The details of a fd_funk_shmem_private are exposed here to facilitate
    inlining various operations. */
 
 #define FD_FUNK_MAGIC (0xf17eda2ce7fc2c02UL) /* firedancer funk version 2 */
 
-struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
+struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
 
   /* Metadata */
 
@@ -258,6 +258,24 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   /* Padding to FD_FUNK_ALIGN here */
 };
 
+/* The details of a fd_funk_private are exposed here to facilitate
+   inlining various operations. */
+
+struct fd_funk_private {
+
+  fd_funk_shmem_t *  shmem;
+
+  fd_funk_txn_map_t  txn_map[1];
+  fd_funk_txn_pool_t txn_pool[1];
+
+  fd_funk_rec_map_t  rec_map[1];
+  fd_funk_rec_pool_t rec_pool[1];
+
+  fd_wksp_t *  wksp;
+  fd_alloc_t * alloc;
+
+};
+
 FD_PROTOTYPES_BEGIN
 
 /* Constructors */
@@ -273,7 +291,7 @@ fd_funk_align( void );
 
 FD_FN_CONST ulong
 fd_funk_footprint( ulong txn_max,
-                   uint  rec_max );
+                   ulong rec_max );
 
 /* fd_wksp_new formats an unused wksp allocation with the appropriate
    alignment and footprint as a funk.  Caller is not joined on return.
@@ -293,42 +311,53 @@ fd_funk_new( void * shmem,
              ulong  wksp_tag,
              ulong  seed,
              ulong  txn_max,
-             uint   rec_max );
+             ulong  rec_max );
 
-/* fd_funk_join joins the caller to a funk instance.  shfunk points to
-   the first byte of the memory region backing the funk in the caller's
-   address space.  Returns an opaque handle of the join on success
-   (IMPORTANT! DO NOT ASSUME THIS IS A CAST OF SHFUNK) and NULL on
-   failure (NULL shfunk, misaligned shfunk, shfunk is not backed by a
-   wksp, bad magic, ... logs details).  Every successful join should
-   have a matching leave.  The lifetime of the join is until the
-   matching leave or the thread group is terminated (joins are local to
-   a thread group). */
+/* fd_funk_join joins the caller to a funk instance.  ljoin points to a
+   fd_funk_t compatible memory region in the caller's address space,
+   shfunk points to the first byte of the memory region backing the funk
+   in the caller's address space.  Returns an handle to the caller's
+   local join on success (join has ownership of the ljoin region) and
+   NULL on failure (NULL ljoin, NULL shfunk, misaligned shfunk, shfunk
+   is not backed by a wksp, bad magic, ... logs details).  Every
+   successful join should have a matching leave.  The lifetime of the
+   join is until the matching leave or the thread group is terminated
+   (joins are local to a thread group). */
 
 fd_funk_t *
-fd_funk_join( void * shfunk );
+fd_funk_join( void * ljoin,
+              void * shfunk );
 
-/* fd_funk_leave leaves an existing join.  Returns the underlying
-   shfunk (IMPORTANT! DO NOT ASSUME THIS IS A CAST OF FUNK) on success
-   and NULL on failure.  Reasons for failure include funk is NULL (logs
-   details). */
+/* fd_funk_leave leaves a funk join.  Returns the memory region used for
+   join on success (caller has ownership on return and the caller is no
+   longer joined) and NULL on failure (logs details).  Sets *opt_shfunk
+   a pointer to the funk shm region if opt_shfunk!=NULL. */
 
 void *
-fd_funk_leave( fd_funk_t * funk );
+fd_funk_leave( fd_funk_t * funk,
+               void **     opt_shfunk );
 
 /* fd_funk_delete unformats a wksp allocation used as a funk
    (additionally frees all wksp allocations used by that funk).  Assumes
    nobody is or will be joined to the funk.  Returns shmem on success
    and NULL on failure (logs details).  Reasons for failure include
    shfunk is NULL, misaligned shfunk, shfunk is not backed by a
-   workspace, etc.
-
-   This function is NOT thread-safe, and should only be called be a single
-   thread. There should be no other threads using the funk at the time of
-   calling this function. */
+   workspace, etc. */
 
 void *
 fd_funk_delete( void * shfunk );
+
+/* fd_funk_delete_fast is an optimized verison of fd_funk_delete.
+   Unlike fd_funk_delete, makes an additional assumption that this funk
+   was created with a wksp_tag (see fd_funk_new) that is distinct from
+   all other tags in the workspace.  Also unlike fd_funk_delete, frees
+   wksp allocation backing the funk instance itself.
+
+   WARNING: Using this function frees all wksp allocations matching the
+   funk's wksp_tag. */
+
+void
+fd_funk_delete_fast( void * shfunk );
 
 /* Accessors */
 
@@ -336,55 +365,35 @@ fd_funk_delete( void * shfunk );
    The lifetime of the returned pointer is at least as long as the
    lifetime of the local join.  Assumes funk is a current local join. */
 
-FD_FN_PURE static inline fd_wksp_t * fd_funk_wksp( fd_funk_t * funk ) { return (fd_wksp_t *)(((ulong)funk) - funk->funk_gaddr); }
+FD_FN_PURE static inline fd_wksp_t * fd_funk_wksp( fd_funk_t const * funk ) { return funk->wksp; }
 
 /* fd_funk_wksp_tag returns the workspace allocation tag used by the
    funk for its wksp allocations.  Will be positive.  Assumes funk is a
    current local join. */
 
-FD_FN_PURE static inline ulong fd_funk_wksp_tag( fd_funk_t * funk ) { return funk->wksp_tag; }
+FD_FN_PURE static inline ulong fd_funk_wksp_tag( fd_funk_t * funk ) { return funk->shmem->wksp_tag; }
 
 /* fd_funk_seed returns the hash seed used by the funk for various hash
    functions.  Arbitrary value.  Assumes funk is a current local join.
    TODO: consider renaming hash_seed? */
 
-FD_FN_PURE static inline ulong fd_funk_seed( fd_funk_t * funk ) { return funk->seed; }
+FD_FN_PURE static inline ulong fd_funk_seed( fd_funk_t * funk ) { return funk->shmem->seed; }
 
 /* fd_funk_txn_max returns maximum number of in-preparations the funk
    can support.  Assumes funk is a current local join.  Return in
    [0,FD_FUNK_TXN_IDX_NULL]. */
 
-FD_FN_PURE static inline ulong fd_funk_txn_max( fd_funk_t * funk ) { return funk->txn_max; }
+FD_FN_PURE static inline ulong fd_funk_txn_max( fd_funk_t * funk ) { return funk->txn_pool->ele_max; }
 
 /* fd_funk_txn_map returns the funk's transaction map join. This
    join can copied by value and is generally stored as a stack variable. */
 
-static inline fd_funk_txn_map_t
-fd_funk_txn_map( fd_funk_t * funk,       /* Assumes current local join */
-                    fd_wksp_t * wksp ) {       /* Assumes wksp == fd_funk_wksp( funk ) */
-  fd_funk_txn_map_t join;
-  fd_funk_txn_map_join(
-    &join,
-    fd_wksp_laddr_fast( wksp, funk->txn_map_gaddr ),
-    fd_wksp_laddr_fast( wksp, funk->txn_ele_gaddr ),
-    funk->txn_max );
-  return join;
-}
+FD_FN_PURE static inline fd_funk_txn_map_t * fd_funk_txn_map( fd_funk_t * funk ) { return funk->txn_map; }
 
 /* fd_funk_txn_pool returns the funk's transaction pool join. This
    join can copied by value and is generally stored as a stack variable. */
 
-static inline fd_funk_txn_pool_t
-fd_funk_txn_pool( fd_funk_t * funk,    /* Assumes current local join */
-                     fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
-  fd_funk_txn_pool_t join;
-  fd_funk_txn_pool_join(
-    &join,
-    fd_wksp_laddr_fast( wksp, funk->txn_pool_gaddr ),
-    fd_wksp_laddr_fast( wksp, funk->txn_ele_gaddr ),
-    funk->txn_max );
-  return join;
-}
+FD_FN_PURE static inline fd_funk_txn_pool_t * fd_funk_txn_pool( fd_funk_t * funk ) { return funk->txn_pool; }
 
 /* fd_funk_last_publish_child_{head,tail} returns a pointer in the
    caller's address space to {oldest,young} transaction child of root, NULL if
@@ -394,16 +403,16 @@ fd_funk_txn_pool( fd_funk_t * funk,    /* Assumes current local join */
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_last_publish_child_head( fd_funk_t *          funk,
-                                    fd_funk_txn_pool_t * pool ) {
-  ulong idx = fd_funk_txn_idx( funk->child_head_cidx );
+                                 fd_funk_txn_pool_t * pool ) {
+  ulong idx = fd_funk_txn_idx( funk->shmem->child_head_cidx );
   if( fd_funk_txn_idx_is_null( idx ) ) return NULL; /* TODO: Consider branchless? */
   return pool->ele + idx;
 }
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_last_publish_child_tail( fd_funk_t *          funk,
-                                    fd_funk_txn_pool_t * pool ) {
-  ulong idx = fd_funk_txn_idx( funk->child_tail_cidx );
+                                 fd_funk_txn_pool_t * pool ) {
+  ulong idx = fd_funk_txn_idx( funk->shmem->child_tail_cidx );
   if( fd_funk_txn_idx_is_null( idx ) ) return NULL; /* TODO: Consider branchless? */
   return pool->ele + idx;
 }
@@ -414,7 +423,7 @@ fd_funk_last_publish_child_tail( fd_funk_t *          funk,
    current local join.  The value at this pointer will always be the
    root transaction id. */
 
-FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * funk ) { return funk->root; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * funk ) { return funk->shmem->root; }
 
 /* fd_funk_last_publish returns a pointer in the caller's address space
    to transaction id of the last published transaction.  Assumes funk is
@@ -422,7 +431,7 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * fu
    lifetime of the current local join.  The value at this pointer will
    be constant until the next transaction is published. */
 
-FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t * funk ) { return funk->last_publish; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t * funk ) { return funk->shmem->last_publish; }
 
 /* fd_funk_is_frozen returns 1 if the records of the last published
    transaction are frozen (i.e. the funk has children) and 0 otherwise
@@ -430,57 +439,48 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_fun
 
 FD_FN_PURE static inline int
 fd_funk_last_publish_is_frozen( fd_funk_t const * funk ) {
-  return fd_funk_txn_idx( funk->child_head_cidx )!=FD_FUNK_TXN_IDX_NULL;
+  return fd_funk_txn_idx( funk->shmem->child_head_cidx )!=FD_FUNK_TXN_IDX_NULL;
 }
 
 /* fd_funk_rec_max returns maximum number of records that can be held
    in the funk.  This includes both records of the last published
    transaction and records for transactions that are in-flight. */
 
-FD_FN_PURE static inline uint fd_funk_rec_max( fd_funk_t * funk ) { return funk->rec_max; }
+FD_FN_PURE static inline ulong fd_funk_rec_max( fd_funk_t * funk ) { return funk->rec_pool->ele_max; }
 
 /* fd_funk_rec_map returns the funk's record map join. This
    join can copied by value and is generally stored as a stack variable. */
 
-static inline fd_funk_rec_map_t
-fd_funk_rec_map( fd_funk_t * funk,    /* Assumes current local join */
-                 fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
-  fd_funk_rec_map_t join;
-  fd_funk_rec_map_join(
-    &join,
-    fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr ),
-    fd_wksp_laddr_fast( wksp, funk->rec_ele_gaddr ),
-    funk->rec_max );
-  return join;
-}
+FD_FN_PURE static inline fd_funk_rec_map_t * fd_funk_rec_map( fd_funk_t * funk ) { return funk->rec_map; }
 
 /* fd_funk_rec_pool returns the funk's record pool join. This
    join can copied by value and is generally stored as a stack variable. */
 
-static inline fd_funk_rec_pool_t
-fd_funk_rec_pool( fd_funk_t * funk,    /* Assumes current local join */
-                  fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
-  fd_funk_rec_pool_t join;
-  fd_funk_rec_pool_join(
-    &join,
-    fd_wksp_laddr_fast( wksp, funk->rec_pool_gaddr ),
-    fd_wksp_laddr_fast( wksp, funk->rec_ele_gaddr ),
-    funk->rec_max );
-  return join;
-}
+FD_FN_PURE static inline fd_funk_rec_pool_t * fd_funk_rec_pool( fd_funk_t * funk ) { return funk->rec_pool; }
 
 /* fd_funk_alloc returns a pointer in the caller's address space to
    the funk's allocator. */
 
-FD_FN_PURE static inline fd_alloc_t *     /* Lifetime is that of the local join */
-fd_funk_alloc( fd_funk_t * funk,    /* Assumes current local join */
-               fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
-  return fd_alloc_join_cgroup_hint_set( (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), fd_tile_idx() );
+FD_FN_PURE static inline fd_alloc_t * fd_funk_alloc( fd_funk_t * funk ) { return funk->alloc; }
+
+/* fd_funk_rec_is_full returns 1 if no more records can be allocated
+   and 0 otherwise. */
+
+static inline int
+fd_funk_rec_is_full( fd_funk_t * funk ) {
+  return fd_funk_rec_pool_is_empty( funk->rec_pool );
+}
+
+/* fd_funk_txn_is_full returns true if the transaction map is
+   full. No more in-preparation transactions are allowed. */
+
+static inline int
+fd_funk_txn_is_full( fd_funk_t * funk ) {
+  return fd_funk_txn_pool_is_empty( funk->txn_pool );
 }
 
 /* Misc */
 
-#ifdef FD_FUNK_HANDHOLDING
 /* fd_funk_verify verifies the integrity of funk.  Returns
    FD_FUNK_SUCCESS if funk appears to be intact and FD_FUNK_ERR_INVAL
    otherwise (logs details).  Assumes funk is a current local join (NULL
@@ -488,7 +488,6 @@ fd_funk_alloc( fd_funk_t * funk,    /* Assumes current local join */
 
 int
 fd_funk_verify( fd_funk_t * funk );
-#endif
 
 FD_PROTOTYPES_END
 

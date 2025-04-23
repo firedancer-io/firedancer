@@ -216,14 +216,14 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
-    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk, wksp ), wksp, NULL );;
+    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk ), wksp, NULL );;
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
     fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -244,7 +244,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -290,7 +290,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -304,7 +304,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
 
-    fd_funk_rec_publish( prepare );
+    fd_funk_rec_publish( funk, prepare );
 
     return 0;
   } FD_SPAD_FRAME_END;

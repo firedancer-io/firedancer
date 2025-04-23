@@ -1,6 +1,6 @@
 #include "test_funk_common.hpp"
-#include <stdio.h>
-#include "pthread.h"
+#include <cstdio>
+#include <pthread.h>
 
 #define NUM_THREADS 10
 #define MAX_TXN_CNT 64
@@ -68,9 +68,9 @@ static void * work_thread(void * arg) {
       fd_funk_rec_prepare_t prepare[1];
       fd_funk_rec_t * rec = fd_funk_rec_prepare(funk, txn, &key, prepare, NULL);
       if( rec == NULL ) continue;
-      void * val = fd_funk_val_truncate(rec, sizeof(ulong), fd_funk_alloc(funk, wksp), wksp, NULL);
+      void * val = fd_funk_val_truncate(rec, sizeof(ulong), fd_funk_alloc( funk ), wksp, NULL);
       memcpy(val, &key.ul[0], sizeof(ulong));
-      fd_funk_rec_publish( prepare );
+      fd_funk_rec_publish( funk, prepare );
 
       FD_ATOMIC_FETCH_AND_ADD( &insertcnt, 1 );
 
@@ -104,7 +104,9 @@ int main(int argc, char** argv) {
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
+  fd_funk_t funk_[1];
+  fd_funk_t * funk = fd_funk_join( funk_, fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
+  FD_TEST( funk );
   TestState state(funk);
 
   pthread_t thr[NUM_THREADS];
@@ -147,7 +149,8 @@ int main(int argc, char** argv) {
     pthread_join( thr[i], NULL );
   }
 
-  fd_funk_delete( fd_funk_leave( funk ) );
+  fd_funk_leave( funk, NULL );
+  fd_funk_delete( mem );
 
   printf("test passed!\n");
   return 0;
