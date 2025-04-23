@@ -2343,11 +2343,14 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->capture_ctx,
                            ctx->runtime_spad );
   if( !is_snapshot ) {
-    /* read_snapshot calls this, so likewise we need to call here
-       to init blockstore if snapshot isn't read. We call this
-       after fd_runtime_read_genesis, which sets up the
+    /* read_snapshot calls kickoff_repair_orphans, so likewise
+       we need to call here to init blockstore if snapshot isn't read.
+       We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init */
-    kickoff_repair_orphans( ctx, stem );
+    fd_blockstore_init( ctx->slot_ctx->blockstore,
+                        ctx->blockstore_fd,
+                        FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
+                        &ctx->slot_ctx->slot_bank );
   }
   ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
