@@ -1070,9 +1070,10 @@ op( void * _tpool,                                                              
     ulong tpool_cnt = tpool_t1 - tpool_t0;                                                         \
     /**/  block_cnt = block_i1 - block_i0;                                                         \
     if( FD_LIKELY( (tpool_cnt<=1UL) | (block_cnt<=block_thresh) ) ) break;                         \
-    ulong tpool_cs = fd_tpool_private_split( tpool_cnt );                                          \
-    ulong tpool_ts = tpool_t0 + tpool_cs;                                                          \
-    long  block_is = block_i0 + (long)((tpool_cs*(ulong)block_cnt) / tpool_cnt); /* No overflow */ \
+    ulong tpool_left  = fd_tpool_private_split( tpool_cnt );                                       \
+    ulong tpool_right = tpool_cnt - tpool_left;                                                    \
+    ulong tpool_ts    = tpool_t0 + tpool_left;                                                     \
+    long  block_is    = block_i1 - (long)((tpool_right*(ulong)block_cnt)/tpool_cnt); /* No ovfl */ \
     fd_tpool_exec( tpool,tpool_ts, op, tpool,tpool_ts,tpool_t1, (void *)block_is,(void *)block_i1, \
                    _a0,_a1,_a2,_a3,_a4,_a5,_a6 );                                                  \
     _reduce_stack[ _reduce_cnt++ ] = (ushort)tpool_ts;                                             \
@@ -1240,9 +1241,10 @@ op( void * _tpool,                                                              
     ulong tpool_cnt = tpool_t1 - tpool_t0;                                                          \
     /**/  block_cnt = block_i1 - block_i0;                                                          \
     if( FD_LIKELY( (tpool_cnt<=1UL) | (block_cnt<=block_thresh) ) ) break;                          \
-    ulong tpool_cs = fd_tpool_private_split( tpool_cnt );                                           \
-    ulong tpool_ts = tpool_t0 + tpool_cs;                                                           \
-    long  block_is = block_i0 + (long)((tpool_cs*(ulong)block_cnt) / tpool_cnt); /* No overflow */  \
+    ulong tpool_left  = fd_tpool_private_split( tpool_cnt );                                        \
+    ulong tpool_right = tpool_cnt - tpool_left;                                                     \
+    ulong tpool_ts    = tpool_t0 + tpool_left;                                                      \
+    long  block_is    = block_i1 - (long)((tpool_right*(ulong)block_cnt)/tpool_cnt); /* No ovfl */  \
     ulong _r1 = (ulong)fd_scratch_alloc( reduce_align, reduce_footprint );                          \
     fd_tpool_exec( tpool, tpool_ts, op, tpool,tpool_ts,tpool_t1, (void *)block_is,(void *)block_i1, \
                    _a0,_a1,_a2,_a3,_a4,_a5,_r1 );                                                   \

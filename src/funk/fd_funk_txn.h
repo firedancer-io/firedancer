@@ -145,7 +145,7 @@ fd_funk_txn_query( fd_funk_txn_xid_t const * xid,
                    fd_funk_txn_map_t * map ) {
   do {
     fd_funk_txn_map_query_t query[1];
-    if( FD_UNLIKELY( fd_funk_txn_map_query_try( map, xid, NULL, query ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_funk_txn_map_query_try( map, xid, NULL, query, 0 ) ) ) return NULL;
     fd_funk_txn_t * ele = fd_funk_txn_map_query_ele( query );
     if( FD_LIKELY( !fd_funk_txn_map_query_test( query ) ) ) return ele;
   } while( 1 );

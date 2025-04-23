@@ -480,7 +480,6 @@ fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx )
   // FD_TEST( fd_buf_shred_map_verify ( blockstore->shred_map  ) == FD_MAP_SUCCESS );
 }
 
-
 void
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
   // FD_LOG_NOTICE(( "[%s] slot %lu idx %u", __func__, shred->slot, shred->idx ));
@@ -511,7 +510,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
     for(;;) {
       fd_buf_shred_map_query_t query[1]  = { 0 };
-      int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+      int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query, 0 );
       if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] %s. shred: (%lu, %u)", __func__, fd_buf_shred_map_strerror( err ), slot, shred->idx ));
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       fd_buf_shred_t * buf_shred = fd_buf_shred_map_query_ele( query );
@@ -684,7 +683,7 @@ fd_blockstore_shred_test( fd_blockstore_t * blockstore, ulong slot, uint idx ) {
   fd_buf_shred_map_query_t query[1] = { 0 };
 
   for(;;) {
-    int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+    int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query, 0 );
     if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] slot: %lu idx: %u. %s", __func__, slot, idx, fd_buf_shred_map_strerror( err ) ));
     if( FD_LIKELY( !fd_buf_shred_map_query_test( query ) ) ) return err != FD_MAP_ERR_KEY;
   }
@@ -730,7 +729,7 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint idx
   int            err = FD_MAP_ERR_AGAIN;
   while( err == FD_MAP_ERR_AGAIN ) {
     fd_buf_shred_map_query_t query[1] = { 0 };
-    err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+    err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query, 0 );
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return -1;
     if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] map corrupt. shred %lu %u", __func__, slot, idx ));
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
@@ -825,7 +824,7 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
     for(;;) { /* speculative copy one shred */
       fd_shred_key_t key = { slot, idx };
       fd_buf_shred_map_query_t query[1] = { 0 };
-      int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+      int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query, 0 );
       if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ){
         FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, idx, fd_buf_shred_map_strerror( err ) ));
         return FD_BLOCKSTORE_ERR_CORRUPT;
@@ -874,7 +873,6 @@ fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot ){
   }
   return complete;
 
-
   /* When replacing block_query( slot ) != NULL with this function:
      There are other things verified in a successful deshred & scan block that are not verified here.
      scan_block does a round of well-formedness checks like parsing txns, and no premature end of batch
@@ -888,7 +886,6 @@ fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot ){
      to assume the shreds are well-formed we can't. */
 
 }
-
 
 int
 fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
@@ -1043,7 +1040,6 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
   }
 #endif
 }
-
 
 int
 fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,

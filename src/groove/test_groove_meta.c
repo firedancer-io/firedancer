@@ -81,7 +81,7 @@ tile_main( int     argc,
       ulong             memo = fd_groove_meta_map_key_hash( key, seed );
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 
@@ -112,7 +112,7 @@ tile_main( int     argc,
       ulong           mod  = 0UL;
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 
@@ -146,7 +146,7 @@ tile_main( int     argc,
       ulong           memo = fd_groove_meta_map_key_hash( key, seed );
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 
@@ -167,7 +167,7 @@ tile_main( int     argc,
       ulong             memo = fd_groove_meta_map_key_hash( key, seed );
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 
@@ -189,7 +189,7 @@ tile_main( int     argc,
       ulong           memo = fd_groove_meta_map_key_hash( key, seed );
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 
@@ -218,7 +218,7 @@ tile_main( int     argc,
       ulong             memo = fd_groove_meta_map_key_hash( key, seed );
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 
@@ -254,7 +254,7 @@ tile_main( int     argc,
       ulong           memo = fd_groove_meta_map_key_hash( key, seed );
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 
@@ -276,7 +276,7 @@ tile_main( int     argc,
       ulong             memo = fd_groove_meta_map_key_hash( key, seed );
 
       if( use_hint ) {
-        fd_groove_meta_map_hint( map, key, query, flags );
+        fd_groove_meta_map_hint( map, key, query, flags & (~FD_MAP_FLAG_USE_HINT) );
         FD_TEST( memo==fd_groove_meta_map_query_memo( query ) );
       }
 

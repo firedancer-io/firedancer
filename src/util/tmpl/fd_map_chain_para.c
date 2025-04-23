@@ -221,6 +221,10 @@
 
      void mymap_backoff( ulong scale, ulong seed );
 
+     // mymap_query_memo returns the key_hash of the query associated
+     // with the query's key to allow users to minimize potentially
+     // expensive key hash computations in various operations.
+     //
      // mymap_query_ele returns a pointer in the caller's address space
      // to the element store element associated with the query or a
      // sentinel value.  The sentinel value is application dependent and
@@ -230,8 +234,33 @@
      // depends on the query.  mymap_query_ele_const is a const correct
      // version.
 
+     ulong           mymap_query_memo     ( mymap_query_t const * query );
      myele_t const * mymap_query_ele_const( mymap_query_t const * query );
      myele_t *       mymap_query_ele      ( mymap_query_t *       query );
+
+     // mymap_hint hints that the caller plans to do an operation
+     // involving key soon.  Assumes join is a current local join, key
+     // points to a valid key in the caller's address space for the
+     // duration of the call and query points to a local scratch to hold
+     // info about the hint.  Retains no interest in key.  On return,
+     // the query memo will be initialized.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_USE_HINT
+     // is set, this will assume that query's memo is already
+     // initialized for key (e.g. mostly useful for hashless
+     // prefetching).  If FD_MAP_FLAG_PREFETCH_META /
+     // FD_MAP_FLAG_PREFETCH_DATA is set, this will issue a prefetch for
+     // key's mymap metadata (i.e. lock version) / the element at the
+     // start of key's chain if any (i.e.  typically the key of interest
+     // in a well managed map).  FD_MAP_FLAG_PREFETCH combines both for
+     // convenience.  This can be used to overlap key access latency
+     // with unrelated operations.  All other flags are ignored.
+
+     void
+     mymap_hint( MAP_(t) const *   join
+                 MAP_KEY_T const * key
+                 MAP_(query_t) *   query,
+                 int               flags );
 
      // mymap_insert inserts into a mymap a mapping from a key to an
      // element store element.  ele points in the caller's address space
@@ -275,13 +304,15 @@
 
      // mymap_remove removes the mapping (if any) for key from the
      // mymap.  On return, query will contain information about the
-     // removed mapping.  sentinel gives the query element pointer value
-     // (arbitrary) to pass through when this did not remove a mapping
-     // for any reason.  flags is a bit-or of FD_MAP_FLAG flags.  If
-     // FD_MAP_FLAG_BLOCKING is set / clear in flags, this is allowed /
-     // not allowed to block the caller.  Assumes join is a current
-     // local join and key is valid for the duration of the call.
-     // Retains no interest in key, sentinel or query.  This is a
+     // removed mapping and memo will be initialized for key.  sentinel
+     // gives the query element pointer value (arbitrary) to pass
+     // through when this did not remove a mapping for any reason.
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING
+     // is set / clear in flags, this is allowed / not allowed to block
+     // the caller.  If FD_MAP_FLAG_USE_HINT is set, this assumes
+     // query's memo is already initialized for key.  Assumes join is a
+     // current local join and key is valid for the duration of the
+     // call.  Retains no interest in key, sentinel or query.  This is a
      // non-blocking fast O(1) and supports highly concurrent operation.
      //
      // Returns FD_MAP_SUCCESS (0) on success and an FD_MAP_ERR
@@ -315,11 +346,13 @@
 
      // mymap_modify_try tries to start modification of the mymap
      // element corresponding to key.  On return, query will hold
-     // information about the try.  sentinel gives the query element
-     // pointer value (arbitrary) to pass through when it is not safe to
-     // try.  flags is a bit-or of FD_MAP_FLAG flags.  If
-     // FD_MAP_FLAG_BLOCKING is set / clear, this call is allowed / not
-     // allowed to block the caller.  If FD_MAP_FLAG_ADAPTIVE is set /
+     // information about the try and memo will be initialized for key.
+     // sentinel gives the query element pointer value (arbitrary) to
+     // pass through when it is not safe to try.  flags is a bit-or of
+     // FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING is set / clear, this
+     // call is allowed / not allowed to block the caller.  If
+     // FD_MAP_FLAG_USE_HINT is set, this assumes query's memo is
+     // already initialized for key.  If FD_MAP_FLAG_ADAPTIVE is set /
      // clear, this call should / should not adapt the mymap to
      // accelerate future operations on this key.  Adaptation for a key
      // can potentially slow future operations for other keys.  The
@@ -369,13 +402,16 @@
      int mymap_modify_test( mymap_query_t * query );
 
      // mymap_query_try tries to speculatively query a mymap for key.
-     // On return, query will hold information about the try.  sentinel
-     // gives the query element pointer value (arbitrary) to pass
-     // through when it is not safe to try the query.  Assumes join is a
-     // current local join and key is valid for the duration of the
-     // call.  Does not modify the mymap and retains no interest in key,
-     // sentinel or query.  This is a non-blocking fast O(1) and
-     // supports highly concurrent operation.
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_USE_HINT
+     // is set, this assumes query's memo is already initialized for
+     // key.  On return, query will hold information about the try and
+     // memo will be initialized for key.  sentinel gives the query
+     // element pointer value (arbitrary) to pass through when it is not
+     // safe to try the query.  Assumes join is a current local join and
+     // key is valid for the duration of the call.  Does not modify the
+     // mymap and retains no interest in key, sentinel or query.  This
+     // is a non-blocking fast O(1) and supports highly concurrent
+     // operation.
      //
      // Returns FD_MAP_SUCCESS (0) on success and an FD_MAP_ERR
      // (negative) on failure.  On success, key mapped to an element in
@@ -427,7 +463,8 @@
      mymap_query_try( mymap_t const * join,
                       ulong const *   key,
                       myele_t const * sentinel,
-                      mymap_query_t * query );
+                      mymap_query_t * query,
+                      int             flags );
 
      // mymap_query_test tests if an in-progress query is still valid.
      // Assumes query is valid, we are still in a query try and chain
@@ -521,6 +558,10 @@
 
      int mymap_txn_try( mymap_txn_t * txn, int flags );
 
+     // mymap_txn_hint behaves _identially_ to mymap_hint but is allowed
+     // to assume we are in a txn try and key was added to the txn as
+     // either speculative or locked.
+     //
      // mymap_txn_{insert,remove} behave _identically_ to
      // mymap_{insert,remove} from the caller's point of view but
      // assumes we are in a txn try and key was added to the txn as
@@ -572,10 +613,11 @@
      // TL;DR avoid using speculative txn keys at all unless very well
      // versed in lockfree programming idioms and gotchas.
 
+     int mymap_txn_hint  ( mymap_t const * join, ulong const * key,                           mymap_query_t * query, int flags );
      int mymap_txn_insert( mymap_t *       join, myele_t * ele );
-     int mymap_txn_remove( mymap_t *       join, ulong const * key, myele_t const * sentinel, mymap_query_t * query );
+     int mymap_txn_remove( mymap_t *       join, ulong const * key, myele_t const * sentinel, mymap_query_t * query, int flags );
      int mymap_txn_modify( mymap_t *       join, ulong const * key, myele_t *       sentinel, mymap_query_t * query, int flags );
-     int mymap_txn_query ( mymap_t const * join, ulong const * key, myele_t const * sentinel, mymap_query_t * query );
+     int mymap_txn_query ( mymap_t const * join, ulong const * key, myele_t const * sentinel, mymap_query_t * query, int flags );
 
      // mymap_txn_test returns FD_MAP_SUCCESS (zero) if the txn try
      // succeeded and FD_MAP_ERR_AGAIN (negative) if it failed (e.g. the
@@ -834,7 +876,7 @@
      ulong key = ... key to query
 
      mymap_query_t query[1];
-     int err = mymap_query_try( join, &key, NULL, query );
+     int err = mymap_query_try( join, &key, NULL, query, 0 );
      mymap_ele_t const * ele = mymap_query_ele_const( query );
 
      if( FD_UNLIKELY( err ) ) {
@@ -1163,10 +1205,13 @@
 //#define FD_MAP_ERR_FULL    (-5)
 #define FD_MAP_ERR_KEY     (-6)
 
-#ifndef FD_MAP_FLAG_BLOCKING
-#define FD_MAP_FLAG_BLOCKING (1)
-#define FD_MAP_FLAG_ADAPTIVE (2)
-#endif
+#define FD_MAP_FLAG_BLOCKING      (1<<0)
+#define FD_MAP_FLAG_ADAPTIVE      (1<<1)
+#define FD_MAP_FLAG_USE_HINT      (1<<2)
+#define FD_MAP_FLAG_PREFETCH_NONE (0<<3)
+#define FD_MAP_FLAG_PREFETCH_META (1<<3)
+#define FD_MAP_FLAG_PREFETCH_DATA (2<<3)
+#define FD_MAP_FLAG_PREFETCH      (3<<3)
 
 /* Implementation *****************************************************/
 
@@ -1229,6 +1274,7 @@ struct MAP_(private) {
 typedef struct MAP_(private) MAP_(t);
 
 struct MAP_(query_private) {
+  ulong                         memo;    /* Query key memo */
   MAP_ELE_T *                   ele;     /* Points to the operation element in the local address space (or a sentinel) */
   MAP_(shmem_private_chain_t) * chain;   /* Points to the chain that manages element in the local address space */
   ulong                         ver_cnt; /* Versioned count of the chain at operation try */
@@ -1415,8 +1461,9 @@ MAP_(backoff)( ulong scale,
   for( ulong rem=(scale*r)>>48; rem; rem-- ) FD_SPIN_PAUSE();
 }
 
-FD_FN_PURE static inline MAP_ELE_T const * MAP_(query_ele_const)( MAP_(query_t) const * query ) { return query->ele; }
-FD_FN_PURE static inline MAP_ELE_T       * MAP_(query_ele      )( MAP_(query_t)       * query ) { return query->ele; }
+FD_FN_PURE static inline ulong             MAP_(query_memo     )( MAP_(query_t) const * query ) { return query->memo; }
+FD_FN_PURE static inline MAP_ELE_T const * MAP_(query_ele_const)( MAP_(query_t) const * query ) { return query->ele;  }
+FD_FN_PURE static inline MAP_ELE_T       * MAP_(query_ele      )( MAP_(query_t)       * query ) { return query->ele;  }
 
 static inline int
 MAP_(modify_test)( MAP_(query_t) * query ) {
@@ -1511,6 +1558,12 @@ MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele, ulo
 MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
 MAP_STATIC void *    MAP_(delete)( void * shmap );
 
+MAP_STATIC void
+MAP_(hint)( MAP_(t) const *   join,
+            MAP_KEY_T const * key,
+            MAP_(query_t) *   query,
+            int               flags );
+
 MAP_STATIC int MAP_(insert)( MAP_(t) * join, MAP_ELE_T * ele, int flags );
 
 MAP_STATIC int
@@ -1531,11 +1584,31 @@ MAP_STATIC int
 MAP_(query_try)( MAP_(t) const *   join,
                  MAP_KEY_T const * key,
                  MAP_ELE_T const * sentinel,
-                 MAP_(query_t) *   query );
+                 MAP_(query_t) *   query,
+                 int               flags );
 
 MAP_STATIC int MAP_(txn_add)( MAP_(txn_t) * txn, MAP_KEY_T const * key, int lock );
 
 MAP_STATIC int MAP_(txn_try)( MAP_(txn_t) * txn, int flags );
+
+static inline void
+MAP_(txn_hint)( MAP_(t) const *   join,
+                MAP_KEY_T const * key,
+                MAP_(query_t) *   query,
+                int               flags ) {
+  MAP_(hint)( join, key, query, flags );
+}
+
+MAP_STATIC int
+MAP_(txn_insert)( MAP_(t) *   join,
+                  MAP_ELE_T * ele );
+
+MAP_STATIC int
+MAP_(txn_remove)( MAP_(t) *         join,
+                  MAP_KEY_T const * key,
+                  MAP_ELE_T const * sentinel,
+                  MAP_(query_t) *   query,
+                  int               flags );
 
 MAP_STATIC int
 MAP_(txn_modify)( MAP_(t) *         join,
@@ -1548,8 +1621,9 @@ static inline int
 MAP_(txn_query)( MAP_(t) const *   join,
                  MAP_KEY_T const * key,
                  MAP_ELE_T const * sentinel,
-                 MAP_(query_t) *   query ) {
-  return MAP_(txn_modify)( (MAP_(t) *)join, key, (MAP_ELE_T *)sentinel, query, 0 );
+                 MAP_(query_t) *   query,
+                 int               flags ) {
+  return MAP_(txn_modify)( (MAP_(t) *)join, key, (MAP_ELE_T *)sentinel, query, flags & (~FD_MAP_FLAG_ADAPTIVE) );
 }
 
 MAP_STATIC int MAP_(txn_test)( MAP_(txn_t) * txn );
@@ -1822,8 +1896,8 @@ MAP_(insert)( MAP_(t) *   join,
 
   MAP_(shmem_t) * map = join->map;
 
-  ulong                         hash  = MAP_(key_hash)( &ele->MAP_KEY, map->seed );
-  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, hash );
+  ulong                         memo  = MAP_(key_hash)( &ele->MAP_KEY, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
 
   /* Insert element at the head of chain.  If chain is already locked,
      signal to try again later. */
@@ -1836,7 +1910,7 @@ MAP_(insert)( MAP_(t) *   join,
 
     ele->MAP_NEXT    = chain->head_cidx;
 #   if MAP_MEMOIZE
-    ele->MAP_MEMO    = hash;
+    ele->MAP_MEMO    = memo;
 #   endif
     chain->head_cidx = MAP_(private_cidx)( ele_idx );
     ver_cnt          = MAP_(private_vcnt)( version, ele_cnt+1UL ); /* version updated on exit */
@@ -1849,6 +1923,27 @@ MAP_(insert)( MAP_(t) *   join,
   } MAP_CRIT_END;
 
   return err;
+}
+
+MAP_STATIC void
+MAP_(hint)( MAP_(t) const *   join,
+            MAP_KEY_T const * key,
+            MAP_(query_t) *   query,
+            int               flags ) {
+  MAP_(shmem_t) * map     = join->map;
+  MAP_ELE_T *     ele0    = join->ele;
+  ulong           ele_max = join->ele_max;
+
+  ulong                         memo  = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
+
+  if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_META ) ) FD_VOLATILE_CONST( chain->ver_cnt );
+  if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_DATA ) ) {
+    ulong ele_idx = MAP_(private_idx)( chain->head_cidx );
+    if( FD_LIKELY( ele_idx < ele_max ) ) FD_VOLATILE_CONST( ele0[ ele_idx ] );
+  }
+
+  query->memo = memo;
 }
 
 MAP_STATIC int
@@ -1864,12 +1959,13 @@ MAP_(remove)( MAP_(t) *         join,
   MAP_ELE_T *     ele     = join->ele;
   ulong           ele_max = join->ele_max;
 
-  ulong                         hash  = MAP_(key_hash)( key, map->seed );
-  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, hash );
+  ulong                         memo  = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
 
   /* Find the key on the chain.  If found, remove it.  If not found,
      corrupt or blocked, fail the operation. */
 
+  query->memo  = memo;
   query->ele   = (MAP_ELE_T *)sentinel;
   query->chain = chain;
 
@@ -1896,7 +1992,7 @@ MAP_(remove)( MAP_(t) *         join,
 
       if(
 #         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-          FD_LIKELY( ele[ ele_idx ].MAP_MEMO==hash              ) &&
+          FD_LIKELY( ele[ ele_idx ].MAP_MEMO==memo              ) &&
 #         endif
           FD_LIKELY( MAP_(key_eq)( &ele[ ele_idx ].MAP_KEY, key ) ) ) { /* optimize for found */
 
@@ -1945,13 +2041,14 @@ MAP_(modify_try)( MAP_(t) *         join,
   MAP_ELE_T *     ele     = join->ele;
   ulong           ele_max = join->ele_max;
 
-  ulong                         hash  = MAP_(key_hash)( key, map->seed );
-  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, hash );
+  ulong                         memo  = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
 
   /* Search for the key on chain.  If found, retain the chain lock
      and return the found element.  If not found, corrupt or blocked,
      fail. */
 
+  query->memo  = memo;
   query->ele   = (MAP_ELE_T *)sentinel;
   query->chain = chain;
 
@@ -1977,7 +2074,7 @@ MAP_(modify_try)( MAP_(t) *         join,
 
       if(
 #         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-          FD_LIKELY( ele[ ele_idx ].MAP_MEMO==hash              ) &&
+          FD_LIKELY( ele[ ele_idx ].MAP_MEMO==memo              ) &&
 #         endif
           FD_LIKELY( MAP_(key_eq)( &ele[ ele_idx ].MAP_KEY, key ) ) ) { /* optimize for found */
         if( flags & FD_MAP_FLAG_ADAPTIVE ) {
@@ -2018,7 +2115,8 @@ MAP_STATIC int
 MAP_(query_try)( MAP_(t) const *   join,
                  MAP_KEY_T const * key,
                  MAP_ELE_T const * sentinel,
-                 MAP_(query_t) *   query ) {
+                 MAP_(query_t) *   query,
+                 int               flags ) {
 
   /* Determine which chain might hold key */
 
@@ -2026,8 +2124,8 @@ MAP_(query_try)( MAP_(t) const *   join,
   MAP_ELE_T const *     ele     = join->ele;
   ulong                 ele_max = join->ele_max;
 
-  ulong                               hash  = MAP_(key_hash)( key, map->seed );
-  MAP_(shmem_private_chain_t) const * chain = MAP_(shmem_private_chain_const)( map, hash );
+  ulong                               memo  = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, map->seed );
+  MAP_(shmem_private_chain_t) const * chain = MAP_(shmem_private_chain_const)( map, memo );
 
   /* Determine the version of the chain we are querying.  Then
      speculatively read and validate the number of elements on the chain
@@ -2047,6 +2145,7 @@ MAP_(query_try)( MAP_(t) const *   join,
   ulong now  = *_vc;
   FD_COMPILER_MFENCE();
 
+  query->memo    = memo;
   query->ele     = (MAP_ELE_T *)                  sentinel;
   query->chain   = (MAP_(shmem_private_chain_t) *)chain;
   query->ver_cnt = then;
@@ -2075,7 +2174,7 @@ MAP_(query_try)( MAP_(t) const *   join,
     int corrupt = (ele_idx>=ele_max);
     int found   = ( FD_LIKELY( !corrupt                                   ) &&
 #                   if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-                    FD_LIKELY( ele[ ele_idx ].MAP_MEMO==hash              ) &&
+                    FD_LIKELY( ele[ ele_idx ].MAP_MEMO==memo              ) &&
 #                   endif
                     FD_LIKELY( MAP_(key_eq)( &ele[ ele_idx ].MAP_KEY, key ) ) ) ? 1 : 0;
 
@@ -2146,8 +2245,8 @@ MAP_(txn_add)( MAP_(txn_t) *     txn,
 
   /* Determine which chain manages this key */
 
-  ulong                         hash  = MAP_(key_hash)( key, map->seed );
-  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, hash );
+  ulong                         memo  = MAP_(key_hash)( key, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
 
   /* If this chain already needs to be locked for this transaction,
      nothing to do. */
@@ -2343,8 +2442,8 @@ MAP_(txn_insert)( MAP_(t) *   join,
   ulong ele_idx = (ulong)(ele - join->ele);
   if( FD_UNLIKELY( ele_idx>=ele_max ) ) return FD_MAP_ERR_INVAL;
 
-  ulong                         hash  = MAP_(key_hash)( &ele->MAP_KEY, map->seed );
-  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, hash );
+  ulong                         memo  = MAP_(key_hash)( &ele->MAP_KEY, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
 
   /* Insert ele_idx at head of chain. */
 
@@ -2354,7 +2453,7 @@ MAP_(txn_insert)( MAP_(t) *   join,
 
   ele->MAP_NEXT    = chain->head_cidx;
 # if MAP_MEMOIZE
-  ele->MAP_MEMO    = hash;
+  ele->MAP_MEMO    = memo;
 # endif
   chain->head_cidx = MAP_(private_cidx)( ele_idx );
   chain->ver_cnt   = MAP_(private_vcnt)( version, ele_cnt+1UL );
@@ -2366,7 +2465,8 @@ MAP_STATIC int
 MAP_(txn_remove)( MAP_(t) *         join,
                   MAP_KEY_T const * key,
                   MAP_ELE_T const * sentinel,
-                  MAP_(query_t) *   query ) {
+                  MAP_(query_t) *   query,
+                  int               flags ) {
 
   /* Determine the chain that should hold key */
 
@@ -2374,8 +2474,8 @@ MAP_(txn_remove)( MAP_(t) *         join,
   MAP_ELE_T *     ele     = join->ele;
   ulong           ele_max = join->ele_max;
 
-  ulong                         hash  = MAP_(key_hash)( key, map->seed );
-  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, hash );
+  ulong                         memo  = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
 
   /* Find the key on the chain and remove it */
 
@@ -2383,6 +2483,7 @@ MAP_(txn_remove)( MAP_(t) *         join,
   ulong version = MAP_(private_vcnt_ver)( ver_cnt );
   ulong ele_cnt = MAP_(private_vcnt_cnt)( ver_cnt );
 
+  query->memo    = memo;
   query->ele     = (MAP_ELE_T *)sentinel;
   query->chain   = chain;
   query->ver_cnt = ver_cnt;
@@ -2396,7 +2497,7 @@ MAP_(txn_remove)( MAP_(t) *         join,
 
     if(
 #       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-        FD_LIKELY( ele[ ele_idx ].MAP_MEMO==hash              ) &&
+        FD_LIKELY( ele[ ele_idx ].MAP_MEMO==memo              ) &&
 #       endif
         FD_LIKELY( MAP_(key_eq)( &ele[ ele_idx ].MAP_KEY, key ) ) ) { /* optimize for found */
       *cur           = ele[ ele_idx ].MAP_NEXT;
@@ -2426,14 +2527,15 @@ MAP_(txn_modify)( MAP_(t) *         join,
   MAP_ELE_T *     ele     = join->ele;
   ulong           ele_max = join->ele_max;
 
-  ulong                         hash  = MAP_(key_hash)( key, map->seed );
-  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, hash );
+  ulong                         memo  = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, map->seed );
+  MAP_(shmem_private_chain_t) * chain = MAP_(shmem_private_chain)( map, memo );
 
   /* Search the chain for key */
 
   ulong ver_cnt = chain->ver_cnt;
   ulong ele_cnt = MAP_(private_vcnt_cnt)( ver_cnt );
 
+  query->memo    = memo;
   query->ele     = sentinel;
   query->chain   = chain;
   query->ver_cnt = ver_cnt;
@@ -2448,7 +2550,7 @@ MAP_(txn_modify)( MAP_(t) *         join,
 
     if(
 #       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-        FD_LIKELY( ele[ ele_idx ].MAP_MEMO==hash              ) &&
+        FD_LIKELY( ele[ ele_idx ].MAP_MEMO==memo              ) &&
 #       endif
         FD_LIKELY( MAP_(key_eq)( &ele[ ele_idx ].MAP_KEY, key ) ) ) { /* optimize for found */
       if( flags & FD_MAP_FLAG_ADAPTIVE ) {
@@ -2662,11 +2764,11 @@ MAP_(verify)( MAP_(t) const * join ) {
 
       MAP_KEY_T const * key = &ele[ cur_idx ].MAP_KEY;
 
-      ulong hash          = MAP_(key_hash)( key, seed );
-      ulong ele_chain_idx = hash & (chain_cnt-1UL);
+      ulong memo          = MAP_(key_hash)( key, seed );
+      ulong ele_chain_idx = memo & (chain_cnt-1UL);
       MAP_TEST( ele_chain_idx==chain_idx );                                  /* On correct chain */
 #     if MAP_MEMOIZE
-      MAP_TEST( ele[ cur_idx ].MAP_MEMO==hash );
+      MAP_TEST( ele[ cur_idx ].MAP_MEMO==memo );
 #     endif
 
       /* Note that we've already validated linkage from head_idx to

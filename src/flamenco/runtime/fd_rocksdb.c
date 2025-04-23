@@ -36,7 +36,6 @@ fd_rocksdb_init( fd_rocksdb_t * db,
   db->cfgs[ FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         ] = "optimistic_slots";
   db->cfgs[ FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         ] = "merkle_root_meta";
 
-
   rocksdb_options_t const * cf_options[ FD_ROCKSDB_CF_CNT ];
   for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ )
     cf_options[ i ] = db->opts;
@@ -177,7 +176,6 @@ ulong fd_rocksdb_find_last_slot(fd_rocksdb_t *db, char **err) {
   rocksdb_iter_destroy(iter);
   return max_slot;
 }
-
 
 ulong
 fd_rocksdb_first_slot( fd_rocksdb_t * db,
@@ -672,7 +670,7 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
     int err = FD_MAP_ERR_AGAIN;
     while( err == FD_MAP_ERR_AGAIN ) {
       fd_buf_shred_map_query_t query[1] = { 0 };
-      err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+      err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query, 0 );
       if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) FD_LOG_ERR(( "[%s] map missing shred %lu %u while deshredding", __func__, slot, idx ));
       if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] map corrupt. shred %lu %u", __func__, slot, idx ));
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
@@ -723,7 +721,7 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
     int err = FD_MAP_ERR_AGAIN;
     while( err == FD_MAP_ERR_AGAIN ) {
       fd_buf_shred_map_query_t query[1] = { 0 };;
-      err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+      err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query, 0 );
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) FD_LOG_ERR(( "[%s] map missing shred %lu %u while deshredding", __func__, slot, idx ));
       if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] map corrupt. shred %lu %u", __func__, slot, idx ));
@@ -896,7 +894,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   }
 
   rocksdb_iter_destroy(iter);
-
 
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_info_t * block_info = fd_blockstore_block_map_query( blockstore, slot );
