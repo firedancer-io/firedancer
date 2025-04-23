@@ -215,10 +215,10 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
 static int
 fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 
-  fd_funk_txn_t *      funk_txn = d->restore->funk_txn;
-  fd_funk_txn_xid_t    txn_xid  = funk_txn->xid;
-  fd_funk_t *          funk     = d->funk;
-  fd_wksp_t *          wksp     = fd_funk_wksp( funk );
+  fd_funk_txn_t *   funk_txn = d->restore->funk_txn;
+  fd_funk_txn_xid_t txn_xid  = funk_txn->xid;
+  fd_funk_t *       funk     = d->funk;
+  fd_wksp_t *       wksp     = fd_funk_wksp( funk );
 
   /* Dump all the records */
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
@@ -250,7 +250,11 @@ static int
 fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 
   int advance_err = fd_snapshot_loader_advance( dumper->loader );
-  if( FD_UNLIKELY( advance_err<0 ) ) return advance_err;
+  if( FD_UNLIKELY( advance_err ) ) {
+    if( advance_err==MANIFEST_DONE ) return 0;
+    if( advance_err>0 ) FD_LOG_WARNING(( "fd_snapshot_loader_advance() failed (%d)", advance_err ));
+    return advance_err;
+  }
 
   int collect_err = fd_snapshot_dumper_release( dumper );
   if( FD_UNLIKELY( collect_err ) ) return collect_err;
@@ -408,7 +412,7 @@ cmd_dump( int     argc,
 
   fd_snapshot_dump_args_t args[1] = {{0}};
   args->_page_sz       =         fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL,      "gigantic" );
-  args->page_cnt       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL,             3UL );
+  args->page_cnt       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL,             5UL );
   args->near_cpu       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--near-cpu",       NULL, fd_log_cpu_id() );
   args->zstd_window_sz =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--zstd-window-sz", NULL,      33554432UL );
   args->snapshot       = (char *)fd_env_strip_cmdline_cstr  ( &argc, &argv, "--snapshot",       NULL,            NULL );
@@ -431,9 +435,9 @@ cmd_dump( int     argc,
 
   /* With spad */
 
-  ulong       mem_max           = args->zstd_window_sz + (1<<29); /* manifest plus 512 MiB headroom */
-  uchar *     mem               = fd_wksp_alloc_laddr(  wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( mem_max ), 1UL );
-  fd_spad_t * spad              = fd_spad_join( fd_spad_new( mem, mem_max ) );
+  ulong       mem_max = args->zstd_window_sz + (1UL<<32); /* manifest plus 4 GiB headroom */
+  uchar *     mem     = fd_wksp_alloc_laddr(  wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( mem_max ), 1UL );
+  fd_spad_t * spad    = fd_spad_join( fd_spad_new( mem, mem_max ) );
   if( FD_UNLIKELY( !spad ) ) {
     FD_LOG_ERR(( "Failed to allocate spad" ));
   }
