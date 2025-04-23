@@ -34,6 +34,7 @@ fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
       return 0UL;
     }
     fd_memcpy( tmp, input->elf.data->bytes, input->elf.data->size );
+    fd_memset( (uchar*)tmp + input->elf.data->size, 0, elf_sz - input->elf.data->size );
     _bin = tmp;
   } else {
     _bin = input->elf.data->bytes;
@@ -87,7 +88,7 @@ fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
       return 0UL;
     }
     elf_effects->rodata->size = (pb_size_t) prog->rodata_sz;
-    fd_memcpy( &(elf_effects->rodata->bytes), prog->rodata, prog->rodata_sz );
+    fd_memcpy( elf_effects->rodata->bytes, prog->rodata, prog->rodata_sz );
 
     elf_effects->text_cnt = prog->text_cnt;
     elf_effects->text_off = prog->text_off;
