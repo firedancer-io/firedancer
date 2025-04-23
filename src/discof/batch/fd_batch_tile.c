@@ -28,7 +28,7 @@ struct fd_snapshot_tile_ctx {
   /* Shared data structures. */
   fd_txncache_t * status_cache;
   ulong         * is_constipated;
-  fd_funk_t     * funk;
+  fd_funk_t       funk[1];
 
   /* File descriptors used for snapshot generation. */
   int             tmp_fd;
@@ -442,20 +442,15 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
-    ctx->funk = fd_funk_open_file( ctx->funk_file,
-                                   1UL,
-                                   0UL,
-                                   0UL,
-                                   0UL,
-                                   0UL,
-                                   FD_FUNK_READ_WRITE,
-                                   NULL );
-    if( FD_UNLIKELY( !ctx->funk ) ) {
-      FD_LOG_ERR(( "failed to join a funky" ));
+    fd_funk_t * funk = fd_funk_open_file(
+        ctx->funk, ctx->funk_file,
+        1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READ_WRITE, NULL );
+    if( FD_UNLIKELY( !funk ) ) {
+      FD_LOG_ERR(( "Failed to join a funk database" ));
     }
     ctx->is_funk_active = 1;
 
-    FD_LOG_WARNING(( "Just joined funk at file=%s", ctx->funk_file ));
+    FD_LOG_WARNING(( "Joined funk database at file=%s", ctx->funk_file ));
   }
 
   if( fd_batch_fseq_is_snapshot( batch_fseq ) ) {

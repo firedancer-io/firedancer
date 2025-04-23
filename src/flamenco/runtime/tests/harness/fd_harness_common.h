@@ -10,9 +10,9 @@
    for all harnesses. */
 
 struct fd_runtime_fuzz_runner {
-    fd_funk_t * funk;
-    fd_spad_t * spad;
-    fd_wksp_t * wksp;
+  fd_funk_t   funk[1];
+  fd_wksp_t * wksp;
+  fd_spad_t * spad;
 };
 typedef struct fd_runtime_fuzz_runner fd_runtime_fuzz_runner_t;
 

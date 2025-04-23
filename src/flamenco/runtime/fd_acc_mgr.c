@@ -1,16 +1,9 @@
 #include "fd_acc_mgr.h"
-#include "fd_runtime.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "context/fd_exec_epoch_ctx.h"
-#include "context/fd_exec_slot_ctx.h"
-#include "fd_rent_lists.h"
-#include "fd_rocksdb.h"
-#include "sysvar/fd_sysvar_rent.h"
-#include "fd_system_ids.h"
-#include <assert.h>
+#include "../../funk/fd_funk.h"
 
 fd_account_meta_t const *
-fd_funk_get_acc_meta_readonly( fd_funk_t *            funk,
+fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
                                fd_funk_txn_t const *  txn,
                                fd_pubkey_t const *    pubkey,
                                fd_funk_rec_t const ** orec,
@@ -100,7 +93,7 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
   ulong sz = sizeof(fd_account_meta_t)+min_data_sz;
   void * val;
   if( fd_funk_val_sz( rec ) < sz )
-    val = fd_funk_val_truncate( rec, sz, fd_funk_alloc( funk, wksp ), wksp, &funk_err );
+    val = fd_funk_val_truncate( rec, sz, fd_funk_alloc( funk ), wksp, &funk_err );
   else
     val = fd_funk_val( rec, wksp );
 

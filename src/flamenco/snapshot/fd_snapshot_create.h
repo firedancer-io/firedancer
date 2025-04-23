@@ -5,7 +5,7 @@
    snapshot from a slot execution context. */
 
 #include "fd_snapshot_base.h"
-#include "../runtime/fd_runtime_init.h"
+#include "../../funk/fd_funk_base.h"
 #include "../runtime/fd_txncache.h"
 #include "../../util/archive/fd_tar.h"
 #include "../types/fd_types.h"

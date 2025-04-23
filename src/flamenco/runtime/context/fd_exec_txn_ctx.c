@@ -240,8 +240,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
 
-  ctx->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
-  if( FD_UNLIKELY( !ctx->funk ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
     FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
   }
 

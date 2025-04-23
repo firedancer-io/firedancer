@@ -16,7 +16,7 @@ struct fd_restart_tile_ctx {
   int                   in_wen_restart;
 
   fd_restart_t *        restart;
-  fd_funk_t *           funk;
+  fd_funk_t             funk[1];
   fd_epoch_bank_t       epoch_bank;
   int                   is_funk_active;
   char                  funk_file[ PATH_MAX ];
@@ -275,14 +275,14 @@ after_frag( fd_restart_tile_ctx_t * ctx,
   if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
     /* Decode the slot bank for HeaviestForkSlot from funk, referencing fd_runtime_recover_banks() in fd_runtime_init.c */
     fd_slot_bank_t slot_bank;
-    fd_funk_rec_key_t  id      = fd_runtime_slot_bank_key();
-    fd_funk_txn_map_t  txn_map = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
+    fd_funk_rec_key_t   id      = fd_runtime_slot_bank_key();
+    fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
     fd_funk_txn_start_read( ctx->funk );
-    fd_funk_txn_t *    funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, &txn_map );
+    fd_funk_txn_t *    funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
     if( FD_UNLIKELY( !funk_txn ) ) {
       /* Try again with xid.ul[1] being the slot number instead of the block hash */
       ctx->store_xid_msg.ul[1] = ctx->restart->heaviest_fork_slot;
-      funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, &txn_map );
+      funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
       if( FD_UNLIKELY( !funk_txn ) ) {
         FD_LOG_ERR(( "Wen-restart fails due to NULL funk_txn" ));
       }
@@ -348,7 +348,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     }
 
     ulong sz    = sizeof(uint) + fd_slot_bank_size( &slot_bank );
-    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk, fd_funk_wksp( ctx->funk ) ), fd_funk_wksp( ctx->funk ), &opt_err );
+    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk ), fd_funk_wksp( ctx->funk ), &opt_err );
     *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
     fd_bincode_encode_ctx_t slot_bank_encode_ctx = {
       .data    = buf + sizeof(uint),
@@ -359,7 +359,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
       FD_LOG_ERR(( "Wen-restart fails at inserting a hard fork in slot bank and save it in funk" ));
     }
 
-    fd_funk_rec_publish( prepare );
+    fd_funk_rec_publish( ctx->funk, prepare );
 
     /* Publish the txn in funk */
     fd_funk_txn_start_write( ctx->funk );
@@ -385,16 +385,11 @@ after_credit( fd_restart_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
-    ctx->funk = fd_funk_open_file( ctx->funk_file,
-                                   1UL,
-                                       0UL,
-                                    0UL,
-                                    0UL,
-                                   0UL,
-                                       FD_FUNK_READ_WRITE,
-                             NULL );
-    if( FD_UNLIKELY( !ctx->funk ) ) {
-      FD_LOG_ERR(( "failed to join a funky" ));
+    fd_funk_t * funk = fd_funk_open_file(
+        ctx->funk, ctx->funk_file,
+        1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READ_WRITE, NULL );
+    if( FD_UNLIKELY( !funk ) ) {
+      FD_LOG_ERR(( "fd_funk_open_file failed" ));
     } else {
       FD_LOG_NOTICE(("Restart tile joins funk successfully"));
     }

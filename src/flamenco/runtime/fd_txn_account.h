@@ -90,7 +90,7 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
 int
 fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
                                         fd_pubkey_t const *   pubkey,
-                                        fd_funk_t *           funk,
+                                        fd_funk_t const *     funk,
                                         fd_funk_txn_t const * funk_txn );
 
 /* Initializes a fd_txn_account_t object with a mutable handle into

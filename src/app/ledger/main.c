@@ -22,7 +22,7 @@ struct fd_ledger_args {
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t       blockstore_ljoin;
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
-  fd_funk_t *           funk;                    /* handle to funk */
+  fd_funk_t             funk[1];                 /* handle to funk */
   fd_alloc_t *          alloc;                   /* handle to alloc */
   char const *          cmd;                     /* user passed command to fd_ledger */
   ulong                 start_slot;              /* start slot for offline replay */
@@ -894,13 +894,13 @@ void
 init_funk( fd_ledger_args_t * args ) {
   fd_funk_t * funk;
   if( args->restore_funk ) {
-    funk = fd_funk_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
+    funk = fd_funk_recover_checkpoint( args->funk, args->funk_file, 1, args->restore_funk, &args->funk_close_args );
   } else  {
-    funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
+    funk = fd_funk_open_file( args->funk, args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
   }
-  args->funk = funk;
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Failed to join funk" ));
   args->funk_wksp = fd_funk_wksp( funk );
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( args->funk_wksp, funk ) ));
+  FD_LOG_NOTICE(( "Funk database is at %s:0x%lx", fd_wksp_name( args->wksp ), fd_wksp_gaddr_fast( args->funk_wksp, funk ) ));
 }
 
 void
@@ -1171,9 +1171,9 @@ ingest( fd_ledger_args_t * args ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( args->verify_funk ) {
-    FD_LOG_NOTICE(( "verifying funky" ));
+    FD_LOG_NOTICE(( "fd_funk_verify() start" ));
     if( fd_funk_verify( funk ) ) {
-      FD_LOG_ERR(( "verification failed" ));
+      FD_LOG_ERR(( "fd_funk_verify() failed" ));
     }
   }
 #endif

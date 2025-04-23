@@ -18,7 +18,12 @@
 /* Internal helper for extracting data from account_meta */
 static inline void *
 fd_account_meta_get_data( fd_account_meta_t * m ) {
-  return ((char *) m) + m->hlen;
+  return ((uchar *) m) + m->hlen;
+}
+
+static inline void const *
+fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
+  return ((uchar const *) m) + m->hlen;
 }
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -316,17 +321,11 @@ fd_account_hash( fd_funk_t *                    funk,
     return;
   }
 
-  fd_account_meta_t * acc_meta_parent = NULL;
+  fd_account_meta_t const * acc_meta_parent = NULL;
   if( txn_out ) {
-    fd_wksp_t * wksp            = fd_funk_wksp( funk );
-    fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-    txn_out                     = fd_funk_txn_parent( (fd_funk_txn_t *) txn_out, &txn_pool );
-    acc_meta_parent             = (fd_account_meta_t *)fd_funk_get_acc_meta_readonly( funk,
-                                                                                  txn_out,
-                                                                                  task_info->acc_pubkey,
-                                                                                  NULL,
-                                                                                  &err,
-                                                                                  NULL );
+    fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( funk );
+    txn_out = fd_funk_txn_parent( txn_out, txn_pool );
+    acc_meta_parent = fd_funk_get_acc_meta_readonly( funk, txn_out, task_info->acc_pubkey, NULL, &err, NULL );
   }
 
   if( FD_UNLIKELY( !acc_meta->info.lamports ) ) {
@@ -363,7 +362,7 @@ fd_account_hash( fd_funk_t *                    funk,
     }
   }
   if( FD_LIKELY(task_info->hash_changed && ((NULL != acc_meta_parent) && (acc_meta_parent->info.lamports != 0) ) ) ) {
-    uchar *             acc_data = fd_account_meta_get_data(acc_meta_parent);
+    uchar const * acc_data = fd_account_meta_get_data_const( acc_meta_parent );
     fd_lthash_value_t old_lthash_value;
     fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;
@@ -959,9 +958,8 @@ fd_accounts_hash( fd_funk_t *             funk,
   /* FIXME: this is not the correct lock to use, although in reality this is fine as we never modify
      accounts at the same time as hashing them. Once the hashing has been moved into tiles, we need to
      change it so that we partition by hash chains, and acquire the lock on the individual hash chains. */
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  fd_funk_rec_pool_lock( &rec_pool, 1 );
+  fd_funk_rec_pool_t * rec_pool = fd_funk_rec_pool( funk );
+  fd_funk_rec_pool_lock( rec_pool, 1 );
   fd_funk_txn_start_read( funk );
 
   if( fd_exec_para_cb_is_single_threaded( exec_para_ctx ) ) {
@@ -971,9 +969,8 @@ fd_accounts_hash( fd_funk_t *             funk,
     if ( NULL != lt_hash )
       fd_lthash_zero( &lthash_values[0] );
 
-    fd_pubkey_hash_pair_t * pairs             = fd_spad_alloc( runtime_spad,
-                                                               FD_PUBKEY_HASH_PAIR_ALIGN,
-                                                               funk->rec_max * sizeof(fd_pubkey_hash_pair_t) );
+    fd_pubkey_hash_pair_t * pairs =
+        fd_spad_alloc( runtime_spad, FD_PUBKEY_HASH_PAIR_ALIGN, fd_funk_rec_max( funk ) * sizeof(fd_pubkey_hash_pair_t) );
 
     fd_accounts_sorted_subrange_gather( funk, 0, 1, &num_pairs, lthash_values, pairs, features );
     if( FD_UNLIKELY( !pairs ) ) {
@@ -1013,7 +1010,7 @@ fd_accounts_hash( fd_funk_t *             funk,
     FD_LOG_NOTICE(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
   }
 
-  fd_funk_rec_pool_unlock( &rec_pool );
+  fd_funk_rec_pool_unlock( rec_pool );
   fd_funk_txn_end_read( funk );
 
   return 0;
@@ -1264,8 +1261,8 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
                           fd_spad_t *      runtime_spad,
                           fd_features_t *  features ) {
 
-  fd_wksp_t *     wksp = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool  = fd_funk_txn_pool( funk, wksp );
+  fd_wksp_t *          wksp     = fd_funk_wksp( funk );
+  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( funk );
 
   // How many txns are we dealing with?
   fd_funk_txn_start_read( funk );
@@ -1273,7 +1270,7 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
   fd_funk_txn_t * txn = funk_txn;
   while (NULL != txn) {
     txn_cnt++;
-    txn = fd_funk_txn_parent( txn, &txn_pool );
+    txn = fd_funk_txn_parent( txn, txn_pool );
   }
 
   fd_funk_txn_t ** txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
@@ -1288,11 +1285,11 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
     txns[--txn_idx] = txn;
     if (NULL == txn)
       break;
-    txn = fd_funk_txn_parent( txn, &txn_pool );
+    txn = fd_funk_txn_parent( txn, txn_pool );
   }
 
   // How many total records are we dealing with?
-  ulong           num_iter_accounts = funk->rec_max;
+  ulong num_iter_accounts = fd_funk_rec_max( funk );
 
   int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
 

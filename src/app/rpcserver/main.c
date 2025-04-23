@@ -32,9 +32,9 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   char const * funk_file = fd_env_strip_cmdline_cstr( argc, argv, "--funk-file", NULL, NULL );
   if( FD_UNLIKELY( !funk_file ))
     FD_LOG_ERR(( "--funk-file argument is required" ));
-  args->funk = fd_funk_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
-  if( args->funk == NULL ) {
-    FD_LOG_ERR(( "failed to join a funky" ));
+  fd_funk_t * funk = fd_funk_open_file( args->funk, funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  if( !funk ) {
+    FD_LOG_ERR(( "failed to join funk" ));
   }
 
   char const * blockstore_file = fd_env_strip_cmdline_cstr( argc, argv, "--blockstore-file", NULL, NULL );
@@ -107,10 +107,13 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( FD_UNLIKELY( !funk_file ))
     FD_LOG_ERR(( "--funk-file argument is required" ));
   char const * restore = fd_env_strip_cmdline_cstr ( argc, argv, "--restore-funk", NULL, NULL );
-  if( restore != NULL )
-    args->funk = fd_funk_recover_checkpoint( funk_file, 1, restore, NULL );
-  else
-    args->funk = fd_funk_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  fd_funk_t * funk = NULL;
+  if( restore != NULL ) {
+    funk = fd_funk_recover_checkpoint( args->funk, funk_file, 1, restore, NULL );
+  } else {
+    funk = fd_funk_open_file( args->funk, funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  }
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Failed to join funk database" ));
 
   fd_wksp_t * wksp;
   const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, NULL );

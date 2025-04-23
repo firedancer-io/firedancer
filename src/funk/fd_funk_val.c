@@ -2,10 +2,10 @@
 
 void *
 fd_funk_val_truncate( fd_funk_rec_t * rec,
-                         ulong           new_val_sz,
-                         fd_alloc_t *    alloc,
-                         fd_wksp_t *     wksp,
-                         int *           opt_err ) {
+                      ulong           new_val_sz,
+                      fd_alloc_t *    alloc,
+                      fd_wksp_t *     wksp,
+                      int *           opt_err ) {
 
   /* Check input args */
 
@@ -71,11 +71,10 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
   }
 }
 
-#ifdef FD_FUNK_HANDHOLDING
 int
 fd_funk_val_verify( fd_funk_t * funk ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  ulong wksp_tag = funk->wksp_tag;
+  ulong wksp_tag = funk->shmem->wksp_tag;
 
   /* At this point, rec_map has been extensively verified */
 
@@ -116,4 +115,3 @@ fd_funk_val_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-#endif

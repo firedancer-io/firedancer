@@ -1302,7 +1302,7 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
   /* FIXME: just pass in the runtime workspace, instead of getting it from fd_wksp_containing */
   fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->funk );
+  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->funk->shmem );
   ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->sysvar_cache );
 
   /* Init txn ctx */

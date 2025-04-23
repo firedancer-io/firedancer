@@ -24,7 +24,7 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk, fd_funk_wksp(funk) ), fd_funk_wksp(funk), NULL);
+  uchar *buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp(funk), NULL);
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
@@ -34,12 +34,12 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
   {
     FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
-    fd_funk_rec_cancel( prepare );
+    fd_funk_rec_cancel( funk, prepare );
     return -1;
   }
   FD_TEST(ctx.data == ctx.dataend);
 
-  fd_funk_rec_publish( prepare );
+  fd_funk_rec_publish( funk, prepare );
 
   FD_LOG_DEBUG(( "epoch frozen, slot=%lu bank_hash=%s poh_hash=%s", slot_ctx->slot_bank.slot, FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ), FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 
@@ -63,7 +63,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk, fd_funk_wksp(funk) ), fd_funk_wksp(funk), NULL);
+  uchar * buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp( funk ), NULL);
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data    = buf + sizeof(uint),
@@ -72,7 +72,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   if( FD_UNLIKELY( fd_slot_bank_encode( &slot_ctx->slot_bank, &ctx ) != FD_BINCODE_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_runtime_save_banks: fd_firedancer_banks_encode failed" ));
-    fd_funk_rec_cancel( prepare );
+    fd_funk_rec_cancel( funk, prepare );
     return -1;
   }
 
@@ -80,7 +80,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     FD_LOG_ERR(( "Data does not equal to end of buffer" ));
   }
 
-  fd_funk_rec_publish( prepare );
+  fd_funk_rec_publish( funk, prepare );
 
   FD_LOG_DEBUG(( "slot frozen, slot=%lu bank_hash=%s poh_hash=%s",
                  slot_ctx->slot_bank.slot,

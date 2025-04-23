@@ -3986,9 +3986,9 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_spad_t *          runtime_spad ) {
   /* Publish any transaction older than 31 slots */
   fd_funk_txn_start_write( slot_ctx->funk );
-  fd_funk_t *        funk      = slot_ctx->funk;
-  fd_funk_txn_pool_t txnpool   = fd_funk_txn_pool( funk, fd_funk_wksp( funk ) );
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_funk_t *          funk       = slot_ctx->funk;
+  fd_funk_txn_pool_t * txnpool    = fd_funk_txn_pool( funk );
+  fd_epoch_bank_t *    epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
   if( capture_ctx != NULL ) {
     fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot_bank.slot );
@@ -3997,7 +3997,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   int do_eah = 0;
 
   uint depth = 0;
-  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, &txnpool) ) {
+  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnpool) ) {
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
@@ -4008,7 +4008,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       if( slot_ctx->epoch_ctx->constipate_root ) {
-        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, &txnpool );
+        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, txnpool );
         if( parent != NULL ) {
           slot_ctx->root_slot = txn->xid.ul[0];
 
