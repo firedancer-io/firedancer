@@ -2,7 +2,7 @@
 
 #include <unistd.h>
 
-extern action_t * ACTIONS;
+extern action_t ACTIONS[];
 
 void
 help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
