@@ -10,5 +10,6 @@ $(call make-unit-test,test_funk_val,test_funk_val test_funk_common,fd_funk fd_ut
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_funk_txn2,test_funk_txn2,fd_funk fd_util)
 $(call make-unit-test,test_funk_file,test_funk_file,fd_funk fd_util)
+$(call make-unit-test,bench_funk_index,bench_funk_index,fd_funk fd_util)
 endif
 endif
