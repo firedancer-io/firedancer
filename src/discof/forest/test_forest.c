@@ -188,6 +188,79 @@ void test_out_of_order( fd_wksp_t * wksp ) {
 }
 
 void
+test_forks( fd_wksp_t * wksp ){
+
+  ulong ele_max = 32UL;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  // these slots all have 2 shreds, 0,1
+  fd_forest_init( forest, 0 );
+  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 2, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 3, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 4, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 10, 1, 1, 0, 1, 1 ); /* orphan */
+
+  /* Frontier should be slot 1. */
+  ulong key = 1 ;
+  FD_TEST(  fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key, NULL, fd_forest_pool( forest ) ) );
+
+  int cnt = 0;
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+       !fd_forest_frontier_iter_done( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+       iter = fd_forest_frontier_iter_next( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) ) ) {
+    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+    cnt++;
+    (void) ele;
+  }
+
+  FD_TEST( cnt == 1 );
+  // advance frontier to slot 3
+  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
+
+  key = 3;
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key, NULL, fd_forest_pool( forest ) ) );
+
+  // add a new fork off slot 1
+  fd_forest_data_shred_insert( forest, 5, 4, 1, 0, 1, 1 );
+
+  fd_forest_print( forest );
+
+  key = 5;
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key, NULL, fd_forest_pool( forest ) ) );
+
+  cnt = 0;
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+       !fd_forest_frontier_iter_done( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+       iter = fd_forest_frontier_iter_next( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) ) ) {
+    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+    cnt++;
+    (void) ele;
+  }
+  FD_TEST( cnt == 2 );
+
+  // add a fork off of the orphan
+  fd_forest_data_shred_insert( forest, 11, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 12, 4, 1, 0, 1, 1 );
+
+  cnt = 0;
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+       !fd_forest_frontier_iter_done( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+       iter = fd_forest_frontier_iter_next( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) ) ) {
+    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( iter, fd_forest_frontier( forest ), fd_forest_pool( forest ) );
+    cnt++;
+    (void) ele;
+  }
+  FD_TEST( cnt == 2 );
+
+  //fd_forest_print( forest );
+
+}
+
+void
 test_print_tree( fd_wksp_t *wksp ){
   ulong ele_max = 512UL;
   void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
@@ -448,6 +521,7 @@ main( int argc, char ** argv ) {
 
   test_publish( wksp );
   test_out_of_order( wksp );
+  test_forks( wksp );
   // test_print_tree( wksp );
   // test_large_print_tree( wksp);
   test_linear_forest_iterator( wksp );

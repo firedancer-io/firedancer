@@ -310,10 +310,10 @@ advance_frontier( fd_forest_t * forest, ulong slot, ushort parent_off ) {
 
 static fd_forest_ele_t *
 query( fd_forest_t * forest, ulong slot ) {
-  fd_forest_ele_t *      pool        = fd_forest_pool( forest );
-  fd_forest_ancestry_t * ancestry    = fd_forest_ancestry( forest );
-  fd_forest_frontier_t * frontier    = fd_forest_frontier( forest );
-  fd_forest_orphaned_t * orphaned    = fd_forest_orphaned( forest );
+  fd_forest_ele_t *      pool      = fd_forest_pool( forest );
+  fd_forest_ancestry_t * ancestry  = fd_forest_ancestry( forest );
+  fd_forest_frontier_t * frontier  = fd_forest_frontier( forest );
+  fd_forest_orphaned_t * orphaned  = fd_forest_orphaned( forest );
 
   fd_forest_ele_t * ele;
   ele =                  fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
@@ -361,6 +361,20 @@ insert( fd_forest_t * forest, ulong slot, ushort parent_off ) {
   if( FD_LIKELY( parent ) ) {
     fd_forest_ancestry_ele_insert( fd_forest_ancestry( forest ), ele, pool );
     link( forest, parent, ele ); /* cannot fail */
+
+    /* Edge case where we are creating a fork off of a node that is behind the frontier.
+       We need to add this node to the frontier. */
+
+    fd_forest_ele_t * ancestor = parent;
+    while( ancestor /* ancestor exists */
+           && !fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &ancestor->slot, NULL, pool ) /* ancestor is not on frontier */
+           && !fd_forest_orphaned_ele_query( fd_forest_orphaned( forest ), &ancestor->slot, NULL, pool ) /* ancestor is not an orphan */ ) {
+      ancestor = fd_forest_pool_ele( pool, ancestor->parent );
+    }
+    if( FD_UNLIKELY( !ancestor ) ) {
+      /* Did not find ancestor on frontier OR orphan, which means it must be behind the frontier barrier. */
+      fd_forest_frontier_ele_insert( fd_forest_frontier( forest ), ele, pool );
+    }
   }
   return ele;
 }
