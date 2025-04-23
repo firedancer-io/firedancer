@@ -47,7 +47,7 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
   }
   fd_funk_rec_key_copy( pair->key, key );
   for(;;) {
-    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query );
+    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS )   break;
     if( err == FD_MAP_ERR_KEY )   return NULL;
     if( err == FD_MAP_ERR_AGAIN ) continue;
@@ -145,7 +145,7 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
   ulong last_copy_sz = 0;
   for(;;) {
     fd_funk_rec_query_t query[1];
-    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query );
+    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_ERR_KEY )   {
       if( last_copy ) fd_valloc_free( valloc, last_copy );
       return NULL;
@@ -410,7 +410,7 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   fd_funk_rec_key_copy( pair->key, key );
   fd_funk_rec_query_t query[ 1 ];
   for(;;) {
-    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query );
+    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS )   break;
     if( err == FD_MAP_ERR_KEY )   return FD_FUNK_SUCCESS;
     if( err == FD_MAP_ERR_AGAIN ) continue;
