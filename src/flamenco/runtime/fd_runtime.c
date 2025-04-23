@@ -4260,7 +4260,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     /* Dump the remainder of the block after preparation, POH verification, etc */
-    if( dump_block ) {
+    if( FD_UNLIKELY( dump_block ) ) {
       fd_dump_block_to_protobuf_tx_only( &block_info, slot_ctx, capture_ctx, runtime_spad, block_ctx );
     }
 
