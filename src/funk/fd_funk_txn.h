@@ -6,6 +6,7 @@
    included directly.  Use fd_funk.h instead. */
 
 #include "fd_funk_base.h"
+#include "../util/fd_mutex.h"
 
 /* FD_FUNK_TXN_{ALIGN,FOOTPRINT} describe the alignment and footprint of
    a fd_funk_txn_t.  ALIGN will be a power of 2, footprint will be a
@@ -38,17 +39,22 @@ struct __attribute__((aligned(FD_FUNK_TXN_ALIGN))) fd_funk_txn_private {
 
   /* These fields are managed by the funk */
 
-  uint   parent_cidx;       /* compr map index of the in-prep parent         txn, compr FD_FUNK_TXN_IDX_NULL if a funk child */
-  uint   child_head_cidx;   /* "                              oldest   child      "                             childless */
-  uint   child_tail_cidx;   /* "                              youngest child                                    childless */
-  uint   sibling_prev_cidx; /* "                              older sibling                                     oldest sibling */
-  uint   sibling_next_cidx; /* "                              younger sibling                                   youngest sibling */
-  uint   stack_cidx;        /* Internal use by funk */
-  ulong  tag;               /* Internal use by funk */
+  uint              parent_cidx;       /* compr map index of the in-prep parent         txn, compr FD_FUNK_TXN_IDX_NULL if a funk child */
+  uint              child_head_cidx;   /* "                              oldest   child      "                             childless */
+  uint              child_tail_cidx;   /* "                              youngest child                                    childless */
+  uint              sibling_prev_cidx; /* "                              older sibling                                     oldest sibling */
+  uint              sibling_next_cidx; /* "                              younger sibling                                   youngest sibling */
+  uint              stack_cidx;        /* Internal use by funk */
+  ulong             tag;               /* Internal use by funk */
 
-  uint  rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
-  uint  rec_tail_idx;      /* "                       last          " */
-  uchar lock;              /* Internal use by funk for sychronizing modifications to txn object */
+  uint              rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
+  uint              rec_tail_idx;      /* "                       last          " */
+  fd_mutex_t        mutex;             /* IMPORTANT: Protects the following fields:
+                                          - Each record in this txn's map:
+                                            - prev_idx
+                                            - next_idx
+                                          - rec_head_idx
+                                          - rec_tail_idx */
 };
 
 typedef struct fd_funk_txn_private fd_funk_txn_t;

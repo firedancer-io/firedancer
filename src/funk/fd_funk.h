@@ -252,8 +252,15 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      the cgroup_idx to give the funk), inferring the wksp, cgroup from
      that and allocating exclusively from that? */
 
-  ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
-  uchar lock;        /* lock for synchronizing modifications to funk object */
+  ulong      alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
+  fd_mutex_t mutex;       /* IMPORTANT: Protects the following fields:
+                             - Each record in this funk's rec map:
+                              - prev_idx
+                              - next_idx
+                             - rec_head_idx
+                             - rec_tail_idx
+                             Protects the same fields as the mutex in fd_funk_txn_t
+                             Used when modifying or iterating over records without an existing funk txn object */
 
   /* Padding to FD_FUNK_ALIGN here */
 };
