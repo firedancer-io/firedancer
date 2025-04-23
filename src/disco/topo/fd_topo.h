@@ -169,6 +169,12 @@ typedef struct {
     } netlink;
 
     struct {
+      ulong dns_cache_obj_id;
+      uchar bundle_domain_len;
+      char  bundle_domain[ 255 ]; /* not a cstr */
+    } dns;
+
+    struct {
       uint   out_depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
@@ -188,9 +194,13 @@ typedef struct {
     } dedup;
 
     struct {
-      char url[ 256 ];
-      char tls_domain_name[ 256 ];
-      char identity_key_path[ PATH_MAX ];
+      char  url[ 256 ];
+      ulong url_len;
+      char  sni[ 256 ];
+      ulong sni_len;
+      char  identity_key_path[ PATH_MAX ];
+      char  key_log_path[ PATH_MAX ];
+      ulong buf_sz;
     } bundle;
 
     struct {
@@ -468,6 +478,7 @@ typedef struct {
   ulong        rlimit_address_space;
   ulong        rlimit_data;
   int          for_tpool;
+  int          disable_sandbox;
 
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );

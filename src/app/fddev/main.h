@@ -18,6 +18,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_opaque;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
+extern fd_topo_obj_callbacks_t fd_obj_cb_dns_cache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 
@@ -31,6 +32,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_dbl_buf,
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
+  &fd_obj_cb_dns_cache,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_tile,
   NULL,
@@ -59,6 +61,7 @@ configure_stage_t * STAGES[] = {
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;
+extern fd_topo_run_tile_t fd_tile_dns;
 extern fd_topo_run_tile_t fd_tile_sock;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_bundle;
@@ -83,6 +86,7 @@ extern fd_topo_run_tile_t fd_tile_store;
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netlnk,
+  &fd_tile_dns,
   &fd_tile_sock,
   &fd_tile_quic,
   &fd_tile_bundle,
@@ -118,6 +122,7 @@ extern action_t fd_action_netconf;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_version;
 extern action_t fd_action_bench;
+extern action_t fd_action_bundle_client;
 extern action_t fd_action_dev;
 extern action_t fd_action_dev1;
 extern action_t fd_action_dump;
@@ -143,6 +148,7 @@ action_t * ACTIONS[] = {
   &fd_action_help,
   &fd_action_version,
   &fd_action_bench,
+  &fd_action_bundle_client,
   &fd_action_dev,
   &fd_action_dev1,
   &fd_action_dump,

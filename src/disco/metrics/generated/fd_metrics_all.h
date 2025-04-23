@@ -19,6 +19,7 @@
 #include "fd_metrics_repair.h"
 #include "fd_metrics_gossip.h"
 #include "fd_metrics_netlnk.h"
+#include "fd_metrics_dns.h"
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
@@ -155,7 +156,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_T
 
 #define FD_METRICS_TOTAL_SZ (8UL*246UL)
 
-#define FD_METRICS_TILE_KIND_CNT 17
+#define FD_METRICS_TILE_KIND_CNT 18
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];
