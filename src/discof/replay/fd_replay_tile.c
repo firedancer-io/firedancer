@@ -2342,7 +2342,6 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->genesis,
                            is_snapshot,
                            ctx->capture_ctx,
-                           NULL,
                            ctx->runtime_spad );
   fd_blockstore_init( ctx->slot_ctx->blockstore,
                       ctx->blockstore_fd,
