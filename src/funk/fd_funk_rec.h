@@ -124,6 +124,7 @@ struct _fd_funk_rec_prepare {
   fd_funk_rec_t * rec;
   uint *          rec_head_idx;
   uint *          rec_tail_idx;
+  uchar *         txn_lock;
 };
 
 typedef struct _fd_funk_rec_prepare fd_funk_rec_prepare_t;

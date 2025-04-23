@@ -253,6 +253,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      that and allocating exclusively from that? */
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
+  uchar lock;        /* lock for synchronizing modifications to funk object */
 
   /* Padding to FD_FUNK_ALIGN here */
 };
