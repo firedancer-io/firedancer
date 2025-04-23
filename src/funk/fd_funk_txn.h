@@ -48,7 +48,12 @@ struct __attribute__((aligned(FD_FUNK_TXN_ALIGN))) fd_funk_txn_private {
 
   uint  rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
   uint  rec_tail_idx;      /* "                       last          " */
-  uchar lock;              /* Internal use by funk for sychronizing modifications to txn object */
+                           /* IMPORTANT: This lock protects the following fields:
+                              Each record in this txn's map:
+                                 - prev_idx
+                                 - next_idx
+                              All fields in this txn object. */
+  uchar lock;
 };
 
 typedef struct fd_funk_txn_private fd_funk_txn_t;

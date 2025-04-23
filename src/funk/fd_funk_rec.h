@@ -53,6 +53,8 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
 
+  /* IMPORTANT: These fields are protected by the fd_funk_txn_t->lock field of the txn this record is associated with.
+                This lock must be held when accessing or modifying these fields. */
   uint  prev_idx;  /* Record map index of previous record in its transaction */
   uint  next_idx;  /* Record map index of next record in its transaction */
 

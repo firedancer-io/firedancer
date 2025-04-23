@@ -940,6 +940,7 @@ fd_accounts_hash( fd_funk_t *             funk,
      change it so that we partition by hash chains, and acquire the lock on the individual hash chains. */
   fd_wksp_t * wksp            = fd_funk_wksp( funk );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
+  /* FIXME: acquire txn lock */
   fd_funk_rec_pool_lock( &rec_pool, 1 );
   fd_funk_txn_start_read( funk );
 

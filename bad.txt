@@ -1,0 +1,657 @@
+Using MACHINE=native
+Using EXTRAS= 
+"openssl not installed, skipping"
+Using FD_HAS_SSE=1
+Using FD_HAS_AVX=1
+Using FD_HAS_AVX512=1 
+Using FD_HAS_GFNI=1
+Using FD_HAS_SHANI=1
+Using FD_HAS_AESNI=1
+grep: agave/Cargo.toml: No such file or directory
+Using FIREDANCER_VERSION=0.101.9999 (b5e64dd732bce985d17630fbc713e4493d78a669)
+Using FIREDANCER_VERSION=1.0.0 (b5e64dd732bce985d17630fbc713e4493d78a669)
+python3.11 ./src/flamenco/runtime/tests/run_ledger_tests_all.py ./src/flamenco/runtime/tests/run_ledger_tests_all.txt
+Total CPUs available: 128
+CPU Batches: [[2, 3, 4, 5, 6, 7, 8, 9, 10, 11], [12, 13, 14, 15, 16, 17, 18, 19, 20, 21], [22, 23, 24, 25, 26, 27, 28, 29, 30, 31], [32, 33, 34, 35, 36, 37, 38, 39, 40, 41], [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]]
+parameter_ranges=['--tile-cpus 2-11', '--tile-cpus 12-21', '--tile-cpus 22-31', '--tile-cpus 32-41', '--tile-cpus 42-51']
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/v18multi-inverted/rocksdb --trash-hash 105 --index-max 5000000 --end-slot 110 --cluster-version 1.18.6 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/v18multi-inverted/snapshot-100-FpGocyQzYgnzjnvazuiDHPLkVPZt3vRvGvSNX1GBUMGT.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-519-no-rent/rocksdb --index-max 1000000 --end-slot 255312007 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-519-no-rent/snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
+[34mStarting on-demand ingest and replay[0m
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257066844-no-rent/rocksdb --index-max 5000000 --end-slot 257066849 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257066844-no-rent/snapshot-257066844-B5JpRYzvMa4iyQeR8w9co4y7oEayphgbXVeQHXLDoWvV.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257066033-no-rent/rocksdb --index-max 5000000 --end-slot 257066038 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257066033-no-rent/snapshot-257066033-AD2nFFTCtZVmo5nXLVsQMV1hiQDjzoEBXibRicBJc5Vw.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257067457-no-rent/rocksdb --index-max 5000000 --end-slot 257067461 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257067457-no-rent/snapshot-257067457-DxbpHefwdjLkPecZG2jLuqyQp8me9dFZQMQ8hZMyfhsw.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=1
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger v18multi-inverted at Log at "/tmp/fd-0.0.0_1219589_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_285566302_GMT+00"
+Log at "/tmp/fd-0.0.0_1219589_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_285566302_GMT+00"
+inverted test passed
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257068890-no-rent/rocksdb --index-max 5000000 --end-slot 257068895 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257068890-no-rent/snapshot-257068890-uRVtagPzKhYorycp4CRtKdWrYPij6iBxCYYXmqRvdSp.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-519-no-rent at Log at "/tmp/fd-0.0.0_1219591_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_286143744_GMT+00"
+Log at "/tmp/fd-0.0.0_1219591_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_286143744_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257181622-no-rent/rocksdb --index-max 5000000 --end-slot 257181624 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257181622-no-rent/snapshot-257181622-Fy996aeLW7kZ6AbBcPd3Vst77pkHDSAXpaexGiVHbB4S.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257067457-no-rent at Log at "/tmp/fd-0.0.0_1219594_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_287194017_GMT+00"
+Log at "/tmp/fd-0.0.0_1219594_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_287194017_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-254462437-no-rent/rocksdb --index-max 20000000 --end-slot 254462836 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 30 --snapshot /home/topointon/git/firedancer/dump/mainnet-254462437-no-rent/snapshot-254462437-9HqBi19BJJRZfHeBS3ZpkeP9B5SAxBxz6Kwug29yLHac.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257066844-no-rent at Log at "/tmp/fd-0.0.0_1219593_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_286995246_GMT+00"
+Log at "/tmp/fd-0.0.0_1219593_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_286995246_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-586-no-rent/rocksdb --index-max 5000000 --end-slot 253152100 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-586-no-rent/snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257066033-no-rent at Log at "/tmp/fd-0.0.0_1219592_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_286889786_GMT+00"
+Log at "/tmp/fd-0.0.0_1219592_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_16_286889786_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-262654839-no-rent/rocksdb --index-max 20000000 --end-slot 262654840 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-262654839-no-rent/snapshot-262654838-B6GkEWuehxZTZ77Ht9vWUzdX87BiWP5ohi84LMicYTBZ.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257068890-no-rent at Log at "/tmp/fd-0.0.0_1219977_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_21_258277204_GMT+00"
+Log at "/tmp/fd-0.0.0_1219977_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_21_258277204_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257039990-no-rent/rocksdb --index-max 20000000 --end-slot 257040003 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257039990-no-rent/snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257181622-no-rent at Log at "/tmp/fd-0.0.0_1220326_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_27_394042169_GMT+00"
+Log at "/tmp/fd-0.0.0_1220326_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_27_394042169_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257037451-no-rent/rocksdb --index-max 5000000 --end-slot 257037454 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257037451-no-rent/snapshot-257037451-36ERh35nFMRFB8sLHLTUnAd41TuzKYSTyxsa2bgBoMEj.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-262654839-no-rent at Log at "/tmp/fd-0.0.0_1221372_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_36_003935369_GMT+00"
+Log at "/tmp/fd-0.0.0_1221372_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_36_003935369_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257035225-no-rent/rocksdb --index-max 5000000 --end-slot 257035233 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257035225-no-rent/snapshot-257035225-EgwCNhhmffR38XWBXVp3GFs6fmtHKgzw5vEcD9e2oz14.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257037451-no-rent at Log at "/tmp/fd-0.0.0_1222077_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_46_252624328_GMT+00"
+Log at "/tmp/fd-0.0.0_1222077_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_46_252624328_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257465453-no-rent/rocksdb --index-max 80000000 --end-slot 257465454 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257465453-no-rent/snapshot-257465452-3QExADnJwC756Law388ELX6xhtjnBGwToKVoQUFDcQfn.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257039990-no-rent at Log at "/tmp/fd-0.0.0_1221724_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_40_505199456_GMT+00"
+Log at "/tmp/fd-0.0.0_1221724_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_40_505199456_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257058865-no-rent/rocksdb --index-max 5000000 --end-slot 257058870 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257058865-no-rent/snapshot-257058865-6SFEm7u5pLAhkm4vfiHiN3vMNkmZuyL2ACuaHznU52fi.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257035225-no-rent at Log at "/tmp/fd-0.0.0_1222426_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_56_957185097_GMT+00"
+Log at "/tmp/fd-0.0.0_1222426_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_56_957185097_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257059815-no-rent/rocksdb --index-max 5000000 --end-slot 257059818 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257059815-no-rent/snapshot-257059815-AmWkVebTmg6ih2VTEjMmU9WtXhT3RygEoSJBHfDpyAG3.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257058865-no-rent at Log at "/tmp/fd-0.0.0_1223458_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_07_838126670_GMT+00"
+Log at "/tmp/fd-0.0.0_1223458_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_07_838126670_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257061172-no-rent/rocksdb --index-max 5000000 --end-slot 257061175 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257061172-no-rent/snapshot-257061172-8e6cUSMUx2VZZBDzwXjEY6bGkzPgnUmqrDyr4uErG8BF.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-586-no-rent at Log at "/tmp/fd-0.0.0_1221358_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_35_866583858_GMT+00"
+Log at "/tmp/fd-0.0.0_1221358_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_35_866583858_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257222682-no-rent/rocksdb --index-max 5000000 --end-slot 257222688 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257222682-no-rent/snapshot-257222682-Dudsosehu5xdHbqzG5sy72qEu6KyS9FmHnW7oV8pRoNn.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257465453-no-rent at Log at "/tmp/fd-0.0.0_1223441_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_05_715682210_GMT+00"
+Log at "/tmp/fd-0.0.0_1223441_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_05_715682210_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-264890264-no-rent/rocksdb --index-max 5000000 --end-slot 264890265 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-264890264-no-rent/snapshot-264890263-G9sNBh5CPSU9A1nXtC6QE87o1NPkwyMPh7XVKG5mw1Ka.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257059815-no-rent at Log at "/tmp/fd-0.0.0_1224139_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_18_291877177_GMT+00"
+Log at "/tmp/fd-0.0.0_1224139_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_18_291877177_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257229353-no-rent/rocksdb --index-max 5000000 --end-slot 257229357 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257229353-no-rent/snapshot-257229353-9wETKbJxKf7ceWxtLFJN8VffLQJ2xQVXLUgrXtp6UMx.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257061172-no-rent at Log at "/tmp/fd-0.0.0_1224512_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_26_201130614_GMT+00"
+Log at "/tmp/fd-0.0.0_1224512_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_26_201130614_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257257983-no-rent/rocksdb --index-max 5000000 --end-slot 257257986 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257257983-no-rent/snapshot-257257983-2BUVWgqWECejK8jk8XzJhYpYdMuJk2cnAshMcQZmN2Tz.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257222682-no-rent at Log at "/tmp/fd-0.0.0_1224529_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_26_766540023_GMT+00"
+Log at "/tmp/fd-0.0.0_1224529_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_26_766540023_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-267728520-no-rent/rocksdb --index-max 5000000 --end-slot 267728522 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-267728520-no-rent/snapshot-267728520-AnKvgiQEYQMxnSp8U4pps7tR8c7pCJ3mMCE2Zqzij2ek.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-264890264-no-rent at Log at "/tmp/fd-0.0.0_1224878_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_29_328876306_GMT+00"
+Log at "/tmp/fd-0.0.0_1224878_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_29_328876306_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-267651942-no-rent/rocksdb --index-max 5000000 --end-slot 267651943 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-267651942-no-rent/snapshot-267651941-7u1sT9iRtd26nJdk3CqywGmo857ufb715PSTmfrBxYiS.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257229353-no-rent at Log at "/tmp/fd-0.0.0_1225227_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_37_268802982_GMT+00"
+Log at "/tmp/fd-0.0.0_1225227_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_37_268802982_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-267081197-no-rent/rocksdb --index-max 5000000 --end-slot 267081198 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-267081197-no-rent/snapshot-267081196-9qwnybW2TVKfpMKJXKwFwfeW81qX2voqJYxd4qEaHPQu.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257257983-no-rent at Log at "/tmp/fd-0.0.0_1225577_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_44_222722872_GMT+00"
+Log at "/tmp/fd-0.0.0_1225577_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_44_222722872_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-267085604-no-rent/rocksdb --index-max 5000000 --end-slot 267085605 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-267085604-no-rent/snapshot-267085603-6JYpKrZVkmvsNvr83xTB63UsYDspCLUgsSAZLgJJZ3we.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-267728520-no-rent at Log at "/tmp/fd-0.0.0_1225926_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_46_353072095_GMT+00"
+Log at "/tmp/fd-0.0.0_1225926_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_46_353072095_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-265688706-no-rent/rocksdb --index-max 5000000 --end-slot 265688707 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-265688706-no-rent/snapshot-265688705-Hz56JjQuN4yfXGohYWMsYe2QJiTejQgGNLUaviVN16qP.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-267651942-no-rent at Log at "/tmp/fd-0.0.0_1226275_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_49_692837805_GMT+00"
+Log at "/tmp/fd-0.0.0_1226275_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_49_692837805_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-265330432-no-rent/rocksdb --index-max 5000000 --end-slot 265330433 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-265330432-no-rent/snapshot-265330431-BMvcRhxNoRtkZ5KLEKhhXM6GiWdTgdkoGLMe86xY4rF.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-254462437-no-rent at Log at "/tmp/fd-0.0.0_1221341_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_35_578507318_GMT+00"
+Log at "/tmp/fd-0.0.0_1221341_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_49_35_578507318_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-268575190-no-rent/rocksdb --index-max 5000000 --end-slot 268575191 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-268575190-no-rent/snapshot-268575189-ABBpiGpcqgMs9SMNM4GTcpRPdwidgK6Vi1ZdRdQ4mpmA.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-267081197-no-rent at Log at "/tmp/fd-0.0.0_1226624_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_57_386629273_GMT+00"
+Log at "/tmp/fd-0.0.0_1226624_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_50_57_386629273_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-268129380-no-rent/rocksdb --index-max 5000000 --end-slot 268129380 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-268129380-no-rent/snapshot-268129379-Gr7yXEFt4jyfzSdWytELypb3CNeiYESJWFU6ioAKLJJC.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-267085604-no-rent at Log at "/tmp/fd-0.0.0_1226973_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_02_856369825_GMT+00"
+Log at "/tmp/fd-0.0.0_1226973_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_02_856369825_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-268163043-no-rent/rocksdb --index-max 5000000 --end-slot 268163043 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-268163043-no-rent/snapshot-268163042-GXTAsR6oTuEDAmubk2Z39n1cR31CtPqrnid779Wet4q5.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-265688706-no-rent at Log at "/tmp/fd-0.0.0_1227322_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_07_637725230_GMT+00"
+Log at "/tmp/fd-0.0.0_1227322_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_07_637725230_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-269511381-no-rent/rocksdb --index-max 5000000 --end-slot 269511381 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-269511381-no-rent/snapshot-269511380-FVV61CtscGVx675oAXF4o1DJeAHmzERLsYgJaTcF4WUS.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-265330432-no-rent at Log at "/tmp/fd-0.0.0_1227671_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_11_078458874_GMT+00"
+Log at "/tmp/fd-0.0.0_1227671_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_11_078458874_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-269567236-no-rent/rocksdb --index-max 5000000 --end-slot 269567236 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-269567236-no-rent/snapshot-269567235-4vutao6qjWLjxuvVE16zzFvstZSeSp4PfHvKsmwMUK18.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-268575190-no-rent at Log at "/tmp/fd-0.0.0_1227688_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_12_591685597_GMT+00"
+Log at "/tmp/fd-0.0.0_1227688_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_12_591685597_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-266134813-no-rent/rocksdb --index-max 5000000 --end-slot 266134814 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-266134813-no-rent/snapshot-266134812-DuBoJXN87QZWwhwi14ZoTqFYWPFKDpbBczo2U9a9Jidk.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-268129380-no-rent at Log at "/tmp/fd-0.0.0_1228037_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_17_985997169_GMT+00"
+Log at "/tmp/fd-0.0.0_1228037_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_17_985997169_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-266545736-no-rent/rocksdb --index-max 5000000 --end-slot 266545737 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-266545736-no-rent/snapshot-266545735-6FUAw2xdpPSw166xyWYpnXNqXogNkb1yPANZZiUqakK2.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-268163043-no-rent at Log at "/tmp/fd-0.0.0_1228386_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_22_903089000_GMT+00"
+Log at "/tmp/fd-0.0.0_1228386_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_22_903089000_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-267059180-no-rent/rocksdb --index-max 5000000 --end-slot 267059181 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-267059180-no-rent/snapshot-267059179-93LQKWDQZRKdw44JLy1BwwwSh4gTp26zUkAfGdPRBRjJ.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-269511381-no-rent at Log at "/tmp/fd-0.0.0_1228735_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_27_400488196_GMT+00"
+Log at "/tmp/fd-0.0.0_1228735_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_27_400488196_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-267580466-no-rent/rocksdb --index-max 5000000 --end-slot 267580467 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-267580466-no-rent/snapshot-267580465-EWeMRpeNFC9ue4qD6EFS6SkFrVJwmKnrSrwDHKLRr73h.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-269567236-no-rent at Log at "/tmp/fd-0.0.0_1229086_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_30_841654032_GMT+00"
+Log at "/tmp/fd-0.0.0_1229086_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_30_841654032_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-268196194-no-rent/rocksdb --index-max 5000000 --end-slot 268196195 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-268196194-no-rent/snapshot-268196193-57VFX99qvEzdE6aQ5GYMsa4ZdMJFawM657seKjWs7oMe.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-266134813-no-rent at Log at "/tmp/fd-0.0.0_1229435_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_33_969957505_GMT+00"
+Log at "/tmp/fd-0.0.0_1229435_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_33_969957505_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-267766641-no-rent/rocksdb --index-max 5000000 --end-slot 267766642 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-267766641-no-rent/snapshot-267766640-36YeYWmcfiPXXXLMKuAohjM3SxzvXKDJSrG747zGB72B.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-266545736-no-rent at Log at "/tmp/fd-0.0.0_1229784_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_39_235521481_GMT+00"
+Log at "/tmp/fd-0.0.0_1229784_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_39_235521481_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-269648145-no-rent/rocksdb --index-max 5000000 --end-slot 269648146 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-269648145-no-rent/snapshot-269648144-7zWxbqhi4UFRNXxZBxAr8CsKt8MvnXJKwWiakAF4q5wu.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-267059180-no-rent at Log at "/tmp/fd-0.0.0_1230133_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_44_859045582_GMT+00"
+Log at "/tmp/fd-0.0.0_1230133_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_44_859045582_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-281688085-no-rent/rocksdb --index-max 5000000 --end-slot 281688086 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-281688085-no-rent/snapshot-281688080-6NHAVEju9WSsz7LQ3sLS9Yn2Tk9J7QByHRFEQLvXKqHG.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-267580466-no-rent at Log at "/tmp/fd-0.0.0_1230482_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_48_959716691_GMT+00"
+Log at "/tmp/fd-0.0.0_1230482_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_48_959716691_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-277660422-no-rent/rocksdb --index-max 5000000 --end-slot 277660423 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-277660422-no-rent/snapshot-277660421-7fen26CUSpoKnaTXr3cAettDPuF6rsFcu7bEXNz9yhbM.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-267766641-no-rent at Log at "/tmp/fd-0.0.0_1231180_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_53_292813858_GMT+00"
+Log at "/tmp/fd-0.0.0_1231180_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_53_292813858_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-277876060-no-rent/rocksdb --index-max 5000000 --end-slot 277876061 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-277876060-no-rent/snapshot-277876059-9vTzJ6qWyH7qkw11V5Np8wutCtExSw5XzethrdFfsjUk.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-268196194-no-rent at Log at "/tmp/fd-0.0.0_1231163_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_52_832440886_GMT+00"
+Log at "/tmp/fd-0.0.0_1231163_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_52_832440886_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-277927063-no-rent/rocksdb --index-max 5000000 --end-slot 277927065 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-277927063-no-rent/snapshot-277927062-HqChvv7URAqMvvSx2WdfzL1HJFp21C1UoQHfzKxHyXtJ.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-281688085-no-rent at Log at "/tmp/fd-0.0.0_1231901_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_04_963122273_GMT+00"
+Log at "/tmp/fd-0.0.0_1231901_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_04_963122273_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-254462437-dm-no-rent/rocksdb --index-max 20000000 --end-slot 254462836 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 30 --snapshot /home/topointon/git/firedancer/dump/mainnet-254462437-dm-no-rent/snapshot-254462437-9HqBi19BJJRZfHeBS3ZpkeP9B5SAxBxz6Kwug29yLHac.tar.zst --one-off-features AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-269648145-no-rent at Log at "/tmp/fd-0.0.0_1231552_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_59_500708583_GMT+00"
+Log at "/tmp/fd-0.0.0_1231552_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_51_59_500708583_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-281375356-no-rent/rocksdb --index-max 5000000 --end-slot 281375359 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-281375356-no-rent/snapshot-281375353-Bg81vkkW8K3UtrQoEn3wLsEpYwoHRQSihW4t5PiF1bBD.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-277660422-no-rent at Log at "/tmp/fd-0.0.0_1232250_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_09_820200901_GMT+00"
+Log at "/tmp/fd-0.0.0_1232250_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_09_820200901_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-251418170-no-rent/rocksdb --index-max 2000000 --end-slot 251418233 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-251418170-no-rent/snapshot-251418170-8sAkojR9PYTZvqiQZ1VWu27ewX5tXeVdC97wMXAtgHnT.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-277876060-no-rent at Log at "/tmp/fd-0.0.0_1233263_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_14_196034505_GMT+00"
+Log at "/tmp/fd-0.0.0_1233263_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_14_196034505_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-282232100-no-rent/rocksdb --index-max 5000000 --end-slot 282232101 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-282232100-no-rent/snapshot-282232097-5ChH2XwaWrYaMvkemMQZmhMxabSNvXLKz3mZSCwhaW5W.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-277927063-no-rent at Log at "/tmp/fd-0.0.0_1233280_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_14_615420985_GMT+00"
+Log at "/tmp/fd-0.0.0_1233280_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_14_615420985_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-586-partitioned-epoch-rewards-no-rent/rocksdb --index-max 5000000 --end-slot 253152100 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-586-partitioned-epoch-rewards-no-rent/snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst --one-off-features 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-281375356-no-rent at Log at "/tmp/fd-0.0.0_1233646_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_19_481600016_GMT+00"
+Log at "/tmp/fd-0.0.0_1233646_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_19_481600016_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257039990-partitioned-epoch-rewards-no-rent/rocksdb --index-max 20000000 --end-slot 257040003 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257039990-partitioned-epoch-rewards-no-rent/snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst --one-off-features 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-282232100-no-rent at Log at "/tmp/fd-0.0.0_1234346_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_34_934889841_GMT+00"
+Log at "/tmp/fd-0.0.0_1234346_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_34_934889841_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-282151715-no-rent/rocksdb --index-max 5000000 --end-slot 282151717 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-282151715-no-rent/snapshot-282151712-6qodKmgM9YNdoFzfRKPFmVh1Gv3McVzQ8pd1Gka1efdg.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-251418170-no-rent at Log at "/tmp/fd-0.0.0_1233997_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_32_161961183_GMT+00"
+Log at "/tmp/fd-0.0.0_1233997_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_32_161961183_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-286450148-no-rent/rocksdb --index-max 5000000 --end-slot 286450151 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 15 --snapshot /home/topointon/git/firedancer/dump/mainnet-286450148-no-rent/snapshot-286450145-5kdyfTzRq8GHKgQAZNYLNGRR2MvoeG6CWrsm8uwG6QKF.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257039990-partitioned-epoch-rewards-no-rent at Log at "/tmp/fd-0.0.0_1235062_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_44_555613307_GMT+00"
+Log at "/tmp/fd-0.0.0_1235062_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_44_555613307_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/multi-epoch-per-no-rent-200/rocksdb --index-max 5000000 --end-slot 1015 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/multi-epoch-per-no-rent-200/snapshot-200-ic2aT3ncpMBwXo72XRtWRJK2FxanAGZsrNefaSH9CqH.tar.zst --one-off-features PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger multi-epoch-per-no-rent-200 at Log at "/tmp/fd-0.0.0_1236773_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_10_858451974_GMT+00"
+Log at "/tmp/fd-0.0.0_1236773_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_10_858451974_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/multi-epoch-per-no-rent-300/rocksdb --index-max 5000000 --end-slot 1015 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/multi-epoch-per-no-rent-300/snapshot-300-2dAfRSrePrc8PbuncizkbW43XqfGYZnvNRUxmok9Jdzv.tar.zst --one-off-features PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger multi-epoch-per-no-rent-300 at Log at "/tmp/fd-0.0.0_1237145_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_15_064704582_GMT+00"
+Log at "/tmp/fd-0.0.0_1237145_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_15_064704582_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/multi-epoch-per-no-rent-500/rocksdb --index-max 5000000 --end-slot 1015 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/multi-epoch-per-no-rent-500/snapshot-500-2AqHj4aMP3oDC5YzQaatBDMfwWF89fK2f79yJ9xhJojc.tar.zst --one-off-features PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-282151715-no-rent at Log at "/tmp/fd-0.0.0_1236075_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_57_164872799_GMT+00"
+Log at "/tmp/fd-0.0.0_1236075_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_57_164872799_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-mismatch-297489336-no-rent/rocksdb --index-max 5000000 --end-slot 297489363 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-mismatch-297489336-no-rent/snapshot-297489335-BgExNqwDtYPo2YQ87C2bra6b5GK2eu52R8Budh85cRUp.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-286450148-no-rent at Log at "/tmp/fd-0.0.0_1236092_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_59_304396860_GMT+00"
+Log at "/tmp/fd-0.0.0_1236092_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_59_304396860_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-300377724-no-rent/rocksdb --index-max 5000000 --end-slot 300377728 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-300377724-no-rent/snapshot-300377719-DWngYKosZegyeLAgHK5jVfMsSeuYjSZWJixE5VgcLDAM.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger multi-epoch-per-no-rent-500 at Log at "/tmp/fd-0.0.0_1237826_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_19_249556575_GMT+00"
+Log at "/tmp/fd-0.0.0_1237826_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_19_249556575_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-300645644-no-rent/rocksdb --index-max 5000000 --end-slot 300645644 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-300645644-no-rent/snapshot-300645643-D2ZXqQffEoM6cgPGoC9LC4UfjyCMi1cqbhrceRPh4cE7.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-mismatch-297489336-no-rent at Log at "/tmp/fd-0.0.0_1238175_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_20_296827831_GMT+00"
+Log at "/tmp/fd-0.0.0_1238175_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_20_296827831_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-300648964-no-rent/rocksdb --index-max 5000000 --end-slot 300648964 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-300648964-no-rent/snapshot-300648963-BPSiWGgLbiof1b8Ui5qnM4eUDv8asDo9j7Bn8QvrvwUZ.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-300377724-no-rent at Log at "/tmp/fd-0.0.0_1238192_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_22_103727671_GMT+00"
+Log at "/tmp/fd-0.0.0_1238192_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_22_103727671_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-301359740-no-rent/rocksdb --index-max 5000000 --end-slot 301359740 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-301359740-no-rent/snapshot-301359739-5L5b7KFLFiQYpmk7nHUJYX8fXMUG4qv7m6iBMWRN2V5h.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-254462437-dm-no-rent at Log at "/tmp/fd-0.0.0_1233291_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_14_652317564_GMT+00"
+Log at "/tmp/fd-0.0.0_1233291_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_14_652317564_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-302734641-no-rent/rocksdb --index-max 5000000 --end-slot 302734658 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-302734641-no-rent/snapshot-302734640-9e44jEVavfHC253DSBGSjTFt2diZrgcMHTRZtpUvisvr.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-300645644-no-rent at Log at "/tmp/fd-0.0.0_1238541_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_23_351839800_GMT+00"
+Log at "/tmp/fd-0.0.0_1238541_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_23_351839800_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257181032-no-rent/rocksdb --index-max 5000000 --end-slot 257181035 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257181032-no-rent/snapshot-257181030-BiZi1ye6MeW8iq2xUBDrYYPSNuBVrXvzsHjPWvQ8ZytE.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-300648964-no-rent at Log at "/tmp/fd-0.0.0_1238890_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_32_382931560_GMT+00"
+Log at "/tmp/fd-0.0.0_1238890_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_32_382931560_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257047660-no-rent/rocksdb --index-max 5000000 --end-slot 257047662 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257047660-no-rent/snapshot-257047658-Cp4XkpXueDWep78NCTQHCWmG5VszMBjKbGdAoXYLHBfh.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-586-partitioned-epoch-rewards-no-rent at Log at "/tmp/fd-0.0.0_1234695_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_37_190994528_GMT+00"
+Log at "/tmp/fd-0.0.0_1234695_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_52_37_190994528_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-257047659-no-rent/rocksdb --index-max 5000000 --end-slot 257047660 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-257047659-no-rent/snapshot-257047655-5r7etGHT6fJ5edRijJMtYr8xYJpE98ECWF8n7CCZUhDN.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-302734641-no-rent at Log at "/tmp/fd-0.0.0_1239256_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_46_947761963_GMT+00"
+Log at "/tmp/fd-0.0.0_1239256_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_46_947761963_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-308445707-no-rent/rocksdb --index-max 5000000 --end-slot 308445711 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-308445707-no-rent/snapshot-308445706-EUsKyaEYAN9VZDSAeBhFET9sdTicGCsghwEF1y1BhTvU.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257181032-no-rent at Log at "/tmp/fd-0.0.0_1239605_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_48_857480045_GMT+00"
+Log at "/tmp/fd-0.0.0_1239605_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_48_857480045_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-307395181-no-rent/rocksdb --index-max 5000000 --end-slot 307395190 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-307395181-no-rent/snapshot-307395180-D41gdV5niSbDdwsfb8381krY5pDK4oGeHeS2V1A8ttFr.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-301359740-no-rent at Log at "/tmp/fd-0.0.0_1239239_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_46_734838617_GMT+00"
+Log at "/tmp/fd-0.0.0_1239239_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_46_734838617_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-308392063-no-rent/rocksdb --index-max 5000000 --end-slot 308392090 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-308392063-no-rent/snapshot-308392062-FDuB6CFKod14xGRGmdiRpQx2uaKyp3GDkyai2Ba7eH8d.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257047660-no-rent at Log at "/tmp/fd-0.0.0_1240286_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_58_247176242_GMT+00"
+Log at "/tmp/fd-0.0.0_1240286_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_58_247176242_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/devnet-350814254-no-rent/rocksdb --index-max 5000000 --end-slot 350814284 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/devnet-350814254-no-rent/snapshot-350814253-G5P3eNtkWUGkZ8b871wvf6d78wYxBJp637PCWJuQByZa.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-257047659-no-rent at Log at "/tmp/fd-0.0.0_1240303_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_58_809524413_GMT+00"
+Log at "/tmp/fd-0.0.0_1240303_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_53_58_809524413_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-311586340-no-rent/rocksdb --index-max 5000000 --end-slot 311586380 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-311586340-no-rent/snapshot-311586340-13GSzvNzfBcz1KX6xBs55A8EKNWnCCRZ5Z84T1MSnuUm.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-307395181-no-rent at Log at "/tmp/fd-0.0.0_1240669_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_08_842093938_GMT+00"
+Log at "/tmp/fd-0.0.0_1240669_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_08_842093938_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/v213-transaction-loading-failure-fees-no-rent/rocksdb --index-max 5000000 --end-slot 850 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/v213-transaction-loading-failure-fees-no-rent/snapshot-840-FJJdBrTQDbqE6uCAd8TBAxN4Gx3BQEPjbd8owb4vEn8W.tar.zst --one-off-features PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger devnet-350814254-no-rent at Log at "/tmp/fd-0.0.0_1241699_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_16_718127688_GMT+00"
+Log at "/tmp/fd-0.0.0_1241699_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_16_718127688_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-281546597-no-rent/rocksdb --index-max 5000000 --end-slot 281546597 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-281546597-no-rent/snapshot-281546592-5jvGg895YBu829SzrJA4rrExcLSpY1MgVwQshNcJX5EB.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger v213-transaction-loading-failure-fees-no-rent at Log at "/tmp/fd-0.0.0_1242065_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_20_662164559_GMT+00"
+Log at "/tmp/fd-0.0.0_1242065_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_20_662164559_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-324823213-no-rent/rocksdb --index-max 5000000 --end-slot 324823214 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-324823213-no-rent/snapshot-324823212-sk3zF16dk7gEsgLf1mGDhj6qRp87kFjJdEWZmhr4Kju.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-308445707-no-rent at Log at "/tmp/fd-0.0.0_1240320_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_01_779548744_GMT+00"
+Log at "/tmp/fd-0.0.0_1240320_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_01_779548744_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-325467935-no-rent/rocksdb --index-max 5000000 --end-slot 325467936 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-325467935-no-rent/snapshot-325467934-DDmw2omWPAPKueV2n3ggx3VtesR7h7smx8PMwssWVbBy.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-281546597-no-rent at Log at "/tmp/fd-0.0.0_1242414_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_23_938841906_GMT+00"
+Log at "/tmp/fd-0.0.0_1242414_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_23_938841906_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-283927487-no-rent/rocksdb --index-max 5000000 --end-slot 283927497 --cluster-version 2.0.23 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-283927487-no-rent/snapshot-283927486-7gCbg5g4BnD9SkQUjpHvhepWsQTpo2WaZaA5bhcNBMhG.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-311586340-no-rent at Log at "/tmp/fd-0.0.0_1241716_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_17_863185495_GMT+00"
+Log at "/tmp/fd-0.0.0_1241716_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_17_863185495_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/testnet-321168308/rocksdb --index-max 5000000 --end-slot 321168308 --cluster-version 2.1.13 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/testnet-321168308/snapshot-321168307-DecxjCHDsiQgbqZPHptgz1tystKi3QmV3Rd3QEgcxs2W.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-283927487-no-rent at Log at "/tmp/fd-0.0.0_1243793_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_33_283730543_GMT+00"
+Log at "/tmp/fd-0.0.0_1243793_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_33_283730543_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/v208-zk-sdk-ledger-no-rent/rocksdb --index-max 500000 --end-slot 82 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/v208-zk-sdk-ledger-no-rent/snapshot-1-GNxLdkaRgGzZSKj79d7yUXK8Nd7dv87WckoCdzQYH4X2.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-308392063-no-rent at Log at "/tmp/fd-0.0.0_1241018_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_11_247795937_GMT+00"
+Log at "/tmp/fd-0.0.0_1241018_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_11_247795937_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-327324660/rocksdb --index-max 2000000 --end-slot 327324660 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-327324660/snapshot-327324659-85G1Hp5JsY1EiixLgFk1VRacP9bu1EGczBunvuJWgMDw.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger testnet-321168308 at Log at "/tmp/fd-0.0.0_1244142_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_38_573809805_GMT+00"
+Log at "/tmp/fd-0.0.0_1244142_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_38_573809805_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/devnet-370199634/rocksdb --index-max 500000 --end-slot 370199634 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/devnet-370199634/snapshot-370199633-D8mrtzcNV8iNVarHs4mi55QHrCfmzDScYL8BBYXUHAwW.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger v208-zk-sdk-ledger-no-rent at Log at "/tmp/fd-0.0.0_1244491_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_43_113454674_GMT+00"
+Log at "/tmp/fd-0.0.0_1244491_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_43_113454674_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-330219081/rocksdb --index-max 2000000 --end-slot 330219086 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/mainnet-330219081/snapshot-330219080-2QzJWhxjNohZR2xeeFDkxt2UcdvSKZ8HhXaFdRXwg8iC.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-324823213-no-rent at Log at "/tmp/fd-0.0.0_1242763_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_24_265819347_GMT+00"
+Log at "/tmp/fd-0.0.0_1242763_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_24_265819347_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/devnet-372721907/rocksdb --index-max 2000000 --end-slot 372721910 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 16 --snapshot /home/topointon/git/firedancer/dump/devnet-372721907/snapshot-372721906-FtUjok2JfLPwJCRVcioV12M8FWbbJaC91XEJzm4eZy53.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger devnet-370199634 at Log at "/tmp/fd-0.0.0_1245202_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_48_126737336_GMT+00"
+Log at "/tmp/fd-0.0.0_1245202_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_48_126737336_GMT+00"
+[34mStarting on-demand ingest and replay[0m
++ build/native/clang/bin/fd_ledger --cmd replay --verify-acc-hash 1 --rocksdb /home/topointon/git/firedancer/dump/mainnet-331691646/rocksdb --index-max 2000000 --end-slot 331691650 --cluster-version 2.1.14 --page-cnt 60 --funk-page-cnt 20 --snapshot /home/topointon/git/firedancer/dump/mainnet-331691646/snapshot-331691639-3NmZ4rd7nHfn6tuS4E5gUfAwWMoBAQ6K1yntNkyhPbrb.tar.zst --thread-mem-bound 0 --allocator wksp --tile-cpus 12-21
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-325467935-no-rent at Log at "/tmp/fd-0.0.0_1243444_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_29_133525437_GMT+00"
+Log at "/tmp/fd-0.0.0_1243444_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_29_133525437_GMT+00"
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -t 105 -l v18multi-inverted -s snapshot-100-FpGocyQzYgnzjnvazuiDHPLkVPZt3vRvGvSNX1GBUMGT.tar.zst -p 60 -y 16 -m 5000000 -e 110 -c 1.18.6 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257068890-no-rent -s snapshot-257068890-uRVtagPzKhYorycp4CRtKdWrYPij6iBxCYYXmqRvdSp.tar.zst -p 60 -y 16 -m 5000000 -e 257068895 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257039990-no-rent -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -p 60 -y 16 -m 20000000 -e 257040003 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257058865-no-rent -s snapshot-257058865-6SFEm7u5pLAhkm4vfiHiN3vMNkmZuyL2ACuaHznU52fi.tar.zst -p 60 -y 16 -m 5000000 -e 257058870 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257061172-no-rent -s snapshot-257061172-8e6cUSMUx2VZZBDzwXjEY6bGkzPgnUmqrDyr4uErG8BF.tar.zst -p 60 -y 16 -m 5000000 -e 257061175 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257257983-no-rent -s snapshot-257257983-2BUVWgqWECejK8jk8XzJhYpYdMuJk2cnAshMcQZmN2Tz.tar.zst -p 60 -y 16 -m 5000000 -e 257257986 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-267085604-no-rent -s snapshot-267085603-6JYpKrZVkmvsNvr83xTB63UsYDspCLUgsSAZLgJJZ3we.tar.zst -p 60 -y 16 -m 5000000 -e 267085605 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-268163043-no-rent -s snapshot-268163042-GXTAsR6oTuEDAmubk2Z39n1cR31CtPqrnid779Wet4q5.tar.zst -p 60 -y 16 -m 5000000 -e 268163043 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-267059180-no-rent -s snapshot-267059179-93LQKWDQZRKdw44JLy1BwwwSh4gTp26zUkAfGdPRBRjJ.tar.zst -p 60 -y 16 -m 5000000 -e 267059181 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-281688085-no-rent -s snapshot-281688080-6NHAVEju9WSsz7LQ3sLS9Yn2Tk9J7QByHRFEQLvXKqHG.tar.zst -p 60 -y 16 -m 5000000 -e 281688086 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-254462437-dm-no-rent -s snapshot-254462437-9HqBi19BJJRZfHeBS3ZpkeP9B5SAxBxz6Kwug29yLHac.tar.zst -p 60 -y 30 -m 20000000 -e 254462836 -c 2.1.14 -o AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-302734641-no-rent -s snapshot-302734640-9e44jEVavfHC253DSBGSjTFt2diZrgcMHTRZtpUvisvr.tar.zst -p 60 -y 16 -m 5000000 -e 302734658 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-308445707-no-rent -s snapshot-308445706-EUsKyaEYAN9VZDSAeBhFET9sdTicGCsghwEF1y1BhTvU.tar.zst -p 60 -y 16 -m 5000000 -e 308445711 -c 2.1.14 --tile-cpus 2-11
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-325467935-no-rent -s snapshot-325467934-DDmw2omWPAPKueV2n3ggx3VtesR7h7smx8PMwssWVbBy.tar.zst -p 60 -y 16 -m 5000000 -e 325467936 -c 2.1.14 --tile-cpus 2-11
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger devnet-372721907 at Log at "/tmp/fd-0.0.0_1245582_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_50_078713738_GMT+00"
+Log at "/tmp/fd-0.0.0_1245582_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_50_078713738_GMT+00"
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257066033-no-rent -s snapshot-257066033-AD2nFFTCtZVmo5nXLVsQMV1hiQDjzoEBXibRicBJc5Vw.tar.zst -p 60 -y 16 -m 5000000 -e 257066038 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-262654839-no-rent -s snapshot-262654838-B6GkEWuehxZTZ77Ht9vWUzdX87BiWP5ohi84LMicYTBZ.tar.zst -p 60 -y 16 -m 20000000 -e 262654840 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257035225-no-rent -s snapshot-257035225-EgwCNhhmffR38XWBXVp3GFs6fmtHKgzw5vEcD9e2oz14.tar.zst -p 60 -y 16 -m 5000000 -e 257035233 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257059815-no-rent -s snapshot-257059815-AmWkVebTmg6ih2VTEjMmU9WtXhT3RygEoSJBHfDpyAG3.tar.zst -p 60 -y 16 -m 5000000 -e 257059818 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257229353-no-rent -s snapshot-257229353-9wETKbJxKf7ceWxtLFJN8VffLQJ2xQVXLUgrXtp6UMx.tar.zst  -p 60 -y 16 -m 5000000 -e 257229357 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-267081197-no-rent -s snapshot-267081196-9qwnybW2TVKfpMKJXKwFwfeW81qX2voqJYxd4qEaHPQu.tar.zst -p 60 -y 16 -m 5000000 -e 267081198 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-268129380-no-rent -s snapshot-268129379-Gr7yXEFt4jyfzSdWytELypb3CNeiYESJWFU6ioAKLJJC.tar.zst -p 60 -y 16 -m 5000000 -e 268129380 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-266545736-no-rent -s snapshot-266545735-6FUAw2xdpPSw166xyWYpnXNqXogNkb1yPANZZiUqakK2.tar.zst -p 60 -y 16 -m 5000000 -e 266545737 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-269648145-no-rent -s snapshot-269648144-7zWxbqhi4UFRNXxZBxAr8CsKt8MvnXJKwWiakAF4q5wu.tar.zst -p 60 -y 16 -m 5000000 -e 269648146 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-281375356-no-rent -s snapshot-281375353-Bg81vkkW8K3UtrQoEn3wLsEpYwoHRQSihW4t5PiF1bBD.tar.zst -p 60 -y 16 -m 5000000 -e 281375359 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257039990-partitioned-epoch-rewards-no-rent -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -p 60 -y 16 -m 20000000 -e 257040003 -c 2.1.14 -o 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l multi-epoch-per-no-rent-200 -s snapshot-200-ic2aT3ncpMBwXo72XRtWRJK2FxanAGZsrNefaSH9CqH.tar.zst -p 60 -y 16 -m 5000000 -e 1015 -c 2.0.23 -o PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l multi-epoch-per-no-rent-300 -s snapshot-300-2dAfRSrePrc8PbuncizkbW43XqfGYZnvNRUxmok9Jdzv.tar.zst -p 60 -y 16 -m 5000000 -e 1015 -c 2.0.23 -o PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l multi-epoch-per-no-rent-500 -s snapshot-500-2AqHj4aMP3oDC5YzQaatBDMfwWF89fK2f79yJ9xhJojc.tar.zst -p 60 -y 16 -m 5000000 -e 1015 -c 2.0.23 -o PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-300645644-no-rent -s snapshot-300645643-D2ZXqQffEoM6cgPGoC9LC4UfjyCMi1cqbhrceRPh4cE7.tar.zst -p 60 -y 16 -m 5000000 -e 300645644 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257181032-no-rent -s snapshot-257181030-BiZi1ye6MeW8iq2xUBDrYYPSNuBVrXvzsHjPWvQ8ZytE.tar.zst -p 60 -y 16 -m 5000000 -e 257181035 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-307395181-no-rent -s snapshot-307395180-D41gdV5niSbDdwsfb8381krY5pDK4oGeHeS2V1A8ttFr.tar.zst -p 60 -y 16 -m 5000000 -e 307395190 -c 2.1.14 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l v213-transaction-loading-failure-fees-no-rent -s snapshot-840-FJJdBrTQDbqE6uCAd8TBAxN4Gx3BQEPjbd8owb4vEn8W.tar.zst -p 60 -y 16 -m 5000000 -e 850 -c 2.1.14 -o PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-324823213-no-rent -s snapshot-324823212-sk3zF16dk7gEsgLf1mGDhj6qRp87kFjJdEWZmhr4Kju.tar.zst -p 60 -y 16 -m 5000000 -e 324823214 -c 2.0.23 --tile-cpus 22-31
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l devnet-372721907 -s snapshot-372721906-FtUjok2JfLPwJCRVcioV12M8FWbbJaC91XEJzm4eZy53.tar.zst -p 60 -y 16 -m 2000000 -e 372721910 -c 2.1.14 --tile-cpus 22-31
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-327324660 at Log at "/tmp/fd-0.0.0_1244508_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_43_710699914_GMT+00"
+Log at "/tmp/fd-0.0.0_1244508_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_43_710699914_GMT+00"
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257066844-no-rent -s snapshot-257066844-B5JpRYzvMa4iyQeR8w9co4y7oEayphgbXVeQHXLDoWvV.tar.zst -p 60 -y 16 -m 5000000 -e 257066849 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-586-no-rent -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst -p 60 -y 16 -m 5000000 -e 253152100 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257222682-no-rent -s snapshot-257222682-Dudsosehu5xdHbqzG5sy72qEu6KyS9FmHnW7oV8pRoNn.tar.zst -p 60 -y 16 -m 5000000 -e 257222688 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-267728520-no-rent -s snapshot-267728520-AnKvgiQEYQMxnSp8U4pps7tR8c7pCJ3mMCE2Zqzij2ek.tar.zst -p 60 -y 16 -m 5000000 -e 267728522 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-265688706-no-rent -s snapshot-265688705-Hz56JjQuN4yfXGohYWMsYe2QJiTejQgGNLUaviVN16qP.tar.zst -p 60 -y 16 -m 5000000 -e 265688707 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-269511381-no-rent -s snapshot-269511380-FVV61CtscGVx675oAXF4o1DJeAHmzERLsYgJaTcF4WUS.tar.zst -p 60 -y 16 -m 5000000 -e 269511381 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-267580466-no-rent -s snapshot-267580465-EWeMRpeNFC9ue4qD6EFS6SkFrVJwmKnrSrwDHKLRr73h.tar.zst -p 60 -y 16 -m 5000000 -e 267580467 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-277660422-no-rent -s snapshot-277660421-7fen26CUSpoKnaTXr3cAettDPuF6rsFcu7bEXNz9yhbM.tar.zst -p 60 -y 16 -m 5000000 -e 277660423 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-251418170-no-rent -s snapshot-251418170-8sAkojR9PYTZvqiQZ1VWu27ewX5tXeVdC97wMXAtgHnT.tar.zst -p 60 -y 16 -m 2000000 -e 251418233 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-286450148-no-rent -s snapshot-286450145-5kdyfTzRq8GHKgQAZNYLNGRR2MvoeG6CWrsm8uwG6QKF.tar.zst -p 60 -y 15 -m 5000000 -e 286450151 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-300377724-no-rent -s snapshot-300377719-DWngYKosZegyeLAgHK5jVfMsSeuYjSZWJixE5VgcLDAM.tar.zst -p 60 -y 16 -m 5000000 -e 300377728 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-301359740-no-rent -s snapshot-301359739-5L5b7KFLFiQYpmk7nHUJYX8fXMUG4qv7m6iBMWRN2V5h.tar.zst -p 60 -y 16 -m 5000000 -e 301359740 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-308392063-no-rent -s snapshot-308392062-FDuB6CFKod14xGRGmdiRpQx2uaKyp3GDkyai2Ba7eH8d.tar.zst -p 60 -y 16 -m 5000000 -e 308392090 -c 2.1.14 --tile-cpus 32-41
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-327324660 -s snapshot-327324659-85G1Hp5JsY1EiixLgFk1VRacP9bu1EGczBunvuJWgMDw.tar.zst -p 60 -y 16 -m 2000000 -e 327324660 -c 2.1.14 --tile-cpus 32-41
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-330219081 at Log at "/tmp/fd-0.0.0_1245226_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_48_549271938_GMT+00"
+Log at "/tmp/fd-0.0.0_1245226_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_48_549271938_GMT+00"
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257067457-no-rent -s snapshot-257067457-DxbpHefwdjLkPecZG2jLuqyQp8me9dFZQMQ8hZMyfhsw.tar.zst -p 60 -y 16 -m 5000000 -e 257067461 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-254462437-no-rent -s snapshot-254462437-9HqBi19BJJRZfHeBS3ZpkeP9B5SAxBxz6Kwug29yLHac.tar.zst -p 60 -y 30 -m 20000000 -e 254462836 -c 2.0.23 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-268575190-no-rent -s snapshot-268575189-ABBpiGpcqgMs9SMNM4GTcpRPdwidgK6Vi1ZdRdQ4mpmA.tar.zst -p 60 -y 16 -m 5000000 -e 268575191 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-266134813-no-rent -s snapshot-266134812-DuBoJXN87QZWwhwi14ZoTqFYWPFKDpbBczo2U9a9Jidk.tar.zst -p 60 -y 16 -m 5000000 -e 266134814 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-267766641-no-rent -s snapshot-267766640-36YeYWmcfiPXXXLMKuAohjM3SxzvXKDJSrG747zGB72B.tar.zst -p 60 -y 16 -m 5000000 -e 267766642 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-277876060-no-rent -s snapshot-277876059-9vTzJ6qWyH7qkw11V5Np8wutCtExSw5XzethrdFfsjUk.tar.zst -p 60 -y 16 -m 5000000 -e 277876061 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-282232100-no-rent -s snapshot-282232097-5ChH2XwaWrYaMvkemMQZmhMxabSNvXLKz3mZSCwhaW5W.tar.zst -p 60 -y 16 -m 5000000 -e 282232101 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-282151715-no-rent -s snapshot-282151712-6qodKmgM9YNdoFzfRKPFmVh1Gv3McVzQ8pd1Gka1efdg.tar.zst -p 60 -y 16 -m 5000000 -e 282151717 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-mismatch-297489336-no-rent -s snapshot-297489335-BgExNqwDtYPo2YQ87C2bra6b5GK2eu52R8Budh85cRUp.tar.zst -p 60 -y 16 -m 5000000 -e 297489363 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-300648964-no-rent -s snapshot-300648963-BPSiWGgLbiof1b8Ui5qnM4eUDv8asDo9j7Bn8QvrvwUZ.tar.zst -p 60 -y 16 -m 5000000 -e 300648964 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257047660-no-rent -s snapshot-257047658-Cp4XkpXueDWep78NCTQHCWmG5VszMBjKbGdAoXYLHBfh.tar.zst -p 60 -y 16 -m 5000000 -e 257047662 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l devnet-350814254-no-rent -s snapshot-350814253-G5P3eNtkWUGkZ8b871wvf6d78wYxBJp637PCWJuQByZa.tar.zst -p 60 -y 16 -m 5000000 -e 350814284 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-281546597-no-rent -s snapshot-281546592-5jvGg895YBu829SzrJA4rrExcLSpY1MgVwQshNcJX5EB.tar.zst -p 60 -y 16 -m 5000000 -e 281546597 -c 2.0.23 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-283927487-no-rent -s snapshot-283927486-7gCbg5g4BnD9SkQUjpHvhepWsQTpo2WaZaA5bhcNBMhG.tar.zst -p 60 -y 16 -m 5000000 -e 283927497 -c 2.0.23 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l v208-zk-sdk-ledger-no-rent -s snapshot-1-GNxLdkaRgGzZSKj79d7yUXK8Nd7dv87WckoCdzQYH4X2.tar.zst -p 60 -y 16 -m 500000 -e 82 -c 2.1.14 --tile-cpus 42-51
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-330219081 -s snapshot-330219080-2QzJWhxjNohZR2xeeFDkxt2UcdvSKZ8HhXaFdRXwg8iC.tar.zst -p 60 -y 16 -m 2000000 -e 330219086 -c 2.1.14 --tile-cpus 42-51
++ status=0
+[34mFinished on-demand ingest and replay
+[0m
+Log for ledger mainnet-331691646 at Log at "/tmp/fd-0.0.0_1245931_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_53_641747947_GMT+00"
+Log at "/tmp/fd-0.0.0_1245931_topointon_tspit1-ossdev-firedancer46_2025_04_22_22_54_53_641747947_GMT+00"
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-519-no-rent       -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 60 -y 16 -m 1000000 -e 255312007 -c 2.0.23 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257181622-no-rent -s snapshot-257181622-Fy996aeLW7kZ6AbBcPd3Vst77pkHDSAXpaexGiVHbB4S.tar.zst -p 60 -y 16 -m 5000000 -e 257181624 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257037451-no-rent -s snapshot-257037451-36ERh35nFMRFB8sLHLTUnAd41TuzKYSTyxsa2bgBoMEj.tar.zst -p 60 -y 16 -m 5000000 -e 257037454 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257465453-no-rent -s snapshot-257465452-3QExADnJwC756Law388ELX6xhtjnBGwToKVoQUFDcQfn.tar.zst -p 60 -y 16 -m 80000000 -e 257465454 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-264890264-no-rent -s snapshot-264890263-G9sNBh5CPSU9A1nXtC6QE87o1NPkwyMPh7XVKG5mw1Ka.tar.zst -p 60 -y 16 -m 5000000 -e 264890265 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-267651942-no-rent -s snapshot-267651941-7u1sT9iRtd26nJdk3CqywGmo857ufb715PSTmfrBxYiS.tar.zst -p 60 -y 16 -m 5000000 -e 267651943 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-265330432-no-rent -s snapshot-265330431-BMvcRhxNoRtkZ5KLEKhhXM6GiWdTgdkoGLMe86xY4rF.tar.zst  -p 60 -y 16 -m 5000000 -e 265330433 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-269567236-no-rent -s snapshot-269567235-4vutao6qjWLjxuvVE16zzFvstZSeSp4PfHvKsmwMUK18.tar.zst -p 60 -y 16 -m 5000000 -e 269567236 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-268196194-no-rent -s snapshot-268196193-57VFX99qvEzdE6aQ5GYMsa4ZdMJFawM657seKjWs7oMe.tar.zst -p 60 -y 16 -m 5000000 -e 268196195 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-277927063-no-rent -s snapshot-277927062-HqChvv7URAqMvvSx2WdfzL1HJFp21C1UoQHfzKxHyXtJ.tar.zst -p 60 -y 16 -m 5000000 -e 277927065 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-586-partitioned-epoch-rewards-no-rent -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst -p 60 -y 16 -m 5000000 -e 253152100 -c 2.1.14 -o 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257047659-no-rent -s snapshot-257047655-5r7etGHT6fJ5edRijJMtYr8xYJpE98ECWF8n7CCZUhDN.tar.zst -p 60 -y 16 -m 5000000 -e 257047660 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-311586340-no-rent -s snapshot-311586340-13GSzvNzfBcz1KX6xBs55A8EKNWnCCRZ5Z84T1MSnuUm.tar.zst -p 60 -y 16 -m 5000000 -e 311586380 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-321168308 -s snapshot-321168307-DecxjCHDsiQgbqZPHptgz1tystKi3QmV3Rd3QEgcxs2W.tar.zst -p 60 -y 16 -m 5000000 -e 321168308 -c 2.1.13 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l devnet-370199634 -s snapshot-370199633-D8mrtzcNV8iNVarHs4mi55QHrCfmzDScYL8BBYXUHAwW.tar.zst -p 60 -y 16 -m 500000 -e 370199634 -c 2.1.14 --tile-cpus 12-21
+Completed: src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-331691646 -s snapshot-331691639-3NmZ4rd7nHfn6tuS4E5gUfAwWMoBAQ6K1yntNkyhPbrb.tar.zst -p 60 -y 20 -m 2000000 -e 331691650  -c 2.1.14 --tile-cpus 12-21
