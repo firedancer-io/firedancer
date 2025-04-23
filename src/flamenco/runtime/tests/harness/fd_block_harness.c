@@ -71,11 +71,12 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Set up slot context */
-  slot_ctx->funk_txn              = funk_txn;
-  slot_ctx->funk                  = funk;
-  slot_ctx->enable_exec_recording = 0;
-  slot_ctx->epoch_ctx             = epoch_ctx;
-  slot_ctx->runtime_wksp          = fd_wksp_containing( slot_ctx );
+  slot_ctx->funk_txn                    = funk_txn;
+  slot_ctx->funk                        = funk;
+  slot_ctx->enable_exec_recording       = 0;
+  slot_ctx->epoch_ctx                   = epoch_ctx;
+  slot_ctx->runtime_wksp                = fd_wksp_containing( slot_ctx );
+  slot_ctx->prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
   fd_memcpy( &slot_ctx->slot_bank.banks_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof( fd_hash_t ) );
 
   /* Set up slot bank */
@@ -83,17 +84,18 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
-  slot_bank->slot                  = slot;
-  slot_bank->block_height          = test_ctx->slot_ctx.block_height;
-  slot_bank->prev_slot             = test_ctx->slot_ctx.prev_slot;
-  slot_bank->fee_rate_governor     = (fd_fee_rate_governor_t) {
-    .target_lamports_per_signature = 10000UL,
-    .target_signatures_per_slot    = 20000UL,
-    .min_lamports_per_signature    = 5000UL,
-    .max_lamports_per_signature    = 100000UL,
-    .burn_percent                  = 50,
+  slot_bank->slot                   = slot;
+  slot_bank->block_height           = test_ctx->slot_ctx.block_height;
+  slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
+  slot_bank->fee_rate_governor      = (fd_fee_rate_governor_t) {
+    .target_lamports_per_signature  = 10000UL,
+    .target_signatures_per_slot     = 20000UL,
+    .min_lamports_per_signature     = 5000UL,
+    .max_lamports_per_signature     = 100000UL,
+    .burn_percent                   = 50,
   };
-  slot_bank->capitalization        = test_ctx->slot_ctx.prev_epoch_capitalization;
+  slot_bank->capitalization         = test_ctx->slot_ctx.prev_epoch_capitalization;
+  slot_bank->lamports_per_signature = 5000UL;
 
   /* Set up epoch context and epoch bank */
   /* TODO: Do we need any more of these? */
