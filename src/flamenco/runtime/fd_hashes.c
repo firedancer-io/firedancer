@@ -402,8 +402,6 @@ fd_account_hash_task( void * tpool,
 
   fd_lthash_value_t * lthash = (fd_lthash_value_t*)args;
 
-  FD_LOG_NOTICE(( "fd_account_hash_task: %lu %lu", start_idx, stop_idx));
-
   for( ulong i=start_idx; i<=stop_idx; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
     fd_exec_slot_ctx_t *           slot_ctx  = task_info->slot_ctx;
