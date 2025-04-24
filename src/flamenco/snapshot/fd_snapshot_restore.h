@@ -71,6 +71,13 @@ typedef int
 (* fd_snapshot_restore_cb_rent_fresh_account_fn_t)( fd_exec_slot_ctx_t * slot_ctx,
                                                     fd_pubkey_t const *  pubkey );
 
+/* fd_snapshot_restore_cb_new_account_fn_t is a callback that provides the
+   snapshot restore with the buffer with which to write in the account data. */
+typedef uchar *
+(* fd_snapshot_restore_cb_new_account_fn_t)( void * ctx,
+                                             ulong slot,
+                                             fd_solana_account_hdr_t const * hdr );
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_snapshot_restore_{align,footprint} return required memory region
@@ -110,8 +117,6 @@ fd_snapshot_restore_footprint( void );
 
 fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *                                         mem,
-                         fd_funk_t *                                    funk,
-                         fd_funk_txn_t *                                txn,
                          fd_spad_t *                                    spad,
                          void *                                         cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,

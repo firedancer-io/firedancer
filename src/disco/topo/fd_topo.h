@@ -434,6 +434,11 @@ typedef struct {
       int archive_fd;
     } archiver;
 
+    struct {
+      char funk_file[ PATH_MAX ];
+      char cold_store_dir[ PATH_MAX ];
+    } groove;
+
   };
 } fd_topo_tile_t;
 
