@@ -184,7 +184,7 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
     fd_memset( &csv_rec, ' ', sizeof(csv_rec) );
 
     ulong b58sz;
-    fd_base58_encode_32( fd_funk_key_to_acc( rec->pair.key )->uc, &b58sz, csv_rec.acct_addr );
+    fd_base58_encode_32( rec->pair.key->uc, &b58sz, csv_rec.acct_addr );
     csv_rec.line[ offsetof(fd_snapshot_csv_rec_t,acct_addr)+b58sz ] = ' ';
     csv_rec.comma1 = ',';
 
@@ -321,7 +321,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   /* Create a funk database */
 
   ulong const txn_max =   16UL;  /* we really only need 1 */
-  ulong const rec_max = 1024UL;  /* we evict records as we go */
+  uint const rec_max = 1024UL;  /* we evict records as we go */
 
   ulong funk_tag = 42UL;
   d->funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );

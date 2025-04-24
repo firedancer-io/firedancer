@@ -279,6 +279,7 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
   }; /* parts of the SanitizedTransaction */
 };
 
+FD_STATIC_ASSERT( sizeof (struct fd_bank_abi_txn_private)==FD_BANK_ABI_TXN_FOOTPRINT, bank_abi );
 FD_STATIC_ASSERT( sizeof (struct fd_bank_abi_txn_private)==392UL, bank_abi );
 FD_STATIC_ASSERT( alignof(struct fd_bank_abi_txn_private)==8UL,   bank_abi );
 

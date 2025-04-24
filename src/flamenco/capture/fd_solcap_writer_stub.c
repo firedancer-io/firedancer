@@ -66,6 +66,7 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer             FD_PARAM_
                                void const *         bank_hash          FD_PARAM_UNUSED,
                                void const *         prev_bank_hash     FD_PARAM_UNUSED,
                                void const *         account_delta_hash FD_PARAM_UNUSED,
+                               void const *         accounts_lt_hash_checksum FD_PARAM_UNUSED,
                                void const *         poh_hash           FD_PARAM_UNUSED,
                                ulong                signature_cnt      FD_PARAM_UNUSED ) {
   return 0;

@@ -1090,6 +1090,14 @@ fd_http_server_ws_send( fd_http_server_t * http,
     return -1;
   }
 
+  /* It is possible that ws_conn_id has already been closed by
+     fd_http_server_reserve during staging.  If the staging buffer is
+     full, the incoming frame is added to the beginning of the buffer,
+     and any connections that were previously using that allotted space
+     are closed.  There is a small chance that ws_conn_id is one of
+     those connections, and has therefore already been closed. */
+  if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) return -1;
+
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
     close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
     return 0;
@@ -1184,7 +1192,7 @@ static void
 fd_http_server_evict_until( fd_http_server_t * http,
                             ulong              off ) {
   conn_treap_fwd_iter_t next;
-  for( conn_treap_fwd_iter_t it=conn_treap_fwd_iter_init( http->conn_treap, http->conns ); !conn_treap_fwd_iter_idx( it ); it=next ) {
+  for( conn_treap_fwd_iter_t it=conn_treap_fwd_iter_init( http->conn_treap, http->conns ); !conn_treap_fwd_iter_done( it ); it=next ) {
     next = conn_treap_fwd_iter_next( it, http->conns );
     struct fd_http_server_connection * conn = conn_treap_fwd_iter_ele( it, http->conns );
 
@@ -1196,7 +1204,7 @@ fd_http_server_evict_until( fd_http_server_t * http,
   }
 
   ws_conn_treap_fwd_iter_t ws_next;
-  for( ws_conn_treap_fwd_iter_t it=ws_conn_treap_fwd_iter_init( http->ws_conn_treap, http->ws_conns ); !ws_conn_treap_fwd_iter_idx( it ); it=ws_next ) {
+  for( ws_conn_treap_fwd_iter_t it=ws_conn_treap_fwd_iter_init( http->ws_conn_treap, http->ws_conns ); !ws_conn_treap_fwd_iter_done( it ); it=ws_next ) {
     ws_next = ws_conn_treap_fwd_iter_next( it, http->ws_conns );
     struct fd_http_server_ws_connection * conn = ws_conn_treap_fwd_iter_ele( it, http->ws_conns );
 

@@ -1,11 +1,10 @@
 #ifndef HEADER_fd_src_discof_repair_fd_fec_chainer_h
 #define HEADER_fd_src_discof_repair_fd_fec_chainer_h
 
-/* This provides APIs for chaining FEC sets.  The purpose of the chainer
-   is "chain" FEC sets as they are received asynchronously out-of-order
-   over the network (via Turbine and Repair).  The chainer both
-   validates and reorder these FEC sets, so that they are delivered
-   in-order to the calling application.
+/* FEC chainer is an API for "chaining" FEC sets as they are received
+   asynchronously out-of-order over the network (via Turbine and
+   Repair).  The chainer both validates and reorders those FEC sets, and
+   delivers them in-order to the calling application.
 
    Every FEC set has a parent (the immediately preceding FEC set in the
    slot or parent slot) and children (immediately succeeding FEC set(s)
@@ -24,8 +23,8 @@
    collisions (this is detailed later in the documentation).  The
    chainer makes a best-effort attempt to detect and error on
    equivocation. Examples include checking merkle roots chain correctly
-   and checking FEC sets are unique.  Not all cases of equivocation
-   can be detected by the chainer however, as not all the necessary
+   and checking FEC sets are unique.  Not all cases of equivocation can
+   be detected by the chainer however, as not all the necessary
    information is yet available at this stage in the validator pipeline.
    Ultimately, if there is equivocation, it is the responsibility of the
    consensus module to handle it. */
@@ -167,9 +166,7 @@
    to chain as many FEC sets as possible to the frontier.  The chainer
    does this by conducting a BFS from the just-inserted FEC set, looking
    for parents and orphans to traverse.  See `chain` in the .c file for
-   the implementation.
-
-   */
+   the implementation. */
 
 typedef struct fd_fec_chainer fd_fec_chainer_t; /* forward decl */
 
@@ -283,7 +280,7 @@ fd_fec_chainer_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_fec_chainer_footprint( ulong fec_max ) {
-  int lg_fec_max  = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max  ) ) + 2; /* +2 for fill ratio <= 0.25 */
+  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(

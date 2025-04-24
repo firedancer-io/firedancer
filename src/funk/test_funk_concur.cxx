@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
   fd_boot( &argc, &argv );
 
   ulong txn_max = MAX_TXN_CNT;
-  ulong rec_max = 1<<20;
+  uint  rec_max = 1<<20;
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );

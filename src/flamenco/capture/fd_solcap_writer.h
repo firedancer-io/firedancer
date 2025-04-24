@@ -118,6 +118,7 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
                                void const *         bank_hash,
                                void const *         prev_bank_hash,
                                void const *         account_delta_hash,
+                               void const *         accounts_lt_hash_checksum,
                                void const *         poh_hash,
                                ulong                signature_cnt );
 

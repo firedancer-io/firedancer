@@ -43,21 +43,21 @@
 
 /* A fd_funk_rec_t describes a funk record. */
 
-struct fd_funk_rec {
+struct __attribute__((aligned(32))) fd_funk_rec {
 
   /* These fields are managed by the funk's rec_map */
   fd_funk_xid_key_pair_t pair;
-  uchar executable;
-ulong                  map_next; /* Internal use by map */
-ulong                  map_hash; /* Internal use by map */
+  ulong                  map_hash; /* Internal use by map */
+  uint                   map_next; /* Internal use by map */
+  uchar                  executable;
 
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
 
   uint prev_idx;  /* Record map index of previous record in its transaction */
   uint next_idx;  /* Record map index of next record in its transaction */
-  uint  txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
-  uint  tag;       /* Internal use only */
+  uint txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
+  uint tag;       /* Internal use only */
   uint flags;     /* Flags that indicate how to interpret a record */
 
   /* Note: use of uint here requires FD_FUNK_REC_VAL_MAX to be at most
@@ -102,6 +102,7 @@ typedef struct fd_funk_rec fd_funk_rec_t;
 #define MAP_KEY               pair
 #define MAP_KEY_EQ(k0,k1)     fd_funk_xid_key_pair_eq((k0),(k1))
 #define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
+#define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MEMO              map_hash
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
@@ -119,8 +120,9 @@ typedef fd_funk_rec_map_query_t fd_funk_rec_query_t;
 
 struct _fd_funk_rec_prepare {
   fd_funk_rec_t * rec;
-  ulong *         rec_head_idx;
-  ulong *         rec_tail_idx;
+  uint *          rec_head_idx;
+  uint *          rec_tail_idx;
+  uchar *         txn_lock;
 };
 
 typedef struct _fd_funk_rec_prepare fd_funk_rec_prepare_t;
@@ -130,7 +132,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_funk_rec_idx_is_null returns 1 if idx is FD_FUNK_REC_IDX_NULL and
    0 otherwise. */
 
-FD_FN_CONST static inline int fd_funk_rec_idx_is_null( ulong idx ) { return idx==FD_FUNK_REC_IDX_NULL; }
+FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==FD_FUNK_REC_IDX_NULL; }
 
 /* Accessors */
 

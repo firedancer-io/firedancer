@@ -840,7 +840,6 @@ sol_compat_type_execute_v1( uchar *       out,
                             ulong         in_sz ) {
   // Setup
   fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
-
   // Decode context
   fd_exec_test_type_context_t input[1] = {0};
   void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_type_context_t_msg );
@@ -854,7 +853,6 @@ sol_compat_type_execute_v1( uchar *       out,
 
     void * output = NULL;
     sol_compat_execute_wrapper( runner, input, &output, fd_runtime_fuzz_type_run );
-
     if( output ) {
       ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_type_effects_t_msg );
     }

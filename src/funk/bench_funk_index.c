@@ -14,7 +14,7 @@ run_benchmark1( fd_funk_t * funk,
                 int         slow ) {
   fd_wksp_t * funk_wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_pool = fd_funk_rec_pool( funk, funk_wksp ).ele;
-  ulong rec_idx = 0UL;
+  uint rec_idx = 0UL;
   fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, funk_wksp );
   fd_funk_rec_map_shmem_t * map = rec_map.map;
   fd_funk_rec_map_shmem_private_chain_t * chain_tbl = (fd_funk_rec_map_shmem_private_chain_t *)(map+1);
@@ -53,14 +53,14 @@ run_benchmark1( fd_funk_t * funk,
         _mm_prefetch( (const char *)&chain_tbl[ chain_idx[ k ] ], _MM_HINT_T0 );
       }
 
-      for( ulong k=0UL; k<BATCH_SZ; k++ ) {
+      for( uint k=0UL; k<BATCH_SZ; k++ ) {
         ulong ver_cnt = chain_tbl[ chain_idx[ k ] ].ver_cnt;
         ulong version = fd_funk_rec_map_private_vcnt_ver( ver_cnt );
         ulong ele_cnt = fd_funk_rec_map_private_vcnt_cnt( ver_cnt );
 
         fd_funk_rec_t * rec = rec_pool+k;
-        ulong old_head = chain_tbl[ chain_idx[ k ] ].head_cidx;
-        ulong new_head = rec_idx+k;
+        uint old_head = chain_tbl[ chain_idx[ k ] ].head_cidx;
+        uint new_head = rec_idx+k;
         rec->map_next = old_head;
 
         chain_tbl[ chain_idx[ k ] ].head_cidx = new_head;
@@ -131,9 +131,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
   char const * name       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--wksp",       NULL,            NULL );
   char const * _page_sz   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",    NULL,      "gigantic" );
   ulong        page_cnt   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",   NULL,             3UL );
@@ -148,6 +145,7 @@ main( int     argc,
   ulong const txn_max = 16UL;
   ulong const acc_cnt = (ulong)acc_cnt_d;
   ulong const rec_max = (ulong)rec_max_d;
+  FD_TEST( rec_max<=UINT_MAX );
 
   fd_rng_t rng_[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_, rng_seed, 0UL ) );
@@ -155,7 +153,7 @@ main( int     argc,
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
-  ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
+  ulong funk_footprint = fd_funk_footprint( txn_max, (uint)rec_max );
   FD_LOG_NOTICE(( "fd_funk_footprint(txn_max=%lu,rec_max=%g) = %.1f MiB", txn_max, (double)rec_max, (double)funk_footprint/(1024.0*1024.0) ));
   ulong chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
   FD_LOG_NOTICE(( "fd_funk_rec_map_chain_cnt_est(rec_max=%g) = %g", (double)rec_max, (double)chain_cnt ));
@@ -173,7 +171,7 @@ main( int     argc,
 
   void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, FUNK_TAG );
   if( FD_UNLIKELY( !funk_mem ) ) FD_LOG_ERR(( "failed to allocate funk" ));
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_mem, FUNK_TAG, funk_seed, 16UL, rec_max ) );
+  fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_mem, FUNK_TAG, funk_seed, 16UL, (uint)rec_max ) );
 
   fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
   FD_TEST( fd_funk_rec_map_chain_cnt( &rec_map ) == chain_cnt );

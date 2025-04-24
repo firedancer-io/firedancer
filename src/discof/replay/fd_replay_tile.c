@@ -48,7 +48,7 @@
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
-#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
+#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_BLK_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
@@ -2032,8 +2032,8 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
 
-  publish_stake_weights( ctx, stem, ctx->slot_ctx );
   fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
+  publish_stake_weights( ctx, stem, ctx->slot_ctx );
 
 }
 
@@ -2257,10 +2257,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   fd_ghost_init( ctx->ghost, snapshot_slot );
 
   fd_funk_rec_key_t key = { 0 };
-  fd_memcpy( key.c, ctx->vote_acc, sizeof(fd_pubkey_t) );
-  key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+  memcpy( key.uc, ctx->vote_acc, sizeof(fd_pubkey_t) );
+  key.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
   fd_tower_from_vote_acc( ctx->tower, ctx->funk, snapshot_fork->slot_ctx->funk_txn, &key );
-  FD_LOG_NOTICE(( "vote account: %s", FD_BASE58_ENC_32_ALLOCA( key.c ) ));
+  FD_LOG_NOTICE(( "vote account: %s", FD_BASE58_ENC_32_ALLOCA( key.uc ) ));
   fd_tower_print( ctx->tower, ctx->root );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->epoch_ctx->bank_hash_cmp;
@@ -2390,22 +2390,22 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
       case fd_vote_state_versioned_enum_v0_23_5:
         node_pubkey   = vsv->inner.v0_23_5.node_pubkey;
         commission    = vsv->inner.v0_23_5.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
-        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v0_23_5.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
+        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
         root_slot     = vsv->inner.v0_23_5.root_slot;
         break;
       case fd_vote_state_versioned_enum_v1_14_11:
         node_pubkey   = vsv->inner.v1_14_11.node_pubkey;
         commission    = vsv->inner.v1_14_11.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
-        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v1_14_11.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
+        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
         root_slot     = vsv->inner.v1_14_11.root_slot;
         break;
       case fd_vote_state_versioned_enum_current:
         node_pubkey   = vsv->inner.current.node_pubkey;
         commission    = vsv->inner.current.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
-        epoch_credits = _epoch_credits->credits - _epoch_credits->prev_credits;
+        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.current.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
+        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
         root_slot     = vsv->inner.v0_23_5.root_slot;
         break;
       default:
@@ -2910,6 +2910,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->runtime_public ) ) {
     FD_LOG_ERR(( "no runtime_public" ));
   }
+
 
   /* Open Funk */
   fd_funk_txn_start_write( NULL );

@@ -435,17 +435,19 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
                                0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
-  ulong                   input_sz                = 0UL;
-  ulong                   pre_lens[256]           = {0};
-  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt   = 0U;
-  int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  ulong                   input_sz                                = 0UL;
+  ulong                   pre_lens[256]                           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt                   = 0U;
+  int                     direct_mapping                          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  int                     mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, mask_out_rent_epoch_in_vm_serialization );
 
   uchar * input = NULL;
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, direct_mapping, is_deprecated, &input );
+                                                  acc_region_metas, direct_mapping, mask_out_rent_epoch_in_vm_serialization,
+                                                  is_deprecated, &input );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }

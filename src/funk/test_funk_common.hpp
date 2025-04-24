@@ -104,7 +104,7 @@ struct fake_funk {
     fake_funk(int * argc, char *** argv) {
       fd_boot( argc, argv );
       ulong txn_max = 128;
-      ulong rec_max = 1<<16;
+      uint  rec_max = 1<<16;
 
 #ifdef TEST_FUNK_FILE
       _real = fd_funk_open_file( "funk_test_file", 1, 1234U, txn_max, rec_max, FD_SHMEM_GIGANTIC_PAGE_SZ, FD_FUNK_OVERWRITE, &close_args );

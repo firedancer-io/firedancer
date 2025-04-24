@@ -47,9 +47,9 @@ fd_funk_txn_end_write( fd_funk_t * funk FD_PARAM_UNUSED ) {
 
 fd_funk_txn_t *
 fd_funk_txn_prepare( fd_funk_t *               funk,
-                        fd_funk_txn_t *           parent,
-                        fd_funk_txn_xid_t const * xid,
-                        int                          verbose ) {
+                     fd_funk_txn_t *           parent,
+                     fd_funk_txn_xid_t const * xid,
+                     int                       verbose ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {
@@ -165,16 +165,16 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
      idx with NULL though we can detect cycles as soon as possible
      and abort. */
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
+  fd_wksp_t *        wksp     = fd_funk_wksp( funk );
+  fd_alloc_t *       alloc    = fd_funk_alloc( funk, wksp );
+  fd_funk_rec_map_t  rec_map  = fd_funk_rec_map( funk, wksp );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  ulong           rec_max = funk->rec_max;
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, wksp );
+  uint               rec_max  = funk->rec_max;
+  fd_funk_txn_map_t  txn_map  = fd_funk_txn_map( funk, wksp );
   fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
 
   fd_funk_txn_t * txn = &txn_pool.ele[ txn_idx ];
-  ulong rec_idx = txn->rec_head_idx;
+  uint rec_idx = txn->rec_head_idx;
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
 
     if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
@@ -182,7 +182,7 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
 
     fd_funk_rec_t * rec = &rec_pool.ele[ rec_idx ];
-    ulong next_idx = rec->next_idx;
+    uint next_idx = rec->next_idx;
     rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
     for(;;) {
@@ -476,8 +476,8 @@ fd_funk_txn_cancel_all( fd_funk_t *     funk,
 
 static void
 fd_funk_txn_update( fd_funk_t *                  funk,
-                       ulong *                   _dst_rec_head_idx, /* Pointer to the dst list head */
-                       ulong *                   _dst_rec_tail_idx, /* Pointer to the dst list tail */
+                       uint *                   _dst_rec_head_idx, /* Pointer to the dst list head */
+                       uint *                   _dst_rec_tail_idx, /* Pointer to the dst list tail */
                        ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
                        fd_funk_txn_xid_t const * dst_xid,        /* dst xid */
                        ulong                     txn_idx ) {        /* Transaction index of the records to merge */
@@ -488,10 +488,10 @@ fd_funk_txn_update( fd_funk_t *                  funk,
   fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
 
   fd_funk_txn_t * txn = &txn_pool.ele[ txn_idx ];
-  ulong rec_idx = txn->rec_head_idx;
+  uint rec_idx = txn->rec_head_idx;
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
     fd_funk_rec_t * rec = &rec_pool.ele[ rec_idx ];
-    ulong next_rec_idx = rec->next_idx;
+    uint next_rec_idx   = rec->next_idx;
 
     /* See if (dst_xid,key) already exists.  */
     fd_funk_xid_key_pair_t pair[1];
@@ -505,8 +505,8 @@ fd_funk_txn_update( fd_funk_t *                  funk,
 
       /* Remove from the transaction */
       fd_funk_rec_t * rec2 = fd_funk_rec_map_query_ele( rec_query );
-      ulong prev_idx = rec2->prev_idx;
-      ulong next_idx = rec2->next_idx;
+      uint prev_idx = rec2->prev_idx;
+      uint next_idx = rec2->next_idx;
       if( fd_funk_rec_idx_is_null( prev_idx ) ) {
         *_dst_rec_head_idx = next_idx;
       } else {
@@ -731,7 +731,7 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
 fd_funk_rec_t const *
 fd_funk_txn_first_rec( fd_funk_t *           funk,
                        fd_funk_txn_t const * txn ) {
-  ulong rec_idx;
+  uint rec_idx;
   if( FD_UNLIKELY( NULL == txn ))
     rec_idx = funk->rec_head_idx;
   else
@@ -745,7 +745,7 @@ fd_funk_txn_first_rec( fd_funk_t *           funk,
 fd_funk_rec_t const *
 fd_funk_txn_last_rec( fd_funk_t *           funk,
                       fd_funk_txn_t const * txn ) {
-  ulong rec_idx;
+  uint rec_idx;
   if( FD_UNLIKELY( NULL == txn ))
     rec_idx = funk->rec_tail_idx;
   else
@@ -762,7 +762,7 @@ fd_funk_txn_last_rec( fd_funk_t *           funk,
 fd_funk_rec_t const *
 fd_funk_txn_next_rec( fd_funk_t *           funk,
                       fd_funk_rec_t const * rec ) {
-  ulong rec_idx = rec->next_idx;
+  uint rec_idx = rec->next_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
@@ -772,7 +772,7 @@ fd_funk_txn_next_rec( fd_funk_t *           funk,
 fd_funk_rec_t const *
 fd_funk_txn_prev_rec( fd_funk_t *           funk,
                       fd_funk_rec_t const * rec ) {
-  ulong rec_idx = rec->prev_idx;
+  uint rec_idx = rec->prev_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
