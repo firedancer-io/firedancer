@@ -1,14 +1,10 @@
 #include "fd_executor.h"
-#include "context/fd_exec_epoch_ctx.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
-#include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "context/fd_exec_instr_ctx.h"
 
-#include "../../util/rng/fd_rng.h"
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
 #include "program/fd_bpf_loader_program.h"
@@ -20,9 +16,9 @@
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
-#include "program/fd_bpf_program_util.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_slot_history.h"
+#include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
 
@@ -31,16 +27,8 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 #include "../../util/bits/fd_uwide.h"
-
-#include <assert.h>
-#include <errno.h>
-#include <stdio.h>   /* snprintf(3) */
-#include <fcntl.h>   /* openat(2) */
-#include <unistd.h>  /* write(3) */
-#include <time.h>
 
 struct fd_native_prog_info {
   fd_pubkey_t key;

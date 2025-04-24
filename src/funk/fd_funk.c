@@ -111,7 +111,7 @@ fd_funk_new( void * shmem,
   funk->rec_pool_gaddr = fd_wksp_gaddr_fast( wksp, rec_pool2 );
   fd_funk_rec_pool_t rec_join[1];
   fd_funk_rec_pool_join( rec_join, rec_pool2, rec_ele, rec_max );
-  fd_funk_rec_pool_reset( rec_join, 0UL );
+  //fd_funk_rec_pool_reset( rec_join, 0UL );
   funk->rec_ele_gaddr = fd_wksp_gaddr_fast( wksp, rec_ele );
   funk->rec_max = rec_max;
   funk->rec_head_idx  = FD_FUNK_REC_IDX_NULL;
@@ -203,10 +203,18 @@ fd_funk_delete( void * shfunk ) {
 
   /* Free all the records */
   fd_alloc_t * alloc = fd_funk_alloc( funk, wksp);
-  fd_funk_all_iter_t iter[1];
-  for( fd_funk_all_iter_new( funk, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
-    fd_funk_rec_t * rec = fd_funk_all_iter_ele( iter );
-    fd_funk_val_flush( rec, alloc, wksp );
+
+  fd_funk_rec_map_t rec_map   = fd_funk_rec_map( funk, wksp );
+  ulong             chain_cnt = fd_funk_rec_map_chain_cnt( &rec_map );
+
+  for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    for(
+        fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( &rec_map, chain_idx );
+        !fd_funk_rec_map_iter_done( iter );
+        iter = fd_funk_rec_map_iter_next( iter )
+    ) {
+      fd_funk_val_flush( fd_funk_rec_map_iter_ele( iter ), alloc, wksp );
+    }
   }
 
   /* Free the allocator */

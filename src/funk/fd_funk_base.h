@@ -66,7 +66,7 @@
    facilitate compile time declarations. */
 
 #define FD_FUNK_REC_KEY_ALIGN     (8UL)
-#define FD_FUNK_REC_KEY_FOOTPRINT (40UL) /* 32 byte hash + 8 byte meta */
+#define FD_FUNK_REC_KEY_FOOTPRINT (32UL) /* 32 byte hash */
 
 /* A fd_funk_rec_key_t identifies a funk record.  Compact binary keys
    are encouraged but a cstr can be used so long as it has
@@ -78,6 +78,7 @@
 union __attribute__((aligned(FD_FUNK_REC_KEY_ALIGN))) fd_funk_rec_key {
   char  c [ FD_FUNK_REC_KEY_FOOTPRINT ];
   uchar uc[ FD_FUNK_REC_KEY_FOOTPRINT ];
+  uint  ui[ FD_FUNK_REC_KEY_FOOTPRINT / sizeof(uint)  ];
   ulong ul[ FD_FUNK_REC_KEY_FOOTPRINT / sizeof(ulong) ];
 };
 
@@ -140,12 +141,29 @@ FD_PROTOTYPES_BEGIN
    but not cryptographically secure.  Assumes k is in the caller's
    address space and valid. */
 
-FD_FN_UNUSED FD_FN_PURE static ulong /* Workaround -Winline */
+static inline ulong
+XXH3_mul128_fold64( ulong lhs, ulong rhs ) {
+  uint128 product = (uint128)lhs * (uint128)rhs;
+  return (ulong)product ^ (ulong)( product>>64 );
+}
+
+static inline ulong
+XXH3_mix16B( ulong i0, ulong i1,
+             ulong s0, ulong s1,
+             ulong seed ) {
+  return XXH3_mul128_fold64( i0 ^ (s0 + seed), i1 ^ (s1 - seed) );
+}
+
+FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
-                         ulong                     seed ) {
-  return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
-         (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) ) ^
-         (fd_ulong_hash( seed ^ (1UL<<4) ^ k->ul[4] ) ); /* tons of ILP */
+                      ulong                     seed ) {
+  ulong acc = 32 * 0x9E3779B185EBCA87ULL;
+  acc += XXH3_mix16B( k->ul[0], k->ul[1], 0xbe4ba423396cfeb8UL, 0x1cad21f72c81017cUL, seed );
+  acc += XXH3_mix16B( k->ul[2], k->ul[3], 0xdb979083e96dd4deUL, 0x1f67b3b7a4a44072UL, seed );
+  acc = acc ^ (acc >> 37);
+  acc *= 0x165667919E3779F9ULL;
+  acc = acc ^ (acc >> 32);
+  return acc;
 }
 
 /* fd_funk_rec_key_eq returns 1 if keys pointed to by ka and kb are
@@ -169,7 +187,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
                          fd_funk_rec_key_t const * ks ) {
   ulong *       d = kd->ul;
   ulong const * s = ks->ul;
-  d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3]; d[4] = s[4];
+  d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
   return kd;
 }
 

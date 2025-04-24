@@ -510,12 +510,12 @@ fd_funk_txn_update( fd_funk_t *                  funk,
       if( fd_funk_rec_idx_is_null( prev_idx ) ) {
         *_dst_rec_head_idx = next_idx;
       } else {
-        rec_pool.ele[ prev_idx ].next_idx = next_idx;
+        rec_pool.ele[ prev_idx ].next_idx = (uint)next_idx;
       }
       if( fd_funk_rec_idx_is_null( next_idx ) ) {
         *_dst_rec_tail_idx = prev_idx;
       } else {
-        rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+        rec_pool.ele[ next_idx ].prev_idx = (uint)prev_idx;
       }
       /* Clean up value */
       fd_funk_val_flush( rec2, alloc, wksp );
@@ -538,8 +538,8 @@ fd_funk_txn_update( fd_funk_t *                  funk,
       *_dst_rec_head_idx = rec_idx;
       rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     } else {
-      rec_pool.ele[ *_dst_rec_tail_idx ].next_idx = rec_idx;
-      rec->prev_idx = *_dst_rec_tail_idx;
+      rec_pool.ele[ *_dst_rec_tail_idx ].next_idx = (uint)rec_idx;
+      rec->prev_idx = (uint)*_dst_rec_tail_idx;
     }
     *_dst_rec_tail_idx = rec_idx;
     rec->next_idx = FD_FUNK_REC_IDX_NULL;

@@ -200,9 +200,8 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     }
   }
 
-  prepare->funk = funk;
-  prepare->wksp = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, prepare->wksp );
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
   fd_funk_rec_t * rec = prepare->rec = fd_funk_rec_pool_acquire( &rec_pool, NULL, 1, opt_err );
   if( opt_err && *opt_err == FD_POOL_ERR_CORRUPT ) {
     FD_LOG_ERR(( "corrupt element returned from funk rec pool" ));
@@ -216,7 +215,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
       prepare->rec_tail_idx = &funk->rec_tail_idx;
     } else {
       fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
-      fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, prepare->wksp );
+      fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
       rec->txn_cidx = fd_funk_txn_cidx( (ulong)( txn - txn_pool.ele ) );
       prepare->rec_head_idx = &txn->rec_head_idx;
       prepare->rec_tail_idx = &txn->rec_tail_idx;
@@ -234,39 +233,37 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 }
 
 void
-fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
+fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare,
+                     fd_funk_t *             funk,
+                     fd_wksp_t *             funk_wksp ) {
   fd_funk_rec_t * rec = prepare->rec;
   ulong * rec_head_idx = prepare->rec_head_idx;
   ulong * rec_tail_idx = prepare->rec_tail_idx;
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( prepare->funk, prepare->wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
+  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, funk_wksp );
+  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, funk_wksp );
 
-  /* We need a global lock to protect the prev/next update */
-  fd_funk_rec_pool_lock( &rec_pool, 1 );
-
-  ulong rec_prev_idx;
-  ulong rec_idx = (ulong)( rec - rec_pool.ele );
-  rec_prev_idx = *rec_tail_idx;
+  ulong rec_idx      = (ulong)( rec - rec_pool.ele );
+  ulong rec_prev_idx = *rec_tail_idx;
   *rec_tail_idx = rec_idx;
-  rec->prev_idx = rec_prev_idx;
+  rec->prev_idx = (uint)rec_prev_idx;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
   if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
     *rec_head_idx = rec_idx;
   } else {
-    rec_pool.ele[ rec_prev_idx ].next_idx = rec_idx;
+    rec_pool.ele[ rec_prev_idx ].next_idx = (uint)rec_idx;
   }
 
   if( fd_funk_rec_map_insert( &rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
   }
-
-  fd_funk_rec_pool_unlock( &rec_pool );
 }
 
 void
-fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare ) {
-  fd_funk_val_flush( prepare->rec, fd_funk_alloc( prepare->funk, prepare->wksp ), prepare->wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
+fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare,
+                    fd_funk_t *             funk,
+                    fd_wksp_t *             funk_wksp ) {
+  fd_funk_val_flush( prepare->rec, fd_funk_alloc( funk, funk_wksp ), funk_wksp );
+  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, funk_wksp );
   fd_funk_rec_pool_release( &rec_pool, prepare->rec, 1 );
 }
 
@@ -276,6 +273,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
                    int *                     opt_err ) {
+  fd_wksp_t * funk_wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * new_rec = fd_funk_rec_prepare( funk, txn, key, prepare, opt_err );
   if( !new_rec ) return NULL;
 
@@ -284,7 +282,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
     fd_funk_rec_t const * old_rec = fd_funk_rec_query_try_global( funk, txn, key, NULL, query );
     if( !old_rec ) {
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_KEY );
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( prepare, funk, funk_wksp );
       return NULL;
     }
 
@@ -292,7 +290,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
     ulong val_sz     = old_rec->val_sz;
     void * buf = fd_funk_val_truncate( new_rec, val_sz, fd_funk_alloc( funk, wksp ), wksp, opt_err );
     if( !buf ) {
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( prepare, funk, funk_wksp );
       return NULL;
     }
     memcpy( buf, fd_funk_val( old_rec, wksp ), val_sz );
@@ -348,14 +346,14 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
   ulong next_idx = rec->next_idx;
   if( txn == NULL ) {
     if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+    else                                         rec_pool.ele[ prev_idx ].next_idx = (uint)next_idx;
     if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+    else                                         rec_pool.ele[ next_idx ].prev_idx = (uint)prev_idx;
   } else {
     if( fd_funk_rec_idx_is_null( prev_idx ) ) txn->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+    else                                         rec_pool.ele[ prev_idx ].next_idx = (uint)next_idx;
     if( fd_funk_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+    else                                         rec_pool.ele[ next_idx ].prev_idx = (uint)prev_idx;
   }
   fd_funk_rec_pool_unlock( &rec_pool );
 
@@ -414,7 +412,7 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   for(;;) {
     old_flags = rec->flags;
     if( FD_UNLIKELY( old_flags & FD_FUNK_REC_FLAG_ERASE ) ) return FD_FUNK_SUCCESS;
-    if( FD_ATOMIC_CAS( &rec->flags, old_flags, old_flags | FD_FUNK_REC_FLAG_ERASE ) == old_flags ) break;
+    //if( FD_ATOMIC_CAS( &rec->flags, old_flags, old_flags | FD_FUNK_REC_FLAG_ERASE ) == old_flags ) break;
   }
 
   /* Flush the value and leave a tombstone behind. In theory, this can
@@ -429,16 +427,6 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   fd_funk_rec_set_erase_data( rec, erase_data );
 
   return FD_FUNK_SUCCESS;
-}
-
-void
-fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data ) {
-  rec->flags |= ((erase_data & 0xFFFFFFFFFFUL) << (sizeof(unsigned long) * 8 - 40));
-}
-
-ulong
-fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec ) {
-  return (rec->flags >> (sizeof(unsigned long) * 8 - 40)) & 0xFFFFFFFFFFUL;
 }
 
 int
@@ -483,12 +471,12 @@ fd_funk_rec_forget( fd_funk_t *      funk,
       break;
     }
 
-    ulong prev_idx = rec->prev_idx;
-    ulong next_idx = rec->next_idx;
+    uint prev_idx = rec->prev_idx;
+    uint next_idx = rec->next_idx;
     if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+    else                                      rec_pool.ele[ prev_idx ].next_idx = next_idx;
     if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+    else                                      rec_pool.ele[ next_idx ].prev_idx = prev_idx;
 
     fd_funk_val_flush( rec, alloc, wksp );
     fd_funk_rec_pool_release( &rec_pool, rec, 1 );

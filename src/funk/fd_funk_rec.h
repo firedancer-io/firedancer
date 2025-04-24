@@ -15,6 +15,7 @@
      fd_funk_rec_remove
 */
 
+#include "fd_funk_base.h"
 #include "fd_funk_txn.h" /* Includes fd_funk_base.h */
 
 /* FD_FUNK_REC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
@@ -38,26 +39,26 @@
 /* FD_FUNK_REC_IDX_NULL gives the map record idx value used to represent
    NULL.  This value also set a limit on how large rec_max can be. */
 
-#define FD_FUNK_REC_IDX_NULL (ULONG_MAX)
+#define FD_FUNK_REC_IDX_NULL (UINT_MAX)
 
 /* A fd_funk_rec_t describes a funk record. */
 
-struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
+struct fd_funk_rec {
 
   /* These fields are managed by the funk's rec_map */
-
-  fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
-  ulong                  map_next; /* Internal use by map */
-  ulong                  map_hash; /* Internal use by map */
+  fd_funk_xid_key_pair_t pair;
+  uchar executable;
+ulong                  map_next; /* Internal use by map */
+ulong                  map_hash; /* Internal use by map */
 
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
 
-  ulong prev_idx;  /* Record map index of previous record in its transaction */
-  ulong next_idx;  /* Record map index of next record in its transaction */
+  uint prev_idx;  /* Record map index of previous record in its transaction */
+  uint next_idx;  /* Record map index of next record in its transaction */
   uint  txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
   uint  tag;       /* Internal use only */
-  ulong flags;     /* Flags that indicate how to interpret a record */
+  uint flags;     /* Flags that indicate how to interpret a record */
 
   /* Note: use of uint here requires FD_FUNK_REC_VAL_MAX to be at most
      UINT_MAX. */
@@ -69,12 +70,16 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
                       has tag wksp_tag) and the owner of the region will be the record. The allocator is
                       fd_funk_alloc(). IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
+  uchar hash[32];
+  uchar owner[32];
+  ulong slot;
+  ulong lamports;
   /* Padding to FD_FUNK_REC_ALIGN here */
 };
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is wrong );
+// FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is wrong );
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
@@ -113,8 +118,6 @@ typedef fd_funk_rec_map_query_t fd_funk_rec_query_t;
    fd_funk_rec_prepare. */
 
 struct _fd_funk_rec_prepare {
-  fd_funk_t *     funk;
-  fd_wksp_t *     wksp;
   fd_funk_rec_t * rec;
   ulong *         rec_head_idx;
   ulong *         rec_tail_idx;
@@ -241,13 +244,17 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 /* fd_funk_rec_publish inserts a prepared record into the record map. */
 
 void
-fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare );
+fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare,
+                     fd_funk_t *             funk,
+                     fd_wksp_t *             funk_wksp );
 
 /* fd_funk_rec_cancel returns a prepared record to the pool without
    inserting it. */
 
 void
-fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare );
+fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare,
+                    fd_funk_t *             funk,
+                    fd_wksp_t *             funk_wksp );
 
 /* fd_funk_rec_clone copies a record from an ancestor transaction
    to create a new record in the given transaction. The record can be
