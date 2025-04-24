@@ -289,6 +289,7 @@ struct fd_topo_tile {
       char  shred_cap[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  snapshot_dir[ PATH_MAX ];
+      char  snapshot_http_header[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
@@ -444,6 +445,12 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       char  vote_acc_path[ PATH_MAX ];
     } tower;
+
+    struct {
+      ulong funk_obj_id;
+      char cold_store_dir[ PATH_MAX ];
+    } groove;
+
   };
 };
 

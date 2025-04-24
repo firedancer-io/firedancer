@@ -60,7 +60,8 @@ fd_snapshot_http_new( void *               mem,
                       uint                 dst_ipv4,
                       ushort               dst_port,
                       const char *         snapshot_dir,
-                      fd_snapshot_name_t * name_out ) {
+                      fd_snapshot_name_t * name_out,
+                      const char *         extra_http_header ) {
 
   fd_snapshot_http_t * this = (fd_snapshot_http_t *)mem;
   if( FD_UNLIKELY( !this ) ) {
@@ -113,11 +114,25 @@ fd_snapshot_http_new( void *               mem,
   p = fd_cstr_append_text( p, dst_str, strlen(dst_str) );
 
   static char const hdr_part2[] =
-    "\r\n"
     "\r\n";
   p = fd_cstr_append_text( p, hdr_part2, sizeof(hdr_part2)-1 );
 
+  if( FD_UNLIKELY( extra_http_header && strlen(extra_http_header) > 0 ) ) {
+    p = fd_cstr_append_text( p, extra_http_header, strlen(extra_http_header) );
+    static char const hdr_part3[] =
+      "\r\n";
+    p = fd_cstr_append_text( p, hdr_part3, sizeof(hdr_part3)-1 );
+  }
+
+  static char const hdr_part4[] =
+    "\r\n";
+  p = fd_cstr_append_text( p, hdr_part4, sizeof(hdr_part4)-1 );
+
+  FD_LOG_WARNING(( "p: %s", p ));
+
   this->req_head = (ushort)( p - this->req_buf );
+
+  FD_LOG_WARNING(( "this->req_head: %s", (char *)this->req_buf ));
 
   return this;
 }

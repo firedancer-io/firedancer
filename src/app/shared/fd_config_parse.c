@@ -227,6 +227,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
   CFG_POP      ( cstr,   tiles.replay.snapshot_url                        );
   CFG_POP      ( cstr,   tiles.replay.snapshot_dir                        );
+  CFG_POP      ( cstr,   tiles.replay.snapshot_http_header                );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
@@ -248,6 +249,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
   CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
+
+  CFG_POP      ( cstr,   tiles.groove.cold_store_dir                      );
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );

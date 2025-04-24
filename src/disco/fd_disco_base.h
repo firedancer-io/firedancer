@@ -62,6 +62,8 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 120 , update FD_SHRED_REPAIR_MTU );
 #define FD_REPLAY_WRITER_MTU (128UL)
 #define FD_EXEC_WRITER_MTU   (128UL)
 
+/* Maximum size of frags going into the Groove tile. */
+#define FD_REPLAY_GROOVE_MTU (48UL)
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */

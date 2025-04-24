@@ -1122,9 +1122,8 @@ ingest( fd_ledger_args_t * args ) {
                           args->verify_acc_hash,
                           args->check_acc_hash ,
                           FD_SNAPSHOT_TYPE_FULL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
-                          args->runtime_spad );
+                          args->runtime_spad,
+                          NULL );
     FD_LOG_NOTICE(( "imported records from snapshot" ));
   }
   if( args->incremental ) {
@@ -1137,9 +1136,8 @@ ingest( fd_ledger_args_t * args ) {
                           args->verify_acc_hash,
                           args->check_acc_hash,
                           FD_SNAPSHOT_TYPE_INCREMENTAL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
-                          args->runtime_spad );
+                          args->runtime_spad,
+                          NULL );
     FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
   }
 
@@ -1310,9 +1308,8 @@ replay( fd_ledger_args_t * args ) {
                           args->verify_acc_hash,
                           args->check_acc_hash,
                           FD_SNAPSHOT_TYPE_FULL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
-                          args->runtime_spad );
+                          args->runtime_spad,
+                          NULL );
     FD_LOG_NOTICE(( "imported from snapshot" ));
     if( args->incremental ) {
       fd_snapshot_load_all( args->incremental,
@@ -1324,9 +1321,8 @@ replay( fd_ledger_args_t * args ) {
                             args->verify_acc_hash,
                             args->check_acc_hash,
                             FD_SNAPSHOT_TYPE_INCREMENTAL,
-                            args->exec_spads,
-                            args->exec_spad_cnt,
-                            args->runtime_spad );
+                            args->runtime_spad,
+                            NULL );
       FD_LOG_NOTICE(( "imported from snapshot" ));
     }
   }

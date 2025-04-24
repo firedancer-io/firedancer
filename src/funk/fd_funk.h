@@ -149,6 +149,8 @@
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
 
+#define FD_FUNK_MAGIC (0xf17eda2ce7fc2c02UL) /* firedancer funk version 2 */
+
 /* FD_FUNK_ALIGN describe the alignment needed
    for a funk.  ALIGN should be a positive integer power of 2.
    The footprint is dynamic depending on map sizes. */
@@ -157,8 +159,6 @@
 
 /* The details of a fd_funk_shmem_private are exposed here to facilitate
    inlining various operations. */
-
-#define FD_FUNK_MAGIC (0xf17eda2ce7fc2c02UL) /* firedancer funk version 2 */
 
 struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
 
@@ -220,6 +220,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
 
   fd_funk_txn_xid_t root[1];         /* Always equal to the root transaction */
   fd_funk_txn_xid_t last_publish[1]; /* Root transaction immediately after construction, not root thereafter */
+
+  ulong root_rec_cnt; /* Number of records in the root transaction */
 
   /* The funk record map stores the details about all the records in
      the funk, including all those in the last published transaction and
@@ -449,6 +451,9 @@ fd_funk_last_publish_is_frozen( fd_funk_t const * funk ) {
    transaction and records for transactions that are in-flight. */
 
 FD_FN_PURE static inline ulong fd_funk_rec_max( fd_funk_t * funk ) { return funk->rec_pool->ele_max; }
+
+/* fd_funk_rec_cnt returns the number of records in the root Funk transaction. */
+FD_FN_PURE static inline ulong fd_funk_root_rec_cnt( fd_funk_t * funk ) { return funk->shmem->root_rec_cnt; }
 
 /* fd_funk_rec_map returns the funk's record map join. This
    join can copied by value and is generally stored as a stack variable. */

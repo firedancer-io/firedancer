@@ -6,11 +6,11 @@
 #define  MAP_KEY_EQ                fd_groove_key_eq
 #define  MAP_KEY_HASH              fd_groove_key_hash
 #define  MAP_ELE_IS_FREE(ctx,ele)  (!fd_groove_meta_bits_used( (ele)->bits ))
-#define  MAP_ELE_FREE(ctx,ele)     do { (ele)->bits = fd_groove_meta_bits( 0,0,0, 0UL, 0UL ); } while(0)
+#define  MAP_ELE_FREE(ctx,ele)     do { (ele)->bits = fd_groove_meta_bits( 0, 0UL, 0UL ); } while(0)
 #define  MAP_ELE_MOVE(ctx,dst,src) do {                  \
     fd_groove_meta_t * _src = (src);                     \
     *(dst) = *_src;                                      \
-    _src->bits = fd_groove_meta_bits( 0,0,0, 0UL, 0UL ); \
+    _src->bits = fd_groove_meta_bits( 0, 0UL, 0UL ); \
   } while(0)
 #define  MAP_VERSION_T             ushort
 #define  MAP_LOCK_MAX              (8192)

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_snapshot_fd_snapshot_base_h
 
 #include "../fd_flamenco_base.h"
+#include "../types/fd_types.h"
 
 /* FD_SNAPSHOT_CREATE_{ALIGN,FOOTPRINT} are const-friendly versions
    of the memory region parameters for the fd_snapshot_create_t object. */
@@ -47,6 +48,23 @@ fd_snapshot_name_from_buf( fd_snapshot_name_t * id,
 int
 fd_snapshot_name_slot_validate( fd_snapshot_name_t * id,
                                 ulong                base_slot );
+
+/* fd_snapshot_restore_cb_new_account_fn_t is a callback that provides the
+   snapshot restore with the buffer with which to write in the account data. */
+typedef uchar *
+(* fd_snapshot_restore_cb_new_account_fn_t)( void * ctx,
+                                             ulong slot,
+                                             fd_solana_account_hdr_t const * hdr );
+
+typedef void
+(* fd_snapshot_restore_cb_rent_fresh_account_fn_t)( fd_exec_slot_ctx_t * slot_ctx,
+                                                    fd_pubkey_t const *  pubkey );
+
+typedef void
+(* fd_snapshot_restore_cb_acc_finish_read_fn_t)( void *              ctx,
+                                                fd_pubkey_t const *  pubkey,
+                                                ulong                accv_slot,
+                                                uchar *              data );
 
 
 FD_PROTOTYPES_END

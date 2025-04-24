@@ -193,7 +193,6 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( res ) {
       return -1;
     }
-
     fd_sbpf_elf_info_t elf_info = {0};
     uint min_sbpf_version, max_sbpf_version;
     fd_bpf_get_sbpf_versions( &min_sbpf_version,

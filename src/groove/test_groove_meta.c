@@ -450,18 +450,12 @@ main( int     argc,
     ulong r = fd_rng_ulong( rng );
 
     int   used    = fd_groove_meta_bits_used   ( r ); FD_TEST( (0<=used) & (used<=1) );
-    int   cold    = fd_groove_meta_bits_cold   ( r ); FD_TEST( (0<=cold) & (cold<=1) );
-    int   hot     = fd_groove_meta_bits_hot    ( r ); FD_TEST( (0<=hot ) & (hot <=1) );
     ulong val_sz  = fd_groove_meta_bits_val_sz ( r ); FD_TEST( val_sz <(1UL<<24)     );
     ulong val_max = fd_groove_meta_bits_val_max( r ); FD_TEST( val_max<(1UL<<24)     );
 
-    int s = (int)((r>>3) & 31UL);
-
-    ulong bits = fd_groove_meta_bits( used<<s, cold<<s, hot<<s, val_sz, val_max );
+    ulong bits = fd_groove_meta_bits( used, val_sz, val_max );
 
     FD_TEST( fd_groove_meta_bits_used   ( bits )==used    );
-    FD_TEST( fd_groove_meta_bits_cold   ( bits )==cold    );
-    FD_TEST( fd_groove_meta_bits_hot    ( bits )==hot     );
     FD_TEST( fd_groove_meta_bits_val_sz ( bits )==val_sz  );
     FD_TEST( fd_groove_meta_bits_val_max( bits )==val_max );
   }

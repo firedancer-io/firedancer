@@ -247,6 +247,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   } else {
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_REC );
   }
+  prepare->txn = txn;
   return rec;
 }
 
@@ -304,6 +305,7 @@ fd_funk_rec_txn_publish( fd_funk_t *             funk,
   } else {
     funk->rec_pool->ele[ rec_prev_idx ].next_idx = rec_idx;
   }
+  prepare->txn->rec_cnt++;
 
   if( FD_UNLIKELY( fd_funk_rec_map_txn_insert( funk->rec_map, rec ) ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
@@ -470,6 +472,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
     memcpy( buf, fd_funk_val( old_rec, wksp ), val_sz );
 
     if( !fd_funk_rec_query_test( query ) ) {
+      prepare->txn->rec_cnt++;
       return new_rec;
     }
   }
@@ -512,11 +515,13 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
     else                                      funk->rec_pool->ele[ prev_idx ].next_idx = next_idx;
     if( fd_funk_rec_idx_is_null( next_idx ) ) funk->shmem->rec_tail_idx                = prev_idx;
     else                                      funk->rec_pool->ele[ next_idx ].prev_idx = prev_idx;
+    funk->shmem->root_rec_cnt--;
   } else {
     if( fd_funk_rec_idx_is_null( prev_idx ) ) txn->rec_head_idx                        = next_idx;
     else                                      funk->rec_pool->ele[ prev_idx ].next_idx = next_idx;
     if( fd_funk_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx                        = prev_idx;
     else                                      funk->rec_pool->ele[ next_idx ].prev_idx = prev_idx;
+    txn->rec_cnt--;
   }
 
   FD_VOLATILE( *lock ) = 0;
@@ -595,57 +600,6 @@ fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data ) {
 ulong
 fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec ) {
   return (rec->flags >> (sizeof(unsigned long) * 8 - 40)) & 0xFFFFFFFFFFUL;
-}
-
-int
-fd_funk_rec_forget( fd_funk_t *      funk,
-                    fd_funk_rec_t ** recs,
-                    ulong            recs_cnt ) {
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
-#endif
-
-#ifdef FD_FUNK_HANDHOLDING
-  ulong rec_max = funk->shmem->rec_max;
-#endif
-
-  for( ulong i = 0; i < recs_cnt; ++i ) {
-    fd_funk_rec_t * rec = recs[i];
-
-#ifdef FD_FUNK_HANDHOLDING
-    ulong rec_idx = (ulong)(rec - funk->rec_pool->ele);
-    if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(funk->rec_pool->ele+rec_idx)) /* Bad alignment */ ) )
-      return FD_FUNK_ERR_INVAL;
-#endif
-
-    ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
-    if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( txn_idx ) || /* Must be published */
-                     !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) { /* Must be removed */
-      return FD_FUNK_ERR_KEY;
-    }
-
-    for(;;) {
-      fd_funk_rec_map_query_t rec_query[1];
-      int err = fd_funk_rec_map_remove( funk->rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-      if( err == FD_MAP_ERR_KEY ) return FD_FUNK_ERR_KEY;
-      if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
-      if( rec != fd_funk_rec_map_query_ele( rec_query ) ) FD_LOG_CRIT(( "map corruption" ));
-      break;
-    }
-
-    uint prev_idx = rec->prev_idx;
-    uint next_idx = rec->next_idx;
-    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->shmem->rec_head_idx =                next_idx;
-    else                                      funk->rec_pool->ele[ prev_idx ].next_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->shmem->rec_tail_idx =                prev_idx;
-    else                                      funk->rec_pool->ele[ next_idx ].prev_idx = prev_idx;
-
-    fd_funk_val_flush( rec, funk->alloc, funk->wksp );
-    fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
-  }
-
-  return FD_FUNK_SUCCESS;
 }
 
 static void

@@ -67,10 +67,6 @@ typedef int
                                               fd_bank_slot_deltas_t * slot_deltas,
                                               fd_spad_t *             spad );
 
-typedef int
-(* fd_snapshot_restore_cb_rent_fresh_account_fn_t)( fd_exec_slot_ctx_t * slot_ctx,
-                                                    fd_pubkey_t const *  pubkey );
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_snapshot_restore_{align,footprint} return required memory region
@@ -110,13 +106,15 @@ fd_snapshot_restore_footprint( void );
 
 fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *                                         mem,
-                         fd_funk_t *                                    funk,
-                         fd_funk_txn_t *                                txn,
                          fd_spad_t *                                    spad,
                          void *                                         cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache,
-                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account );
+                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account,
+                         void *                                         cb_new_account_ctx,
+                         fd_snapshot_restore_cb_new_account_fn_t        cb_new_account,
+                         void *                                         cb_acc_finish_read_ctx,
+                         fd_snapshot_restore_cb_acc_finish_read_fn_t    cb_acc_finish_read );
 
 /* fd_snapshot_restore_delete destroys the given restore object and
    frees any resources.  Returns allocated memory region back to
@@ -151,6 +149,17 @@ ulong
 fd_snapshot_restore_get_slot( fd_snapshot_restore_t * restore );
 
 extern fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt;
+
+struct fd_snapshot_new_account_funk_cb_ctx {
+  fd_funk_t *     funk;
+  fd_funk_txn_t * funk_txn;
+};
+typedef struct fd_snapshot_new_account_funk_cb_ctx fd_snapshot_new_account_funk_cb_ctx_t;
+
+uchar *
+fd_snapshot_new_account_funk_cb( void *   _ctx,
+                                 ulong    accv_slot,
+                                 fd_solana_account_hdr_t const * hdr );
 
 FD_PROTOTYPES_END
 

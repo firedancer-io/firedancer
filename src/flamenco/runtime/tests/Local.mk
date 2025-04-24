@@ -8,8 +8,8 @@ $(call add-objs,harness/fd_elf_harness harness/fd_instr_harness harness/fd_txn_h
 $(call add-objs,harness/fd_exec_sol_compat,fd_flamenco_test)
 
 SOL_COMPAT_FLAGS:=-Wl,--undefined=fd_types_vt_by_name
-$(call make-unit-test,test_exec_sol_compat,test_exec_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
-$(call make-shared,libfd_exec_sol_compat.so,harness/fd_exec_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(SOL_COMPAT_FLAGS))
+$(call make-unit-test,test_exec_sol_compat,test_exec_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_groove fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
+$(call make-shared,libfd_exec_sol_compat.so,harness/fd_exec_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_groove fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(SOL_COMPAT_FLAGS))
 
 endif
 endif

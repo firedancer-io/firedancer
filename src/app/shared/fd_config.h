@@ -389,6 +389,7 @@ struct fd_config {
       char  snapshot[ PATH_MAX ];
       char  snapshot_url[ PATH_MAX ];
       char  snapshot_dir[ PATH_MAX ];
+      char  snapshot_http_header[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
@@ -420,6 +421,10 @@ struct fd_config {
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
     } archiver;
+
+    struct {
+      char cold_store_dir[ PATH_MAX ];
+    } groove;
 
   } tiles;
 };
