@@ -225,6 +225,7 @@ void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
 
   /* Now, that the manifest is done being read in. Read in the rest of the accounts. */
+  fd_snapshot_enable_nt_copy( ctx->restore );
   for(;;) {
     int err = fd_snapshot_loader_advance( ctx->loader );
     if( err==-1 ) break; /* We have finished loading in the snapshot. */

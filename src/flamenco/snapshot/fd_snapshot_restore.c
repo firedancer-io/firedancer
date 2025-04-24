@@ -10,6 +10,10 @@
 #include <string.h>      /* strncmp */
 #include <sys/random.h>  /* getrandom */
 
+#if FD_HAS_AVX512 || FD_HAS_AVX
+#include <immintrin.h>
+#endif
+
 /* Snapshot Restore Buffer Handling ***********************************/
 
 static void
@@ -582,6 +586,72 @@ fd_snapshot_read_account_hdr_chunk( fd_snapshot_restore_t * restore,
   return end;
 }
 
+void
+fd_snapshot_enable_nt_copy( fd_snapshot_restore_t * restore ) {
+  restore->use_nt_copy = 1;
+}
+
+static void
+fd_snapshot_nt_memcpy( uchar *       restrict dst,
+                       uchar const * restrict src,
+                       ulong                   sz ) {
+#if FD_HAS_AVX512 || FD_HAS_AVX
+  if( sz<1024UL ) goto tail;
+
+  /* Head copy */
+  ulong dst_align = (ulong)fd_ulong_align_up( (ulong)dst, 64UL );
+  ulong head_sz   = dst_align - (ulong)dst;
+  fd_memcpy( dst, src, head_sz );
+  src += head_sz;
+  dst += head_sz;
+  sz  -= head_sz;
+
+  /* NT copy */
+  while( sz>=512 ) {
+#  if FD_HAS_AVX512
+    _mm512_stream_si512( (void *)( dst+  0UL ), _mm512_loadu_si512( (void const *)( src+  0UL ) ) );
+    _mm512_stream_si512( (void *)( dst+ 64UL ), _mm512_loadu_si512( (void const *)( src+ 64UL ) ) );
+    _mm512_stream_si512( (void *)( dst+128UL ), _mm512_loadu_si512( (void const *)( src+128UL ) ) );
+    _mm512_stream_si512( (void *)( dst+192UL ), _mm512_loadu_si512( (void const *)( src+192UL ) ) );
+    _mm512_stream_si512( (void *)( dst+256UL ), _mm512_loadu_si512( (void const *)( src+256UL ) ) );
+    _mm512_stream_si512( (void *)( dst+320UL ), _mm512_loadu_si512( (void const *)( src+320UL ) ) );
+    _mm512_stream_si512( (void *)( dst+384UL ), _mm512_loadu_si512( (void const *)( src+384UL ) ) );
+    _mm512_stream_si512( (void *)( dst+448UL ), _mm512_loadu_si512( (void const *)( src+448UL ) ) );
+#  elif FD_HAS_AVX
+    _mm256_stream_si256( (void *)( dst+  0UL ), _mm256_loadu_si256( (void const *)( src+  0UL ) ) );
+    _mm256_stream_si256( (void *)( dst+ 32UL ), _mm256_loadu_si256( (void const *)( src+ 32UL ) ) );
+    _mm256_stream_si256( (void *)( dst+ 64UL ), _mm256_loadu_si256( (void const *)( src+ 64UL ) ) );
+    _mm256_stream_si256( (void *)( dst+ 96UL ), _mm256_loadu_si256( (void const *)( src+ 96UL ) ) );
+    _mm256_stream_si256( (void *)( dst+128UL ), _mm256_loadu_si256( (void const *)( src+128UL ) ) );
+    _mm256_stream_si256( (void *)( dst+160UL ), _mm256_loadu_si256( (void const *)( src+160UL ) ) );
+    _mm256_stream_si256( (void *)( dst+192UL ), _mm256_loadu_si256( (void const *)( src+192UL ) ) );
+    _mm256_stream_si256( (void *)( dst+224UL ), _mm256_loadu_si256( (void const *)( src+224UL ) ) );
+    _mm256_stream_si256( (void *)( dst+256UL ), _mm256_loadu_si256( (void const *)( src+256UL ) ) );
+    _mm256_stream_si256( (void *)( dst+288UL ), _mm256_loadu_si256( (void const *)( src+288UL ) ) );
+    _mm256_stream_si256( (void *)( dst+320UL ), _mm256_loadu_si256( (void const *)( src+320UL ) ) );
+    _mm256_stream_si256( (void *)( dst+352UL ), _mm256_loadu_si256( (void const *)( src+352UL ) ) );
+    _mm256_stream_si256( (void *)( dst+384UL ), _mm256_loadu_si256( (void const *)( src+384UL ) ) );
+    _mm256_stream_si256( (void *)( dst+416UL ), _mm256_loadu_si256( (void const *)( src+416UL ) ) );
+    _mm256_stream_si256( (void *)( dst+448UL ), _mm256_loadu_si256( (void const *)( src+448UL ) ) );
+    _mm256_stream_si256( (void *)( dst+480UL ), _mm256_loadu_si256( (void const *)( src+480UL ) ) );
+#  else
+#  error "Unsupported AVX/AVX512 configuration"
+#  endif
+    src += 512;
+    dst += 512;
+    sz  -= 512;
+  }
+
+  _mm_sfence();
+#endif
+
+  /* Tail copy */
+tail:
+  if( FD_LIKELY( sz ) ) {
+    fd_memcpy( dst, src, sz );
+  }
+}
+
 /* fd_snapshot_read_account_chunk reads partial account content. */
 
 static uchar const *
@@ -591,7 +661,8 @@ fd_snapshot_read_account_chunk( fd_snapshot_restore_t * restore,
 
   ulong data_sz = fd_ulong_min( restore->acc_sz, bufsz );
   if( FD_LIKELY( restore->acc_data ) ) {
-    fd_memcpy( restore->acc_data, buf, data_sz );
+    if( restore->use_nt_copy ) fd_snapshot_nt_memcpy( restore->acc_data, buf, data_sz );
+    else                       fd_memcpy            ( restore->acc_data, buf, data_sz );
     restore->acc_data += data_sz;
   }
   if( FD_UNLIKELY( data_sz > restore->accv_sz ) )
