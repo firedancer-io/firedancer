@@ -1132,9 +1132,9 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
 }
 
 void
-fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
-                                     ulong      _slot,
-                                     ulong      id ) {
+fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
+                                         ulong      _slot,
+                                         ulong      id ) {
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   char const * level;
@@ -1185,30 +1185,6 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui, "tips" );
         else                                       jsonp_ulong( gui, "tips", slot->tips );
       jsonp_close_object( gui );
-
-      if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
-        fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
-
-        if( FD_LIKELY( gui->summary.tile_timers_leader_history_slot[ slot->tile_timers_history_idx ]==_slot ) ) {
-          jsonp_open_array( gui, "tile_timers" );
-            fd_gui_tile_timers_t const * prev_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ 0 ];
-            for( ulong i=1UL; i<gui->summary.tile_timers_leader_history_slot_sample_cnt[ slot->tile_timers_history_idx ]; i++ ) {
-              fd_gui_tile_timers_t const * cur_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ i ];
-              fd_gui_printf_ts_tile_timers( gui, prev_timer, cur_timer );
-              prev_timer = cur_timer;
-            }
-          jsonp_close_array( gui );
-        } else {
-          /* Our tile timers were overwritten. */
-          jsonp_null( gui, "tile_timers" );
-        }
-
-        fd_gui_printf_tile_stats( gui, slot->tile_stats_begin, slot->tile_stats_end );
-      } else {
-        jsonp_null( gui, "waterfall" );
-        jsonp_null( gui, "tile_timers" );
-        jsonp_null( gui, "tile_primary_metric" );
-      }
 
       int overwritten               = (gui->pack_txn_idx - slot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
       int processed_all_microblocks = slot->slot!=ULONG_MAX &&
@@ -1292,6 +1268,89 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         jsonp_close_object( gui );
       } else {
         jsonp_null( gui, "compute_units" );
+      }
+
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
+                                     ulong      _slot,
+                                     ulong      id ) {
+  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+
+  char const * level;
+  switch( slot->level ) {
+    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
+    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
+    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
+    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
+    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
+    default:                                         level = "unknown"; break;
+  }
+
+  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
+  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+
+  long duration_nanos = LONG_MAX;
+  if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
+    duration_nanos = slot->completed_time - parent_slot->completed_time;
+  }
+
+  jsonp_open_envelope( gui, "slot", "query" );
+    jsonp_ulong( gui, "id", id );
+    jsonp_open_object( gui, "value" );
+
+      jsonp_open_object( gui, "publish" );
+        jsonp_ulong( gui, "slot", _slot );
+        jsonp_bool( gui, "mine", slot->mine );
+        jsonp_bool( gui, "skipped", slot->skipped );
+        jsonp_string( gui, "level", level );
+        if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui, "duration_nanos" );
+        else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
+        if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
+        else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
+        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "transactions" );
+        else                                               jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "vote_transactions" );
+        else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
+        else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->txs.max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
+        else                                                       jsonp_ulong( gui, "max_compute_units", slot->txs.max_compute_units );
+        if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
+        else                                               jsonp_ulong( gui, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
+        else                                                  jsonp_ulong( gui, "transaction_fee", slot->transaction_fee );
+        if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui, "priority_fee" );
+        else                                               jsonp_ulong( gui, "priority_fee", slot->priority_fee );
+        if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui, "tips" );
+        else                                       jsonp_ulong( gui, "tips", slot->tips );
+      jsonp_close_object( gui );
+
+      if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
+        fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
+
+        if( FD_LIKELY( gui->summary.tile_timers_leader_history_slot[ slot->tile_timers_history_idx ]==_slot ) ) {
+          jsonp_open_array( gui, "tile_timers" );
+            fd_gui_tile_timers_t const * prev_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ 0 ];
+            for( ulong i=1UL; i<gui->summary.tile_timers_leader_history_slot_sample_cnt[ slot->tile_timers_history_idx ]; i++ ) {
+              fd_gui_tile_timers_t const * cur_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ i ];
+              fd_gui_printf_ts_tile_timers( gui, prev_timer, cur_timer );
+              prev_timer = cur_timer;
+            }
+          jsonp_close_array( gui );
+        } else {
+          /* Our tile timers were overwritten. */
+          jsonp_null( gui, "tile_timers" );
+        }
+
+        fd_gui_printf_tile_stats( gui, slot->tile_stats_begin, slot->tile_stats_end );
+      } else {
+        jsonp_null( gui, "waterfall" );
+        jsonp_null( gui, "tile_timers" );
+        jsonp_null( gui, "tile_primary_metric" );
       }
 
     jsonp_close_object( gui );
