@@ -502,15 +502,6 @@ during_frag( fd_sock_tile_t * ctx,
   }
   ulong payload_sz = sz-hdr_sz;
 
-  if( FD_UNLIKELY( payload_sz > 1500UL ) ) {
-#define DUMPVAR( VAR ) FD_LOG_NOTICE(( "  DUMPVAR: " #VAR " = %lx (%ld)", (ulong)(VAR), (long)(VAR) ))
-    DUMPVAR( sz );
-    DUMPVAR( hdr_sz );
-    DUMPVAR( in_idx );
-    DUMPVAR( chunk );
-    FD_LOG_ERR(( "payload_sz: %lu", payload_sz ));
-  }
-
   fd_ip4_hdr_t const * ip_hdr  = (fd_ip4_hdr_t const *)( frame  +sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)( payload-sizeof(fd_udp_hdr_t) );
   if( FD_UNLIKELY( ( FD_IP4_GET_VERSION( *ip_hdr )!=4 ) |
@@ -555,8 +546,19 @@ during_frag( fd_sock_tile_t * ctx,
     }
   };
 
+  if( FD_UNLIKELY( buf + sizeof(fd_udp_hdr_t) + payload_sz >= ctx->tx_scratch1 ) ) {
+#define DUMPVAR( VAR ) FD_LOG_NOTICE(( "  DUMPVAR: " #VAR " = %lx (%ld)", (ulong)(VAR), (long)(VAR) ))
+    DUMPVAR( (ulong)buf );
+    DUMPVAR( payload_sz );
+    DUMPVAR( sz );
+    DUMPVAR( hdr_sz );
+    DUMPVAR( in_idx );
+    DUMPVAR( chunk );
+    FD_LOG_ERR(( "Out of bounds batch" ));
+  }
+
   memcpy( buf, udp_hdr, sizeof(fd_udp_hdr_t) );
-  memcpy( buf+sizeof(fd_udp_hdr_t), payload, payload_sz );
+  fd_memcpy( buf+sizeof(fd_udp_hdr_t), payload, payload_sz );
   ctx->metrics.tx_bytes_total += sz;
 }
 
