@@ -1005,7 +1005,7 @@ main( int     argc,
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz"  ));
-  if( FD_UNLIKELY( !replay_pcap ) ) FD_LOG_ERR(( "--replay-pcap not specifed" ));
+  if( FD_UNLIKELY( !replay_pcap ) ) FD_LOG_ERR(( "--replay-pcap not specified" ));
 
   /* Check minimum number of tiles */
   ulong req_tile_cnt = 1 /* main */ + (( !!replay_enabled )? 1UL : 0UL) +
