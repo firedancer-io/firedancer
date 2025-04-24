@@ -694,7 +694,7 @@ fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs,
     }
     if( tpu_quic_port > 0 && tpu_quic_port > last_port && tpu_quic_port < min_port ) {
       min_key = FD_GOSSIP_SOCKET_TAG_TPU_QUIC;
-      min_addr = &addrs->tpu;
+      min_addr = &addrs->tpu_quic;
       min_port = tpu_quic_port;
     }
     if( tpu_vote_port > 0 && tpu_vote_port > last_port && tpu_vote_port < min_port ) {
