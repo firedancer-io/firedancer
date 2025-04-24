@@ -390,7 +390,7 @@ fd_repair_sign_and_send( fd_repair_t *           glob,
 static inline ulong
 fd_repair_req_tag( ulong slot, uint shred_idx, enum fd_needed_elem_type type ) {
   /*
-  type [63:62] | slot [61:30] | shred_idx [29:15] | 000 [14:0]
+  type [63:62] | slot [61:30]  | 000 [14:0] | shred_idx [29:15]
   type (2) | slot (32) | shred_idx (15) | 000 (15)
   */
   ulong slot_ul      = fd_ulong_min( slot, (ulong)UINT_MAX );
@@ -400,12 +400,12 @@ fd_repair_req_tag( ulong slot, uint shred_idx, enum fd_needed_elem_type type ) {
 
 static inline ulong
 fd_repair_req_tag_slot( ulong tag ){
-  return fd_ulong_extract( tag, 30, 62 );
+  return fd_ulong_extract( tag, 30, 61 );
 }
 
 static inline uint
 fd_repair_req_tag_shred_idx( ulong tag ){
-  return (uint)fd_ulong_extract( tag, 0, 15 );
+  return (uint)fd_ulong_extract( tag, 0, 14 );
 }
 
 void
@@ -963,7 +963,10 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
 
   ulong tag = fd_repair_req_tag( slot, shred_index, (enum fd_needed_elem_type) type );
   //FD_LOG_WARNING(("slot vs. tag slot: %lu vs %lu", slot, fd_repair_req_tag_slot( tag ) ));
-  FD_TEST( slot == fd_repair_req_tag_slot( tag ) );
+  if( slot != fd_repair_req_tag_slot( tag ) ){
+    __asm__("int $3");
+    FD_LOG_WARNING(("slot vs. tag slot: %lu vs %lu", slot, fd_repair_req_tag_slot( tag ) ));
+  }
   //FD_TEST( shred_index == fd_repair_req_tag_shred_idx( tag ));
 
   int     found;
@@ -1023,7 +1026,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
         FD_LOG_INFO((" [repair] refreshing request for %lu, %u", slot, shred_index));
       } else {
         /* We are still in the timeout period */
-        FD_LOG_INFO((" [repair] request in timeout for %lu, %u", slot, shred_index));
+        //FD_LOG_INFO((" [repair] request in timeout for %lu, %u", slot, shred_index));
         return 0;
       }
     } else {
@@ -1103,7 +1106,7 @@ fd_write_good_peer_cache_file( fd_repair_t * repair ) {
 
 ulong
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  FD_LOG_DEBUG(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
+  FD_LOG_INFO(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
   return fd_repair_create_needed_request( glob, fd_needed_window_index, slot, shred_index );
 }
 

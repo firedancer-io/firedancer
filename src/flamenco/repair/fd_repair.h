@@ -20,7 +20,7 @@
    these constants once they are fully understood and updated. */
 #define FD_REPAIR_SCRATCH_MAX    (1UL << 30UL)
 #define FD_REPAIR_SCRATCH_DEPTH  (1UL << 11UL)
-#define FD_REPAIR_TIMEOUT_THRESH ( 1000 * 1000 * 150 ) /* 150ms */
+#define FD_REPAIR_TIMEOUT_THRESH ( 1000 * 1000 * 200 ) /* 150ms */
 /* Number of peers to send requests to. */
 #define FD_REPAIR_NUM_NEEDED_PEERS (4)
 /* Max number of pending shred requests */

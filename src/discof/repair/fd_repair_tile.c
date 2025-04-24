@@ -137,6 +137,11 @@ struct fd_repair_tile_ctx {
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
+
+  fd_forest_frontier_iter_t frontier_iter; /* current frontier we are going down */
+  fd_forest_ele_t * q_head;                  /* head of BFS quwayway*/
+  fd_forest_ele_t * q_tail;
+  uint              last_sent_idx; /* lol */
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -575,6 +580,130 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
 static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
+               fd_stem_context_t *   stem FD_PARAM_UNUSED,
+               int *                 opt_poll_in FD_PARAM_UNUSED,
+               int *                 charge_busy ) {
+  *charge_busy = 1;
+  long now = fd_log_wallclock();
+  fd_repair_settime( ctx->repair, now );
+
+  if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) return;
+
+  /* TODO: fix peer selection... */
+  fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
+  get_peers( ctx->repair, ids, FD_REPAIR_NUM_NEEDED_PEERS );
+
+  fd_forest_t *          forest   = ctx->forest;
+  fd_forest_ele_t *      pool     = fd_forest_pool( forest );
+  ulong                  null     = fd_forest_pool_idx_null( pool );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
+
+  int sent = 0;
+
+#define LOOP_PEERS_AND_SEND( tag )                                             \
+  for( int i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {                          \
+    if( FD_LIKELY( ids[i] ) ) {                                                \
+      fd_active_elem_t * peer = fd_repair_active_query( ctx->repair, ids[i] ); \
+      sent = 1;                                                                \
+      fd_repair_send_request( ctx->repair, tag, peer );                        \
+    }                                                                          \
+  }
+
+  /* currently BFS-ing a slot on the frontier / it's children*/
+  if( FD_LIKELY( ctx->q_head ) ) {
+    fd_forest_ele_t * head = ctx->q_head;
+    FD_LOG_INFO(("current queue head: %lu, buffered_idx: %u, complete_idx: %u", head->slot, head->buffered_idx, head->complete_idx));
+    fd_forest_ele_t * tail = ctx->q_tail;
+    fd_forest_ele_t * prev = NULL;
+
+    if( FD_UNLIKELY( head->complete_idx == UINT_MAX ) ) {
+      uint highest = head->buffered_idx == UINT_MAX ? 0 : head->buffered_idx;
+      ulong tag = fd_repair_need_highest_window_index( ctx->repair, head->slot, highest );
+      if( tag ) LOOP_PEERS_AND_SEND( tag );
+    }
+
+    uint next_send_idx = fd_uint_max( head->buffered_idx + 1, ctx->last_sent_idx + 1 );
+    for( uint idx = next_send_idx; idx <= head->complete_idx; idx++ ) {
+      if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
+        ulong tag = fd_repair_need_window_index( ctx->repair, head->slot, idx );
+        if( tag ) {
+          LOOP_PEERS_AND_SEND( tag );
+          ctx->last_sent_idx = idx;
+          break;
+        }
+      };
+      ctx->last_sent_idx = idx;
+    }
+
+    /* Advance queue */
+
+    int slot_complete = ( head->complete_idx == 0 && head->buffered_idx == 0 ) ||
+                         fd_uint_if( head->buffered_idx == UINT_MAX, 0, head->buffered_idx ) >= head->complete_idx;
+
+    if( FD_UNLIKELY( ctx->last_sent_idx >= head->complete_idx || slot_complete ) ) {
+
+
+      /* finished repair requests for this slot, so this means we can
+         add its children to the BFS qwayway */
+
+      ctx->last_sent_idx = UINT_MAX;
+      fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
+      while( FD_LIKELY( child ) ) { /* append children to frontier */
+        tail->prev     = fd_forest_pool_idx( pool, child );
+        tail           = fd_forest_pool_ele( pool, tail->prev );
+        tail->prev     = null;
+        child          = fd_forest_pool_ele( pool, child->sibling );
+      }
+      prev       = head;
+      head       = fd_forest_pool_ele( pool, head->prev );
+      FD_LOG_INFO(("advancing queue head: %lu, buffered: %u/%u TO child slot: %lu", prev->slot, prev->buffered_idx, prev->complete_idx,  head != NULL ? head->slot: 0 ));
+      prev->prev = null;
+      ctx->q_head = head;
+      ctx->q_tail = tail;
+    }
+  } else { // q_head == NULL
+    //FD_LOG_INFO(( "nothing on queue, checking frontier" ));
+    /* Nothing on queue. check next frontier slot
+       Note: because the frontier may change over multiple after_credit
+       iterations, we may be missing some frontier slots... but its
+       probably ok i think we'll just get it on the next one. */
+
+    if( FD_UNLIKELY( fd_forest_frontier_iter_done( ctx->frontier_iter, frontier, pool ) ) ) {
+      ctx->frontier_iter = fd_forest_frontier_iter_init( frontier, pool );
+    }
+    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( ctx->frontier_iter, frontier, pool );
+    ctx->q_head = ele;
+    ctx->q_tail = ele;
+
+    ctx->frontier_iter = fd_forest_frontier_iter_next( ctx->frontier_iter, frontier, pool );
+  }
+
+  /* if we still havent sent a repair request, fire the orphan reqs. */
+
+  if( !sent ) {
+    //FD_LOG_INFO(("sending orphaned repair requests"));
+    for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
+    !fd_forest_orphaned_iter_done( iter, orphaned, pool );
+    iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+      fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
+      ulong tag = 0;
+      if( FD_LIKELY( tag = fd_repair_need_orphan( ctx->repair, orphan->slot ) ) ){
+        LOOP_PEERS_AND_SEND( tag );
+      }
+    }
+  }
+  #undef LOOP_PEERS_AND_SEND
+  fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
+
+  fd_repair_continue( ctx->repair );
+
+  FD_LOG_INFO(("done with this after_credit iter"));
+
+}
+
+static inline void
+after_credit2( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem FD_PARAM_UNUSED,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
@@ -599,7 +728,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
   get_peers( ctx->repair, ids, FD_REPAIR_NUM_NEEDED_PEERS );
 
-#define LOOP_PEERS_AND_SEND( tag ) \
+#define LOOP_PEERS_AND_SEND( tag )                                             \
   for( int i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {                          \
     if( FD_LIKELY( ids[i] ) ) {                                                \
       fd_active_elem_t * peer = fd_repair_active_query( ctx->repair, ids[i] ); \
@@ -607,6 +736,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     }                                                                          \
   }
 
+
+  // req sent:
+  // resp recieve: 19:54:00:0434069
+  //
   for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
        !fd_forest_frontier_iter_done( iter, frontier, pool );
        iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
@@ -995,6 +1128,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->forest  = fd_forest_join( fd_forest_new( ctx->forest, FD_FOREST_ELE_MAX, ctx->repair_seed ) );
   ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
   ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, FD_FOREST_ELE_MAX * 4, 0 ) );
+  ctx->q_head = NULL;
+  ctx->q_tail = NULL;
+  ctx->last_sent_idx = UINT_MAX;
+  ctx->frontier_iter.chain_rem = 0;
 
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
