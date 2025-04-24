@@ -22,6 +22,7 @@ struct fd_ledger_args {
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t       blockstore_ljoin;
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
+
   fd_funk_t *           funk;                    /* handle to funk */
   fd_alloc_t *          alloc;                   /* handle to alloc */
   char const *          cmd;                     /* user passed command to fd_ledger */
@@ -349,7 +350,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     FD_LOG_DEBUG(( "reading slot %lu", slot ));
 
     /* If we have reached a new block, load one in from rocksdb to the blockstore */
-    bool block_exists = fd_blockstore_shreds_complete( blockstore, slot);
+    bool block_exists = fd_block_info_shreds_complete( blockstore, slot);
     if( !block_exists && slot_meta.slot == slot ) {
       int err = fd_rocksdb_import_block_blockstore( &rocks_db,
                                                     &slot_meta, blockstore,
@@ -364,17 +365,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       if( FD_LIKELY( block_slot < slot ) ) {
         /* Mark the block as successfully processed */
 
-        fd_block_map_query_t query[1] = {0};
-        int err = fd_block_map_prepare( blockstore->block_map, &block_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-        fd_block_info_t * block_info = fd_block_map_query_ele( query );
-
-        if( FD_UNLIKELY( err || block_info->slot != block_slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
-
-        block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
-        block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_PROCESSED );
-
-        fd_block_map_publish( query );
-
         /* Remove the old block from the blockstore */
         /*for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
           fd_blockstore_shred_remove( blockstore, block_slot, idx );
@@ -383,13 +373,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         fd_blockstore_slot_remove( blockstore, block_slot );
       }
       /* Mark the new block as replaying */
-      fd_block_map_query_t query[1] = {0};
-      err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_info_t * block_info = fd_block_map_query_ele( query );
-      if( FD_UNLIKELY( err || block_info->slot != slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
-      block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
-      fd_block_map_publish( query );
-
       block_slot = slot;
     }
 
@@ -933,6 +916,7 @@ init_blockstore( fd_ledger_args_t * args ) {
     }
     FD_LOG_NOTICE(( "allocating a new blockstore" ));
   }
+
 }
 
 void

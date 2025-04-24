@@ -362,10 +362,10 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
   }
 
   /* Ensure that a block exists for the given slot */
-  bool block_complete = fd_blockstore_shreds_complete( blockstore, slot );
-  if ( FD_UNLIKELY( !block_complete ) ) {
-    FD_LOG_ERR(( "block doesn't exist for slot=%lu", slot ));
-  }
+  //bool block_complete = fd_blockstore_shreds_complete( blockstore, slot );
+  //if ( FD_UNLIKELY( !block_complete ) ) {
+    //FD_LOG_ERR(( "block doesn't exist for slot=%lu", slot ));
+  //}
 
   /* Validate slot footer */
   err = fd_io_read( fd, rbuf, 0, FD_SHREDCAP_SLOT_FTR_FOOTPRINT, &sz );
@@ -1067,15 +1067,6 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       }
       if ( FD_UNLIKELY( sz != FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT ) ) {
         FD_LOG_ERR(( "unexpected size read=%lu for bank hash entry", sz ));
-      }
-
-      fd_shredcap_bank_hash_entry_t * entry = (fd_shredcap_bank_hash_entry_t*)bank_hash_buf;
-      if ( FD_LIKELY( fd_blockstore_block_info_test( blockstore, cur_slot ) ) ) {
-        fd_block_map_query_t query[1] = {0};
-        fd_block_map_prepare( blockstore->block_map, &cur_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-        fd_block_info_t * block = fd_block_map_query_ele( query );
-        fd_memcpy( block->bank_hash.hash, &entry->bank_hash.hash, 32UL );
-        fd_block_map_publish( query );
       }
 
       ++cur_bank_hash_slot_idx;

@@ -1334,7 +1334,7 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
       char buf64[FD_BASE58_ENCODED_64_SZ];
       fd_base58_encode_64(ele->sig, NULL, buf64);
       fd_web_reply_sprintf(ws, "{\"blockTime\":%ld,\"confirmationStatus\":%s,\"err\":null,\"memo\":null,\"signature\":\"%s\",\"slot\":%lu}",
-                           block_info.ts/(long)1e9, block_flags_to_confirmation_status(block_info.flags), buf64, ele->slot);
+                           block_info.ts/(long)1e9, block_flags_to_confirmation_status( 0 ), buf64, ele->slot);
 
       cnt++;
 

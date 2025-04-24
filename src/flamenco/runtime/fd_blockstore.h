@@ -270,10 +270,10 @@ struct fd_block_info {
 
   ulong     block_height;
   fd_hash_t block_hash;
-  fd_hash_t bank_hash;
+  fd_hash_t bank_hash; // delete, the cmp hash is stored in the slot bank anyway, and then inserted to bank_hash_cmp
   fd_hash_t merkle_hash;    /* the last FEC set's merkle hash */
   ulong     fec_cnt;        /* the number of FEC sets in the slot */
-  uchar     flags;
+  //uchar     flags;
   long      ts;             /* the wallclock time when we finished receiving the block. */
 
   /* Windowing
@@ -828,14 +828,6 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
                                   uchar *           blk_flags,
                                   uchar             txn_data_out[FD_TXN_MTU] );
 
-/* fd_blockstore_block_info_test tests if a block meta entry exists for
-   the given slot.  Returns 1 if the entry exists and 0 otherwise.
-
-   IMPORTANT!  Caller MUST NOT be in a block_map_t prepare when calling
-   this function. */
-int
-fd_blockstore_block_info_test( fd_blockstore_t * blockstore, ulong slot );
-
 /* fd_blockstore_block_info_remove removes a block meta entry for
    the given slot.  Returns SUCCESS if the entry exists and an
    error code otherwise.
@@ -902,15 +894,8 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
 
    Implementation is lockfree and safe with concurrent operations on
    blockstore. */
-int
-fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
-
-/* fd_blockstore_block_height_update sets the block height.
-
-   IMPORTANT!  Caller MUST NOT be in a block_map_t prepare when calling
-   this function. */
-void
-fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
+//int
+//fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_publish publishes all blocks until the current
    blockstore smr (`blockstore->smr`).  Publishing entails 1. pruning
