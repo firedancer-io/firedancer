@@ -92,6 +92,7 @@ struct fd_gui_vote_account {
   ulong       epoch_credits;
   uchar       commission;
   int         delinquent;
+  ulong       leader_stake;
 };
 
 struct fd_gui_validator_info {

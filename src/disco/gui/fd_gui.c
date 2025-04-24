@@ -719,6 +719,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].epoch_credits = *(ulong const *)(data+i*112UL+88UL);
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].commission = *(data+i*112UL+96UL);
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].delinquent = *(data+i*112UL+97UL);
+      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].leader_stake= *(ulong const *)(data+i*112UL+98UL);
 
       gui->vote_account.vote_account_cnt++;
     } else {
@@ -730,6 +731,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
         // gui->vote_account.vote_accounts[ found_idx ].epoch_credits   != *(ulong const *)(data+i*112UL+88UL) ||
         gui->vote_account.vote_accounts[ found_idx ].commission      != *(data+i*112UL+96UL) ||
         gui->vote_account.vote_accounts[ found_idx ].delinquent      != *(data+i*112UL+97UL);
+        gui->vote_account.vote_accounts[ found_idx ].leader_stake    != *(ulong const *)(data+i*112UL+98UL);
 
       if( FD_UNLIKELY( peer_updated ) ) {
         updated[ update_cnt++ ] = found_idx;
@@ -741,6 +743,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
         gui->vote_account.vote_accounts[ found_idx ].epoch_credits = *(ulong const *)(data+i*112UL+88UL);
         gui->vote_account.vote_accounts[ found_idx ].commission = *(data+i*112UL+96UL);
         gui->vote_account.vote_accounts[ found_idx ].delinquent = *(data+i*112UL+97UL);
+        gui->vote_account.vote_accounts[ found_idx ].leader_stake = *(ulong const *)(data+i*112UL+98UL);
       }
     }
   }

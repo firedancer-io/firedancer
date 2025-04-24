@@ -802,6 +802,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
           jsonp_ulong( gui, "epoch_credits", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].epoch_credits );
           jsonp_ulong( gui, "commission", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].commission );
           jsonp_bool( gui, "delinquent", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].delinquent );
+          jsonp_bool( gui, "leader_stake", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].leader_stake );
         jsonp_close_object( gui );
       }
     jsonp_close_array( gui );
