@@ -506,7 +506,6 @@ fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
                                        fd_bank_slot_deltas_t * slot_deltas,
                                        fd_spad_t *             runtime_spad ) {
-
   fd_txncache_t * status_cache = ctx->status_cache;
   if( !status_cache ) {
     FD_LOG_WARNING(("No status cache in slot ctx"));
@@ -558,11 +557,14 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
       for( ulong k = 0; k < pair->value.statuses_len; k++ ) {
         fd_cache_status_t * status = &pair->value.statuses[k];
         uchar * result = results + k;
+        /* This tosses away error codes propagated in Agave snapshots.
+         */
         *result = (uchar)status->result.discriminant;
         insert_vals[idx++] = (fd_txncache_insert_t){
           .blockhash = blockhash->uc,
           .slot = slot,
           .txnhash = status->key_slice,
+          .key_sz  = FD_TXNCACHE_KEY_SIZE,
           .result = result
         };
       }
@@ -576,6 +578,14 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
     for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
       fd_status_pair_t * pair      = &slot_delta->slot_delta_vec[j];
       fd_hash_t *        blockhash = &pair->hash;
+      /* This adjustment in offset has to be after we insert all the
+         transactions from the snapshot.
+         The key slices in the snapshot are already truncated to 20
+         bytes and should be inserted verbatim.
+         If the offsets are set to non-zero before snapshot loading is
+         complete, then we would erroneously truncate the key slices
+         once again.
+       */
       fd_txncache_set_txnhash_offset( ctx->status_cache, slot, blockhash->uc, pair->value.txn_idx );
     }
   }
