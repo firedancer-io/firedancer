@@ -1195,6 +1195,49 @@ new validator identity.
             },
             // ... many more ...
         ],
+    }
+}
+```
+
+#### `slot.query_transactions`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `SlotTransactionsResponse` | below   |
+
+| param | type     | description |
+|-------|----------|-------------|
+| slot  | `number` | The slot to query for information about |
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query_transactions",
+    "id": 32,
+    "params": {
+        "slot": 289245044
+    }
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query_transactions",
+    "id": 32,
+    "value": {
+        "publish": {
+            "slot": 289245044,
+            "mine": true,
+            "skipped": false,
+            "level": "rooted",
+            "transactions": 6821,
+            "vote_transactions": 6746,
+            "failed_transactions": 3703,
+            "max_compute_units": 48000000,
+            "compute_units": 0
+        },
         "transactions": {
             "start_timestamp_nanos": "1739657041688346791",
             "target_end_timestamp_nanos": "1739657042088346880",
@@ -1222,6 +1265,11 @@ new validator identity.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
+
+**`SlotTransactionsResponse`**
+| Field               | Type                      | Description |
+|---------------------|---------------------------|-------------|
+| publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
 | transactions        | `Transactions\|null`      | If the slot is not `mine`, will be `null`. Otherwise, metrics for the transactions in this slot. Arrays have a seperate entry for each scheduled transaction that was packed in this slot, and are ordered in the same order the transactions appear in the block. Note that not all scheduled transactions will land in the produced block (e.g. failed bundles are ignored), but these arrays nonetheless include metrics for excluded transactions |
 
 **`TxnWaterfall`**
