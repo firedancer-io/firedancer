@@ -18,6 +18,7 @@
 /* recv/sendmmsg packet count in batch and tango burst depth
    FIXME make configurable in the future?
    FIXME keep in sync with fd_net_tile_topo.c */
+/* TODO is this chunks or packets? Is that consistent everywhere? */
 #define STEM_BURST (64UL)
 
 /* Place RX socket file descriptors in contiguous integer range. */
@@ -324,6 +325,8 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
        committed, all others are freed. */
     chunk_next = fd_dcache_compact_next( chunk_next, FD_NET_MTU, chunk0, wmark );
   }
+
+  /* TODO this seems redundant as ctx->tx_ptr should now be ctx->tx_scratch0 */
   if( FD_UNLIKELY( ctx->tx_ptr > ctx->tx_scratch1 ) ) {
     FD_LOG_ERR(( "Out of bounds batch" ));
   }
@@ -549,6 +552,8 @@ during_frag( fd_sock_tile_t * ctx,
   if( FD_UNLIKELY( buf + sizeof(fd_udp_hdr_t) + payload_sz >= ctx->tx_scratch1 ) ) {
 #define DUMPVAR( VAR ) FD_LOG_NOTICE(( "  DUMPVAR: " #VAR " = %lx (%ld)", (ulong)(VAR), (long)(VAR) ))
     DUMPVAR( (ulong)buf );
+    DUMPVAR( (ulong)ctx->tx_scratch0 );
+    DUMPVAR( (ulong)ctx->tx_scratch1 );
     DUMPVAR( payload_sz );
     DUMPVAR( sz );
     DUMPVAR( hdr_sz );
