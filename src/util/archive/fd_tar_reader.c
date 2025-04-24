@@ -12,10 +12,10 @@ fd_tar_reader_new( void *                       mem,
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !cb_vt || !cb_vt->file || !cb_vt->read ) ) {
-    FD_LOG_WARNING(( "NULL callback" ));
-    return NULL;
-  }
+  // if( FD_UNLIKELY( !cb_vt || !cb_vt->file || !cb_vt->read ) ) {
+  //   FD_LOG_WARNING(( "NULL callback" ));
+  //   return NULL;
+  // }
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_tar_reader_align() ) ) ) {
     FD_LOG_WARNING(( "unaligned mem" ));
     return NULL;
@@ -70,8 +70,8 @@ fd_tar_process_hdr( fd_tar_reader_t * reader ) {
   reader->header.name[ FD_TAR_NAME_SZ-1 ] = '\0';
 
   /* Call back to recipient */
-  int err = reader->cb_vt.file( reader->cb_arg, &reader->header, file_sz );
-  return fd_int_if( err, EIO, 0 );
+  // int err = reader->cb_vt.file( reader->cb_arg, &reader->header, file_sz );
+  return 0;
 }
 
 static int
@@ -121,7 +121,7 @@ fd_tar_read_data( fd_tar_reader_t * reader,
   if( avail_sz < chunk_sz ) chunk_sz = avail_sz;
 
   /* Call back to recipient */
-  int err = reader->cb_vt.read( reader->cb_arg, cur, chunk_sz );
+  // int err = reader->cb_vt.read( reader->cb_arg, cur, chunk_sz );
 
   /* Consume bytes */
   cur             += chunk_sz;
@@ -129,7 +129,7 @@ fd_tar_read_data( fd_tar_reader_t * reader,
 
   *pcur = cur;
 
-  return err;
+  return 0;
 }
 
 int
@@ -156,11 +156,14 @@ fd_tar_read( void *        const reader_,
         seen_tracked_err = 1;
       }
       reader->pos = pos + (ulong)( cur-data );
+      // FD_LOG_WARNING(("reading data!"));
+      // FD_LOG_WARNING(("tar data read %lu bytes", (ulong)(cur-data)));
     }
     if( !reader->file_sz ) {
       int err = fd_tar_read_hdr( reader, &cur, end );
       if( FD_UNLIKELY( !!err ) ) return err;
       reader->pos = pos + (ulong)( cur-data );
+      // FD_LOG_WARNING(("reading hdr!"));
     }
   }
 
