@@ -37,8 +37,10 @@ static const char *blacklist[] = {
 
 static int
 is_blacklisted( char const * type_name ) {
-  for ( ulong i=0; i < ( sizeof(blacklist) / sizeof(blacklist[0]) ); ++i ) {
-    if ( strcmp(blacklist[i], type_name) == 0 ) return 1;
+  if( !type_name ) return 1;
+
+  for( ulong i=0; i < (sizeof(blacklist) / sizeof(blacklist[0])); ++i ) {
+    if( strcmp( blacklist[i], type_name ) == 0 ) return 1;
   }
   return 0;
 }
@@ -72,7 +74,6 @@ decode_type( fd_types_funcs_t const * type_meta,
 
   ulong total_sz = 0UL;
   int   err      = type_meta->decode_footprint_fun( &decode_ctx, &total_sz );
-
   if (err != FD_BINCODE_SUCCESS) {
     return err;
   }
@@ -148,10 +149,13 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_boot( argc, argv );
   fd_flamenco_boot( argc, argv );
 
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3UL, 0UL, "wksp", 0UL );
+
+  uchar * scratch_mem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN,  2 * FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL );
+  ulong * scratch_fmem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_FMEM_ALIGN, 32UL, 2UL );
+
   /* Set up scrath memory */
-  static uchar scratch_mem [ 1UL<<30 ];  /* 1 GB */
-  static ulong scratch_fmem[ 4UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-  fd_scratch_attach( scratch_mem, scratch_fmem, 1UL<<30, 4UL );
+  fd_scratch_attach( scratch_mem, scratch_fmem, 2 * FD_SHMEM_GIGANTIC_PAGE_SZ, 4UL );
 
   atexit( fd_halt );
   atexit( fd_flamenco_halt );
@@ -164,43 +168,60 @@ fd_decode_fuzz_data( char const *  type_name,
                      uchar const * data,
                      ulong         size ) {
 
+
   FD_SCRATCH_SCOPE_BEGIN {
 
-    fd_types_funcs_t type_meta;
+    fd_types_funcs_t type_meta = {0};
     if( fd_flamenco_type_lookup( type_name, &type_meta ) != 0 ) {
       FD_LOG_ERR (( "Failed to lookup type %s", type_name ));
     }
 
-    void *decoded = NULL;
-    size_t written = 0;
+    void * decoded = NULL;
+    ulong  written = 0UL;
     int err = decode_type( &type_meta, data, &decoded, size, &written );
-    if ( err != FD_BINCODE_SUCCESS ) {
+    if( err != FD_BINCODE_SUCCESS ) {
       return;
     }
 
-    void *encoded_buffer = fd_scratch_alloc( 1, 50000 );
-    err = encode_type( &type_meta, decoded, encoded_buffer, 50000, &written );
+    void * encoded_buffer = fd_scratch_alloc( 1, 100000 );
+    err = encode_type( &type_meta, decoded, encoded_buffer, 100000, &written );
     if ( err != FD_BINCODE_SUCCESS ) {
       FD_LOG_CRIT(( "encoding failed for: %s (err: %d)", type_name, err ));
     }
 
-    if ( written > size ) {
-      FD_LOG_HEXDUMP_WARNING(( "data", data, size ));
-      FD_LOG_HEXDUMP_WARNING(( "encoded", encoded_buffer, written ));
-      FD_LOG_CRIT(( "encoded size (%lu) > data size (%lu) after decode-encode for: %s", written, size, type_name ));
+    void * decoded_normalized = NULL;
+    ulong  written_normalized = 0UL;
+    int err_normalized = decode_type( &type_meta, encoded_buffer, &decoded_normalized, written, &written_normalized );
+    if( err_normalized != FD_BINCODE_SUCCESS ) {
+      return;
     }
-    if ( memcmp( data, encoded_buffer, written ) != 0 ) {
-      FD_LOG_HEXDUMP_WARNING(( "data", data, written ));
-      FD_LOG_HEXDUMP_WARNING(( "encoded", encoded_buffer, written ));
+
+    void * encoded_buffer_normalized = fd_scratch_alloc( 1, 50000 );
+
+    err = encode_type( &type_meta, decoded_normalized, encoded_buffer_normalized, 50000, &written_normalized );
+    if ( err != FD_BINCODE_SUCCESS ) {
+      FD_LOG_CRIT(( "encoding failed for: %s (err: %d)", type_name, err ));
+    }
+
+    if( written_normalized > written ) {
+      FD_LOG_HEXDUMP_WARNING(( "normalized data", encoded_buffer, written ));
+      FD_LOG_HEXDUMP_WARNING(( "encoded", encoded_buffer_normalized, written_normalized ));
+      FD_LOG_CRIT(( "encoded size (%lu) > data size (%lu) after decode-encode for: %s", written_normalized, written, type_name ));
+    }
+    if( memcmp( encoded_buffer, encoded_buffer_normalized, written ) != 0 ) {
+      FD_LOG_HEXDUMP_WARNING(( "normalized data", encoded_buffer, written ));
+      FD_LOG_HEXDUMP_WARNING(( "encoded", encoded_buffer_normalized, written ));
       FD_LOG_CRIT(( "encoded data differs from the original data after decode-encode for: %s", type_name ));
     }
 
   } FD_SCRATCH_SCOPE_END;
+
 }
 
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
+
   if ( FD_UNLIKELY( size == 0 ) ) {
     return 0;
   }
@@ -221,63 +242,35 @@ LLVMFuzzerTestOneInput( uchar const * data,
   return 0;
 }
 
-size_t
-normalize_fd_vote_authorized_voters( uchar * data,
-                                     size_t  size ) {
-  fd_types_funcs_t type_meta;
-  size_t written = 0;
-
-  FD_SCRATCH_SCOPE_BEGIN {
-    if( fd_flamenco_type_lookup( "fd_vote_authorized_voters", &type_meta ) != 0 ) {
-      FD_LOG_ERR (( "Failed to lookup type fd_vote_authorized_voters" ));
-    }
-
-    // decode will deduplicate
-    void *decoded = NULL;
-    int err = decode_type( &type_meta, data, &decoded, size, &written );
-    if( err != FD_BINCODE_SUCCESS ) {
-      return size;
-    }
-
-    err = encode_type( &type_meta, decoded, data, size, &written );
-    if( err != FD_BINCODE_SUCCESS ) {
-      FD_LOG_CRIT(( "encoding failed for: fd_vote_authorized_voters (err: %d)", err ));
-    }
-  } FD_SCRATCH_SCOPE_END;
-
-  return written;
-}
-
 ulong
 LLVMFuzzerCustomMutator( uchar * data,
                          ulong   size,
                          ulong   max_size,
                          uint    seed ) {
+
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   int use_generate = fd_rng_uchar( rng ) % 2 == 0;
   char const * type_name = NULL;
 
   if( !use_generate ) {
+
     size_t mutated_size = LLVMFuzzerMutate( data, size, max_size );
     data[0] %= FD_TYPE_NAME_COUNT;
     type_name = fd_type_names[data[0]];
 
     // dont bother bruteforcing replace with a structured input
     int use_generate = is_blacklisted( type_name );
-    if ( strcmp( "fd_vote_instruction", type_name ) == 0 ) {
+    if( strcmp( "fd_vote_instruction", type_name ) == 0 ) {
       uint discriminant = *(uint *)(data+1);
       use_generate = (discriminant == 14 || discriminant == 15) ? 1 : 0;
     }
-    else if ( strcmp( "fd_gossip_msg", type_name ) == 0 ) {
+    else if( strcmp( "fd_gossip_msg", type_name ) == 0 ) {
       uint discriminant = *(uint *)(data+1);
       use_generate = (discriminant == 0 || discriminant == 1 || discriminant == 2) ? 1 : 0;
     }
-    else if ( strcmp( "fd_vote_authorized_voters", type_name ) == 0 ) {
-      mutated_size = normalize_fd_vote_authorized_voters( data+1, size-1 ) + 1;
-    }
 
-    if ( !use_generate ) return mutated_size;
+    if( !use_generate ) return mutated_size;
   }
 
   // generate inputs
@@ -291,7 +284,7 @@ LLVMFuzzerCustomMutator( uchar * data,
 
     data[0] = fd_rng_uchar( rng ) % FD_TYPE_NAME_COUNT;
     type_name = fd_type_names[data[0]];
-    if ( is_blacklisted(type_name) ) continue;
+    if( is_blacklisted( type_name ) ) continue;
 
     char fp[255];
     sprintf( fp, "%s_generate", type_name );
@@ -305,7 +298,7 @@ LLVMFuzzerCustomMutator( uchar * data,
 
   FD_SCRATCH_SCOPE_BEGIN {
 
-    void * smem = fd_scratch_alloc( 1, 8192 );
+    void * smem = fd_scratch_alloc( 1, 16384 );
     void * mem = smem;
 
     // generate and encode the payload
@@ -313,19 +306,15 @@ LLVMFuzzerCustomMutator( uchar * data,
 
     size_t written;
     int err = encode_type( &type_meta, type, data + 1, max_size - 1, &written );
-    if ( err != FD_BINCODE_SUCCESS ) {
-      if ( err == FD_BINCODE_ERR_OVERFLOW ) {
-        FD_LOG_WARNING(( "encoding failed for: %s (err: %d)", fd_type_names[data[0]], err ));
+    if( err != FD_BINCODE_SUCCESS ) {
+      if( err == FD_BINCODE_ERR_OVERFLOW ) {
+        FD_LOG_DEBUG(( "encoding failed for: %s (err: %d)", fd_type_names[data[0]], err ));
         // This type is just too large to fit in the max_size (4095 byte) buffer
         return 0;
       }
       FD_LOG_CRIT(( "encoding failed for: %s (err: %d)", fd_type_names[data[0]], err ));
     }
     size = written;
-
-    if ( strcmp( "fd_vote_authorized_voters", type_name ) == 0 ) {
-      size = normalize_fd_vote_authorized_voters( data+1, size-1 ) + 1;
-    }
 
   } FD_SCRATCH_SCOPE_END;
 

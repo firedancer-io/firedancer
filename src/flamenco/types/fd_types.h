@@ -9,52 +9,52 @@
 
 /* sdk/program/src/feature.rs#L22 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_feature {
+struct fd_feature {
   ulong activated_at;
   uchar has_activated_at;
 };
 typedef struct fd_feature fd_feature_t;
 #define FD_FEATURE_FOOTPRINT sizeof(fd_feature_t)
-#define FD_FEATURE_ALIGN (8UL)
+#define FD_FEATURE_ALIGN alignof(fd_feature_t)
 
-struct __attribute__((aligned(8UL))) fd_feature_global {
+struct fd_feature_global {
   ulong activated_at;
   uchar has_activated_at;
 };
 typedef struct fd_feature_global fd_feature_global_t;
 #define FD_FEATURE_GLOBAL_FOOTPRINT sizeof(fd_feature_global_t)
-#define FD_FEATURE_GLOBAL_ALIGN (8UL)
+#define FD_FEATURE_GLOBAL_ALIGN alignof(fd_feature_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9 */
 /* Encoded Size: Fixed (8 bytes) */
-struct __attribute__((aligned(8UL))) fd_fee_calculator {
+struct fd_fee_calculator {
   ulong lamports_per_signature;
 };
 typedef struct fd_fee_calculator fd_fee_calculator_t;
 #define FD_FEE_CALCULATOR_FOOTPRINT sizeof(fd_fee_calculator_t)
-#define FD_FEE_CALCULATOR_ALIGN (8UL)
+#define FD_FEE_CALCULATOR_ALIGN alignof(fd_fee_calculator_t)
 
 /* Encoded Size: Fixed (24 bytes) */
-struct __attribute__((aligned(8UL))) fd_hash_age {
+struct fd_hash_age {
   fd_fee_calculator_t fee_calculator;
   ulong hash_index;
   ulong timestamp;
 };
 typedef struct fd_hash_age fd_hash_age_t;
 #define FD_HASH_AGE_FOOTPRINT sizeof(fd_hash_age_t)
-#define FD_HASH_AGE_ALIGN (8UL)
+#define FD_HASH_AGE_ALIGN alignof(fd_hash_age_t)
 
 /* Encoded Size: Fixed (56 bytes) */
-struct __attribute__((aligned(8UL))) fd_hash_hash_age_pair {
+struct fd_hash_hash_age_pair {
   fd_hash_t key;
   fd_hash_age_t val;
 };
 typedef struct fd_hash_hash_age_pair fd_hash_hash_age_pair_t;
 #define FD_HASH_HASH_AGE_PAIR_FOOTPRINT sizeof(fd_hash_hash_age_pair_t)
-#define FD_HASH_HASH_AGE_PAIR_ALIGN (8UL)
+#define FD_HASH_HASH_AGE_PAIR_ALIGN alignof(fd_hash_hash_age_pair_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_block_hash_vec {
+struct fd_block_hash_vec {
   ulong last_hash_index;
   fd_hash_t * last_hash;
   ulong ages_len;
@@ -63,9 +63,9 @@ struct __attribute__((aligned(8UL))) fd_block_hash_vec {
 };
 typedef struct fd_block_hash_vec fd_block_hash_vec_t;
 #define FD_BLOCK_HASH_VEC_FOOTPRINT sizeof(fd_block_hash_vec_t)
-#define FD_BLOCK_HASH_VEC_ALIGN (8UL)
+#define FD_BLOCK_HASH_VEC_ALIGN alignof(fd_block_hash_vec_t)
 
-struct __attribute__((aligned(8UL))) fd_block_hash_vec_global {
+struct fd_block_hash_vec_global {
   ulong last_hash_index;
   ulong last_hash_gaddr;
   ulong ages_len;
@@ -74,7 +74,7 @@ struct __attribute__((aligned(8UL))) fd_block_hash_vec_global {
 };
 typedef struct fd_block_hash_vec_global fd_block_hash_vec_global_t;
 #define FD_BLOCK_HASH_VEC_GLOBAL_FOOTPRINT sizeof(fd_block_hash_vec_global_t)
-#define FD_BLOCK_HASH_VEC_GLOBAL_ALIGN (8UL)
+#define FD_BLOCK_HASH_VEC_GLOBAL_ALIGN alignof(fd_block_hash_vec_global_t)
 
 typedef struct fd_hash_hash_age_pair_t_mapnode fd_hash_hash_age_pair_t_mapnode_t;
 #define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
@@ -97,7 +97,7 @@ fd_hash_hash_age_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_block_hash_queue {
+struct fd_block_hash_queue {
   ulong last_hash_index;
   fd_hash_t * last_hash;
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool;
@@ -106,9 +106,9 @@ struct __attribute__((aligned(8UL))) fd_block_hash_queue {
 };
 typedef struct fd_block_hash_queue fd_block_hash_queue_t;
 #define FD_BLOCK_HASH_QUEUE_FOOTPRINT sizeof(fd_block_hash_queue_t)
-#define FD_BLOCK_HASH_QUEUE_ALIGN (8UL)
+#define FD_BLOCK_HASH_QUEUE_ALIGN alignof(fd_block_hash_queue_t)
 
-struct __attribute__((aligned(8UL))) fd_block_hash_queue_global {
+struct fd_block_hash_queue_global {
   ulong last_hash_index;
   ulong last_hash_gaddr;
   ulong ages_pool_gaddr;
@@ -117,10 +117,10 @@ struct __attribute__((aligned(8UL))) fd_block_hash_queue_global {
 };
 typedef struct fd_block_hash_queue_global fd_block_hash_queue_global_t;
 #define FD_BLOCK_HASH_QUEUE_GLOBAL_FOOTPRINT sizeof(fd_block_hash_queue_global_t)
-#define FD_BLOCK_HASH_QUEUE_GLOBAL_ALIGN (8UL)
+#define FD_BLOCK_HASH_QUEUE_GLOBAL_ALIGN alignof(fd_block_hash_queue_global_t)
 
 /* Encoded Size: Fixed (33 bytes) */
-struct __attribute__((aligned(8UL))) fd_fee_rate_governor {
+struct fd_fee_rate_governor {
   ulong target_lamports_per_signature;
   ulong target_signatures_per_slot;
   ulong min_lamports_per_signature;
@@ -129,28 +129,28 @@ struct __attribute__((aligned(8UL))) fd_fee_rate_governor {
 };
 typedef struct fd_fee_rate_governor fd_fee_rate_governor_t;
 #define FD_FEE_RATE_GOVERNOR_FOOTPRINT sizeof(fd_fee_rate_governor_t)
-#define FD_FEE_RATE_GOVERNOR_ALIGN (8UL)
+#define FD_FEE_RATE_GOVERNOR_ALIGN alignof(fd_fee_rate_governor_t)
 
 /* Encoded Size: Fixed (16 bytes) */
-struct __attribute__((aligned(8UL))) fd_slot_pair {
+struct fd_slot_pair {
   ulong slot;
   ulong val;
 };
 typedef struct fd_slot_pair fd_slot_pair_t;
 #define FD_SLOT_PAIR_FOOTPRINT sizeof(fd_slot_pair_t)
-#define FD_SLOT_PAIR_ALIGN (8UL)
+#define FD_SLOT_PAIR_ALIGN alignof(fd_slot_pair_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_hard_forks {
+struct fd_hard_forks {
   ulong hard_forks_len;
   fd_slot_pair_t * hard_forks;
 };
 typedef struct fd_hard_forks fd_hard_forks_t;
 #define FD_HARD_FORKS_FOOTPRINT sizeof(fd_hard_forks_t)
-#define FD_HARD_FORKS_ALIGN (8UL)
+#define FD_HARD_FORKS_ALIGN alignof(fd_hard_forks_t)
 
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_inflation {
+struct fd_inflation {
   double initial;
   double terminal;
   double taper;
@@ -160,22 +160,22 @@ struct __attribute__((aligned(8UL))) fd_inflation {
 };
 typedef struct fd_inflation fd_inflation_t;
 #define FD_INFLATION_FOOTPRINT sizeof(fd_inflation_t)
-#define FD_INFLATION_ALIGN (8UL)
+#define FD_INFLATION_ALIGN alignof(fd_inflation_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
 /* Encoded Size: Fixed (17 bytes) */
-struct __attribute__((aligned(8UL))) fd_rent {
+struct fd_rent {
   ulong lamports_per_uint8_year;
   double exemption_threshold;
   uchar burn_percent;
 };
 typedef struct fd_rent fd_rent_t;
 #define FD_RENT_FOOTPRINT sizeof(fd_rent_t)
-#define FD_RENT_ALIGN (8UL)
+#define FD_RENT_ALIGN alignof(fd_rent_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
 /* Encoded Size: Fixed (33 bytes) */
-struct __attribute__((aligned(1UL))) fd_epoch_schedule {
+struct fd_epoch_schedule {
   ulong slots_per_epoch;
   ulong leader_schedule_slot_offset;
   uchar warmup;
@@ -184,10 +184,10 @@ struct __attribute__((aligned(1UL))) fd_epoch_schedule {
 };
 typedef struct fd_epoch_schedule fd_epoch_schedule_t;
 #define FD_EPOCH_SCHEDULE_FOOTPRINT sizeof(fd_epoch_schedule_t)
-#define FD_EPOCH_SCHEDULE_ALIGN (1UL)
+#define FD_EPOCH_SCHEDULE_ALIGN alignof(fd_epoch_schedule_t)
 
 /* Encoded Size: Fixed (66 bytes) */
-struct __attribute__((aligned(8UL))) fd_rent_collector {
+struct fd_rent_collector {
   ulong epoch;
   fd_epoch_schedule_t epoch_schedule;
   double slots_per_year;
@@ -195,10 +195,10 @@ struct __attribute__((aligned(8UL))) fd_rent_collector {
 };
 typedef struct fd_rent_collector fd_rent_collector_t;
 #define FD_RENT_COLLECTOR_FOOTPRINT sizeof(fd_rent_collector_t)
-#define FD_RENT_COLLECTOR_ALIGN (8UL)
+#define FD_RENT_COLLECTOR_ALIGN alignof(fd_rent_collector_t)
 
 /* Encoded Size: Fixed (32 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_history_entry {
+struct fd_stake_history_entry {
   ulong epoch;
   ulong effective;
   ulong activating;
@@ -206,11 +206,11 @@ struct __attribute__((aligned(8UL))) fd_stake_history_entry {
 };
 typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_FOOTPRINT sizeof(fd_stake_history_entry_t)
-#define FD_STAKE_HISTORY_ENTRY_ALIGN (8UL)
+#define FD_STAKE_HISTORY_ENTRY_ALIGN alignof(fd_stake_history_entry_t)
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stake_history {
+struct fd_stake_history {
   ulong fd_stake_history_len;
   ulong fd_stake_history_size;
   ulong fd_stake_history_offset;
@@ -218,11 +218,11 @@ struct __attribute__((aligned(8UL))) fd_stake_history {
 };
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_FOOTPRINT sizeof(fd_stake_history_t)
-#define FD_STAKE_HISTORY_ALIGN (8UL)
+#define FD_STAKE_HISTORY_ALIGN alignof(fd_stake_history_t)
 
 /* https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_solana_account {
+struct fd_solana_account {
   ulong lamports;
   ulong data_len;
   uchar* data;
@@ -232,7 +232,7 @@ struct __attribute__((aligned(8UL))) fd_solana_account {
 };
 typedef struct fd_solana_account fd_solana_account_t;
 #define FD_SOLANA_ACCOUNT_FOOTPRINT sizeof(fd_solana_account_t)
-#define FD_SOLANA_ACCOUNT_ALIGN (8UL)
+#define FD_SOLANA_ACCOUNT_ALIGN alignof(fd_solana_account_t)
 
 /* Encoded Size: Fixed (48 bytes) */
 struct __attribute__((packed)) fd_solana_account_stored_meta {
@@ -281,14 +281,14 @@ typedef struct fd_account_meta fd_account_meta_t;
 #define FD_ACCOUNT_META_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_accounts_pair {
+struct fd_vote_accounts_pair {
   fd_pubkey_t key;
   ulong stake;
   fd_solana_account_t value;
 };
 typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_vote_accounts_pair_t)
-#define FD_VOTE_ACCOUNTS_PAIR_ALIGN (8UL)
+#define FD_VOTE_ACCOUNTS_PAIR_ALIGN alignof(fd_vote_accounts_pair_t)
 
 typedef struct fd_vote_accounts_pair_t_mapnode fd_vote_accounts_pair_t_mapnode_t;
 #define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
@@ -311,30 +311,30 @@ fd_vote_accounts_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_accounts {
+struct fd_vote_accounts {
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root;
 };
 typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_FOOTPRINT sizeof(fd_vote_accounts_t)
-#define FD_VOTE_ACCOUNTS_ALIGN (8UL)
+#define FD_VOTE_ACCOUNTS_ALIGN alignof(fd_vote_accounts_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_accounts_global {
+struct fd_vote_accounts_global {
   ulong vote_accounts_pool_gaddr;
   ulong vote_accounts_root_gaddr;
 };
 typedef struct fd_vote_accounts_global fd_vote_accounts_global_t;
 #define FD_VOTE_ACCOUNTS_GLOBAL_FOOTPRINT sizeof(fd_vote_accounts_global_t)
-#define FD_VOTE_ACCOUNTS_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_ACCOUNTS_GLOBAL_ALIGN alignof(fd_vote_accounts_global_t)
 
 /* Encoded Size: Fixed (33 bytes) */
-struct __attribute__((aligned(8UL))) fd_account_keys_pair {
+struct fd_account_keys_pair {
   fd_pubkey_t key;
   uchar exists;
 };
 typedef struct fd_account_keys_pair fd_account_keys_pair_t;
 #define FD_ACCOUNT_KEYS_PAIR_FOOTPRINT sizeof(fd_account_keys_pair_t)
-#define FD_ACCOUNT_KEYS_PAIR_ALIGN (8UL)
+#define FD_ACCOUNT_KEYS_PAIR_ALIGN alignof(fd_account_keys_pair_t)
 
 typedef struct fd_account_keys_pair_t_mapnode fd_account_keys_pair_t_mapnode_t;
 #define REDBLK_T fd_account_keys_pair_t_mapnode_t
@@ -357,31 +357,31 @@ fd_account_keys_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_account_keys {
+struct fd_account_keys {
   fd_account_keys_pair_t_mapnode_t * account_keys_pool;
   fd_account_keys_pair_t_mapnode_t * account_keys_root;
 };
 typedef struct fd_account_keys fd_account_keys_t;
 #define FD_ACCOUNT_KEYS_FOOTPRINT sizeof(fd_account_keys_t)
-#define FD_ACCOUNT_KEYS_ALIGN (8UL)
+#define FD_ACCOUNT_KEYS_ALIGN alignof(fd_account_keys_t)
 
-struct __attribute__((aligned(8UL))) fd_account_keys_global {
+struct fd_account_keys_global {
   ulong account_keys_pool_gaddr;
   ulong account_keys_root_gaddr;
 };
 typedef struct fd_account_keys_global fd_account_keys_global_t;
 #define FD_ACCOUNT_KEYS_GLOBAL_FOOTPRINT sizeof(fd_account_keys_global_t)
-#define FD_ACCOUNT_KEYS_GLOBAL_ALIGN (8UL)
+#define FD_ACCOUNT_KEYS_GLOBAL_ALIGN alignof(fd_account_keys_global_t)
 
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_weight {
+struct fd_stake_weight {
   fd_pubkey_t key;
   ulong stake;
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
 #define FD_STAKE_WEIGHT_FOOTPRINT sizeof(fd_stake_weight_t)
-#define FD_STAKE_WEIGHT_ALIGN (8UL)
+#define FD_STAKE_WEIGHT_ALIGN alignof(fd_stake_weight_t)
 
 typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
 #define REDBLK_T fd_stake_weight_t_mapnode_t
@@ -404,25 +404,25 @@ fd_stake_weight_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_stake_weight_t_map_join( fd_stake_weight_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stake_weights {
+struct fd_stake_weights {
   fd_stake_weight_t_mapnode_t * stake_weights_pool;
   fd_stake_weight_t_mapnode_t * stake_weights_root;
 };
 typedef struct fd_stake_weights fd_stake_weights_t;
 #define FD_STAKE_WEIGHTS_FOOTPRINT sizeof(fd_stake_weights_t)
-#define FD_STAKE_WEIGHTS_ALIGN (8UL)
+#define FD_STAKE_WEIGHTS_ALIGN alignof(fd_stake_weights_t)
 
-struct __attribute__((aligned(8UL))) fd_stake_weights_global {
+struct fd_stake_weights_global {
   ulong stake_weights_pool_gaddr;
   ulong stake_weights_root_gaddr;
 };
 typedef struct fd_stake_weights_global fd_stake_weights_global_t;
 #define FD_STAKE_WEIGHTS_GLOBAL_FOOTPRINT sizeof(fd_stake_weights_global_t)
-#define FD_STAKE_WEIGHTS_GLOBAL_ALIGN (8UL)
+#define FD_STAKE_WEIGHTS_GLOBAL_ALIGN alignof(fd_stake_weights_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 /* Encoded Size: Fixed (64 bytes) */
-struct __attribute__((aligned(8UL))) fd_delegation {
+struct fd_delegation {
   fd_pubkey_t voter_pubkey;
   ulong stake;
   ulong activation_epoch;
@@ -431,35 +431,35 @@ struct __attribute__((aligned(8UL))) fd_delegation {
 };
 typedef struct fd_delegation fd_delegation_t;
 #define FD_DELEGATION_FOOTPRINT sizeof(fd_delegation_t)
-#define FD_DELEGATION_ALIGN (8UL)
+#define FD_DELEGATION_ALIGN alignof(fd_delegation_t)
 
 /* Encoded Size: Fixed (96 bytes) */
-struct __attribute__((aligned(8UL))) fd_delegation_pair {
+struct fd_delegation_pair {
   fd_pubkey_t account;
   fd_delegation_t delegation;
 };
 typedef struct fd_delegation_pair fd_delegation_pair_t;
 #define FD_DELEGATION_PAIR_FOOTPRINT sizeof(fd_delegation_pair_t)
-#define FD_DELEGATION_PAIR_ALIGN (8UL)
+#define FD_DELEGATION_PAIR_ALIGN alignof(fd_delegation_pair_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539 */
 /* Encoded Size: Fixed (72 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake {
+struct fd_stake {
   fd_delegation_t delegation;
   ulong credits_observed;
 };
 typedef struct fd_stake fd_stake_t;
 #define FD_STAKE_FOOTPRINT sizeof(fd_stake_t)
-#define FD_STAKE_ALIGN (8UL)
+#define FD_STAKE_ALIGN alignof(fd_stake_t)
 
 /* Encoded Size: Fixed (104 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_pair {
+struct fd_stake_pair {
   fd_pubkey_t account;
   fd_stake_t stake;
 };
 typedef struct fd_stake_pair fd_stake_pair_t;
 #define FD_STAKE_PAIR_FOOTPRINT sizeof(fd_stake_pair_t)
-#define FD_STAKE_PAIR_ALIGN (8UL)
+#define FD_STAKE_PAIR_ALIGN alignof(fd_stake_pair_t)
 
 typedef struct fd_delegation_pair_t_mapnode fd_delegation_pair_t_mapnode_t;
 #define REDBLK_T fd_delegation_pair_t_mapnode_t
@@ -483,7 +483,7 @@ fd_delegation_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
 }
 /* https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stakes {
+struct fd_stakes {
   fd_vote_accounts_t vote_accounts;
   fd_delegation_pair_t_mapnode_t * stake_delegations_pool;
   fd_delegation_pair_t_mapnode_t * stake_delegations_root;
@@ -493,9 +493,9 @@ struct __attribute__((aligned(8UL))) fd_stakes {
 };
 typedef struct fd_stakes fd_stakes_t;
 #define FD_STAKES_FOOTPRINT sizeof(fd_stakes_t)
-#define FD_STAKES_ALIGN (8UL)
+#define FD_STAKES_ALIGN alignof(fd_stakes_t)
 
-struct __attribute__((aligned(8UL))) fd_stakes_global {
+struct fd_stakes_global {
   fd_vote_accounts_global_t vote_accounts;
   ulong stake_delegations_pool_gaddr;
   ulong stake_delegations_root_gaddr;
@@ -505,7 +505,7 @@ struct __attribute__((aligned(8UL))) fd_stakes_global {
 };
 typedef struct fd_stakes_global fd_stakes_global_t;
 #define FD_STAKES_GLOBAL_FOOTPRINT sizeof(fd_stakes_global_t)
-#define FD_STAKES_GLOBAL_ALIGN (8UL)
+#define FD_STAKES_GLOBAL_ALIGN alignof(fd_stakes_global_t)
 
 typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_T fd_stake_pair_t_mapnode_t
@@ -529,7 +529,7 @@ fd_stake_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
 }
 /* https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stakes_stake {
+struct fd_stakes_stake {
   fd_vote_accounts_t vote_accounts;
   fd_stake_pair_t_mapnode_t * stake_delegations_pool;
   fd_stake_pair_t_mapnode_t * stake_delegations_root;
@@ -539,9 +539,9 @@ struct __attribute__((aligned(8UL))) fd_stakes_stake {
 };
 typedef struct fd_stakes_stake fd_stakes_stake_t;
 #define FD_STAKES_STAKE_FOOTPRINT sizeof(fd_stakes_stake_t)
-#define FD_STAKES_STAKE_ALIGN (8UL)
+#define FD_STAKES_STAKE_ALIGN alignof(fd_stakes_stake_t)
 
-struct __attribute__((aligned(8UL))) fd_stakes_stake_global {
+struct fd_stakes_stake_global {
   fd_vote_accounts_global_t vote_accounts;
   ulong stake_delegations_pool_gaddr;
   ulong stake_delegations_root_gaddr;
@@ -551,10 +551,10 @@ struct __attribute__((aligned(8UL))) fd_stakes_stake_global {
 };
 typedef struct fd_stakes_stake_global fd_stakes_stake_global_t;
 #define FD_STAKES_STAKE_GLOBAL_FOOTPRINT sizeof(fd_stakes_stake_global_t)
-#define FD_STAKES_STAKE_GLOBAL_ALIGN (8UL)
+#define FD_STAKES_STAKE_GLOBAL_ALIGN alignof(fd_stakes_stake_global_t)
 
 /* Encoded Size: Fixed (88 bytes) */
-struct __attribute__((aligned(8UL))) fd_bank_incremental_snapshot_persistence {
+struct fd_bank_incremental_snapshot_persistence {
   ulong full_slot;
   fd_hash_t full_hash;
   ulong full_capitalization;
@@ -563,38 +563,38 @@ struct __attribute__((aligned(8UL))) fd_bank_incremental_snapshot_persistence {
 };
 typedef struct fd_bank_incremental_snapshot_persistence fd_bank_incremental_snapshot_persistence_t;
 #define FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FOOTPRINT sizeof(fd_bank_incremental_snapshot_persistence_t)
-#define FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN (8UL)
+#define FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN alignof(fd_bank_incremental_snapshot_persistence_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_node_vote_accounts {
+struct fd_node_vote_accounts {
   ulong vote_accounts_len;
   fd_pubkey_t * vote_accounts;
   ulong total_stake;
 };
 typedef struct fd_node_vote_accounts fd_node_vote_accounts_t;
 #define FD_NODE_VOTE_ACCOUNTS_FOOTPRINT sizeof(fd_node_vote_accounts_t)
-#define FD_NODE_VOTE_ACCOUNTS_ALIGN (8UL)
+#define FD_NODE_VOTE_ACCOUNTS_ALIGN alignof(fd_node_vote_accounts_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_pubkey_node_vote_accounts_pair {
+struct fd_pubkey_node_vote_accounts_pair {
   fd_pubkey_t key;
   fd_node_vote_accounts_t value;
 };
 typedef struct fd_pubkey_node_vote_accounts_pair fd_pubkey_node_vote_accounts_pair_t;
 #define FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_pubkey_node_vote_accounts_pair_t)
-#define FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN (8UL)
+#define FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN alignof(fd_pubkey_node_vote_accounts_pair_t)
 
 /* Encoded Size: Fixed (64 bytes) */
-struct __attribute__((aligned(8UL))) fd_pubkey_pubkey_pair {
+struct fd_pubkey_pubkey_pair {
   fd_pubkey_t key;
   fd_pubkey_t value;
 };
 typedef struct fd_pubkey_pubkey_pair fd_pubkey_pubkey_pair_t;
 #define FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT sizeof(fd_pubkey_pubkey_pair_t)
-#define FD_PUBKEY_PUBKEY_PAIR_ALIGN (8UL)
+#define FD_PUBKEY_PUBKEY_PAIR_ALIGN alignof(fd_pubkey_pubkey_pair_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_epoch_stakes {
+struct fd_epoch_stakes {
   fd_stakes_t stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
@@ -604,9 +604,9 @@ struct __attribute__((aligned(8UL))) fd_epoch_stakes {
 };
 typedef struct fd_epoch_stakes fd_epoch_stakes_t;
 #define FD_EPOCH_STAKES_FOOTPRINT sizeof(fd_epoch_stakes_t)
-#define FD_EPOCH_STAKES_ALIGN (8UL)
+#define FD_EPOCH_STAKES_ALIGN alignof(fd_epoch_stakes_t)
 
-struct __attribute__((aligned(8UL))) fd_epoch_stakes_global {
+struct fd_epoch_stakes_global {
   fd_stakes_global_t stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
@@ -616,36 +616,36 @@ struct __attribute__((aligned(8UL))) fd_epoch_stakes_global {
 };
 typedef struct fd_epoch_stakes_global fd_epoch_stakes_global_t;
 #define FD_EPOCH_STAKES_GLOBAL_FOOTPRINT sizeof(fd_epoch_stakes_global_t)
-#define FD_EPOCH_STAKES_GLOBAL_ALIGN (8UL)
+#define FD_EPOCH_STAKES_GLOBAL_ALIGN alignof(fd_epoch_stakes_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_epoch_epoch_stakes_pair {
+struct fd_epoch_epoch_stakes_pair {
   ulong key;
   fd_epoch_stakes_t value;
 };
 typedef struct fd_epoch_epoch_stakes_pair fd_epoch_epoch_stakes_pair_t;
 #define FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT sizeof(fd_epoch_epoch_stakes_pair_t)
-#define FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN (8UL)
+#define FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN alignof(fd_epoch_epoch_stakes_pair_t)
 
-struct __attribute__((aligned(8UL))) fd_epoch_epoch_stakes_pair_global {
+struct fd_epoch_epoch_stakes_pair_global {
   ulong key;
   fd_epoch_stakes_global_t value;
 };
 typedef struct fd_epoch_epoch_stakes_pair_global fd_epoch_epoch_stakes_pair_global_t;
 #define FD_EPOCH_EPOCH_STAKES_PAIR_GLOBAL_FOOTPRINT sizeof(fd_epoch_epoch_stakes_pair_global_t)
-#define FD_EPOCH_EPOCH_STAKES_PAIR_GLOBAL_ALIGN (8UL)
+#define FD_EPOCH_EPOCH_STAKES_PAIR_GLOBAL_ALIGN alignof(fd_epoch_epoch_stakes_pair_global_t)
 
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_pubkey_u64_pair {
+struct fd_pubkey_u64_pair {
   fd_pubkey_t _0;
   ulong _1;
 };
 typedef struct fd_pubkey_u64_pair fd_pubkey_u64_pair_t;
 #define FD_PUBKEY_U64_PAIR_FOOTPRINT sizeof(fd_pubkey_u64_pair_t)
-#define FD_PUBKEY_U64_PAIR_ALIGN (8UL)
+#define FD_PUBKEY_U64_PAIR_ALIGN alignof(fd_pubkey_u64_pair_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_unused_accounts {
+struct fd_unused_accounts {
   ulong unused1_len;
   fd_pubkey_t * unused1;
   ulong unused2_len;
@@ -655,11 +655,11 @@ struct __attribute__((aligned(8UL))) fd_unused_accounts {
 };
 typedef struct fd_unused_accounts fd_unused_accounts_t;
 #define FD_UNUSED_ACCOUNTS_FOOTPRINT sizeof(fd_unused_accounts_t)
-#define FD_UNUSED_ACCOUNTS_ALIGN (8UL)
+#define FD_UNUSED_ACCOUNTS_ALIGN alignof(fd_unused_accounts_t)
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/bank.rs#L967 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(16UL))) fd_versioned_bank {
+struct fd_versioned_bank {
   fd_block_hash_vec_t blockhash_queue;
   ulong ancestors_len;
   fd_slot_pair_t * ancestors;
@@ -697,9 +697,9 @@ struct __attribute__((aligned(16UL))) fd_versioned_bank {
 };
 typedef struct fd_versioned_bank fd_versioned_bank_t;
 #define FD_VERSIONED_BANK_FOOTPRINT sizeof(fd_versioned_bank_t)
-#define FD_VERSIONED_BANK_ALIGN (16UL)
+#define FD_VERSIONED_BANK_ALIGN alignof(fd_versioned_bank_t)
 
-struct __attribute__((aligned(16UL))) fd_versioned_bank_global {
+struct fd_versioned_bank_global {
   fd_block_hash_vec_global_t blockhash_queue;
   ulong ancestors_len;
   ulong ancestors_gaddr;
@@ -737,10 +737,10 @@ struct __attribute__((aligned(16UL))) fd_versioned_bank_global {
 };
 typedef struct fd_versioned_bank_global fd_versioned_bank_global_t;
 #define FD_VERSIONED_BANK_GLOBAL_FOOTPRINT sizeof(fd_versioned_bank_global_t)
-#define FD_VERSIONED_BANK_GLOBAL_ALIGN (16UL)
+#define FD_VERSIONED_BANK_GLOBAL_ALIGN alignof(fd_versioned_bank_global_t)
 
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_bank_hash_stats {
+struct fd_bank_hash_stats {
   ulong num_updated_accounts;
   ulong num_removed_accounts;
   ulong num_lamports_stored;
@@ -749,45 +749,45 @@ struct __attribute__((aligned(8UL))) fd_bank_hash_stats {
 };
 typedef struct fd_bank_hash_stats fd_bank_hash_stats_t;
 #define FD_BANK_HASH_STATS_FOOTPRINT sizeof(fd_bank_hash_stats_t)
-#define FD_BANK_HASH_STATS_ALIGN (8UL)
+#define FD_BANK_HASH_STATS_ALIGN alignof(fd_bank_hash_stats_t)
 
 /* Encoded Size: Fixed (104 bytes) */
-struct __attribute__((aligned(8UL))) fd_bank_hash_info {
+struct fd_bank_hash_info {
   fd_hash_t accounts_delta_hash;
   fd_hash_t accounts_hash;
   fd_bank_hash_stats_t stats;
 };
 typedef struct fd_bank_hash_info fd_bank_hash_info_t;
 #define FD_BANK_HASH_INFO_FOOTPRINT sizeof(fd_bank_hash_info_t)
-#define FD_BANK_HASH_INFO_ALIGN (8UL)
+#define FD_BANK_HASH_INFO_ALIGN alignof(fd_bank_hash_info_t)
 
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_slot_map_pair {
+struct fd_slot_map_pair {
   ulong slot;
   fd_hash_t hash;
 };
 typedef struct fd_slot_map_pair fd_slot_map_pair_t;
 #define FD_SLOT_MAP_PAIR_FOOTPRINT sizeof(fd_slot_map_pair_t)
-#define FD_SLOT_MAP_PAIR_ALIGN (8UL)
+#define FD_SLOT_MAP_PAIR_ALIGN alignof(fd_slot_map_pair_t)
 
 /* Encoded Size: Fixed (16 bytes) */
-struct __attribute__((aligned(8UL))) fd_snapshot_acc_vec {
+struct fd_snapshot_acc_vec {
   ulong id;
   ulong file_sz;
 };
 typedef struct fd_snapshot_acc_vec fd_snapshot_acc_vec_t;
 #define FD_SNAPSHOT_ACC_VEC_FOOTPRINT sizeof(fd_snapshot_acc_vec_t)
-#define FD_SNAPSHOT_ACC_VEC_ALIGN (8UL)
+#define FD_SNAPSHOT_ACC_VEC_ALIGN alignof(fd_snapshot_acc_vec_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_snapshot_slot_acc_vecs {
+struct fd_snapshot_slot_acc_vecs {
   ulong slot;
   ulong account_vecs_len;
   fd_snapshot_acc_vec_t * account_vecs;
 };
 typedef struct fd_snapshot_slot_acc_vecs fd_snapshot_slot_acc_vecs_t;
 #define FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT sizeof(fd_snapshot_slot_acc_vecs_t)
-#define FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN (8UL)
+#define FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN alignof(fd_snapshot_slot_acc_vecs_t)
 
 union fd_reward_type_inner {
   uchar nonempty; /* Hack to support enums with no inner structures */
@@ -801,13 +801,13 @@ struct fd_reward_type {
 };
 typedef struct fd_reward_type fd_reward_type_t;
 #define FD_REWARD_TYPE_FOOTPRINT sizeof(fd_reward_type_t)
-#define FD_REWARD_TYPE_ALIGN (8UL)
+#define FD_REWARD_TYPE_ALIGN alignof(fd_reward_type_t)
 #define FD_REWARD_TYPE_GLOBAL_FOOTPRINT sizeof(fd_reward_type_global_t)
-#define FD_REWARD_TYPE_GLOBAL_ALIGN (8UL)
+#define FD_REWARD_TYPE_GLOBAL_ALIGN alignof(fd_reward_type_global_t)
 
 /* Accounts DB related fields in a snapshot */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_solana_accounts_db_fields {
+struct fd_solana_accounts_db_fields {
   ulong storages_len;
   fd_snapshot_slot_acc_vecs_t * storages;
   ulong version;
@@ -820,10 +820,10 @@ struct __attribute__((aligned(8UL))) fd_solana_accounts_db_fields {
 };
 typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_solana_accounts_db_fields_t)
-#define FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN (8UL)
+#define FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN alignof(fd_solana_accounts_db_fields_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_current {
+struct fd_versioned_epoch_stakes_current {
   fd_stakes_stake_t stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
@@ -833,9 +833,9 @@ struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_current {
 };
 typedef struct fd_versioned_epoch_stakes_current fd_versioned_epoch_stakes_current_t;
 #define FD_VERSIONED_EPOCH_STAKES_CURRENT_FOOTPRINT sizeof(fd_versioned_epoch_stakes_current_t)
-#define FD_VERSIONED_EPOCH_STAKES_CURRENT_ALIGN (8UL)
+#define FD_VERSIONED_EPOCH_STAKES_CURRENT_ALIGN alignof(fd_versioned_epoch_stakes_current_t)
 
-struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_current_global {
+struct fd_versioned_epoch_stakes_current_global {
   fd_stakes_stake_global_t stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
@@ -845,7 +845,7 @@ struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_current_global {
 };
 typedef struct fd_versioned_epoch_stakes_current_global fd_versioned_epoch_stakes_current_global_t;
 #define FD_VERSIONED_EPOCH_STAKES_CURRENT_GLOBAL_FOOTPRINT sizeof(fd_versioned_epoch_stakes_current_global_t)
-#define FD_VERSIONED_EPOCH_STAKES_CURRENT_GLOBAL_ALIGN (8UL)
+#define FD_VERSIONED_EPOCH_STAKES_CURRENT_GLOBAL_ALIGN alignof(fd_versioned_epoch_stakes_current_global_t)
 
 union fd_versioned_epoch_stakes_inner {
   fd_versioned_epoch_stakes_current_t Current;
@@ -863,35 +863,35 @@ struct fd_versioned_epoch_stakes {
 };
 typedef struct fd_versioned_epoch_stakes fd_versioned_epoch_stakes_t;
 #define FD_VERSIONED_EPOCH_STAKES_FOOTPRINT sizeof(fd_versioned_epoch_stakes_t)
-#define FD_VERSIONED_EPOCH_STAKES_ALIGN (8UL)
+#define FD_VERSIONED_EPOCH_STAKES_ALIGN alignof(fd_versioned_epoch_stakes_t)
 struct fd_versioned_epoch_stakes_global {
   uint discriminant;
   fd_versioned_epoch_stakes_inner_global_t inner;
 };
 typedef struct fd_versioned_epoch_stakes_global fd_versioned_epoch_stakes_global_t;
 #define FD_VERSIONED_EPOCH_STAKES_GLOBAL_FOOTPRINT sizeof(fd_versioned_epoch_stakes_global_t)
-#define FD_VERSIONED_EPOCH_STAKES_GLOBAL_ALIGN (8UL)
+#define FD_VERSIONED_EPOCH_STAKES_GLOBAL_ALIGN alignof(fd_versioned_epoch_stakes_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_pair {
+struct fd_versioned_epoch_stakes_pair {
   ulong epoch;
   fd_versioned_epoch_stakes_t val;
 };
 typedef struct fd_versioned_epoch_stakes_pair fd_versioned_epoch_stakes_pair_t;
 #define FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT sizeof(fd_versioned_epoch_stakes_pair_t)
-#define FD_VERSIONED_EPOCH_STAKES_PAIR_ALIGN (8UL)
+#define FD_VERSIONED_EPOCH_STAKES_PAIR_ALIGN alignof(fd_versioned_epoch_stakes_pair_t)
 
-struct __attribute__((aligned(8UL))) fd_versioned_epoch_stakes_pair_global {
+struct fd_versioned_epoch_stakes_pair_global {
   ulong epoch;
   fd_versioned_epoch_stakes_global_t val;
 };
 typedef struct fd_versioned_epoch_stakes_pair_global fd_versioned_epoch_stakes_pair_global_t;
 #define FD_VERSIONED_EPOCH_STAKES_PAIR_GLOBAL_FOOTPRINT sizeof(fd_versioned_epoch_stakes_pair_global_t)
-#define FD_VERSIONED_EPOCH_STAKES_PAIR_GLOBAL_ALIGN (8UL)
+#define FD_VERSIONED_EPOCH_STAKES_PAIR_GLOBAL_ALIGN alignof(fd_versioned_epoch_stakes_pair_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/reward_info.rs#L5 */
 /* Encoded Size: Fixed (28 bytes) */
-struct __attribute__((aligned(8UL))) fd_reward_info {
+struct fd_reward_info {
   fd_reward_type_t reward_type;
   ulong lamports;
   ulong post_balance;
@@ -899,7 +899,7 @@ struct __attribute__((aligned(8UL))) fd_reward_info {
 };
 typedef struct fd_reward_info fd_reward_info_t;
 #define FD_REWARD_INFO_FOOTPRINT sizeof(fd_reward_info_t)
-#define FD_REWARD_INFO_ALIGN (8UL)
+#define FD_REWARD_INFO_ALIGN alignof(fd_reward_info_t)
 
 /* You can cast this to a (fd_lthash_value_t *) and use it directly since the alignment is preserved */
 /* Encoded Size: Fixed (2048 bytes) */
@@ -911,7 +911,7 @@ typedef struct fd_slot_lthash fd_slot_lthash_t;
 #define FD_SLOT_LTHASH_ALIGN (128UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(16UL))) fd_solana_manifest {
+struct fd_solana_manifest {
   fd_versioned_bank_t bank;
   fd_solana_accounts_db_fields_t accounts_db;
   ulong lamports_per_signature;
@@ -923,9 +923,9 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest {
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
-#define FD_SOLANA_MANIFEST_ALIGN (16UL)
+#define FD_SOLANA_MANIFEST_ALIGN alignof(fd_solana_manifest_t)
 
-struct __attribute__((aligned(16UL))) fd_solana_manifest_global {
+struct fd_solana_manifest_global {
   fd_versioned_bank_global_t bank;
   fd_solana_accounts_db_fields_t accounts_db;
   ulong lamports_per_signature;
@@ -937,19 +937,19 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest_global {
 };
 typedef struct fd_solana_manifest_global fd_solana_manifest_global_t;
 #define FD_SOLANA_MANIFEST_GLOBAL_FOOTPRINT sizeof(fd_solana_manifest_global_t)
-#define FD_SOLANA_MANIFEST_GLOBAL_ALIGN (16UL)
+#define FD_SOLANA_MANIFEST_GLOBAL_ALIGN alignof(fd_solana_manifest_global_t)
 
 /* Encoded Size: Fixed (12 bytes) */
-struct __attribute__((aligned(8UL))) fd_rust_duration {
+struct fd_rust_duration {
   ulong seconds;
   uint nanoseconds;
 };
 typedef struct fd_rust_duration fd_rust_duration_t;
 #define FD_RUST_DURATION_FOOTPRINT sizeof(fd_rust_duration_t)
-#define FD_RUST_DURATION_ALIGN (8UL)
+#define FD_RUST_DURATION_ALIGN alignof(fd_rust_duration_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_poh_config {
+struct fd_poh_config {
   fd_rust_duration_t target_tick_duration;
   ulong* target_tick_count;
   ulong hashes_per_tick;
@@ -957,9 +957,9 @@ struct __attribute__((aligned(8UL))) fd_poh_config {
 };
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_FOOTPRINT sizeof(fd_poh_config_t)
-#define FD_POH_CONFIG_ALIGN (8UL)
+#define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
 
-struct __attribute__((aligned(8UL))) fd_poh_config_global {
+struct fd_poh_config_global {
   fd_rust_duration_t target_tick_duration;
   ulong target_tick_count_gaddr;
   ulong hashes_per_tick;
@@ -967,38 +967,38 @@ struct __attribute__((aligned(8UL))) fd_poh_config_global {
 };
 typedef struct fd_poh_config_global fd_poh_config_global_t;
 #define FD_POH_CONFIG_GLOBAL_FOOTPRINT sizeof(fd_poh_config_global_t)
-#define FD_POH_CONFIG_GLOBAL_ALIGN (8UL)
+#define FD_POH_CONFIG_GLOBAL_ALIGN alignof(fd_poh_config_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_string_pubkey_pair {
+struct fd_string_pubkey_pair {
   ulong string_len;
   uchar* string;
   fd_pubkey_t pubkey;
 };
 typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
 #define FD_STRING_PUBKEY_PAIR_FOOTPRINT sizeof(fd_string_pubkey_pair_t)
-#define FD_STRING_PUBKEY_PAIR_ALIGN (8UL)
+#define FD_STRING_PUBKEY_PAIR_ALIGN alignof(fd_string_pubkey_pair_t)
 
-struct __attribute__((aligned(8UL))) fd_string_pubkey_pair_global {
+struct fd_string_pubkey_pair_global {
   ulong string_len;
   ulong string_gaddr;
   fd_pubkey_t pubkey;
 };
 typedef struct fd_string_pubkey_pair_global fd_string_pubkey_pair_global_t;
 #define FD_STRING_PUBKEY_PAIR_GLOBAL_FOOTPRINT sizeof(fd_string_pubkey_pair_global_t)
-#define FD_STRING_PUBKEY_PAIR_GLOBAL_ALIGN (8UL)
+#define FD_STRING_PUBKEY_PAIR_GLOBAL_ALIGN alignof(fd_string_pubkey_pair_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_pubkey_account_pair {
+struct fd_pubkey_account_pair {
   fd_pubkey_t key;
   fd_solana_account_t account;
 };
 typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
 #define FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT sizeof(fd_pubkey_account_pair_t)
-#define FD_PUBKEY_ACCOUNT_PAIR_ALIGN (8UL)
+#define FD_PUBKEY_ACCOUNT_PAIR_ALIGN alignof(fd_pubkey_account_pair_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_genesis_solana {
+struct fd_genesis_solana {
   ulong creation_time;
   ulong accounts_len;
   fd_pubkey_account_pair_t * accounts;
@@ -1018,9 +1018,9 @@ struct __attribute__((aligned(8UL))) fd_genesis_solana {
 };
 typedef struct fd_genesis_solana fd_genesis_solana_t;
 #define FD_GENESIS_SOLANA_FOOTPRINT sizeof(fd_genesis_solana_t)
-#define FD_GENESIS_SOLANA_ALIGN (8UL)
+#define FD_GENESIS_SOLANA_ALIGN alignof(fd_genesis_solana_t)
 
-struct __attribute__((aligned(8UL))) fd_genesis_solana_global {
+struct fd_genesis_solana_global {
   ulong creation_time;
   ulong accounts_len;
   ulong accounts_gaddr;
@@ -1040,11 +1040,11 @@ struct __attribute__((aligned(8UL))) fd_genesis_solana_global {
 };
 typedef struct fd_genesis_solana_global fd_genesis_solana_global_t;
 #define FD_GENESIS_SOLANA_GLOBAL_FOOTPRINT sizeof(fd_genesis_solana_global_t)
-#define FD_GENESIS_SOLANA_GLOBAL_ALIGN (8UL)
+#define FD_GENESIS_SOLANA_GLOBAL_ALIGN alignof(fd_genesis_solana_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114 */
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_sol_sysvar_clock {
+struct fd_sol_sysvar_clock {
   ulong slot;
   long epoch_start_timestamp;
   ulong epoch;
@@ -1053,38 +1053,38 @@ struct __attribute__((aligned(8UL))) fd_sol_sysvar_clock {
 };
 typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 #define FD_SOL_SYSVAR_CLOCK_FOOTPRINT sizeof(fd_sol_sysvar_clock_t)
-#define FD_SOL_SYSVAR_CLOCK_ALIGN (8UL)
+#define FD_SOL_SYSVAR_CLOCK_ALIGN alignof(fd_sol_sysvar_clock_t)
 
 /* https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/sdk/program/src/last_restart_slot.rs#L7 */
 /* Encoded Size: Fixed (8 bytes) */
-struct __attribute__((aligned(8UL))) fd_sol_sysvar_last_restart_slot {
+struct fd_sol_sysvar_last_restart_slot {
   ulong slot;
 };
 typedef struct fd_sol_sysvar_last_restart_slot fd_sol_sysvar_last_restart_slot_t;
 #define FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT sizeof(fd_sol_sysvar_last_restart_slot_t)
-#define FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN (8UL)
+#define FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN alignof(fd_sol_sysvar_last_restart_slot_t)
 
 /* Encoded Size: Fixed (12 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_lockout {
+struct fd_vote_lockout {
   ulong slot;
   uint confirmation_count;
 };
 typedef struct fd_vote_lockout fd_vote_lockout_t;
 #define FD_VOTE_LOCKOUT_FOOTPRINT sizeof(fd_vote_lockout_t)
-#define FD_VOTE_LOCKOUT_ALIGN (8UL)
+#define FD_VOTE_LOCKOUT_ALIGN alignof(fd_vote_lockout_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_lockout_offset {
+struct fd_lockout_offset {
   ulong offset;
   uchar confirmation_count;
 };
 typedef struct fd_lockout_offset fd_lockout_offset_t;
 #define FD_LOCKOUT_OFFSET_FOOTPRINT sizeof(fd_lockout_offset_t)
-#define FD_LOCKOUT_OFFSET_ALIGN (8UL)
+#define FD_LOCKOUT_OFFSET_ALIGN alignof(fd_lockout_offset_t)
 
 /* https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L9 */
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_authorized_voter {
+struct fd_vote_authorized_voter {
   ulong epoch;
   fd_pubkey_t pubkey;
   ulong parent;
@@ -1094,20 +1094,20 @@ struct __attribute__((aligned(8UL))) fd_vote_authorized_voter {
 };
 typedef struct fd_vote_authorized_voter fd_vote_authorized_voter_t;
 #define FD_VOTE_AUTHORIZED_VOTER_FOOTPRINT sizeof(fd_vote_authorized_voter_t)
-#define FD_VOTE_AUTHORIZED_VOTER_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZED_VOTER_ALIGN alignof(fd_vote_authorized_voter_t)
 
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_prior_voter {
+struct fd_vote_prior_voter {
   fd_pubkey_t pubkey;
   ulong epoch_start;
   ulong epoch_end;
 };
 typedef struct fd_vote_prior_voter fd_vote_prior_voter_t;
 #define FD_VOTE_PRIOR_VOTER_FOOTPRINT sizeof(fd_vote_prior_voter_t)
-#define FD_VOTE_PRIOR_VOTER_ALIGN (8UL)
+#define FD_VOTE_PRIOR_VOTER_ALIGN alignof(fd_vote_prior_voter_t)
 
 /* Encoded Size: Fixed (56 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_prior_voter_0_23_5 {
+struct fd_vote_prior_voter_0_23_5 {
   fd_pubkey_t pubkey;
   ulong epoch_start;
   ulong epoch_end;
@@ -1115,57 +1115,57 @@ struct __attribute__((aligned(8UL))) fd_vote_prior_voter_0_23_5 {
 };
 typedef struct fd_vote_prior_voter_0_23_5 fd_vote_prior_voter_0_23_5_t;
 #define FD_VOTE_PRIOR_VOTER_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voter_0_23_5_t)
-#define FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN (8UL)
+#define FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN alignof(fd_vote_prior_voter_0_23_5_t)
 
 /* Encoded Size: Fixed (24 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_epoch_credits {
+struct fd_vote_epoch_credits {
   ulong epoch;
   ulong credits;
   ulong prev_credits;
 };
 typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
 #define FD_VOTE_EPOCH_CREDITS_FOOTPRINT sizeof(fd_vote_epoch_credits_t)
-#define FD_VOTE_EPOCH_CREDITS_ALIGN (8UL)
+#define FD_VOTE_EPOCH_CREDITS_ALIGN alignof(fd_vote_epoch_credits_t)
 
 /* Encoded Size: Fixed (16 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_block_timestamp {
+struct fd_vote_block_timestamp {
   ulong slot;
   long timestamp;
 };
 typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 #define FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT sizeof(fd_vote_block_timestamp_t)
-#define FD_VOTE_BLOCK_TIMESTAMP_ALIGN (8UL)
+#define FD_VOTE_BLOCK_TIMESTAMP_ALIGN alignof(fd_vote_block_timestamp_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 /* Encoded Size: Fixed (1545 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_prior_voters {
+struct fd_vote_prior_voters {
   fd_vote_prior_voter_t buf[32];
   ulong idx;
   uchar is_empty;
 };
 typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 #define FD_VOTE_PRIOR_VOTERS_FOOTPRINT sizeof(fd_vote_prior_voters_t)
-#define FD_VOTE_PRIOR_VOTERS_ALIGN (8UL)
+#define FD_VOTE_PRIOR_VOTERS_ALIGN alignof(fd_vote_prior_voters_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 /* Encoded Size: Fixed (1800 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_prior_voters_0_23_5 {
+struct fd_vote_prior_voters_0_23_5 {
   fd_vote_prior_voter_0_23_5_t buf[32];
   ulong idx;
 };
 typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_t)
-#define FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN (8UL)
+#define FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN alignof(fd_vote_prior_voters_0_23_5_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 /* Encoded Size: Fixed (13 bytes) */
-struct __attribute__((aligned(8UL))) fd_landed_vote {
+struct fd_landed_vote {
   uchar latency;
   fd_vote_lockout_t lockout;
 };
 typedef struct fd_landed_vote fd_landed_vote_t;
 #define FD_LANDED_VOTE_FOOTPRINT sizeof(fd_landed_vote_t)
-#define FD_LANDED_VOTE_ALIGN (8UL)
+#define FD_LANDED_VOTE_ALIGN alignof(fd_landed_vote_t)
 
 #define DEQUE_NAME deq_fd_vote_lockout_t
 #define DEQUE_T fd_vote_lockout_t
@@ -1199,7 +1199,7 @@ deq_fd_vote_epoch_credits_t_join_new( void * * alloc_mem, ulong max ) {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
+struct fd_vote_state_0_23_5 {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_voter;
   ulong authorized_voter_epoch;
@@ -1214,9 +1214,9 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
 };
 typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
 #define FD_VOTE_STATE_0_23_5_FOOTPRINT sizeof(fd_vote_state_0_23_5_t)
-#define FD_VOTE_STATE_0_23_5_ALIGN (8UL)
+#define FD_VOTE_STATE_0_23_5_ALIGN alignof(fd_vote_state_0_23_5_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5_global {
+struct fd_vote_state_0_23_5_global {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_voter;
   ulong authorized_voter_epoch;
@@ -1231,7 +1231,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5_global {
 };
 typedef struct fd_vote_state_0_23_5_global fd_vote_state_0_23_5_global_t;
 #define FD_VOTE_STATE_0_23_5_GLOBAL_FOOTPRINT sizeof(fd_vote_state_0_23_5_global_t)
-#define FD_VOTE_STATE_0_23_5_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_STATE_0_23_5_GLOBAL_ALIGN alignof(fd_vote_state_0_23_5_global_t)
 
 #define FD_VOTE_AUTHORIZED_VOTERS_MIN 64
 #define POOL_NAME fd_vote_authorized_voters_pool
@@ -1262,25 +1262,25 @@ fd_vote_authorized_voters_treap_join_new( void * * alloc_mem, ulong num ) {
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_authorized_voters {
+struct fd_vote_authorized_voters {
   fd_vote_authorized_voter_t * pool;
   fd_vote_authorized_voters_treap_t * treap;
 };
 typedef struct fd_vote_authorized_voters fd_vote_authorized_voters_t;
 #define FD_VOTE_AUTHORIZED_VOTERS_FOOTPRINT sizeof(fd_vote_authorized_voters_t)
-#define FD_VOTE_AUTHORIZED_VOTERS_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZED_VOTERS_ALIGN alignof(fd_vote_authorized_voters_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_authorized_voters_global {
+struct fd_vote_authorized_voters_global {
   ulong pool_gaddr;
   ulong treap_gaddr;
 };
 typedef struct fd_vote_authorized_voters_global fd_vote_authorized_voters_global_t;
 #define FD_VOTE_AUTHORIZED_VOTERS_GLOBAL_FOOTPRINT sizeof(fd_vote_authorized_voters_global_t)
-#define FD_VOTE_AUTHORIZED_VOTERS_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZED_VOTERS_GLOBAL_ALIGN alignof(fd_vote_authorized_voters_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
+struct fd_vote_state_1_14_11 {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
@@ -1294,9 +1294,9 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
 };
 typedef struct fd_vote_state_1_14_11 fd_vote_state_1_14_11_t;
 #define FD_VOTE_STATE_1_14_11_FOOTPRINT sizeof(fd_vote_state_1_14_11_t)
-#define FD_VOTE_STATE_1_14_11_ALIGN (8UL)
+#define FD_VOTE_STATE_1_14_11_ALIGN alignof(fd_vote_state_1_14_11_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11_global {
+struct fd_vote_state_1_14_11_global {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
@@ -1310,7 +1310,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11_global {
 };
 typedef struct fd_vote_state_1_14_11_global fd_vote_state_1_14_11_global_t;
 #define FD_VOTE_STATE_1_14_11_GLOBAL_FOOTPRINT sizeof(fd_vote_state_1_14_11_global_t)
-#define FD_VOTE_STATE_1_14_11_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_STATE_1_14_11_GLOBAL_ALIGN alignof(fd_vote_state_1_14_11_global_t)
 
 #define DEQUE_NAME deq_fd_landed_vote_t
 #define DEQUE_T fd_landed_vote_t
@@ -1329,7 +1329,7 @@ deq_fd_landed_vote_t_join_new( void * * alloc_mem, ulong max ) {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_state {
+struct fd_vote_state {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
@@ -1343,9 +1343,9 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
 };
 typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
-#define FD_VOTE_STATE_ALIGN (8UL)
+#define FD_VOTE_STATE_ALIGN alignof(fd_vote_state_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_state_global {
+struct fd_vote_state_global {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
@@ -1359,7 +1359,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_global {
 };
 typedef struct fd_vote_state_global fd_vote_state_global_t;
 #define FD_VOTE_STATE_GLOBAL_FOOTPRINT sizeof(fd_vote_state_global_t)
-#define FD_VOTE_STATE_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_STATE_GLOBAL_ALIGN alignof(fd_vote_state_global_t)
 
 union fd_vote_state_versioned_inner {
   fd_vote_state_0_23_5_t v0_23_5;
@@ -1382,18 +1382,18 @@ struct fd_vote_state_versioned {
 };
 typedef struct fd_vote_state_versioned fd_vote_state_versioned_t;
 #define FD_VOTE_STATE_VERSIONED_FOOTPRINT sizeof(fd_vote_state_versioned_t)
-#define FD_VOTE_STATE_VERSIONED_ALIGN (8UL)
+#define FD_VOTE_STATE_VERSIONED_ALIGN alignof(fd_vote_state_versioned_t)
 struct fd_vote_state_versioned_global {
   uint discriminant;
   fd_vote_state_versioned_inner_global_t inner;
 };
 typedef struct fd_vote_state_versioned_global fd_vote_state_versioned_global_t;
 #define FD_VOTE_STATE_VERSIONED_GLOBAL_FOOTPRINT sizeof(fd_vote_state_versioned_global_t)
-#define FD_VOTE_STATE_VERSIONED_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_STATE_VERSIONED_GLOBAL_ALIGN alignof(fd_vote_state_versioned_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_state_update {
+struct fd_vote_state_update {
   fd_vote_lockout_t * lockouts; /* fd_deque_dynamic (min cnt 32) */
   ulong root;
   uchar has_root;
@@ -1403,9 +1403,9 @@ struct __attribute__((aligned(8UL))) fd_vote_state_update {
 };
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
-#define FD_VOTE_STATE_UPDATE_ALIGN (8UL)
+#define FD_VOTE_STATE_UPDATE_ALIGN alignof(fd_vote_state_update_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_state_update_global {
+struct fd_vote_state_update_global {
   ulong lockouts_gaddr; /* fd_deque_dynamic (min cnt 32) */
   ulong root;
   uchar has_root;
@@ -1415,10 +1415,10 @@ struct __attribute__((aligned(8UL))) fd_vote_state_update_global {
 };
 typedef struct fd_vote_state_update_global fd_vote_state_update_global_t;
 #define FD_VOTE_STATE_UPDATE_GLOBAL_FOOTPRINT sizeof(fd_vote_state_update_global_t)
-#define FD_VOTE_STATE_UPDATE_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_STATE_UPDATE_GLOBAL_ALIGN alignof(fd_vote_state_update_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_compact_vote_state_update {
+struct fd_compact_vote_state_update {
   ulong root;
   ushort lockouts_len;
   fd_lockout_offset_t * lockouts;
@@ -1428,9 +1428,9 @@ struct __attribute__((aligned(8UL))) fd_compact_vote_state_update {
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
-#define FD_COMPACT_VOTE_STATE_UPDATE_ALIGN (8UL)
+#define FD_COMPACT_VOTE_STATE_UPDATE_ALIGN alignof(fd_compact_vote_state_update_t)
 
-struct __attribute__((aligned(8UL))) fd_compact_vote_state_update_global {
+struct fd_compact_vote_state_update_global {
   ulong root;
   ushort lockouts_len;
   ulong lockouts_gaddr;
@@ -1440,25 +1440,25 @@ struct __attribute__((aligned(8UL))) fd_compact_vote_state_update_global {
 };
 typedef struct fd_compact_vote_state_update_global fd_compact_vote_state_update_global_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_GLOBAL_FOOTPRINT sizeof(fd_compact_vote_state_update_global_t)
-#define FD_COMPACT_VOTE_STATE_UPDATE_GLOBAL_ALIGN (8UL)
+#define FD_COMPACT_VOTE_STATE_UPDATE_GLOBAL_ALIGN alignof(fd_compact_vote_state_update_global_t)
 
 /* https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/vote/src/vote_instruction.rs#L143 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_compact_vote_state_update_switch {
+struct fd_compact_vote_state_update_switch {
   fd_compact_vote_state_update_t compact_vote_state_update;
   fd_hash_t hash;
 };
 typedef struct fd_compact_vote_state_update_switch fd_compact_vote_state_update_switch_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_FOOTPRINT sizeof(fd_compact_vote_state_update_switch_t)
-#define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_ALIGN (8UL)
+#define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_ALIGN alignof(fd_compact_vote_state_update_switch_t)
 
-struct __attribute__((aligned(8UL))) fd_compact_vote_state_update_switch_global {
+struct fd_compact_vote_state_update_switch_global {
   fd_compact_vote_state_update_global_t compact_vote_state_update;
   fd_hash_t hash;
 };
 typedef struct fd_compact_vote_state_update_switch_global fd_compact_vote_state_update_switch_global_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_GLOBAL_FOOTPRINT sizeof(fd_compact_vote_state_update_switch_global_t)
-#define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_GLOBAL_ALIGN (8UL)
+#define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_GLOBAL_ALIGN alignof(fd_compact_vote_state_update_switch_global_t)
 
 #define DEQUE_NAME deq_fd_lockout_offset_t
 #define DEQUE_T fd_lockout_offset_t
@@ -1477,7 +1477,7 @@ deq_fd_lockout_offset_t_join_new( void * * alloc_mem, ulong max ) {
 
 /* https://github.com/anza-xyz/agave/blob/20ee70cd1829cd414d09040460defecf9792a370/sdk/program/src/vote/state/mod.rs#L990 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_compact_tower_sync {
+struct fd_compact_tower_sync {
   ulong root;
   fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) */
   fd_hash_t hash;
@@ -1487,9 +1487,9 @@ struct __attribute__((aligned(8UL))) fd_compact_tower_sync {
 };
 typedef struct fd_compact_tower_sync fd_compact_tower_sync_t;
 #define FD_COMPACT_TOWER_SYNC_FOOTPRINT sizeof(fd_compact_tower_sync_t)
-#define FD_COMPACT_TOWER_SYNC_ALIGN (8UL)
+#define FD_COMPACT_TOWER_SYNC_ALIGN alignof(fd_compact_tower_sync_t)
 
-struct __attribute__((aligned(8UL))) fd_compact_tower_sync_global {
+struct fd_compact_tower_sync_global {
   ulong root;
   ulong lockout_offsets_gaddr; /* fd_deque_dynamic (min cnt 32) */
   fd_hash_t hash;
@@ -1499,11 +1499,11 @@ struct __attribute__((aligned(8UL))) fd_compact_tower_sync_global {
 };
 typedef struct fd_compact_tower_sync_global fd_compact_tower_sync_global_t;
 #define FD_COMPACT_TOWER_SYNC_GLOBAL_FOOTPRINT sizeof(fd_compact_tower_sync_global_t)
-#define FD_COMPACT_TOWER_SYNC_GLOBAL_ALIGN (8UL)
+#define FD_COMPACT_TOWER_SYNC_GLOBAL_ALIGN alignof(fd_compact_tower_sync_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_tower_sync {
+struct fd_tower_sync {
   fd_vote_lockout_t * lockouts; /* fd_deque_dynamic */
   ulong lockouts_cnt;
   ulong root;
@@ -1515,9 +1515,9 @@ struct __attribute__((aligned(8UL))) fd_tower_sync {
 };
 typedef struct fd_tower_sync fd_tower_sync_t;
 #define FD_TOWER_SYNC_FOOTPRINT sizeof(fd_tower_sync_t)
-#define FD_TOWER_SYNC_ALIGN (8UL)
+#define FD_TOWER_SYNC_ALIGN alignof(fd_tower_sync_t)
 
-struct __attribute__((aligned(8UL))) fd_tower_sync_global {
+struct fd_tower_sync_global {
   ulong lockouts_gaddr; /* fd_deque_dynamic */
   ulong lockouts_cnt;
   ulong root;
@@ -1529,79 +1529,79 @@ struct __attribute__((aligned(8UL))) fd_tower_sync_global {
 };
 typedef struct fd_tower_sync_global fd_tower_sync_global_t;
 #define FD_TOWER_SYNC_GLOBAL_FOOTPRINT sizeof(fd_tower_sync_global_t)
-#define FD_TOWER_SYNC_GLOBAL_ALIGN (8UL)
+#define FD_TOWER_SYNC_GLOBAL_ALIGN alignof(fd_tower_sync_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_tower_sync_switch {
+struct fd_tower_sync_switch {
   fd_tower_sync_t tower_sync;
   fd_hash_t hash;
 };
 typedef struct fd_tower_sync_switch fd_tower_sync_switch_t;
 #define FD_TOWER_SYNC_SWITCH_FOOTPRINT sizeof(fd_tower_sync_switch_t)
-#define FD_TOWER_SYNC_SWITCH_ALIGN (8UL)
+#define FD_TOWER_SYNC_SWITCH_ALIGN alignof(fd_tower_sync_switch_t)
 
-struct __attribute__((aligned(8UL))) fd_tower_sync_switch_global {
+struct fd_tower_sync_switch_global {
   fd_tower_sync_global_t tower_sync;
   fd_hash_t hash;
 };
 typedef struct fd_tower_sync_switch_global fd_tower_sync_switch_global_t;
 #define FD_TOWER_SYNC_SWITCH_GLOBAL_FOOTPRINT sizeof(fd_tower_sync_switch_global_t)
-#define FD_TOWER_SYNC_SWITCH_GLOBAL_ALIGN (8UL)
+#define FD_TOWER_SYNC_SWITCH_GLOBAL_ALIGN alignof(fd_tower_sync_switch_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_slot_history_inner {
+struct fd_slot_history_inner {
   ulong blocks_len;
   ulong* blocks;
 };
 typedef struct fd_slot_history_inner fd_slot_history_inner_t;
 #define FD_SLOT_HISTORY_INNER_FOOTPRINT sizeof(fd_slot_history_inner_t)
-#define FD_SLOT_HISTORY_INNER_ALIGN (8UL)
+#define FD_SLOT_HISTORY_INNER_ALIGN alignof(fd_slot_history_inner_t)
 
 /* https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_slot_history_bitvec {
+struct fd_slot_history_bitvec {
   fd_slot_history_inner_t * bits;
   ulong len;
 };
 typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
 #define FD_SLOT_HISTORY_BITVEC_FOOTPRINT sizeof(fd_slot_history_bitvec_t)
-#define FD_SLOT_HISTORY_BITVEC_ALIGN (8UL)
+#define FD_SLOT_HISTORY_BITVEC_ALIGN alignof(fd_slot_history_bitvec_t)
 
-struct __attribute__((aligned(8UL))) fd_slot_history_bitvec_global {
+struct fd_slot_history_bitvec_global {
   ulong bits_gaddr;
   ulong len;
 };
 typedef struct fd_slot_history_bitvec_global fd_slot_history_bitvec_global_t;
 #define FD_SLOT_HISTORY_BITVEC_GLOBAL_FOOTPRINT sizeof(fd_slot_history_bitvec_global_t)
-#define FD_SLOT_HISTORY_BITVEC_GLOBAL_ALIGN (8UL)
+#define FD_SLOT_HISTORY_BITVEC_GLOBAL_ALIGN alignof(fd_slot_history_bitvec_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_slot_history {
+struct fd_slot_history {
   fd_slot_history_bitvec_t bits;
   ulong next_slot;
 };
 typedef struct fd_slot_history fd_slot_history_t;
 #define FD_SLOT_HISTORY_FOOTPRINT sizeof(fd_slot_history_t)
-#define FD_SLOT_HISTORY_ALIGN (8UL)
+#define FD_SLOT_HISTORY_ALIGN alignof(fd_slot_history_t)
 
-struct __attribute__((aligned(8UL))) fd_slot_history_global {
+struct fd_slot_history_global {
   fd_slot_history_bitvec_global_t bits;
   ulong next_slot;
 };
 typedef struct fd_slot_history_global fd_slot_history_global_t;
 #define FD_SLOT_HISTORY_GLOBAL_FOOTPRINT sizeof(fd_slot_history_global_t)
-#define FD_SLOT_HISTORY_GLOBAL_ALIGN (8UL)
+#define FD_SLOT_HISTORY_GLOBAL_ALIGN alignof(fd_slot_history_global_t)
 
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_slot_hash {
+struct fd_slot_hash {
   ulong slot;
   fd_hash_t hash;
 };
 typedef struct fd_slot_hash fd_slot_hash_t;
 #define FD_SLOT_HASH_FOOTPRINT sizeof(fd_slot_hash_t)
-#define FD_SLOT_HASH_ALIGN (8UL)
+#define FD_SLOT_HASH_ALIGN alignof(fd_slot_hash_t)
 
 #define DEQUE_NAME deq_fd_slot_hash_t
 #define DEQUE_T fd_slot_hash_t
@@ -1620,28 +1620,28 @@ deq_fd_slot_hash_t_join_new( void * * alloc_mem, ulong max ) {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_slot_hashes {
+struct fd_slot_hashes {
   fd_slot_hash_t * hashes; /* fd_deque_dynamic (min cnt 512) */
 };
 typedef struct fd_slot_hashes fd_slot_hashes_t;
 #define FD_SLOT_HASHES_FOOTPRINT sizeof(fd_slot_hashes_t)
-#define FD_SLOT_HASHES_ALIGN (8UL)
+#define FD_SLOT_HASHES_ALIGN alignof(fd_slot_hashes_t)
 
-struct __attribute__((aligned(8UL))) fd_slot_hashes_global {
+struct fd_slot_hashes_global {
   ulong hashes_gaddr; /* fd_deque_dynamic (min cnt 512) */
 };
 typedef struct fd_slot_hashes_global fd_slot_hashes_global_t;
 #define FD_SLOT_HASHES_GLOBAL_FOOTPRINT sizeof(fd_slot_hashes_global_t)
-#define FD_SLOT_HASHES_GLOBAL_ALIGN (8UL)
+#define FD_SLOT_HASHES_GLOBAL_ALIGN alignof(fd_slot_hashes_global_t)
 
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_block_block_hash_entry {
+struct fd_block_block_hash_entry {
   fd_hash_t blockhash;
   fd_fee_calculator_t fee_calculator;
 };
 typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
 #define FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT sizeof(fd_block_block_hash_entry_t)
-#define FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN (8UL)
+#define FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN alignof(fd_block_block_hash_entry_t)
 
 #define DEQUE_NAME deq_fd_block_block_hash_entry_t
 #define DEQUE_T fd_block_block_hash_entry_t
@@ -1659,22 +1659,22 @@ deq_fd_block_block_hash_entry_t_join_new( void * * alloc_mem, ulong max ) {
 }
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_recent_block_hashes {
+struct fd_recent_block_hashes {
   fd_block_block_hash_entry_t * hashes; /* fd_deque_dynamic (min cnt 151) */
 };
 typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_FOOTPRINT sizeof(fd_recent_block_hashes_t)
-#define FD_RECENT_BLOCK_HASHES_ALIGN (8UL)
+#define FD_RECENT_BLOCK_HASHES_ALIGN alignof(fd_recent_block_hashes_t)
 
-struct __attribute__((aligned(8UL))) fd_recent_block_hashes_global {
+struct fd_recent_block_hashes_global {
   ulong hashes_gaddr; /* fd_deque_dynamic (min cnt 151) */
 };
 typedef struct fd_recent_block_hashes_global fd_recent_block_hashes_global_t;
 #define FD_RECENT_BLOCK_HASHES_GLOBAL_FOOTPRINT sizeof(fd_recent_block_hashes_global_t)
-#define FD_RECENT_BLOCK_HASHES_GLOBAL_ALIGN (8UL)
+#define FD_RECENT_BLOCK_HASHES_GLOBAL_ALIGN alignof(fd_recent_block_hashes_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_slot_meta {
+struct fd_slot_meta {
   ulong slot;
   ulong consumed;
   ulong received;
@@ -1689,18 +1689,18 @@ struct __attribute__((aligned(8UL))) fd_slot_meta {
 };
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
-#define FD_SLOT_META_ALIGN (8UL)
+#define FD_SLOT_META_ALIGN alignof(fd_slot_meta_t)
 
 /* A validator timestamp oracle vote received from a voting node */
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_clock_timestamp_vote {
+struct fd_clock_timestamp_vote {
   fd_pubkey_t pubkey;
   long timestamp;
   ulong slot;
 };
 typedef struct fd_clock_timestamp_vote fd_clock_timestamp_vote_t;
 #define FD_CLOCK_TIMESTAMP_VOTE_FOOTPRINT sizeof(fd_clock_timestamp_vote_t)
-#define FD_CLOCK_TIMESTAMP_VOTE_ALIGN (8UL)
+#define FD_CLOCK_TIMESTAMP_VOTE_ALIGN alignof(fd_clock_timestamp_vote_t)
 
 typedef struct fd_clock_timestamp_vote_t_mapnode fd_clock_timestamp_vote_t_mapnode_t;
 #define REDBLK_T fd_clock_timestamp_vote_t_mapnode_t
@@ -1724,34 +1724,34 @@ fd_clock_timestamp_vote_t_map_join_new( void * * alloc_mem, ulong len ) {
 }
 /* Validator timestamp oracle votes received from voting nodes. TODO: make this a map */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_clock_timestamp_votes {
+struct fd_clock_timestamp_votes {
   fd_clock_timestamp_vote_t_mapnode_t * votes_pool;
   fd_clock_timestamp_vote_t_mapnode_t * votes_root;
 };
 typedef struct fd_clock_timestamp_votes fd_clock_timestamp_votes_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_FOOTPRINT sizeof(fd_clock_timestamp_votes_t)
-#define FD_CLOCK_TIMESTAMP_VOTES_ALIGN (8UL)
+#define FD_CLOCK_TIMESTAMP_VOTES_ALIGN alignof(fd_clock_timestamp_votes_t)
 
-struct __attribute__((aligned(8UL))) fd_clock_timestamp_votes_global {
+struct fd_clock_timestamp_votes_global {
   ulong votes_pool_gaddr;
   ulong votes_root_gaddr;
 };
 typedef struct fd_clock_timestamp_votes_global fd_clock_timestamp_votes_global_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_GLOBAL_FOOTPRINT sizeof(fd_clock_timestamp_votes_global_t)
-#define FD_CLOCK_TIMESTAMP_VOTES_GLOBAL_ALIGN (8UL)
+#define FD_CLOCK_TIMESTAMP_VOTES_GLOBAL_ALIGN alignof(fd_clock_timestamp_votes_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21 */
 /* Encoded Size: Fixed (8 bytes) */
-struct __attribute__((aligned(8UL))) fd_sysvar_fees {
+struct fd_sysvar_fees {
   fd_fee_calculator_t fee_calculator;
 };
 typedef struct fd_sysvar_fees fd_sysvar_fees_t;
 #define FD_SYSVAR_FEES_FOOTPRINT sizeof(fd_sysvar_fees_t)
-#define FD_SYSVAR_FEES_ALIGN (8UL)
+#define FD_SYSVAR_FEES_ALIGN alignof(fd_sysvar_fees_t)
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14 */
 /* Encoded Size: Fixed (81 bytes) */
-struct __attribute__((aligned(16UL))) fd_sysvar_epoch_rewards {
+struct fd_sysvar_epoch_rewards {
   ulong distribution_starting_block_height;
   ulong num_partitions;
   fd_hash_t parent_blockhash;
@@ -1762,20 +1762,20 @@ struct __attribute__((aligned(16UL))) fd_sysvar_epoch_rewards {
 };
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 #define FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT sizeof(fd_sysvar_epoch_rewards_t)
-#define FD_SYSVAR_EPOCH_REWARDS_ALIGN (16UL)
+#define FD_SYSVAR_EPOCH_REWARDS_ALIGN alignof(fd_sysvar_epoch_rewards_t)
 
 /* Encoded Size: Fixed (33 bytes) */
-struct __attribute__((aligned(8UL))) fd_config_keys_pair {
+struct fd_config_keys_pair {
   fd_pubkey_t key;
   uchar signer;
 };
 typedef struct fd_config_keys_pair fd_config_keys_pair_t;
 #define FD_CONFIG_KEYS_PAIR_FOOTPRINT sizeof(fd_config_keys_pair_t)
-#define FD_CONFIG_KEYS_PAIR_ALIGN (8UL)
+#define FD_CONFIG_KEYS_PAIR_ALIGN alignof(fd_config_keys_pair_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stake_config {
+struct fd_stake_config {
   ushort config_keys_len;
   fd_config_keys_pair_t * config_keys;
   double warmup_cooldown_rate;
@@ -1783,10 +1783,10 @@ struct __attribute__((aligned(8UL))) fd_stake_config {
 };
 typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_FOOTPRINT sizeof(fd_stake_config_t)
-#define FD_STAKE_CONFIG_ALIGN (8UL)
+#define FD_STAKE_CONFIG_ALIGN alignof(fd_stake_config_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_feature_entry {
+struct fd_feature_entry {
   fd_pubkey_t pubkey;
   ulong description_len;
   uchar* description;
@@ -1794,9 +1794,9 @@ struct __attribute__((aligned(8UL))) fd_feature_entry {
 };
 typedef struct fd_feature_entry fd_feature_entry_t;
 #define FD_FEATURE_ENTRY_FOOTPRINT sizeof(fd_feature_entry_t)
-#define FD_FEATURE_ENTRY_ALIGN (8UL)
+#define FD_FEATURE_ENTRY_ALIGN alignof(fd_feature_entry_t)
 
-struct __attribute__((aligned(8UL))) fd_feature_entry_global {
+struct fd_feature_entry_global {
   fd_pubkey_t pubkey;
   ulong description_len;
   ulong description_gaddr;
@@ -1804,10 +1804,10 @@ struct __attribute__((aligned(8UL))) fd_feature_entry_global {
 };
 typedef struct fd_feature_entry_global fd_feature_entry_global_t;
 #define FD_FEATURE_ENTRY_GLOBAL_FOOTPRINT sizeof(fd_feature_entry_global_t)
-#define FD_FEATURE_ENTRY_GLOBAL_ALIGN (8UL)
+#define FD_FEATURE_ENTRY_GLOBAL_ALIGN alignof(fd_feature_entry_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(16UL))) fd_firedancer_bank {
+struct fd_firedancer_bank {
   fd_stakes_t stakes;
   fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
@@ -1835,9 +1835,9 @@ struct __attribute__((aligned(16UL))) fd_firedancer_bank {
 };
 typedef struct fd_firedancer_bank fd_firedancer_bank_t;
 #define FD_FIREDANCER_BANK_FOOTPRINT sizeof(fd_firedancer_bank_t)
-#define FD_FIREDANCER_BANK_ALIGN (16UL)
+#define FD_FIREDANCER_BANK_ALIGN alignof(fd_firedancer_bank_t)
 
-struct __attribute__((aligned(16UL))) fd_firedancer_bank_global {
+struct fd_firedancer_bank_global {
   fd_stakes_global_t stakes;
   fd_recent_block_hashes_global_t recent_block_hashes;
   fd_clock_timestamp_votes_global_t timestamp_votes;
@@ -1865,7 +1865,7 @@ struct __attribute__((aligned(16UL))) fd_firedancer_bank_global {
 };
 typedef struct fd_firedancer_bank_global fd_firedancer_bank_global_t;
 #define FD_FIREDANCER_BANK_GLOBAL_FOOTPRINT sizeof(fd_firedancer_bank_global_t)
-#define FD_FIREDANCER_BANK_GLOBAL_ALIGN (16UL)
+#define FD_FIREDANCER_BANK_GLOBAL_ALIGN alignof(fd_firedancer_bank_global_t)
 
 union fd_cluster_type_inner {
   uchar nonempty; /* Hack to support enums with no inner structures */
@@ -1878,32 +1878,32 @@ struct fd_cluster_type {
 };
 typedef struct fd_cluster_type fd_cluster_type_t;
 #define FD_CLUSTER_TYPE_FOOTPRINT sizeof(fd_cluster_type_t)
-#define FD_CLUSTER_TYPE_ALIGN (8UL)
+#define FD_CLUSTER_TYPE_ALIGN alignof(fd_cluster_type_t)
 #define FD_CLUSTER_TYPE_GLOBAL_FOOTPRINT sizeof(fd_cluster_type_global_t)
-#define FD_CLUSTER_TYPE_GLOBAL_ALIGN (8UL)
+#define FD_CLUSTER_TYPE_GLOBAL_ALIGN alignof(fd_cluster_type_global_t)
 
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_rent_fresh_account {
+struct fd_rent_fresh_account {
   ulong partition;
   fd_pubkey_t pubkey;
   ulong present;
 };
 typedef struct fd_rent_fresh_account fd_rent_fresh_account_t;
 #define FD_RENT_FRESH_ACCOUNT_FOOTPRINT sizeof(fd_rent_fresh_account_t)
-#define FD_RENT_FRESH_ACCOUNT_ALIGN (8UL)
+#define FD_RENT_FRESH_ACCOUNT_ALIGN alignof(fd_rent_fresh_account_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts {
+struct fd_rent_fresh_accounts {
   ulong total_count;
   ulong fresh_accounts_len;
   fd_rent_fresh_account_t * fresh_accounts;
 };
 typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
 #define FD_RENT_FRESH_ACCOUNTS_FOOTPRINT sizeof(fd_rent_fresh_accounts_t)
-#define FD_RENT_FRESH_ACCOUNTS_ALIGN (8UL)
+#define FD_RENT_FRESH_ACCOUNTS_ALIGN alignof(fd_rent_fresh_accounts_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(16UL))) fd_epoch_bank {
+struct fd_epoch_bank {
   fd_stakes_t stakes;
   ulong hashes_per_tick;
   ulong ticks_per_slot;
@@ -1925,9 +1925,9 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
 #define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
-#define FD_EPOCH_BANK_ALIGN (16UL)
+#define FD_EPOCH_BANK_ALIGN alignof(fd_epoch_bank_t)
 
-struct __attribute__((aligned(16UL))) fd_epoch_bank_global {
+struct fd_epoch_bank_global {
   fd_stakes_global_t stakes;
   ulong hashes_per_tick;
   ulong ticks_per_slot;
@@ -1949,10 +1949,10 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank_global {
 };
 typedef struct fd_epoch_bank_global fd_epoch_bank_global_t;
 #define FD_EPOCH_BANK_GLOBAL_FOOTPRINT sizeof(fd_epoch_bank_global_t)
-#define FD_EPOCH_BANK_GLOBAL_ALIGN (16UL)
+#define FD_EPOCH_BANK_GLOBAL_ALIGN alignof(fd_epoch_bank_global_t)
 
 /* Encoded Size: Fixed (49 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_reward {
+struct fd_stake_reward {
   ulong prev;
   ulong next;
   ulong parent;
@@ -1963,10 +1963,10 @@ struct __attribute__((aligned(8UL))) fd_stake_reward {
 };
 typedef struct fd_stake_reward fd_stake_reward_t;
 #define FD_STAKE_REWARD_FOOTPRINT sizeof(fd_stake_reward_t)
-#define FD_STAKE_REWARD_ALIGN (8UL)
+#define FD_STAKE_REWARD_ALIGN alignof(fd_stake_reward_t)
 
 /* Encoded Size: Fixed (42 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_reward {
+struct fd_vote_reward {
   fd_pubkey_t pubkey;
   ulong vote_rewards;
   uchar commission;
@@ -1974,17 +1974,17 @@ struct __attribute__((aligned(8UL))) fd_vote_reward {
 };
 typedef struct fd_vote_reward fd_vote_reward_t;
 #define FD_VOTE_REWARD_FOOTPRINT sizeof(fd_vote_reward_t)
-#define FD_VOTE_REWARD_ALIGN (8UL)
+#define FD_VOTE_REWARD_ALIGN alignof(fd_vote_reward_t)
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21 */
 /* Encoded Size: Fixed (24 bytes) */
-struct __attribute__((aligned(8UL))) fd_point_value {
+struct fd_point_value {
   ulong rewards;
   uint128 points;
 };
 typedef struct fd_point_value fd_point_value_t;
 #define FD_POINT_VALUE_FOOTPRINT sizeof(fd_point_value_t)
-#define FD_POINT_VALUE_ALIGN (8UL)
+#define FD_POINT_VALUE_ALIGN alignof(fd_point_value_t)
 
 #define POOL_NAME fd_partitioned_stake_rewards_pool
 #define POOL_T fd_stake_reward_t
@@ -2011,7 +2011,7 @@ fd_partitioned_stake_rewards_dlist_join_new( void * * alloc_mem, ulong num ) {
 }
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L56 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards {
+struct fd_partitioned_stake_rewards {
   ulong partitions_len;
   ulong partitions_lengths[4096];
   fd_partitioned_stake_rewards_dlist_t * partitions;
@@ -2019,9 +2019,9 @@ struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards {
 };
 typedef struct fd_partitioned_stake_rewards fd_partitioned_stake_rewards_t;
 #define FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT sizeof(fd_partitioned_stake_rewards_t)
-#define FD_PARTITIONED_STAKE_REWARDS_ALIGN (8UL)
+#define FD_PARTITIONED_STAKE_REWARDS_ALIGN alignof(fd_partitioned_stake_rewards_t)
 
-struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards_global {
+struct fd_partitioned_stake_rewards_global {
   ulong partitions_len;
   ulong partitions_lengths[4096];
   ulong pool_gaddr;
@@ -2029,25 +2029,25 @@ struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards_global {
 };
 typedef struct fd_partitioned_stake_rewards_global fd_partitioned_stake_rewards_global_t;
 #define FD_PARTITIONED_STAKE_REWARDS_GLOBAL_FOOTPRINT sizeof(fd_partitioned_stake_rewards_global_t)
-#define FD_PARTITIONED_STAKE_REWARDS_GLOBAL_ALIGN (8UL)
+#define FD_PARTITIONED_STAKE_REWARDS_GLOBAL_ALIGN alignof(fd_partitioned_stake_rewards_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L131 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_partitioned {
+struct fd_stake_reward_calculation_partitioned {
   fd_partitioned_stake_rewards_t partitioned_stake_rewards;
   ulong total_stake_rewards_lamports;
 };
 typedef struct fd_stake_reward_calculation_partitioned fd_stake_reward_calculation_partitioned_t;
 #define FD_STAKE_REWARD_CALCULATION_PARTITIONED_FOOTPRINT sizeof(fd_stake_reward_calculation_partitioned_t)
-#define FD_STAKE_REWARD_CALCULATION_PARTITIONED_ALIGN (8UL)
+#define FD_STAKE_REWARD_CALCULATION_PARTITIONED_ALIGN alignof(fd_stake_reward_calculation_partitioned_t)
 
-struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_partitioned_global {
+struct fd_stake_reward_calculation_partitioned_global {
   fd_partitioned_stake_rewards_global_t partitioned_stake_rewards;
   ulong total_stake_rewards_lamports;
 };
 typedef struct fd_stake_reward_calculation_partitioned_global fd_stake_reward_calculation_partitioned_global_t;
 #define FD_STAKE_REWARD_CALCULATION_PARTITIONED_GLOBAL_FOOTPRINT sizeof(fd_stake_reward_calculation_partitioned_global_t)
-#define FD_STAKE_REWARD_CALCULATION_PARTITIONED_GLOBAL_ALIGN (8UL)
+#define FD_STAKE_REWARD_CALCULATION_PARTITIONED_GLOBAL_ALIGN alignof(fd_stake_reward_calculation_partitioned_global_t)
 
 #define POOL_NAME fd_stake_reward_calculation_pool
 #define POOL_T fd_stake_reward_t
@@ -2074,7 +2074,7 @@ fd_stake_reward_calculation_dlist_join_new( void * * alloc_mem, ulong num ) {
 }
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L94 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stake_reward_calculation {
+struct fd_stake_reward_calculation {
   ulong stake_rewards_len;
   fd_stake_reward_calculation_dlist_t * stake_rewards;
   fd_stake_reward_t * pool;
@@ -2082,9 +2082,9 @@ struct __attribute__((aligned(8UL))) fd_stake_reward_calculation {
 };
 typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
 #define FD_STAKE_REWARD_CALCULATION_FOOTPRINT sizeof(fd_stake_reward_calculation_t)
-#define FD_STAKE_REWARD_CALCULATION_ALIGN (8UL)
+#define FD_STAKE_REWARD_CALCULATION_ALIGN alignof(fd_stake_reward_calculation_t)
 
-struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_global {
+struct fd_stake_reward_calculation_global {
   ulong stake_rewards_len;
   ulong pool_gaddr;
   ulong dlist_gaddr;
@@ -2092,7 +2092,7 @@ struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_global {
 };
 typedef struct fd_stake_reward_calculation_global fd_stake_reward_calculation_global_t;
 #define FD_STAKE_REWARD_CALCULATION_GLOBAL_FOOTPRINT sizeof(fd_stake_reward_calculation_global_t)
-#define FD_STAKE_REWARD_CALCULATION_GLOBAL_ALIGN (8UL)
+#define FD_STAKE_REWARD_CALCULATION_GLOBAL_ALIGN alignof(fd_stake_reward_calculation_global_t)
 
 typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
 #define REDBLK_T fd_vote_reward_t_mapnode_t
@@ -2115,45 +2115,45 @@ fd_vote_reward_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_calculate_stake_vote_rewards_result {
+struct fd_calculate_stake_vote_rewards_result {
   fd_stake_reward_calculation_t stake_reward_calculation;
   fd_vote_reward_t_mapnode_t * vote_reward_map_pool;
   fd_vote_reward_t_mapnode_t * vote_reward_map_root;
 };
 typedef struct fd_calculate_stake_vote_rewards_result fd_calculate_stake_vote_rewards_result_t;
 #define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_FOOTPRINT sizeof(fd_calculate_stake_vote_rewards_result_t)
-#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_ALIGN (8UL)
+#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_ALIGN alignof(fd_calculate_stake_vote_rewards_result_t)
 
-struct __attribute__((aligned(8UL))) fd_calculate_stake_vote_rewards_result_global {
+struct fd_calculate_stake_vote_rewards_result_global {
   fd_stake_reward_calculation_global_t stake_reward_calculation;
   ulong vote_reward_map_pool_gaddr;
   ulong vote_reward_map_root_gaddr;
 };
 typedef struct fd_calculate_stake_vote_rewards_result_global fd_calculate_stake_vote_rewards_result_global_t;
 #define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_GLOBAL_FOOTPRINT sizeof(fd_calculate_stake_vote_rewards_result_global_t)
-#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_GLOBAL_ALIGN (8UL)
+#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_GLOBAL_ALIGN alignof(fd_calculate_stake_vote_rewards_result_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_calculate_validator_rewards_result {
+struct fd_calculate_validator_rewards_result {
   fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result;
   fd_point_value_t point_value;
 };
 typedef struct fd_calculate_validator_rewards_result fd_calculate_validator_rewards_result_t;
 #define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_FOOTPRINT sizeof(fd_calculate_validator_rewards_result_t)
-#define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_ALIGN (8UL)
+#define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_ALIGN alignof(fd_calculate_validator_rewards_result_t)
 
-struct __attribute__((aligned(8UL))) fd_calculate_validator_rewards_result_global {
+struct fd_calculate_validator_rewards_result_global {
   fd_calculate_stake_vote_rewards_result_global_t calculate_stake_vote_rewards_result;
   fd_point_value_t point_value;
 };
 typedef struct fd_calculate_validator_rewards_result_global fd_calculate_validator_rewards_result_global_t;
 #define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_GLOBAL_FOOTPRINT sizeof(fd_calculate_validator_rewards_result_global_t)
-#define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_GLOBAL_ALIGN (8UL)
+#define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_GLOBAL_ALIGN alignof(fd_calculate_validator_rewards_result_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L138 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_calculate_rewards_and_distribute_vote_rewards_result {
+struct fd_calculate_rewards_and_distribute_vote_rewards_result {
   ulong total_rewards;
   ulong distributed_rewards;
   fd_point_value_t point_value;
@@ -2161,9 +2161,9 @@ struct __attribute__((aligned(8UL))) fd_calculate_rewards_and_distribute_vote_re
 };
 typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
 #define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_FOOTPRINT sizeof(fd_calculate_rewards_and_distribute_vote_rewards_result_t)
-#define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_ALIGN (8UL)
+#define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_ALIGN alignof(fd_calculate_rewards_and_distribute_vote_rewards_result_t)
 
-struct __attribute__((aligned(8UL))) fd_calculate_rewards_and_distribute_vote_rewards_result_global {
+struct fd_calculate_rewards_and_distribute_vote_rewards_result_global {
   ulong total_rewards;
   ulong distributed_rewards;
   fd_point_value_t point_value;
@@ -2171,11 +2171,11 @@ struct __attribute__((aligned(8UL))) fd_calculate_rewards_and_distribute_vote_re
 };
 typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result_global fd_calculate_rewards_and_distribute_vote_rewards_result_global_t;
 #define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_GLOBAL_FOOTPRINT sizeof(fd_calculate_rewards_and_distribute_vote_rewards_result_global_t)
-#define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_GLOBAL_ALIGN (8UL)
+#define FD_CALCULATE_REWARDS_AND_DISTRIBUTE_VOTE_REWARDS_RESULT_GLOBAL_ALIGN alignof(fd_calculate_rewards_and_distribute_vote_rewards_result_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_partitioned_rewards_calculation {
+struct fd_partitioned_rewards_calculation {
   fd_vote_reward_t_mapnode_t * vote_reward_map_pool;
   fd_vote_reward_t_mapnode_t * vote_reward_map_root;
   fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition;
@@ -2189,9 +2189,9 @@ struct __attribute__((aligned(8UL))) fd_partitioned_rewards_calculation {
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 #define FD_PARTITIONED_REWARDS_CALCULATION_FOOTPRINT sizeof(fd_partitioned_rewards_calculation_t)
-#define FD_PARTITIONED_REWARDS_CALCULATION_ALIGN (8UL)
+#define FD_PARTITIONED_REWARDS_CALCULATION_ALIGN alignof(fd_partitioned_rewards_calculation_t)
 
-struct __attribute__((aligned(8UL))) fd_partitioned_rewards_calculation_global {
+struct fd_partitioned_rewards_calculation_global {
   ulong vote_reward_map_pool_gaddr;
   ulong vote_reward_map_root_gaddr;
   fd_stake_reward_calculation_partitioned_global_t stake_rewards_by_partition;
@@ -2205,40 +2205,40 @@ struct __attribute__((aligned(8UL))) fd_partitioned_rewards_calculation_global {
 };
 typedef struct fd_partitioned_rewards_calculation_global fd_partitioned_rewards_calculation_global_t;
 #define FD_PARTITIONED_REWARDS_CALCULATION_GLOBAL_FOOTPRINT sizeof(fd_partitioned_rewards_calculation_global_t)
-#define FD_PARTITIONED_REWARDS_CALCULATION_GLOBAL_ALIGN (8UL)
+#define FD_PARTITIONED_REWARDS_CALCULATION_GLOBAL_ALIGN alignof(fd_partitioned_rewards_calculation_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L60 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_start_block_height_and_rewards {
+struct fd_start_block_height_and_rewards {
   ulong distribution_starting_block_height;
   fd_partitioned_stake_rewards_t partitioned_stake_rewards;
 };
 typedef struct fd_start_block_height_and_rewards fd_start_block_height_and_rewards_t;
 #define FD_START_BLOCK_HEIGHT_AND_REWARDS_FOOTPRINT sizeof(fd_start_block_height_and_rewards_t)
-#define FD_START_BLOCK_HEIGHT_AND_REWARDS_ALIGN (8UL)
+#define FD_START_BLOCK_HEIGHT_AND_REWARDS_ALIGN alignof(fd_start_block_height_and_rewards_t)
 
-struct __attribute__((aligned(8UL))) fd_start_block_height_and_rewards_global {
+struct fd_start_block_height_and_rewards_global {
   ulong distribution_starting_block_height;
   fd_partitioned_stake_rewards_global_t partitioned_stake_rewards;
 };
 typedef struct fd_start_block_height_and_rewards_global fd_start_block_height_and_rewards_global_t;
 #define FD_START_BLOCK_HEIGHT_AND_REWARDS_GLOBAL_FOOTPRINT sizeof(fd_start_block_height_and_rewards_global_t)
-#define FD_START_BLOCK_HEIGHT_AND_REWARDS_GLOBAL_ALIGN (8UL)
+#define FD_START_BLOCK_HEIGHT_AND_REWARDS_GLOBAL_ALIGN alignof(fd_start_block_height_and_rewards_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_fd_epoch_reward_status_inner {
+struct fd_fd_epoch_reward_status_inner {
   fd_start_block_height_and_rewards_t Active;
 };
 typedef struct fd_fd_epoch_reward_status_inner fd_fd_epoch_reward_status_inner_t;
 #define FD_FD_EPOCH_REWARD_STATUS_INNER_FOOTPRINT sizeof(fd_fd_epoch_reward_status_inner_t)
-#define FD_FD_EPOCH_REWARD_STATUS_INNER_ALIGN (8UL)
+#define FD_FD_EPOCH_REWARD_STATUS_INNER_ALIGN alignof(fd_fd_epoch_reward_status_inner_t)
 
-struct __attribute__((aligned(8UL))) fd_fd_epoch_reward_status_inner_global {
+struct fd_fd_epoch_reward_status_inner_global {
   fd_start_block_height_and_rewards_global_t Active;
 };
 typedef struct fd_fd_epoch_reward_status_inner_global fd_fd_epoch_reward_status_inner_global_t;
 #define FD_FD_EPOCH_REWARD_STATUS_INNER_GLOBAL_FOOTPRINT sizeof(fd_fd_epoch_reward_status_inner_global_t)
-#define FD_FD_EPOCH_REWARD_STATUS_INNER_GLOBAL_ALIGN (8UL)
+#define FD_FD_EPOCH_REWARD_STATUS_INNER_GLOBAL_ALIGN alignof(fd_fd_epoch_reward_status_inner_global_t)
 
 union fd_epoch_reward_status_inner {
   fd_start_block_height_and_rewards_t Active;
@@ -2257,17 +2257,17 @@ struct fd_epoch_reward_status {
 };
 typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
 #define FD_EPOCH_REWARD_STATUS_FOOTPRINT sizeof(fd_epoch_reward_status_t)
-#define FD_EPOCH_REWARD_STATUS_ALIGN (8UL)
+#define FD_EPOCH_REWARD_STATUS_ALIGN alignof(fd_epoch_reward_status_t)
 struct fd_epoch_reward_status_global {
   uint discriminant;
   fd_epoch_reward_status_inner_global_t inner;
 };
 typedef struct fd_epoch_reward_status_global fd_epoch_reward_status_global_t;
 #define FD_EPOCH_REWARD_STATUS_GLOBAL_FOOTPRINT sizeof(fd_epoch_reward_status_global_t)
-#define FD_EPOCH_REWARD_STATUS_GLOBAL_ALIGN (8UL)
+#define FD_EPOCH_REWARD_STATUS_GLOBAL_ALIGN alignof(fd_epoch_reward_status_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(128UL))) fd_slot_bank {
+struct fd_slot_bank {
   fd_clock_timestamp_votes_t timestamp_votes;
   ulong slot;
   ulong prev_slot;
@@ -2300,9 +2300,9 @@ struct __attribute__((aligned(128UL))) fd_slot_bank {
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
-#define FD_SLOT_BANK_ALIGN (128UL)
+#define FD_SLOT_BANK_ALIGN alignof(fd_slot_bank_t)
 
-struct __attribute__((aligned(128UL))) fd_slot_bank_global {
+struct fd_slot_bank_global {
   fd_clock_timestamp_votes_global_t timestamp_votes;
   ulong slot;
   ulong prev_slot;
@@ -2335,10 +2335,10 @@ struct __attribute__((aligned(128UL))) fd_slot_bank_global {
 };
 typedef struct fd_slot_bank_global fd_slot_bank_global_t;
 #define FD_SLOT_BANK_GLOBAL_FOOTPRINT sizeof(fd_slot_bank_global_t)
-#define FD_SLOT_BANK_GLOBAL_ALIGN (128UL)
+#define FD_SLOT_BANK_GLOBAL_ALIGN alignof(fd_slot_bank_global_t)
 
 /* Encoded Size: Fixed (32 bytes) */
-struct __attribute__((aligned(8UL))) fd_prev_epoch_inflation_rewards {
+struct fd_prev_epoch_inflation_rewards {
   ulong validator_rewards;
   double prev_epoch_duration_in_years;
   double validator_rate;
@@ -2346,7 +2346,7 @@ struct __attribute__((aligned(8UL))) fd_prev_epoch_inflation_rewards {
 };
 typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
 #define FD_PREV_EPOCH_INFLATION_REWARDS_FOOTPRINT sizeof(fd_prev_epoch_inflation_rewards_t)
-#define FD_PREV_EPOCH_INFLATION_REWARDS_ALIGN (8UL)
+#define FD_PREV_EPOCH_INFLATION_REWARDS_ALIGN alignof(fd_prev_epoch_inflation_rewards_t)
 
 #define DEQUE_NAME deq_ulong
 #define DEQUE_T ulong
@@ -2365,27 +2365,27 @@ deq_ulong_join_new( void * * alloc_mem, ulong max ) {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote {
+struct fd_vote {
   ulong * slots; /* fd_deque_dynamic */
   fd_hash_t hash;
   long* timestamp;
 };
 typedef struct fd_vote fd_vote_t;
 #define FD_VOTE_FOOTPRINT sizeof(fd_vote_t)
-#define FD_VOTE_ALIGN (8UL)
+#define FD_VOTE_ALIGN alignof(fd_vote_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_global {
+struct fd_vote_global {
   ulong slots_gaddr; /* fd_deque_dynamic */
   fd_hash_t hash;
   ulong timestamp_gaddr;
 };
 typedef struct fd_vote_global fd_vote_global_t;
 #define FD_VOTE_GLOBAL_FOOTPRINT sizeof(fd_vote_global_t)
-#define FD_VOTE_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_GLOBAL_ALIGN alignof(fd_vote_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L230 */
 /* Encoded Size: Fixed (97 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_init {
+struct fd_vote_init {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_voter;
   fd_pubkey_t authorized_withdrawer;
@@ -2393,7 +2393,7 @@ struct __attribute__((aligned(8UL))) fd_vote_init {
 };
 typedef struct fd_vote_init fd_vote_init_t;
 #define FD_VOTE_INIT_FOOTPRINT sizeof(fd_vote_init_t)
-#define FD_VOTE_INIT_ALIGN (8UL)
+#define FD_VOTE_INIT_ALIGN alignof(fd_vote_init_t)
 
 union fd_vote_authorize_inner {
   uchar nonempty; /* Hack to support enums with no inner structures */
@@ -2407,59 +2407,59 @@ struct fd_vote_authorize {
 };
 typedef struct fd_vote_authorize fd_vote_authorize_t;
 #define FD_VOTE_AUTHORIZE_FOOTPRINT sizeof(fd_vote_authorize_t)
-#define FD_VOTE_AUTHORIZE_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZE_ALIGN alignof(fd_vote_authorize_t)
 #define FD_VOTE_AUTHORIZE_GLOBAL_FOOTPRINT sizeof(fd_vote_authorize_global_t)
-#define FD_VOTE_AUTHORIZE_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZE_GLOBAL_ALIGN alignof(fd_vote_authorize_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L37 */
 /* Encoded Size: Fixed (36 bytes) */
-struct __attribute__((aligned(8UL))) fd_vote_authorize_pubkey {
+struct fd_vote_authorize_pubkey {
   fd_pubkey_t pubkey;
   fd_vote_authorize_t vote_authorize;
 };
 typedef struct fd_vote_authorize_pubkey fd_vote_authorize_pubkey_t;
 #define FD_VOTE_AUTHORIZE_PUBKEY_FOOTPRINT sizeof(fd_vote_authorize_pubkey_t)
-#define FD_VOTE_AUTHORIZE_PUBKEY_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZE_PUBKEY_ALIGN alignof(fd_vote_authorize_pubkey_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L78 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_switch {
+struct fd_vote_switch {
   fd_vote_t vote;
   fd_hash_t hash;
 };
 typedef struct fd_vote_switch fd_vote_switch_t;
 #define FD_VOTE_SWITCH_FOOTPRINT sizeof(fd_vote_switch_t)
-#define FD_VOTE_SWITCH_ALIGN (8UL)
+#define FD_VOTE_SWITCH_ALIGN alignof(fd_vote_switch_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_switch_global {
+struct fd_vote_switch_global {
   fd_vote_global_t vote;
   fd_hash_t hash;
 };
 typedef struct fd_vote_switch_global fd_vote_switch_global_t;
 #define FD_VOTE_SWITCH_GLOBAL_FOOTPRINT sizeof(fd_vote_switch_global_t)
-#define FD_VOTE_SWITCH_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_SWITCH_GLOBAL_ALIGN alignof(fd_vote_switch_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_update_vote_state_switch {
+struct fd_update_vote_state_switch {
   fd_vote_state_update_t vote_state_update;
   fd_hash_t hash;
 };
 typedef struct fd_update_vote_state_switch fd_update_vote_state_switch_t;
 #define FD_UPDATE_VOTE_STATE_SWITCH_FOOTPRINT sizeof(fd_update_vote_state_switch_t)
-#define FD_UPDATE_VOTE_STATE_SWITCH_ALIGN (8UL)
+#define FD_UPDATE_VOTE_STATE_SWITCH_ALIGN alignof(fd_update_vote_state_switch_t)
 
-struct __attribute__((aligned(8UL))) fd_update_vote_state_switch_global {
+struct fd_update_vote_state_switch_global {
   fd_vote_state_update_global_t vote_state_update;
   fd_hash_t hash;
 };
 typedef struct fd_update_vote_state_switch_global fd_update_vote_state_switch_global_t;
 #define FD_UPDATE_VOTE_STATE_SWITCH_GLOBAL_FOOTPRINT sizeof(fd_update_vote_state_switch_global_t)
-#define FD_UPDATE_VOTE_STATE_SWITCH_GLOBAL_ALIGN (8UL)
+#define FD_UPDATE_VOTE_STATE_SWITCH_GLOBAL_ALIGN alignof(fd_update_vote_state_switch_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args {
+struct fd_vote_authorize_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
   ulong current_authority_derived_key_seed_len;
@@ -2468,9 +2468,9 @@ struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args {
 };
 typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_with_seed_args_t)
-#define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_ALIGN alignof(fd_vote_authorize_with_seed_args_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args_global {
+struct fd_vote_authorize_with_seed_args_global {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
   ulong current_authority_derived_key_seed_len;
@@ -2479,11 +2479,11 @@ struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args_global {
 };
 typedef struct fd_vote_authorize_with_seed_args_global fd_vote_authorize_with_seed_args_global_t;
 #define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_GLOBAL_FOOTPRINT sizeof(fd_vote_authorize_with_seed_args_global_t)
-#define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_GLOBAL_ALIGN alignof(fd_vote_authorize_with_seed_args_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args {
+struct fd_vote_authorize_checked_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
   ulong current_authority_derived_key_seed_len;
@@ -2491,9 +2491,9 @@ struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args {
 };
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_t)
-#define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN alignof(fd_vote_authorize_checked_with_seed_args_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args_global {
+struct fd_vote_authorize_checked_with_seed_args_global {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
   ulong current_authority_derived_key_seed_len;
@@ -2501,7 +2501,7 @@ struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args_gl
 };
 typedef struct fd_vote_authorize_checked_with_seed_args_global fd_vote_authorize_checked_with_seed_args_global_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_GLOBAL_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_global_t)
-#define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_GLOBAL_ALIGN alignof(fd_vote_authorize_checked_with_seed_args_global_t)
 
 union fd_vote_instruction_inner {
   fd_vote_init_t initialize_account;
@@ -2548,29 +2548,29 @@ struct fd_vote_instruction {
 };
 typedef struct fd_vote_instruction fd_vote_instruction_t;
 #define FD_VOTE_INSTRUCTION_FOOTPRINT sizeof(fd_vote_instruction_t)
-#define FD_VOTE_INSTRUCTION_ALIGN (8UL)
+#define FD_VOTE_INSTRUCTION_ALIGN alignof(fd_vote_instruction_t)
 struct fd_vote_instruction_global {
   uint discriminant;
   fd_vote_instruction_inner_global_t inner;
 };
 typedef struct fd_vote_instruction_global fd_vote_instruction_global_t;
 #define FD_VOTE_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_vote_instruction_global_t)
-#define FD_VOTE_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_INSTRUCTION_GLOBAL_ALIGN alignof(fd_vote_instruction_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L158 */
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_account {
+struct fd_system_program_instruction_create_account {
   ulong lamports;
   ulong space;
   fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_create_account fd_system_program_instruction_create_account_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_FOOTPRINT sizeof(fd_system_program_instruction_create_account_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_ALIGN alignof(fd_system_program_instruction_create_account_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L193 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_account_with_seed {
+struct fd_system_program_instruction_create_account_with_seed {
   fd_pubkey_t base;
   ulong seed_len;
   uchar* seed;
@@ -2580,9 +2580,9 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_accoun
 };
 typedef struct fd_system_program_instruction_create_account_with_seed fd_system_program_instruction_create_account_with_seed_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_create_account_with_seed_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_ALIGN alignof(fd_system_program_instruction_create_account_with_seed_t)
 
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_account_with_seed_global {
+struct fd_system_program_instruction_create_account_with_seed_global {
   fd_pubkey_t base;
   ulong seed_len;
   ulong seed_gaddr;
@@ -2592,11 +2592,11 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_accoun
 };
 typedef struct fd_system_program_instruction_create_account_with_seed_global fd_system_program_instruction_create_account_with_seed_global_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_GLOBAL_FOOTPRINT sizeof(fd_system_program_instruction_create_account_with_seed_global_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_GLOBAL_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_GLOBAL_ALIGN alignof(fd_system_program_instruction_create_account_with_seed_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L269 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_allocate_with_seed {
+struct fd_system_program_instruction_allocate_with_seed {
   fd_pubkey_t base;
   ulong seed_len;
   uchar* seed;
@@ -2605,9 +2605,9 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_allocate_with
 };
 typedef struct fd_system_program_instruction_allocate_with_seed fd_system_program_instruction_allocate_with_seed_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_allocate_with_seed_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_ALIGN alignof(fd_system_program_instruction_allocate_with_seed_t)
 
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_allocate_with_seed_global {
+struct fd_system_program_instruction_allocate_with_seed_global {
   fd_pubkey_t base;
   ulong seed_len;
   ulong seed_gaddr;
@@ -2616,11 +2616,11 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_allocate_with
 };
 typedef struct fd_system_program_instruction_allocate_with_seed_global fd_system_program_instruction_allocate_with_seed_global_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_GLOBAL_FOOTPRINT sizeof(fd_system_program_instruction_allocate_with_seed_global_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_GLOBAL_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_GLOBAL_ALIGN alignof(fd_system_program_instruction_allocate_with_seed_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_assign_with_seed {
+struct fd_system_program_instruction_assign_with_seed {
   fd_pubkey_t base;
   ulong seed_len;
   uchar* seed;
@@ -2628,9 +2628,9 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_assign_with_s
 };
 typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_instruction_assign_with_seed_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_assign_with_seed_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_ALIGN alignof(fd_system_program_instruction_assign_with_seed_t)
 
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_assign_with_seed_global {
+struct fd_system_program_instruction_assign_with_seed_global {
   fd_pubkey_t base;
   ulong seed_len;
   ulong seed_gaddr;
@@ -2638,11 +2638,11 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_assign_with_s
 };
 typedef struct fd_system_program_instruction_assign_with_seed_global fd_system_program_instruction_assign_with_seed_global_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_GLOBAL_FOOTPRINT sizeof(fd_system_program_instruction_assign_with_seed_global_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_GLOBAL_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_GLOBAL_ALIGN alignof(fd_system_program_instruction_assign_with_seed_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_transfer_with_seed {
+struct fd_system_program_instruction_transfer_with_seed {
   ulong lamports;
   ulong from_seed_len;
   uchar* from_seed;
@@ -2650,9 +2650,9 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_transfer_with
 };
 typedef struct fd_system_program_instruction_transfer_with_seed fd_system_program_instruction_transfer_with_seed_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_transfer_with_seed_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_ALIGN alignof(fd_system_program_instruction_transfer_with_seed_t)
 
-struct __attribute__((aligned(8UL))) fd_system_program_instruction_transfer_with_seed_global {
+struct fd_system_program_instruction_transfer_with_seed_global {
   ulong lamports;
   ulong from_seed_len;
   ulong from_seed_gaddr;
@@ -2660,7 +2660,7 @@ struct __attribute__((aligned(8UL))) fd_system_program_instruction_transfer_with
 };
 typedef struct fd_system_program_instruction_transfer_with_seed_global fd_system_program_instruction_transfer_with_seed_global_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_GLOBAL_FOOTPRINT sizeof(fd_system_program_instruction_transfer_with_seed_global_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_GLOBAL_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_GLOBAL_ALIGN alignof(fd_system_program_instruction_transfer_with_seed_global_t)
 
 union fd_system_program_instruction_inner {
   fd_system_program_instruction_create_account_t create_account;
@@ -2699,14 +2699,14 @@ struct fd_system_program_instruction {
 };
 typedef struct fd_system_program_instruction fd_system_program_instruction_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_system_program_instruction_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN alignof(fd_system_program_instruction_t)
 struct fd_system_program_instruction_global {
   uint discriminant;
   fd_system_program_instruction_inner_global_t inner;
 };
 typedef struct fd_system_program_instruction_global fd_system_program_instruction_global_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_system_program_instruction_global_t)
-#define FD_SYSTEM_PROGRAM_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_GLOBAL_ALIGN alignof(fd_system_program_instruction_global_t)
 
 union fd_system_error_inner {
   uchar nonempty; /* Hack to support enums with no inner structures */
@@ -2720,60 +2720,60 @@ struct fd_system_error {
 };
 typedef struct fd_system_error fd_system_error_t;
 #define FD_SYSTEM_ERROR_FOOTPRINT sizeof(fd_system_error_t)
-#define FD_SYSTEM_ERROR_ALIGN (8UL)
+#define FD_SYSTEM_ERROR_ALIGN alignof(fd_system_error_t)
 #define FD_SYSTEM_ERROR_GLOBAL_FOOTPRINT sizeof(fd_system_error_global_t)
-#define FD_SYSTEM_ERROR_GLOBAL_ALIGN (8UL)
+#define FD_SYSTEM_ERROR_GLOBAL_ALIGN alignof(fd_system_error_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169 */
 /* Encoded Size: Fixed (64 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_authorized {
+struct fd_stake_authorized {
   fd_pubkey_t staker;
   fd_pubkey_t withdrawer;
 };
 typedef struct fd_stake_authorized fd_stake_authorized_t;
 #define FD_STAKE_AUTHORIZED_FOOTPRINT sizeof(fd_stake_authorized_t)
-#define FD_STAKE_AUTHORIZED_ALIGN (8UL)
+#define FD_STAKE_AUTHORIZED_ALIGN alignof(fd_stake_authorized_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L135 */
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_lockup {
+struct fd_stake_lockup {
   long unix_timestamp;
   ulong epoch;
   fd_pubkey_t custodian;
 };
 typedef struct fd_stake_lockup fd_stake_lockup_t;
 #define FD_STAKE_LOCKUP_FOOTPRINT sizeof(fd_stake_lockup_t)
-#define FD_STAKE_LOCKUP_ALIGN (8UL)
+#define FD_STAKE_LOCKUP_ALIGN alignof(fd_stake_lockup_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68 */
 /* Encoded Size: Fixed (112 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_instruction_initialize {
+struct fd_stake_instruction_initialize {
   fd_stake_authorized_t authorized;
   fd_stake_lockup_t lockup;
 };
 typedef struct fd_stake_instruction_initialize fd_stake_instruction_initialize_t;
 #define FD_STAKE_INSTRUCTION_INITIALIZE_FOOTPRINT sizeof(fd_stake_instruction_initialize_t)
-#define FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN (8UL)
+#define FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN alignof(fd_stake_instruction_initialize_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stake_lockup_custodian_args {
+struct fd_stake_lockup_custodian_args {
   fd_stake_lockup_t lockup;
   fd_sol_sysvar_clock_t clock;
   fd_pubkey_t * custodian;
 };
 typedef struct fd_stake_lockup_custodian_args fd_stake_lockup_custodian_args_t;
 #define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_FOOTPRINT sizeof(fd_stake_lockup_custodian_args_t)
-#define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_ALIGN (8UL)
+#define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_ALIGN alignof(fd_stake_lockup_custodian_args_t)
 
-struct __attribute__((aligned(8UL))) fd_stake_lockup_custodian_args_global {
+struct fd_stake_lockup_custodian_args_global {
   fd_stake_lockup_t lockup;
   fd_sol_sysvar_clock_t clock;
   ulong custodian_gaddr;
 };
 typedef struct fd_stake_lockup_custodian_args_global fd_stake_lockup_custodian_args_global_t;
 #define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_GLOBAL_FOOTPRINT sizeof(fd_stake_lockup_custodian_args_global_t)
-#define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_GLOBAL_ALIGN (8UL)
+#define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_GLOBAL_ALIGN alignof(fd_stake_lockup_custodian_args_global_t)
 
 union fd_stake_authorize_inner {
   uchar nonempty; /* Hack to support enums with no inner structures */
@@ -2787,23 +2787,23 @@ struct fd_stake_authorize {
 };
 typedef struct fd_stake_authorize fd_stake_authorize_t;
 #define FD_STAKE_AUTHORIZE_FOOTPRINT sizeof(fd_stake_authorize_t)
-#define FD_STAKE_AUTHORIZE_ALIGN (8UL)
+#define FD_STAKE_AUTHORIZE_ALIGN alignof(fd_stake_authorize_t)
 #define FD_STAKE_AUTHORIZE_GLOBAL_FOOTPRINT sizeof(fd_stake_authorize_global_t)
-#define FD_STAKE_AUTHORIZE_GLOBAL_ALIGN (8UL)
+#define FD_STAKE_AUTHORIZE_GLOBAL_ALIGN alignof(fd_stake_authorize_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78 */
 /* Encoded Size: Fixed (36 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_instruction_authorize {
+struct fd_stake_instruction_authorize {
   fd_pubkey_t pubkey;
   fd_stake_authorize_t stake_authorize;
 };
 typedef struct fd_stake_instruction_authorize fd_stake_instruction_authorize_t;
 #define FD_STAKE_INSTRUCTION_AUTHORIZE_FOOTPRINT sizeof(fd_stake_instruction_authorize_t)
-#define FD_STAKE_INSTRUCTION_AUTHORIZE_ALIGN (8UL)
+#define FD_STAKE_INSTRUCTION_AUTHORIZE_ALIGN alignof(fd_stake_instruction_authorize_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args {
+struct fd_authorize_with_seed_args {
   fd_pubkey_t new_authorized_pubkey;
   fd_stake_authorize_t stake_authorize;
   ulong authority_seed_len;
@@ -2812,9 +2812,9 @@ struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args {
 };
 typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
 #define FD_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_authorize_with_seed_args_t)
-#define FD_AUTHORIZE_WITH_SEED_ARGS_ALIGN (8UL)
+#define FD_AUTHORIZE_WITH_SEED_ARGS_ALIGN alignof(fd_authorize_with_seed_args_t)
 
-struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args_global {
+struct fd_authorize_with_seed_args_global {
   fd_pubkey_t new_authorized_pubkey;
   fd_stake_authorize_t stake_authorize;
   ulong authority_seed_len;
@@ -2823,11 +2823,11 @@ struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args_global {
 };
 typedef struct fd_authorize_with_seed_args_global fd_authorize_with_seed_args_global_t;
 #define FD_AUTHORIZE_WITH_SEED_ARGS_GLOBAL_FOOTPRINT sizeof(fd_authorize_with_seed_args_global_t)
-#define FD_AUTHORIZE_WITH_SEED_ARGS_GLOBAL_ALIGN (8UL)
+#define FD_AUTHORIZE_WITH_SEED_ARGS_GLOBAL_ALIGN alignof(fd_authorize_with_seed_args_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args {
+struct fd_authorize_checked_with_seed_args {
   fd_stake_authorize_t stake_authorize;
   ulong authority_seed_len;
   uchar* authority_seed;
@@ -2835,9 +2835,9 @@ struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args {
 };
 typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_seed_args_t;
 #define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_authorize_checked_with_seed_args_t)
-#define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN (8UL)
+#define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN alignof(fd_authorize_checked_with_seed_args_t)
 
-struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args_global {
+struct fd_authorize_checked_with_seed_args_global {
   fd_stake_authorize_t stake_authorize;
   ulong authority_seed_len;
   ulong authority_seed_gaddr;
@@ -2845,45 +2845,45 @@ struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args_global 
 };
 typedef struct fd_authorize_checked_with_seed_args_global fd_authorize_checked_with_seed_args_global_t;
 #define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_GLOBAL_FOOTPRINT sizeof(fd_authorize_checked_with_seed_args_global_t)
-#define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_GLOBAL_ALIGN (8UL)
+#define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_GLOBAL_ALIGN alignof(fd_authorize_checked_with_seed_args_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_lockup_checked_args {
+struct fd_lockup_checked_args {
   long* unix_timestamp;
   ulong* epoch;
 };
 typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
 #define FD_LOCKUP_CHECKED_ARGS_FOOTPRINT sizeof(fd_lockup_checked_args_t)
-#define FD_LOCKUP_CHECKED_ARGS_ALIGN (8UL)
+#define FD_LOCKUP_CHECKED_ARGS_ALIGN alignof(fd_lockup_checked_args_t)
 
-struct __attribute__((aligned(8UL))) fd_lockup_checked_args_global {
+struct fd_lockup_checked_args_global {
   ulong unix_timestamp_gaddr;
   ulong epoch_gaddr;
 };
 typedef struct fd_lockup_checked_args_global fd_lockup_checked_args_global_t;
 #define FD_LOCKUP_CHECKED_ARGS_GLOBAL_FOOTPRINT sizeof(fd_lockup_checked_args_global_t)
-#define FD_LOCKUP_CHECKED_ARGS_GLOBAL_ALIGN (8UL)
+#define FD_LOCKUP_CHECKED_ARGS_GLOBAL_ALIGN alignof(fd_lockup_checked_args_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_lockup_args {
+struct fd_lockup_args {
   long* unix_timestamp;
   ulong* epoch;
   fd_pubkey_t * custodian;
 };
 typedef struct fd_lockup_args fd_lockup_args_t;
 #define FD_LOCKUP_ARGS_FOOTPRINT sizeof(fd_lockup_args_t)
-#define FD_LOCKUP_ARGS_ALIGN (8UL)
+#define FD_LOCKUP_ARGS_ALIGN alignof(fd_lockup_args_t)
 
-struct __attribute__((aligned(8UL))) fd_lockup_args_global {
+struct fd_lockup_args_global {
   ulong unix_timestamp_gaddr;
   ulong epoch_gaddr;
   ulong custodian_gaddr;
 };
 typedef struct fd_lockup_args_global fd_lockup_args_global_t;
 #define FD_LOCKUP_ARGS_GLOBAL_FOOTPRINT sizeof(fd_lockup_args_global_t)
-#define FD_LOCKUP_ARGS_GLOBAL_ALIGN (8UL)
+#define FD_LOCKUP_ARGS_GLOBAL_ALIGN alignof(fd_lockup_args_global_t)
 
 union fd_stake_instruction_inner {
   fd_stake_instruction_initialize_t initialize;
@@ -2922,54 +2922,54 @@ struct fd_stake_instruction {
 };
 typedef struct fd_stake_instruction fd_stake_instruction_t;
 #define FD_STAKE_INSTRUCTION_FOOTPRINT sizeof(fd_stake_instruction_t)
-#define FD_STAKE_INSTRUCTION_ALIGN (8UL)
+#define FD_STAKE_INSTRUCTION_ALIGN alignof(fd_stake_instruction_t)
 struct fd_stake_instruction_global {
   uint discriminant;
   fd_stake_instruction_inner_global_t inner;
 };
 typedef struct fd_stake_instruction_global fd_stake_instruction_global_t;
 #define FD_STAKE_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_stake_instruction_global_t)
-#define FD_STAKE_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_STAKE_INSTRUCTION_GLOBAL_ALIGN alignof(fd_stake_instruction_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248 */
 /* Encoded Size: Fixed (120 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_meta {
+struct fd_stake_meta {
   ulong rent_exempt_reserve;
   fd_stake_authorized_t authorized;
   fd_stake_lockup_t lockup;
 };
 typedef struct fd_stake_meta fd_stake_meta_t;
 #define FD_STAKE_META_FOOTPRINT sizeof(fd_stake_meta_t)
-#define FD_STAKE_META_ALIGN (8UL)
+#define FD_STAKE_META_ALIGN alignof(fd_stake_meta_t)
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/stake_flags.rs#L21 */
 /* Encoded Size: Fixed (1 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_flags {
+struct fd_stake_flags {
   uchar bits;
 };
 typedef struct fd_stake_flags fd_stake_flags_t;
 #define FD_STAKE_FLAGS_FOOTPRINT sizeof(fd_stake_flags_t)
-#define FD_STAKE_FLAGS_ALIGN (8UL)
+#define FD_STAKE_FLAGS_ALIGN alignof(fd_stake_flags_t)
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L135 */
 /* Encoded Size: Fixed (120 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_state_v2_initialized {
+struct fd_stake_state_v2_initialized {
   fd_stake_meta_t meta;
 };
 typedef struct fd_stake_state_v2_initialized fd_stake_state_v2_initialized_t;
 #define FD_STAKE_STATE_V2_INITIALIZED_FOOTPRINT sizeof(fd_stake_state_v2_initialized_t)
-#define FD_STAKE_STATE_V2_INITIALIZED_ALIGN (8UL)
+#define FD_STAKE_STATE_V2_INITIALIZED_ALIGN alignof(fd_stake_state_v2_initialized_t)
 
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L136 */
 /* Encoded Size: Fixed (193 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_state_v2_stake {
+struct fd_stake_state_v2_stake {
   fd_stake_meta_t meta;
   fd_stake_t stake;
   fd_stake_flags_t stake_flags;
 };
 typedef struct fd_stake_state_v2_stake fd_stake_state_v2_stake_t;
 #define FD_STAKE_STATE_V2_STAKE_FOOTPRINT sizeof(fd_stake_state_v2_stake_t)
-#define FD_STAKE_STATE_V2_STAKE_ALIGN (8UL)
+#define FD_STAKE_STATE_V2_STAKE_ALIGN alignof(fd_stake_state_v2_stake_t)
 
 union fd_stake_state_v2_inner {
   fd_stake_state_v2_initialized_t initialized;
@@ -2984,20 +2984,20 @@ struct fd_stake_state_v2 {
 };
 typedef struct fd_stake_state_v2 fd_stake_state_v2_t;
 #define FD_STAKE_STATE_V2_FOOTPRINT sizeof(fd_stake_state_v2_t)
-#define FD_STAKE_STATE_V2_ALIGN (8UL)
+#define FD_STAKE_STATE_V2_ALIGN alignof(fd_stake_state_v2_t)
 #define FD_STAKE_STATE_V2_GLOBAL_FOOTPRINT sizeof(fd_stake_state_v2_global_t)
-#define FD_STAKE_STATE_V2_GLOBAL_ALIGN (8UL)
+#define FD_STAKE_STATE_V2_GLOBAL_ALIGN alignof(fd_stake_state_v2_global_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L17 */
 /* Encoded Size: Fixed (72 bytes) */
-struct __attribute__((aligned(8UL))) fd_nonce_data {
+struct fd_nonce_data {
   fd_pubkey_t authority;
   fd_hash_t durable_nonce;
   fd_fee_calculator_t fee_calculator;
 };
 typedef struct fd_nonce_data fd_nonce_data_t;
 #define FD_NONCE_DATA_FOOTPRINT sizeof(fd_nonce_data_t)
-#define FD_NONCE_DATA_ALIGN (8UL)
+#define FD_NONCE_DATA_ALIGN alignof(fd_nonce_data_t)
 
 union fd_nonce_state_inner {
   fd_nonce_data_t initialized;
@@ -3011,9 +3011,9 @@ struct fd_nonce_state {
 };
 typedef struct fd_nonce_state fd_nonce_state_t;
 #define FD_NONCE_STATE_FOOTPRINT sizeof(fd_nonce_state_t)
-#define FD_NONCE_STATE_ALIGN (8UL)
+#define FD_NONCE_STATE_ALIGN alignof(fd_nonce_state_t)
 #define FD_NONCE_STATE_GLOBAL_FOOTPRINT sizeof(fd_nonce_state_global_t)
-#define FD_NONCE_STATE_GLOBAL_ALIGN (8UL)
+#define FD_NONCE_STATE_GLOBAL_ALIGN alignof(fd_nonce_state_global_t)
 
 union fd_nonce_state_versions_inner {
   fd_nonce_state_t legacy;
@@ -3028,19 +3028,19 @@ struct fd_nonce_state_versions {
 };
 typedef struct fd_nonce_state_versions fd_nonce_state_versions_t;
 #define FD_NONCE_STATE_VERSIONS_FOOTPRINT sizeof(fd_nonce_state_versions_t)
-#define FD_NONCE_STATE_VERSIONS_ALIGN (8UL)
+#define FD_NONCE_STATE_VERSIONS_ALIGN alignof(fd_nonce_state_versions_t)
 #define FD_NONCE_STATE_VERSIONS_GLOBAL_FOOTPRINT sizeof(fd_nonce_state_versions_global_t)
-#define FD_NONCE_STATE_VERSIONS_GLOBAL_ALIGN (8UL)
+#define FD_NONCE_STATE_VERSIONS_GLOBAL_ALIGN alignof(fd_nonce_state_versions_global_t)
 
 /* https://github.com/solana-labs/solana/blob/6c520396cd76807f6227a7973f7373b37894251c/sdk/src/compute_budget.rs#L28 */
 /* Encoded Size: Fixed (8 bytes) */
-struct __attribute__((aligned(8UL))) fd_compute_budget_program_instruction_request_units_deprecated {
+struct fd_compute_budget_program_instruction_request_units_deprecated {
   uint units;
   uint additional_fee;
 };
 typedef struct fd_compute_budget_program_instruction_request_units_deprecated fd_compute_budget_program_instruction_request_units_deprecated_t;
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_FOOTPRINT sizeof(fd_compute_budget_program_instruction_request_units_deprecated_t)
-#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_ALIGN (8UL)
+#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_ALIGN alignof(fd_compute_budget_program_instruction_request_units_deprecated_t)
 
 union fd_compute_budget_program_instruction_inner {
   fd_compute_budget_program_instruction_request_units_deprecated_t request_units_deprecated;
@@ -3058,30 +3058,30 @@ struct fd_compute_budget_program_instruction {
 };
 typedef struct fd_compute_budget_program_instruction fd_compute_budget_program_instruction_t;
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_compute_budget_program_instruction_t)
-#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN (8UL)
+#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN alignof(fd_compute_budget_program_instruction_t)
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_compute_budget_program_instruction_global_t)
-#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_GLOBAL_ALIGN alignof(fd_compute_budget_program_instruction_global_t)
 
 /* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/lib.rs#L32 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_config_keys {
+struct fd_config_keys {
   ushort keys_len;
   fd_config_keys_pair_t * keys;
 };
 typedef struct fd_config_keys fd_config_keys_t;
 #define FD_CONFIG_KEYS_FOOTPRINT sizeof(fd_config_keys_t)
-#define FD_CONFIG_KEYS_ALIGN (8UL)
+#define FD_CONFIG_KEYS_ALIGN alignof(fd_config_keys_t)
 
 /*  */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_bpf_loader_program_instruction_write {
+struct fd_bpf_loader_program_instruction_write {
   uint offset;
   ulong bytes_len;
   uchar* bytes;
 };
 typedef struct fd_bpf_loader_program_instruction_write fd_bpf_loader_program_instruction_write_t;
 #define FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT sizeof(fd_bpf_loader_program_instruction_write_t)
-#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN (8UL)
+#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN alignof(fd_bpf_loader_program_instruction_write_t)
 
 union fd_bpf_loader_program_instruction_inner {
   fd_bpf_loader_program_instruction_write_t write;
@@ -3095,40 +3095,40 @@ struct fd_bpf_loader_program_instruction {
 };
 typedef struct fd_bpf_loader_program_instruction fd_bpf_loader_program_instruction_t;
 #define FD_BPF_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_bpf_loader_program_instruction_t)
-#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_ALIGN (8UL)
+#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_ALIGN alignof(fd_bpf_loader_program_instruction_t)
 #define FD_BPF_LOADER_PROGRAM_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_bpf_loader_program_instruction_global_t)
-#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_BPF_LOADER_PROGRAM_INSTRUCTION_GLOBAL_ALIGN alignof(fd_bpf_loader_program_instruction_global_t)
 
 /* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L21-L27 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_write {
+struct fd_loader_v4_program_instruction_write {
   uint offset;
   ulong bytes_len;
   uchar* bytes;
 };
 typedef struct fd_loader_v4_program_instruction_write fd_loader_v4_program_instruction_write_t;
 #define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT sizeof(fd_loader_v4_program_instruction_write_t)
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_ALIGN (8UL)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_WRITE_ALIGN alignof(fd_loader_v4_program_instruction_write_t)
 
 /* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L35-L42 */
 /* Encoded Size: Fixed (12 bytes) */
-struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_copy {
+struct fd_loader_v4_program_instruction_copy {
   uint destination_offset;
   uint source_offset;
   uint length;
 };
 typedef struct fd_loader_v4_program_instruction_copy fd_loader_v4_program_instruction_copy_t;
 #define FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_FOOTPRINT sizeof(fd_loader_v4_program_instruction_copy_t)
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_ALIGN (8UL)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_COPY_ALIGN alignof(fd_loader_v4_program_instruction_copy_t)
 
 /* https://github.com/anza-xyz/solana-sdk/blob/loader-v4-interface%40v2.2.1/loader-v4-interface/src/instruction.rs#L57-L60 */
 /* Encoded Size: Fixed (4 bytes) */
-struct __attribute__((aligned(8UL))) fd_loader_v4_program_instruction_set_program_length {
+struct fd_loader_v4_program_instruction_set_program_length {
   uint new_size;
 };
 typedef struct fd_loader_v4_program_instruction_set_program_length fd_loader_v4_program_instruction_set_program_length_t;
 #define FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_FOOTPRINT sizeof(fd_loader_v4_program_instruction_set_program_length_t)
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_ALIGN (8UL)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_SET_PROGRAM_LENGTH_ALIGN alignof(fd_loader_v4_program_instruction_set_program_length_t)
 
 union fd_loader_v4_program_instruction_inner {
   fd_loader_v4_program_instruction_write_t write;
@@ -3144,38 +3144,38 @@ struct fd_loader_v4_program_instruction {
 };
 typedef struct fd_loader_v4_program_instruction fd_loader_v4_program_instruction_t;
 #define FD_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_loader_v4_program_instruction_t)
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_ALIGN (8UL)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_ALIGN alignof(fd_loader_v4_program_instruction_t)
 #define FD_LOADER_V4_PROGRAM_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_loader_v4_program_instruction_global_t)
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_LOADER_V4_PROGRAM_INSTRUCTION_GLOBAL_ALIGN alignof(fd_loader_v4_program_instruction_global_t)
 
 /*  */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_program_instruction_write {
+struct fd_bpf_upgradeable_loader_program_instruction_write {
   uint offset;
   ulong bytes_len;
   uchar* bytes;
 };
 typedef struct fd_bpf_upgradeable_loader_program_instruction_write fd_bpf_upgradeable_loader_program_instruction_write_t;
 #define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_write_t)
-#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_WRITE_ALIGN alignof(fd_bpf_upgradeable_loader_program_instruction_write_t)
 
 /*  */
 /* Encoded Size: Fixed (8 bytes) */
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len {
+struct fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len {
   ulong max_data_len;
 };
 typedef struct fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t;
 #define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t)
-#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_DEPLOY_WITH_MAX_DATA_LEN_ALIGN alignof(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t)
 
 /*  */
 /* Encoded Size: Fixed (4 bytes) */
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_program_instruction_extend_program {
+struct fd_bpf_upgradeable_loader_program_instruction_extend_program {
   uint additional_bytes;
 };
 typedef struct fd_bpf_upgradeable_loader_program_instruction_extend_program fd_bpf_upgradeable_loader_program_instruction_extend_program_t;
 #define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_t)
-#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_EXTEND_PROGRAM_ALIGN alignof(fd_bpf_upgradeable_loader_program_instruction_extend_program_t)
 
 union fd_bpf_upgradeable_loader_program_instruction_inner {
   fd_bpf_upgradeable_loader_program_instruction_write_t write;
@@ -3191,52 +3191,52 @@ struct fd_bpf_upgradeable_loader_program_instruction {
 };
 typedef struct fd_bpf_upgradeable_loader_program_instruction fd_bpf_upgradeable_loader_program_instruction_t;
 #define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_t)
-#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN alignof(fd_bpf_upgradeable_loader_program_instruction_t)
 #define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_program_instruction_global_t)
-#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_GLOBAL_ALIGN alignof(fd_bpf_upgradeable_loader_program_instruction_global_t)
 
 /*  */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_buffer {
+struct fd_bpf_upgradeable_loader_state_buffer {
   fd_pubkey_t * authority_address;
 };
 typedef struct fd_bpf_upgradeable_loader_state_buffer fd_bpf_upgradeable_loader_state_buffer_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_buffer_t)
-#define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_ALIGN alignof(fd_bpf_upgradeable_loader_state_buffer_t)
 
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_buffer_global {
+struct fd_bpf_upgradeable_loader_state_buffer_global {
   ulong authority_address_gaddr;
 };
 typedef struct fd_bpf_upgradeable_loader_state_buffer_global fd_bpf_upgradeable_loader_state_buffer_global_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_GLOBAL_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_buffer_global_t)
-#define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_GLOBAL_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_GLOBAL_ALIGN alignof(fd_bpf_upgradeable_loader_state_buffer_global_t)
 
 /*  */
 /* Encoded Size: Fixed (32 bytes) */
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_program {
+struct fd_bpf_upgradeable_loader_state_program {
   fd_pubkey_t programdata_address;
 };
 typedef struct fd_bpf_upgradeable_loader_state_program fd_bpf_upgradeable_loader_state_program_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_program_t)
-#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_ALIGN alignof(fd_bpf_upgradeable_loader_state_program_t)
 
 /*  */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_program_data {
+struct fd_bpf_upgradeable_loader_state_program_data {
   ulong slot;
   fd_pubkey_t * upgrade_authority_address;
 };
 typedef struct fd_bpf_upgradeable_loader_state_program_data fd_bpf_upgradeable_loader_state_program_data_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_program_data_t)
-#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_ALIGN alignof(fd_bpf_upgradeable_loader_state_program_data_t)
 
-struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_program_data_global {
+struct fd_bpf_upgradeable_loader_state_program_data_global {
   ulong slot;
   ulong upgrade_authority_address_gaddr;
 };
 typedef struct fd_bpf_upgradeable_loader_state_program_data_global fd_bpf_upgradeable_loader_state_program_data_global_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_GLOBAL_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_program_data_global_t)
-#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_GLOBAL_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_GLOBAL_ALIGN alignof(fd_bpf_upgradeable_loader_state_program_data_global_t)
 
 union fd_bpf_upgradeable_loader_state_inner {
   fd_bpf_upgradeable_loader_state_buffer_t buffer;
@@ -3259,35 +3259,35 @@ struct fd_bpf_upgradeable_loader_state {
 };
 typedef struct fd_bpf_upgradeable_loader_state fd_bpf_upgradeable_loader_state_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_t)
-#define FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN alignof(fd_bpf_upgradeable_loader_state_t)
 struct fd_bpf_upgradeable_loader_state_global {
   uint discriminant;
   fd_bpf_upgradeable_loader_state_inner_global_t inner;
 };
 typedef struct fd_bpf_upgradeable_loader_state_global fd_bpf_upgradeable_loader_state_global_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_GLOBAL_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_global_t)
-#define FD_BPF_UPGRADEABLE_LOADER_STATE_GLOBAL_ALIGN (8UL)
+#define FD_BPF_UPGRADEABLE_LOADER_STATE_GLOBAL_ALIGN alignof(fd_bpf_upgradeable_loader_state_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43 */
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_loader_v4_state {
+struct fd_loader_v4_state {
   ulong slot;
   fd_pubkey_t authority_address_or_next_version;
   ulong status;
 };
 typedef struct fd_loader_v4_state fd_loader_v4_state_t;
 #define FD_LOADER_V4_STATE_FOOTPRINT sizeof(fd_loader_v4_state_t)
-#define FD_LOADER_V4_STATE_ALIGN (8UL)
+#define FD_LOADER_V4_STATE_ALIGN alignof(fd_loader_v4_state_t)
 
 /* https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178 */
 /* Encoded Size: Fixed (33 bytes) */
-struct __attribute__((aligned(8UL))) fd_frozen_hash_status {
+struct fd_frozen_hash_status {
   fd_hash_t frozen_hash;
   uchar is_duplicate_confirmed;
 };
 typedef struct fd_frozen_hash_status fd_frozen_hash_status_t;
 #define FD_FROZEN_HASH_STATUS_FOOTPRINT sizeof(fd_frozen_hash_status_t)
-#define FD_FROZEN_HASH_STATUS_ALIGN (8UL)
+#define FD_FROZEN_HASH_STATUS_ALIGN alignof(fd_frozen_hash_status_t)
 
 union fd_frozen_hash_versioned_inner {
   fd_frozen_hash_status_t current;
@@ -3301,13 +3301,13 @@ struct fd_frozen_hash_versioned {
 };
 typedef struct fd_frozen_hash_versioned fd_frozen_hash_versioned_t;
 #define FD_FROZEN_HASH_VERSIONED_FOOTPRINT sizeof(fd_frozen_hash_versioned_t)
-#define FD_FROZEN_HASH_VERSIONED_ALIGN (8UL)
+#define FD_FROZEN_HASH_VERSIONED_ALIGN alignof(fd_frozen_hash_versioned_t)
 #define FD_FROZEN_HASH_VERSIONED_GLOBAL_FOOTPRINT sizeof(fd_frozen_hash_versioned_global_t)
-#define FD_FROZEN_HASH_VERSIONED_GLOBAL_ALIGN (8UL)
+#define FD_FROZEN_HASH_VERSIONED_GLOBAL_ALIGN alignof(fd_frozen_hash_versioned_global_t)
 
 /*  */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_lookup_table_meta {
+struct fd_lookup_table_meta {
   ulong deactivation_slot;
   ulong last_extended_slot;
   uchar last_extended_slot_start_index;
@@ -3317,9 +3317,9 @@ struct __attribute__((aligned(8UL))) fd_lookup_table_meta {
 };
 typedef struct fd_lookup_table_meta fd_lookup_table_meta_t;
 #define FD_LOOKUP_TABLE_META_FOOTPRINT sizeof(fd_lookup_table_meta_t)
-#define FD_LOOKUP_TABLE_META_ALIGN (8UL)
+#define FD_LOOKUP_TABLE_META_ALIGN alignof(fd_lookup_table_meta_t)
 
-struct __attribute__((aligned(8UL))) fd_lookup_table_meta_global {
+struct fd_lookup_table_meta_global {
   ulong deactivation_slot;
   ulong last_extended_slot;
   uchar last_extended_slot_start_index;
@@ -3329,23 +3329,23 @@ struct __attribute__((aligned(8UL))) fd_lookup_table_meta_global {
 };
 typedef struct fd_lookup_table_meta_global fd_lookup_table_meta_global_t;
 #define FD_LOOKUP_TABLE_META_GLOBAL_FOOTPRINT sizeof(fd_lookup_table_meta_global_t)
-#define FD_LOOKUP_TABLE_META_GLOBAL_ALIGN (8UL)
+#define FD_LOOKUP_TABLE_META_GLOBAL_ALIGN alignof(fd_lookup_table_meta_global_t)
 
 /*  */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_address_lookup_table {
+struct fd_address_lookup_table {
   fd_lookup_table_meta_t meta;
 };
 typedef struct fd_address_lookup_table fd_address_lookup_table_t;
 #define FD_ADDRESS_LOOKUP_TABLE_FOOTPRINT sizeof(fd_address_lookup_table_t)
-#define FD_ADDRESS_LOOKUP_TABLE_ALIGN (8UL)
+#define FD_ADDRESS_LOOKUP_TABLE_ALIGN alignof(fd_address_lookup_table_t)
 
-struct __attribute__((aligned(8UL))) fd_address_lookup_table_global {
+struct fd_address_lookup_table_global {
   fd_lookup_table_meta_global_t meta;
 };
 typedef struct fd_address_lookup_table_global fd_address_lookup_table_global_t;
 #define FD_ADDRESS_LOOKUP_TABLE_GLOBAL_FOOTPRINT sizeof(fd_address_lookup_table_global_t)
-#define FD_ADDRESS_LOOKUP_TABLE_GLOBAL_ALIGN (8UL)
+#define FD_ADDRESS_LOOKUP_TABLE_GLOBAL_ALIGN alignof(fd_address_lookup_table_global_t)
 
 union fd_address_lookup_table_state_inner {
   fd_address_lookup_table_t lookup_table;
@@ -3364,81 +3364,81 @@ struct fd_address_lookup_table_state {
 };
 typedef struct fd_address_lookup_table_state fd_address_lookup_table_state_t;
 #define FD_ADDRESS_LOOKUP_TABLE_STATE_FOOTPRINT sizeof(fd_address_lookup_table_state_t)
-#define FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN (8UL)
+#define FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN alignof(fd_address_lookup_table_state_t)
 struct fd_address_lookup_table_state_global {
   uint discriminant;
   fd_address_lookup_table_state_inner_global_t inner;
 };
 typedef struct fd_address_lookup_table_state_global fd_address_lookup_table_state_global_t;
 #define FD_ADDRESS_LOOKUP_TABLE_STATE_GLOBAL_FOOTPRINT sizeof(fd_address_lookup_table_state_global_t)
-#define FD_ADDRESS_LOOKUP_TABLE_STATE_GLOBAL_ALIGN (8UL)
+#define FD_ADDRESS_LOOKUP_TABLE_STATE_GLOBAL_ALIGN alignof(fd_address_lookup_table_state_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u8_inner {
+struct fd_gossip_bitvec_u8_inner {
   ulong vec_len;
   uchar* vec;
 };
 typedef struct fd_gossip_bitvec_u8_inner fd_gossip_bitvec_u8_inner_t;
 #define FD_GOSSIP_BITVEC_U8_INNER_FOOTPRINT sizeof(fd_gossip_bitvec_u8_inner_t)
-#define FD_GOSSIP_BITVEC_U8_INNER_ALIGN (8UL)
+#define FD_GOSSIP_BITVEC_U8_INNER_ALIGN alignof(fd_gossip_bitvec_u8_inner_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u8 {
+struct fd_gossip_bitvec_u8 {
   fd_gossip_bitvec_u8_inner_t bits;
   uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u8 fd_gossip_bitvec_u8_t;
 #define FD_GOSSIP_BITVEC_U8_FOOTPRINT sizeof(fd_gossip_bitvec_u8_t)
-#define FD_GOSSIP_BITVEC_U8_ALIGN (8UL)
+#define FD_GOSSIP_BITVEC_U8_ALIGN alignof(fd_gossip_bitvec_u8_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u8_global {
+struct fd_gossip_bitvec_u8_global {
   fd_gossip_bitvec_u8_inner_t bits;
   uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u8_global fd_gossip_bitvec_u8_global_t;
 #define FD_GOSSIP_BITVEC_U8_GLOBAL_FOOTPRINT sizeof(fd_gossip_bitvec_u8_global_t)
-#define FD_GOSSIP_BITVEC_U8_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_BITVEC_U8_GLOBAL_ALIGN alignof(fd_gossip_bitvec_u8_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u64_inner {
+struct fd_gossip_bitvec_u64_inner {
   ulong vec_len;
   ulong* vec;
 };
 typedef struct fd_gossip_bitvec_u64_inner fd_gossip_bitvec_u64_inner_t;
 #define FD_GOSSIP_BITVEC_U64_INNER_FOOTPRINT sizeof(fd_gossip_bitvec_u64_inner_t)
-#define FD_GOSSIP_BITVEC_U64_INNER_ALIGN (8UL)
+#define FD_GOSSIP_BITVEC_U64_INNER_ALIGN alignof(fd_gossip_bitvec_u64_inner_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u64 {
+struct fd_gossip_bitvec_u64 {
   fd_gossip_bitvec_u64_inner_t bits;
   uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u64 fd_gossip_bitvec_u64_t;
 #define FD_GOSSIP_BITVEC_U64_FOOTPRINT sizeof(fd_gossip_bitvec_u64_t)
-#define FD_GOSSIP_BITVEC_U64_ALIGN (8UL)
+#define FD_GOSSIP_BITVEC_U64_ALIGN alignof(fd_gossip_bitvec_u64_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u64_global {
+struct fd_gossip_bitvec_u64_global {
   fd_gossip_bitvec_u64_inner_t bits;
   uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u64_global fd_gossip_bitvec_u64_global_t;
 #define FD_GOSSIP_BITVEC_U64_GLOBAL_FOOTPRINT sizeof(fd_gossip_bitvec_u64_global_t)
-#define FD_GOSSIP_BITVEC_U64_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_BITVEC_U64_GLOBAL_ALIGN alignof(fd_gossip_bitvec_u64_global_t)
 
 /* https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22 */
 /* Encoded Size: Fixed (128 bytes) */
-struct __attribute__((aligned(8UL))) fd_gossip_ping {
+struct fd_gossip_ping {
   fd_pubkey_t from;
   fd_hash_t token;
   fd_signature_t signature;
 };
 typedef struct fd_gossip_ping fd_gossip_ping_t;
 #define FD_GOSSIP_PING_FOOTPRINT sizeof(fd_gossip_ping_t)
-#define FD_GOSSIP_PING_ALIGN (8UL)
+#define FD_GOSSIP_PING_ALIGN alignof(fd_gossip_ping_t)
 
 union fd_gossip_ip_addr_inner {
   fd_gossip_ip4_addr_t ip4;
@@ -3453,12 +3453,12 @@ struct fd_gossip_ip_addr {
 };
 typedef struct fd_gossip_ip_addr fd_gossip_ip_addr_t;
 #define FD_GOSSIP_IP_ADDR_FOOTPRINT sizeof(fd_gossip_ip_addr_t)
-#define FD_GOSSIP_IP_ADDR_ALIGN (8UL)
+#define FD_GOSSIP_IP_ADDR_ALIGN alignof(fd_gossip_ip_addr_t)
 #define FD_GOSSIP_IP_ADDR_GLOBAL_FOOTPRINT sizeof(fd_gossip_ip_addr_global_t)
-#define FD_GOSSIP_IP_ADDR_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_IP_ADDR_GLOBAL_ALIGN alignof(fd_gossip_ip_addr_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_prune_data {
+struct fd_gossip_prune_data {
   fd_pubkey_t pubkey;
   ulong prunes_len;
   fd_pubkey_t * prunes;
@@ -3468,10 +3468,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_prune_data {
 };
 typedef struct fd_gossip_prune_data fd_gossip_prune_data_t;
 #define FD_GOSSIP_PRUNE_DATA_FOOTPRINT sizeof(fd_gossip_prune_data_t)
-#define FD_GOSSIP_PRUNE_DATA_ALIGN (8UL)
+#define FD_GOSSIP_PRUNE_DATA_ALIGN alignof(fd_gossip_prune_data_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_prune_sign_data {
+struct fd_gossip_prune_sign_data {
   fd_pubkey_t pubkey;
   ulong prunes_len;
   fd_pubkey_t * prunes;
@@ -3480,47 +3480,47 @@ struct __attribute__((aligned(8UL))) fd_gossip_prune_sign_data {
 };
 typedef struct fd_gossip_prune_sign_data fd_gossip_prune_sign_data_t;
 #define FD_GOSSIP_PRUNE_SIGN_DATA_FOOTPRINT sizeof(fd_gossip_prune_sign_data_t)
-#define FD_GOSSIP_PRUNE_SIGN_DATA_ALIGN (8UL)
+#define FD_GOSSIP_PRUNE_SIGN_DATA_ALIGN alignof(fd_gossip_prune_sign_data_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_prune_sign_data_with_prefix {
+struct fd_gossip_prune_sign_data_with_prefix {
   ulong prefix_len;
   uchar* prefix;
   fd_gossip_prune_sign_data_t data;
 };
 typedef struct fd_gossip_prune_sign_data_with_prefix fd_gossip_prune_sign_data_with_prefix_t;
 #define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_FOOTPRINT sizeof(fd_gossip_prune_sign_data_with_prefix_t)
-#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_ALIGN (8UL)
+#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_ALIGN alignof(fd_gossip_prune_sign_data_with_prefix_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_prune_sign_data_with_prefix_global {
+struct fd_gossip_prune_sign_data_with_prefix_global {
   ulong prefix_len;
   ulong prefix_gaddr;
   fd_gossip_prune_sign_data_t data;
 };
 typedef struct fd_gossip_prune_sign_data_with_prefix_global fd_gossip_prune_sign_data_with_prefix_global_t;
 #define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_GLOBAL_FOOTPRINT sizeof(fd_gossip_prune_sign_data_with_prefix_global_t)
-#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_PRUNE_SIGN_DATA_WITH_PREFIX_GLOBAL_ALIGN alignof(fd_gossip_prune_sign_data_with_prefix_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_old {
+struct fd_gossip_socket_addr_old {
   fd_gossip_ip_addr_t addr;
   ushort port;
 };
 typedef struct fd_gossip_socket_addr_old fd_gossip_socket_addr_old_t;
 #define FD_GOSSIP_SOCKET_ADDR_OLD_FOOTPRINT sizeof(fd_gossip_socket_addr_old_t)
-#define FD_GOSSIP_SOCKET_ADDR_OLD_ALIGN (8UL)
+#define FD_GOSSIP_SOCKET_ADDR_OLD_ALIGN alignof(fd_gossip_socket_addr_old_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip4 {
+struct fd_gossip_socket_addr_ip4 {
   fd_gossip_ip4_addr_t addr;
   ushort port;
 };
 typedef struct fd_gossip_socket_addr_ip4 fd_gossip_socket_addr_ip4_t;
 #define FD_GOSSIP_SOCKET_ADDR_IP4_FOOTPRINT sizeof(fd_gossip_socket_addr_ip4_t)
-#define FD_GOSSIP_SOCKET_ADDR_IP4_ALIGN (8UL)
+#define FD_GOSSIP_SOCKET_ADDR_IP4_ALIGN alignof(fd_gossip_socket_addr_ip4_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip6 {
+struct fd_gossip_socket_addr_ip6 {
   fd_gossip_ip6_addr_t addr;
   ushort port;
   uint flowinfo;
@@ -3528,7 +3528,7 @@ struct __attribute__((aligned(8UL))) fd_gossip_socket_addr_ip6 {
 };
 typedef struct fd_gossip_socket_addr_ip6 fd_gossip_socket_addr_ip6_t;
 #define FD_GOSSIP_SOCKET_ADDR_IP6_FOOTPRINT sizeof(fd_gossip_socket_addr_ip6_t)
-#define FD_GOSSIP_SOCKET_ADDR_IP6_ALIGN (8UL)
+#define FD_GOSSIP_SOCKET_ADDR_IP6_ALIGN alignof(fd_gossip_socket_addr_ip6_t)
 
 union fd_gossip_socket_addr_inner {
   fd_gossip_socket_addr_ip4_t ip4;
@@ -3542,12 +3542,12 @@ struct fd_gossip_socket_addr {
 };
 typedef struct fd_gossip_socket_addr fd_gossip_socket_addr_t;
 #define FD_GOSSIP_SOCKET_ADDR_FOOTPRINT sizeof(fd_gossip_socket_addr_t)
-#define FD_GOSSIP_SOCKET_ADDR_ALIGN (8UL)
+#define FD_GOSSIP_SOCKET_ADDR_ALIGN alignof(fd_gossip_socket_addr_t)
 #define FD_GOSSIP_SOCKET_ADDR_GLOBAL_FOOTPRINT sizeof(fd_gossip_socket_addr_global_t)
-#define FD_GOSSIP_SOCKET_ADDR_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_SOCKET_ADDR_GLOBAL_ALIGN alignof(fd_gossip_socket_addr_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_contact_info_v1 {
+struct fd_gossip_contact_info_v1 {
   fd_pubkey_t id;
   fd_gossip_socket_addr_t gossip;
   fd_gossip_socket_addr_t tvu;
@@ -3564,10 +3564,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_contact_info_v1 {
 };
 typedef struct fd_gossip_contact_info_v1 fd_gossip_contact_info_v1_t;
 #define FD_GOSSIP_CONTACT_INFO_V1_FOOTPRINT sizeof(fd_gossip_contact_info_v1_t)
-#define FD_GOSSIP_CONTACT_INFO_V1_ALIGN (8UL)
+#define FD_GOSSIP_CONTACT_INFO_V1_ALIGN alignof(fd_gossip_contact_info_v1_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_vote {
+struct fd_gossip_vote {
   uchar index;
   fd_pubkey_t from;
   fd_flamenco_txn_t txn;
@@ -3575,10 +3575,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_vote {
 };
 typedef struct fd_gossip_vote fd_gossip_vote_t;
 #define FD_GOSSIP_VOTE_FOOTPRINT sizeof(fd_gossip_vote_t)
-#define FD_GOSSIP_VOTE_ALIGN (8UL)
+#define FD_GOSSIP_VOTE_ALIGN alignof(fd_gossip_vote_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_lowest_slot {
+struct fd_gossip_lowest_slot {
   uchar u8;
   fd_pubkey_t from;
   ulong root;
@@ -3590,10 +3590,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_lowest_slot {
 };
 typedef struct fd_gossip_lowest_slot fd_gossip_lowest_slot_t;
 #define FD_GOSSIP_LOWEST_SLOT_FOOTPRINT sizeof(fd_gossip_lowest_slot_t)
-#define FD_GOSSIP_LOWEST_SLOT_ALIGN (8UL)
+#define FD_GOSSIP_LOWEST_SLOT_ALIGN alignof(fd_gossip_lowest_slot_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_slot_hashes {
+struct fd_gossip_slot_hashes {
   fd_pubkey_t from;
   ulong hashes_len;
   fd_slot_hash_t * hashes;
@@ -3601,29 +3601,29 @@ struct __attribute__((aligned(8UL))) fd_gossip_slot_hashes {
 };
 typedef struct fd_gossip_slot_hashes fd_gossip_slot_hashes_t;
 #define FD_GOSSIP_SLOT_HASHES_FOOTPRINT sizeof(fd_gossip_slot_hashes_t)
-#define FD_GOSSIP_SLOT_HASHES_ALIGN (8UL)
+#define FD_GOSSIP_SLOT_HASHES_ALIGN alignof(fd_gossip_slot_hashes_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_slots {
+struct fd_gossip_slots {
   ulong first_slot;
   ulong num;
   fd_gossip_bitvec_u8_t slots;
 };
 typedef struct fd_gossip_slots fd_gossip_slots_t;
 #define FD_GOSSIP_SLOTS_FOOTPRINT sizeof(fd_gossip_slots_t)
-#define FD_GOSSIP_SLOTS_ALIGN (8UL)
+#define FD_GOSSIP_SLOTS_ALIGN alignof(fd_gossip_slots_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_slots_global {
+struct fd_gossip_slots_global {
   ulong first_slot;
   ulong num;
   fd_gossip_bitvec_u8_global_t slots;
 };
 typedef struct fd_gossip_slots_global fd_gossip_slots_global_t;
 #define FD_GOSSIP_SLOTS_GLOBAL_FOOTPRINT sizeof(fd_gossip_slots_global_t)
-#define FD_GOSSIP_SLOTS_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_SLOTS_GLOBAL_ALIGN alignof(fd_gossip_slots_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_flate2_slots {
+struct fd_gossip_flate2_slots {
   ulong first_slot;
   ulong num;
   ulong compressed_len;
@@ -3631,7 +3631,7 @@ struct __attribute__((aligned(8UL))) fd_gossip_flate2_slots {
 };
 typedef struct fd_gossip_flate2_slots fd_gossip_flate2_slots_t;
 #define FD_GOSSIP_FLATE2_SLOTS_FOOTPRINT sizeof(fd_gossip_flate2_slots_t)
-#define FD_GOSSIP_FLATE2_SLOTS_ALIGN (8UL)
+#define FD_GOSSIP_FLATE2_SLOTS_ALIGN alignof(fd_gossip_flate2_slots_t)
 
 union fd_gossip_slots_enum_inner {
   fd_gossip_flate2_slots_t flate2;
@@ -3651,17 +3651,17 @@ struct fd_gossip_slots_enum {
 };
 typedef struct fd_gossip_slots_enum fd_gossip_slots_enum_t;
 #define FD_GOSSIP_SLOTS_ENUM_FOOTPRINT sizeof(fd_gossip_slots_enum_t)
-#define FD_GOSSIP_SLOTS_ENUM_ALIGN (8UL)
+#define FD_GOSSIP_SLOTS_ENUM_ALIGN alignof(fd_gossip_slots_enum_t)
 struct fd_gossip_slots_enum_global {
   uint discriminant;
   fd_gossip_slots_enum_inner_global_t inner;
 };
 typedef struct fd_gossip_slots_enum_global fd_gossip_slots_enum_global_t;
 #define FD_GOSSIP_SLOTS_ENUM_GLOBAL_FOOTPRINT sizeof(fd_gossip_slots_enum_global_t)
-#define FD_GOSSIP_SLOTS_ENUM_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_SLOTS_ENUM_GLOBAL_ALIGN alignof(fd_gossip_slots_enum_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_epoch_slots {
+struct fd_gossip_epoch_slots {
   uchar u8;
   fd_pubkey_t from;
   ulong slots_len;
@@ -3670,9 +3670,9 @@ struct __attribute__((aligned(8UL))) fd_gossip_epoch_slots {
 };
 typedef struct fd_gossip_epoch_slots fd_gossip_epoch_slots_t;
 #define FD_GOSSIP_EPOCH_SLOTS_FOOTPRINT sizeof(fd_gossip_epoch_slots_t)
-#define FD_GOSSIP_EPOCH_SLOTS_ALIGN (8UL)
+#define FD_GOSSIP_EPOCH_SLOTS_ALIGN alignof(fd_gossip_epoch_slots_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_epoch_slots_global {
+struct fd_gossip_epoch_slots_global {
   uchar u8;
   fd_pubkey_t from;
   ulong slots_len;
@@ -3681,10 +3681,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_epoch_slots_global {
 };
 typedef struct fd_gossip_epoch_slots_global fd_gossip_epoch_slots_global_t;
 #define FD_GOSSIP_EPOCH_SLOTS_GLOBAL_FOOTPRINT sizeof(fd_gossip_epoch_slots_global_t)
-#define FD_GOSSIP_EPOCH_SLOTS_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_EPOCH_SLOTS_GLOBAL_ALIGN alignof(fd_gossip_epoch_slots_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_version_v1 {
+struct fd_gossip_version_v1 {
   fd_pubkey_t from;
   ulong wallclock;
   ushort major;
@@ -3695,9 +3695,9 @@ struct __attribute__((aligned(8UL))) fd_gossip_version_v1 {
 };
 typedef struct fd_gossip_version_v1 fd_gossip_version_v1_t;
 #define FD_GOSSIP_VERSION_V1_FOOTPRINT sizeof(fd_gossip_version_v1_t)
-#define FD_GOSSIP_VERSION_V1_ALIGN (8UL)
+#define FD_GOSSIP_VERSION_V1_ALIGN alignof(fd_gossip_version_v1_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_version_v1_global {
+struct fd_gossip_version_v1_global {
   fd_pubkey_t from;
   ulong wallclock;
   ushort major;
@@ -3708,10 +3708,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_version_v1_global {
 };
 typedef struct fd_gossip_version_v1_global fd_gossip_version_v1_global_t;
 #define FD_GOSSIP_VERSION_V1_GLOBAL_FOOTPRINT sizeof(fd_gossip_version_v1_global_t)
-#define FD_GOSSIP_VERSION_V1_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_VERSION_V1_GLOBAL_ALIGN alignof(fd_gossip_version_v1_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_version_v2 {
+struct fd_gossip_version_v2 {
   fd_pubkey_t from;
   ulong wallclock;
   ushort major;
@@ -3723,9 +3723,9 @@ struct __attribute__((aligned(8UL))) fd_gossip_version_v2 {
 };
 typedef struct fd_gossip_version_v2 fd_gossip_version_v2_t;
 #define FD_GOSSIP_VERSION_V2_FOOTPRINT sizeof(fd_gossip_version_v2_t)
-#define FD_GOSSIP_VERSION_V2_ALIGN (8UL)
+#define FD_GOSSIP_VERSION_V2_ALIGN alignof(fd_gossip_version_v2_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_version_v2_global {
+struct fd_gossip_version_v2_global {
   fd_pubkey_t from;
   ulong wallclock;
   ushort major;
@@ -3737,10 +3737,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_version_v2_global {
 };
 typedef struct fd_gossip_version_v2_global fd_gossip_version_v2_global_t;
 #define FD_GOSSIP_VERSION_V2_GLOBAL_FOOTPRINT sizeof(fd_gossip_version_v2_global_t)
-#define FD_GOSSIP_VERSION_V2_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_VERSION_V2_GLOBAL_ALIGN alignof(fd_gossip_version_v2_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_version_v3 {
+struct fd_gossip_version_v3 {
   ushort major;
   ushort minor;
   ushort patch;
@@ -3750,10 +3750,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_version_v3 {
 };
 typedef struct fd_gossip_version_v3 fd_gossip_version_v3_t;
 #define FD_GOSSIP_VERSION_V3_FOOTPRINT sizeof(fd_gossip_version_v3_t)
-#define FD_GOSSIP_VERSION_V3_ALIGN (8UL)
+#define FD_GOSSIP_VERSION_V3_ALIGN alignof(fd_gossip_version_v3_t)
 
 /* Encoded Size: Fixed (56 bytes) */
-struct __attribute__((aligned(8UL))) fd_gossip_node_instance {
+struct fd_gossip_node_instance {
   fd_pubkey_t from;
   ulong wallclock;
   long timestamp;
@@ -3761,10 +3761,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_node_instance {
 };
 typedef struct fd_gossip_node_instance fd_gossip_node_instance_t;
 #define FD_GOSSIP_NODE_INSTANCE_FOOTPRINT sizeof(fd_gossip_node_instance_t)
-#define FD_GOSSIP_NODE_INSTANCE_ALIGN (8UL)
+#define FD_GOSSIP_NODE_INSTANCE_ALIGN alignof(fd_gossip_node_instance_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_duplicate_shred {
+struct fd_gossip_duplicate_shred {
   ushort duplicate_shred_index;
   fd_pubkey_t from;
   ulong wallclock;
@@ -3778,10 +3778,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_duplicate_shred {
 };
 typedef struct fd_gossip_duplicate_shred fd_gossip_duplicate_shred_t;
 #define FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT sizeof(fd_gossip_duplicate_shred_t)
-#define FD_GOSSIP_DUPLICATE_SHRED_ALIGN (8UL)
+#define FD_GOSSIP_DUPLICATE_SHRED_ALIGN alignof(fd_gossip_duplicate_shred_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_incremental_snapshot_hashes {
+struct fd_gossip_incremental_snapshot_hashes {
   fd_pubkey_t from;
   fd_slot_hash_t base_hash;
   ulong hashes_len;
@@ -3790,20 +3790,20 @@ struct __attribute__((aligned(8UL))) fd_gossip_incremental_snapshot_hashes {
 };
 typedef struct fd_gossip_incremental_snapshot_hashes fd_gossip_incremental_snapshot_hashes_t;
 #define FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_FOOTPRINT sizeof(fd_gossip_incremental_snapshot_hashes_t)
-#define FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_ALIGN (8UL)
+#define FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_ALIGN alignof(fd_gossip_incremental_snapshot_hashes_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_socket_entry {
+struct fd_gossip_socket_entry {
   uchar key;
   uchar index;
   ushort offset;
 };
 typedef struct fd_gossip_socket_entry fd_gossip_socket_entry_t;
 #define FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT sizeof(fd_gossip_socket_entry_t)
-#define FD_GOSSIP_SOCKET_ENTRY_ALIGN (8UL)
+#define FD_GOSSIP_SOCKET_ENTRY_ALIGN alignof(fd_gossip_socket_entry_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_contact_info_v2 {
+struct fd_gossip_contact_info_v2 {
   fd_pubkey_t from;
   ulong wallclock;
   ulong outset;
@@ -3818,67 +3818,67 @@ struct __attribute__((aligned(8UL))) fd_gossip_contact_info_v2 {
 };
 typedef struct fd_gossip_contact_info_v2 fd_gossip_contact_info_v2_t;
 #define FD_GOSSIP_CONTACT_INFO_V2_FOOTPRINT sizeof(fd_gossip_contact_info_v2_t)
-#define FD_GOSSIP_CONTACT_INFO_V2_ALIGN (8UL)
+#define FD_GOSSIP_CONTACT_INFO_V2_ALIGN alignof(fd_gossip_contact_info_v2_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_restart_run_length_encoding_inner {
+struct fd_restart_run_length_encoding_inner {
   ushort bits;
 };
 typedef struct fd_restart_run_length_encoding_inner fd_restart_run_length_encoding_inner_t;
 #define FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT sizeof(fd_restart_run_length_encoding_inner_t)
-#define FD_RESTART_RUN_LENGTH_ENCODING_INNER_ALIGN (8UL)
+#define FD_RESTART_RUN_LENGTH_ENCODING_INNER_ALIGN alignof(fd_restart_run_length_encoding_inner_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_restart_run_length_encoding {
+struct fd_restart_run_length_encoding {
   ulong offsets_len;
   fd_restart_run_length_encoding_inner_t * offsets;
 };
 typedef struct fd_restart_run_length_encoding fd_restart_run_length_encoding_t;
 #define FD_RESTART_RUN_LENGTH_ENCODING_FOOTPRINT sizeof(fd_restart_run_length_encoding_t)
-#define FD_RESTART_RUN_LENGTH_ENCODING_ALIGN (8UL)
+#define FD_RESTART_RUN_LENGTH_ENCODING_ALIGN alignof(fd_restart_run_length_encoding_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec_u8_inner {
+struct fd_restart_raw_offsets_bitvec_u8_inner {
   ulong bits_len;
   uchar* bits;
 };
 typedef struct fd_restart_raw_offsets_bitvec_u8_inner fd_restart_raw_offsets_bitvec_u8_inner_t;
 #define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_FOOTPRINT sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t)
-#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_ALIGN (8UL)
+#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_ALIGN alignof(fd_restart_raw_offsets_bitvec_u8_inner_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec {
+struct fd_restart_raw_offsets_bitvec {
   fd_restart_raw_offsets_bitvec_u8_inner_t bits;
   uchar has_bits;
   ulong len;
 };
 typedef struct fd_restart_raw_offsets_bitvec fd_restart_raw_offsets_bitvec_t;
 #define FD_RESTART_RAW_OFFSETS_BITVEC_FOOTPRINT sizeof(fd_restart_raw_offsets_bitvec_t)
-#define FD_RESTART_RAW_OFFSETS_BITVEC_ALIGN (8UL)
+#define FD_RESTART_RAW_OFFSETS_BITVEC_ALIGN alignof(fd_restart_raw_offsets_bitvec_t)
 
-struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec_global {
+struct fd_restart_raw_offsets_bitvec_global {
   fd_restart_raw_offsets_bitvec_u8_inner_t bits;
   uchar has_bits;
   ulong len;
 };
 typedef struct fd_restart_raw_offsets_bitvec_global fd_restart_raw_offsets_bitvec_global_t;
 #define FD_RESTART_RAW_OFFSETS_BITVEC_GLOBAL_FOOTPRINT sizeof(fd_restart_raw_offsets_bitvec_global_t)
-#define FD_RESTART_RAW_OFFSETS_BITVEC_GLOBAL_ALIGN (8UL)
+#define FD_RESTART_RAW_OFFSETS_BITVEC_GLOBAL_ALIGN alignof(fd_restart_raw_offsets_bitvec_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_restart_raw_offsets {
+struct fd_restart_raw_offsets {
   fd_restart_raw_offsets_bitvec_t offsets;
 };
 typedef struct fd_restart_raw_offsets fd_restart_raw_offsets_t;
 #define FD_RESTART_RAW_OFFSETS_FOOTPRINT sizeof(fd_restart_raw_offsets_t)
-#define FD_RESTART_RAW_OFFSETS_ALIGN (8UL)
+#define FD_RESTART_RAW_OFFSETS_ALIGN alignof(fd_restart_raw_offsets_t)
 
-struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_global {
+struct fd_restart_raw_offsets_global {
   fd_restart_raw_offsets_bitvec_global_t offsets;
 };
 typedef struct fd_restart_raw_offsets_global fd_restart_raw_offsets_global_t;
 #define FD_RESTART_RAW_OFFSETS_GLOBAL_FOOTPRINT sizeof(fd_restart_raw_offsets_global_t)
-#define FD_RESTART_RAW_OFFSETS_GLOBAL_ALIGN (8UL)
+#define FD_RESTART_RAW_OFFSETS_GLOBAL_ALIGN alignof(fd_restart_raw_offsets_global_t)
 
 union fd_restart_slots_offsets_inner {
   fd_restart_run_length_encoding_t run_length_encoding;
@@ -3898,17 +3898,17 @@ struct fd_restart_slots_offsets {
 };
 typedef struct fd_restart_slots_offsets fd_restart_slots_offsets_t;
 #define FD_RESTART_SLOTS_OFFSETS_FOOTPRINT sizeof(fd_restart_slots_offsets_t)
-#define FD_RESTART_SLOTS_OFFSETS_ALIGN (8UL)
+#define FD_RESTART_SLOTS_OFFSETS_ALIGN alignof(fd_restart_slots_offsets_t)
 struct fd_restart_slots_offsets_global {
   uint discriminant;
   fd_restart_slots_offsets_inner_global_t inner;
 };
 typedef struct fd_restart_slots_offsets_global fd_restart_slots_offsets_global_t;
 #define FD_RESTART_SLOTS_OFFSETS_GLOBAL_FOOTPRINT sizeof(fd_restart_slots_offsets_global_t)
-#define FD_RESTART_SLOTS_OFFSETS_GLOBAL_ALIGN (8UL)
+#define FD_RESTART_SLOTS_OFFSETS_GLOBAL_ALIGN alignof(fd_restart_slots_offsets_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_restart_last_voted_fork_slots {
+struct fd_gossip_restart_last_voted_fork_slots {
   fd_pubkey_t from;
   ulong wallclock;
   fd_restart_slots_offsets_t offsets;
@@ -3918,9 +3918,9 @@ struct __attribute__((aligned(8UL))) fd_gossip_restart_last_voted_fork_slots {
 };
 typedef struct fd_gossip_restart_last_voted_fork_slots fd_gossip_restart_last_voted_fork_slots_t;
 #define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_FOOTPRINT sizeof(fd_gossip_restart_last_voted_fork_slots_t)
-#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_ALIGN (8UL)
+#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_ALIGN alignof(fd_gossip_restart_last_voted_fork_slots_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_restart_last_voted_fork_slots_global {
+struct fd_gossip_restart_last_voted_fork_slots_global {
   fd_pubkey_t from;
   ulong wallclock;
   fd_restart_slots_offsets_global_t offsets;
@@ -3930,10 +3930,10 @@ struct __attribute__((aligned(8UL))) fd_gossip_restart_last_voted_fork_slots_glo
 };
 typedef struct fd_gossip_restart_last_voted_fork_slots_global fd_gossip_restart_last_voted_fork_slots_global_t;
 #define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_GLOBAL_FOOTPRINT sizeof(fd_gossip_restart_last_voted_fork_slots_global_t)
-#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_RESTART_LAST_VOTED_FORK_SLOTS_GLOBAL_ALIGN alignof(fd_gossip_restart_last_voted_fork_slots_global_t)
 
 /* Encoded Size: Fixed (90 bytes) */
-struct __attribute__((aligned(8UL))) fd_gossip_restart_heaviest_fork {
+struct fd_gossip_restart_heaviest_fork {
   fd_pubkey_t from;
   ulong wallclock;
   ulong last_slot;
@@ -3943,7 +3943,7 @@ struct __attribute__((aligned(8UL))) fd_gossip_restart_heaviest_fork {
 };
 typedef struct fd_gossip_restart_heaviest_fork fd_gossip_restart_heaviest_fork_t;
 #define FD_GOSSIP_RESTART_HEAVIEST_FORK_FOOTPRINT sizeof(fd_gossip_restart_heaviest_fork_t)
-#define FD_GOSSIP_RESTART_HEAVIEST_FORK_ALIGN (8UL)
+#define FD_GOSSIP_RESTART_HEAVIEST_FORK_ALIGN alignof(fd_gossip_restart_heaviest_fork_t)
 
 union fd_crds_data_inner {
   fd_gossip_contact_info_v1_t contact_info_v1;
@@ -3987,17 +3987,17 @@ struct fd_crds_data {
 };
 typedef struct fd_crds_data fd_crds_data_t;
 #define FD_CRDS_DATA_FOOTPRINT sizeof(fd_crds_data_t)
-#define FD_CRDS_DATA_ALIGN (8UL)
+#define FD_CRDS_DATA_ALIGN alignof(fd_crds_data_t)
 struct fd_crds_data_global {
   uint discriminant;
   fd_crds_data_inner_global_t inner;
 };
 typedef struct fd_crds_data_global fd_crds_data_global_t;
 #define FD_CRDS_DATA_GLOBAL_FOOTPRINT sizeof(fd_crds_data_global_t)
-#define FD_CRDS_DATA_GLOBAL_ALIGN (8UL)
+#define FD_CRDS_DATA_GLOBAL_ALIGN alignof(fd_crds_data_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_crds_bloom {
+struct fd_crds_bloom {
   ulong keys_len;
   ulong* keys;
   fd_gossip_bitvec_u64_t bits;
@@ -4005,9 +4005,9 @@ struct __attribute__((aligned(8UL))) fd_crds_bloom {
 };
 typedef struct fd_crds_bloom fd_crds_bloom_t;
 #define FD_CRDS_BLOOM_FOOTPRINT sizeof(fd_crds_bloom_t)
-#define FD_CRDS_BLOOM_ALIGN (8UL)
+#define FD_CRDS_BLOOM_ALIGN alignof(fd_crds_bloom_t)
 
-struct __attribute__((aligned(8UL))) fd_crds_bloom_global {
+struct fd_crds_bloom_global {
   ulong keys_len;
   ulong keys_gaddr;
   fd_gossip_bitvec_u64_global_t bits;
@@ -4015,107 +4015,107 @@ struct __attribute__((aligned(8UL))) fd_crds_bloom_global {
 };
 typedef struct fd_crds_bloom_global fd_crds_bloom_global_t;
 #define FD_CRDS_BLOOM_GLOBAL_FOOTPRINT sizeof(fd_crds_bloom_global_t)
-#define FD_CRDS_BLOOM_GLOBAL_ALIGN (8UL)
+#define FD_CRDS_BLOOM_GLOBAL_ALIGN alignof(fd_crds_bloom_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_crds_filter {
+struct fd_crds_filter {
   fd_crds_bloom_t filter;
   ulong mask;
   uint mask_bits;
 };
 typedef struct fd_crds_filter fd_crds_filter_t;
 #define FD_CRDS_FILTER_FOOTPRINT sizeof(fd_crds_filter_t)
-#define FD_CRDS_FILTER_ALIGN (8UL)
+#define FD_CRDS_FILTER_ALIGN alignof(fd_crds_filter_t)
 
-struct __attribute__((aligned(8UL))) fd_crds_filter_global {
+struct fd_crds_filter_global {
   fd_crds_bloom_global_t filter;
   ulong mask;
   uint mask_bits;
 };
 typedef struct fd_crds_filter_global fd_crds_filter_global_t;
 #define FD_CRDS_FILTER_GLOBAL_FOOTPRINT sizeof(fd_crds_filter_global_t)
-#define FD_CRDS_FILTER_GLOBAL_ALIGN (8UL)
+#define FD_CRDS_FILTER_GLOBAL_ALIGN alignof(fd_crds_filter_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_crds_value {
+struct fd_crds_value {
   fd_signature_t signature;
   fd_crds_data_t data;
 };
 typedef struct fd_crds_value fd_crds_value_t;
 #define FD_CRDS_VALUE_FOOTPRINT sizeof(fd_crds_value_t)
-#define FD_CRDS_VALUE_ALIGN (8UL)
+#define FD_CRDS_VALUE_ALIGN alignof(fd_crds_value_t)
 
-struct __attribute__((aligned(8UL))) fd_crds_value_global {
+struct fd_crds_value_global {
   fd_signature_t signature;
   fd_crds_data_global_t data;
 };
 typedef struct fd_crds_value_global fd_crds_value_global_t;
 #define FD_CRDS_VALUE_GLOBAL_FOOTPRINT sizeof(fd_crds_value_global_t)
-#define FD_CRDS_VALUE_GLOBAL_ALIGN (8UL)
+#define FD_CRDS_VALUE_GLOBAL_ALIGN alignof(fd_crds_value_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_pull_req {
+struct fd_gossip_pull_req {
   fd_crds_filter_t filter;
   fd_crds_value_t value;
 };
 typedef struct fd_gossip_pull_req fd_gossip_pull_req_t;
 #define FD_GOSSIP_PULL_REQ_FOOTPRINT sizeof(fd_gossip_pull_req_t)
-#define FD_GOSSIP_PULL_REQ_ALIGN (8UL)
+#define FD_GOSSIP_PULL_REQ_ALIGN alignof(fd_gossip_pull_req_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_pull_req_global {
+struct fd_gossip_pull_req_global {
   fd_crds_filter_global_t filter;
   fd_crds_value_global_t value;
 };
 typedef struct fd_gossip_pull_req_global fd_gossip_pull_req_global_t;
 #define FD_GOSSIP_PULL_REQ_GLOBAL_FOOTPRINT sizeof(fd_gossip_pull_req_global_t)
-#define FD_GOSSIP_PULL_REQ_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_PULL_REQ_GLOBAL_ALIGN alignof(fd_gossip_pull_req_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_pull_resp {
+struct fd_gossip_pull_resp {
   fd_pubkey_t pubkey;
   ulong crds_len;
   fd_crds_value_t * crds;
 };
 typedef struct fd_gossip_pull_resp fd_gossip_pull_resp_t;
 #define FD_GOSSIP_PULL_RESP_FOOTPRINT sizeof(fd_gossip_pull_resp_t)
-#define FD_GOSSIP_PULL_RESP_ALIGN (8UL)
+#define FD_GOSSIP_PULL_RESP_ALIGN alignof(fd_gossip_pull_resp_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_pull_resp_global {
+struct fd_gossip_pull_resp_global {
   fd_pubkey_t pubkey;
   ulong crds_len;
   ulong crds_gaddr;
 };
 typedef struct fd_gossip_pull_resp_global fd_gossip_pull_resp_global_t;
 #define FD_GOSSIP_PULL_RESP_GLOBAL_FOOTPRINT sizeof(fd_gossip_pull_resp_global_t)
-#define FD_GOSSIP_PULL_RESP_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_PULL_RESP_GLOBAL_ALIGN alignof(fd_gossip_pull_resp_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_push_msg {
+struct fd_gossip_push_msg {
   fd_pubkey_t pubkey;
   ulong crds_len;
   fd_crds_value_t * crds;
 };
 typedef struct fd_gossip_push_msg fd_gossip_push_msg_t;
 #define FD_GOSSIP_PUSH_MSG_FOOTPRINT sizeof(fd_gossip_push_msg_t)
-#define FD_GOSSIP_PUSH_MSG_ALIGN (8UL)
+#define FD_GOSSIP_PUSH_MSG_ALIGN alignof(fd_gossip_push_msg_t)
 
-struct __attribute__((aligned(8UL))) fd_gossip_push_msg_global {
+struct fd_gossip_push_msg_global {
   fd_pubkey_t pubkey;
   ulong crds_len;
   ulong crds_gaddr;
 };
 typedef struct fd_gossip_push_msg_global fd_gossip_push_msg_global_t;
 #define FD_GOSSIP_PUSH_MSG_GLOBAL_FOOTPRINT sizeof(fd_gossip_push_msg_global_t)
-#define FD_GOSSIP_PUSH_MSG_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_PUSH_MSG_GLOBAL_ALIGN alignof(fd_gossip_push_msg_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_gossip_prune_msg {
+struct fd_gossip_prune_msg {
   fd_pubkey_t pubkey;
   fd_gossip_prune_data_t data;
 };
 typedef struct fd_gossip_prune_msg fd_gossip_prune_msg_t;
 #define FD_GOSSIP_PRUNE_MSG_FOOTPRINT sizeof(fd_gossip_prune_msg_t)
-#define FD_GOSSIP_PRUNE_MSG_ALIGN (8UL)
+#define FD_GOSSIP_PRUNE_MSG_ALIGN alignof(fd_gossip_prune_msg_t)
 
 union fd_gossip_msg_inner {
   fd_gossip_pull_req_t pull_req;
@@ -4144,32 +4144,32 @@ struct fd_gossip_msg {
 };
 typedef struct fd_gossip_msg fd_gossip_msg_t;
 #define FD_GOSSIP_MSG_FOOTPRINT sizeof(fd_gossip_msg_t)
-#define FD_GOSSIP_MSG_ALIGN (8UL)
+#define FD_GOSSIP_MSG_ALIGN alignof(fd_gossip_msg_t)
 struct fd_gossip_msg_global {
   uint discriminant;
   fd_gossip_msg_inner_global_t inner;
 };
 typedef struct fd_gossip_msg_global fd_gossip_msg_global_t;
 #define FD_GOSSIP_MSG_GLOBAL_FOOTPRINT sizeof(fd_gossip_msg_global_t)
-#define FD_GOSSIP_MSG_GLOBAL_ALIGN (8UL)
+#define FD_GOSSIP_MSG_GLOBAL_ALIGN alignof(fd_gossip_msg_global_t)
 
 /* Encoded Size: Fixed (9 bytes) */
-struct __attribute__((aligned(8UL))) fd_addrlut_create {
+struct fd_addrlut_create {
   ulong recent_slot;
   uchar bump_seed;
 };
 typedef struct fd_addrlut_create fd_addrlut_create_t;
 #define FD_ADDRLUT_CREATE_FOOTPRINT sizeof(fd_addrlut_create_t)
-#define FD_ADDRLUT_CREATE_ALIGN (8UL)
+#define FD_ADDRLUT_CREATE_ALIGN alignof(fd_addrlut_create_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_addrlut_extend {
+struct fd_addrlut_extend {
   ulong new_addrs_len;
   fd_pubkey_t * new_addrs;
 };
 typedef struct fd_addrlut_extend fd_addrlut_extend_t;
 #define FD_ADDRLUT_EXTEND_FOOTPRINT sizeof(fd_addrlut_extend_t)
-#define FD_ADDRLUT_EXTEND_ALIGN (8UL)
+#define FD_ADDRLUT_EXTEND_ALIGN alignof(fd_addrlut_extend_t)
 
 union fd_addrlut_instruction_inner {
   fd_addrlut_create_t create_lut;
@@ -4184,12 +4184,12 @@ struct fd_addrlut_instruction {
 };
 typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
 #define FD_ADDRLUT_INSTRUCTION_FOOTPRINT sizeof(fd_addrlut_instruction_t)
-#define FD_ADDRLUT_INSTRUCTION_ALIGN (8UL)
+#define FD_ADDRLUT_INSTRUCTION_ALIGN alignof(fd_addrlut_instruction_t)
 #define FD_ADDRLUT_INSTRUCTION_GLOBAL_FOOTPRINT sizeof(fd_addrlut_instruction_global_t)
-#define FD_ADDRLUT_INSTRUCTION_GLOBAL_ALIGN (8UL)
+#define FD_ADDRLUT_INSTRUCTION_GLOBAL_ALIGN alignof(fd_addrlut_instruction_global_t)
 
 /* Encoded Size: Fixed (140 bytes) */
-struct __attribute__((aligned(8UL))) fd_repair_request_header {
+struct fd_repair_request_header {
   fd_signature_t signature;
   fd_pubkey_t sender;
   fd_pubkey_t recipient;
@@ -4198,45 +4198,45 @@ struct __attribute__((aligned(8UL))) fd_repair_request_header {
 };
 typedef struct fd_repair_request_header fd_repair_request_header_t;
 #define FD_REPAIR_REQUEST_HEADER_FOOTPRINT sizeof(fd_repair_request_header_t)
-#define FD_REPAIR_REQUEST_HEADER_ALIGN (8UL)
+#define FD_REPAIR_REQUEST_HEADER_ALIGN alignof(fd_repair_request_header_t)
 
 /* Encoded Size: Fixed (156 bytes) */
-struct __attribute__((aligned(8UL))) fd_repair_window_index {
+struct fd_repair_window_index {
   fd_repair_request_header_t header;
   ulong slot;
   ulong shred_index;
 };
 typedef struct fd_repair_window_index fd_repair_window_index_t;
 #define FD_REPAIR_WINDOW_INDEX_FOOTPRINT sizeof(fd_repair_window_index_t)
-#define FD_REPAIR_WINDOW_INDEX_ALIGN (8UL)
+#define FD_REPAIR_WINDOW_INDEX_ALIGN alignof(fd_repair_window_index_t)
 
 /* Encoded Size: Fixed (156 bytes) */
-struct __attribute__((aligned(8UL))) fd_repair_highest_window_index {
+struct fd_repair_highest_window_index {
   fd_repair_request_header_t header;
   ulong slot;
   ulong shred_index;
 };
 typedef struct fd_repair_highest_window_index fd_repair_highest_window_index_t;
 #define FD_REPAIR_HIGHEST_WINDOW_INDEX_FOOTPRINT sizeof(fd_repair_highest_window_index_t)
-#define FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN (8UL)
+#define FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN alignof(fd_repair_highest_window_index_t)
 
 /* Encoded Size: Fixed (148 bytes) */
-struct __attribute__((aligned(8UL))) fd_repair_orphan {
+struct fd_repair_orphan {
   fd_repair_request_header_t header;
   ulong slot;
 };
 typedef struct fd_repair_orphan fd_repair_orphan_t;
 #define FD_REPAIR_ORPHAN_FOOTPRINT sizeof(fd_repair_orphan_t)
-#define FD_REPAIR_ORPHAN_ALIGN (8UL)
+#define FD_REPAIR_ORPHAN_ALIGN alignof(fd_repair_orphan_t)
 
 /* Encoded Size: Fixed (148 bytes) */
-struct __attribute__((aligned(8UL))) fd_repair_ancestor_hashes {
+struct fd_repair_ancestor_hashes {
   fd_repair_request_header_t header;
   ulong slot;
 };
 typedef struct fd_repair_ancestor_hashes fd_repair_ancestor_hashes_t;
 #define FD_REPAIR_ANCESTOR_HASHES_FOOTPRINT sizeof(fd_repair_ancestor_hashes_t)
-#define FD_REPAIR_ANCESTOR_HASHES_ALIGN (8UL)
+#define FD_REPAIR_ANCESTOR_HASHES_ALIGN alignof(fd_repair_ancestor_hashes_t)
 
 union fd_repair_protocol_inner {
   fd_gossip_ping_t pong;
@@ -4253,9 +4253,9 @@ struct fd_repair_protocol {
 };
 typedef struct fd_repair_protocol fd_repair_protocol_t;
 #define FD_REPAIR_PROTOCOL_FOOTPRINT sizeof(fd_repair_protocol_t)
-#define FD_REPAIR_PROTOCOL_ALIGN (8UL)
+#define FD_REPAIR_PROTOCOL_ALIGN alignof(fd_repair_protocol_t)
 #define FD_REPAIR_PROTOCOL_GLOBAL_FOOTPRINT sizeof(fd_repair_protocol_global_t)
-#define FD_REPAIR_PROTOCOL_GLOBAL_ALIGN (8UL)
+#define FD_REPAIR_PROTOCOL_GLOBAL_ALIGN alignof(fd_repair_protocol_global_t)
 
 union fd_repair_response_inner {
   fd_gossip_ping_t ping;
@@ -4268,9 +4268,9 @@ struct fd_repair_response {
 };
 typedef struct fd_repair_response fd_repair_response_t;
 #define FD_REPAIR_RESPONSE_FOOTPRINT sizeof(fd_repair_response_t)
-#define FD_REPAIR_RESPONSE_ALIGN (8UL)
+#define FD_REPAIR_RESPONSE_ALIGN alignof(fd_repair_response_t)
 #define FD_REPAIR_RESPONSE_GLOBAL_FOOTPRINT sizeof(fd_repair_response_global_t)
-#define FD_REPAIR_RESPONSE_GLOBAL_ALIGN (8UL)
+#define FD_REPAIR_RESPONSE_GLOBAL_ALIGN alignof(fd_repair_response_global_t)
 
 union fd_instr_error_enum_inner {
   uint custom;
@@ -4290,31 +4290,31 @@ struct fd_instr_error_enum {
 };
 typedef struct fd_instr_error_enum fd_instr_error_enum_t;
 #define FD_INSTR_ERROR_ENUM_FOOTPRINT sizeof(fd_instr_error_enum_t)
-#define FD_INSTR_ERROR_ENUM_ALIGN (8UL)
+#define FD_INSTR_ERROR_ENUM_ALIGN alignof(fd_instr_error_enum_t)
 struct fd_instr_error_enum_global {
   uint discriminant;
   fd_instr_error_enum_inner_global_t inner;
 };
 typedef struct fd_instr_error_enum_global fd_instr_error_enum_global_t;
 #define FD_INSTR_ERROR_ENUM_GLOBAL_FOOTPRINT sizeof(fd_instr_error_enum_global_t)
-#define FD_INSTR_ERROR_ENUM_GLOBAL_ALIGN (8UL)
+#define FD_INSTR_ERROR_ENUM_GLOBAL_ALIGN alignof(fd_instr_error_enum_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_txn_instr_error {
+struct fd_txn_instr_error {
   uchar instr_idx;
   fd_instr_error_enum_t error;
 };
 typedef struct fd_txn_instr_error fd_txn_instr_error_t;
 #define FD_TXN_INSTR_ERROR_FOOTPRINT sizeof(fd_txn_instr_error_t)
-#define FD_TXN_INSTR_ERROR_ALIGN (8UL)
+#define FD_TXN_INSTR_ERROR_ALIGN alignof(fd_txn_instr_error_t)
 
-struct __attribute__((aligned(8UL))) fd_txn_instr_error_global {
+struct fd_txn_instr_error_global {
   uchar instr_idx;
   fd_instr_error_enum_global_t error;
 };
 typedef struct fd_txn_instr_error_global fd_txn_instr_error_global_t;
 #define FD_TXN_INSTR_ERROR_GLOBAL_FOOTPRINT sizeof(fd_txn_instr_error_global_t)
-#define FD_TXN_INSTR_ERROR_GLOBAL_ALIGN (8UL)
+#define FD_TXN_INSTR_ERROR_GLOBAL_ALIGN alignof(fd_txn_instr_error_global_t)
 
 union fd_txn_error_enum_inner {
   fd_txn_instr_error_t instruction_error;
@@ -4338,14 +4338,14 @@ struct fd_txn_error_enum {
 };
 typedef struct fd_txn_error_enum fd_txn_error_enum_t;
 #define FD_TXN_ERROR_ENUM_FOOTPRINT sizeof(fd_txn_error_enum_t)
-#define FD_TXN_ERROR_ENUM_ALIGN (8UL)
+#define FD_TXN_ERROR_ENUM_ALIGN alignof(fd_txn_error_enum_t)
 struct fd_txn_error_enum_global {
   uint discriminant;
   fd_txn_error_enum_inner_global_t inner;
 };
 typedef struct fd_txn_error_enum_global fd_txn_error_enum_global_t;
 #define FD_TXN_ERROR_ENUM_GLOBAL_FOOTPRINT sizeof(fd_txn_error_enum_global_t)
-#define FD_TXN_ERROR_ENUM_GLOBAL_ALIGN (8UL)
+#define FD_TXN_ERROR_ENUM_GLOBAL_ALIGN alignof(fd_txn_error_enum_global_t)
 
 union fd_txn_result_inner {
   fd_txn_error_enum_t error;
@@ -4363,70 +4363,70 @@ struct fd_txn_result {
 };
 typedef struct fd_txn_result fd_txn_result_t;
 #define FD_TXN_RESULT_FOOTPRINT sizeof(fd_txn_result_t)
-#define FD_TXN_RESULT_ALIGN (8UL)
+#define FD_TXN_RESULT_ALIGN alignof(fd_txn_result_t)
 struct fd_txn_result_global {
   uint discriminant;
   fd_txn_result_inner_global_t inner;
 };
 typedef struct fd_txn_result_global fd_txn_result_global_t;
 #define FD_TXN_RESULT_GLOBAL_FOOTPRINT sizeof(fd_txn_result_global_t)
-#define FD_TXN_RESULT_GLOBAL_ALIGN (8UL)
+#define FD_TXN_RESULT_GLOBAL_ALIGN alignof(fd_txn_result_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_cache_status {
+struct fd_cache_status {
   uchar key_slice[20];
   fd_txn_result_t result;
 };
 typedef struct fd_cache_status fd_cache_status_t;
 #define FD_CACHE_STATUS_FOOTPRINT sizeof(fd_cache_status_t)
-#define FD_CACHE_STATUS_ALIGN (8UL)
+#define FD_CACHE_STATUS_ALIGN alignof(fd_cache_status_t)
 
-struct __attribute__((aligned(8UL))) fd_cache_status_global {
+struct fd_cache_status_global {
   uchar key_slice[20];
   fd_txn_result_global_t result;
 };
 typedef struct fd_cache_status_global fd_cache_status_global_t;
 #define FD_CACHE_STATUS_GLOBAL_FOOTPRINT sizeof(fd_cache_status_global_t)
-#define FD_CACHE_STATUS_GLOBAL_ALIGN (8UL)
+#define FD_CACHE_STATUS_GLOBAL_ALIGN alignof(fd_cache_status_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_status_value {
+struct fd_status_value {
   ulong txn_idx;
   ulong statuses_len;
   fd_cache_status_t * statuses;
 };
 typedef struct fd_status_value fd_status_value_t;
 #define FD_STATUS_VALUE_FOOTPRINT sizeof(fd_status_value_t)
-#define FD_STATUS_VALUE_ALIGN (8UL)
+#define FD_STATUS_VALUE_ALIGN alignof(fd_status_value_t)
 
-struct __attribute__((aligned(8UL))) fd_status_value_global {
+struct fd_status_value_global {
   ulong txn_idx;
   ulong statuses_len;
   ulong statuses_gaddr;
 };
 typedef struct fd_status_value_global fd_status_value_global_t;
 #define FD_STATUS_VALUE_GLOBAL_FOOTPRINT sizeof(fd_status_value_global_t)
-#define FD_STATUS_VALUE_GLOBAL_ALIGN (8UL)
+#define FD_STATUS_VALUE_GLOBAL_ALIGN alignof(fd_status_value_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_status_pair {
+struct fd_status_pair {
   fd_hash_t hash;
   fd_status_value_t value;
 };
 typedef struct fd_status_pair fd_status_pair_t;
 #define FD_STATUS_PAIR_FOOTPRINT sizeof(fd_status_pair_t)
-#define FD_STATUS_PAIR_ALIGN (8UL)
+#define FD_STATUS_PAIR_ALIGN alignof(fd_status_pair_t)
 
-struct __attribute__((aligned(8UL))) fd_status_pair_global {
+struct fd_status_pair_global {
   fd_hash_t hash;
   fd_status_value_global_t value;
 };
 typedef struct fd_status_pair_global fd_status_pair_global_t;
 #define FD_STATUS_PAIR_GLOBAL_FOOTPRINT sizeof(fd_status_pair_global_t)
-#define FD_STATUS_PAIR_GLOBAL_ALIGN (8UL)
+#define FD_STATUS_PAIR_GLOBAL_ALIGN alignof(fd_status_pair_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_slot_delta {
+struct fd_slot_delta {
   ulong slot;
   uchar is_root;
   ulong slot_delta_vec_len;
@@ -4434,9 +4434,9 @@ struct __attribute__((aligned(8UL))) fd_slot_delta {
 };
 typedef struct fd_slot_delta fd_slot_delta_t;
 #define FD_SLOT_DELTA_FOOTPRINT sizeof(fd_slot_delta_t)
-#define FD_SLOT_DELTA_ALIGN (8UL)
+#define FD_SLOT_DELTA_ALIGN alignof(fd_slot_delta_t)
 
-struct __attribute__((aligned(8UL))) fd_slot_delta_global {
+struct fd_slot_delta_global {
   ulong slot;
   uchar is_root;
   ulong slot_delta_vec_len;
@@ -4444,75 +4444,75 @@ struct __attribute__((aligned(8UL))) fd_slot_delta_global {
 };
 typedef struct fd_slot_delta_global fd_slot_delta_global_t;
 #define FD_SLOT_DELTA_GLOBAL_FOOTPRINT sizeof(fd_slot_delta_global_t)
-#define FD_SLOT_DELTA_GLOBAL_ALIGN (8UL)
+#define FD_SLOT_DELTA_GLOBAL_ALIGN alignof(fd_slot_delta_global_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_bank_slot_deltas {
+struct fd_bank_slot_deltas {
   ulong slot_deltas_len;
   fd_slot_delta_t * slot_deltas;
 };
 typedef struct fd_bank_slot_deltas fd_bank_slot_deltas_t;
 #define FD_BANK_SLOT_DELTAS_FOOTPRINT sizeof(fd_bank_slot_deltas_t)
-#define FD_BANK_SLOT_DELTAS_ALIGN (8UL)
+#define FD_BANK_SLOT_DELTAS_ALIGN alignof(fd_bank_slot_deltas_t)
 
-struct __attribute__((aligned(8UL))) fd_bank_slot_deltas_global {
+struct fd_bank_slot_deltas_global {
   ulong slot_deltas_len;
   ulong slot_deltas_gaddr;
 };
 typedef struct fd_bank_slot_deltas_global fd_bank_slot_deltas_global_t;
 #define FD_BANK_SLOT_DELTAS_GLOBAL_FOOTPRINT sizeof(fd_bank_slot_deltas_global_t)
-#define FD_BANK_SLOT_DELTAS_GLOBAL_ALIGN (8UL)
+#define FD_BANK_SLOT_DELTAS_GLOBAL_ALIGN alignof(fd_bank_slot_deltas_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L85 */
 /* Encoded Size: Fixed (60 bytes) */
-struct __attribute__((aligned(8UL))) fd_pubkey_rewardinfo_pair {
+struct fd_pubkey_rewardinfo_pair {
   fd_pubkey_t pubkey;
   fd_reward_info_t reward_info;
 };
 typedef struct fd_pubkey_rewardinfo_pair fd_pubkey_rewardinfo_pair_t;
 #define FD_PUBKEY_REWARDINFO_PAIR_FOOTPRINT sizeof(fd_pubkey_rewardinfo_pair_t)
-#define FD_PUBKEY_REWARDINFO_PAIR_ALIGN (8UL)
+#define FD_PUBKEY_REWARDINFO_PAIR_ALIGN alignof(fd_pubkey_rewardinfo_pair_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_optional_account {
+struct fd_optional_account {
   fd_solana_account_t * account;
 };
 typedef struct fd_optional_account fd_optional_account_t;
 #define FD_OPTIONAL_ACCOUNT_FOOTPRINT sizeof(fd_optional_account_t)
-#define FD_OPTIONAL_ACCOUNT_ALIGN (8UL)
+#define FD_OPTIONAL_ACCOUNT_ALIGN alignof(fd_optional_account_t)
 
-struct __attribute__((aligned(8UL))) fd_optional_account_global {
+struct fd_optional_account_global {
   ulong account_gaddr;
 };
 typedef struct fd_optional_account_global fd_optional_account_global_t;
 #define FD_OPTIONAL_ACCOUNT_GLOBAL_FOOTPRINT sizeof(fd_optional_account_global_t)
-#define FD_OPTIONAL_ACCOUNT_GLOBAL_ALIGN (8UL)
+#define FD_OPTIONAL_ACCOUNT_GLOBAL_ALIGN alignof(fd_optional_account_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
 /* Encoded Size: Fixed (25 bytes) */
-struct __attribute__((aligned(8UL))) fd_calculated_stake_points {
+struct fd_calculated_stake_points {
   uint128 points;
   ulong new_credits_observed;
   uchar force_credits_update_with_skipped_reward;
 };
 typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
 #define FD_CALCULATED_STAKE_POINTS_FOOTPRINT sizeof(fd_calculated_stake_points_t)
-#define FD_CALCULATED_STAKE_POINTS_ALIGN (8UL)
+#define FD_CALCULATED_STAKE_POINTS_ALIGN alignof(fd_calculated_stake_points_t)
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
 /* Encoded Size: Fixed (24 bytes) */
-struct __attribute__((aligned(8UL))) fd_calculated_stake_rewards {
+struct fd_calculated_stake_rewards {
   ulong staker_rewards;
   ulong voter_rewards;
   ulong new_credits_observed;
 };
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 #define FD_CALCULATED_STAKE_REWARDS_FOOTPRINT sizeof(fd_calculated_stake_rewards_t)
-#define FD_CALCULATED_STAKE_REWARDS_ALIGN (8UL)
+#define FD_CALCULATED_STAKE_REWARDS_ALIGN alignof(fd_calculated_stake_rewards_t)
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.3/ledger/src/blockstore_meta.rs#L150-L156 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_duplicate_slot_proof {
+struct fd_duplicate_slot_proof {
   ulong shred1_len;
   uchar* shred1;
   ulong shred2_len;
@@ -4520,33 +4520,33 @@ struct __attribute__((aligned(8UL))) fd_duplicate_slot_proof {
 };
 typedef struct fd_duplicate_slot_proof fd_duplicate_slot_proof_t;
 #define FD_DUPLICATE_SLOT_PROOF_FOOTPRINT sizeof(fd_duplicate_slot_proof_t)
-#define FD_DUPLICATE_SLOT_PROOF_ALIGN (8UL)
+#define FD_DUPLICATE_SLOT_PROOF_ALIGN alignof(fd_duplicate_slot_proof_t)
 
 /* Encoded Size: Fixed (104 bytes) */
-struct __attribute__((aligned(8UL))) fd_epoch_info_pair {
+struct fd_epoch_info_pair {
   fd_pubkey_t account;
   fd_stake_t stake;
 };
 typedef struct fd_epoch_info_pair fd_epoch_info_pair_t;
 #define FD_EPOCH_INFO_PAIR_FOOTPRINT sizeof(fd_epoch_info_pair_t)
-#define FD_EPOCH_INFO_PAIR_ALIGN (8UL)
+#define FD_EPOCH_INFO_PAIR_ALIGN alignof(fd_epoch_info_pair_t)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_vote_info_pair {
+struct fd_vote_info_pair {
   fd_pubkey_t account;
   fd_vote_state_versioned_t state;
 };
 typedef struct fd_vote_info_pair fd_vote_info_pair_t;
 #define FD_VOTE_INFO_PAIR_FOOTPRINT sizeof(fd_vote_info_pair_t)
-#define FD_VOTE_INFO_PAIR_ALIGN (8UL)
+#define FD_VOTE_INFO_PAIR_ALIGN alignof(fd_vote_info_pair_t)
 
-struct __attribute__((aligned(8UL))) fd_vote_info_pair_global {
+struct fd_vote_info_pair_global {
   fd_pubkey_t account;
   fd_vote_state_versioned_global_t state;
 };
 typedef struct fd_vote_info_pair_global fd_vote_info_pair_global_t;
 #define FD_VOTE_INFO_PAIR_GLOBAL_FOOTPRINT sizeof(fd_vote_info_pair_global_t)
-#define FD_VOTE_INFO_PAIR_GLOBAL_ALIGN (8UL)
+#define FD_VOTE_INFO_PAIR_GLOBAL_ALIGN alignof(fd_vote_info_pair_global_t)
 
 typedef struct fd_vote_info_pair_t_mapnode fd_vote_info_pair_t_mapnode_t;
 #define REDBLK_T fd_vote_info_pair_t_mapnode_t
@@ -4589,7 +4589,7 @@ fd_vote_info_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_vote_info_pair_global_t_map_join( fd_vote_info_pair_global_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_epoch_info {
+struct fd_epoch_info {
   ulong stake_infos_len;
   fd_epoch_info_pair_t * stake_infos;
   fd_vote_info_pair_t_mapnode_t * vote_states_pool;
@@ -4598,9 +4598,9 @@ struct __attribute__((aligned(8UL))) fd_epoch_info {
 };
 typedef struct fd_epoch_info fd_epoch_info_t;
 #define FD_EPOCH_INFO_FOOTPRINT sizeof(fd_epoch_info_t)
-#define FD_EPOCH_INFO_ALIGN (8UL)
+#define FD_EPOCH_INFO_ALIGN alignof(fd_epoch_info_t)
 
-struct __attribute__((aligned(8UL))) fd_epoch_info_global {
+struct fd_epoch_info_global {
   ulong stake_infos_len;
   ulong stake_infos_gaddr;
   ulong vote_states_pool_gaddr;
@@ -4609,11 +4609,11 @@ struct __attribute__((aligned(8UL))) fd_epoch_info_global {
 };
 typedef struct fd_epoch_info_global fd_epoch_info_global_t;
 #define FD_EPOCH_INFO_GLOBAL_FOOTPRINT sizeof(fd_epoch_info_global_t)
-#define FD_EPOCH_INFO_GLOBAL_ALIGN (8UL)
+#define FD_EPOCH_INFO_GLOBAL_ALIGN alignof(fd_epoch_info_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
 /* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((aligned(8UL))) fd_usage_cost_details {
+struct fd_usage_cost_details {
   ulong signature_cost;
   ulong write_lock_cost;
   ulong data_bytes_cost;
@@ -4623,7 +4623,7 @@ struct __attribute__((aligned(8UL))) fd_usage_cost_details {
 };
 typedef struct fd_usage_cost_details fd_usage_cost_details_t;
 #define FD_USAGE_COST_DETAILS_FOOTPRINT sizeof(fd_usage_cost_details_t)
-#define FD_USAGE_COST_DETAILS_ALIGN (8UL)
+#define FD_USAGE_COST_DETAILS_ALIGN alignof(fd_usage_cost_details_t)
 
 union fd_transaction_cost_inner {
   fd_usage_cost_details_t transaction;
@@ -4637,18 +4637,18 @@ struct fd_transaction_cost {
 };
 typedef struct fd_transaction_cost fd_transaction_cost_t;
 #define FD_TRANSACTION_COST_FOOTPRINT sizeof(fd_transaction_cost_t)
-#define FD_TRANSACTION_COST_ALIGN (8UL)
+#define FD_TRANSACTION_COST_ALIGN alignof(fd_transaction_cost_t)
 #define FD_TRANSACTION_COST_GLOBAL_FOOTPRINT sizeof(fd_transaction_cost_global_t)
-#define FD_TRANSACTION_COST_GLOBAL_ALIGN (8UL)
+#define FD_TRANSACTION_COST_GLOBAL_ALIGN alignof(fd_transaction_cost_global_t)
 
 /* Encoded Size: Fixed (40 bytes) */
-struct __attribute__((aligned(8UL))) fd_account_costs_pair {
+struct fd_account_costs_pair {
   fd_pubkey_t key;
   ulong cost;
 };
 typedef struct fd_account_costs_pair fd_account_costs_pair_t;
 #define FD_ACCOUNT_COSTS_PAIR_FOOTPRINT sizeof(fd_account_costs_pair_t)
-#define FD_ACCOUNT_COSTS_PAIR_ALIGN (8UL)
+#define FD_ACCOUNT_COSTS_PAIR_ALIGN alignof(fd_account_costs_pair_t)
 
 typedef struct fd_account_costs_pair_t_mapnode fd_account_costs_pair_t_mapnode_t;
 #define REDBLK_T fd_account_costs_pair_t_mapnode_t
@@ -4671,25 +4671,25 @@ fd_account_costs_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_account_costs {
+struct fd_account_costs {
   fd_account_costs_pair_t_mapnode_t * account_costs_pool;
   fd_account_costs_pair_t_mapnode_t * account_costs_root;
 };
 typedef struct fd_account_costs fd_account_costs_t;
 #define FD_ACCOUNT_COSTS_FOOTPRINT sizeof(fd_account_costs_t)
-#define FD_ACCOUNT_COSTS_ALIGN (8UL)
+#define FD_ACCOUNT_COSTS_ALIGN alignof(fd_account_costs_t)
 
-struct __attribute__((aligned(8UL))) fd_account_costs_global {
+struct fd_account_costs_global {
   ulong account_costs_pool_gaddr;
   ulong account_costs_root_gaddr;
 };
 typedef struct fd_account_costs_global fd_account_costs_global_t;
 #define FD_ACCOUNT_COSTS_GLOBAL_FOOTPRINT sizeof(fd_account_costs_global_t)
-#define FD_ACCOUNT_COSTS_GLOBAL_ALIGN (8UL)
+#define FD_ACCOUNT_COSTS_GLOBAL_ALIGN alignof(fd_account_costs_global_t)
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_cost_tracker {
+struct fd_cost_tracker {
   ulong account_cost_limit;
   ulong block_cost_limit;
   ulong vote_cost_limit;
@@ -4705,9 +4705,9 @@ struct __attribute__((aligned(8UL))) fd_cost_tracker {
 };
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 #define FD_COST_TRACKER_FOOTPRINT sizeof(fd_cost_tracker_t)
-#define FD_COST_TRACKER_ALIGN (8UL)
+#define FD_COST_TRACKER_ALIGN alignof(fd_cost_tracker_t)
 
-struct __attribute__((aligned(8UL))) fd_cost_tracker_global {
+struct fd_cost_tracker_global {
   ulong account_cost_limit;
   ulong block_cost_limit;
   ulong vote_cost_limit;
@@ -4723,7 +4723,7 @@ struct __attribute__((aligned(8UL))) fd_cost_tracker_global {
 };
 typedef struct fd_cost_tracker_global fd_cost_tracker_global_t;
 #define FD_COST_TRACKER_GLOBAL_FOOTPRINT sizeof(fd_cost_tracker_global_t)
-#define FD_COST_TRACKER_GLOBAL_ALIGN (8UL)
+#define FD_COST_TRACKER_GLOBAL_ALIGN alignof(fd_cost_tracker_global_t)
 
 
 FD_PROTOTYPES_BEGIN

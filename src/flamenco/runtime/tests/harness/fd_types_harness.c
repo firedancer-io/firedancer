@@ -243,7 +243,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     }
 
     // Decode the object
-    void* result = type_meta.decode_fun(decoded, &decode_ctx);
+    void * result = type_meta.decode_fun(decoded, &decode_ctx);
     if (result == NULL) {
       *output_sz = 0;
       return 0;

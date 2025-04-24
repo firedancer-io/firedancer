@@ -690,7 +690,11 @@ class VectorMember(TypeNode):
 
     def emitWalk(self, inner):
         if self.element == "uchar":
-            print(f'  fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_CSTR, "{self.element}", level );', file=body),
+            print(f'  if( self->{self.name}_len ) {{', file=body)
+            print(f'    fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body)
+            print(f'  }} else {{', file=body)
+            print(f'    fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );', file=body)
+            print(f'  }}', file=body)
             return
         else:
             print(f'  if( self->{self.name}_len ) {{', file=body)
@@ -1427,7 +1431,7 @@ class MapMember(TypeNode):
         if self.minalloc > 0:
             print(f'  ulong {self.name}_cnt = fd_ulong_max( {self.name}_len, {self.minalloc} );', file=body)
         else:
-            print(f'  ulong {self.name}_cnt = {self.name}_len;', file=body)
+            print(f'  ulong {self.name}_cnt = !!{self.name}_len ? {self.name}_len : 1;', file=body)
         print(f'  *total_sz += {mapname}_align() + {mapname}_footprint( {self.name}_cnt );', file=body)
 
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
@@ -2942,8 +2946,8 @@ class StructType(TypeNode):
             self.attribute = f'__attribute__{json["attribute"]} '
             self.alignment = 8
         else:
-            self.attribute = f'__attribute__((aligned(8UL))) '
-            self.alignment = 8
+            self.attribute = f''
+            self.alignment = 0
 
 
         # if a member is determined to be flat, then it should be
@@ -3002,7 +3006,10 @@ class StructType(TypeNode):
         print(f'typedef struct {n} {n}_t;', file=header)
 
         print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
-        print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
+        if int(self.alignment) > 0:
+            print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
+        else:
+            print(f"#define {n.upper()}_ALIGN alignof({n}_t)", file=header)
         print("", file=header)
 
         # Global type
@@ -3016,7 +3023,10 @@ class StructType(TypeNode):
             print(f'typedef struct {n}_global {n}_global_t;', file=header)
 
             print(f"#define {n.upper()}_GLOBAL_FOOTPRINT sizeof({n}_global_t)", file=header)
-            print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
+            if int(self.alignment) > 0:
+                print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
+            else:
+                print(f"#define {n.upper()}_GLOBAL_ALIGN alignof({n}_global_t)", file=header)
             print("", file=header)
 
     def emitPrototypes(self):
@@ -3186,7 +3196,7 @@ class EnumType:
             self.alignment = 8
         else:
             self.attribute = ''
-            self.alignment = 8
+            self.alignment = 0
         self.compact = (json["compact"] if "compact" in json else False)
 
         # Current supported repr types for enum are uint and ulong
@@ -3270,7 +3280,10 @@ class EnumType:
         print("};", file=header)
         print(f"typedef struct {n} {n}_t;", file=header)
         print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
-        print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
+        if self.alignment > 0:
+            print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
+        else:
+            print(f"#define {n.upper()}_ALIGN alignof({n}_t)", file=header)
 
         if self.produce_global:
             print(f"struct {self.attribute}{n}_global {{", file=header)
@@ -3280,7 +3293,10 @@ class EnumType:
             print(f"typedef struct {n}_global {n}_global_t;", file=header)
 
         print(f"#define {n.upper()}_GLOBAL_FOOTPRINT sizeof({n}_global_t)", file=header)
-        print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
+        if self.alignment > 0:
+            print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
+        else:
+            print(f"#define {n.upper()}_GLOBAL_ALIGN alignof({n}_global_t)", file=header)
         print("", file=header)
 
     def emitPrototypes(self):
