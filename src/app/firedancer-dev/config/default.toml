@@ -25,6 +25,9 @@
         funk_sz_gb = 140
         funk_rec_max = 150000000
         funk_txn_max = 2000
+        funk_file = "${LEDGER_DIR}/funk"
+    [tiles.groove]
+        cold_store_dir = "${LEDGER_DIR}/cold_store"
     [tiles.metric]
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999
