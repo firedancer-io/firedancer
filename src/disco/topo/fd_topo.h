@@ -283,6 +283,7 @@ typedef struct {
       char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  snapshot_dir[ PATH_MAX ];
+      char  snapshot_http_header[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
@@ -434,6 +435,11 @@ typedef struct {
       /* Set internally by the archiver tile */
       int archive_fd;
     } archiver;
+
+    struct {
+      char funk_file[ PATH_MAX ];
+      char cold_store_dir[ PATH_MAX ];
+    } groove;
 
   };
 } fd_topo_tile_t;

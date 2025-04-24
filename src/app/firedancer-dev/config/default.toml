@@ -22,12 +22,15 @@
         repair_intake_listen_port = 9294
         repair_serve_listen_port = 8034
     [tiles.replay]
-        snapshot_url = "http://{validator_ip}:8899/snapshot.tar.bz2"
-        incremental_url = "http://{validator_ip}:8899/incremental-snapshot.tar.bz2"
+        snapshot_url = "{snapshot_endpoint}/snapshot.tar.bz2"
+        incremental_url = "{snapshot_endpoint}/incremental-snapshot.tar.bz2"
         funk_sz_gb = 140
         funk_rec_max = 150000000
         funk_txn_max = 2000
+        snapshot_http_header = "{snapshot_http_header}"
         funk_file = "{funk_path}"
+    [tiles.groove]
+        cold_store_dir = "{ledger_dir}/cold_store"
     [tiles.metric]
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999

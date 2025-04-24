@@ -27,6 +27,8 @@ struct fd_snapshot_dumper {
   fd_alloc_t * alloc;
   fd_funk_t    funk[1];
 
+  fd_funk_txn_t * funk_txn;
+
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
 
@@ -216,7 +218,7 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
 static int
 fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 
-  fd_funk_txn_t *   funk_txn = d->restore->funk_txn;
+  fd_funk_txn_t *   funk_txn = d->funk_txn;
   fd_funk_txn_xid_t txn_xid  = funk_txn->xid;
   fd_funk_t *       funk     = d->funk;
   fd_wksp_t *       wksp     = fd_funk_wksp( funk );
@@ -240,7 +242,7 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
   if( FD_UNLIKELY( !funk_txn ) )
     FD_LOG_ERR(( "Failed to prepare funk txn" ));  /* unreachable */
 
-  d->restore->funk_txn = funk_txn;
+  d->funk_txn = funk_txn;
   return 0;
 }
 
@@ -290,7 +292,7 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   fd_snapshot_src_t src[1];
   src->snapshot_dir = NULL;
-  if( FD_UNLIKELY( !fd_snapshot_src_parse_type_unknown( src, args->snapshot ) ) )
+  if( FD_UNLIKELY( !fd_snapshot_src_parse_type_unknown( src, args->snapshot, NULL ) ) )
     return EXIT_FAILURE;
 
   /* Create a heap */
@@ -353,7 +355,23 @@ do_dump( fd_snapshot_dumper_t *    d,
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
 
-  d->restore = fd_snapshot_restore_new( restore_mem, d->funk, funk_txn, spad, d, fd_snapshot_dumper_on_manifest, NULL, NULL );
+  fd_snapshot_new_account_funk_cb_ctx_t * new_account_funk_cb_ctx = fd_spad_alloc(
+    spad, alignof(fd_snapshot_new_account_funk_cb_ctx_t), sizeof(fd_snapshot_new_account_funk_cb_ctx_t) );
+  if( FD_UNLIKELY( !new_account_funk_cb_ctx ) ) FD_LOG_ERR(( "Failed to allocate new account funk callback context" ));
+  new_account_funk_cb_ctx->funk     = d->funk;
+  new_account_funk_cb_ctx->funk_txn = funk_txn;
+
+  d->restore = fd_snapshot_restore_new(
+    restore_mem,
+    spad,
+    d,
+    fd_snapshot_dumper_on_manifest,
+    NULL,
+    NULL,
+    new_account_funk_cb_ctx,
+    fd_snapshot_new_account_funk_cb,
+    NULL,
+    NULL );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
   /* Set up the snapshot loader */

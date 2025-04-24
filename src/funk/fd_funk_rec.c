@@ -687,6 +687,46 @@ fd_funk_all_iter_ele( fd_funk_all_iter_t * iter ) {
   return fd_funk_rec_map_iter_ele( iter->rec_map_iter );
 }
 
+void
+fd_funk_rec_lru_add( fd_funk_t * funk,
+                     fd_funk_rec_t * rec ) {
+  fd_funk_rec_pool_t * rec_pool = fd_funk_rec_pool( funk );
+
+  while( FD_ATOMIC_CAS( &funk->shmem->accounts_lru_lock, 0, 1 ) ) FD_SPIN_PAUSE();
+
+  if( FD_LIKELY( rec->accounts_lru_next_idx != FD_FUNK_REC_IDX_NULL && rec->accounts_lru_prev_idx != FD_FUNK_REC_IDX_NULL ) ) {
+    fd_funk_accounts_lru_ele_remove( &funk->shmem->accounts_lru, rec, rec_pool->ele );
+  }
+  fd_funk_accounts_lru_ele_push_tail( &funk->shmem->accounts_lru, rec, rec_pool->ele );
+
+  FD_VOLATILE( funk->shmem->accounts_lru_lock ) = 0;
+}
+
+fd_funk_rec_t *
+fd_funk_rec_lru_pop_head( fd_funk_t * funk ) {
+  fd_funk_rec_pool_t * rec_pool = fd_funk_rec_pool( funk );
+
+  while( FD_ATOMIC_CAS( &funk->shmem->accounts_lru_lock, 0, 1 ) ) FD_SPIN_PAUSE();
+  fd_funk_rec_t * rec = fd_funk_accounts_lru_ele_pop_head( &funk->shmem->accounts_lru, rec_pool->ele );
+  FD_VOLATILE( funk->shmem->accounts_lru_lock ) = 0;
+
+  return rec;
+}
+
+void
+fd_funk_rec_lru_remove( fd_funk_t * funk,
+                       fd_funk_rec_t * rec ) {
+  fd_funk_rec_pool_t * rec_pool = fd_funk_rec_pool( funk );
+
+  while( FD_ATOMIC_CAS( &funk->shmem->accounts_lru_lock, 0, 1 ) ) FD_SPIN_PAUSE();
+
+  if( FD_LIKELY( rec->accounts_lru_next_idx != FD_FUNK_REC_IDX_NULL && rec->accounts_lru_prev_idx != FD_FUNK_REC_IDX_NULL ) ) {
+    fd_funk_accounts_lru_ele_remove( &funk->shmem->accounts_lru, rec, rec_pool->ele );
+  }
+
+  FD_VOLATILE( funk->shmem->accounts_lru_lock ) = 0;
+}
+
 int
 fd_funk_rec_verify( fd_funk_t * funk ) {
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;

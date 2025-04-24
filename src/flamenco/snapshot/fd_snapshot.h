@@ -70,29 +70,40 @@ fd_snapshot_load_new( uchar *                 mem,
                       const char *            snapshot_src,
                       int                     snapshot_src_type,
                       const char *            snapshot_dir,
-                      fd_exec_slot_ctx_t *    slot_ctx,
                       uint                    verify_hash,
                       uint                    check_hash,
                       int                     snapshot_type,
-                      fd_spad_t * *           exec_spads,
-                      ulong                   spad_cnt,
-                      fd_spad_t *             runtime_spad,
-                      fd_exec_para_cb_ctx_t * exec_para_ctx );
+                      const char *            snapshot_http_header );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
 
 /* restore_manifest_flags controls if the manifest and status cache objects are initialized or not. */
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
-                                            ulong *                  base_slot_override,
-                                            int                      restore_manifest_flags );
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t *                       ctx,
+                                            fd_spad_t *                                    spad,
+                                            void *                                         cb_manifest_ctx,
+                                            ulong                                          base_slot,
+                                            int                                            restore_manifest_flags,
+                                            fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account,
+                                            void *                                         cb_new_account_ctx,
+                                            fd_snapshot_restore_cb_new_account_fn_t        cb_new_account,
+                                            void *                                         cb_acc_finish_read_ctx,
+                                            fd_snapshot_restore_cb_acc_finish_read_fn_t    cb_acc_finish_read );
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx );
 
 void
-fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx );
+fd_snapshot_load_fini( int                        snapshot_type,
+                       uint                       verify_hash,
+                       uint                       check_hash,
+                       fd_hash_t                  const * fhash,
+                       fd_funk_txn_t *            child_txn,
+                       fd_funk_txn_t *            par_txn,
+                       fd_exec_slot_ctx_t *       slot_ctx,
+                       fd_spad_t *                runtime_spad,
+                       fd_exec_para_cb_ctx_t *    exec_para_ctx );
 
 void
 fd_snapshot_load_all( const char *         source_cstr,
@@ -104,12 +115,13 @@ fd_snapshot_load_all( const char *         source_cstr,
                       uint                 verify_hash,
                       uint                 check_hash,
                       int                  snapshot_type,
-                      fd_spad_t * *        exec_spads,
-                      ulong                exec_spad_cnt,
-                      fd_spad_t *          runtime_spad );
+                      fd_spad_t *          runtime_spad,
+                      const char *         snapshot_http_header );
 
 void
-fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );
+fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx,
+                                    fd_exec_slot_ctx_t *     slot_ctx,
+                                    fd_spad_t *              runtime_spad );
 
 ulong
 fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx );
