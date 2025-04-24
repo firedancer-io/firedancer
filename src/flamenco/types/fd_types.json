@@ -140,7 +140,6 @@
     {
       "name": "epoch_schedule",
       "type": "struct",
-      "alignment": 1,
       "fields": [
         { "name": "slots_per_epoch", "type": "ulong" },
         { "name": "leader_schedule_slot_offset", "type": "ulong" },
@@ -417,7 +416,6 @@
     {
       "name": "versioned_bank",
       "type": "struct",
-      "alignment": "16",
       "fields": [
         { "name": "blockhash_queue",       "type": "block_hash_vec" },
         { "name": "ancestors",             "type": "vector", "element": "slot_pair" },
@@ -561,7 +559,6 @@
     {
       "name": "slot_lthash",
       "type": "struct",
-      "archival": "true",
       "alignment": "128",
       "fields": [
         { "name": "lthash",                      "type": "uchar[2048]" }
@@ -571,7 +568,6 @@
     {
       "name": "solana_manifest",
       "type": "struct",
-      "alignment": "16",
       "fields": [
         { "name": "bank",                                  "type": "versioned_bank" },
         { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
@@ -987,7 +983,6 @@
     {
       "name": "sysvar_epoch_rewards",
       "type": "struct",
-      "alignment": "16",
       "fields": [
         { "name": "distribution_starting_block_height", "type": "ulong" },
         { "name": "num_partitions", "type": "ulong" },
@@ -1030,7 +1025,6 @@
     {
       "name": "firedancer_bank",
       "type": "struct",
-      "alignment": "16",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
         { "name": "recent_block_hashes",   "type": "recent_block_hashes" },
@@ -1089,7 +1083,6 @@
       "name": "epoch_bank",
       "type": "struct",
       "archival": "true",
-      "alignment": "16",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
         { "name": "hashes_per_tick",       "type": "ulong" },
@@ -1114,7 +1107,6 @@
     {
       "name": "stake_reward",
       "type": "struct",
-      "alignment": "8",
       "fields": [
         { "name": "prev",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
         { "name": "next",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
@@ -1129,7 +1121,6 @@
     {
       "name": "vote_reward",
       "type": "struct",
-      "alignment": "8",
       "fields": [
         { "name": "pubkey",       "type": "pubkey" },
         { "name": "vote_rewards", "type": "ulong" },
@@ -1140,7 +1131,6 @@
     {
       "name": "point_value",
       "type": "struct",
-      "alignment": "8",
       "fields": [
           { "name": "rewards", "type": "ulong" },
           { "name": "points",  "type": "uint128" }
@@ -1150,7 +1140,6 @@
     {
       "name": "partitioned_stake_rewards",
       "type": "struct",
-      "alignment": "8",
       "fields": [
           { "name": "partitions", "type": "partition", "dlist_t": "fd_stake_reward_t", "dlist_n": "fd_partitioned_stake_rewards", "dlist_max": "4096" }
       ],
@@ -1159,7 +1148,6 @@
     {
       "name": "stake_reward_calculation_partitioned",
       "type": "struct",
-      "alignment": "8",
       "fields": [
           { "name": "partitioned_stake_rewards",    "type": "partitioned_stake_rewards" },
           { "name": "total_stake_rewards_lamports", "type": "ulong" }
@@ -1169,7 +1157,6 @@
     {
       "name": "stake_reward_calculation",
       "type": "struct",
-      "alignment": "8",
       "fields": [
           { "name": "stake_rewards",  "type": "dlist", "dlist_t": "fd_stake_reward_t", "dlist_n": "fd_stake_reward_calculation" },
           { "name": "total_stake_rewards_lamports", "type": "ulong" }
@@ -1248,8 +1235,6 @@
     {
       "name": "slot_bank",
       "type": "struct",
-      "archival": "true",
-      "alignment": "128",
       "fields": [
         { "name": "timestamp_votes",             "type": "clock_timestamp_votes" },
         { "name": "slot",                        "type": "ulong" },
