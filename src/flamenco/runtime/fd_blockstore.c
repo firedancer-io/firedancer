@@ -1209,7 +1209,10 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
   // TODO make nonblocking
   int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
   fd_block_info_t * block_info = fd_block_map_query_ele( query );
-  if( FD_UNLIKELY( err || block_info->slot != slot ) ) return;
+  if( FD_UNLIKELY( err || block_info->slot != slot ) ) {
+    fd_block_map_cancel( query );
+    return;
+  };
   block_info->block_height = height;
   fd_block_map_publish( query );
 }
