@@ -922,33 +922,29 @@
 #define MAP_KEY_EQ_IS_SLOW 0
 #endif
 
-/* MAP_KEY_SENTINEL is a key that will never be inserted */
-#ifndef MAP_KEY_SENTINEL
-#define MAP_KEY_SENTINEL 0
-#endif
-
 /* MAP_ELE_IS_FREE returns 0/1 if the slot pointed to by ele in the
    caller's address space contains / does not contain a key-value pair.
    The implementation can assume ele is valid and that it is safe to
-   speculate on ele.  The default implementation tests if key is not
-   MAP_KEY_SENTINEL. If not using a key sentinel, update this
-   appropriately. */
+   speculate on ele.  The default implementation tests if key is not 0.
+   If using a different key sentinel or not using a key sentinel, update
+   this appropriately. */
 
 #ifndef MAP_ELE_IS_FREE
-#define MAP_ELE_IS_FREE(ctx,ele) (((ele)->MAP_KEY) == (MAP_KEY_T)MAP_KEY_SENTINEL)
+#define MAP_ELE_IS_FREE(ctx,ele) (!((ele)->MAP_KEY))
 #endif
 
 /* MAP_ELE_FREE frees the key-value pair in the slot pointed to by ele
    in the caller's address space.  The implementation can assume ele is
    valid, ele contains a key-value pair on entry and there will be no
    concurrent operations on ele during the free.  The default
-   implementation sets key to MAP_KEY_SENTINEL.  If not using a key sentinel,
-   update this appropriately.  Likewise, if not using plain-old-data
-   keys and values, this should do the appropriate resource management.
-   The join ctx is provided to facilitate this. */
+   implementation sets key to 0.  If using a different key sentinel or
+   not using a key sentinel, update this appropriately.  Likewise, if
+   not using plain-old-data keys and values, this should do the
+   appropriate resource management.  The join ctx is provided to
+   facilitate this. */
 
 #ifndef MAP_ELE_FREE
-#define MAP_ELE_FREE(ctx,ele) do (ele)->MAP_KEY = (MAP_KEY_T)MAP_KEY_SENTINEL; while(0)
+#define MAP_ELE_FREE(ctx,ele) do (ele)->MAP_KEY = (MAP_KEY_T)0; while(0)
 #endif
 
 /* MAP_ELE_MOVE moves the key-value pair in slot src to slot dst.
@@ -957,13 +953,14 @@
    pair on entry, src contains a key-value on pair on entry, and there
    will be no concurrent operations on src and dst during the move.  The
    default implementation shallow copies src to dst and sets src key to
-   MAP_KEY_SENTINEL.  If not using a key sentinel, update this appropriately.
-   Likewise, if elements do not use plain-old-data keys and/or values,
-   this should do the appropriate key and/or value resource management.
-   The join ctx is provided to facilitate this. */
+   0.  If using a different key sentinel or not using a key sentinel,
+   update this appropriately.  Likewise, if elements do not use
+   plain-old-data keys and/or values, this should do the appropriate key
+   and/or value resource management.  The join ctx is provided to
+   facilitate this. */
 
 #ifndef MAP_ELE_MOVE
-#define MAP_ELE_MOVE(ctx,dst,src) do { MAP_ELE_T * _src = (src); (*(dst)) = *_src; _src->MAP_KEY = (MAP_KEY_T)MAP_KEY_SENTINEL; } while(0)
+#define MAP_ELE_MOVE(ctx,dst,src) do { MAP_ELE_T * _src = (src); (*(dst)) = *_src; _src->MAP_KEY = (MAP_KEY_T)0; } while(0)
 #endif
 
 /* MAP_CTX_MAX specifies the maximum number of bytes of user context
@@ -2443,7 +2440,6 @@ MAP_(strerror)( int err ) {
 #undef MAP_VERSION_T
 #undef MAP_CTX_MAX
 #undef MAP_ELE_MOVE
-#undef MAP_KEY_SENTINEL
 #undef MAP_ELE_FREE
 #undef MAP_ELE_IS_FREE
 #undef MAP_KEY_EQ_IS_SLOW

@@ -330,7 +330,9 @@ typedef struct fd_block_info fd_block_info_t;
 #define MAP_NAME                  fd_block_map
 #define MAP_ELE_T                 fd_block_info_t
 #define MAP_KEY                   slot
-#define MAP_KEY_SENTINEL          ULONG_MAX
+#define MAP_ELE_IS_FREE(ctx, ele) ((ele)->slot == ULONG_MAX)
+#define MAP_ELE_FREE(ctx, ele)    ((ele)->slot =  ULONG_MAX)
+#define MAP_ELE_MOVE(ctx,dst,src) do { MAP_ELE_T * _src = (src); (*(dst)) = *_src; _src->MAP_KEY = (MAP_KEY_T)ULONG_MAX; } while(0)
 #define MAP_KEY_HASH(key, seed)   (void)(seed), (*(key))
 #include "../../util/tmpl/fd_map_slot_para.c"
 
