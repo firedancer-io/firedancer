@@ -88,7 +88,7 @@ main( int     argc,
 #ifdef FD_FUNK_HANDHOLDING
   FD_TEST( !fd_funk_delete( NULL          )        ); /* NULL shmem */
   FD_TEST( !fd_funk_delete( (void *)1UL   )        ); /* misaligned shmem */
-  FD_TEST( !fd_funk_delete( (void *)align )        ); /* not wksp addr */
+  FD_TEST( !fd_funk_delete( (uchar*)shfunk + align ) ); /* wrong pointer */
 #endif
   FD_TEST(  fd_funk_delete( shfunk        )==shmem ); /* NULL shmem */
 

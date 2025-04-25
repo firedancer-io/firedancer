@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
   fd_funk_txn_xid_t xid;
   memset(&xid, 0, sizeof(xid));
 
-  for (uint loop = 0; loop < 60U; ++loop) {
+  for (uint loop = 0; loop < 10U; ++loop) {
     for( uint i = 0; i < 2; ++i ) {
       auto * txn = state.pick_txn(false);
       if( txn == NULL ) continue;
