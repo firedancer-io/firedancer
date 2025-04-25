@@ -2343,8 +2343,8 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->capture_ctx,
                            ctx->runtime_spad );
   if( !is_snapshot ) {
-    /* read_snapshot calls kickoff_repair_orphans, so likewise
-       we need to call here to init blockstore if snapshot isn't read.
+    /* read_snapshot calls kickoff_repair_orphans which calls init_blockstore.
+       Thus we need to call init_blockstore here if snapshot isn't read.
        We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init */
     fd_blockstore_init( ctx->slot_ctx->blockstore,
@@ -2370,7 +2370,32 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   send_exec_epoch_msg( ctx, stem, ctx->slot_ctx );
 
-  publish_slot_notifications( ctx, stem, fork, 0, ctx->curr_slot );
+  /* Publish slot notifs */
+  ulong curr_slot = ctx->curr_slot;
+  ulong block_entry_height = 0;
+
+  if( is_snapshot ){
+    for(;;){
+      fd_block_map_query_t query[1] = { 0 };
+      int err = fd_block_map_query_try( ctx->blockstore->block_map, &curr_slot, NULL, query, 0 );
+      fd_block_info_t * block_info = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) FD_LOG_ERR(( "Failed to query blockstore for slot %lu", curr_slot ));
+      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) {
+        FD_LOG_WARNING(( "Waiting for block map query for slot %lu", curr_slot ));
+        continue;
+      };
+      block_entry_height = block_info->block_height;
+      if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
+    }
+  } else {
+    /* Block after genesis has a height of 1.
+       TODO: We should be able to query slot 1 block_map entry to get this
+       (using the above for loop), but blockstore/fork setup on genesis is
+       broken for now. */
+    block_entry_height = 1UL;
+  }
+
+  publish_slot_notifications( ctx, stem, fork, block_entry_height, curr_slot );
 
 
   FD_TEST( ctx->slot_ctx );
