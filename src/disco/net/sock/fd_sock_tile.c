@@ -306,7 +306,6 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
   ulong        chunk_next = link->chunk;
   uchar *      cmsg_next  = ctx->batch_cmsg;
 
-  ctx->tx_ptr = ctx->tx_scratch0;
   for( ulong j=0UL; j<STEM_BURST; j++ ) {
     ctx->batch_iov[ j ].iov_base = (uchar *)fd_chunk_to_laddr( base, chunk_next ) + hdr_sz;
     ctx->batch_iov[ j ].iov_len  = payload_max;
@@ -323,9 +322,6 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
        At function exit, chunks into which a packet was received are
        committed, all others are freed. */
     chunk_next = fd_dcache_compact_next( chunk_next, FD_NET_MTU, chunk0, wmark );
-  }
-  if( FD_UNLIKELY( ctx->tx_ptr > ctx->tx_scratch1 ) ) {
-    FD_LOG_ERR(( "Out of bounds batch" ));
   }
 
   int msg_cnt = recvmmsg( sock_fd, ctx->batch_msg, STEM_BURST, MSG_DONTWAIT, NULL );
