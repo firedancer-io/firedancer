@@ -1130,7 +1130,7 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
+    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
   }
 
   if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
@@ -1320,7 +1320,7 @@ replay( fd_ledger_args_t * args ) {
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
+    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
   }
 
   FD_LOG_NOTICE(( "Used memory in spad after loading in snapshot %lu", args->runtime_spad->mem_used ));

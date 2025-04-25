@@ -31,7 +31,7 @@ name = "fd1"
 #  1. The `SUDO_USER`, `LOGNAME`, `USER`, `LNAME`, or `USERNAME`
 #     environment variables are checked in this order, and if one of
 #     them is set that user is used
-#  2. The `/proc/self/loginid` file is used to determine the UID, and
+#  2. The `/proc/self/loginuid` file is used to determine the UID, and
 #     the username is looked up in nss (the name service switch).
 #
 # This means if running as sudo, the user will be the terminal user

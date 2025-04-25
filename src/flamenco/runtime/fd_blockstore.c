@@ -66,6 +66,15 @@ fd_blockstore_new( void * shmem,
   memset( blocks, 0, sizeof(fd_block_info_t) * block_max );
   FD_TEST( fd_block_map_new ( block_map, block_max, lock_cnt, BLOCK_INFO_PROBE_CNT, seed ) );
 
+  /* Caller is in charge of freeing map_slot_para element store set.
+     We need to explicitly do this since blocks is memset to 0, which
+     is not a "freed" state in map_slot_para (slot 0 is a valid key). */
+  fd_block_info_t * blocks_ = (fd_block_info_t *)blocks;
+  for( ulong i=0UL; i<block_max; i++ ) {
+    fd_block_map_private_ele_free( NULL, /* Not needed, avoids a join on block_map */
+                                   &blocks_[i] );
+  }
+
   blockstore_shmem->block_idx_gaddr  = fd_wksp_gaddr( wksp, fd_block_idx_join( fd_block_idx_new( block_idx, lg_idx_max ) ) );
   blockstore_shmem->slot_deque_gaddr = fd_wksp_gaddr( wksp, fd_slot_deque_join (fd_slot_deque_new( slot_deque, block_max ) ) );
   blockstore_shmem->txn_map_gaddr    = fd_wksp_gaddr( wksp, fd_txn_map_join (fd_txn_map_new( txn_map, txn_max, seed ) ) );
@@ -1201,7 +1210,10 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
   // TODO make nonblocking
   int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
   fd_block_info_t * block_info = fd_block_map_query_ele( query );
-  if( FD_UNLIKELY( err || block_info->slot != slot ) ) return;
+  if( FD_UNLIKELY( err || block_info->slot != slot ) ) {
+    fd_block_map_cancel( query );
+    return;
+  };
   block_info->block_height = height;
   fd_block_map_publish( query );
 }
