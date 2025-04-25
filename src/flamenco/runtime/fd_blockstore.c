@@ -824,6 +824,11 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
     if ( ( start_idx > 0 && !fd_block_set_test( data_complete_idxs, start_idx - 1 ))
          || start_idx > query->slot_complete_idx
          || !fd_block_set_test( data_complete_idxs, end_idx ) ) {
+          FD_LOG_WARNING(("start_idx > 0: %d, !fd_block_set_test: %d, start_idx > slot_complete_idx: %d, !fd_block_set_test: %d",
+                          start_idx > 0,
+                          fd_block_set_test( data_complete_idxs, start_idx - 1 ),
+                          start_idx > query->slot_complete_idx,
+                          !fd_block_set_test( data_complete_idxs, end_idx ) ));
       invalid_idx = 1;
     }
     err = fd_block_map_query_test( quer );

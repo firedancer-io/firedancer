@@ -244,7 +244,7 @@ FD_FN_CONST static inline ulong
 fd_disco_repair_replay_sig( ulong slot, ushort parent_off, uint data_cnt, int slot_complete ) {
   /*
    | slot (32) | parent_off (16) | data_cnt (15) | slot_complete(1)
-   | [32, 63]  | [16, 31]        | [1, 16]       | [0]
+   | [32, 63]  | [16, 31]        | [1, 15]       | [0]
   */
   ulong slot_ul          = fd_ulong_min( slot, (ulong)UINT_MAX );
   ulong parent_off_ul    = (ulong)parent_off;
