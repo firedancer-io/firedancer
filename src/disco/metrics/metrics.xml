@@ -206,6 +206,7 @@ metric introduced.
     <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large." />
     <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received." />
     <counter name="RetrySent" summary="Number of QUIC Retry packets sent." />
+    <counter name="PktStatelessReset" summary="Number of QUIC STATELESS_RESETs received from peers." />
 </tile>
 
 <tile name="bundle">

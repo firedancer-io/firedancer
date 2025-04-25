@@ -240,3 +240,7 @@ quic_pkt_verneg{kind="quic",kind_id="0"} 123
 # HELP quic_retry_sent Number of QUIC Retry packets sent.
 # TYPE quic_retry_sent counter
 quic_retry_sent{kind="quic",kind_id="0"} 124
+
+# HELP quic_pkt_stateless_reset Number of QUIC STATELESS_RESETs received from peers.
+# TYPE quic_pkt_stateless_reset counter
+quic_pkt_stateless_reset{kind="quic",kind_id="0"} 125

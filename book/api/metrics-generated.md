@@ -141,6 +141,7 @@
 | quic_&#8203;pkt_&#8203;oversz | `counter` | Number of QUIC packets dropped due to being too large. |
 | quic_&#8203;pkt_&#8203;verneg | `counter` | Number of QUIC version negotiation packets received. |
 | quic_&#8203;retry_&#8203;sent | `counter` | Number of QUIC Retry packets sent. |
+| quic_&#8203;pkt_&#8203;stateless_&#8203;reset | `counter` | Number of QUIC STATELESS_RESETs received from peers. |
 
 ## Bundle Tile
 | Metric | Type | Description |

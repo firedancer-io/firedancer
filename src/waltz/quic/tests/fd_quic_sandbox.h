@@ -233,6 +233,14 @@ fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
                                fd_quic_conn_t *    conn,
                                ulong               pktnum );
 
+/* fd_quic_sandbox_send_raw sends a raw packet.
+   Used for stateless reset testing. */
+
+void
+fd_quic_sandbox_send_raw( fd_quic_sandbox_t * sandbox,
+                          uchar *             data,
+                          ulong               data_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_tests_fd_quic_sandbox_h */
