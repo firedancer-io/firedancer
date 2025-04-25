@@ -92,6 +92,10 @@ extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 
+extern fd_topo_run_tile_t fd_tile_bencho;
+extern fd_topo_run_tile_t fd_tile_benchg;
+extern fd_topo_run_tile_t fd_tile_benchs;
+
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netlnk,
@@ -122,6 +126,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_feeder,
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
+  &fd_tile_bencho,
+  &fd_tile_benchg,
+  &fd_tile_benchs,
   NULL,
 };
 

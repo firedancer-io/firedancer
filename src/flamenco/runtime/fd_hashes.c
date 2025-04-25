@@ -649,6 +649,46 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         runtime_spad );
 }
 
+int
+fd_update_hash_bank(  fd_exec_slot_ctx_t * slot_ctx,
+                      fd_capture_ctx_t *   capture_ctx,
+                      fd_hash_t *          hash,
+                      ulong                signature_cnt,
+                      fd_spad_t *          runtime_spad ) {
+
+  /* Collect list of changed accounts to be added to bank hash */
+  fd_accounts_hash_task_data_t * task_data = fd_spad_alloc( runtime_spad,
+                                                            alignof(fd_accounts_hash_task_data_t),
+                                                            sizeof(fd_accounts_hash_task_data_t) );
+
+  fd_collect_modified_accounts( slot_ctx, task_data, runtime_spad );
+
+  fd_lthash_value_t * lt_hash = fd_spad_alloc(  runtime_spad,
+                                                FD_LTHASH_VALUE_ALIGN,
+                                                FD_LTHASH_VALUE_FOOTPRINT );
+  fd_lthash_zero( lt_hash );
+
+  for( ulong i=0UL; i<task_data->info_sz; i++ ) {
+    fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
+    fd_account_hash( slot_ctx->funk,
+                     slot_ctx->funk_txn,
+                     task_info,
+                     lt_hash,
+                     slot_ctx->slot_bank.slot,
+                     &slot_ctx->epoch_ctx->features );
+  }
+
+  return fd_update_hash_bank_exec_hash( slot_ctx,
+                                        hash,
+                                        capture_ctx,
+                                        task_data,
+                                        1UL,
+                                        lt_hash,
+                                        1UL,
+                                        signature_cnt,
+                                        runtime_spad );
+}
+
 void const *
 fd_hash_account( uchar                     hash[ static 32 ],
                  fd_lthash_value_t *       lthash,
