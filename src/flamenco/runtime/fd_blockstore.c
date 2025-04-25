@@ -66,11 +66,13 @@ fd_blockstore_new( void * shmem,
   memset( blocks, 0, sizeof(fd_block_info_t) * block_max );
   FD_TEST( fd_block_map_new ( block_map, block_max, lock_cnt, BLOCK_INFO_PROBE_CNT, seed ) );
 
-  /* Caller is in charge of setting map_slot_para element store set to free,
-     which for block_map elements is to set slot = ULONG_MAX */
+  /* Caller is in charge of freeing map_slot_para element store set.
+     We need to explicitly do this since blocks is memset to 0, which
+     is not a "freed" state in map_slot_para (slot 0 is a valid key). */
   fd_block_info_t * blocks_ = (fd_block_info_t *)blocks;
   for( ulong i=0UL; i<block_max; i++ ) {
-    blocks_[i].slot = ULONG_MAX;
+    fd_block_map_private_ele_free( NULL, /* Not needed, avoids a join on block_map */
+                                   &blocks_[i] );
   }
 
   blockstore_shmem->block_idx_gaddr  = fd_wksp_gaddr( wksp, fd_block_idx_join( fd_block_idx_new( block_idx, lg_idx_max ) ) );
