@@ -53,7 +53,7 @@ main( int     argc,
 
   char const * name       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--wksp",       NULL,            NULL );
   char const * _page_sz   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",    NULL,      "gigantic" );
-  ulong        page_cnt   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",   NULL,             3UL );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",   NULL,           128UL );
   ulong        near_cpu   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--near-cpu",   NULL, fd_log_cpu_id() );
   double       acc_cnt_d  = fd_env_strip_cmdline_double( &argc, &argv, "--accounts",   NULL,             1e9 );
   double       rec_max_d  = fd_env_strip_cmdline_double( &argc, &argv, "--rec-max",    NULL,             1e9 );
