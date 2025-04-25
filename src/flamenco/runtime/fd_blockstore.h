@@ -320,13 +320,6 @@ struct fd_block_info {
 };
 typedef struct fd_block_info fd_block_info_t;
 
-/* Needed due to redefinition of err codes in slot_para */
-#undef FD_MAP_SUCCESS
-#undef FD_MAP_ERR_INVAL
-#undef FD_MAP_ERR_AGAIN
-#undef FD_MAP_ERR_KEY
-#undef FD_MAP_FLAG_BLOCKING
-
 #define MAP_NAME                  fd_block_map
 #define MAP_ELE_T                 fd_block_info_t
 #define MAP_KEY                   slot
