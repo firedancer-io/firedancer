@@ -153,7 +153,6 @@ fd_blockstore_join( void * ljoin, void * shblockstore ) {
                                                                                                           BLOCK_INFO_PROBE_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_blockstore_align() );
 
-
   join->shmem = blockstore;
   fd_buf_shred_pool_join( join->shred_pool, shred_pool, shreds, blockstore->shred_max );
   fd_buf_shred_map_join ( join->shred_map,  shred_map,  shreds, blockstore->shred_max );
