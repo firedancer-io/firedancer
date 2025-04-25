@@ -45,7 +45,12 @@ fd_topo_obj_callbacks_t fd_obj_cb_mcache = {
 static ulong
 dcache_footprint( fd_topo_t const *     topo,
                    fd_topo_obj_t const * obj ) {
-  return fd_dcache_footprint( fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL );
+  ulong app_sz  = fd_pod_queryf_ulong( topo->props, 0UL,       "obj.%lu.app_sz",  obj->id );
+  ulong data_sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.data_sz", obj->id );
+  if( data_sz==ULONG_MAX ) {
+    data_sz = fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 );
+  }
+  return fd_dcache_footprint( data_sz, app_sz );
 }
 
 static ulong
@@ -57,7 +62,12 @@ dcache_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 dcache_new( fd_topo_t const *     topo,
             fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_dcache_new( fd_topo_obj_laddr( topo, obj->id ), fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL ) );
+  ulong app_sz  = fd_pod_queryf_ulong( topo->props, 0UL,       "obj.%lu.app_sz",  obj->id );
+  ulong data_sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.data_sz", obj->id );
+  if( data_sz==ULONG_MAX ) {
+    data_sz = fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 );
+  }
+  FD_TEST( fd_dcache_new( fd_topo_obj_laddr( topo, obj->id ), data_sz, app_sz ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_dcache = {
