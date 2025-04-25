@@ -5,18 +5,23 @@
    The smaller topology is:
              shred_storei          store_replay       replay_exec
    playback--------------->storei-------------->replay------------>exec
-     ^      \         ---->   |  <-----       /
-     |       \_______/        |        \_____/
-     |      repair_store      |       stake_out
-     |______storei_notif______|
-
+    ^  ^    \         ---->   |  <-----       /   |
+    |  |     \_______/        |        \_____/    |
+    |  |    repair_store      |       stake_out   |
+    |  |_____storei_notif_____|                   |
+    |_________________replay_notif________________|
    Some tiles are not shown such as the metric tile and the bhole tile;
    bhole is used to take the place of tiles that do not exist above but
    exist in the full topology such as the poh and sender tiles.
 
    The playback tile will only send the next frag to the storei tile (
    either through shred_storei or through repair_store ) after receiving
-   a notification for the previous frag from storei_notif.
+   a notification for the previous frag from storei_notif. This ensures
+   that storei tile processes the frags in the right order.
+
+   The replay tile sends a notification to playback tile after executing
+   a new slot. This could be useful because, when playback from rocksdb,
+   the playback tile needs to read rocksdb for bank hash comparison.
  */
 
 #include "../../shared/commands/configure/configure.h"
@@ -139,6 +144,7 @@ sim_topo( config_t * config ) {
   } else {
     FD_LOG_NOTICE(( "Found archive file from config: %s", playback_tile->archiver.archiver_path ));
   }
+  playback_tile->archiver.replay_end_slot = config->tiles.replay.replay_end_slot;
 
   /**********************************************************************/
   /* Add the storei tile to topo                                        */
@@ -151,7 +157,6 @@ sim_topo( config_t * config ) {
   strncpy( storei_tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( storei_tile->store_int.slots_pending ) );
   strncpy( storei_tile->store_int.shred_cap_archive, config->tiles.store_int.shred_cap_archive, sizeof(storei_tile->store_int.shred_cap_archive) );
   strncpy( storei_tile->store_int.shred_cap_replay, config->tiles.store_int.shred_cap_replay, sizeof(storei_tile->store_int.shred_cap_replay) );
-  storei_tile->store_int.shred_cap_end_slot     = config->tiles.store_int.shred_cap_end_slot;
   storei_tile->store_int.expected_shred_version = config->consensus.expected_shred_version;
 
   /**********************************************************************/
@@ -189,6 +194,8 @@ sim_topo( config_t * config ) {
   replay_tile->replay.bank_tile_count = config->layout.bank_tile_count;
   replay_tile->replay.exec_tile_count = config->layout.exec_tile_count;
   strncpy( replay_tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(replay_tile->replay.tower_checkpt) );
+  replay_tile->replay.disable_bank_hash_cmp = config->tiles.replay.disable_bank_hash_cmp;
+  replay_tile->replay.replay_end_slot = config->tiles.replay.replay_end_slot;
 
   /* not specified by [tiles.replay] */
   strncpy( replay_tile->replay.identity_key_path, config->consensus.identity_path, sizeof(replay_tile->replay.identity_key_path) );
@@ -233,11 +240,10 @@ sim_topo( config_t * config ) {
     fd_topob_tile_in( topo, "bhole", 0UL, "metric_in", storei_to_bhole[i], 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
 
-  const ulong nreplay_to_bhole = 3UL;
-  const char * replay_to_bhole[] = { "replay_notif", "replay_voter", "replay_poh" };
-  fd_topob_link( topo, replay_to_bhole[0], "to_bhole", 1UL<<15UL, 2048UL, 1UL );
-  fd_topob_link( topo, replay_to_bhole[1], "to_bhole", 128, 2112UL, 1UL );
-  fd_topob_link( topo, replay_to_bhole[2], "to_bhole", 128, 8650785UL, 1UL );
+  const ulong nreplay_to_bhole = 2UL;
+  const char * replay_to_bhole[] = { "replay_voter", "replay_poh" };
+  fd_topob_link( topo, replay_to_bhole[0], "to_bhole", 128, 2112UL, 1UL );
+  fd_topob_link( topo, replay_to_bhole[1], "to_bhole", 128, 8650785UL, 1UL );
   for( ulong i=0; i<nreplay_to_bhole; i++ ) {
     fd_topob_tile_in( topo, "bhole", 0UL, "metric_in", replay_to_bhole[i], 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
@@ -250,17 +256,20 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "storei_notif" );
   fd_topob_wksp( topo, "stake_out"    );
   fd_topob_wksp( topo, "store_replay" );
+  fd_topob_wksp( topo, "replay_notif" );
   /*             topo,  link_name,      wksp_name,     depth,         mtu,                    burst */
   fd_topob_link( topo, "shred_storei", "shred_storei", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
   fd_topob_link( topo, "repair_store", "repair_store", 1024UL*1024UL, FD_SHRED_MAX_SZ,        128UL                                          );
   fd_topob_link( topo, "storei_notif", "storei_notif", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
   fd_topob_link( topo, "stake_out",    "stake_out",    128UL,         40UL + 40200UL * 40UL,  1UL                                            );
   fd_topob_link( topo, "store_replay", "store_replay", 32768UL,       sizeof(ulong),          64UL                                           );
+  fd_topob_link( topo, "replay_notif", "replay_notif", 1UL<<15UL,     2048UL,                 1UL                                            );
 
   /*                 topo, tile_name, tile_kind_id, link_name,      link_kind_id */
   fd_topob_tile_out( topo, "arch_p",  0UL,          "shred_storei", 0UL );
   fd_topob_tile_out( topo, "arch_p",  0UL,          "repair_store", 0UL );
   fd_topob_tile_in(  topo, "arch_p",  0UL,          "metric_in", "storei_notif",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(  topo, "arch_p",  0UL,          "metric_in", "replay_notif",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",          0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -282,9 +291,9 @@ sim_topo( config_t * config ) {
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
   fd_topob_tile_out( topo, "replay",  0UL,          "stake_out",        0UL );
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[0], 0UL ); /* notif */
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[1], 0UL ); /* sender */
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[2], 0UL ); /* poh */
+  fd_topob_tile_out( topo, "replay",  0UL,          "replay_notif",     0UL );
+  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[0], 0UL ); /* sender */
+  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[1], 0UL ); /* poh */
 
   /**********************************************************************/
   /* Setup replay<->exec links in topo                                  */
