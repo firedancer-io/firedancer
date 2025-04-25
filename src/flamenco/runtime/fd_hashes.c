@@ -941,6 +941,8 @@ fd_accounts_hash( fd_funk_t *             funk,
   fd_wksp_t * wksp            = fd_funk_wksp( funk );
   fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
   fd_funk_rec_pool_lock( &rec_pool, 1 );
+  FD_MUTEX_GUARD_BEGIN( &funk->mutex ) {
+
   fd_funk_txn_start_read( funk );
 
   if( fd_exec_para_cb_is_single_threaded( exec_para_ctx ) ) {
@@ -950,9 +952,9 @@ fd_accounts_hash( fd_funk_t *             funk,
     if ( NULL != lt_hash )
       fd_lthash_zero( &lthash_values[0] );
 
-    fd_pubkey_hash_pair_t * pairs             = fd_spad_alloc( runtime_spad,
-                                                               FD_PUBKEY_HASH_PAIR_ALIGN,
-                                                               funk->rec_max * sizeof(fd_pubkey_hash_pair_t) );
+    fd_pubkey_hash_pair_t * pairs = fd_spad_alloc( runtime_spad,
+                                                   FD_PUBKEY_HASH_PAIR_ALIGN,
+                                                   funk->rec_max * sizeof(fd_pubkey_hash_pair_t) );
 
     fd_accounts_sorted_subrange_gather( funk, 0, 1, &num_pairs, lthash_values, pairs, features );
     if( FD_UNLIKELY( !pairs ) ) {
@@ -966,7 +968,7 @@ fd_accounts_hash( fd_funk_t *             funk,
 
   } else {
     /* First calculate how big the list needs to be sized out to be, bump
-       allocate the size of the array then caclulate the hash. */
+      allocate the size of the array then caclulate the hash. */
 
     fd_subrange_task_info_t task_info = {
       .features      = features,
@@ -992,8 +994,10 @@ fd_accounts_hash( fd_funk_t *             funk,
     FD_LOG_NOTICE(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
   }
 
-  fd_funk_rec_pool_unlock( &rec_pool );
   fd_funk_txn_end_read( funk );
+
+  } FD_MUTEX_GUARD_END;
+  fd_funk_rec_pool_unlock( &rec_pool );
 
   return 0;
 }

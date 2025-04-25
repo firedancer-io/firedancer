@@ -19,7 +19,7 @@ static inline void
 fd_rwlock_write( fd_rwlock_t * lock ) {
 # if FD_HAS_THREADS
   for(;;) {
-    ushort value = lock->value;
+    ushort value = FD_VOLATILE_CONST( lock->value );
     if( FD_LIKELY( !value ) ) {
       if( FD_LIKELY( FD_ATOMIC_CAS( &lock->value, 0, 0xFFFF )==0 ) ) return;
     }
@@ -41,7 +41,7 @@ static inline void
 fd_rwlock_read( fd_rwlock_t * lock ) {
 # if FD_HAS_THREADS
   for(;;) {
-    ushort value = lock->value;
+    ushort value = FD_VOLATILE_CONST( lock->value );
     if( FD_UNLIKELY( value<0xFFFE ) ) {
       if( FD_LIKELY( FD_ATOMIC_CAS( &lock->value, value, value+1 )==value ) ) {
         return;
