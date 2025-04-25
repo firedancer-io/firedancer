@@ -29,7 +29,8 @@ setup_xdp_tile( fd_topo_t *      topo,
   fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
 
-  strncpy( tile->net.interface, bind_interface, sizeof(tile->net.interface) );
+  FD_STATIC_ASSERT( sizeof(tile->net.interface)==IF_NAMESIZE, str_bounds );
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->net.interface ), bind_interface, IF_NAMESIZE-1 ) );
   tile->net.bind_address = bind_address;
 
   tile->net.tx_flush_timeout_ns = (long)flush_timeout_micros * 1000L;
