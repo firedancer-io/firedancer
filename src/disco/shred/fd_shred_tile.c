@@ -466,16 +466,18 @@ during_frag( fd_shred_ctx_t * ctx,
         /* Reset batch count if we are in a new slot */
         ctx->batch_cnt = 0UL;
         ctx->slot      = target_slot;
-      }
 
-      if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
-        /* chained_merkle_root is set as the merkle root of the last FEC set
-           of the parent block (and passed in by POH tile) */
-        if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
-          memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
-        } else {
-          ctx->metrics->invalid_block_id_cnt++;
-          memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+        /* Only copy parent_block_id to chained_merkle_root at the beginning
+           of a new slot*/
+        if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
+          /* chained_merkle_root is set as the merkle root of the last FEC set
+            of the parent block (and passed in by POH tile) */
+          if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
+            memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
+          } else {
+            ctx->metrics->invalid_block_id_cnt++;
+            memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+          }
         }
       }
 
