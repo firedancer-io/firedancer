@@ -4,6 +4,7 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SSE
+ifdef FD_HAS_ZSTD
 
 .PHONY: firedancer-dev
 
@@ -18,7 +19,9 @@ firedancer-dev: $(OBJDIR)/bin/firedancer-dev
 
 # $(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fddev_shared fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util, $(SECP256K1_LIBS))
 # $(call run-integration-test,test_fddev)
-
+else
+$(warning firedancer-dev build disabled due to lack of zstd)
+endif
 endif
 endif
 endif
