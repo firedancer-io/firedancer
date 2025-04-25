@@ -221,7 +221,7 @@ fd_sbpf_load_phdrs( fd_sbpf_elf_info_t *  info,
     case FD_ELF_PT_LOAD:
       /* LOAD segments must be ordered */
       REQUIRE( phdr[ i ].p_vaddr >= p_load_vaddr );
-      p_load_vaddr = fd_ulong_sat_add( phdr[ i ].p_offset, phdr[ i ].p_filesz );
+      p_load_vaddr = phdr[ i ].p_vaddr;
       /* Segment must be within bounds */
       REQUIRE( ( phdr[ i ].p_offset + phdr[ i ].p_filesz >= phdr[ i ].p_offset )
              & ( phdr[ i ].p_offset + phdr[ i ].p_filesz <= elf_sz             ) );
