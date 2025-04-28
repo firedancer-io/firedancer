@@ -2,6 +2,7 @@
 #include "fd_dev_boot.h"
 
 #include "../../shared/fd_config.h"
+#include "../../shared/fd_action.h"
 #include "../../shared/boot/fd_boot.h"
 #include "../../shared/fd_file_util.h"
 
@@ -56,12 +57,11 @@ execve_as_root( int     argc,
 config_t config;
 
 int
-fd_dev_main( int     argc,
-             char ** _argv,
-             char const * default_config1,
-             ulong        default_config1_sz,
-             char const * default_config2,
-             ulong        default_config2_sz,
+fd_dev_main( int          argc,
+             char **      _argv,
+             int          is_firedancer,
+             char const * default_config,
+             ulong        default_config_sz,
              void (* topo_init )( config_t * config ) ) {
   /* save original arguments list in case we need to respawn the process
      as privileged */
@@ -76,13 +76,6 @@ fd_dev_main( int     argc,
 
   fd_env_strip_cmdline_cstr( &argc, &argv, "--log-level-stderr", NULL, NULL );
   char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
-
-  fd_main_init( &argc, &argv, &config, log_path, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
-
-  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
-  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
-  config.development.no_clone = config.development.no_clone || no_clone;
-  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
 
   const char * action_name = "dev";
   if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
@@ -99,6 +92,13 @@ fd_dev_main( int     argc,
   }
 
   if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
+
+  fd_main_init( &argc, &argv, &config, is_firedancer, action->is_local_cluster, log_path, default_config, default_config_sz, topo_init );
+
+  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
+  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+  config.development.no_clone = config.development.no_clone || no_clone;
+  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
 
   int is_allowed_live = action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_shared_dev_commands_dev_h
 
 #include "../../shared/fd_config.h"
+#include "../../shared/fd_action.h"
 
 FD_PROTOTYPES_BEGIN
 

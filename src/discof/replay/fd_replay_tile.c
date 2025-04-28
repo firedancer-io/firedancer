@@ -59,9 +59,8 @@
 #define SHRED_IN_IDX   (4UL)
 
 #define STAKE_OUT_IDX  (0UL)
-#define NOTIF_OUT_IDX  (1UL)
-#define SENDER_OUT_IDX (2UL)
-#define POH_OUT_IDX    (3UL)
+#define SENDER_OUT_IDX (1UL)
+#define POH_OUT_IDX    (2UL)
 
 #define EXEC_BOOT_WAIT  (0UL)
 #define EXEC_BOOT_DONE  (1UL)
@@ -1189,6 +1188,8 @@ publish_account_notifications( fd_replay_tile_ctx_t * ctx,
                                ulong                  curr_slot,
                                fd_txn_p_t const *     txns,
                                ulong                  txn_cnt ) {
+  if( FD_LIKELY( !ctx->notif_out_mcache ) ) return;
+
   long notify_time_ns = -fd_log_wallclock();
 #define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
 #define NOTIFY_END                                                      \
@@ -1259,6 +1260,8 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
                             fd_fork_t *            fork,
                             ulong                  block_entry_block_height,
                             ulong                  curr_slot ) {
+  if( FD_LIKELY( !ctx->notif_out_mcache ) ) return;
+
   long notify_time_ns = -fd_log_wallclock();
 #define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
 #define NOTIFY_END                                                      \
@@ -3440,15 +3443,21 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->batch_in_chunk0           = fd_dcache_compact_chunk0( ctx->batch_in_mem, batch_in_link->dcache );
   ctx->batch_in_wmark            = fd_dcache_compact_wmark( ctx->batch_in_mem, batch_in_link->dcache, batch_in_link->mtu );
 
-  fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ NOTIF_OUT_IDX ] ];
-  ctx->notif_out_mcache      = notif_out->mcache;
-  ctx->notif_out_sync        = fd_mcache_seq_laddr( ctx->notif_out_mcache );
-  ctx->notif_out_depth       = fd_mcache_depth( ctx->notif_out_mcache );
-  ctx->notif_out_seq         = fd_mcache_seq_query( ctx->notif_out_sync );
-  ctx->notif_out_mem         = topo->workspaces[ topo->objs[ notif_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->notif_out_chunk0      = fd_dcache_compact_chunk0( ctx->notif_out_mem, notif_out->dcache );
-  ctx->notif_out_wmark       = fd_dcache_compact_wmark ( ctx->notif_out_mem, notif_out->dcache, notif_out->mtu );
-  ctx->notif_out_chunk       = ctx->notif_out_chunk0;
+  ulong replay_notif_idx = fd_topo_find_tile_out_link( topo, tile, "replay_notif", 0 );
+  if( FD_UNLIKELY( replay_notif_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * notif_out = &topo->links[ replay_notif_idx ];
+    FD_TEST( notif_out );
+    ctx->notif_out_mcache      = notif_out->mcache;
+    ctx->notif_out_sync        = fd_mcache_seq_laddr( ctx->notif_out_mcache );
+    ctx->notif_out_depth       = fd_mcache_depth( ctx->notif_out_mcache );
+    ctx->notif_out_seq         = fd_mcache_seq_query( ctx->notif_out_sync );
+    ctx->notif_out_mem         = topo->workspaces[ topo->objs[ notif_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->notif_out_chunk0      = fd_dcache_compact_chunk0( ctx->notif_out_mem, notif_out->dcache );
+    ctx->notif_out_wmark       = fd_dcache_compact_wmark ( ctx->notif_out_mem, notif_out->dcache, notif_out->mtu );
+    ctx->notif_out_chunk       = ctx->notif_out_chunk0;
+  } else {
+    ctx->notif_out_mcache = NULL;
+  }
 
   fd_topo_link_t * sender_out = &topo->links[ tile->out_link_id[ SENDER_OUT_IDX ] ];
   ctx->sender_out_mcache      = sender_out->mcache;

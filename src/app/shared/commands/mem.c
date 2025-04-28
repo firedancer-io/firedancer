@@ -1,4 +1,5 @@
 #include "../fd_config.h"
+#include "../fd_action.h"
 
 void
 mem_cmd_fn( args_t *   args FD_PARAM_UNUSED,

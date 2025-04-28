@@ -3,13 +3,13 @@
 #include "../../../shared/commands/configure/configure.h"
 
 #include "../../../shared/fd_file_util.h"
+#include "../../../shared/genesis_hash.h"
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/features/fd_features.h"
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../../flamenco/types/fd_types_custom.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
-#include "genesis_hash.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -122,25 +122,25 @@ create_genesis( config_t const * config,
 
   /* Read in keys */
 
-  uchar const * identity_pubkey_ = fd_keyload_load( config->consensus.identity_path, 1 );
+  uchar const * identity_pubkey_ = fd_keyload_load( config->paths.identity_key, 1 );
   if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
   memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
 
   char file_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
+  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
   uchar const * faucet_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !faucet_pubkey_ ) ) FD_LOG_ERR(( "Failed to load faucet key" ));
   memcpy( options->faucet_pubkey.key, faucet_pubkey_, 32 );
 
-  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", config->scratch_directory ) );
+  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
   uchar const * stake_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !stake_pubkey_ ) ) FD_LOG_ERR(( "Failed to load stake account key" ));
   memcpy( options->stake_pubkey.key, stake_pubkey_, 32 );
 
-  if( !strcmp( config->consensus.vote_account_path, "" ) ) {
-    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
+  if( !strcmp( config->paths.vote_account, "" ) ) {
+    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->paths.base ) );
   } else {
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->consensus.vote_account_path, PATH_MAX-1 ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1 ) );
   }
 
   uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
@@ -219,8 +219,8 @@ create_genesis( config_t const * config,
 
 static void
 init( config_t const * config ) {
-  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->ledger.path, config->uid, config->gid ) ) )
-    FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", config->ledger.path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.ledger, config->uid, config->gid ) ) )
+    FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", config->paths.ledger, errno, fd_io_strerror( errno ) ));
 
   static uchar blob[ 16<<20UL ];
   ulong blob_sz = create_genesis( config, blob, sizeof(blob) );
@@ -238,7 +238,7 @@ init( config_t const * config ) {
   mode_t previous = umask( S_IRWXO | S_IRWXG );
 
   char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
+  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
   do {
     FILE * genesis_file = fopen( genesis_path, "w" );
     FD_TEST( genesis_file );
@@ -268,7 +268,7 @@ fini( config_t const * config,
   (void)pre_init;
 
   char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
+  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
   if( FD_UNLIKELY( unlink( genesis_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 }
@@ -276,13 +276,13 @@ fini( config_t const * config,
 static configure_result_t
 check( config_t const * config ) {
   char genesis_path[ PATH_MAX ];
-  fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path );
+  fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
 
   struct stat st;
   if( FD_UNLIKELY( stat( genesis_path, &st ) && errno==ENOENT ) )
     NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
-  CHECK( check_dir( config->ledger.path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+  CHECK( check_dir( config->paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
   PARTIALLY_CONFIGURED( "`%s` already exists", genesis_path );

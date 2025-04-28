@@ -113,7 +113,8 @@ load_cmd_fn( args_t *   args,
                   args->load.tpu_ip,
                   args->load.rpc_port,
                   args->load.rpc_ip,
-                  args->load.no_quic );
+                  args->load.no_quic,
+                  0 );
   config->topo = *topo;
 
   args_t configure_args = {

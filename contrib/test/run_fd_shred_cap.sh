@@ -82,11 +82,7 @@ SHREDCAP=$(ls $DUMP/$LEDGER/*shredcap | head -n1)
 
 echo "
 [layout]
-    affinity = \"auto\"
-    bank_tile_count = 1
-    shred_tile_count = 1
     exec_tile_count = 8
-[gossip]
 [blockstore]
     shred_max = 1048576
     block_max = 8192
@@ -104,16 +100,15 @@ echo "
         funk_rec_max = 150000000
         funk_txn_max = 2000
         funk_file = \"$DATA_DIR/shredcap_testnet.funk\"
-    [tiles.pack]
-        use_consumed_cus = false
     [tiles.store_int]
         shred_cap_replay = \"$SHREDCAP\"
         shred_cap_end_slot = 317018450
 [consensus]
     vote = false
     expected_shred_version = 64475
-    identity_path = \"fd-identity-keypair.json\"
-    vote_account_path = \"fd-vote-keypair.json\"
+[paths]
+    identity_key = \"$(pwd)/fd-identity-keypair.json\"
+    vote_account = \"$(pwd)/fd-vote-keypair.json\"
 [log]
     path = \"$LOG\"
     level_stderr = \"INFO\"

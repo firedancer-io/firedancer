@@ -20,7 +20,6 @@ static void
 gossip_topo( config_t * config ) {
   static const ulong tile_to_cpu[ FD_TILE_MAX ] = {0}; /* TODO */
 
-  fdctl_cfg_net_auto( config );
   config->layout.net_tile_count = 1;
 
   fd_topo_cpus_t cpus[1];
@@ -49,7 +48,7 @@ gossip_topo( config_t * config ) {
   fd_topob_wksp( topo, "gossip" );
   fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 0 );
 
-  strncpy( gossip_tile->gossip.identity_key_path, config->consensus.identity_path, sizeof(gossip_tile->gossip.identity_key_path) );
+  strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.gossip_listen_port     = config->gossip.port;
   gossip_tile->gossip.ip_addr                = config->tiles.net.ip_addr;
   gossip_tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
@@ -65,7 +64,7 @@ gossip_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "sign" );
   fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", 0UL, 0, 1 );
-  strncpy( sign_tile->sign.identity_key_path, config->consensus.identity_path, sizeof(sign_tile->sign.identity_key_path) );
+  strncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
   fd_topob_wksp( topo, "gossip_sign"  );
   fd_topob_link( topo, "gossip_sign", "gossip_sign", 128UL, 2048UL, 1UL );
   fd_topob_tile_in( topo, "sign", 0UL, "metric_in", "gossip_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -89,7 +88,7 @@ gossip_topo( config_t * config ) {
   fd_topob_tile_uses( topo, gossip_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topos_net_tile_finish( topo, 0UL );
-  fd_topob_auto_layout( topo );
+  fd_topob_auto_layout( topo, 0 );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
