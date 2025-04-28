@@ -987,6 +987,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
 
   slot->slot                   = _slot;
   slot->parent_slot            = _parent_slot;
+  slot->max_compute_units      = UINT_MAX;
   slot->mine                   = mine;
   slot->skipped                = 0;
   slot->must_republish         = 1;
@@ -1004,7 +1005,6 @@ fd_gui_clear_slot( fd_gui_t * gui,
 
   slot->txs.leader_start_time  = LONG_MAX;
   slot->txs.leader_end_time    = LONG_MAX;
-  slot->txs.max_compute_units  = UINT_MAX;
   slot->txs.microblocks_upper_bound = USHORT_MAX;
   slot->txs.begin_microblocks  = 0U;
   slot->txs.end_microblocks    = 0U;
@@ -1300,12 +1300,14 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   ulong priority_fee             = msg[ 7 ];
   ulong tips                     = msg[ 8 ];
   ulong _parent_slot             = msg[ 9 ];
+  ulong max_compute_units        = msg[ 10 ];
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
 
   slot->completed_time = fd_log_wallclock();
   slot->parent_slot = _parent_slot;
+  slot->max_compute_units = (uint)max_compute_units;
   if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
     /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
        happen that it starts higher.  One such case is when we
@@ -1675,10 +1677,10 @@ fd_gui_became_leader( fd_gui_t * gui,
                       ulong      max_microblocks ) {
   fd_gui_init_slot_txns( gui, tickcount, _slot );
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  slot->max_compute_units = (uint)max_compute_units;
 
   slot->txs.leader_start_time = start_time_nanos;
   slot->txs.leader_end_time   = end_time_nanos;
-  slot->txs.max_compute_units = (uint)max_compute_units;
   if( FD_LIKELY( slot->txs.microblocks_upper_bound==USHORT_MAX ) ) slot->txs.microblocks_upper_bound = (ushort)max_microblocks;
 }
 
