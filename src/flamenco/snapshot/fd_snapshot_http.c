@@ -189,6 +189,8 @@ fd_snapshot_http_init( fd_snapshot_http_t * this ) {
   FD_LOG_INFO(( "Sending request" ));
 
   this->state = FD_SNAPSHOT_HTTP_STATE_REQ;
+  FD_LOG_WARNING(( "path sent was %s", this->path + this->path_off ));
+  FD_LOG_WARNING(("request hdrs sent was %s", this->req_hdrs ));
   return 0;
 }
 

@@ -20,6 +20,8 @@ $(call add-objs,fd_snapshot_restore,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_snapshot_restore,test_snapshot_restore,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_snapshot_restore)
+$(call make-unit-test,test_snapshot_loader,test_snapshot_loader,fd_flamenco fd_funk fd_util fd_ballet fd_waltz)
+$(call run-unit-test,test_snapshot_loader)
 endif
 
 ifdef FD_HAS_ZSTD
