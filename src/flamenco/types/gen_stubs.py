@@ -44,7 +44,8 @@ for t,t2 in [("char","int8"),
              ("int","int32"),
              ("uint","uint32"),
              ("long","int64"),
-             ("ulong","uint64")]:
+             ("ulong","uint64"),
+             ("phantom_data",0)]:
     simpletypes[t] = t2
 
 # Map from type name to encoded size
@@ -65,7 +66,8 @@ for t,t2 in [("bool",1),
              ("uchar[32]",32),
              ("signature",64),
              ("uchar[128]",128),
-             ("uchar[2048]",2048),]:
+             ("uchar[2048]",2048),
+             ("phantom_data",0)]:
     fixedsizetypes[t] = t2
 
 # Set of types that do not contain nested local pointers
@@ -87,7 +89,8 @@ flattypes = {
   "signature",
   "uchar[128]",
   "uchar[2048]",
-  "flamenco_txn" # custom type
+  "flamenco_txn", # custom type
+  "phantom_data"
 }
 
 # Types that are fixed size and valid for all possible bit patterns
@@ -105,6 +108,7 @@ fuzzytypes = {
     "signature",
     "uchar[128]",
     "uchar[2048]",
+    "phantom_data"
 }
 
 class TypeNode:
@@ -162,7 +166,8 @@ class PrimitiveMember(TypeNode):
         "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
         "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
-        "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
+        "ushort" :    lambda n: print(f'  ushort {n};',    file=header),
+        "phantom_data":lambda n: print(f'  // phantom_data {n};', file=header)
     }
 
     def emitMember(self):
@@ -233,6 +238,7 @@ class PrimitiveMember(TypeNode):
         "uchar[2048]":lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 2048, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_footprint(n, varint),
         "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_footprint(n, varint),
+        "phantom_data":lambda n, varint: print(f'{indent}  // phantom_data {n};', file=body)
     }
 
     def emitDecodeFootprint(self):
@@ -274,6 +280,7 @@ class PrimitiveMember(TypeNode):
         "uchar[2048]":lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_unsafe(n, varint),
         "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_unsafe(n, varint),
+        "phantom_data":lambda n, varint: print(f'{indent}  // phantom_data {n};', file=body)
     }
 
     def emitDecodeInner(self):
@@ -321,6 +328,7 @@ class PrimitiveMember(TypeNode):
         "uchar[2048]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_encode(n, varint),
         "ushort" :    lambda n, varint: PrimitiveMember.ushort_encode(n, varint),
+        "phantom_data":lambda n, varint: print(f'{indent}  // phantom_data {n};', file=body)
     }
 
     def emitEncode(self):
@@ -347,6 +355,7 @@ class PrimitiveMember(TypeNode):
         "uchar[2048]":lambda n, varint, inner: print(f'{indent}  size += sizeof(char) * 2048;', file=body),
         "ulong" :     lambda n, varint, inner: print(f'{indent}  size += { ("fd_bincode_varint_size( self->" + n + " );") if varint else "sizeof(ulong);" }', file=body),
         "ushort" :    lambda n, varint, inner: print(f'{indent}  size += { ("fd_bincode_compact_u16_size( &self->" + n + " );") if varint else "sizeof(ushort);" }', file=body),
+        "phantom_data":lambda n, varint, inner: print(f'{indent}  // phantom_data {n};', file=body)
     }
 
     def emitSize(self, inner):
@@ -366,7 +375,9 @@ class PrimitiveMember(TypeNode):
         "uchar[128]" :lambda n, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level );', file=body),
         "uchar[2048]":lambda n, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level );', file=body),
         "ulong" :     lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level );', file=body),
-        "ushort" :    lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body)
+        "ushort" :    lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body),
+        "phantom_data":lambda n, inner: print(f'  fun( w, NULL, "{n}", FD_FLAMENCO_TYPE_PHANTOM, "phantom_data", level );', file=body),
+
     }
 
     def emitWalk(self, inner):
@@ -443,6 +454,66 @@ class StructMember(TypeNode):
 
     def emitWalk(self, inner):
         print(f'{indent}  {namespace}_{self.type}_walk( w, &self->{inner}{self.name}, fun, "{self.name}", level );', file=body)
+
+class BitVecMember(TypeNode):
+    # TODO: THIS NEEDS TO GET IMPLEMENTED (ASK ISHAN ABOUT THIS)
+    def __init__(self, json):
+        super().__init__(json)
+        self.element = json["element"]
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
+        self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
+
+    def isFlat(self):
+        return self.element in flattypes
+
+    def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        print(f'  ulong {self.name}_len;', file=header)
+        if self.flat:
+            if self.element in simpletypes:
+                print(f'  {self.element} {self.name};', file=header)
+            else:
+                print(f'  {namespace}_{self.element}_t {self.name};', file=header)
+            print(f'  uchar has_{self.name};', file=header)
+        else:
+            if self.element in simpletypes:
+                print(f'  {self.element}* {self.name};', file=header)
+            else:
+                print(f'  {namespace}_{self.element}_t * {self.name};', file=header)
+
+    def emitMemberGlobal(self):
+        pass
+
+    def emitNew(self):
+        pass
+
+    def emitDestroy(self):
+        pass
+
+    def emitDecodeFootprint(self):
+        # Bitvecs are basically a vector wrapped in an option with an additional len field
+        # We just need to make sure that if the length of the innder vector != length at
+        # the top level that we return an error.
+        print('  {', file=body)
+        print('    uchar o;', file=body)
+        print('    err = fd_bincode_bool_decode( &o, ctx );', file=body)
+        print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print('    if( o ) {', file=body)
+        if not self.flat:
+            el = f'{namespace}_{self.element}'
+            el = el.upper()
+        print('      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print('    }', file=body)
+        print('  }', file=body)
+
+
+
+
 
 class VectorMember(TypeNode):
     def __init__(self, container, json):

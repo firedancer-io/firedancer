@@ -76,6 +76,7 @@ custom_serializer_walk( void *       _self,
     case FD_FLAMENCO_TYPE_ARR_END:
       break;
     case FD_FLAMENCO_TYPE_NULL:
+    case FD_FLAMENCO_TYPE_PHANTOM:
       fprintf( file, "null," );
       break;
     case FD_FLAMENCO_TYPE_BOOL:
@@ -360,7 +361,7 @@ fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t * runner,
 
   // Decode the type
   ulong   max_content_size = output_bufsz - (_l - (ulong)output_buf);
-  uchar * temp_buffer = (uchar *)_l;
+  uchar * temp_buffer = (uchar *)_l + 50000;
   if (FD_UNLIKELY(_l > output_end)) {
     return 0UL;
   }
@@ -377,6 +378,7 @@ fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t * runner,
   } else {
     effects->result = 0;
 
+
     // The decoded data contains:
     // - serialized_sz (ulong)
     // - serialized data (bytes)
@@ -392,6 +394,9 @@ fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t * runner,
       return 0UL;
     }
     effects->representation->size = (pb_size_t)serialized_sz;
+
+    printf("ASDF PTR PTR %p %p\n", effects->representation, temp_buffer + sizeof(ulong));
+
     fd_memcpy(effects->representation->bytes, temp_buffer + sizeof(ulong), serialized_sz);
 
     // Allocate and copy the yaml data

@@ -2930,6 +2930,8 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
+  fd_funk_rec_query_t query = {
+
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
 }

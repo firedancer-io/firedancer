@@ -56,9 +56,9 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 void
-fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
-                                fd_stake_history_entry_t * entry,
-                                fd_spad_t *                runtime_spad ) {
+fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *               slot_ctx,
+                                fd_stake_history_entry_wrapper_t * entry,
+                                fd_spad_t *                        runtime_spad ) {
   // Need to make this maybe zero copies of map...
   fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx, runtime_spad );
 
@@ -76,9 +76,9 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
   ulong idx = stake_history->fd_stake_history_offset;
 
   stake_history->fd_stake_history[ idx ].epoch = entry->epoch;
-  stake_history->fd_stake_history[ idx ].activating = entry->activating;
-  stake_history->fd_stake_history[ idx ].effective = entry->effective;
-  stake_history->fd_stake_history[ idx ].deactivating = entry->deactivating;
+  stake_history->fd_stake_history[ idx ].entry.activating = entry->entry.activating;
+  stake_history->fd_stake_history[ idx ].entry.effective = entry->entry.effective;
+  stake_history->fd_stake_history[ idx ].entry.deactivating = entry->entry.deactivating;
 
   write_stake_history( slot_ctx, stake_history );
 }

@@ -604,9 +604,10 @@ ancestry_print( fd_forest_t const * forest, fd_forest_ele_t const * ele, int spa
 
 void
 fd_forest_ancestry_print( fd_forest_t const * forest ) {
-  FD_LOG_NOTICE( ( "\n\n[Ancestry]\n%lu", fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root )->slot ) );
+  (void)forest;
+  //FD_LOG_NOTICE( ( "\n\n[Ancestry]\n%lu", fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root )->slot ) );
 
-  ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), NULL, 0, 0, "" );
+  //ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), NULL, 0, 0, "" );
 
   //FD_LOG_NOTICE(("\n\n[Ancestry]\n%lu", fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root )->slot ) );
 

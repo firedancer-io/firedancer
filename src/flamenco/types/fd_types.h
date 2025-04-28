@@ -197,9 +197,8 @@ typedef struct fd_rent_collector fd_rent_collector_t;
 #define FD_RENT_COLLECTOR_FOOTPRINT sizeof(fd_rent_collector_t)
 #define FD_RENT_COLLECTOR_ALIGN alignof(fd_rent_collector_t)
 
-/* Encoded Size: Fixed (32 bytes) */
+/* Encoded Size: Fixed (24 bytes) */
 struct fd_stake_history_entry {
-  ulong epoch;
   ulong effective;
   ulong activating;
   ulong deactivating;
@@ -208,13 +207,22 @@ typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_FOOTPRINT sizeof(fd_stake_history_entry_t)
 #define FD_STAKE_HISTORY_ENTRY_ALIGN alignof(fd_stake_history_entry_t)
 
+/* Encoded Size: Fixed (32 bytes) */
+struct fd_stake_history_entry_wrapper {
+  ulong epoch;
+  fd_stake_history_entry_t entry;
+};
+typedef struct fd_stake_history_entry_wrapper fd_stake_history_entry_wrapper_t;
+#define FD_STAKE_HISTORY_ENTRY_WRAPPER_FOOTPRINT sizeof(fd_stake_history_entry_wrapper_t)
+#define FD_STAKE_HISTORY_ENTRY_WRAPPER_ALIGN alignof(fd_stake_history_entry_wrapper_t)
+
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75 */
 /* Encoded Size: Dynamic */
 struct fd_stake_history {
   ulong fd_stake_history_len;
   ulong fd_stake_history_size;
   ulong fd_stake_history_offset;
-  fd_stake_history_entry_t fd_stake_history[512];
+  fd_stake_history_entry_wrapper_t fd_stake_history[512];
 };
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_FOOTPRINT sizeof(fd_stake_history_t)
@@ -4002,6 +4010,7 @@ struct fd_crds_bloom {
   ulong* keys;
   fd_gossip_bitvec_u64_t bits;
   ulong num_bits_set;
+  // phantom_data _phantom;
 };
 typedef struct fd_crds_bloom fd_crds_bloom_t;
 #define FD_CRDS_BLOOM_FOOTPRINT sizeof(fd_crds_bloom_t)
@@ -4012,6 +4021,7 @@ struct fd_crds_bloom_global {
   ulong keys_gaddr;
   fd_gossip_bitvec_u64_global_t bits;
   ulong num_bits_set;
+  // phantom_data _phantom;
 };
 typedef struct fd_crds_bloom_global fd_crds_bloom_global_t;
 #define FD_CRDS_BLOOM_GLOBAL_FOOTPRINT sizeof(fd_crds_bloom_global_t)
@@ -4193,7 +4203,7 @@ struct fd_repair_request_header {
   fd_signature_t signature;
   fd_pubkey_t sender;
   fd_pubkey_t recipient;
-  long timestamp;
+  ulong timestamp;
   uint nonce;
 };
 typedef struct fd_repair_request_header fd_repair_request_header_t;
@@ -4952,6 +4962,18 @@ int fd_stake_history_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
 int fd_stake_history_entry_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stake_history_entry_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_stake_history_entry_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_stake_history_entry_wrapper_new( fd_stake_history_entry_wrapper_t * self );
+int fd_stake_history_entry_wrapper_encode( fd_stake_history_entry_wrapper_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_stake_history_entry_wrapper_destroy( fd_stake_history_entry_wrapper_t * self );
+void fd_stake_history_entry_wrapper_walk( void * w, fd_stake_history_entry_wrapper_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_stake_history_entry_wrapper_size( fd_stake_history_entry_wrapper_t const * self );
+ulong fd_stake_history_entry_wrapper_footprint( void );
+ulong fd_stake_history_entry_wrapper_align( void );
+int fd_stake_history_entry_wrapper_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_stake_history_entry_wrapper_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_stake_history_entry_wrapper_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_stake_history_entry_wrapper_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_stake_history_new( fd_stake_history_t * self );
 int fd_stake_history_encode( fd_stake_history_t const * self, fd_bincode_encode_ctx_t * ctx );

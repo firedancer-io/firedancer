@@ -275,6 +275,7 @@ fd_flamenco_yaml_walk( void *       _self,
     break;
 
   case FD_FLAMENCO_TYPE_NULL:
+  case FD_FLAMENCO_TYPE_PHANTOM:
     fprintf( file, "null\n" );
     break;
   case FD_FLAMENCO_TYPE_BOOL:

@@ -127,7 +127,8 @@ class PrimitiveMember(TypeNode):
         "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
         "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
-        "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
+        "ushort" :    lambda n: print(f'  ushort {n};',    file=header),
+        "phantom_data":lambda n: print(f'  // phantom_data {n};', file=header)
     }
 
     def isFixedSize(self):
@@ -176,6 +177,7 @@ class PrimitiveMember(TypeNode):
         "uchar[2048]":lambda n, varint: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_generate(n, varint),
         "ushort" :    lambda n, varint: PrimitiveMember.ushort_generate(n, varint),
+        "phantom_data":lambda n, varint: print(f'{indent}  // phantom_data {n};', file=body)
     }
 
     def emitGenerate(self):

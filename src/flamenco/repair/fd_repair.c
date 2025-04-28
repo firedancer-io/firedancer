@@ -515,7 +515,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
         fd_repair_window_index_t * wi = &protocol.inner.window_index;
         fd_hash_copy(&wi->header.sender, glob->public_key);
         fd_hash_copy(&wi->header.recipient, &active->key);
-        wi->header.timestamp = glob->now/1000000L;
+        wi->header.timestamp = (ulong)glob->now/1000000UL;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
         wi->shred_index = ele->dupkey.shred_index;
@@ -529,7 +529,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
         fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
         fd_hash_copy(&wi->header.sender, glob->public_key);
         fd_hash_copy(&wi->header.recipient, &active->key);
-        wi->header.timestamp = glob->now/1000000L;
+        wi->header.timestamp = (ulong)glob->now/1000000UL;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
         wi->shred_index = ele->dupkey.shred_index;
@@ -542,7 +542,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
         fd_repair_orphan_t * wi = &protocol.inner.orphan;
         fd_hash_copy(&wi->header.sender, glob->public_key);
         fd_hash_copy(&wi->header.recipient, &active->key);
-        wi->header.timestamp = glob->now/1000000L;
+        wi->header.timestamp = (ulong)glob->now/1000000UL;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
         break;

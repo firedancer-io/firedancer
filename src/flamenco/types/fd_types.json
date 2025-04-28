@@ -163,17 +163,24 @@
       "name": "stake_history_entry",
       "type": "struct",
       "fields": [
-        { "name": "epoch", "type": "ulong" },
         { "name": "effective", "type": "ulong" },
         { "name": "activating", "type": "ulong" },
         { "name": "deactivating", "type": "ulong" }
       ]
     },
     {
+      "name": "stake_history_entry_wrapper",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "entry", "type": "stake_history_entry" }
+      ]
+    },
+    {
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "fd_stake_history", "type": "static_vector", "element": "stake_history_entry", "size": 512 }
+        { "name": "fd_stake_history", "type": "static_vector", "element": "stake_history_entry_wrapper", "size": 512 }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75"
     },
@@ -1908,7 +1915,8 @@
       "fields": [
         { "name": "bits", "type": "option", "element": "gossip_bitvec_u64_inner", "flat": true },
         { "name": "len", "type": "ulong" }
-      ]
+      ],
+      "comment": "TODO: This type needs a valid size check. The approach we should use here is to combine the entire bitvec struct into its own type"
     },
     {
       "name": "gossip_ping",
@@ -2283,8 +2291,10 @@
       "fields": [
         { "name": "keys", "type": "vector", "element": "ulong" },
         { "name": "bits", "type": "gossip_bitvec_u64" },
-        { "name": "num_bits_set", "type": "ulong" }
-      ]
+        { "name": "num_bits_set", "type": "ulong" },
+        { "name": "_phantom", "type": "phantom_data"}
+      ],
+      "comment": "The phantom field is used as an analog to the PhantomData field in Rust. This field does not occupy any bytes in Rust and is used as a hint."
     },
     {
       "name": "crds_filter",
@@ -2382,7 +2392,7 @@
         { "name": "signature", "type": "signature" },
         { "name": "sender", "type": "pubkey" },
         { "name": "recipient", "type": "pubkey" },
-        { "name": "timestamp", "type": "long" },
+        { "name": "timestamp", "type": "ulong" },
         { "name": "nonce", "type": "uint" }
       ]
     },
