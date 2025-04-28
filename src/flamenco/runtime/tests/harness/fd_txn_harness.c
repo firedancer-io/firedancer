@@ -127,19 +127,13 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
     /* The offseted gaddr aware types need the memory for the entire
        struct to be allocated out of a contiguous memory region. */
-    ulong default_slot_hashes_sz = sizeof(fd_slot_hashes_global_t) +
-                                   deq_fd_slot_hash_t_footprint( 1UL ) +
-                                   deq_fd_slot_hash_t_align();
-    uchar * slot_hashes_mem = fd_spad_alloc( runner->spad, alignof(fd_slot_hashes_global_t), default_slot_hashes_sz );
-    fd_slot_hashes_global_t * default_slot_hashes_global = (fd_slot_hashes_global_t *)slot_hashes_mem;
+    fd_slot_hashes_global_t * default_slot_hashes_global = fd_sysvar_slot_hashes_new( runner->spad, 1UL );
+    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_join( (uchar*)default_slot_hashes_global + default_slot_hashes_global->hashes_offset );
 
-    uchar * slot_hash_mem = (uchar*)fd_ulong_align_up( (ulong)(slot_hashes_mem + sizeof(fd_slot_hashes_global_t)), deq_fd_slot_hash_t_align() );
-    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( slot_hash_mem, 1 ) );
     fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
     memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
 
-    default_slot_hashes_global->hashes_offset = (ulong)deq_fd_slot_hash_t_leave( slot_hashes ) - (ulong)default_slot_hashes_global;
-    fd_sysvar_slot_hashes_init( slot_ctx, default_slot_hashes_global );
+    fd_sysvar_slot_hashes_init_funk( slot_ctx, default_slot_hashes_global );
   }
 
   /* Provide default stake history if not provided */

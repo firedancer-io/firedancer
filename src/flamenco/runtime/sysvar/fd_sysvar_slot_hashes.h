@@ -15,10 +15,16 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Initialize the slot hashes sysvar account (used for tests currently) */
+/* Initialize a funk entry for the slot hashes sysvar account (used for tests currently) */
 void
-fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t *      slot_ctx,
-                            fd_slot_hashes_global_t * slot_hashes_global );
+fd_sysvar_slot_hashes_init_funk( fd_exec_slot_ctx_t *      slot_ctx,
+                                 fd_slot_hashes_global_t * slot_hashes_global );
+
+/* fd_sysvar_slot_hashes_new allocates and initializes memory in the
+   supplied spad for a given slot hash cap */
+fd_slot_hashes_global_t *
+fd_sysvar_slot_hashes_new( fd_spad_t * runtime_spad,
+                           ulong       slot_hashes_cap );
 
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void
