@@ -16,15 +16,14 @@ static const ulong bits_per_block = 8 * sizeof(ulong);
 
 void
 fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
-                            ulong                      i,
-                            fd_wksp_t *                wksp ) {
+                            ulong                      i ) {
   if( FD_UNLIKELY( i > history->next_slot && i - history->next_slot >= slot_history_max_entries ) ) {
     FD_LOG_WARNING(( "Ignoring out of bounds (i=%lu next_slot=%lu)", i, history->next_slot ));
     return;
   }
 
-  fd_slot_history_inner_global_t * inner      = fd_wksp_laddr_fast( wksp, history->bits.bits_gaddr );
-  ulong *                          blocks     = fd_wksp_laddr_fast( wksp, inner->blocks_gaddr );
+  fd_slot_history_inner_global_t * inner      = (fd_slot_history_inner_global_t *)((uchar*)&history->bits + history->bits.bits_offset);
+  ulong *                          blocks     = (ulong *)((uchar*)inner + inner->blocks_offset);
   ulong                            blocks_len = inner->blocks_len;
 
   // Skipped slots, delete them from history
@@ -58,25 +57,28 @@ fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
 void
 fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   /* Create a new slot history instance */
-  fd_slot_history_global_t history = {0};
 
-  fd_slot_history_inner_global_t * inner = fd_spad_alloc( runtime_spad,
-                                                          fd_slot_history_inner_align(),
-                                                          fd_slot_history_inner_footprint() );
+  /* We need to construct the gaddr-aware slot history object */
+  ulong total_sz = sizeof(fd_slot_history_global_t) + alignof(fd_slot_history_global_t) +
+                   sizeof(fd_slot_history_inner_global_t) + alignof(fd_slot_history_inner_global_t) +
+                   (sizeof(ulong) + alignof(ulong)) * blocks_len;
 
-  history.bits.bits_gaddr = fd_wksp_gaddr_fast( slot_ctx->runtime_wksp, inner );
-  history.bits.len        = slot_history_max_entries;
+  uchar * mem = fd_spad_alloc( runtime_spad, alignof(fd_slot_history_global_t), total_sz );
+  fd_slot_history_global_t *        history = (fd_slot_history_global_t *)mem;
+  fd_slot_history_inner_global_t *  inner   = (fd_slot_history_inner_global_t *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(fd_slot_history_inner_global_t) );
+  ulong *                           blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)inner + sizeof(fd_slot_history_inner_global_t)), alignof(ulong) );
 
-  ulong * blocks = fd_spad_alloc( runtime_spad, alignof(ulong), sizeof(ulong) * blocks_len );
+  history->next_slot        = slot_ctx->slot_bank.slot + 1UL;
+  history->bits.bits_offset = (ulong)((uchar*)inner - (uchar*)history);
+  history->bits.len         = slot_history_max_entries;
+
+  inner->blocks_len    = blocks_len;
+  inner->blocks_offset = (ulong)((uchar*)blocks - (uchar*)inner);
   memset( blocks, 0, sizeof(ulong) * blocks_len );
-  inner->blocks_gaddr = fd_wksp_gaddr_fast( slot_ctx->runtime_wksp, blocks );
-  inner->blocks_len   = blocks_len;
 
   /* TODO: handle slot != 0 init case */
-  fd_sysvar_slot_history_set( &history, slot_ctx->slot_bank.slot, slot_ctx->runtime_wksp );
-  history.next_slot = slot_ctx->slot_bank.slot + 1;
-
-  fd_sysvar_slot_history_write_history( slot_ctx, &history );
+  fd_sysvar_slot_history_set( history, slot_ctx->slot_bank.slot );
+  fd_sysvar_slot_history_write_history( slot_ctx, history );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
@@ -111,7 +113,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   fd_slot_history_global_t * history = fd_slot_history_decode_global( mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( history, slot_ctx->slot_bank.slot, slot_ctx->runtime_wksp );
+  fd_sysvar_slot_history_set( history, slot_ctx->slot_bank.slot );
   history->next_slot = slot_ctx->slot_bank.slot + 1;
 
   ulong sz = slot_history_min_account_size;
@@ -181,11 +183,12 @@ int
 fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
                                   ulong                            slot,
                                   fd_wksp_t *                      wksp ) {
-  fd_slot_history_inner_global_t * inner = fd_wksp_laddr_fast( wksp, history->bits.bits_gaddr );
+  (void)wksp;
+  fd_slot_history_inner_global_t * inner = (fd_slot_history_inner_global_t *)((uchar*)&history->bits + history->bits.bits_offset);
   if( FD_UNLIKELY( !inner ) ) {
     FD_LOG_ERR(( "Unable to find slot history inner" ));
   }
-  ulong * blocks = fd_wksp_laddr_fast( wksp, inner->blocks_gaddr );
+  ulong * blocks = (ulong *)((uchar*)inner + inner->blocks_offset);
   if( FD_UNLIKELY( !blocks ) ) {
     FD_LOG_ERR(( "Unable to find slot history blocks" ));
   }

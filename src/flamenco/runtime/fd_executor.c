@@ -869,8 +869,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
 
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( txn_ctx->runtime_pub_wksp,
-                                                          slot_hashes_global->hashes_gaddr ) );
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
 
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
