@@ -329,7 +329,8 @@ validate( fd_topo_t const * topo ) {
 }
 
 void
-fd_topob_auto_layout( fd_topo_t * topo ) {
+fd_topob_auto_layout( fd_topo_t * topo,
+                      int         reserve_agave_cores ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
@@ -339,7 +340,6 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "metric",
     "cswtch",
     "bencho",
-    "bhole",  /* FIREDANCER only */
     "rstart", /* FIREDANCER only */
   };
 
@@ -474,7 +474,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
-  if( FD_UNLIKELY( !topo->firedancer ) ) {
+  if( FD_UNLIKELY( reserve_agave_cores ) ) {
     for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
       if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
 

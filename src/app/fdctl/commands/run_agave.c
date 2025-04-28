@@ -66,8 +66,8 @@ agave_boot( config_t const * config ) {
   ADD( "--log", "-" );
 
   /* net */
-  if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
-    ADD( "--dynamic-port-range", config->dynamic_port_range );
+  if( FD_UNLIKELY( strcmp( config->frankendancer.dynamic_port_range, "" ) ) )
+    ADD( "--dynamic-port-range", config->frankendancer.dynamic_port_range );
 
   if( strcmp( config->tiles.net.bind_address, "" ) )
     ADD( "--bind-address", config->tiles.net.bind_address );
@@ -75,61 +75,62 @@ agave_boot( config_t const * config ) {
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
   /* consensus */
-  ADD( "--identity", config->consensus.identity_path );
-  if( strcmp( config->consensus.vote_account_path, "" ) )
-    ADD( "--vote-account", config->consensus.vote_account_path );
-  for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ )
-    ADD( "--authorized-voter", config->consensus.authorized_voter_paths[ i ] );
-  if( !config->consensus.snapshot_fetch ) ADD1( "--no-snapshot-fetch" );
-  if( !config->consensus.genesis_fetch  ) ADD1( "--no-genesis-fetch"  );
-  if( !config->consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
-  if( strcmp( config->consensus.expected_genesis_hash, "" ) )
-    ADD( "--expected-genesis-hash", config->consensus.expected_genesis_hash );
-  if( config->consensus.wait_for_supermajority_at_slot ) {
-    ADDU( "--wait-for-supermajority", config->consensus.wait_for_supermajority_at_slot );
-    if( strcmp( config->consensus.expected_bank_hash, "" ) )
-      ADD( "--expected-bank-hash", config->consensus.expected_bank_hash );
+  ADD( "--identity", config->paths.identity_key );
+  if( strcmp( config->paths.vote_account, "" ) )
+    ADD( "--vote-account", config->paths.vote_account );
+  for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ )
+    ADD( "--authorized-voter", config->frankendancer.paths.authorized_voter_paths[ i ] );
+  if( !config->frankendancer.consensus.snapshot_fetch ) ADD1( "--no-snapshot-fetch" );
+  if( !config->frankendancer.consensus.genesis_fetch  ) ADD1( "--no-genesis-fetch"  );
+  if( !config->frankendancer.consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
+  if( strcmp( config->frankendancer.consensus.expected_genesis_hash, "" ) )
+    ADD( "--expected-genesis-hash", config->frankendancer.consensus.expected_genesis_hash );
+  if( config->frankendancer.consensus.wait_for_supermajority_at_slot ) {
+    ADDU( "--wait-for-supermajority", config->frankendancer.consensus.wait_for_supermajority_at_slot );
+    if( strcmp( config->frankendancer.consensus.expected_bank_hash, "" ) )
+      ADD( "--expected-bank-hash", config->frankendancer.consensus.expected_bank_hash );
   }
+
   if( config->consensus.expected_shred_version )
     ADDH( "--expected-shred-version", config->consensus.expected_shred_version );
-  if( !config->consensus.wait_for_vote_to_start_leader )
+  if( !config->frankendancer.consensus.wait_for_vote_to_start_leader )
     ADD1( "--no-wait-for-vote-to-start-leader");
-  for( uint const * p = config->consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
-  for( ulong i=0; i<config->consensus.known_validators_cnt; i++ )
-    ADD( "--known-validator", config->consensus.known_validators[ i ] );
+  for( uint const * p = config->frankendancer.consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
+  for( ulong i=0; i<config->frankendancer.consensus.known_validators_cnt; i++ )
+    ADD( "--known-validator", config->frankendancer.consensus.known_validators[ i ] );
 
-  ADD( "--snapshot-archive-format", config->ledger.snapshot_archive_format );
-  if( FD_UNLIKELY( config->ledger.require_tower ) ) ADD1( "--require-tower" );
+  ADD( "--snapshot-archive-format", config->frankendancer.ledger.snapshot_archive_format );
+  if( FD_UNLIKELY( config->frankendancer.ledger.require_tower ) ) ADD1( "--require-tower" );
 
-  if( FD_UNLIKELY( !config->consensus.os_network_limits_test ) )
+  if( FD_UNLIKELY( !config->frankendancer.consensus.os_network_limits_test ) )
     ADD1( "--no-os-network-limits-test" );
 
   /* ledger */
-  ADD( "--ledger", config->ledger.path );
-  ADDU( "--limit-ledger-size", config->ledger.limit_size );
-  if( strcmp( "", config->ledger.accounts_path ) )
-    ADD( "--accounts", config->ledger.accounts_path );
-  if( strcmp( "", config->ledger.accounts_index_path ) )
-    ADD( "--accounts-index-path", config->ledger.accounts_index_path );
-  if( strcmp( "", config->ledger.accounts_hash_cache_path ) )
-    ADD( "--accounts-hash-cache-path", config->ledger.accounts_hash_cache_path );
-  for( ulong i=0UL; i<config->ledger.account_indexes_cnt; i++ )
-    ADD( "--account-index", config->ledger.account_indexes[ i ] );
-  if( FD_LIKELY( !config->ledger.account_index_include_keys_cnt ) ) {
-    for( ulong i=0UL; i<config->ledger.account_index_exclude_keys_cnt; i++ )
-      ADD( "--account-index-exclude-key", config->ledger.account_index_exclude_keys[ i ] );
+  ADD( "--ledger", config->paths.ledger );
+  ADDU( "--limit-ledger-size", config->frankendancer.ledger.limit_size );
+  if( strcmp( "", config->frankendancer.paths.accounts_path ) )
+    ADD( "--accounts", config->frankendancer.paths.accounts_path );
+  if( strcmp( "", config->frankendancer.ledger.accounts_index_path ) )
+    ADD( "--accounts-index-path", config->frankendancer.ledger.accounts_index_path );
+  if( strcmp( "", config->frankendancer.ledger.accounts_hash_cache_path ) )
+    ADD( "--accounts-hash-cache-path", config->frankendancer.ledger.accounts_hash_cache_path );
+  for( ulong i=0UL; i<config->frankendancer.ledger.account_indexes_cnt; i++ )
+    ADD( "--account-index", config->frankendancer.ledger.account_indexes[ i ] );
+  if( FD_LIKELY( !config->frankendancer.ledger.account_index_include_keys_cnt ) ) {
+    for( ulong i=0UL; i<config->frankendancer.ledger.account_index_exclude_keys_cnt; i++ )
+      ADD( "--account-index-exclude-key", config->frankendancer.ledger.account_index_exclude_keys[ i ] );
   } else {
-    for( ulong i=0UL; i<config->ledger.account_index_include_keys_cnt; i++ )
-      ADD( "--account-index-include-key", config->ledger.account_index_include_keys[ i ] );
+    for( ulong i=0UL; i<config->frankendancer.ledger.account_index_include_keys_cnt; i++ )
+      ADD( "--account-index-include-key", config->frankendancer.ledger.account_index_include_keys[ i ] );
   }
 
   /* gossip */
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
-  if( !config->gossip.port_check ) ADD1( "--no-port-check" );
+  if( !config->frankendancer.gossip.port_check ) ADD1( "--no-port-check" );
   ADDH( "--gossip-port", config->gossip.port );
   char ip_addr[16]; /* ADD stored the address for later use, so ip_addr must be in scope */
-  if( strcmp( config->gossip.host, "" ) ) {
-    ADD( "--gossip-host", config->gossip.host );
+  if( strcmp( config->frankendancer.gossip.host, "" ) ) {
+    ADD( "--gossip-host", config->frankendancer.gossip.host );
   } else {
     FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) ) );
     ADD( "--gossip-host", ip_addr );
@@ -140,42 +141,42 @@ agave_boot( config_t const * config ) {
 
   /* rpc */
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
-  if( config->rpc.full_api ) ADD1( "--full-rpc-api" );
-  if( config->rpc.private ) ADD1( "--private-rpc" );
-  if( strcmp( config->rpc.bind_address, "" ) ) ADD( "--rpc-bind-address", config->rpc.bind_address );
-  if( config->rpc.transaction_history ) ADD1( "--enable-rpc-transaction-history" );
+  if( config->frankendancer.rpc.full_api ) ADD1( "--full-rpc-api" );
+  if( config->frankendancer.rpc.private ) ADD1( "--private-rpc" );
+  if( strcmp( config->frankendancer.rpc.bind_address, "" ) ) ADD( "--rpc-bind-address", config->frankendancer.rpc.bind_address );
+  if( config->frankendancer.rpc.transaction_history ) ADD1( "--enable-rpc-transaction-history" );
   if( config->rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );
-  if( config->rpc.only_known ) ADD1( "--only-known-rpc" );
-  if( config->rpc.pubsub_enable_block_subscription ) ADD1( "--rpc-pubsub-enable-block-subscription" );
-  if( config->rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );
-  if( config->rpc.bigtable_ledger_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
+  if( config->frankendancer.rpc.only_known ) ADD1( "--only-known-rpc" );
+  if( config->frankendancer.rpc.pubsub_enable_block_subscription ) ADD1( "--rpc-pubsub-enable-block-subscription" );
+  if( config->frankendancer.rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );
+  if( config->frankendancer.rpc.bigtable_ledger_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
 
   /* snapshots */
-  if( config->snapshots.enabled ) {
-    if( config->snapshots.incremental_snapshots ) {
-      ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
-      ADDU( "--snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
+  if( config->frankendancer.snapshots.enabled ) {
+    if( config->frankendancer.snapshots.incremental_snapshots ) {
+      ADDU( "--full-snapshot-interval-slots", config->frankendancer.snapshots.full_snapshot_interval_slots );
+      ADDU( "--snapshot-interval-slots", config->frankendancer.snapshots.incremental_snapshot_interval_slots );
     } else {
-      ADDU( "--snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
+      ADDU( "--snapshot-interval-slots", config->frankendancer.snapshots.full_snapshot_interval_slots );
     }
   } else {
     ADDU( "--snapshot-interval-slots", (uint)0 );
   }
-  if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
-  ADD( "--snapshots", config->snapshots.path );
-  if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->snapshots.incremental_path );
-  ADDU( "--maximum-snapshots-to-retain", config->snapshots.maximum_full_snapshots_to_retain );
-  ADDU( "--maximum-incremental-snapshots-to-retain", config->snapshots.maximum_incremental_snapshots_to_retain );
-  ADDU( "--minimal-snapshot-download-speed", config->snapshots.minimum_snapshot_download_speed );
+  if( !config->frankendancer.snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
+  ADD( "--snapshots", config->frankendancer.snapshots.path );
+  if( strcmp( "", config->frankendancer.snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->frankendancer.snapshots.incremental_path );
+  ADDU( "--maximum-snapshots-to-retain", config->frankendancer.snapshots.maximum_full_snapshots_to_retain );
+  ADDU( "--maximum-incremental-snapshots-to-retain", config->frankendancer.snapshots.maximum_incremental_snapshots_to_retain );
+  ADDU( "--minimal-snapshot-download-speed", config->frankendancer.snapshots.minimum_snapshot_download_speed );
 
-  if( config->layout.agave_unified_scheduler_handler_threads ) {
-    if( FD_UNLIKELY( config->layout.agave_unified_scheduler_handler_threads>config->topo.agave_affinity_cnt ) ) {
+  if( config->frankendancer.layout.agave_unified_scheduler_handler_threads ) {
+    if( FD_UNLIKELY( config->frankendancer.layout.agave_unified_scheduler_handler_threads>config->topo.agave_affinity_cnt ) ) {
       FD_LOG_ERR(( "Trying to spawn %u handler threads but the agave subprocess has %lu cores. "
                    "Either increase the number of cores in [layout.agave_affinity] or reduce "
                    "the number of threads in [layout.agave_unified_scheduler_handler_threads].",
-                   config->layout.agave_unified_scheduler_handler_threads, config->topo.agave_affinity_cnt ));
+                   config->frankendancer.layout.agave_unified_scheduler_handler_threads, config->topo.agave_affinity_cnt ));
     }
-    ADDU( "--unified-scheduler-handler-threads", config->layout.agave_unified_scheduler_handler_threads );
+    ADDU( "--unified-scheduler-handler-threads", config->frankendancer.layout.agave_unified_scheduler_handler_threads );
   } else {
     ulong num_threads = fd_ulong_max( config->topo.agave_affinity_cnt-4UL, fd_ulong_min( config->topo.agave_affinity_cnt, 4UL ) );
     ADDU( "--unified-scheduler-handler-threads", (uint)num_threads );
@@ -183,8 +184,8 @@ agave_boot( config_t const * config ) {
 
   argv[ idx ] = NULL;
 
-  if( FD_LIKELY( strcmp( config->reporting.solana_metrics_config, "" ) ) ) {
-    if( FD_UNLIKELY( setenv( "SOLANA_METRICS_CONFIG", config->reporting.solana_metrics_config, 1 ) ) )
+  if( FD_LIKELY( strcmp( config->frankendancer.reporting.solana_metrics_config, "" ) ) ) {
+    if( FD_UNLIKELY( setenv( "SOLANA_METRICS_CONFIG", config->frankendancer.reporting.solana_metrics_config, 1 ) ) )
       FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 

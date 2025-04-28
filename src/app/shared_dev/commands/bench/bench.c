@@ -49,7 +49,8 @@ add_bench_topo( fd_topo_t  * topo,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
-                int          no_quic ) {
+                int          no_quic,
+                int          reserve_agave_cores ) {
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 128UL, 64UL, 1UL );
@@ -115,7 +116,7 @@ add_bench_topo( fd_topo_t  * topo,
   }
 
   /* This will blow away previous auto topology layouts and recompute an auto topology. */
-  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo );
+  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo, reserve_agave_cores );
   fd_topob_finish( topo, CALLBACKS );
 }
 
@@ -130,10 +131,17 @@ bench_cmd_fn( args_t *   args,
                                    config->tiles.quic.quic_transaction_listen_port );
 
   config->rpc.port     = fd_ushort_if( config->rpc.port, config->rpc.port, 8899 );
-  config->rpc.full_api = 1;
+  if( FD_UNLIKELY( !config->is_firedancer ) ) {
+    config->frankendancer.rpc.full_api = 1;
+  }
 
   int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
-  int is_agave_auto_affinity = !strcmp( config->layout.agave_affinity, "auto" );
+  int is_agave_auto_affinity;
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    is_agave_auto_affinity = is_auto_affinity;
+  } else {
+    is_agave_auto_affinity = !strcmp( config->frankendancer.layout.agave_affinity, "auto" );
+  }
   int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
 
   if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ||
@@ -152,7 +160,8 @@ bench_cmd_fn( args_t *   args,
                   config->tiles.net.ip_addr,
                   config->rpc.port,
                   config->tiles.net.ip_addr,
-                  args->load.no_quic );
+                  args->load.no_quic,
+                  !config->is_firedancer );
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,

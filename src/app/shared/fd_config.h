@@ -1,104 +1,118 @@
 #ifndef HEADER_fd_src_app_shared_fd_config_h
 #define HEADER_fd_src_app_shared_fd_config_h
 
-#include "fd_cap_chk.h"
 #include "../../disco/topo/fd_topo.h"
-#include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
+#include "../../ballet/base58/fd_base58.h"
+#include "../../util/net/fd_net_headers.h"
 
 #include <net/if.h>
-#include <linux/limits.h>
 
-#define NAME_SZ 256
-#define AFFINITY_SZ 256
-#define CONFIGURE_STAGE_COUNT 12
+#define NAME_SZ                          (256UL)
+#define AFFINITY_SZ                      (256UL)
+#define CONFIGURE_STAGE_COUNT            ( 12UL)
+#define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ( 16UL)
 
-union fdctl_args {
-  struct {
-    char  tile_name[ 7UL ];
-    ulong kind_id;
-    int   pipe_fd;
-  } run1;
+struct fd_configh {
+  char dynamic_port_range[ 32 ];
 
   struct {
-    long dt_min;
-    long dt_max;
-    long duration;
-    uint seed;
-    double ns_per_tic;
-    int drain_output_fd;
-    int with_bench;
-    int with_sankey;
-  } monitor;
+    char  accounts_path[ PATH_MAX ];
+    ulong authorized_voter_paths_cnt;
+    char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+  } paths;
 
   struct {
-    int                      command;
-    struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
-  } configure;
+    char solana_metrics_config[ 512 ];
+  } reporting;
 
   struct {
-    int     require_tower;
-    int     force;
-    uchar * keypair;
-  } set_identity;
+    uint  limit_size;
+    ulong account_indexes_cnt;
+    char  account_indexes[ 4 ][ 32 ];
+    ulong account_index_include_keys_cnt;
+    char  account_index_include_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
+    ulong account_index_exclude_keys_cnt;
+    char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
+    char  accounts_index_path[ PATH_MAX ];
+    char  accounts_hash_cache_path[ PATH_MAX ];
+    int   require_tower;
+    char  snapshot_archive_format[ 10 ];
+  } ledger;
 
   struct {
-    int  parent_pipefd;
-    int  monitor;
-    int  no_configure;
-    int  no_init_workspaces;
-    int  no_agave;
-    char debug_tile[ 32 ];
-  } dev;
+    int    port_check;
+    char   host[ 256 ];
+  } gossip;
 
   struct {
-    char tile_name[ 7UL ];
-    int  no_configure;
-  } dev1;
+    int    snapshot_fetch;
+    int    genesis_fetch;
+    int    poh_speed_test;
+    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
+    uint   wait_for_supermajority_at_slot;
+    char   expected_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    int    wait_for_vote_to_start_leader;
+    ulong  hard_fork_at_slots_cnt;
+    uint   hard_fork_at_slots[ 32 ];
+    ulong  known_validators_cnt;
+    char   known_validators[ 16 ][ 256 ];
+    int    os_network_limits_test;
+  } consensus;
 
   struct {
-    ulong cmd;
-    char  file_path[ 256 ];
-  } keys;
+    int    full_api;
+    int    private;
+    char   bind_address[ 16 ];
+    int    transaction_history;
+    int    only_known;
+    int    pubsub_enable_block_subscription;
+    int    pubsub_enable_vote_subscription;
+    int    bigtable_ledger_storage;
+  } rpc;
 
   struct {
-    const char * payload_base64;
-    ulong  count;
-    const char * dst_ip;
-    ushort dst_port;
-  } txn;
+    int  enabled;
+    int  incremental_snapshots;
+    uint full_snapshot_interval_slots;
+    uint incremental_snapshot_interval_slots;
+    uint minimum_snapshot_download_speed;
+    uint maximum_full_snapshots_to_retain;
+    uint maximum_incremental_snapshots_to_retain;
+    char path[ PATH_MAX ];
+    char incremental_path[ PATH_MAX ];
+  } snapshots;
 
   struct {
-    char link_name[ 64UL ];
-    char pcap_path[ 256UL ];
-  } dump;
-
-  struct {
-    char name[ 13UL ];
-  } flame;
-
-  struct {
-    char    affinity[ AFFINITY_SZ ];
-    uint    tpu_ip;
-    uint    rpc_ip;
-    ushort  tpu_port;
-    ushort  rpc_port;
-    ulong   accounts;
-    ulong   connections;
-    ulong   benchg;
-    ulong   benchs;
-    int     no_quic;
-    int     transaction_mode;
-    float   contending_fraction;
-    float   cu_price_spread;
-  } load; /* also used by bench */
-
-  struct {
-    int event;
-    int dump; /* whether the user requested --dump */
-  } quic_trace;
+    char agave_affinity[ AFFINITY_SZ ];
+    uint agave_unified_scheduler_handler_threads;
+  } layout;
 };
 
-typedef union fdctl_args args_t;
+typedef struct fd_configh fd_configh_t;
+
+struct fd_configf {
+  struct {
+    int vote;
+  } consensus;
+
+  struct {
+    ulong shred_max;
+    ulong block_max;
+    ulong idx_max;
+    ulong txn_max;
+    ulong alloc_max;
+    char  file[PATH_MAX];
+    char  checkpt[PATH_MAX];
+    char  restore[PATH_MAX];
+  } blockstore;
+
+  struct {
+    uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
+    uint writer_tile_count;
+  } layout;
+};
+
+typedef struct fd_configf fd_configf_t;
 
 struct fd_config {
   char name[ NAME_SZ ];
@@ -116,9 +130,18 @@ struct fd_config {
   uint uid;
   uint gid;
 
-  char scratch_directory[ PATH_MAX ];
+  int is_firedancer;
+  union {
+    fd_configh_t frankendancer;
+    fd_configf_t firedancer;
+  };
 
-  char dynamic_port_range[ 32 ];
+  struct {
+    char base[ PATH_MAX ];
+    char ledger[ PATH_MAX ];
+    char identity_key[ PATH_MAX ];
+    char vote_account[ PATH_MAX ];
+  } paths;
 
   struct {
     char path[ PATH_MAX ];
@@ -142,115 +165,40 @@ struct fd_config {
   } log;
 
   struct {
-    char solana_metrics_config[ 512 ];
-  } reporting;
-
-  struct {
-    char  path[ PATH_MAX ];
-    char  accounts_path[ PATH_MAX ];
-    uint  limit_size;
-    ulong account_indexes_cnt;
-    char  account_indexes[ 4 ][ 32 ];
-    ulong account_index_include_keys_cnt;
-    char  account_index_include_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
-    ulong account_index_exclude_keys_cnt;
-    char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
-    char  accounts_index_path[ PATH_MAX ];
-    char  accounts_hash_cache_path[ PATH_MAX ];
-    int   require_tower;
-    char  snapshot_archive_format[ 10 ];
-  } ledger;
-
-  struct {
-#   define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX 16
-    ulong  entrypoints_cnt;
-    char   entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
-    ulong         resolved_entrypoints_cnt;
-    fd_ip4_port_t resolved_entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ];
-    int    port_check;
-    ushort port;
-    char   host[ 256 ];
-  } gossip;
-
-  struct {
-    int    vote;
-    char   identity_path[ PATH_MAX ];
-    char   vote_account_path[ PATH_MAX ];
-    ulong  authorized_voter_paths_cnt;
-    char   authorized_voter_paths[ 16 ][ PATH_MAX ];
-    int    snapshot_fetch;
-    int    genesis_fetch;
-    int    poh_speed_test;
-    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-    uint   wait_for_supermajority_at_slot;
-    char   expected_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
     ushort expected_shred_version;
-    int    wait_for_vote_to_start_leader;
-    ulong  hard_fork_at_slots_cnt;
-    uint   hard_fork_at_slots[ 32 ];
-    ulong  known_validators_cnt;
-    char   known_validators[ 16 ][ 256 ];
-    int    os_network_limits_test;
   } consensus;
 
   struct {
+    ulong         entrypoints_cnt;
+    char          entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+    ulong         resolved_entrypoints_cnt; /* ??? why during config ... */
+    fd_ip4_port_t resolved_entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ];
     ushort port;
-    int    full_api;
-    int    private;
-    char   bind_address[ 16 ];
-    int    transaction_history;
+  } gossip;
+
+  struct {
+    ushort port;
     int    extended_tx_metadata_storage;
-    int    only_known;
-    int    pubsub_enable_block_subscription;
-    int    pubsub_enable_vote_subscription;
-    int    bigtable_ledger_storage;
   } rpc;
 
   struct {
-    int  enabled;
-    int  incremental_snapshots;
-    uint full_snapshot_interval_slots;
-    uint incremental_snapshot_interval_slots;
-    uint minimum_snapshot_download_speed;
-    uint maximum_full_snapshots_to_retain;
-    uint maximum_incremental_snapshots_to_retain;
-    char path[ PATH_MAX ];
-    char incremental_path[ PATH_MAX ];
-  } snapshots;
-
-  struct {
     char affinity[ AFFINITY_SZ ];
-    char agave_affinity[ AFFINITY_SZ ];
 
-    uint agave_unified_scheduler_handler_threads;
     uint net_tile_count;
     uint quic_tile_count;
     uint resolv_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
-    uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
-    uint writer_tile_count;
   } layout;
 
   struct {
-    char gigantic_page_mount_path[ PATH_MAX ];
-    char huge_page_mount_path[ PATH_MAX ];
-    char mount_path[ PATH_MAX ];
-    char max_page_size[ 16 ];
+    char  gigantic_page_mount_path[ PATH_MAX ];
+    char  huge_page_mount_path[ PATH_MAX ];
+    char  mount_path[ PATH_MAX ];
+    char  max_page_size[ 16 ];
     ulong gigantic_page_threshold_mib;
   } hugetlbfs;
-
-  struct {
-    ulong shred_max;
-    ulong block_max;
-    ulong idx_max;
-    ulong txn_max;
-    ulong alloc_max;
-    char  file[PATH_MAX];
-    char  checkpt[PATH_MAX];
-    char  restore[PATH_MAX];
-  } blockstore;
 
   struct {
     int sandbox;
@@ -308,12 +256,12 @@ struct fd_config {
 
   struct {
     struct {
-      char   interface[ IF_NAMESIZE ];
-      char   bind_address[ 16 ];
-      uint   bind_address_parsed;
-      uint   ip_addr;
-      char   xdp_mode[ 8 ];
-      int    xdp_zero_copy;
+      char interface[ IF_NAMESIZE ];
+      char bind_address[ 16 ];
+      uint bind_address_parsed;
+      uint ip_addr;
+      char xdp_mode[ 8 ];
+      int  xdp_zero_copy;
 
       uint xdp_rx_queue_size;
       uint xdp_tx_queue_size;
@@ -337,7 +285,6 @@ struct fd_config {
       uint idle_timeout_millis;
       uint ack_delay_millis;
       int  retry;
-
     } quic;
 
     struct {
@@ -389,8 +336,6 @@ struct fd_config {
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
     } gui;
-
-    /* Firedancer-only tile configs */
 
     struct {
       ushort repair_intake_listen_port;
@@ -446,55 +391,45 @@ struct fd_config {
 typedef struct fd_config fd_config_t;
 typedef struct fd_config config_t;
 
-struct fd_action {
-  char const * name;
-  char const * description;
-  char const * permission_err;
-
-  int          is_help;
-  int          is_immediate;
-  uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
-
-  void       (*args)( int * pargc, char *** pargv, args_t * args );
-  void       (*perm)( args_t * args, fd_cap_chk_t * chk, config_t const * config );
-  void       (*fn  )( args_t * args, config_t * config );
-};
-
-typedef struct fd_action action_t;
-
 FD_PROTOTYPES_BEGIN
 
-/* fdctl_cfg_from_env() loads a full configuration object from the provided
-   arguments or the environment. First, the `default.toml` file is
-   loaded as a base, and then if a FIREDANCER_CONFIG_FILE environment
-   variable is provided, or a --config <path> command line argument, the
-   `toml` file at that path is loaded and applied on top of the default
-   configuration. This exits the program if it encounters any issue
-   while loading or parsing the configuration. */
+/* fd_config_load() loads a fd_config_t object from the contents of a
+   configuration file.  This is not a simple transformation of the file,
+   and involves multiple steps.  The default configuration file is
+   loaded first, and then the user configuration file (if non-NULL) is
+   loaded and overlaid on top of it.
 
-   void
-   fdctl_cfg_from_env( int *        pargc,
-                       char ***     pargv,
-                       config_t *   config,
-                       char const * default_config1,
-                       ulong        default_config1_sz,
-                       char const * default_config2,
-                       ulong        default_config2_sz );
+   The resulting raw configuration is then transformed to a full config
+   object by doing various parsing, validation, and filling in of extra
+   data from the operating system.
 
-/* Create a memfd and write the contents of the config struct into it.
-   Used when execve() a child process so that it can read back in the
-   same config as we did. */
-
-int
-fdctl_cfg_to_memfd( config_t const * config );
-
-/* fdctl_cfg_net_auto attempts to automatically select an interface
-   index and publicly routable IP address based on the current net
-   configuration.  Existing interface/IP address config overrules the
-   auto-selection logic. */
+   This function will not return on error, and will print an error
+   message and exit the process.  On success, the config object will be
+   returned as a fully filled in, validated, and ready to use object. */
 
 void
-fdctl_cfg_net_auto( config_t * config );
+fd_config_load( int           is_firedancer,
+                int           netns,
+                int           is_local_cluster,
+                char const *  default_config,
+                ulong         default_config_sz,
+                char const *  user_config,
+                ulong         user_config_sz,
+                char const *  user_config_path,
+                fd_config_t * config );
+
+/* Create a memfd and write the raw underlying bytes of the provided
+   config struct into it.  On success returns a file descriptor
+   representing the memfd.  On failure, returns -1 and errno will be
+   set appropriately.
+
+   The memfd is created with flags of 0.  The caller of the function can
+   use it to pass a loaded config struct to child processes that are
+   spawned with `execve(2)`, which would otherwise not be able to share
+   memory with the forking process. */
+
+int
+fd_config_to_memfd( fd_config_t const * config );
 
 FD_PROTOTYPES_END
 

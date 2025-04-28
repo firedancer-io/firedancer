@@ -1,7 +1,7 @@
-#ifndef HEADER_fd_src_flamenco_genesis_fd_genesis_cluster_h
-#define HEADER_fd_src_flamenco_genesis_fd_genesis_cluster_h
+#ifndef HEADER_fd_src_disco_genesis_fd_genesis_cluster_h
+#define HEADER_fd_src_disco_genesis_fd_genesis_cluster_h
 
-#include "../types/fd_types.h"
+#include "../../util/fd_util.h"
 
 #define FD_CLUSTER_UNKNOWN      (0UL)
 #define FD_CLUSTER_PYTHTEST     (1UL)
@@ -24,10 +24,10 @@ fd_genesis_cluster_identify( char const * genesis_hash );
 
    This function returns the human-readable name associated with cluster
    as a cstr with a static lifetime.  For example, FD_CLUSTER_TESTNET
-   resolves to "testnet".  If cluster is not a FD_CLUSTER_* macro, 
+   resolves to "testnet".  If cluster is not a FD_CLUSTER_* macro,
    this function returns "unknown" */
 
 FD_FN_CONST char const *
 fd_genesis_cluster_name( ulong cluster );
 
-#endif /* HEADER_fd_src_flamenco_genesis_fd_genesis_cluster_h */
+#endif /* HEADER_fd_src_disco_genesis_fd_genesis_cluster_h */

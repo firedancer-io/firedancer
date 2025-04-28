@@ -1,5 +1,7 @@
 #include "../../shared/fd_config.h"
+#include "../../shared/fd_action.h"
 #include "../../../util/net/fd_pcap.h"
+
 #include <stdio.h>
 
 void

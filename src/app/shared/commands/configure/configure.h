@@ -3,6 +3,7 @@
 
 #include "../../fd_cap_chk.h"
 #include "../../fd_config.h"
+#include "../../fd_action.h"
 
 #include <stdarg.h>
 

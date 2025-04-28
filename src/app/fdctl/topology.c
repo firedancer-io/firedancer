@@ -22,7 +22,6 @@ fd_topo_initialize( config_t * config ) {
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
-  topo->firedancer = 0;
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
@@ -92,7 +91,7 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
 
   int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
-  int is_agave_auto_affinity = !strcmp( config->layout.agave_affinity, "auto" );
+  int is_agave_auto_affinity = !strcmp( config->frankendancer.layout.agave_affinity, "auto" );
 
   if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ) ) {
     FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] and [layout.agave_affinity] must both be set to 'auto' or both be set to a specific CPU affinity string." ));
@@ -301,9 +300,9 @@ fd_topo_initialize( config_t * config ) {
                        "individual tile counts in the [layout] section of the configuration file.",
                        topo->tile_cnt, affinity_tile_cnt ));
 
-    if( FD_LIKELY( strcmp( "", config->layout.agave_affinity ) ) ) {
+    if( FD_LIKELY( strcmp( "", config->frankendancer.layout.agave_affinity ) ) ) {
       ushort agave_cpu[ FD_TILE_MAX ];
-      ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
+      ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->frankendancer.layout.agave_affinity, agave_cpu );
 
       for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
         if( FD_UNLIKELY( agave_cpu[ i ]>=cpus->cpu_cnt ) )
@@ -382,7 +381,7 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
       strncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
       strncpy( tile->bundle.tls_domain_name, config->tiles.bundle.tls_domain_name, sizeof(tile->bundle.tls_domain_name) );
-      strncpy( tile->bundle.identity_key_path, config->consensus.identity_path, sizeof(tile->bundle.identity_key_path) );
+      strncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
       tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
@@ -408,15 +407,15 @@ fd_topo_initialize( config_t * config ) {
         PARSE_PUBKEY( pack, tip_payment_program_addr      );
         PARSE_PUBKEY( pack, tip_distribution_authority    );
         tile->pack.bundle.commission_bps = config->tiles.bundle.commission_bps;
-        strncpy( tile->pack.bundle.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.bundle.identity_key_path) );
-        strncpy( tile->pack.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(tile->pack.bundle.vote_account_path) );
+        strncpy( tile->pack.bundle.identity_key_path, config->paths.identity_key, sizeof(tile->pack.bundle.identity_key_path) );
+        strncpy( tile->pack.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pack.bundle.vote_account_path) );
       } else {
         fd_memset( &tile->pack.bundle, '\0', sizeof(tile->pack.bundle) );
       }
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
-      strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
+      strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
 
       tile->poh.plugins_enabled = plugins_enabled;
       tile->poh.bank_cnt = config->layout.bank_tile_count;
@@ -426,14 +425,14 @@ fd_topo_initialize( config_t * config ) {
         tile->poh.bundle.enabled = 1;
         PARSE_PUBKEY( poh, tip_distribution_program_addr );
         PARSE_PUBKEY( poh, tip_payment_program_addr      );
-        strncpy( tile->poh.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(tile->poh.bundle.vote_account_path) );
+        strncpy( tile->poh.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->poh.bundle.vote_account_path) );
 #undef PARSE_PUBKEY
       } else {
         fd_memset( &tile->poh.bundle, '\0', sizeof(tile->poh.bundle) );
       }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
-      strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
+      strncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
 
       tile->shred.depth                         = topo->links[ tile->out_link_id[ 0 ] ].depth;
       tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
@@ -462,7 +461,7 @@ fd_topo_initialize( config_t * config ) {
       tile->store.disable_blockstore_from_slot = config->development.bench.disable_blockstore_from_slot;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
-      strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
+      strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
       if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
@@ -475,9 +474,9 @@ fd_topo_initialize( config_t * config ) {
       if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )
         FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
       tile->gui.listen_port = config->tiles.gui.gui_listen_port;
-      tile->gui.is_voting = strcmp( config->consensus.vote_account_path, "" );
+      tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
       strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
-      strncpy( tile->gui.identity_key_path, config->consensus.identity_path, sizeof(tile->gui.identity_key_path) );
+      strncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
       tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
       tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
       tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
@@ -489,7 +488,7 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo );
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 1 );
 
   fd_topob_finish( topo, CALLBACKS );
   config->topo = *topo;

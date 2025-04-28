@@ -11,9 +11,9 @@ $(call add-hdrs,fd_file_util.h)
 
 $(call add-objs,fd_config fd_config_parse,fdctl_shared)
 $(call add-objs,fd_obj_callbacks,fdctl_shared)
-$(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fdctl_shared fd_ballet fd_util)
+$(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fdctl_shared fd_disco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_config_parse)
-$(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fdctl_shared fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fdctl_shared fd_disco fd_ballet fd_tango fd_util)
 
 $(call add-objs,boot/fd_boot,fdctl_shared)
 

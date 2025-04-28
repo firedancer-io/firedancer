@@ -1,4 +1,5 @@
 #include "../../shared/fd_config.h"
+#include "../../shared/fd_action.h"
 
 #include "../../shared/fd_sys_util.h"
 #include "../../shared/fd_net_util.h"
