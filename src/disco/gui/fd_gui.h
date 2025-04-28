@@ -181,6 +181,7 @@ typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 struct fd_gui_slot {
   ulong slot;
   ulong parent_slot;
+  uint max_compute_units;
   long  completed_time;
   int   mine;
   int   skipped;
@@ -216,9 +217,6 @@ struct fd_gui_slot {
     uint end_microblocks;   /* The number of microblocks we have seen be ended (sent) from banks to poh.  The
                                slot is only considered over if the begin and end microblocks seen are both equal
                                to the microblock upper bound. */
-
-    uint   max_compute_units; /* The maximum number of compute units allowed in the slot.  Currently fixed at 48M
-                                 but will increase dynamically in future according to some feature gates. */
 
     ulong   start_offset; /* The smallest pack transaction index for this slot. The first transaction for this slot will
                              be written to gui->txs[ start_offset%FD_GUI_TXN_HISTORY_SZ ]. */

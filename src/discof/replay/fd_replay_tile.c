@@ -1305,7 +1305,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
       .parent_slot = ctx->parent_slot,
     };
     */
-    ulong msg[10];
+    ulong msg[11];
     msg[ 0 ] = ctx->curr_slot;
     msg[ 1 ] = fork->slot_ctx->txn_count;
     msg[ 2 ] = fork->slot_ctx->nonvote_txn_count;
@@ -1316,6 +1316,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg[ 7 ] = fork->slot_ctx->slot_bank.collected_priority_fees;
     msg[ 8 ] = 0UL; /* todo ... track tips */
     msg[ 9 ] = ctx->parent_slot;
+    msg[ 10 ] = 0UL;  /* todo ... max compute units */
     replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_COMPLETED, (uchar const *)msg, sizeof(msg) );
   }
 }
