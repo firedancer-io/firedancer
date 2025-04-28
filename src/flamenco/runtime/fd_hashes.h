@@ -110,14 +110,6 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_tpool_t *         tpool,
                            fd_spad_t *          runtime_spad );
 
-/* Single threaded version of fd_update_hash_bank_tpool
-   TODO: Use parallel execution APIs in fd_runtime_public  */
-int
-fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
-                      fd_capture_ctx_t *   capture_ctx,
-                      fd_hash_t *          hash,
-                      ulong                signature_cnt,
-                      fd_spad_t *          runtime_spad );
 
 /* fd_hash_account is the method to compute the account
    hash.  It includes the following content:

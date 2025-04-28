@@ -615,7 +615,15 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_collect_modified_accounts( slot_ctx, task_data, runtime_spad );
 
-  ulong wcnt = fd_tpool_worker_cnt( tpool );
+  ulong wcnt = 0UL;
+
+  /* Handle non-tpool case in a single-threaded manner */
+  if( FD_LIKELY( tpool ) ){
+    wcnt = fd_tpool_worker_cnt( tpool );
+  } else {
+    wcnt = 1UL;
+  }
+
 
   fd_lthash_value_t * lt_hashes = fd_spad_alloc( runtime_spad,
                                                  FD_LTHASH_VALUE_ALIGN,
@@ -624,18 +632,31 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_lthash_zero( &lt_hashes[i] );
   }
 
-  ulong cnt_per_worker = task_data->info_sz / (wcnt-1UL);
-  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
-    ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-    ulong end_idx   = worker_idx!=wcnt-1 ? start_idx + cnt_per_worker - 1 : task_data->info_sz - 1;
-    fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
-                   task_data, start_idx, end_idx,
-                   &lt_hashes[worker_idx], 0UL, 0UL,
-                   0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
-  }
+  if( FD_LIKELY( tpool ) ){
+    ulong cnt_per_worker = task_data->info_sz / (wcnt-1UL);
+    for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+      ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
+      ulong end_idx   = worker_idx!=wcnt-1 ? start_idx + cnt_per_worker - 1 : task_data->info_sz - 1;
+      fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
+                     task_data, start_idx, end_idx,
+                     &lt_hashes[worker_idx], 0UL, 0UL,
+                     0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
+    }
 
-  for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
-    fd_tpool_wait( tpool, worker_idx );
+    for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
+      fd_tpool_wait( tpool, worker_idx );
+    }
+
+  } else {
+    for( ulong i=0UL; i<task_data->info_sz; i++ ) {
+      fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
+      fd_account_hash( slot_ctx->funk,
+                       slot_ctx->funk_txn,
+                       task_info,
+                       &lt_hashes[ 0 ],
+                       slot_ctx->slot_bank.slot,
+                       &slot_ctx->epoch_ctx->features );
+    }
   }
 
   return fd_update_hash_bank_exec_hash( slot_ctx,
@@ -645,46 +666,6 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         1UL,
                                         lt_hashes,
                                         wcnt,
-                                        signature_cnt,
-                                        runtime_spad );
-}
-
-int
-fd_update_hash_bank(  fd_exec_slot_ctx_t * slot_ctx,
-                      fd_capture_ctx_t *   capture_ctx,
-                      fd_hash_t *          hash,
-                      ulong                signature_cnt,
-                      fd_spad_t *          runtime_spad ) {
-
-  /* Collect list of changed accounts to be added to bank hash */
-  fd_accounts_hash_task_data_t * task_data = fd_spad_alloc( runtime_spad,
-                                                            alignof(fd_accounts_hash_task_data_t),
-                                                            sizeof(fd_accounts_hash_task_data_t) );
-
-  fd_collect_modified_accounts( slot_ctx, task_data, runtime_spad );
-
-  fd_lthash_value_t * lt_hash = fd_spad_alloc(  runtime_spad,
-                                                FD_LTHASH_VALUE_ALIGN,
-                                                FD_LTHASH_VALUE_FOOTPRINT );
-  fd_lthash_zero( lt_hash );
-
-  for( ulong i=0UL; i<task_data->info_sz; i++ ) {
-    fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
-    fd_account_hash( slot_ctx->funk,
-                     slot_ctx->funk_txn,
-                     task_info,
-                     lt_hash,
-                     slot_ctx->slot_bank.slot,
-                     &slot_ctx->epoch_ctx->features );
-  }
-
-  return fd_update_hash_bank_exec_hash( slot_ctx,
-                                        hash,
-                                        capture_ctx,
-                                        task_data,
-                                        1UL,
-                                        lt_hash,
-                                        1UL,
                                         signature_cnt,
                                         runtime_spad );
 }

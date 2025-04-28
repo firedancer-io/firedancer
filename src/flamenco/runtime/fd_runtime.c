@@ -3653,11 +3653,12 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
   /* sort and update bank hash */
-  int result = fd_update_hash_bank( slot_ctx,
-                                    capture_ctx,
-                                    &slot_ctx->slot_bank.banks_hash,
-                                    slot_ctx->signature_cnt,
-                                   runtime_spad );
+  int result = fd_update_hash_bank_tpool( slot_ctx,
+                                          capture_ctx,
+                                          &slot_ctx->slot_bank.banks_hash,
+                                          slot_ctx->signature_cnt,
+                                          NULL,
+                                          runtime_spad );
   if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
     FD_LOG_ERR(( "Failed to update bank hash with error=%d", result ));
   }
