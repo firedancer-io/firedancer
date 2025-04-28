@@ -265,8 +265,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     }
 
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp,
-                                                          slot_hashes_global->hashes_gaddr ) );
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
     ulong is_recent_slot = slot_hashes_position( slot_hash, create->recent_slot )!=ULONG_MAX;
@@ -1005,8 +1004,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
-  fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp,
-                                                        slot_hashes_global->hashes_gaddr ) );
+  fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
   ulong remaining_blocks = 0UL;
