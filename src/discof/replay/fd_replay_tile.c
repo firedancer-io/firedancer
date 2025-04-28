@@ -1661,22 +1661,7 @@ static void
 prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   ulong curr_slot   = ctx->curr_slot;
-  ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
-  if( FD_UNLIKELY( curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ));
-    return;
-  }
-
-  if( FD_UNLIKELY( parent_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ) );
-    return;
-  }
-
-  if( FD_UNLIKELY( !fd_blockstore_block_info_test( ctx->blockstore, parent_slot ) ) ) {
-    FD_LOG_WARNING(( "[%s] unable to find slot %lu's parent block_info", __func__, curr_slot ));
-    return;
-  }
 
   /**********************************************************************/
   /* Get the epoch_ctx for replaying curr_slot                          */
@@ -1895,6 +1880,22 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   uint   data_cnt      = fd_disco_repair_replay_sig_data_cnt( sig );
   ushort parent_off    = fd_disco_repair_replay_sig_parent_off( sig );
   int    slot_complete = fd_disco_repair_replay_sig_slot_complete( sig );
+  ulong  parent_slot   = slot - parent_off;
+
+  if( FD_UNLIKELY( slot < fd_fseq_query( ctx->published_wmark ) ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ));
+    return;
+  }
+
+  if( FD_UNLIKELY( parent_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( !fd_blockstore_block_info_test( ctx->blockstore, parent_slot ) ) ) {
+    FD_LOG_WARNING(( "unable to find slot %lu's parent slot %lu block_info", slot, parent_slot ));
+    return;
+  }
 
   if( FD_UNLIKELY( slot != ctx->curr_slot ) ) {
     /* We need to switch forks and execution contexts. Either we
@@ -1907,7 +1908,7 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
         prepare_first_batch_execution already handles this logic. */
 
     ctx->curr_slot   = slot;
-    ctx->parent_slot = slot - parent_off;
+    ctx->parent_slot = parent_slot;
     prepare_first_batch_execution( ctx, stem );
   } else {
     /* continuing execution of the slot we have been doing */
@@ -2309,6 +2310,29 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
   curr_entry->epoch_ctx = ctx->epoch_ctx;
   ctx->epoch_forks->curr_epoch_idx = 0UL;
+
+  ulong wmark = snapshot_slot;
+  if( FD_LIKELY( wmark > fd_fseq_query( ctx->published_wmark ) ) ) {
+
+    /* The watermark has advanced likely because we loaded an
+       incremental snapshot that was downloaded just-in-time.  We had
+       kicked off repair with an older incremental snapshot, and so now
+       we have to prune the relevant data structures, so replay can
+       start from the latest frontier.
+
+       No funk_and_txncache_publish( ctx, wmark, &xid ); because there
+       are no funk txns to publish, and all rooted slots have already
+       been registered in the txncache when we loaded the snapshot. */
+
+    FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
+    if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );
+    if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmark, ctx->ghost );
+    if( FD_LIKELY( ctx->ghost ) ) {
+      fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, wmark );
+      fd_ghost_publish( ctx->ghost, wmark );
+    }
+    fd_fseq_update( ctx->published_wmark, wmark );
+  }
 
   FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
 }
