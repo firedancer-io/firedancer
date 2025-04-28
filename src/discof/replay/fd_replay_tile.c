@@ -2215,6 +2215,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
+    /* Genesis-specific setup. */
+    /* FIXME: This branch does not set up a new block exec ctx
+       properly. Needs to do whatever prepare_new_block_execution
+       does, but just hacking that in breaks stuff. */
     fd_runtime_update_leaders( ctx->slot_ctx,
                                ctx->slot_ctx->slot_bank.slot,
                                ctx->runtime_spad );
