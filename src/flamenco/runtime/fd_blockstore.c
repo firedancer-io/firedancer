@@ -812,33 +812,6 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
 
   // FD_LOG_NOTICE(( "querying for %lu %u %u", slot, start_idx, end_idx ));
 
-  int err = FD_MAP_ERR_AGAIN;
-  int invalid_idx = 0;
-  while( err == FD_MAP_ERR_AGAIN ){
-    fd_block_map_query_t quer[1] = { 0 };
-    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
-    fd_block_info_t * query = fd_block_map_query_ele( quer );
-    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-    fd_block_set_t * data_complete_idxs = query->data_complete_idxs;
-    if ( ( start_idx > 0 && !fd_block_set_test( data_complete_idxs, start_idx - 1 ))
-         || start_idx > query->slot_complete_idx
-         || !fd_block_set_test( data_complete_idxs, end_idx ) ) {
-          FD_LOG_WARNING(("start_idx > 0: %d, !fd_block_set_test: %d, start_idx > slot_complete_idx: %d, !fd_block_set_test: %d",
-                          start_idx > 0,
-                          fd_block_set_test( data_complete_idxs, start_idx - 1 ),
-                          start_idx > query->slot_complete_idx,
-                          !fd_block_set_test( data_complete_idxs, end_idx ) ));
-      invalid_idx = 1;
-    }
-    err = fd_block_map_query_test( quer );
-  }
-  if( FD_UNLIKELY( invalid_idx ) ) {
-    FD_LOG_WARNING(( "[%s] invalid idxs: (%lu, %u, %u)", __func__, slot, start_idx, end_idx ));
-    __asm__("int $3");
-    return FD_BLOCKSTORE_ERR_SHRED_INVALID;
-  }
-
   ulong off = 0;
   for(uint idx = start_idx; idx <= end_idx; idx++) {
     ulong payload_sz = 0;
