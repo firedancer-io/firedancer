@@ -48,7 +48,7 @@ fd_x25519_montgomery_ladder( fd_f25519_t *       x2,
   fd_f25519_set( x2, fd_f25519_one );
   fd_f25519_set( z2, fd_f25519_zero );
 
-  /* use fd_f25519_add to reduce x1 mod p. it's prob unnecessary but not worth the risk. */
+  /* use fd_f25519_add to reduce x1 mod p. this is required (we have a test). */
   fd_f25519_add( x3, fd_f25519_zero, x1 );
   fd_f25519_set( z3, fd_f25519_one );
 
@@ -129,6 +129,9 @@ fd_x25519_montgomery_ladder( fd_f25519_t *       x2,
                          fd_r43x6_zero(),               // z_2 = 0, in u44
                          x1->el,                        // x_3 = u, in u44
                          fd_r43x6_one() );              // z_3 = 1, in u44
+  /* reduce x1 */
+  FD_R43X6_QUAD_FOLD_SIGNED( U, U );
+  FD_R43X6_QUAD_FOLD_SIGNED( Q, Q );
   int swap = 0;
   int k_t = 0;
   wwl_t perm;
@@ -155,7 +158,7 @@ fd_x25519_montgomery_ladder( fd_f25519_t *       x2,
     FD_R43X6_QUAD_LANE_SUB_FAST( P, P, 0,1,0,1, P, Q ); // D = x_3 - z_3,            P  = A  |B  |C    |D,     in u45|s44|u45|s44
     FD_R43X6_QUAD_PERMUTE      ( Q, 0,1,1,0, P );       // BB = B^2,                 P  = A  |B  |B    |A,     in u44|u44|u44|u44
     FD_R43X6_QUAD_MUL_FAST     ( P, P, Q );             // DA = D * A,               P  = AA |BB |CB   |DA,    in u62|u62|u62|u62
-    FD_R43X6_QUAD_FOLD_SIGNED  ( P, P );                // DA = D * A,               P  = AA |BB |CB   |DA,    in u44|u44|u44|u44
+    FD_R43X6_QUAD_FOLD_UNSIGNED( P, P );                // DA = D * A,               P  = AA |BB |CB   |DA,    in u44|u44|u44|u44
     FD_R43X6_QUAD_PERMUTE      ( Q, 1,0,3,2, P );       // CB = C * B,               Q  = BB |AA |DA   |CB,    in u62|u62|u62|u62
     FD_R43X6_QUAD_LANE_SUB_FAST( P, P, 0,1,0,1, Q, P ); // E = AA-BB,                P  = AA |E  |CB   |CB-DA, in u62|s62|u62|s62
     FD_R43X6_QUAD_LANE_ADD_FAST( P, P, 0,0,1,0, P, Q ); //                           P  = AA |E  |DA+CB|CB-DA, in u62|s62|u63|s62
