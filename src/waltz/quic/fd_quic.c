@@ -4016,14 +4016,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
             fd_quic_cb_conn_new( quic, conn );
 
             /* clear out hs_data here, as we don't need it anymore */
-            fd_quic_tls_hs_data_t * hs_data = NULL;
-
-            uint enc_level = (uint)fd_quic_enc_level_appdata_id;
-            hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
-            while( hs_data ) {
-              fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
-              hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
-            }
+            fd_quic_tls_clear_hs_data( conn->tls_hs, fd_quic_enc_level_appdata_id );
           }
 
           /* if we're the client, fd_quic_conn_tx will flush the hs
@@ -5594,16 +5587,7 @@ fd_quic_handle_handshake_done_frame(
   }
 
   /* eliminate any remaining hs_data at application level */
-  fd_quic_tls_hs_data_t * hs_data = NULL;
-
-  uint hs_enc_level = fd_quic_enc_level_appdata_id;
-  hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, hs_enc_level );
-  /* skip packets we've sent */
-  while( hs_data ) {
-    fd_quic_tls_pop_hs_data( conn->tls_hs, hs_enc_level );
-
-    hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, hs_enc_level );
-  }
+  fd_quic_tls_clear_hs_data( conn->tls_hs, fd_quic_enc_level_appdata_id );
 
   /* we shouldn't be receiving this unless handshake is complete */
   fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
