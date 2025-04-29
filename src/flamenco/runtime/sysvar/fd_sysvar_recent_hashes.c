@@ -121,6 +121,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Update the blockhash queue */
   register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
+
   /* Derive the new sysvar recent blockhashes from the blockhash queue */
   ulong   sz        = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
   uchar * enc       = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
@@ -129,6 +130,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
 
   /* Encode the recent blockhashes */
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
+
   /* Set the sysvar from the encoded data */
   fd_sysvar_set( slot_ctx,
                  &fd_sysvar_owner_id,

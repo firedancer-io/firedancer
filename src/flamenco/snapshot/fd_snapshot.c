@@ -218,6 +218,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
        this is not expected. */
     FD_LOG_ERR(( "Failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
   }
+
 }
 
 void
@@ -347,6 +348,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
     } else {
       FD_LOG_ERR(( "invalid snapshot type %d", ctx->snapshot_type ));
     }
+
   }
   if( ctx->child_txn != ctx->par_txn ) {
     fd_funk_txn_start_write( ctx->slot_ctx->funk );

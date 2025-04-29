@@ -294,12 +294,10 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
 
-  /* START EXPERIMENT *************************************************/
 
-  fd_funk_t *     funk         = slot_ctx->funk;
-  fd_funk_txn_t * funk_txn     = slot_ctx->funk_txn;
-  void *          bank_mgr_mem = fd_spad_alloc( runtime_spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
-  fd_bank_mgr_t * bank_mgr     = fd_bank_mgr_join( fd_bank_mgr_new( bank_mgr_mem ), funk, funk_txn );
+  fd_funk_t *     funk     = slot_ctx->funk;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &slot_ctx->bank_mgr, funk, funk_txn );
   if( FD_UNLIKELY( !bank_mgr ) ) {
     FD_LOG_ERR(( "Could not allocate bank manager" ));
   }
@@ -332,8 +330,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   bhq->max_age = oldbank->blockhash_queue.max_age;
 
   fd_bank_mgr_block_hash_queue_save( bank_mgr );
-
-  /* END EXPERIMENT ***************************************************/
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;
