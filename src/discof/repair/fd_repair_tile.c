@@ -191,12 +191,12 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t)             );
+  l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint()                    );
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),             fd_forest_footprint( FD_FOREST_ELE_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),             fd_fec_sig_footprint( 20 ) );
+  l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),            fd_fec_sig_footprint( 20 ) );
   l = FD_LAYOUT_APPEND( l, fd_recent_align(),             fd_recent_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( 20 ) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),              fd_reasm_footprint( 20 ) );
   // l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
@@ -979,7 +979,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           uint  cnt   = out.fec_set_idx + out.data_cnt - reasm->cnt;
           ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-          FD_LOG_INFO(( "tx slice to replay tile %lu %u %u %d", out.slot, out.fec_set_idx, cnt, out.slot_complete ));
           reasm->cnt = out.fec_set_idx + out.data_cnt;
           fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
           if( FD_UNLIKELY( out.slot_complete ) ) {
@@ -1008,8 +1007,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
          (assuming it wasn't already completed based on `cmpl`). */
 
       uint i = 0;
-      // FD_LOG_WARNING(( "slot %lu buffered_idx %u", shred->slot, ele->buffered_idx ));
-      for(ulong i =0; i < ele->buffered_idx + 1; i++) {
+      for( ulong i = 0; i < ele->buffered_idx + 1; i++ ) {
         if ( fd_forest_ele_idxs_test( ele->fecs, i ) ) {
           // FD_LOG_WARNING(( "fec %lu", i ));
         }
