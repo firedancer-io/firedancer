@@ -96,9 +96,6 @@ fd_flamenco_type_lookup( char const *       type,
   char fp[255];
 
 #pragma GCC diagnostic ignored "-Wpedantic"
-  sprintf( fp, "%s_footprint", type );
-  t->footprint_fun = dlsym( RTLD_DEFAULT, fp );
-
   sprintf( fp, "%s_align", type );
   t->align_fun = dlsym( RTLD_DEFAULT, fp );
 
@@ -123,8 +120,7 @@ fd_flamenco_type_lookup( char const *       type,
   sprintf( fp, "%s_size", type );
   t->size_fun = dlsym( RTLD_DEFAULT, fp );
 
-  if(( t->footprint_fun == NULL ) ||
-     ( t->align_fun == NULL ) ||
+  if(( t->align_fun == NULL ) ||
      ( t->new_fun == NULL ) ||
      ( t->decode_footprint_fun == NULL ) ||
      ( t->decode_fun == NULL ) ||

@@ -216,17 +216,17 @@ main( int     argc,
     /* Create basic slot delta */
     fd_bank_slot_deltas_t cache[1];
     cache->slot_deltas_len = 1;
-    cache->slot_deltas = fd_spad_alloc( _spad, fd_slot_delta_align(), fd_slot_delta_footprint() );
+    cache->slot_deltas = fd_spad_alloc( _spad, alignof(fd_slot_delta_t), 1UL*sizeof(fd_slot_delta_t) );
     cache->slot_deltas->is_root = 0;
     cache->slot_deltas->slot = 10;
     cache->slot_deltas->slot_delta_vec_len = 1;
-    cache->slot_deltas->slot_delta_vec = fd_spad_alloc( _spad, fd_status_pair_align(), fd_status_pair_footprint() );
+    cache->slot_deltas->slot_delta_vec = fd_spad_alloc( _spad, alignof(fd_status_pair_t), 1UL*sizeof(fd_status_pair_t) );
 
     fd_status_pair_t * pair = cache->slot_deltas->slot_delta_vec;
     fd_memset( pair->hash.uc, 1UL, sizeof(fd_hash_t) );
     pair->value.txn_idx = 2;
     pair->value.statuses_len = 1;
-    pair->value.statuses = fd_spad_alloc( _spad, fd_cache_status_align(), fd_cache_status_footprint() );
+    pair->value.statuses = fd_spad_alloc( _spad, alignof(fd_cache_status_t), 1UL*sizeof(fd_cache_status_t) );
 
     fd_cache_status_t * status = pair->value.statuses;
     status->result.discriminant = 0;

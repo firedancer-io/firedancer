@@ -80,9 +80,6 @@ typedef void
 typedef ulong
 (* fd_types_align_vfn_t)( void );
 
-typedef ulong
-(* fd_types_footprint_vfn_t)( void );
-
 /* Define test vector */
 
 struct test_fixture {
@@ -102,7 +99,6 @@ struct test_fixture {
   fd_types_encode_global_vfn_t    encode_global;
   fd_types_walk_vfn_t             walk;
   fd_types_align_vfn_t            align;
-  fd_types_footprint_vfn_t        footprint;
 };
 
 typedef struct test_fixture test_fixture_t;
@@ -123,7 +119,6 @@ static const test_fixture_t test_vector[] = {
     .encode           = ( fd_types_encode_vfn_t )fd_##type##_encode,                     \
     .encode_global    = ( fd_types_encode_global_vfn_t )fd_##type##_encode_global,       \
     .align            = ( fd_types_align_vfn_t )fd_##type##_align,                       \
-    .footprint        = ( fd_types_footprint_vfn_t )fd_##type##_footprint,               \
     .walk             = ( fd_types_walk_vfn_t )fd_##type##_walk },
 TEST_VECTOR( X )
 # undef X

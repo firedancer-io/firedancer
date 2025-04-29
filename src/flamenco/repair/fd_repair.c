@@ -27,7 +27,7 @@ fd_repair_new ( void * shmem, ulong seed ) {
   glob->dupdetect = fd_dupdetect_table_join(fd_dupdetect_table_new(shm, FD_NEEDED_KEY_MAX, seed));
   shm = FD_SCRATCH_ALLOC_APPEND( l, fd_pinged_table_align(), fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
   glob->pinged = fd_pinged_table_join(fd_pinged_table_new(shm, FD_REPAIR_PINGED_MAX, seed));
-  glob->stake_weights = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_weight_align(), FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
+  glob->stake_weights = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
   glob->stake_weights_cnt = 0;
   glob->last_sends = 0;
   glob->last_decay = 0;
@@ -695,7 +695,7 @@ fd_repair_set_stake_weights( fd_repair_t * repair,
     FD_LOG_ERR(( "too many stake weights" ));
   }
 
-  fd_memset( repair->stake_weights, 0, FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
+  fd_memset( repair->stake_weights, 0, FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
   fd_memcpy( repair->stake_weights, stake_weights, stake_weights_cnt * sizeof(fd_stake_weight_t) );
   repair->stake_weights_cnt = stake_weights_cnt;
 }

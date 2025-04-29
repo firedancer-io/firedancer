@@ -2907,7 +2907,6 @@ class OpaqueType(TypeNode):
         print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char * name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
-        print(f'ulong {n}_footprint( void );', file=header)
         print(f'ulong {n}_align( void );', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
@@ -2924,7 +2923,6 @@ class OpaqueType(TypeNode):
 
         print(f'void {n}_destroy( {n}_t * self ) {{ }}', file=body)
 
-        print(f'ulong {n}_footprint( void ) {{ return sizeof({n}_t); }}', file=body)
         print(f'ulong {n}_align( void ) {{ return alignof({n}_t); }}', file=body)
 
         print(f'ulong {n}_size( {n}_t const * self ) {{ (void)self; return sizeof({n}_t); }}', file=body)
@@ -3034,7 +3032,7 @@ class StructType(TypeNode):
         for f in self.fields:
             f.emitPreamble()
 
-        if self.comment is not None:
+        if self.comment is not None and self.comment != "":
             print(f'/* {self.comment} */', file=header)
 
         if self.isFixedSize():
@@ -3086,7 +3084,6 @@ class StructType(TypeNode):
         print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
-        print(f'ulong {n}_footprint( void );', file=header)
         print(f'ulong {n}_align( void );', file=header)
         if self.isFixedSize() and self.isFuzzy():
             print(f'inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=header)
@@ -3217,7 +3214,6 @@ class StructType(TypeNode):
         print("}", file=body)
         print("", file=body)
 
-        print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
         print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
         print("", file=body)
 
@@ -3372,7 +3368,6 @@ class EnumType:
         print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
-        print(f'ulong {n}_footprint( void );', file=header)
         print(f'ulong {n}_align( void );', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
@@ -3574,7 +3569,6 @@ class EnumType:
         print("}", file=body)
         print("", file=body)
 
-        print(f'ulong {n}_footprint( void ){{ return {n.upper()}_FOOTPRINT; }}', file=body)
         print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
         print("", file=body)
 
