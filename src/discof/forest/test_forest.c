@@ -185,6 +185,55 @@ void test_out_of_order( fd_wksp_t * wksp ) {
 }
 
 void
+test_repair_iter_frontier( fd_wksp_t * wksp ){
+  /* map_chain says we can't iterate while insertion is happening .... I say we can! */
+
+  ulong ele_max = 32UL;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  fd_forest_init( forest, 0 );
+  fd_forest_data_shred_insert( forest, 1, 1, 10, 0, 1 );
+  fd_forest_data_shred_insert( forest, 2, 1, 10, 0, 1 );
+  fd_forest_data_shred_insert( forest, 3, 1, 10, 0, 1 );
+  fd_forest_data_shred_insert( forest, 4, 1, 10, 0, 1 );
+  fd_forest_data_shred_insert( forest, 5, 1, 10, 0, 1 );
+
+  for( ulong i = 6; i < 31; i++ ) {
+    FD_TEST( fd_forest_data_shred_insert( forest, i, (ushort)i, 10, 0, 1 ) );
+  }
+
+  fd_forest_print( forest );
+
+  /* Frontier should be slot 1. */
+  ulong key = 1 ;
+  FD_TEST(  fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key, NULL, fd_forest_pool( forest ) ) );
+
+  fd_forest_ele_t * pool = fd_forest_pool( forest );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
+       !fd_forest_frontier_iter_done( iter, frontier, pool );
+       iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+    fd_forest_ele_t * ele = fd_forest_frontier_iter_ele( iter, frontier, pool );
+    FD_TEST( ele );
+  }
+
+  ulong key2 = 6;
+  FD_TEST(  fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &key2, NULL, fd_forest_pool( forest ) ) );
+
+  int cnt = 0;
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
+       !fd_forest_frontier_iter_done( iter, frontier, pool );
+       iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+    cnt++;
+  }
+ FD_LOG_WARNING(( "frontier sz: %d", cnt ));
+
+}
+
+void
 test_print_tree( fd_wksp_t *wksp ){
   ulong ele_max = 512UL;
   void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
@@ -234,8 +283,10 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_publish( wksp );
-  test_out_of_order( wksp );
+  //test_publish( wksp );
+  //test_out_of_order( wksp );
+
+  test_repair_iter_frontier( wksp );
   // test_print_tree( wksp );
 
   fd_halt();

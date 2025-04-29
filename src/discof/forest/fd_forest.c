@@ -284,6 +284,33 @@ advance_frontier( fd_forest_t * forest, ulong slot, ushort parent_off ) {
   ulong parent_slot = slot - parent_off;
   ele = fd_ptr_if( !ele, fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &parent_slot, NULL, pool ), ele );
 
+  /* There's an edge case where a fork begins from from somewhere behind
+     the frontier */
+  if( FD_UNLIKELY( !ele ) ) {
+    // traverse up the tree to see if we can find a parent
+    ele = fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
+    ulong parent_idx = ele->parent;
+    int found_parent_on_frontier = 0;
+    while( parent_idx != null ) {
+      fd_forest_ele_t * parent = fd_forest_pool_ele( pool, parent_idx );
+      if( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &parent->slot, NULL, pool ) ){
+        found_parent_on_frontier = 1;
+        break;
+      }
+      parent_idx = parent->parent;
+    }
+
+    if( FD_UNLIKELY( !found_parent_on_frontier ) ) {
+      ele = fd_forest_ancestry_ele_remove( ancestry, &slot, NULL, pool );
+      fd_forest_frontier_ele_insert( fd_forest_frontier( forest ), ele, pool );
+    } else {
+      /* We hit this case when we are not on frontier, parent is not on
+         frontier, but grandparent is on frontier. Which means this data
+         shred will not be advancing the frontier. */
+      return;
+    }
+  }
+
   fd_forest_ele_t * head = ele;
   fd_forest_ele_t * tail = head;
   fd_forest_ele_t * prev = NULL;
@@ -310,10 +337,10 @@ advance_frontier( fd_forest_t * forest, ulong slot, ushort parent_off ) {
 
 static fd_forest_ele_t *
 query( fd_forest_t * forest, ulong slot ) {
-  fd_forest_ele_t *      pool        = fd_forest_pool( forest );
-  fd_forest_ancestry_t * ancestry    = fd_forest_ancestry( forest );
-  fd_forest_frontier_t * frontier    = fd_forest_frontier( forest );
-  fd_forest_orphaned_t * orphaned    = fd_forest_orphaned( forest );
+  fd_forest_ele_t *      pool      = fd_forest_pool( forest );
+  fd_forest_ancestry_t * ancestry  = fd_forest_ancestry( forest );
+  fd_forest_frontier_t * frontier  = fd_forest_frontier( forest );
+  fd_forest_orphaned_t * orphaned  = fd_forest_orphaned( forest );
 
   fd_forest_ele_t * ele;
   ele =                  fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
@@ -424,7 +451,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
      head points to the queue head (initialized with old_root_ele). */
 
   fd_forest_ele_t * head = ancestry_frontier_remove( forest, old_root_ele->slot );
-  head->next          = null;
+  head->next             = null;
   fd_forest_ele_t * tail = head;
 
   /* Second, BFS down the tree, inserting each ele into the prune queue
@@ -607,11 +634,6 @@ fd_forest_ancestry_print( fd_forest_t const * forest ) {
   FD_LOG_NOTICE( ( "\n\n[Ancestry]\n%lu", fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root )->slot ) );
 
   ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), NULL, 0, 0, "" );
-
-  //FD_LOG_NOTICE(("\n\n[Ancestry]\n%lu", fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root )->slot ) );
-
-  //ancestry_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "" );
-
 }
 
 void
@@ -623,7 +645,8 @@ fd_forest_frontier_print( fd_forest_t const * forest ) {
        !fd_forest_frontier_iter_done( iter, frontier, pool );
        iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
     fd_forest_ele_t const * ele = fd_forest_frontier_iter_ele_const( iter, frontier, pool );
-    ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
+    printf( "%lu (%u/%u)\n", ele->slot, ele->buffered_idx + 1, ele->complete_idx + 1 );
+    //ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
 
   }
 }
