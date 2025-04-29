@@ -30,8 +30,6 @@
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
-#define FD_FOREST_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) fd_fseq_update( *ver, fd_fseq_query( *ver ) + 1 ); FD_LOG_ERR(( "FAIL: %s", #c )); } while(0)
-
 #define SET_NAME fd_forest_ele_idxs
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
