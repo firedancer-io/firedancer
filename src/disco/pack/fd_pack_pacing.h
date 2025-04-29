@@ -40,9 +40,9 @@ fd_pack_pacing_init( fd_pack_pacing_t * pacer,
 
   /* Time per CU depends on the hardware, the transaction mix, what
      fraction of the transactions land, etc.  It's hard to just come up
-     with a value, but a small sample says 9 ns/CU is in the right
+     with a value, but a small sample says 6 ns/CU is in the right
      ballpark. */
-  pacer->ticks_per_cu = 9.0f * ticks_per_ns;
+  pacer->ticks_per_cu = 6.0f * ticks_per_ns;
 
   /* Originally, we had all the lines ending 5% before t_end, but the
      better thing to do is to adjust max_cus up so that the 1 bank line
