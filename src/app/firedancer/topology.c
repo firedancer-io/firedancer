@@ -289,6 +289,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "pohi"        );
   fd_topob_wksp( topo, "voter"       );
   fd_topob_wksp( topo, "poh_slot"    );
+  fd_topob_wksp( topo, "turb_slot"   );
   fd_topob_wksp( topo, "eqvoc"       );
   fd_topob_wksp( topo, "batch"       );
   fd_topob_wksp( topo, "constipate"  );
@@ -519,6 +520,13 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, store_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
+
+  /* This fseq maintains the observed current turbine slot for the purposes of
+     tracking slots behind. */
+  fd_topo_obj_t * turb_slot_obj = fd_topob_obj( topo, "fseq", "turb_slot" );
+  fd_topob_tile_uses( topo, repair_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, turb_slot_obj->id, "turb_slot" ) );
 
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];

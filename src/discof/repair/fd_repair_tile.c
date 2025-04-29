@@ -121,6 +121,8 @@ struct fd_repair_tile_ctx {
   // fd_fec_repair_t *  fec_repair;
   fd_fec_chainer_t * fec_chainer;
 
+  ulong * curr_turbine_slot;
+
   uchar       identity_private_key[ 32 ];
   fd_pubkey_t identity_public_key;
 
@@ -940,6 +942,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     // FD_LOG_NOTICE(( "shred %lu %u %u", shred->slot, shred->idx, shred->fec_set_idx ));
 
+    if( FD_UNLIKELY( shred->slot > fd_fseq_query( ctx->curr_turbine_slot ) ) ) {
+      fd_fseq_update( ctx->curr_turbine_slot, shred->slot );
+    }
+
     fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
     if( FD_UNLIKELY( !fec_sig ) ) {
       // FD_LOG_NOTICE(( "inserting FEC %lu %lu %u", (shred->slot << 32) | shred->fec_set_idx, shred->slot, shred->fec_set_idx ));
@@ -1417,6 +1423,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->recent = fd_recent_join( fd_recent_new( ctx->recent, 20 ) );
   ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 20 ) );
   ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, 1 << 20, 0 ) );
+
+  /**********************************************************************/
+  /* turbine_slot fseq                                                  */
+  /**********************************************************************/
+
+  ulong current_turb_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turb_slot" );
+  FD_TEST( current_turb_slot_obj_id!=ULONG_MAX );
+  ctx->curr_turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_turb_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->curr_turbine_slot ) ) FD_LOG_ERR(( "repair tile has no turb_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->curr_turbine_slot ) );
+  fd_fseq_update( ctx->curr_turbine_slot, 0UL );
+
 
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
