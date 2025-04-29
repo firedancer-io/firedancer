@@ -47,7 +47,6 @@ struct fd_types_funcs {
   int   (*encode_fun)(void const * self, fd_bincode_encode_ctx_t * ctx);
   int   (*walk_fun)(void * w, void * self, fd_types_walk_fn_t, const char *, uint);
   ulong (*align_fun)( void );
-  ulong (*footprint_fun)( void );
   ulong (*size_fun)(void const * self);
   void  (*destroy_fun)(void* self);
   void* (*new_fun)(void *);

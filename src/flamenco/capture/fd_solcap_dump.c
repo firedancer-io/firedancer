@@ -4,7 +4,7 @@
 #include <dlfcn.h>
 
 #include "../fd_flamenco.h"
-#include "../runtime/fd_runtime.h"
+#include "../types/fd_types.h"
 #include "../types/fd_types_yaml.h"
 
 #include <errno.h>
@@ -12,6 +12,9 @@
 #include <sys/stat.h> /* mkdir(2) */
 #include <fcntl.h>    /* open(2) */
 #include <unistd.h>   /* close(2) */
+
+/* Prevent fd_types.o from getting dead stripped */
+ulong fd_types_dependency = (ulong)&fd_vote_state_versioned_decode_footprint;
 
 static void
 usage( void ) {
@@ -26,17 +29,10 @@ usage( void ) {
     "\n" );
 }
 
-ulong foo_lkasjdf( void ) {
-  return fd_vote_state_versioned_footprint();
-}
-
 int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
   char fp[255];
 
 #pragma GCC diagnostic ignored "-Wpedantic"
-  sprintf(fp, "%s_footprint", type);
-  t->footprint_fun = dlsym(RTLD_DEFAULT, fp);
-
   sprintf(fp, "%s_align", type);
   t->align_fun =  dlsym(RTLD_DEFAULT, fp);
 
@@ -61,8 +57,7 @@ int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
   sprintf(fp, "%s_size", type);
   t->size_fun =  dlsym(RTLD_DEFAULT, fp);
 
-  if(( t->footprint_fun == NULL ) ||
-     ( t->align_fun == NULL ) ||
+  if(( t->align_fun == NULL ) ||
      ( t->new_fun == NULL ) ||
      ( t->decode_footprint_fun == NULL ) ||
      ( t->decode_fun == NULL ) ||
