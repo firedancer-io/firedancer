@@ -4,6 +4,7 @@
 #include "../../vm/fd_vm.h"
 #include "../fd_system_ids.h"
 #include "fd_exec_epoch_ctx.h"
+#include "../fd_bank_mgr.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -261,7 +262,25 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   ctx->slot                        = slot_ctx->slot_bank.slot;
   ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
-  ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
+  // ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
+
+  fd_bank_mgr_t bank_mgr = {0};
+  fd_bank_mgr_join( &bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+  ctx->block_hash_queue_global = fd_bank_mgr_block_hash_queue_query( &bank_mgr );
+
+  /* Distribute rewards */
+  fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
+  fd_block_hash_queue_global_t const * bhq = ctx->block_hash_queue_global;
+  fd_hash_t const * parent_blockhash2 = (fd_hash_t const *)((ulong)bhq + bhq->last_hash_offset);
+  memset( (void*)&slot_ctx->slot_bank.block_hash_queue, 0, sizeof(fd_block_hash_queue_t) );
+
+  //FD_LOG_WARNING(("parent_blockhash %s", FD_BASE58_ENC_32_ALLOCA( parent_blockhash ) ));
+  //FD_LOG_WARNING(("parent_blockhash2 %s", FD_BASE58_ENC_32_ALLOCA( parent_blockhash2 ) ));
+
+  if( memcmp( parent_blockhash, parent_blockhash2, sizeof(fd_hash_t) ) != 0 ) {
+    //FD_LOG_ERR(( "parent_blockhash mismatch" ));
+  }
+
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
   ctx->schedule                    = epoch_bank->epoch_schedule;

@@ -5,6 +5,7 @@
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 #include "fd_pubkey_utils.h"
+#include "fd_bank_mgr.h"
 
 #include "fd_executor.h"
 #include "fd_cost_tracker.h"
@@ -2901,7 +2902,12 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                             runtime_spad );
 
   /* Distribute rewards */
-  fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
+
+  fd_bank_mgr_t bank_mgr = {0};
+  fd_bank_mgr_join( &bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_block_hash_queue_global_t const * bhq = fd_bank_mgr_block_hash_queue_query( &bank_mgr );
+  fd_hash_t const * parent_blockhash = (fd_hash_t const *)((ulong)bhq + bhq->last_hash_offset);
+
   if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
       FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) {
     FD_LOG_NOTICE(( "fd_begin_partitioned_rewards" ));

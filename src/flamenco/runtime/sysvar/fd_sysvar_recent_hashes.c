@@ -5,6 +5,7 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../fd_bank_mgr.h"
 
 #define FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE  sizeof(ulong) + FD_RECENT_BLOCKHASHES_MAX_ENTRIES * (sizeof(fd_hash_t) + sizeof(ulong))
 
@@ -21,7 +22,41 @@
 
 /* Skips fd_types encoding preflight checks and directly serializes the blockhash queue into a buffer representing
    account data for the recent blockhashes sysvar. */
-static void
+
+static void FD_FN_UNUSED
+encode_rbh_from_blockhash_queue2( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
+  fd_bank_mgr_t bank_mgr = {0};
+  fd_bank_mgr_join( &bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( &bank_mgr );
+
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq, bhq->ages_pool_offset );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq, bhq->ages_root_offset );
+
+  ulong queue_sz   = fd_hash_hash_age_pair_t_map_size( ages_pool, ages_root );
+  ulong hashes_len = fd_ulong_min( queue_sz, FD_RECENT_BLOCKHASHES_MAX_ENTRIES );
+  fd_memcpy( enc, &hashes_len, sizeof(ulong) );
+  enc += sizeof(ulong);
+
+  /* Iterate over blockhash queue and encode the recent blockhashes. We can do direct memcpying
+     and avoid redundant checks from fd_types encoders since the enc buffer is already sized out to
+     the worst-case bound. */
+  fd_hash_hash_age_pair_t_mapnode_t const * nn;
+  for( fd_hash_hash_age_pair_t_mapnode_t const * n = fd_hash_hash_age_pair_t_map_minimum_const( ages_pool, ages_root ); n; n = nn ) {
+    nn = fd_hash_hash_age_pair_t_map_successor_const( ages_pool, n );
+    ulong enc_idx = bhq->last_hash_index - n->elem.val.hash_index;
+    if( enc_idx>=hashes_len ) {
+      continue;
+    }
+    fd_hash_t hash = n->elem.key;
+    ulong     lps  = n->elem.val.fee_calculator.lamports_per_signature;
+
+    fd_memcpy( enc + enc_idx * (FD_HASH_FOOTPRINT + sizeof(ulong)), &hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( enc + enc_idx * (FD_HASH_FOOTPRINT + sizeof(ulong)) + sizeof(fd_hash_t), &lps, sizeof(ulong) );
+  }
+
+}
+
+static void FD_FN_UNUSED
 encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
   /* recent_blockhashes_account::update_account's `take` call takes at most 150 elements
      https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/bank/recent_blockhashes_account.rs#L15-L28 */
@@ -69,8 +104,52 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
+static void FD_FN_UNUSED
+register_blockhash2( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
+  fd_bank_mgr_t bank_mgr = {0};
+  fd_bank_mgr_join( &bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_modify( &bank_mgr );
+  FD_TEST( bhq );
+  FD_LOG_HEXDUMP_WARNING(("BHQ", bhq, 20000));
+  FD_LOG_WARNING(("BHQ %lu %lu", (ulong)((ulong)bhq + bhq->ages_pool_offset), fd_hash_hash_age_pair_t_map_align()));
+  FD_LOG_WARNING(("OFFSETS %lu %lu", bhq->ages_pool_offset, bhq->ages_root_offset));
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq, bhq->ages_pool_offset );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq, bhq->ages_root_offset );
+  FD_TEST( ages_pool );
+  FD_TEST( ages_root );
+  bhq->last_hash_index++;
+  FD_LOG_WARNING(("BRUHHHH %lu", fd_hash_hash_age_pair_t_map_size( ages_pool, ages_root )));
+  if( fd_hash_hash_age_pair_t_map_size( ages_pool, ages_root ) >= bhq->max_age ) {
+    fd_hash_hash_age_pair_t_mapnode_t * nn;
+    for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( ages_pool, ages_root ); n; n = nn ) {
+      nn = fd_hash_hash_age_pair_t_map_successor( ages_pool, n );
+      /* NOTE: Yes, this check is incorrect. It should be >= which caps the blockhash queue at max_age
+         entries, but instead max_age + 1 entries are allowed to exist in the queue at once. This mimics
+         Agave to stay conformant with their implementation.
+         https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L109 */
+      if( bhq->last_hash_index - n->elem.val.hash_index > bhq->max_age ) {
+        fd_hash_hash_age_pair_t_map_remove( ages_pool, &ages_root, n );
+        fd_hash_hash_age_pair_t_map_release( ages_pool, n );
+      }
+    }
+  }
+
+  fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
+  node->elem = (fd_hash_hash_age_pair_t){
+    .key = *hash,
+    .val = (fd_hash_age_t){ .hash_index = bhq->last_hash_index, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature}, .timestamp = (ulong)fd_log_wallclock() }
+  };
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L121-L128
+  fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L130
+  uchar * last_hash = (uchar *)bhq + bhq->last_hash_offset;
+  fd_memcpy( last_hash, hash, sizeof(fd_hash_t) );
+
+  fd_bank_mgr_block_hash_queue_save( &bank_mgr );
+}
+
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
-static void
+static void FD_FN_UNUSED
 register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   fd_block_hash_queue_t * queue = &slot_ctx->slot_bank.block_hash_queue;
   // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L114
@@ -110,8 +189,8 @@ void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Update the blockhash queue */
-  register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
-
+  // register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
+  register_blockhash2( slot_ctx, &slot_ctx->slot_bank.poh );
   /* Derive the new sysvar recent blockhashes from the blockhash queue */
   ulong   sz        = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
   uchar * enc       = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, sz );
@@ -119,8 +198,8 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
   fd_memset( enc, 0, sz );
 
   /* Encode the recent blockhashes */
-  encode_rbh_from_blockhash_queue( slot_ctx, enc );
-
+  // encode_rbh_from_blockhash_queue( slot_ctx, enc );
+  encode_rbh_from_blockhash_queue2( slot_ctx, enc );
   /* Set the sysvar from the encoded data */
   fd_sysvar_set( slot_ctx,
                  &fd_sysvar_owner_id,

@@ -17,6 +17,7 @@
 
 #define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
+#define FD_FUNK_KEY_TYPE_BANK_MGR  ((uchar)3)
 #define FD_FUNK_KEY_SLOT_BANK      ((uchar)6)
 #define FD_FUNK_KEY_EPOCH_BANK     ((uchar)7)
 

@@ -3,6 +3,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../program/fd_vote_program.h"
 #include "../../../ballet/lthash/fd_lthash.h"
+#include "../fd_bank_mgr.h"
 
 #include <assert.h>
 #include <time.h>
@@ -312,6 +313,68 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
     fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
   }
+
+  ulong block_hash_queue_size = fd_block_hash_queue_size( &slot_bank->block_hash_queue );
+  FD_LOG_NOTICE(("SIZE %lu", block_hash_queue_size));
+
+  /* START EXPERIMENT *************************************************/
+
+  fd_funk_t *     funk         = slot_ctx->funk;
+  fd_funk_txn_t * funk_txn     = slot_ctx->funk_txn;
+  void *          bank_mgr_mem = fd_spad_alloc( runtime_spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  fd_bank_mgr_t * bank_mgr     = fd_bank_mgr_join( fd_bank_mgr_new( bank_mgr_mem ), funk, funk_txn );
+  if( FD_UNLIKELY( !bank_mgr ) ) {
+    FD_LOG_ERR(( "Could not allocate bank manager" ));
+  }
+
+  fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  FD_TEST( bhq );
+
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)bhq + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  FD_LOG_WARNING(("AGES POOL MEM %p %lu", (void*)ages_pool_mem, fd_hash_hash_age_pair_t_map_align()));
+
+
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = NULL;
+  FD_TEST(fd_hash_hash_age_pair_t_map_verify( ages_pool, ages_root )==0 );
+  FD_TEST( ages_pool );
+
+  bhq->last_hash_index = oldbank->blockhash_queue.last_hash_index;
+  if( oldbank->blockhash_queue.last_hash ) {
+    fd_memcpy( last_hash_mem, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
+  }
+  bhq->last_hash_offset = (ulong)last_hash_mem - (ulong)bhq;
+
+  for( ulong i=0UL; i<oldbank->blockhash_queue.ages_len; i++ ) {
+    fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
+    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
+    fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
+    fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
+  }
+  bhq->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)bhq;
+  bhq->ages_root_offset = (ulong)ages_root - (ulong)bhq;
+
+
+  bhq->max_age = oldbank->blockhash_queue.max_age;
+
+  fd_hash_t * last_hash_1 = (fd_hash_t *)((ulong)bhq + bhq->last_hash_offset);
+  fd_hash_t * last_hash_2 = slot_ctx->slot_bank.block_hash_queue.last_hash;
+  if( memcmp( last_hash_1, last_hash_2, sizeof(fd_hash_t) ) != 0 ) {
+    FD_LOG_ERR(( "last_hash_1 mismatch" ));
+  }
+  FD_LOG_WARNING(("last_hash_1 %s", FD_BASE58_ENC_32_ALLOCA( last_hash_1 ) ));
+
+  FD_TEST(fd_hash_hash_age_pair_t_map_size( ages_pool, ages_root ));
+  FD_TEST(!fd_hash_hash_age_pair_t_map_verify( ages_pool, ages_root ) );
+
+  fd_bank_mgr_block_hash_queue_save( bank_mgr );
+
+  fd_bank_mgr_t bank_mgr_obj = {0};
+  fd_bank_mgr_t * bank_mgr2 = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_bank_mgr_block_hash_queue_query( bank_mgr2 );
+
+  /* END EXPERIMENT ***************************************************/
 
   /* FIXME: Remove the magic number here. */
   if( !slot_ctx->slot_bank.timestamp_votes.votes_pool ) {

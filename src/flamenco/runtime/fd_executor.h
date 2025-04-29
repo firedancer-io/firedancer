@@ -100,6 +100,11 @@ void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 int
+fd_executor_is_blockhash_valid_for_age2( fd_block_hash_queue_global_t const * block_hash_queue,
+                                         fd_hash_t const *                    blockhash,
+                                         ulong                                max_age );
+
+int
 fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
                                         fd_hash_t const *             blockhash,
                                         ulong                         max_age );

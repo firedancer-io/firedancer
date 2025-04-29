@@ -36,7 +36,7 @@ test_vm_minimal_exec_instr_ctx( fd_valloc_t valloc,
   fd_features_disable_all( &epoch_ctx->features );
   fd_features_set( &epoch_ctx->features, fd_feature_id_query(TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX), 0UL );
 
-  txn_ctx->block_hash_queue = slot_ctx->slot_bank.block_hash_queue;
+  //txn_ctx->block_hash_queue = slot_ctx->slot_bank.block_hash_queue;
   txn_ctx->slot             = slot_ctx->slot_bank.slot;
   txn_ctx->features         = epoch_ctx->features;
 

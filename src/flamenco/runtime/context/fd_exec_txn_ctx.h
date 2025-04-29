@@ -79,7 +79,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_wksp_t *                     runtime_pub_wksp;
   ulong                           slot;
   fd_fee_rate_governor_t          fee_rate_governor;
-  fd_block_hash_queue_t           block_hash_queue;
+  //fd_block_hash_queue_t           block_hash_queue;
+  fd_block_hash_queue_global_t const * block_hash_queue_global;
 
   fd_epoch_schedule_t             schedule;
   fd_rent_t                       rent;

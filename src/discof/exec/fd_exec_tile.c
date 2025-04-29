@@ -287,7 +287,7 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not decode block hash queue" ));
   }
 
-  ctx->txn_ctx->block_hash_queue = *block_hash_queue;
+  //ctx->txn_ctx->block_hash_queue = *block_hash_queue;
 }
 
 static void

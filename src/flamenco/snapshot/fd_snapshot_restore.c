@@ -3,6 +3,7 @@
 #include "../../util/archive/fd_tar.h"
 #include "../runtime/fd_acc_mgr.h"
 #include "../runtime/fd_borrowed_account.h"
+#include "../runtime/fd_bank_mgr.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -397,6 +398,12 @@ fd_snapshot_restore_accv_prepare( fd_snapshot_restore_t * const restore,
     restore->buf_sz = 0UL;
     return 0;
   }
+
+
+  // FD_LOG_WARNING(("DURING ACC VEC, %lu", slot));
+  // fd_bank_mgr_t bank_mgr_obj = {0};
+  // fd_bank_mgr_t * bank_mgr2 = fd_bank_mgr_join( &bank_mgr_obj, restore->funk, restore->funk_txn );
+  // fd_bank_mgr_block_hash_queue_query( bank_mgr2 );
 
   /* Reject if slot number is too high */
   if( FD_UNLIKELY( slot > restore->slot ) ) {

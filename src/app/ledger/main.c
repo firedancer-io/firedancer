@@ -1,6 +1,7 @@
 #include <errno.h>
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 #include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -447,6 +448,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                      (ulong)&snapshot_ctx, (ulong)ledger_args, 0UL, NULL,
                      0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
     }
+
+    fd_bank_mgr_t bank_mgr_obj = {0};
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn );
+    fd_bank_mgr_block_hash_queue_query( bank_mgr );
 
     ulong blk_txn_cnt = 0UL;
     FD_LOG_NOTICE(( "Used memory in spad before slot=%lu %lu", ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad->mem_used ));
@@ -1318,6 +1323,12 @@ replay( fd_ledger_args_t * args ) {
       FD_LOG_NOTICE(( "imported from snapshot" ));
     }
   }
+
+  FD_LOG_WARNING(("RIGHT AFTER SNAPSHOT"));
+  fd_bank_mgr_t bank_mgr_obj = {0};
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, args->slot_ctx->funk, args->slot_ctx->funk_txn );
+  fd_bank_mgr_block_hash_queue_query( bank_mgr );
+  FD_LOG_WARNING(("RIGHT AFTER DONE SNAPSHOT"));
 
   if( args->genesis ) {
     fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
