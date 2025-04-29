@@ -7,7 +7,6 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
-#include "../runtime/fd_bank_mgr.h"
 #include "../rewards/fd_rewards.h"
 #include "../runtime/fd_runtime.h"
 
@@ -219,20 +218,10 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
        this is not expected. */
     FD_LOG_ERR(( "Failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
   }
-
-  FD_LOG_WARNING(("RIGHT AFTER MANIFEST"));
-  fd_bank_mgr_t bank_mgr_obj = {0};
-  fd_bank_mgr_t * bank_mgr2 = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
-  fd_bank_mgr_block_hash_queue_query( bank_mgr2 );
 }
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
-
-  FD_LOG_WARNING(("RIGHT BEFORE ACCOUNTS"));
-  fd_bank_mgr_t bank_mgr_obj = {0};
-  fd_bank_mgr_t * bank_mgr2 = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
-  fd_bank_mgr_block_hash_queue_query( bank_mgr2 );
 
   /* Now, that the manifest is done being read in. Read in the rest of the accounts. */
   for(;;) {
@@ -247,12 +236,6 @@ fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
   if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "name is NULL" ));
 
   FD_LOG_NOTICE(( "Done loading accounts" ));
-
-  FD_LOG_WARNING(("RIGHT AFTER ACCOUNTS"));
-  fd_bank_mgr_t bank_mgr_obj2 = {0};
-  fd_bank_mgr_t * bank_mgr3 = fd_bank_mgr_join( &bank_mgr_obj2, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
-  fd_bank_mgr_block_hash_queue_query( bank_mgr3 );
-
 
   FD_LOG_NOTICE(( "Finished reading snapshot %s", ctx->snapshot_src ));
 }
@@ -365,10 +348,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
       FD_LOG_ERR(( "invalid snapshot type %d", ctx->snapshot_type ));
     }
   }
-  fd_bank_mgr_t bank_mgr_obj = {0};
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
-  fd_bank_mgr_block_hash_queue_query( bank_mgr );
-
   if( ctx->child_txn != ctx->par_txn ) {
     fd_funk_txn_start_write( ctx->slot_ctx->funk );
     fd_funk_txn_publish( ctx->slot_ctx->funk, ctx->child_txn, 0 );

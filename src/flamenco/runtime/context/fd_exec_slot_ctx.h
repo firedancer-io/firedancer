@@ -9,12 +9,15 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../../types/fd_types.h"
 #include "../fd_txncache.h"
+#include "../fd_bank_mgr.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
 
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
+
+  fd_bank_mgr_t               bank_mgr;
 
   fd_funk_txn_t *             funk_txn;
 

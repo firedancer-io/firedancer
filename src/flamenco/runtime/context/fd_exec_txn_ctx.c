@@ -4,7 +4,6 @@
 #include "../../vm/fd_vm.h"
 #include "../fd_system_ids.h"
 #include "fd_exec_epoch_ctx.h"
-#include "../fd_bank_mgr.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -264,9 +263,9 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
   // ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
 
-  fd_bank_mgr_t bank_mgr = {0};
-  fd_bank_mgr_join( &bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
-  ctx->block_hash_queue_global = fd_bank_mgr_block_hash_queue_query( &bank_mgr );
+  fd_bank_mgr_t * bank_mgr = (fd_bank_mgr_t *)&slot_ctx->bank_mgr;
+  fd_bank_mgr_join( (void*)&slot_ctx->bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+  ctx->block_hash_queue_global = fd_bank_mgr_block_hash_queue_query( bank_mgr );
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
