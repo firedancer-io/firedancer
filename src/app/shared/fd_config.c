@@ -432,7 +432,11 @@ fd_config_fill( fd_config_t * config,
 
 static void
 fd_config_validatef( fd_configf_t const * config ) {
-  (void)config;
+  CFG_HAS_NON_ZERO( repair.chainer_max );
+  CFG_HAS_NON_ZERO( repair.forest_max );
+  CFG_HAS_NON_ZERO( repair.client_port );
+  CFG_HAS_NON_ZERO( repair.serve_port );
+
 }
 
 static void

@@ -235,6 +235,13 @@ user = ""
     # in the historical transaction info stored.
     extended_tx_metadata_storage = false
 
+# TODO: DOCS
+[repair]
+    client_port = 8701
+    serve_port  = 8702
+    forest_max  = 4096
+    chainer_max = 32768
+
 # Snapshots are a periodic view of the ledger at a point in time.  They
 # are used to enable validators to join the network quickly, as they do
 # not need to replay all transactions since genesis, just those since a
@@ -901,10 +908,6 @@ user = ""
         # slots.
         additional_shred_destination = ""
 
-    # TODO: DOCS
-    [tiles.repair]
-        repair_intake_listen_port = 8701
-        repair_serve_listen_port = 8702
 
     [tiles.replay]
         # Where to obtain the full snapshot.

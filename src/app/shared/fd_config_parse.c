@@ -310,6 +310,12 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   consensus.vote                                   );
 
+  CFG_POP      ( ushort, repair.client_port                               );
+  CFG_POP      ( ushort, repair.serve_port                               );
+  CFG_POP      ( ulong,  repair.forest_max                                );
+  CFG_POP      ( ulong,  repair.chainer_max                               );
+  CFG_POP      ( cstr,   repair.good_peer_cache_file                      );
+
   return config;
 }
 
@@ -411,10 +417,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.gui.max_websocket_connections              );
   CFG_POP      ( ulong,  tiles.gui.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.gui.send_buffer_size_mb                    );
-
-  CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
-  CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
-  CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
 
   CFG_POP      ( cstr,   tiles.replay.capture                             );
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
