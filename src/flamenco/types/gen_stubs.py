@@ -26,6 +26,7 @@ print(f'#include "{sys.argv[1]}"', file=body)
 
 print('#pragma GCC diagnostic ignored "-Wunused-parameter"', file=body)
 print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
+print('#pragma GCC diagnostic ignored "-Wunused-function"', file=body)
 
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.c"', file=body)
@@ -2964,6 +2965,8 @@ class StructType(TypeNode):
         for f in self.fields:
             if not f.isFixedSize():
                 return False
+            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                return False
         return True
 
     def isFlat(self):
@@ -3040,8 +3043,15 @@ class StructType(TypeNode):
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'ulong {n}_footprint( void );', file=header)
         print(f'ulong {n}_align( void );', file=header)
-        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
-        print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        if self.isFixedSize() and self.isFuzzy():
+            print(f'inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=header)
+            print(f'  *total_sz += sizeof({n}_t);', file=header)
+            print(f'  if( (ulong)ctx->data + {self.fixedSize()}UL > (ulong)ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=header)
+            print(f'  return 0;', file=header)
+            print(f'}}', file=header)
+        else:
+            print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+            print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         if self.produce_global:
@@ -3086,24 +3096,34 @@ class StructType(TypeNode):
             self.emitEncodes()
 
         if self.encoders is not False:
-            print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
-            print(f'  *total_sz += sizeof({n}_t);', file=body)
-            print(f'  void const * start_data = ctx->data;', file=body)
-            print(f'  int err = {n}_decode_footprint_inner( ctx, total_sz );', file=body)
-            print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
-            print(f'  ctx->data = start_data;', file=body)
-            print(f'  return err;', file=body)
-            print(f'}}', file=body)
+            if self.isFixedSize() and self.isFuzzy():
+                print(f'static inline int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+                sz = self.fixedSize()
+                print(f'  if( (ulong)ctx->data + {self.fixedSize()}UL > (ulong)ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
+                print(f'  ctx->data = (void *)( (ulong)ctx->data + {self.fixedSize()}UL );', file=body)
+                print(f'  return 0;', file=body)
+                print(f'}}', file=body)
 
-            print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
-            print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
-            print(f'  int err = 0;', file=body)
-            for f in self.fields:
-                if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                    print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
-                f.emitDecodeFootprint()
-            print(f'  return 0;', file=body)
-            print(f'}}', file=body)
+                print(f'extern inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=body)
+            else:
+                print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+                print(f'  *total_sz += sizeof({n}_t);', file=body)
+                print(f'  void const * start_data = ctx->data;', file=body)
+                print(f'  int err = {n}_decode_footprint_inner( ctx, total_sz );', file=body)
+                print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
+                print(f'  ctx->data = start_data;', file=body)
+                print(f'  return err;', file=body)
+                print(f'}}', file=body)
+
+                print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+                print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
+                print(f'  int err = 0;', file=body)
+                for f in self.fields:
+                    if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                        print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
+                    f.emitDecodeFootprint()
+                print(f'  return 0;', file=body)
+                print(f'}}', file=body)
 
             print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
             print(f'  {n}_t * self = ({n}_t *)mem;', file=body)
