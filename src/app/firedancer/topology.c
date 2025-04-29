@@ -752,8 +752,8 @@ fd_topo_initialize( config_t * config ) {
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
       tile->net.gossip_listen_port             = config->gossip.port;
-      tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
-      tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
+      tile->net.repair_intake_listen_port      = config->firedancer.repair.client_port;
+      tile->net.repair_serve_listen_port       = config->firedancer.repair.serve_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -806,16 +806,18 @@ fd_topo_initialize( config_t * config ) {
       tile->gossip.tpu_port             = config->tiles.quic.regular_transaction_listen_port;
       tile->gossip.tpu_quic_port        = config->tiles.quic.quic_transaction_listen_port;
       tile->gossip.tpu_vote_port        = config->tiles.quic.regular_transaction_listen_port; /* TODO: support separate port for tpu vote */
-      tile->gossip.repair_serve_port    = config->tiles.repair.repair_serve_listen_port;
+      tile->gossip.repair_serve_port    = config->firedancer.repair.serve_port;
       tile->gossip.entrypoints_cnt      = fd_ulong_min( config->gossip.resolved_entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
       fd_memcpy( tile->gossip.entrypoints, config->gossip.resolved_entrypoints, tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
       tile->repair.shred_tile_cnt            = config->layout.shred_tile_count;
-      tile->repair.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
-      tile->repair.repair_serve_listen_port  = config->tiles.repair.repair_serve_listen_port;
-      strncpy( tile->repair.good_peer_cache_file, config->tiles.repair.good_peer_cache_file, sizeof(tile->repair.good_peer_cache_file) );
+      tile->repair.repair_intake_listen_port = config->firedancer.repair.client_port;
+      tile->repair.repair_serve_listen_port  = config->firedancer.repair.serve_port;
+      tile->repair.forest_max                = config->firedancer.repair.forest_max;
+      tile->repair.chainer_max               = config->firedancer.repair.chainer_max;
+      strncpy( tile->repair.good_peer_cache_file, config->firedancer.repair.good_peer_cache_file, sizeof(tile->repair.good_peer_cache_file) );
 
       strncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 

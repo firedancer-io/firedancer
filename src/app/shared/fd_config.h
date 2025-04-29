@@ -96,6 +96,14 @@ struct fd_configf {
   } consensus;
 
   struct {
+    ushort client_port;
+    ushort serve_port;
+    ulong  forest_max;
+    ulong  chainer_max;
+    char   good_peer_cache_file[ PATH_MAX ];
+  } repair;
+
+  struct {
     ulong shred_max;
     ulong block_max;
     ulong idx_max;
@@ -336,12 +344,6 @@ struct fd_config {
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
     } gui;
-
-    struct {
-      ushort repair_intake_listen_port;
-      ushort repair_serve_listen_port;
-      char   good_peer_cache_file[ PATH_MAX ];
-    } repair;
 
     struct {
       char  capture[ PATH_MAX ];

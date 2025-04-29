@@ -43,7 +43,6 @@
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
 #define MAX_SHRED_TILE_CNT (16UL)
 
-#define FD_FOREST_ELE_MAX (1 << 14UL) /* FIXME */
 #define MAX_SHRED_TILE_CNT (16UL)
 typedef union {
   struct {
@@ -189,16 +188,17 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
-
+  int lg_chainer_max = fd_ulong_find_msb( fd_ulong_pow2_up( tile->repair.chainer_max ) );
+  int lg_forest_max  = fd_ulong_find_msb( fd_ulong_pow2_up( tile->repair.forest_max ) );
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t)             );
-  l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint()                    );
-  l = FD_LAYOUT_APPEND( l, fd_forest_align(),             fd_forest_footprint( FD_FOREST_ELE_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),            fd_fec_sig_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_recent_align(),             fd_recent_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),              fd_reasm_footprint( 20 ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_forest_align(),             fd_forest_footprint( tile->repair.forest_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),            fd_fec_sig_footprint( lg_chainer_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_recent_align(),             fd_recent_footprint( lg_chainer_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),              fd_reasm_footprint( lg_forest_max ) );
   // l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
+  l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( tile->repair.chainer_max ) ); // TODO: fix this to be the size of done depth in fec resolver
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),       fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),           fd_stake_ci_footprint() );
@@ -1350,16 +1350,18 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Scratch mem setup */
 
+  int lg_chainer_max = fd_ulong_find_msb( fd_ulong_pow2_up( tile->repair.chainer_max ) ); /* TODO: may want to size this fec_resolver done_depth */
+  int lg_forest_max  = fd_ulong_find_msb( fd_ulong_pow2_up( tile->repair.forest_max ) );
+
   ctx->blockstore = &ctx->blockstore_ljoin;
-  ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
-  ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( FD_FOREST_ELE_MAX ) );
-  ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
-  ctx->recent = FD_SCRATCH_ALLOC_APPEND( l, fd_recent_align(), fd_recent_footprint( 20 ) );
-  ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );
+  ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),  fd_repair_footprint() );
+  ctx->forest     = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),  fd_forest_footprint( tile->repair.forest_max ) );
+  ctx->fec_sigs   = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( lg_chainer_max ) );
+  ctx->recent     = FD_SCRATCH_ALLOC_APPEND( l, fd_recent_align(),  fd_recent_footprint( lg_chainer_max ) );
+  ctx->reasm      = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),   fd_reasm_footprint( lg_forest_max ) );
   // ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
-
-  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( 1 << 20 ) );
+  ctx->fec_chainer = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(), fd_fec_chainer_footprint( tile->repair.chainer_max ) );
 
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
@@ -1411,12 +1413,12 @@ unprivileged_init( fd_topo_t *      topo,
   /* Repair set up */
 
   ctx->repair      = fd_repair_join( fd_repair_new( ctx->repair, ctx->repair_seed ) );
-  ctx->forest  = fd_forest_join( fd_forest_new( ctx->forest, FD_FOREST_ELE_MAX, ctx->repair_seed ) );
+  ctx->forest  = fd_forest_join( fd_forest_new( ctx->forest, tile->repair.forest_max, ctx->repair_seed ) );
   // ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
-  ctx->fec_sigs = fd_fec_sig_join( fd_fec_sig_new( ctx->fec_sigs, 20 ) );
-  ctx->recent = fd_recent_join( fd_recent_new( ctx->recent, 20 ) );
-  ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 20 ) );
-  ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, 1 << 20, 0 ) );
+  ctx->fec_sigs = fd_fec_sig_join( fd_fec_sig_new( ctx->fec_sigs, lg_chainer_max ) );
+  ctx->recent = fd_recent_join( fd_recent_new( ctx->recent, lg_chainer_max ) );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, lg_forest_max ) );
+  ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, tile->repair.chainer_max, 0 ) );
 
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
