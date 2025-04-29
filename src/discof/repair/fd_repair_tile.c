@@ -43,7 +43,7 @@
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
 #define MAX_SHRED_TILE_CNT (16UL)
 
-#define FD_FOREST_ELE_MAX (1 << 14UL) /* FIXME */
+#define FD_FOREST_ELE_MAX  (2048) /* FIXME */
 #define MAX_SHRED_TILE_CNT (16UL)
 typedef union {
   struct {
@@ -102,6 +102,7 @@ struct fd_repair_tile_ctx {
   long tsprint; /* timestamp for printing */
   long tsrepair; /* timestamp for repair */
   ulong * wmark;
+  ulong   prev_wmark;
 
   fd_repair_t * repair;
   fd_repair_config_t repair_config;
@@ -925,11 +926,17 @@ after_frag( fd_repair_tile_ctx_t * ctx,
        shred requires stake weights, which implies a genesis or snapshot
        slot has been loaded. */
 
+    ulong wmark = fd_fseq_query( ctx->wmark );
     if( FD_UNLIKELY( fd_forest_root_slot( ctx->forest ) == ULONG_MAX ) ) {
-      fd_forest_init( ctx->forest, fd_fseq_query( ctx->wmark ) );
+      fd_forest_init( ctx->forest, wmark );
       uchar mr[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 }; /* FIXME */
-      fd_fec_chainer_init( ctx->fec_chainer, fd_fseq_query( ctx->wmark ), mr );
+      fd_fec_chainer_init( ctx->fec_chainer, wmark, mr );
       FD_TEST( fd_forest_root_slot( ctx->forest ) != ULONG_MAX );
+      ctx->prev_wmark = wmark;
+    }
+    if( FD_UNLIKELY( ctx->prev_wmark < wmark ) ) {
+      fd_forest_publish( ctx->forest, wmark );
+      ctx->prev_wmark = wmark;
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
@@ -1444,6 +1451,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( root_slot_obj_id!=ULONG_MAX );
   ctx->wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
   if( FD_UNLIKELY( !ctx->wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  ctx->prev_wmark = fd_fseq_query( ctx->wmark );
 
   if( fd_repair_set_config( ctx->repair, &ctx->repair_config ) ) {
     FD_LOG_ERR( ( "error setting repair config" ) );
