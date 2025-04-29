@@ -16,8 +16,6 @@ Firedancer team uses internally.  It also helps eliminate various system
 noise such as page table walks, page faults, allocation failures, OOM
 kills, etc.
 
-For further info on system tuning, refer to [getting-started.md](./getting-started.md).
-
 ## Quick Start
 
 Assuming system is configured and dependencies are installed:
