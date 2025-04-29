@@ -560,6 +560,7 @@
 | sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |
 | sock_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
 | sock_&#8203;rx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes received (including Ethernet header). |
+| sock_&#8203;tx_&#8203;permission_&#8203;error_&#8203;cnt | `counter` | Number of send attempts that failed with EPERM (e.g. due to nftables) |
 
 ## Repair Tile
 | Metric | Type | Description |

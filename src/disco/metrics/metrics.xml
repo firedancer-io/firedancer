@@ -89,6 +89,7 @@ metric introduced.
     <counter name="TxDropCnt" summary="Number of packets failed to send" />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
     <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
+    <counter name="TxPermissionErrorCnt" summary="Number of send attempts that failed with EPERM (e.g. due to nftables)" />
 </tile>
 
 <enum name="TpuRecvType">
