@@ -347,7 +347,7 @@ acquire( fd_forest_t * forest, ulong slot ) {
 
 static fd_forest_ele_t *
 insert( fd_forest_t * forest, ulong slot, ushort parent_off ) {
-  fd_forest_ele_t *      pool     = fd_forest_pool( forest );
+  fd_forest_ele_t * pool = fd_forest_pool( forest );
 
 # if FD_FOREST_USE_HANDHOLDING
   FD_TEST( parent_off <= slot );                   /* caller err - inval */
@@ -425,8 +425,8 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   fd_forest_ele_t * new_root_ele = ancestry_frontier_query( forest, new_root_slot );
 
 # if FD_FOREST_USE_HANDHOLDING
-  FD_TEST( new_root_slot > old_root_ele->slot ); /* caller error - inval */
-  FD_TEST( new_root_ele ); /* caller error - not found */
+  FD_TEST( new_root_ele );                            /* caller error - not found */
+  FD_TEST( new_root_ele->slot > old_root_ele->slot ); /* caller error - inval */
 # endif
 
   /* First, remove the previous root, and add it to a FIFO prune queue.

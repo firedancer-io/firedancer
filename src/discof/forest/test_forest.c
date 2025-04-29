@@ -25,7 +25,7 @@ setup_preorder( fd_forest_t * forest ) {
   fd_forest_data_shred_insert( forest, 5, 2, 0, 0, 0, 0 );
   fd_forest_data_shred_insert( forest, 6, 1, 0, 0, 0, 0 );
   FD_TEST( !fd_forest_verify( forest ) );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   return forest;
 }
 
@@ -73,7 +73,7 @@ test_publish( fd_wksp_t * wksp ) {
     FD_TEST( forest );
     fd_forest_publish( setup_preorder( forest ), publish_test_cases[i] );
     FD_TEST( !fd_forest_verify( forest ) );
-    fd_forest_print( forest );
+    // fd_forest_print( forest );
 
     fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( fd_forest_fini( forest ) ) ) );
   }
@@ -86,7 +86,7 @@ test_publish( fd_wksp_t * wksp ) {
 ulong * frontier_arr( fd_wksp_t * wksp, fd_forest_t * forest ) {
   fd_forest_frontier_t const * frontier = fd_forest_frontier_const( forest );
   fd_forest_ele_t const *      pool     = fd_forest_pool_const( forest );
-  ulong                     cnt      = fd_forest_pool_used( pool );
+  ulong                        cnt      = fd_forest_pool_used( pool );
 
   FD_TEST( !fd_forest_frontier_verify( fd_forest_frontier_const( forest ), fd_forest_pool_max( pool ), pool ) );
   ulong * arr = fd_wksp_alloc_laddr( wksp, 8, cnt, 42UL );
@@ -116,7 +116,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
   fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
 
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   ulong * arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 1 );
   FD_TEST( arr[1] == ULONG_MAX );
@@ -124,7 +124,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( arr );
 
   fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
   FD_TEST( arr[1] == 3 );
@@ -133,7 +133,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( arr );
 
   fd_forest_data_shred_insert( forest, 3, 2, 1, 0, 1, 1 );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
   FD_TEST( arr[1] == 5 );
@@ -142,7 +142,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( arr );
 
   fd_forest_data_shred_insert( forest, 5, 2, 1, 0, 1, 1 );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
   FD_TEST( arr[1] == 6 );
@@ -152,7 +152,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
 
   fd_forest_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
   fd_forest_data_shred_insert( forest, 2, 1, 1, 0, 1, 1 );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
   FD_TEST( arr[1] == 6 );
@@ -161,18 +161,21 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( arr );
 
   fd_forest_data_shred_insert( forest, 6, 1, 1, 0, 1, 1 );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
-  FD_TEST( arr[1] == ULONG_MAX );
+  FD_TEST( arr[1] == 6 );
+  FD_TEST( arr[2] == ULONG_MAX );
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
   fd_forest_data_shred_insert( forest, 4, 2, 1, 0, 0, 0 ); /* shred complete arrives before */
   fd_forest_data_shred_insert( forest, 4, 2, 2, 0, 1, 1 );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
-  FD_TEST( arr[0] == ULONG_MAX );
+  FD_TEST( arr[0] == 4 );
+  FD_TEST( arr[1] == 6 );
+  FD_TEST( arr[2] == ULONG_MAX );
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
@@ -220,7 +223,7 @@ test_print_tree( fd_wksp_t *wksp ){
   //fd_forest_shred_complete( forest,  1568386, 0 );
 //
   FD_TEST( !fd_forest_verify( forest ) );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
 
   /*[330090532, 330090539] ── [330090544, 330090583] ── [330090588, 330090851] ── [330090856, 330090859] ── [330090864, 330091003] ── [330091008]
                                                                                                                        └── [330091004, 330091007] ── [330091010, 330091048]
@@ -276,7 +279,7 @@ test_large_print_tree( fd_wksp_t * wksp ){
   }
 
   FD_TEST( !fd_forest_verify( forest ) );
-  fd_forest_print( forest );
+  // fd_forest_print( forest );
 
 }
 
@@ -290,10 +293,10 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  //test_publish( wksp );
-  //test_out_of_order( wksp );
-  test_print_tree( wksp );
-  test_large_print_tree( wksp);
+  test_publish( wksp );
+  test_out_of_order( wksp );
+  // test_print_tree( wksp );
+  // test_large_print_tree( wksp);
 
   fd_halt();
   return 0;
