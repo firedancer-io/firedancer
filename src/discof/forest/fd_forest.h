@@ -153,7 +153,7 @@ fd_forest_footprint( ulong ele_max ) {
    address space with the required footprint and alignment. */
 
 void *
-fd_forest_new( void * shmem, ulong seed, ulong ele_max );
+fd_forest_new( void * shmem, ulong ele_max, ulong seed );
 
 /* fd_forest_join joins the caller to the forest.  forest
    points to the first byte of the memory region backing the forest
