@@ -32,6 +32,7 @@ struct fd_sock_tile_metrics {
   ulong tx_drop_cnt;
   ulong rx_bytes_total;
   ulong tx_bytes_total;
+  ulong tx_permission_error_cnt;
 };
 
 typedef struct fd_sock_tile_metrics fd_sock_tile_metrics_t;
