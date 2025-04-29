@@ -308,8 +308,7 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
     } else {
       fd_fec_parent_t * parent = fd_fec_parents_query( chainer->parents, child_key, NULL );
       if( parent->parent_key != key ) {
-        FD_LOG_NOTICE(( "different keys %lu %u %lu %u", slot, fec_set_idx, parent->parent_key >> 32, (uint)parent->parent_key ));
-        __asm__("int $3");
+        FD_LOG_ERR(( "inconsistent keys %lu %u %lu %u", slot, fec_set_idx, parent->parent_key >> 32, (uint)parent->parent_key ));
       }
     }
   }

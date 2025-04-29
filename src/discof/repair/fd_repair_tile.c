@@ -969,7 +969,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
       while( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) ) ) {
         fd_fec_out_t out = fd_fec_out_pop_head( ctx->fec_chainer->out );
-        if( FD_UNLIKELY( out.err != FD_FEC_CHAINER_SUCCESS ) ) __asm__("int $3");
+        if( FD_UNLIKELY( out.err != FD_FEC_CHAINER_SUCCESS ) ) FD_LOG_ERR(( "fec chainer err %d", out.err ));
         fd_reasm_t * reasm = fd_reasm_query( ctx->reasm, out.slot, NULL );
         if( FD_UNLIKELY( !reasm ) ) {
           reasm      = fd_reasm_insert( ctx->reasm, out.slot );

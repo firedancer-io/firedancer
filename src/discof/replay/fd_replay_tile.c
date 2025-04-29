@@ -1767,7 +1767,6 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
                                         &pay_sz );
 
       if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU ) ) {
-        __asm__("int $3");
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
       fd_memcpy( txn_p.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
@@ -1940,7 +1939,6 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   ctx->slice_exec_ctx.last_mblk_off = 0;
 
   if( FD_UNLIKELY( err ) ) {
-    __asm__("int $3");
     FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
   }
 }
