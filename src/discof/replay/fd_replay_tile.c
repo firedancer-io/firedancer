@@ -257,7 +257,7 @@ struct fd_replay_tile_ctx {
 
   int skip_frag;
 
-  ulong * first_turbine;
+  ulong * curr_turbine_slot;
 
   ulong * bank_busy[ FD_PACK_MAX_BANK_TILES ];
   ulong   bank_cnt;
@@ -1914,6 +1914,18 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
     ctx->curr_slot   = slot;
     ctx->parent_slot = parent_slot;
     prepare_first_batch_execution( ctx, stem );
+
+    ulong curr_turbine_slot = fd_fseq_query( ctx->curr_turbine_slot );
+
+    FD_LOG_NOTICE( ( "\n\n[Replay]\n"
+      "slot:            %lu\n"
+      "current turbine: %lu\n"
+      "slots behind:    %lu\n"
+      "live:            %d\n",
+      slot,
+      curr_turbine_slot,
+      curr_turbine_slot - slot,
+      ( curr_turbine_slot - slot ) < 5 ) );
   } else {
     /* continuing execution of the slot we have been doing */
   }
@@ -3169,6 +3181,15 @@ unprivileged_init( fd_topo_t *      topo,
   ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
   FD_TEST( poh_slot_obj_id!=ULONG_MAX );
   ctx->poh = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
+
+  /**********************************************************************/
+  /* turbine_slot fseq                                                  */
+  /**********************************************************************/
+
+  ulong current_turb_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turb_slot" );
+  FD_TEST( current_turb_slot_obj_id!=ULONG_MAX );
+  ctx->curr_turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_turb_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->curr_turbine_slot ) ) FD_LOG_ERR(( "replay tile has no turb_slot fseq" ));
 
   /**********************************************************************/
   /* TOML paths                                                         */
