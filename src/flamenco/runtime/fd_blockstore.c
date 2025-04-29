@@ -473,10 +473,6 @@ fd_blockstore_publish( fd_blockstore_t * blockstore,
 
 void
 fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx ) {
-  // if ( fd_buf_shred_pool_verify( blockstore->shred_pool ) != FD_POOL_SUCCESS || fd_buf_shred_map_verify ( blockstore->shred_map  ) != FD_MAP_SUCCESS ) {
-  //   FD_LOG_NOTICE(( "slot %lu idx %u", slot, idx ));
-  //   __asm__("int $3");
-  // }
   fd_shred_key_t key = { slot, idx };
 
   fd_buf_shred_map_query_t query[1] = { 0 };
