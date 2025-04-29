@@ -38,7 +38,7 @@ $(call add-objs, tests/fd_dump_pb,fd_flamenco)
 
 $(call add-hdrs,fd_rent_lists.h)
 
-$(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_util)
+$(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
 
 ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_txn_rw_conflicts,test_txn_rw_conflicts,fd_flamenco fd_funk fd_ballet fd_util, $(SECP256K1_LIBS))
