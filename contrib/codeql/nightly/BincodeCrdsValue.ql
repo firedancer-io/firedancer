@@ -1,9 +1,9 @@
 /**
  * @name Bincode gossip value encoding
  * @description Whenever writing in msg->data and msg of type fd_value_elem, we want the buf
- *              to be only initialized by fd_crds_value_encode. Other similar methods like
- *              using other similar methods like fd_crds_data_encode is not allowed, and has led
- *              to a bug in the past: https://github.com/firedancer-io/firedancer/pull/3568
+ *              to be only initialized by fd_crds_value_encode. Using other similar methods
+ *              like fd_crds_data_encode is not allowed, and has led to a bug in the past:
+ *              https://github.com/firedancer-io/firedancer/pull/3568
  * @precision high
  * @id asymmetric-research/bincode-crds-value
  * @kind path-problem

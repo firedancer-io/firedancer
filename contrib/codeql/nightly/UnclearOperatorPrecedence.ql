@@ -12,5 +12,5 @@ from BinaryBitwiseOperation bit, ComparisonOperation rel, Expr other
 where
     bit.hasOperands(rel, other) and
     not rel.isParenthesised()
-select rel, "Operator precedence and paranthese hint at a likely issue"
+select rel, "Operator precedence and parentheses hint at a likely issue"
 
