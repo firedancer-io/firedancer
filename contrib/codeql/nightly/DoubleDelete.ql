@@ -35,4 +35,5 @@ where
   Flow::flowPath(source, sink)
   and source.getLocation().getStartLine() != sink.getLocation().getStartLine()
   and not source.getLocation().getFile().getBaseName().matches("test%")
+  and not source.getLocation().getFile().getFullName().matches("%/agave/target/%")
 select sink.getNode(), source, sink, "double delete"
