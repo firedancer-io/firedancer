@@ -29,7 +29,7 @@
 #include <sys/socket.h>
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
-#define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
+#define PLUGIN_PUBLISH_TIME_NS ((long)30e9)
 
 #define IN_KIND_NET     (1)
 #define IN_KIND_VOTER   (2)
@@ -319,18 +319,16 @@ gossip_deliver_fun( fd_crds_data_t * data,
   } else if( fd_crds_data_is_contact_info_v2( data ) ) {
     fd_gossip_contact_info_v2_t const * contact_info_v2 = &data->inner.contact_info_v2;
 
-    fd_gossip_update_msg_t update_msg;
-    contact_info_to_update( contact_info_v2, &update_msg );
-    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( update_msg.addrs[FD_GOSSIP_SOCKET_TAG_GOSSIP].ip ), update_msg.addrs[FD_GOSSIP_SOCKET_TAG_GOSSIP].port ));
+    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info_v2->from, NULL );
 
-    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, (fd_pubkey_t*)update_msg.pubkey, NULL );
-    if (FD_UNLIKELY(!ele &&
-                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
-      ele = fd_contact_info_table_insert(ctx->contact_info_table,
-                                         (fd_pubkey_t*)update_msg.pubkey);
+    if( FD_UNLIKELY( !ele &&
+                     !fd_contact_info_table_is_full( ctx->contact_info_table ) ) ) {
+      ele = fd_contact_info_table_insert( ctx->contact_info_table, &contact_info_v2->from);
     }
-    if (ele) {
-      ele->update_msg = update_msg;
+
+    if( FD_LIKELY( ele ) ) {
+      contact_info_to_update( contact_info_v2, &ele->update_msg );
+      FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( ele->update_msg.addrs[FD_GOSSIP_SOCKET_TAG_GOSSIP].ip ), ele->update_msg.addrs[FD_GOSSIP_SOCKET_TAG_GOSSIP].port ));
     }
   } else if( fd_crds_data_is_duplicate_shred( data ) ) {
     if( FD_UNLIKELY( !ctx->eqvoc_out_mcache ) ) return;
@@ -581,6 +579,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     fd_shred_dest_wire_t * tvu_peers = (fd_shred_dest_wire_t *)(shred_dest_msg+1);
     fd_shred_dest_wire_t * repair_peers = fd_chunk_to_laddr( ctx->repair_contact_out_mem, ctx->repair_contact_out_chunk );
     fd_shred_dest_wire_t * voter_peers = fd_chunk_to_laddr( ctx->voter_contact_out_mem, ctx->voter_contact_out_chunk );
+
     for( fd_contact_info_table_iter_t iter = fd_contact_info_table_iter_init( ctx->contact_info_table );
          !fd_contact_info_table_iter_done( ctx->contact_info_table, iter );
          iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ) ) {
@@ -591,15 +590,9 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
         continue;
       }
 
-      /* THESE SHOULD GO INTO STH ELSE ??*/
       {
-        // if( !fd_gossip_socket_addr_is_ip4( &ele->update_msg.tvu ) ){
-        //   ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
-        //   continue;
-        // }
-
         // TODO: add a consistency check function for IP addresses
-        if( ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TVU ].ip == 0 ) {
+        if( !ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TVU ].ip ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
           continue;
         }
@@ -612,13 +605,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       }
 
       {
-        // if( !fd_gossip_socket_addr_is_ip4( &ele->update_msg.repair ) ) {
-        //   ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
-        //   continue;
-        // }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR ].ip == 0 ) {
+        if( !ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR ].ip ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
           continue;
         }
@@ -631,13 +618,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       }
 
       {
-        // if( !fd_gossip_socket_addr_is_ip4( &ele->update_msg.tpu_vote ) ) {
-        //   ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_VOTER_IDX ] += 1UL;
-        //   continue;
-        // }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE ].ip == 0 ) {
+        if( !ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE ].ip ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_VOTER_IDX ] += 1UL;
           continue;
         }
