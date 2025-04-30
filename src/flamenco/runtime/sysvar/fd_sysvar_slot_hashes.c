@@ -30,7 +30,7 @@ fd_sysvar_slot_hashes_write( fd_exec_slot_ctx_t *      slot_ctx,
 }
 
 ulong
-fd_sysvar_slot_hashes_footprint( ulong slot_hashes_cap ){
+fd_sysvar_slot_hashes_footprint( ulong slot_hashes_cap ) {
   return sizeof(fd_slot_hashes_global_t) +
          deq_fd_slot_hash_t_footprint( slot_hashes_cap ) + deq_fd_slot_hash_t_align();
 }
@@ -40,6 +40,9 @@ fd_sysvar_slot_hashes_new( void * mem,
                            ulong  slot_hashes_cap ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_ERR(( "Unable to allocate memory for slot hashes" ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_SYSVAR_SLOT_HASHES_ALIGN ) ) ) {
+    FD_LOG_ERR(( "Memory for slot hashes is not aligned" ));
   }
 
   fd_slot_hashes_global_t * slot_hashes_global = (fd_slot_hashes_global_t *)mem;
@@ -79,14 +82,14 @@ fd_sysvar_slot_hashes_delete( void * mem ) {
 void
 fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
                             fd_spad_t *          runtime_spad ) {
-FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  void * mem = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
-  fd_slot_hash_t * shnull = NULL;
-  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP ), &shnull );
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    void * mem                                    = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
+    fd_slot_hash_t * shnull                       = NULL;
+    fd_slot_hashes_global_t * slot_hashes_global  = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP ), &shnull );
 
-  fd_sysvar_slot_hashes_write( slot_ctx, slot_hashes_global);
-  fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( slot_hashes_global, shnull ) );
-} FD_SPAD_FRAME_END;
+    fd_sysvar_slot_hashes_write( slot_ctx, slot_hashes_global);
+    fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( slot_hashes_global, shnull ) );
+  } FD_SPAD_FRAME_END;
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */

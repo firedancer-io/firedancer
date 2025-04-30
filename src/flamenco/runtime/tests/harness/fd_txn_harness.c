@@ -127,7 +127,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
     FD_SPAD_FRAME_BEGIN( runner->spad ) {
       /* The offseted gaddr aware types need the memory for the entire
-        struct to be allocated out of a contiguous memory region. */
+         struct to be allocated out of a contiguous memory region. */
       fd_slot_hash_t * slot_hashes                          = NULL;
       void * mem                                            = fd_spad_alloc( runner->spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( 1UL ) );
       fd_slot_hashes_global_t * default_slot_hashes_global  = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, 1UL ), &slot_hashes );

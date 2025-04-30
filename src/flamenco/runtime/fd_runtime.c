@@ -3674,19 +3674,21 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
      longer spad-backed. */
 
   uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
-  ssize_t n   = read( fd, buf, (ulong)sbuf.st_size );
-  FD_TEST( n>=0L );
+  ulong sz    = 0UL;
+  int res     = fd_io_read( fd, buf, (ulong)sbuf.st_size, (ulong)sbuf.st_size, &sz );
+  FD_TEST( res==0 );
+  FD_TEST( sz==(ulong)sbuf.st_size );
   close( fd );
 
     int err;
     genesis_block = fd_bincode_decode_spad(
-        genesis_solana, runtime_spad, buf, (ulong)n, &err );
+        genesis_solana, runtime_spad, buf, sz, &err );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR(( "fd_genesis_solana_decode_footprint failed (%d)", err ));
     }
 
   // The hash is generated from the raw data... don't mess with this..
-  fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+  fd_sha256_hash( buf, sz, genesis_hash.uc );
 
   fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
   epoch_bank->cluster_type = genesis_block->cluster_type;
