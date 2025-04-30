@@ -3697,7 +3697,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_epoch_bank_t *   epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
     fd_genesis_solana_t * genesis_block;
     fd_hash_t             genesis_hash;
     uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
@@ -3779,7 +3778,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     fd_genesis_solana_destroy( genesis_block );
-  } FD_SPAD_FRAME_END;
 
   slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
