@@ -199,7 +199,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                fd_bmtree_node_t     * out_merkle_root );
 
 
-/* fd_fec_resolver_done_contains returns 1 if the the FEC with signature
+/* fd_fec_resolver_done_contains returns 1 if the FEC with signature
    lives in the done_map, and thus means it has been completed. Returns
    0 otherwise. */
 int

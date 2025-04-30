@@ -530,7 +530,7 @@ fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong 
 }
 
 /* fd_blockstore_new formats a memory region with the appropriate
-   alignment and footprint into a blockstore.  shmem points in the the
+   alignment and footprint into a blockstore.  shmem points in the
    caller's address space of the memory region to format.  Returns shmem
    on success (blockstore has ownership of the memory region) and NULL
    on failure (no changes, logs details).  Caller is not joined on
