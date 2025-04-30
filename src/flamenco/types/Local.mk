@@ -9,8 +9,12 @@ $(call run-unit-test,test_types_meta)
 $(call run-unit-test,test_types_yaml)
 $(call run-unit-test,test_types_fixtures)
 $(call run-unit-test,test_cast)
+
+$(call make-lib fd_flamenco_test)
+$(call add-objs,fd_types_reflect fd_types_reflect_generated,fd_flamenco_test)
+
 ifdef FD_HAS_HOSTED
-$(call make-fuzz-test,fuzz_types_decode,fuzz_types_decode,fd_flamenco fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_types_decode,fuzz_types_decode,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 endif
 endif
 

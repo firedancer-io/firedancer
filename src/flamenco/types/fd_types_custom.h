@@ -11,6 +11,7 @@
 #define FD_HASH_ALIGN (8UL)
 #define FD_PUBKEY_FOOTPRINT FD_HASH_FOOTPRINT
 #define FD_PUBKEY_ALIGN FD_HASH_ALIGN
+#define FD_SIGNATURE_ALIGN (8UL)
 
 /* TODO this should not have packed alignment, but it's misused everywhere */
 
@@ -75,7 +76,7 @@ typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 /* IPv4 ***************************************************************/
 
 typedef uint fd_gossip_ip4_addr_t;
-typedef uint fd_gossip_ip4_addr_t;
+#define FD_GOSSIP_IP4_ADDR_ALIGN alignof(fd_gossip_ip4_addr_t)
 
 /* IPv6 ***************************************************************/
 
@@ -86,6 +87,7 @@ union fd_gossip_ip6_addr {
 };
 
 typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
+#define FD_GOSSIP_IP6_ADDR_ALIGN alignof(fd_gossip_ip6_addr_t)
 
 union fd_gossip_ip6_addr_global {
   uchar  uc[ 16 ];
