@@ -2255,8 +2255,19 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
                                   ulong        total_cus,
                                   float        vote_fraction,
                                   ulong        bank_tile,
-                                  int          schedule_flags,
                                   fd_txn_p_t * out ) {
+  /* Because we schedule bundles strictly in order, we need to limit
+     bundles to a single bank.  Otherwise, if a bundle is executing on a
+     certain bank and the next bundle conflicts with it, all the other
+     bank tiles will be idle until the first bundle completes. */
+  if( FD_LIKELY( bank_tile==0UL ) ) {
+    /* Try to schedule a bundle first */
+    int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
+    if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
+    if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
+    /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
+       normal. */
+  }
 
   /* TODO: Decide if these are exactly how we want to handle limits */
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
@@ -2282,45 +2293,28 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   ulong scheduled = 0UL;
   ulong byte_limit = pack->lim->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
 
-  sched_return_t status = {0}, status1 = {0};
+  sched_return_t status, status1;
 
-  if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_VOTE ) ) {
-    /* Schedule vote transactions */
-    status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, bank_tile, pack->pending_votes_smallest, use_by_bank_txn, out+scheduled );
+  /* Schedule vote transactions */
+  status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, bank_tile, pack->pending_votes_smallest, use_by_bank_txn, out+scheduled );
 
-    scheduled                   += status1.txns_scheduled;
-    pack->cumulative_vote_cost  += status1.cus_scheduled;
-    pack->cumulative_block_cost += status1.cus_scheduled;
-    pack->data_bytes_consumed   += status1.bytes_scheduled;
-    byte_limit                  -= status1.bytes_scheduled;
-    use_by_bank_txn             += status1.txns_scheduled;
-    /* Add any remaining CUs/txns to the non-vote limits */
-    txn_limit += vote_reserved_txns - status1.txns_scheduled;
-    cu_limit  += vote_cus - status1.cus_scheduled;
-  }
-
-  /* Bundle can't mix with votes, so only try to schedule a bundle if we
-     didn't get any votes. */
-  if( FD_UNLIKELY( !!(schedule_flags & FD_PACK_SCHEDULE_BUNDLE) & (status1.txns_scheduled==0UL) ) ) {
-    int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
-    if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
-    if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
-    /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
-       normal. */
-    /* We have the early returns here because try_schedule_bundle does
-       the bookeeping internally, since the calculations are a bit
-       different in that case. */
-  }
+  scheduled                   += status1.txns_scheduled;
+  pack->cumulative_vote_cost  += status1.cus_scheduled;
+  pack->cumulative_block_cost += status1.cus_scheduled;
+  pack->data_bytes_consumed   += status1.bytes_scheduled;
+  byte_limit                  -= status1.bytes_scheduled;
+  use_by_bank_txn             += status1.txns_scheduled;
+  /* Add any remaining CUs/txns to the non-vote limits */
+  txn_limit += vote_reserved_txns - status1.txns_scheduled;
+  cu_limit  += vote_cus - status1.cus_scheduled;
 
 
   /* Fill any remaining space with non-vote transactions */
-  if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_TXN ) ) {
-    status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       use_by_bank_txn, out+scheduled );
+  status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       use_by_bank_txn, out+scheduled );
 
-    scheduled                   += status.txns_scheduled;
-    pack->cumulative_block_cost += status.cus_scheduled;
-    pack->data_bytes_consumed   += status.bytes_scheduled;
-  }
+  scheduled                   += status.txns_scheduled;
+  pack->cumulative_block_cost += status.cus_scheduled;
+  pack->data_bytes_consumed   += status.bytes_scheduled;
 
   ulong nonempty = (ulong)(scheduled>0UL);
   pack->microblock_cnt              += nonempty;
