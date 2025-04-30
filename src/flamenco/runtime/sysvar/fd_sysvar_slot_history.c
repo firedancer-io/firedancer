@@ -56,6 +56,7 @@ fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
 void
 fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Create a new slot history instance */
 
   /* We need to construct the gaddr-aware slot history object */
@@ -79,6 +80,7 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   /* TODO: handle slot != 0 init case */
   fd_sysvar_slot_history_set( history, slot_ctx->slot_bank.slot );
   fd_sysvar_slot_history_write_history( slot_ctx, history );
+  } FD_SPAD_FRAME_END;
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
