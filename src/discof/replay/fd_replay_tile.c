@@ -3208,7 +3208,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong replay_notif_idx = fd_topo_find_tile_out_link( topo, tile, "replay_notif", 0 );
   if( FD_UNLIKELY( replay_notif_idx!=ULONG_MAX ) ) {
-    fd_topo_link_t * notif_out = &topo->links[ replay_notif_idx ];
+    fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ replay_notif_idx ] ];
     FD_TEST( notif_out );
     ctx->notif_out_mcache      = notif_out->mcache;
     ctx->notif_out_sync        = fd_mcache_seq_laddr( ctx->notif_out_mcache );
