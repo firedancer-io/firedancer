@@ -18,7 +18,7 @@ import Flow::PathGraph
 bindingset[x]
 string matchDelete(string x) {
       result = x.regexpCapture("(.*)_delete", 1)
-      and not x = "fd_aio_delete" /* nbridge wants this to behave idempotent */
+      and not x = "fd_aio_delete" /* nbridge wants this to behave idempotently */
 }
 
 bindingset[x]

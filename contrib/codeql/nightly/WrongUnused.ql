@@ -51,4 +51,4 @@ where p.isOffending() and
 not p.isInMacroExpansion() and
 included(p.getLocation()) and
 not p.getLocation().getFile().getBaseName() = "fd_rpc_service.c" /* lots of unimplmented stubs */
-select p.getLocation(), "Parameter is marked as unsued, but is actually used"
+select p.getLocation(), "Parameter is marked as unused, but is actually used"
