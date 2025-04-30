@@ -386,7 +386,7 @@ set_identity_cmd_fn( args_t *   args,
 
 action_t fd_action_set_identity = {
   .name        = "set-identity",
-  .args        = NULL,
+  .args        = set_identity_cmd_args,
   .fn          = set_identity_cmd_fn,
   .perm        = NULL,
   .description = "Change the identity of a running validator",
