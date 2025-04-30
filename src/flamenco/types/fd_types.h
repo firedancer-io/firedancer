@@ -1671,51 +1671,23 @@ struct fd_tower_sync_switch_global {
 typedef struct fd_tower_sync_switch_global fd_tower_sync_switch_global_t;
 #define FD_TOWER_SYNC_SWITCH_GLOBAL_ALIGN alignof(fd_tower_sync_switch_global_t)
 
-/* Encoded Size: Dynamic */
-struct fd_slot_history_inner {
-  ulong blocks_len;
-  ulong* blocks;
-};
-typedef struct fd_slot_history_inner fd_slot_history_inner_t;
-#define FD_SLOT_HISTORY_INNER_ALIGN alignof(fd_slot_history_inner_t)
-
-struct fd_slot_history_inner_global {
-  ulong blocks_len;
-  ulong blocks_offset;
-};
-typedef struct fd_slot_history_inner_global fd_slot_history_inner_global_t;
-#define FD_SLOT_HISTORY_INNER_GLOBAL_ALIGN alignof(fd_slot_history_inner_global_t)
-
-FD_FN_UNUSED static ulong * fd_slot_history_inner_blocks_join( fd_slot_history_inner_global_t * struct_mem ) { // vector
-  return (ulong *)fd_type_pun( (uchar *)struct_mem + struct_mem->blocks_offset );
-}
-/* https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8 */
-/* Encoded Size: Dynamic */
-struct fd_slot_history_bitvec {
-  fd_slot_history_inner_t * bits;
-  ulong len;
-};
-typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
-#define FD_SLOT_HISTORY_BITVEC_ALIGN alignof(fd_slot_history_bitvec_t)
-
-struct fd_slot_history_bitvec_global {
-  ulong bits_offset;
-  ulong len;
-};
-typedef struct fd_slot_history_bitvec_global fd_slot_history_bitvec_global_t;
-#define FD_SLOT_HISTORY_BITVEC_GLOBAL_ALIGN alignof(fd_slot_history_bitvec_global_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 /* Encoded Size: Dynamic */
 struct fd_slot_history {
-  fd_slot_history_bitvec_t bits;
+  uchar has_bits;
+  ulong bits_bitvec_len;
+  ulong* bits_bitvec;
+  ulong bits_len;
   ulong next_slot;
 };
 typedef struct fd_slot_history fd_slot_history_t;
 #define FD_SLOT_HISTORY_ALIGN alignof(fd_slot_history_t)
 
 struct fd_slot_history_global {
-  fd_slot_history_bitvec_global_t bits;
+  uchar has_bits;
+  ulong bits_bitvec_len;
+  ulong bits_bitvec_offset;
+  ulong bits_len;
   ulong next_slot;
 };
 typedef struct fd_slot_history_global fd_slot_history_global_t;
@@ -3497,76 +3469,6 @@ struct fd_address_lookup_table_state_global {
 typedef struct fd_address_lookup_table_state_global fd_address_lookup_table_state_global_t;
 #define FD_ADDRESS_LOOKUP_TABLE_STATE_GLOBAL_ALIGN alignof(fd_address_lookup_table_state_global_t)
 
-/* Encoded Size: Dynamic */
-struct fd_gossip_bitvec_u8_inner {
-  ulong vec_len;
-  uchar* vec;
-};
-typedef struct fd_gossip_bitvec_u8_inner fd_gossip_bitvec_u8_inner_t;
-#define FD_GOSSIP_BITVEC_U8_INNER_ALIGN alignof(fd_gossip_bitvec_u8_inner_t)
-
-struct fd_gossip_bitvec_u8_inner_global {
-  ulong vec_len;
-  ulong vec_offset;
-};
-typedef struct fd_gossip_bitvec_u8_inner_global fd_gossip_bitvec_u8_inner_global_t;
-#define FD_GOSSIP_BITVEC_U8_INNER_GLOBAL_ALIGN alignof(fd_gossip_bitvec_u8_inner_global_t)
-
-FD_FN_UNUSED static uchar * fd_gossip_bitvec_u8_inner_vec_join( fd_gossip_bitvec_u8_inner_global_t * struct_mem ) { // vector
-  return (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->vec_offset );
-}
-/* Encoded Size: Dynamic */
-struct fd_gossip_bitvec_u8 {
-  fd_gossip_bitvec_u8_inner_t bits;
-  uchar has_bits;
-  ulong len;
-};
-typedef struct fd_gossip_bitvec_u8 fd_gossip_bitvec_u8_t;
-#define FD_GOSSIP_BITVEC_U8_ALIGN alignof(fd_gossip_bitvec_u8_t)
-
-struct fd_gossip_bitvec_u8_global {
-  fd_gossip_bitvec_u8_inner_global_t bits;
-  uchar has_bits;
-  ulong len;
-};
-typedef struct fd_gossip_bitvec_u8_global fd_gossip_bitvec_u8_global_t;
-#define FD_GOSSIP_BITVEC_U8_GLOBAL_ALIGN alignof(fd_gossip_bitvec_u8_global_t)
-
-/* Encoded Size: Dynamic */
-struct fd_gossip_bitvec_u64_inner {
-  ulong vec_len;
-  ulong* vec;
-};
-typedef struct fd_gossip_bitvec_u64_inner fd_gossip_bitvec_u64_inner_t;
-#define FD_GOSSIP_BITVEC_U64_INNER_ALIGN alignof(fd_gossip_bitvec_u64_inner_t)
-
-struct fd_gossip_bitvec_u64_inner_global {
-  ulong vec_len;
-  ulong vec_offset;
-};
-typedef struct fd_gossip_bitvec_u64_inner_global fd_gossip_bitvec_u64_inner_global_t;
-#define FD_GOSSIP_BITVEC_U64_INNER_GLOBAL_ALIGN alignof(fd_gossip_bitvec_u64_inner_global_t)
-
-FD_FN_UNUSED static ulong * fd_gossip_bitvec_u64_inner_vec_join( fd_gossip_bitvec_u64_inner_global_t * struct_mem ) { // vector
-  return (ulong *)fd_type_pun( (uchar *)struct_mem + struct_mem->vec_offset );
-}
-/* Encoded Size: Dynamic */
-struct fd_gossip_bitvec_u64 {
-  fd_gossip_bitvec_u64_inner_t bits;
-  uchar has_bits;
-  ulong len;
-};
-typedef struct fd_gossip_bitvec_u64 fd_gossip_bitvec_u64_t;
-#define FD_GOSSIP_BITVEC_U64_ALIGN alignof(fd_gossip_bitvec_u64_t)
-
-struct fd_gossip_bitvec_u64_global {
-  fd_gossip_bitvec_u64_inner_global_t bits;
-  uchar has_bits;
-  ulong len;
-};
-typedef struct fd_gossip_bitvec_u64_global fd_gossip_bitvec_u64_global_t;
-#define FD_GOSSIP_BITVEC_U64_GLOBAL_ALIGN alignof(fd_gossip_bitvec_u64_global_t)
-
 /* https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22 */
 /* Encoded Size: Fixed (128 bytes) */
 struct fd_gossip_ping {
@@ -3787,7 +3689,10 @@ FD_FN_UNUSED static fd_slot_hash_t * fd_gossip_slot_hashes_hashes_join( fd_gossi
 struct fd_gossip_slots {
   ulong first_slot;
   ulong num;
-  fd_gossip_bitvec_u8_t slots;
+  uchar has_slots;
+  ulong slots_bitvec_len;
+  uchar* slots_bitvec;
+  ulong slots_len;
 };
 typedef struct fd_gossip_slots fd_gossip_slots_t;
 #define FD_GOSSIP_SLOTS_ALIGN alignof(fd_gossip_slots_t)
@@ -3795,7 +3700,10 @@ typedef struct fd_gossip_slots fd_gossip_slots_t;
 struct fd_gossip_slots_global {
   ulong first_slot;
   ulong num;
-  fd_gossip_bitvec_u8_global_t slots;
+  uchar has_slots;
+  ulong slots_bitvec_len;
+  ulong slots_bitvec_offset;
+  ulong slots_len;
 };
 typedef struct fd_gossip_slots_global fd_gossip_slots_global_t;
 #define FD_GOSSIP_SLOTS_GLOBAL_ALIGN alignof(fd_gossip_slots_global_t)
@@ -4080,49 +3988,20 @@ FD_FN_UNUSED static fd_restart_run_length_encoding_inner_t * fd_restart_run_leng
   return (fd_restart_run_length_encoding_inner_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->offsets_offset );
 }
 /* Encoded Size: Dynamic */
-struct fd_restart_raw_offsets_bitvec_u8_inner {
-  ulong bits_len;
-  uchar* bits;
-};
-typedef struct fd_restart_raw_offsets_bitvec_u8_inner fd_restart_raw_offsets_bitvec_u8_inner_t;
-#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_ALIGN alignof(fd_restart_raw_offsets_bitvec_u8_inner_t)
-
-struct fd_restart_raw_offsets_bitvec_u8_inner_global {
-  ulong bits_len;
-  ulong bits_offset;
-};
-typedef struct fd_restart_raw_offsets_bitvec_u8_inner_global fd_restart_raw_offsets_bitvec_u8_inner_global_t;
-#define FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_GLOBAL_ALIGN alignof(fd_restart_raw_offsets_bitvec_u8_inner_global_t)
-
-FD_FN_UNUSED static uchar * fd_restart_raw_offsets_bitvec_u8_inner_bits_join( fd_restart_raw_offsets_bitvec_u8_inner_global_t * struct_mem ) { // vector
-  return (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->bits_offset );
-}
-/* Encoded Size: Dynamic */
-struct fd_restart_raw_offsets_bitvec {
-  fd_restart_raw_offsets_bitvec_u8_inner_t bits;
-  uchar has_bits;
-  ulong len;
-};
-typedef struct fd_restart_raw_offsets_bitvec fd_restart_raw_offsets_bitvec_t;
-#define FD_RESTART_RAW_OFFSETS_BITVEC_ALIGN alignof(fd_restart_raw_offsets_bitvec_t)
-
-struct fd_restart_raw_offsets_bitvec_global {
-  fd_restart_raw_offsets_bitvec_u8_inner_global_t bits;
-  uchar has_bits;
-  ulong len;
-};
-typedef struct fd_restart_raw_offsets_bitvec_global fd_restart_raw_offsets_bitvec_global_t;
-#define FD_RESTART_RAW_OFFSETS_BITVEC_GLOBAL_ALIGN alignof(fd_restart_raw_offsets_bitvec_global_t)
-
-/* Encoded Size: Dynamic */
 struct fd_restart_raw_offsets {
-  fd_restart_raw_offsets_bitvec_t offsets;
+  uchar has_offsets;
+  ulong offsets_bitvec_len;
+  uchar* offsets_bitvec;
+  ulong offsets_len;
 };
 typedef struct fd_restart_raw_offsets fd_restart_raw_offsets_t;
 #define FD_RESTART_RAW_OFFSETS_ALIGN alignof(fd_restart_raw_offsets_t)
 
 struct fd_restart_raw_offsets_global {
-  fd_restart_raw_offsets_bitvec_global_t offsets;
+  uchar has_offsets;
+  ulong offsets_bitvec_len;
+  ulong offsets_bitvec_offset;
+  ulong offsets_len;
 };
 typedef struct fd_restart_raw_offsets_global fd_restart_raw_offsets_global_t;
 #define FD_RESTART_RAW_OFFSETS_GLOBAL_ALIGN alignof(fd_restart_raw_offsets_global_t)
@@ -4240,7 +4119,10 @@ typedef struct fd_crds_data_global fd_crds_data_global_t;
 struct fd_crds_bloom {
   ulong keys_len;
   ulong* keys;
-  fd_gossip_bitvec_u64_t bits;
+  uchar has_bits;
+  ulong bits_bitvec_len;
+  ulong* bits_bitvec;
+  ulong bits_len;
   ulong num_bits_set;
 };
 typedef struct fd_crds_bloom fd_crds_bloom_t;
@@ -4249,7 +4131,10 @@ typedef struct fd_crds_bloom fd_crds_bloom_t;
 struct fd_crds_bloom_global {
   ulong keys_len;
   ulong keys_offset;
-  fd_gossip_bitvec_u64_global_t bits;
+  uchar has_bits;
+  ulong bits_bitvec_len;
+  ulong bits_bitvec_offset;
+  ulong bits_len;
   ulong num_bits_set;
 };
 typedef struct fd_crds_bloom_global fd_crds_bloom_global_t;
@@ -5881,26 +5766,6 @@ void * fd_tower_sync_switch_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_tower_sync_switch_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_tower_sync_switch_encode_global( fd_tower_sync_switch_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
-void fd_slot_history_inner_new( fd_slot_history_inner_t * self );
-int fd_slot_history_inner_encode( fd_slot_history_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_slot_history_inner_walk( void * w, fd_slot_history_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_slot_history_inner_size( fd_slot_history_inner_t const * self );
-static inline ulong fd_slot_history_inner_align( void ) { return FD_SLOT_HISTORY_INNER_ALIGN; }
-int fd_slot_history_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_slot_history_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_slot_history_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_history_inner_encode_global( fd_slot_history_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
-void fd_slot_history_bitvec_new( fd_slot_history_bitvec_t * self );
-int fd_slot_history_bitvec_encode( fd_slot_history_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_slot_history_bitvec_walk( void * w, fd_slot_history_bitvec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_slot_history_bitvec_size( fd_slot_history_bitvec_t const * self );
-static inline ulong fd_slot_history_bitvec_align( void ) { return FD_SLOT_HISTORY_BITVEC_ALIGN; }
-int fd_slot_history_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_slot_history_bitvec_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_slot_history_bitvec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_history_bitvec_encode_global( fd_slot_history_bitvec_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
 void fd_slot_history_new( fd_slot_history_t * self );
 int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_slot_history_walk( void * w, fd_slot_history_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
@@ -7097,46 +6962,6 @@ enum {
 fd_address_lookup_table_state_enum_uninitialized = 0,
 fd_address_lookup_table_state_enum_lookup_table = 1,
 };
-void fd_gossip_bitvec_u8_inner_new( fd_gossip_bitvec_u8_inner_t * self );
-int fd_gossip_bitvec_u8_inner_encode( fd_gossip_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_bitvec_u8_inner_walk( void * w, fd_gossip_bitvec_u8_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_gossip_bitvec_u8_inner_size( fd_gossip_bitvec_u8_inner_t const * self );
-static inline ulong fd_gossip_bitvec_u8_inner_align( void ) { return FD_GOSSIP_BITVEC_U8_INNER_ALIGN; }
-int fd_gossip_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_gossip_bitvec_u8_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_gossip_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u8_inner_encode_global( fd_gossip_bitvec_u8_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
-void fd_gossip_bitvec_u8_new( fd_gossip_bitvec_u8_t * self );
-int fd_gossip_bitvec_u8_encode( fd_gossip_bitvec_u8_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_bitvec_u8_walk( void * w, fd_gossip_bitvec_u8_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_gossip_bitvec_u8_size( fd_gossip_bitvec_u8_t const * self );
-static inline ulong fd_gossip_bitvec_u8_align( void ) { return FD_GOSSIP_BITVEC_U8_ALIGN; }
-int fd_gossip_bitvec_u8_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_gossip_bitvec_u8_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_gossip_bitvec_u8_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u8_encode_global( fd_gossip_bitvec_u8_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
-void fd_gossip_bitvec_u64_inner_new( fd_gossip_bitvec_u64_inner_t * self );
-int fd_gossip_bitvec_u64_inner_encode( fd_gossip_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_bitvec_u64_inner_walk( void * w, fd_gossip_bitvec_u64_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_gossip_bitvec_u64_inner_size( fd_gossip_bitvec_u64_inner_t const * self );
-static inline ulong fd_gossip_bitvec_u64_inner_align( void ) { return FD_GOSSIP_BITVEC_U64_INNER_ALIGN; }
-int fd_gossip_bitvec_u64_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_gossip_bitvec_u64_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_gossip_bitvec_u64_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u64_inner_encode_global( fd_gossip_bitvec_u64_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
-void fd_gossip_bitvec_u64_new( fd_gossip_bitvec_u64_t * self );
-int fd_gossip_bitvec_u64_encode( fd_gossip_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_bitvec_u64_walk( void * w, fd_gossip_bitvec_u64_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_gossip_bitvec_u64_size( fd_gossip_bitvec_u64_t const * self );
-static inline ulong fd_gossip_bitvec_u64_align( void ) { return FD_GOSSIP_BITVEC_U64_ALIGN; }
-int fd_gossip_bitvec_u64_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_gossip_bitvec_u64_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_gossip_bitvec_u64_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_gossip_bitvec_u64_encode_global( fd_gossip_bitvec_u64_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
 static inline void fd_gossip_ping_new( fd_gossip_ping_t * self ) { fd_memset( self, 0, sizeof(fd_gossip_ping_t) ); }
 int fd_gossip_ping_encode( fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_gossip_ping_walk( void * w, fd_gossip_ping_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
@@ -7411,26 +7236,6 @@ int fd_restart_run_length_encoding_decode_footprint( fd_bincode_decode_ctx_t * c
 void * fd_restart_run_length_encoding_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_restart_run_length_encoding_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_restart_run_length_encoding_encode_global( fd_restart_run_length_encoding_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
-void fd_restart_raw_offsets_bitvec_u8_inner_new( fd_restart_raw_offsets_bitvec_u8_inner_t * self );
-int fd_restart_raw_offsets_bitvec_u8_inner_encode( fd_restart_raw_offsets_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_restart_raw_offsets_bitvec_u8_inner_walk( void * w, fd_restart_raw_offsets_bitvec_u8_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_restart_raw_offsets_bitvec_u8_inner_size( fd_restart_raw_offsets_bitvec_u8_inner_t const * self );
-static inline ulong fd_restart_raw_offsets_bitvec_u8_inner_align( void ) { return FD_RESTART_RAW_OFFSETS_BITVEC_U8_INNER_ALIGN; }
-int fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_restart_raw_offsets_bitvec_u8_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_restart_raw_offsets_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_raw_offsets_bitvec_u8_inner_encode_global( fd_restart_raw_offsets_bitvec_u8_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-
-void fd_restart_raw_offsets_bitvec_new( fd_restart_raw_offsets_bitvec_t * self );
-int fd_restart_raw_offsets_bitvec_encode( fd_restart_raw_offsets_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_restart_raw_offsets_bitvec_walk( void * w, fd_restart_raw_offsets_bitvec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_restart_raw_offsets_bitvec_size( fd_restart_raw_offsets_bitvec_t const * self );
-static inline ulong fd_restart_raw_offsets_bitvec_align( void ) { return FD_RESTART_RAW_OFFSETS_BITVEC_ALIGN; }
-int fd_restart_raw_offsets_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_restart_raw_offsets_bitvec_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_restart_raw_offsets_bitvec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_restart_raw_offsets_bitvec_encode_global( fd_restart_raw_offsets_bitvec_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_restart_raw_offsets_new( fd_restart_raw_offsets_t * self );
 int fd_restart_raw_offsets_encode( fd_restart_raw_offsets_t const * self, fd_bincode_encode_ctx_t * ctx );

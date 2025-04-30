@@ -891,26 +891,10 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104"
     },
     {
-      "name": "slot_history_inner",
-      "type": "struct",
-      "fields": [
-          { "name": "blocks", "type": "vector", "element": "ulong" }
-      ]
-    },
-    {
-      "name": "slot_history_bitvec",
-      "type": "struct",
-      "fields": [
-          { "name": "bits", "type": "option", "element": "slot_history_inner" },
-          { "name": "len", "type": "ulong" }
-      ],
-      "comment": "https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8"
-    },
-    {
       "name": "slot_history",
       "type": "struct",
       "fields": [
-          { "name": "bits", "type": "slot_history_bitvec" },
+          { "name": "bits", "type": "bitvec", "element": "ulong" },
           { "name": "next_slot", "type": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11"
@@ -1879,32 +1863,6 @@
       ]
     },
     {
-      "name": "gossip_bitvec_u8_inner",
-      "type": "struct",
-      "fields": [ { "name": "vec", "type": "vector", "element": "uchar" } ]
-    },
-    {
-      "name": "gossip_bitvec_u8",
-      "type": "struct",
-      "fields": [
-        { "name": "bits", "type": "option", "element": "gossip_bitvec_u8_inner", "flat": true },
-        { "name": "len", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "gossip_bitvec_u64_inner",
-      "type": "struct",
-      "fields": [ { "name": "vec", "type": "vector", "element": "ulong" } ]
-    },
-    {
-      "name": "gossip_bitvec_u64",
-      "type": "struct",
-      "fields": [
-        { "name": "bits", "type": "option", "element": "gossip_bitvec_u64_inner", "flat": true },
-        { "name": "len", "type": "ulong" }
-      ]
-    },
-    {
       "name": "gossip_ping",
       "type": "struct",
       "fields": [
@@ -2057,7 +2015,7 @@
       "fields": [
         { "name": "first_slot", "type": "ulong" },
         { "name": "num", "type": "ulong" },
-        { "name": "slots", "type": "gossip_bitvec_u8" }
+        { "name": "slots", "type": "bitvec", "element": "uchar" }
       ]
     },
     {
@@ -2198,25 +2156,10 @@
       ]
     },
     {
-      "name": "restart_raw_offsets_bitvec_u8_inner",
-      "type": "struct",
-      "fields": [
-        { "name": "bits", "type": "vector", "element": "uchar" }
-      ]
-    },
-    {
-      "name": "restart_raw_offsets_bitvec",
-      "type": "struct",
-      "fields": [
-        { "name": "bits", "type": "option", "element": "restart_raw_offsets_bitvec_u8_inner", "flat": true },
-        { "name": "len", "type": "ulong"  }
-      ]
-    },
-    {
       "name": "restart_raw_offsets",
       "type": "struct",
       "fields": [
-        { "name": "offsets", "type": "restart_raw_offsets_bitvec" }
+        { "name": "offsets", "type": "bitvec", "element": "uchar" }
       ]
     },
     {
@@ -2276,7 +2219,7 @@
       "type": "struct",
       "fields": [
         { "name": "keys", "type": "vector", "element": "ulong" },
-        { "name": "bits", "type": "gossip_bitvec_u64" },
+        { "name": "bits", "type": "bitvec", "element": "ulong" },
         { "name": "num_bits_set", "type": "ulong" }
       ]
     },

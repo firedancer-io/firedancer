@@ -346,8 +346,8 @@ gossip_deliver_fun( fd_crds_data_t * data,
     ulong bitmap_len   = 0;
     uchar * bitmap_dst = last_vote_msg_+sizeof(uint)+struct_len;
     if ( FD_LIKELY( data->inner.restart_last_voted_fork_slots.offsets.discriminant==fd_restart_slots_offsets_enum_raw_offsets ) ) {
-      uchar * bitmap_src = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits;
-      bitmap_len         = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits_len;
+      uchar * bitmap_src = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec;
+      bitmap_len         = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec_len;
       memcpy( bitmap_dst, bitmap_src, bitmap_len );
     } else {
       uchar bitmap_src [ FD_RESTART_RAW_BITMAP_BYTES_MAX ];
@@ -724,7 +724,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
                  sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
 
       restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version = fd_gossip_get_shred_version( ctx->gossip );
-      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits = ctx->restart_last_vote_msg + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
+      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec = ctx->restart_last_vote_msg + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
 
       /* Convert the raw bitmap into RunLengthEncoding before sending out */
       fd_restart_run_length_encoding_inner_t runlength_encoding[ FD_RESTART_PACKET_BITMAP_BYTES_MAX/sizeof(ushort) ];
