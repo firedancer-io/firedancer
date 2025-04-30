@@ -72,9 +72,6 @@ usage( void ) {
         .block_height = 1,                                                               \
     };                                                                                   \
     fd_slot_bank_new( &slot_bank );                                                      \
-    fd_hash_t fake_hash = { .hash = {1} };                                               \
-    slot_bank.block_hash_queue.last_hash = &fake_hash;                                   \
-    slot_bank.block_hash_queue.last_hash_index = 0;                                      \
     int fd = open( "dummy.archv", O_RDWR | O_CREAT, 0666 );                              \
     FD_TEST( fd > 0 );
 

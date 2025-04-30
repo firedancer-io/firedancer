@@ -65,10 +65,10 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
   /* Blockhash queue init */
-  fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
-  blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  blockhash_queue->last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
+  // fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
+  // blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  // blockhash_queue->last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  // fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
 
   /* Set up txn context */
 
@@ -293,7 +293,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      *blockhash_queue->last_hash                = last->blockhash;
+      //*blockhash_queue->last_hash                = last->blockhash;
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }

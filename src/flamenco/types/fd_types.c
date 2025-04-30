@@ -13557,8 +13557,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_encode( &self->lthash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_block_hash_queue_encode( &self->block_hash_queue, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->prev_banks_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->parent_signature_cnt, ctx );
@@ -13620,8 +13618,6 @@ int fd_slot_bank_encode_global( fd_slot_bank_global_t const * self, fd_bincode_e
   err = fd_bincode_uint64_encode( self->transaction_count, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_encode( &self->lthash, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_block_hash_queue_encode_global( &self->block_hash_queue, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->prev_banks_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13686,8 +13682,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_slot_lthash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_block_hash_queue_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
@@ -13741,7 +13735,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_bincode_uint64_decode_unsafe( &self->lamports_per_signature, ctx );
   fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
   fd_slot_lthash_decode_inner( &self->lthash, alloc_mem, ctx );
-  fd_block_hash_queue_decode_inner( &self->block_hash_queue, alloc_mem, ctx );
   fd_hash_decode_inner( &self->prev_banks_hash, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->parent_signature_cnt, ctx );
   fd_bincode_uint64_decode_unsafe( &self->tick_height, ctx );
@@ -13787,7 +13780,6 @@ static void fd_slot_bank_decode_inner_global( void * struct_mem, void * * alloc_
   fd_bincode_uint64_decode_unsafe( &self->lamports_per_signature, ctx );
   fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
   fd_slot_lthash_decode_inner( &self->lthash, alloc_mem, ctx );
-  fd_block_hash_queue_decode_inner_global( &self->block_hash_queue, alloc_mem, ctx );
   fd_hash_decode_inner( &self->prev_banks_hash, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->parent_signature_cnt, ctx );
   fd_bincode_uint64_decode_unsafe( &self->tick_height, ctx );
@@ -13823,7 +13815,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_account_keys_new( &self->stake_account_keys );
   fd_account_keys_new( &self->vote_account_keys );
   fd_slot_lthash_new( &self->lthash );
-  fd_block_hash_queue_new( &self->block_hash_queue );
   fd_hash_new( &self->prev_banks_hash );
   fd_hard_forks_new( &self->hard_forks );
   fd_rent_fresh_accounts_new( &self->rent_fresh_accounts );
@@ -13840,7 +13831,6 @@ void fd_slot_bank_destroy( fd_slot_bank_t * self ) {
   fd_account_keys_destroy( &self->stake_account_keys );
   fd_account_keys_destroy( &self->vote_account_keys );
   fd_slot_lthash_destroy( &self->lthash );
-  fd_block_hash_queue_destroy( &self->block_hash_queue );
   fd_hash_destroy( &self->prev_banks_hash );
   if( self->has_use_preceeding_epoch_stakes ) {
     self->has_use_preceeding_epoch_stakes = 0;
@@ -13872,7 +13862,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fun( w, &self->lamports_per_signature, "lamports_per_signature", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->transaction_count, "transaction_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_slot_lthash_walk( w, &self->lthash, fun, "lthash", level );
-  fd_block_hash_queue_walk( w, &self->block_hash_queue, fun, "block_hash_queue", level );
   fd_hash_walk( w, &self->prev_banks_hash, fun, "prev_banks_hash", level );
   fun( w, &self->parent_signature_cnt, "parent_signature_cnt", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->tick_height, "tick_height", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -13908,7 +13897,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_slot_lthash_size( &self->lthash );
-  size += fd_block_hash_queue_size( &self->block_hash_queue );
   size += fd_hash_size( &self->prev_banks_hash );
   size += sizeof(ulong);
   size += sizeof(ulong);

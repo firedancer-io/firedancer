@@ -1838,7 +1838,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   self->lamports_per_signature = fd_rng_ulong( rng );
   self->transaction_count = fd_rng_ulong( rng );
   fd_slot_lthash_generate( &self->lthash, alloc_mem, rng );
-  fd_block_hash_queue_generate( &self->block_hash_queue, alloc_mem, rng );
   fd_hash_generate( &self->prev_banks_hash, alloc_mem, rng );
   self->parent_signature_cnt = fd_rng_ulong( rng );
   self->tick_height = fd_rng_ulong( rng );

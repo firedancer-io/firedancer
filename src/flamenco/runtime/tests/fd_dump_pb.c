@@ -344,7 +344,7 @@ dump_sanitized_transaction( fd_funk_t *                            funk,
 
 /** BLOCKHASH QUEUE DUMPING **/
 
-static void
+static void FD_FN_UNUSED
 dump_blockhash_queue( fd_block_hash_queue_t const * queue,
                       fd_spad_t *                   spad,
                       pb_bytes_array_t **           output_blockhash_queue,
@@ -465,7 +465,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                               alignof(pb_bytes_array_t *),
                                                               PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   block_context->blockhash_queue = output_blockhash_queue;
-  dump_blockhash_queue( &slot_ctx->slot_bank.block_hash_queue, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
+  // dump_blockhash_queue( &slot_ctx->slot_bank.block_hash_queue, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
 
   /* BlockContext -> SlotContext */
   block_context->has_slot_ctx                       = true;

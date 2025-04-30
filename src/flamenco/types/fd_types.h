@@ -2439,7 +2439,6 @@ struct fd_slot_bank {
   ulong lamports_per_signature;
   ulong transaction_count;
   fd_slot_lthash_t lthash;
-  fd_block_hash_queue_t block_hash_queue;
   fd_hash_t prev_banks_hash;
   ulong parent_signature_cnt;
   ulong tick_height;
@@ -2473,7 +2472,6 @@ struct fd_slot_bank_global {
   ulong lamports_per_signature;
   ulong transaction_count;
   fd_slot_lthash_t lthash;
-  fd_block_hash_queue_global_t block_hash_queue;
   fd_hash_t prev_banks_hash;
   ulong parent_signature_cnt;
   ulong tick_height;

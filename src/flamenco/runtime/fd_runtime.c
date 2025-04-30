@@ -3418,19 +3418,19 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   epoch_bank->rent                    = genesis_block->rent;
   slot_ctx->slot_bank.block_height    = 0UL;
 
-  slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( FD_HASH_FOOTPRINT * 400 ) );
-  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, FD_HASH_FOOTPRINT * 400 ) );
-  fd_hash_hash_age_pair_t_mapnode_t * node       = fd_hash_hash_age_pair_t_map_acquire( slot_ctx->slot_bank.block_hash_queue.ages_pool );
-  node->elem = (fd_hash_hash_age_pair_t){
-    .key = *genesis_hash,
-    .val = (fd_hash_age_t){ .hash_index = 0UL, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = 0UL}, .timestamp = (ulong)fd_log_wallclock() }
-  };
-  fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
-  slot_ctx->slot_bank.block_hash_queue.last_hash_index = 0UL;
-  slot_ctx->slot_bank.block_hash_queue.last_hash       = fd_spad_alloc( runtime_spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  fd_memcpy( slot_ctx->slot_bank.block_hash_queue.last_hash, genesis_hash, FD_HASH_FOOTPRINT );
-  slot_ctx->slot_bank.block_hash_queue.max_age         = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  // slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
+  // uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( FD_HASH_FOOTPRINT * 400 ) );
+  // slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, FD_HASH_FOOTPRINT * 400 ) );
+  // fd_hash_hash_age_pair_t_mapnode_t * node       = fd_hash_hash_age_pair_t_map_acquire( slot_ctx->slot_bank.block_hash_queue.ages_pool );
+  // node->elem = (fd_hash_hash_age_pair_t){
+  //   .key = *genesis_hash,
+  //   .val = (fd_hash_age_t){ .hash_index = 0UL, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = 0UL}, .timestamp = (ulong)fd_log_wallclock() }
+  // };
+  // fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
+  // slot_ctx->slot_bank.block_hash_queue.last_hash_index = 0UL;
+  // slot_ctx->slot_bank.block_hash_queue.last_hash       = fd_spad_alloc( runtime_spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  // fd_memcpy( slot_ctx->slot_bank.block_hash_queue.last_hash, genesis_hash, FD_HASH_FOOTPRINT );
+  // slot_ctx->slot_bank.block_hash_queue.max_age         = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
 
   slot_ctx->signature_cnt = 0UL;
 
@@ -3577,7 +3577,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
     }
   }
 
-  pool_mem = fd_spad_alloc( runtime_spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( FD_HASH_FOOTPRINT * 400 ) );
+  uchar *pool_mem = fd_spad_alloc( runtime_spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( FD_HASH_FOOTPRINT * 400 ) );
 
   slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( pool_mem, FD_HASH_FOOTPRINT * 400 ) );
   slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;

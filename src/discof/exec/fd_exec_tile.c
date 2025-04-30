@@ -145,6 +145,10 @@ struct fd_exec_tile_ctx {
 
   /* Pairs len is the number of accounts to hash. */
   ulong                 pairs_len;
+
+  /* Local handle to the bank manager. The join must be updated at
+     every slot boundary. */
+  fd_bank_mgr_t *       bank_mgr;
 };
 typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
 
@@ -158,6 +162,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* clang-format off */
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t),  sizeof(fd_exec_tile_ctx_t) );
+  l       = FD_LAYOUT_APPEND( l, alignof(fd_bank_mgr_t),       sizeof(fd_bank_mgr_t) );
   return FD_LAYOUT_FINI( l, scratch_align() );
   /* clang-format on */
 }
@@ -264,12 +269,8 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not find valid sysvar cache" ));
   }
 
-  uchar * mem = fd_spad_alloc( ctx->exec_spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Could not allocate block hash queue" ));
-  }
-
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( mem ), ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
+  /* Update the local join to the bank manager.*/
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
   if( FD_UNLIKELY( !bank_mgr ) ) {
     FD_LOG_ERR(( "Could not join bank mgr" ));
   }
@@ -278,9 +279,6 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   if( FD_UNLIKELY( !ctx->txn_ctx->block_hash_queue_global ) ) {
     FD_LOG_ERR(( "Could not find valid block hash queue" ));
   }
-
-  fd_hash_t * last_hash = (fd_hash_t *)((ulong)ctx->txn_ctx->block_hash_queue_global + ctx->txn_ctx->block_hash_queue_global->last_hash_offset);
-  FD_LOG_WARNING(("LAST HASH %s", FD_BASE58_ENC_32_ALLOCA( last_hash)));
 }
 
 static void
@@ -336,7 +334,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   }
 }
 
-//TODO hashing can be moved into the writer tile
+// TODO: hashing can be moved into the writer tile
 static void
 hash_accounts( fd_exec_tile_ctx_t *                ctx,
                fd_runtime_public_hash_bank_msg_t * msg ) {
@@ -556,8 +554,9 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
-  ulong scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  fd_exec_tile_ctx_t * ctx               = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
+  uchar *              bank_mgr_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  ulong                scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_ERR( ( "Scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
       scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
@@ -691,6 +690,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->runtime_pub_wksp = ctx->runtime_public_wksp;
   if( FD_UNLIKELY( !ctx->txn_ctx->runtime_pub_wksp ) ) {
     FD_LOG_ERR(( "Failed to find public wksp" ));
+  }
+
+  /********************************************************************/
+  /* setup bank manager                                                */
+  /********************************************************************/
+
+  ctx->bank_mgr = fd_bank_mgr_join( bank_mgr_mem, ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
+  if( FD_UNLIKELY( !ctx->bank_mgr ) ) {
+    FD_LOG_ERR(( "Failed to join bank manager" ));
   }
 
   /********************************************************************/

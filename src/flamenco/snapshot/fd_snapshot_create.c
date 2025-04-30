@@ -618,23 +618,21 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
      As a note, the size is 300 but in fact is of size 301 due to a knwon bug
      in the agave client that is emulated by the firedancer client. */
 
-  bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
-  bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  fd_memcpy( bank->blockhash_queue.last_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
+  // bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
+  // bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  // fd_memcpy( bank->blockhash_queue.last_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
 
-  bank->blockhash_queue.ages_len = fd_hash_hash_age_pair_t_map_size( slot_bank->block_hash_queue.ages_pool, slot_bank->block_hash_queue.ages_root);
-  bank->blockhash_queue.ages     = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
-  bank->blockhash_queue.max_age  = FD_BLOCKHASH_QUEUE_SIZE;
+  // bank->blockhash_queue.ages_len = fd_hash_hash_age_pair_t_map_size( slot_bank->block_hash_queue.ages_pool, slot_bank->block_hash_queue.ages_root);
+  // bank->blockhash_queue.ages     = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
+  // bank->blockhash_queue.max_age  = FD_BLOCKHASH_QUEUE_SIZE;
 
-  fd_block_hash_queue_t             * queue               = &slot_bank->block_hash_queue;
-  fd_hash_hash_age_pair_t_mapnode_t * nn                  = NULL;
-  ulong                               blockhash_queue_idx = 0UL;
-  for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
-    nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
-    fd_memcpy( &bank->blockhash_queue.ages[ blockhash_queue_idx++ ], &n->elem, sizeof(fd_hash_hash_age_pair_t) );
-  }
-
-
+  // fd_block_hash_queue_t             * queue               = &slot_bank->block_hash_queue;
+  // fd_hash_hash_age_pair_t_mapnode_t * nn                  = NULL;
+  // ulong                               blockhash_queue_idx = 0UL;
+  // for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
+  //   nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+  //   fd_memcpy( &bank->blockhash_queue.ages[ blockhash_queue_idx++ ], &n->elem, sizeof(fd_hash_hash_age_pair_t) );
+  // }
 
   /* Ancestor can be omitted to boot off of for both clients */
 
