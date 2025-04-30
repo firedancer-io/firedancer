@@ -435,21 +435,50 @@ poll_rx( fd_sock_tile_t *    ctx,
 static void
 flush_tx_batch( fd_sock_tile_t * ctx ) {
   ulong batch_cnt = ctx->batch_cnt;
-  int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg, (uint)batch_cnt, MSG_DONTWAIT );
-  if( FD_UNLIKELY( send_cnt<(long)batch_cnt ) ) {
-    if( FD_UNLIKELY( send_cnt<0 ) ) {
-      if( FD_LIKELY( (errno==EAGAIN) | (errno==ENOBUFS) ) ) {
-        ctx->metrics.tx_drop_cnt += batch_cnt;
-        goto done;
+  for( int j = 0; j < (int)batch_cnt; /* incremented in loop */ ) {
+    ctx->metrics.sys_sendmmsg_cnt++;
+
+    int remain   = (int)batch_cnt - j;
+    int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg + j, (uint)remain, MSG_DONTWAIT );
+    if( FD_UNLIKELY( send_cnt < remain ) ) {
+      if( FD_UNLIKELY( send_cnt < 0 ) ) {
+        switch( errno ) {
+          case EAGAIN:
+          case ENOBUFS:
+            ctx->metrics.tx_drop_cnt++;
+            break;
+
+          case EPERM:
+            ctx->metrics.tx_permission_error_cnt++;
+            break;
+
+          default:
+            FD_LOG_ERR(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
+        /* first message failed, so skip failing message and continue */
+        j++;
+      } else {
+        /* sent at least one, and error on ctx->batch_msg[send_cnt] is lost
+           so assume recoverable and continue */
+        ctx->metrics.tx_drop_cnt++;
+
+        /* send_cnt succeeded, so skip those and also the failing message */
+        j += send_cnt + 1;
+
+        /* add the successful count */
+        ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
       }
-      FD_LOG_ERR(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+      continue;
     }
-    ctx->metrics.tx_drop_cnt += batch_cnt-(ulong)send_cnt;
+
+    /* send_cnt == batch_cnt, so we sent everything */
+    ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
+    break;
   }
-  ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
-done:
+
   ctx->tx_ptr = ctx->tx_scratch0;
-  ctx->metrics.sys_sendmmsg_cnt++;
   ctx->batch_cnt = 0;
 }
 
@@ -594,13 +623,14 @@ after_credit( fd_sock_tile_t *    ctx,
 
 static void
 metrics_write( fd_sock_tile_t * ctx ) {
-  FD_MCNT_SET( SOCK, SYSCALLS_RECVMMSG, ctx->metrics.sys_recvmmsg_cnt );
-  FD_MCNT_SET( SOCK, SYSCALLS_SENDMMSG, ctx->metrics.sys_sendmmsg_cnt );
-  FD_MCNT_SET( SOCK, RX_PKT_CNT,        ctx->metrics.rx_pkt_cnt       );
-  FD_MCNT_SET( SOCK, TX_PKT_CNT,        ctx->metrics.tx_pkt_cnt       );
-  FD_MCNT_SET( SOCK, TX_DROP_CNT,       ctx->metrics.tx_drop_cnt      );
-  FD_MCNT_SET( SOCK, TX_BYTES_TOTAL,    ctx->metrics.tx_bytes_total   );
-  FD_MCNT_SET( SOCK, RX_BYTES_TOTAL,    ctx->metrics.rx_bytes_total   );
+  FD_MCNT_SET( SOCK, SYSCALLS_RECVMMSG,       ctx->metrics.sys_recvmmsg_cnt     );
+  FD_MCNT_SET( SOCK, SYSCALLS_SENDMMSG,       ctx->metrics.sys_sendmmsg_cnt     );
+  FD_MCNT_SET( SOCK, RX_PKT_CNT,              ctx->metrics.rx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, TX_PKT_CNT,              ctx->metrics.tx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, TX_DROP_CNT,             ctx->metrics.tx_drop_cnt          );
+  FD_MCNT_SET( SOCK, TX_BYTES_TOTAL,          ctx->metrics.tx_bytes_total       );
+  FD_MCNT_SET( SOCK, RX_BYTES_TOTAL,          ctx->metrics.rx_bytes_total       );
+  FD_MCNT_SET( SOCK, TX_PERMISSION_ERROR_CNT, ctx->metrics.tx_permission_error_cnt );
 }
 
 static ulong

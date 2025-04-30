@@ -75,7 +75,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -116,7 +116,7 @@ unprivileged_init( fd_topo_t      * topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_restart_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   void * restart_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
+  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /**********************************************************************/

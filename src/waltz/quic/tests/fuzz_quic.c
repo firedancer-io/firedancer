@@ -137,7 +137,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
                                         .conn_id_cnt = 10,
                                         .handshake_cnt = 10,
                                         .stream_pool_cnt = 640,
-                                        .inflight_pkt_cnt = 1024,
+                                        .inflight_frame_cnt = 1024,
                                         .tx_buf_sz = 1 << 14};
 
   ulong quic_footprint = fd_quic_footprint(&quic_limits);

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_shared_commands_run_run_h
 
 #include "../../fd_config.h"
+#include "../../fd_action.h"
 
 FD_PROTOTYPES_BEGIN
 

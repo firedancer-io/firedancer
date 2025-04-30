@@ -909,7 +909,7 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
    transaction logs, ...  All this info is not part of consensus but can be retrieved,
    for instance, via RPC getTransaction.  Firedancer stores txn meta in the blockstore,
    in the same binary format as Agave, protobuf TransactionStatusMeta. */
-static void
+FD_FN_UNUSED static void
 fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         slot_ctx,
                                                  fd_execute_txn_task_info_t * task_info,
                                                  ulong                        txn_cnt ) {
@@ -1830,7 +1830,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_wksp_t *                  finalize_spad_wksp ) {
 
   /* Store transaction info including logs */
-  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
+  // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );
@@ -4094,7 +4094,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
   /* Initialize the cost tracker when the feature is active */
-  fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, FD_COST_TRACKER_FOOTPRINT );
+  fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, sizeof(fd_cost_tracker_t) );
   if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, apply_cost_tracker_during_replay ) ) {
     fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
   }

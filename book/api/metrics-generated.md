@@ -141,6 +141,7 @@
 | quic_&#8203;pkt_&#8203;oversz | `counter` | Number of QUIC packets dropped due to being too large. |
 | quic_&#8203;pkt_&#8203;verneg | `counter` | Number of QUIC version negotiation packets received. |
 | quic_&#8203;retry_&#8203;sent | `counter` | Number of QUIC Retry packets sent. |
+| quic_&#8203;pkt_&#8203;retransmissions | `counter` | Number of QUIC packets that retransmitted. |
 
 ## Bundle Tile
 | Metric | Type | Description |
@@ -561,6 +562,7 @@
 | sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |
 | sock_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
 | sock_&#8203;rx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes received (including Ethernet header). |
+| sock_&#8203;tx_&#8203;permission_&#8203;error_&#8203;cnt | `counter` | Number of send attempts that failed with EPERM (e.g. due to nftables) |
 
 ## Repair Tile
 | Metric | Type | Description |

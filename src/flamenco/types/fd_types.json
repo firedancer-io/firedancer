@@ -1698,8 +1698,7 @@
       "fields": [
         { "name": "offset", "type": "uint" },
         { "name": "bytes", "type": "vector", "element": "uchar" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_loader_program_instruction",
@@ -1707,8 +1706,7 @@
       "variants": [
         { "name": "write", "type": "bpf_loader_program_instruction_write" },
         { "name": "finalize" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "loader_v4_program_instruction_write",
@@ -1757,24 +1755,21 @@
       "fields": [
         { "name": "offset", "type": "uint" },
         { "name": "bytes", "type": "vector", "element": "uchar" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len",
       "type": "struct",
       "fields": [
         { "name": "max_data_len", "type": "ulong" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_upgradeable_loader_program_instruction_extend_program",
       "type": "struct",
       "fields": [
         { "name": "additional_bytes", "type": "uint" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_upgradeable_loader_program_instruction",
@@ -1789,24 +1784,21 @@
         { "name": "extend_program", "type": "bpf_upgradeable_loader_program_instruction_extend_program" },
         { "name": "set_authority_checked" },
         { "name": "migrate" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_upgradeable_loader_state_buffer",
       "type": "struct",
       "fields": [
         { "name": "authority_address", "type": "option", "element": "pubkey" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_upgradeable_loader_state_program",
       "type": "struct",
       "fields": [
         { "name": "programdata_address", "type": "pubkey" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_upgradeable_loader_state_program_data",
@@ -1814,8 +1806,7 @@
       "fields": [
         { "name": "slot", "type": "ulong" },
         { "name": "upgrade_authority_address", "type": "option", "element": "pubkey" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "bpf_upgradeable_loader_state",
@@ -1825,8 +1816,7 @@
         { "name": "buffer", "type": "bpf_upgradeable_loader_state_buffer" },
         { "name": "program", "type": "bpf_upgradeable_loader_state_program" },
         { "name": "program_data", "type": "bpf_upgradeable_loader_state_program_data" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "loader_v4_state",
@@ -1864,16 +1854,14 @@
         { "name": "last_extended_slot_start_index", "type": "uchar" },
         { "name": "authority", "type": "option", "element": "pubkey", "flat": true },
         { "name": "_padding", "type": "ushort" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "address_lookup_table",
       "type": "struct",
       "fields": [
         { "name": "meta", "type": "lookup_table_meta" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "address_lookup_table_state",
@@ -1881,8 +1869,7 @@
       "variants": [
         { "name": "uninitialized" },
         { "name": "lookup_table", "type": "address_lookup_table" }
-      ],
-      "comment": ""
+      ]
     },
     {
       "name": "gossip_bitvec_u8_inner",

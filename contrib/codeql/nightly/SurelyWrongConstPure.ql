@@ -20,7 +20,6 @@ class ConstFunc extends RFunc {
   ConstFunc() { this.getAnAttribute().getName() = "const" }
 }
 
-
 from RFunc r, Function f
 where
   (

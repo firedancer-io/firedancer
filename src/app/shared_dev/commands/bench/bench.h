@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_shared_dev_commands_bench_bench_h
 
 #include "../../../shared/fd_config.h"
+#include "../../../shared/fd_action.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -22,7 +23,8 @@ add_bench_topo( fd_topo_t  * topo,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
-                int          no_quic );
+                int          no_quic,
+                int          reserve_agave_cores );
 
 FD_PROTOTYPES_END
 

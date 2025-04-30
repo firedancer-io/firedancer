@@ -108,12 +108,12 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   /* Create ultra low limits for QUIC instance for maximum performance */
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt         = 2,
-    .handshake_cnt    = 2,
-    .conn_id_cnt      = 4,
-    .inflight_pkt_cnt = 8UL,
-    .stream_pool_cnt  = 8UL,
-    .tx_buf_sz        = 1UL<<8UL
+    .conn_cnt           = 2,
+    .handshake_cnt      = 2,
+    .conn_id_cnt        = 4,
+    .inflight_frame_cnt = 16UL,
+    .stream_pool_cnt    = 8UL,
+    .tx_buf_sz          = 1UL<<8UL
   };
 
   /* Enable features depending on the last few bits.  The last bits are

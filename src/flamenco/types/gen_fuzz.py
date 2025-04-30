@@ -216,7 +216,6 @@ class VectorMember(TypeNode):
         print(f'  self->{self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
         print(f'  if( self->{self.name}_len ) {{', file=body)
         el = f'{namespace}_{self.element}'
-        el = el.upper()
 
         if self.element == "uchar":
             print(f'    self->{self.name} = (uchar *) *alloc_mem;', file=body)
@@ -229,7 +228,7 @@ class VectorMember(TypeNode):
                 print(f'    LLVMFuzzerMutate( (uchar *) self->{self.name}, sizeof({self.element})*self->{self.name}_len, sizeof({self.element})*self->{self.name}_len );', file=body)
             else:
                 print(f'    self->{self.name} = ({namespace}_{self.element}_t *) *alloc_mem;', file=body)
-                print(f'    *alloc_mem = (uchar *) *alloc_mem + {el}_FOOTPRINT*self->{self.name}_len;', file=body)
+                print(f'    *alloc_mem = (uchar *) *alloc_mem + sizeof({el}_t)*self->{self.name}_len;', file=body)
                 print(f'    for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
                 print(f'      {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
                 print(f'      {namespace}_{self.element}_generate( self->{self.name} + i, alloc_mem, rng );', file=body)
@@ -442,9 +441,8 @@ class OptionMember(TypeNode):
                 print(f'      LLVMFuzzerMutate( (uchar *)self->{self.name}, sizeof({self.element}), sizeof({self.element}) );', file=body)
             else:
                 el = f'{namespace}_{self.element}'
-                el = el.upper()
                 print(f'      self->{self.name} = ({namespace}_{self.element}_t *) *alloc_mem;', file=body)
-                print(f'      *alloc_mem = (uchar *) *alloc_mem + {el}_FOOTPRINT;', file=body)
+                print(f'      *alloc_mem = (uchar *) *alloc_mem + sizeof({el}_t);', file=body)
                 print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
                 print(f'      {namespace}_{self.element}_generate( self->{self.name}, alloc_mem, rng );', file=body)
             print('    }', file=body)

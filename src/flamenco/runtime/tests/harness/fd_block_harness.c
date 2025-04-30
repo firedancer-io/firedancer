@@ -104,6 +104,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
   epoch_bank->hashes_per_tick       = test_ctx->epoch_ctx.hashes_per_tick;
   epoch_bank->ticks_per_slot        = test_ctx->epoch_ctx.ticks_per_slot;
+  epoch_bank->ns_per_slot           = (uint128)64000000; // TODO: restore from input or smth
+  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
   epoch_bank->slots_per_year        = test_ctx->epoch_ctx.slots_per_year;
   epoch_bank->inflation             = (fd_inflation_t) {
     .initial         = test_ctx->epoch_ctx.inflation.initial,
@@ -112,7 +114,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     .foundation      = test_ctx->epoch_ctx.inflation.foundation,
     .foundation_term = test_ctx->epoch_ctx.inflation.foundation_term
   };
-  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
 
   /* Load in all accounts with > 0 lamports provided in the context */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
@@ -244,9 +245,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
   slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
     runner->spad,
-    FD_RENT_FRESH_ACCOUNT_ALIGN,
-    FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
+    alignof(fd_rent_fresh_account_t),
+    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );

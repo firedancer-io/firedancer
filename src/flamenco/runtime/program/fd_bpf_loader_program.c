@@ -648,7 +648,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   uchar * mem = fd_spad_alloc( spad,
-                               fd_bpf_upgradeable_loader_program_instruction_footprint(),
+                               fd_bpf_upgradeable_loader_program_instruction_align(),
                                total_sz );
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader instruction" ));

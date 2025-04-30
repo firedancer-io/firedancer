@@ -10,9 +10,7 @@
      |      repair_store      |       stake_out
      |______storei_notif______|
 
-   Some tiles are not shown such as the metric tile and the bhole tile;
-   bhole is used to take the place of tiles that do not exist above but
-   exist in the full topology such as the poh and sender tiles.
+   Some tiles are not shown such as the metric tile.
 
    The playback tile will only send the next frag to the storei tile (
    either through shred_storei or through repair_store ) after receiving
@@ -104,7 +102,6 @@ sim_topo( config_t * config ) {
 
   enum{
   metric_cpu_idx=0,
-  bhole_cpu_idx,
   playback_cpu_idx,
   storei_cpu_idx,
   replay_cpu_idx,
@@ -120,13 +117,6 @@ sim_topo( config_t * config ) {
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
-
-  /**********************************************************************/
-  /* Add the bhole tile to topo                                         */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "bhole" );
-  fd_topo_tile_t * bhole_tile = fd_topob_tile( topo, "bhole", "bhole", "metric_in", bhole_cpu_idx, 0, 0 );
-  (void) bhole_tile;
 
   /**********************************************************************/
   /* Add the playback tile to topo                                      */
@@ -145,12 +135,12 @@ sim_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "storei" );
   fd_topo_tile_t * storei_tile = fd_topob_tile( topo, "storei", "storei", "metric_in", storei_cpu_idx, 0, 0 );
-  strncpy( storei_tile->store_int.blockstore_file, config->blockstore.file, sizeof(storei_tile->store_int.blockstore_file) );
-  strncpy( storei_tile->store_int.blockstore_restore, config->blockstore.restore, sizeof(storei_tile->store_int.blockstore_restore) );
-  strncpy( storei_tile->store_int.identity_key_path, config->consensus.identity_path, sizeof(storei_tile->store_int.identity_key_path) );
-  strncpy( storei_tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( storei_tile->store_int.slots_pending ) );
-  strncpy( storei_tile->store_int.shred_cap_archive, config->tiles.store_int.shred_cap_archive, sizeof(storei_tile->store_int.shred_cap_archive) );
-  strncpy( storei_tile->store_int.shred_cap_replay, config->tiles.store_int.shred_cap_replay, sizeof(storei_tile->store_int.shred_cap_replay) );
+  strncpy( storei_tile->store_int.blockstore_file,    config->firedancer.blockstore.file,        sizeof(storei_tile->store_int.blockstore_file) );
+  strncpy( storei_tile->store_int.blockstore_restore, config->firedancer.blockstore.restore,     sizeof(storei_tile->store_int.blockstore_restore) );
+  strncpy( storei_tile->store_int.identity_key_path,  config->paths.identity_key,           sizeof(storei_tile->store_int.identity_key_path) );
+  strncpy( storei_tile->store_int.slots_pending,      config->tiles.store_int.slots_pending,     sizeof( storei_tile->store_int.slots_pending ) );
+  strncpy( storei_tile->store_int.shred_cap_archive,  config->tiles.store_int.shred_cap_archive, sizeof(storei_tile->store_int.shred_cap_archive) );
+  strncpy( storei_tile->store_int.shred_cap_replay,   config->tiles.store_int.shred_cap_replay,  sizeof(storei_tile->store_int.shred_cap_replay) );
   storei_tile->store_int.shred_cap_end_slot     = config->tiles.store_int.shred_cap_end_slot;
   storei_tile->store_int.expected_shred_version = config->consensus.expected_shred_version;
 
@@ -162,8 +152,8 @@ sim_topo( config_t * config ) {
   replay_tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
 
   /* specified by [tiles.replay] */
-  strncpy( replay_tile->replay.blockstore_file, config->blockstore.file, sizeof(replay_tile->replay.blockstore_file) );
-  strncpy( replay_tile->replay.blockstore_checkpt, config->blockstore.checkpt, sizeof(replay_tile->replay.blockstore_checkpt) );
+  strncpy( replay_tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(replay_tile->replay.blockstore_file) );
+  strncpy( replay_tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(replay_tile->replay.blockstore_checkpt) );
 
   replay_tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
   strncpy( replay_tile->replay.capture, config->tiles.replay.capture, sizeof(replay_tile->replay.capture) );
@@ -176,7 +166,7 @@ sim_topo( config_t * config ) {
 
   if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
                    && !strncmp( config->tiles.replay.snapshot, "", 1 ) ) ) {
-    fd_cstr_printf_check(  config->tiles.replay.genesis, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path );
+    fd_cstr_printf_check(  config->tiles.replay.genesis, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
   }
   strncpy( replay_tile->replay.genesis, config->tiles.replay.genesis, sizeof(replay_tile->replay.genesis) );
 
@@ -187,14 +177,14 @@ sim_topo( config_t * config ) {
 
   strncpy( replay_tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(replay_tile->replay.cluster_version) );
   replay_tile->replay.bank_tile_count = config->layout.bank_tile_count;
-  replay_tile->replay.exec_tile_count = config->layout.exec_tile_count;
+  replay_tile->replay.exec_tile_count = config->firedancer.layout.exec_tile_count;
   strncpy( replay_tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(replay_tile->replay.tower_checkpt) );
 
   /* not specified by [tiles.replay] */
-  strncpy( replay_tile->replay.identity_key_path, config->consensus.identity_path, sizeof(replay_tile->replay.identity_key_path) );
-  replay_tile->replay.ip_addr = config->tiles.net.ip_addr;
-  replay_tile->replay.vote = config->consensus.vote;
-  strncpy( replay_tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(replay_tile->replay.vote_account_path) );
+  strncpy( replay_tile->replay.identity_key_path, config->paths.identity_key, sizeof(replay_tile->replay.identity_key_path) );
+  replay_tile->replay.ip_addr = config->net.ip_addr;
+  replay_tile->replay.vote = config->firedancer.consensus.vote;
+  strncpy( replay_tile->replay.vote_account_path, config->paths.vote_account, sizeof(replay_tile->replay.vote_account_path) );
   replay_tile->replay.full_interval        = config->tiles.batch.full_interval;
   replay_tile->replay.incremental_interval = config->tiles.batch.incremental_interval;
 
@@ -204,43 +194,8 @@ sim_topo( config_t * config ) {
   /* Add the executor tiles to topo                                     */
   /**********************************************************************/
   fd_topob_wksp( topo, "exec" );
-  ulong exec_tile_cnt   = config->layout.exec_tile_count;
+  ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   FOR(exec_tile_cnt)               fd_topob_tile( topo, "exec",   "exec",   "metric_in", static_end_idx+i, 0,        0 );
-
-  /**********************************************************************/
-  /* Setup links from/to the bhole                                      */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "from_bhole" );
-  const ulong nstorei_from_bhole = 1UL;
-  const char * storei_from_bhole[] = { "rstart_store" };
-  for( ulong i=0; i<nstorei_from_bhole; i++ ) {
-    fd_topob_link( topo, storei_from_bhole[i], "from_bhole", 128UL, sizeof(ulong)*2, 1UL );
-    fd_topob_tile_out( topo, "bhole", 0UL, storei_from_bhole[i], 0UL );
-  }
-
-  const ulong nreplay_from_bhole = 3UL;
-  const char * replay_from_bhole[] = { "repair_repla", "pack_replay", "batch_replay" };
-  for( ulong i=0; i<nreplay_from_bhole; i++ ) {
-    fd_topob_link( topo, replay_from_bhole[i], "from_bhole", 65536UL, USHORT_MAX, 1UL );
-    fd_topob_tile_out( topo, "bhole", 0UL, replay_from_bhole[i], 0UL );
-  }
-
-  fd_topob_wksp( topo, "to_bhole" );
-  const ulong nstorei_to_bhole = 2UL;
-  const char * storei_to_bhole[] = { "store_repair", "store_rstart" };
-  for( ulong i=0; i<nstorei_to_bhole; i++ ) {
-    fd_topob_link( topo, storei_to_bhole[i], "to_bhole", 1024UL, USHORT_MAX, 16UL );
-    fd_topob_tile_in( topo, "bhole", 0UL, "metric_in", storei_to_bhole[i], 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  }
-
-  const ulong nreplay_to_bhole = 3UL;
-  const char * replay_to_bhole[] = { "replay_notif", "replay_voter", "replay_poh" };
-  fd_topob_link( topo, replay_to_bhole[0], "to_bhole", 1UL<<15UL, 2048UL, 1UL );
-  fd_topob_link( topo, replay_to_bhole[1], "to_bhole", 128, 2112UL, 1UL );
-  fd_topob_link( topo, replay_to_bhole[2], "to_bhole", 128, 8650785UL, 1UL );
-  for( ulong i=0; i<nreplay_to_bhole; i++ ) {
-    fd_topob_tile_in( topo, "bhole", 0UL, "metric_in", replay_to_bhole[i], 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  }
 
   /**********************************************************************/
   /* Setup playback<->storei and storei<->replay links in topo          */
@@ -265,32 +220,23 @@ sim_topo( config_t * config ) {
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",          0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", storei_from_bhole[0], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* restart */
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "shred_storei",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
   fd_topob_tile_out( topo, "storei",  0UL,          "store_replay",     0UL );
-  fd_topob_tile_out( topo, "storei",  0UL,          storei_to_bhole[0], 0UL ); /* repair */
-  fd_topob_tile_out( topo, "storei",  0UL,          storei_to_bhole[1], 0UL ); /* restart */
   fd_topob_tile_out( topo, "storei",  0UL,          "storei_notif",     0UL );
 
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
   fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", replay_from_bhole[0], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* repair */
-  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", replay_from_bhole[1], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* pack */
-  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", replay_from_bhole[2], 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* batch */
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
   fd_topob_tile_out( topo, "replay",  0UL,          "stake_out",        0UL );
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[0], 0UL ); /* notif */
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[1], 0UL ); /* sender */
-  fd_topob_tile_out( topo, "replay",  0UL,          replay_to_bhole[2], 0UL ); /* poh */
 
   /**********************************************************************/
   /* Setup replay<->exec links in topo                                  */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_exec" );
-  for( ulong i=0; i<config->layout.exec_tile_count; i++ ) {
+  for( ulong i=0; i<config->firedancer.layout.exec_tile_count; i++ ) {
     fd_topob_link( topo, "replay_exec", "replay_exec", 128UL, 10240UL, 1UL );
     fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", i );
     fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -312,11 +258,11 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
                                                           "bstore",
-                                                          config->blockstore.shred_max,
-                                                          config->blockstore.block_max,
-                                                          config->blockstore.idx_max,
-                                                          config->blockstore.txn_max,
-                                                          config->blockstore.alloc_max );
+                                                          config->firedancer.blockstore.shred_max,
+                                                          config->firedancer.blockstore.block_max,
+                                                          config->firedancer.blockstore.idx_max,
+                                                          config->firedancer.blockstore.txn_max,
+                                                          config->firedancer.blockstore.alloc_max );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub" );
@@ -347,7 +293,7 @@ sim_topo( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
   }
 
-  for( ulong i=0UL; i<config->layout.exec_tile_count; i++ ) {
+  for( ulong i=0UL; i<config->firedancer.layout.exec_tile_count; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
     fd_topo_obj_t * exec_fseq_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
     fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

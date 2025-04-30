@@ -106,18 +106,19 @@ typedef struct fd_quic_state_private fd_quic_state_t;
    (i.e. outlasts joins, until fd_quic_delete) */
 
 struct __attribute__((aligned(16UL))) fd_quic_limits {
-  ulong  conn_cnt;              /* instance-wide, max concurrent conn count      */
-  ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count */
-  ulong  log_depth;             /* instance-wide, depth of shm log cache         */
+  ulong  conn_cnt;                  /* instance-wide, max concurrent conn count       */
+  ulong  handshake_cnt;             /* instance-wide, max concurrent handshake count  */
+  ulong  log_depth;                 /* instance-wide, depth of shm log cache          */
 
-  ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)         */
-  ulong  stream_id_cnt;         /* per-conn, max concurrent stream ID count      */
-  ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count           */
+  ulong  conn_id_cnt;                 /* per-conn, max conn ID count (min 4UL)          */
+  ulong  stream_id_cnt;               /* per-conn, max concurrent stream ID count       */
+  ulong  inflight_frame_cnt;          /* instance-wide, total max inflight frame count  */
+  ulong  min_inflight_frame_cnt_conn; /* per-conn, min inflight frame count             */
 
-  ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                */
+  ulong  tx_buf_sz;                 /* per-stream, tx buf sz in bytes                 */
   /* the user consumes rx directly from the network buffer */
 
-  ulong  stream_pool_cnt;  /* instance-wide, number of streams in stream pool */
+  ulong  stream_pool_cnt;           /* instance-wide, number of streams in stream pool */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 
@@ -134,6 +135,7 @@ struct fd_quic_layout {
   ulong hs_pool_off;       /* offset of the handshake pool     */
   ulong stream_pool_off;   /* offset of the stream pool        */
   ulong svc_timers_off;    /* offset of the service timers     */
+  ulong pkt_meta_pool_off; /* offset of the pkt_meta pool      */
 };
 
 typedef struct fd_quic_layout fd_quic_layout_t;
@@ -318,6 +320,7 @@ union fd_quic_metrics {
     ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
     ulong pkt_tx_alloc_fail_cnt;   /* number of pkt_meta alloc fails */
     ulong pkt_verneg_cnt;          /* number of QUIC version negotiation packets or packets with wrong version */
+    ulong pkt_retransmissions_cnt;  /* number of pkt_meta retries */
 
     /* Frame metrics */
     ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
@@ -363,12 +366,6 @@ struct fd_quic {
 };
 
 FD_PROTOTYPES_BEGIN
-
-/* debugging */
-
-ulong
-fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn );
-
 
 /* Object lifecycle ***************************************************/
 

@@ -1,8 +1,7 @@
 #define _GNU_SOURCE
 
-#include "configure/genesis_hash.h"
-
 #include "../../shared/fd_sys_util.h"
+#include "../../shared/genesis_hash.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../shared/commands/monitor/monitor.h"
@@ -83,27 +82,13 @@ install_parent_signals( void ) {
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-
 void
-update_config_for_dev( config_t * config ) {
-  /* By default only_known is true for validators to ensure secure
-     snapshot download, but in development it doesn't matter and
-     often the developer does not provide known peers. */
-  config->rpc.only_known = 0;
-
-  /* When starting from a new genesis block, this needs to be off else the
-     validator will get stuck forever. */
-  config->consensus.wait_for_vote_to_start_leader = 0;
-
-  /* We have to wait until we get a snapshot before we can join a second
-     validator to this one, so make this smaller than the default.  */
-  config->snapshots.full_snapshot_interval_slots = fd_uint_min( config->snapshots.full_snapshot_interval_slots, 200U );
-
+update_config_for_dev( fd_config_t * config ) {
   /* Automatically compute the shred version from genesis if it
      exists and we don't know it.  If it doesn't exist, we'll keep it
      set to zero and get from gossip. */
   char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
+  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
   ushort shred_version = compute_shred_version( genesis_path, NULL );
   for( ulong i=0UL; i<config->layout.shred_tile_count; i++ ) {
     ulong shred_id = fd_topo_find_tile( &config->topo, "shred", i );
@@ -118,33 +103,6 @@ update_config_for_dev( config_t * config ) {
     fd_topo_tile_t * storei = &config->topo.tiles[ store_id ];
     if( FD_LIKELY( storei->store_int.expected_shred_version==(ushort)0 ) ) {
       storei->store_int.expected_shred_version = shred_version;
-    }
-  }
-
-  if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
-    FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
-                                   sizeof( config->consensus.vote_account_path ),
-                                   NULL,
-                                   "%s/vote-account.json",
-                                   config->scratch_directory ) );
-    /* If using bundles, pack and poh need the vote account too */
-    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-      ulong pack_id = fd_topo_find_tile( &config->topo, "pack", 0 );
-      fd_topo_tile_t * pack_topo = &config->topo.tiles[ pack_id ];
-      memcpy( pack_topo->pack.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(pack_topo->pack.bundle.vote_account_path) );
-
-      ulong poh_id = fd_topo_find_tile( &config->topo, "poh", 0 );
-      fd_topo_tile_t * poh_topo = &config->topo.tiles[ poh_id ];
-      memcpy( poh_topo->poh.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(poh_topo->poh.bundle.vote_account_path) );
-    }
-  }
-
-  ulong gui_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
-  if( FD_LIKELY( gui_idx!=ULONG_MAX ) ) {
-    fd_topo_tile_t * gui = &config->topo.tiles[ gui_idx ];
-    gui->gui.is_voting = 1;
-    if( FD_LIKELY( !strcmp( gui->gui.cluster, "unknown" ) ) ) {
-      strcpy( gui->gui.cluster, "development" );
     }
   }
 }
@@ -172,8 +130,8 @@ run_firedancer_threaded( config_t * config,
      tiles maps it in as read-only, later tiles will reuse the same cached shmem
      join (the key is only on shmem name, when it should be (name, mode)). */
 
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->tiles.net.bind_address_parsed );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
     (void)fds;
   }
 

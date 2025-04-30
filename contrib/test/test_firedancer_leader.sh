@@ -38,12 +38,8 @@ sudo rm -f /tmp/localnet.blockstore
 sudo rm -f firedancer-dev.log
 
 echo "
-name = \"fd1\"
 [layout]
-    affinity = \"auto\"
-    bank_tile_count = 1
     verify_tile_count = 16
-    shred_tile_count = 1
 [gossip]
     entrypoints = [\"$PRIMARY_IP:8001\"]
     port = 8700
@@ -59,8 +55,6 @@ name = \"fd1\"
         funk_txn_max = 1024
         funk_file = \"/tmp/localnet.funk\"
         cluster_version = \"2.0.14\"
-    [tiles.pack]
-        use_consumed_cus = false
     [tiles.gui]
         enabled = false
         gui_listen_address = \"64.130.51.169\"
@@ -68,8 +62,9 @@ name = \"fd1\"
 [consensus]
     expected_shred_version = $SHRED_VERS
     vote = true
-    identity_path = \"fd-identity-keypair.json\"
-    vote_account_path = \"fd-vote-keypair.json\"
+[paths]
+    identity_key = \"fd-identity-keypair.json\"
+    vote_account = \"fd-vote-keypair.json\"
 [blockstore]
     shred_max = 16777216
     block_max = 4096
@@ -77,8 +72,6 @@ name = \"fd1\"
     txn_max = 1024
     alloc_max = 10737418240
     file = \"/tmp/localnet.blockstore\"
-[development]
-    no_clone = true
 [log]
     path = \"firedancer-dev.log\"
     level_stderr = \"INFO\"

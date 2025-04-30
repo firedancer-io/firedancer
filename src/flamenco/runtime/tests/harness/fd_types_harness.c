@@ -1,51 +1,9 @@
 #include "fd_types_harness.h"
-#include "../../../types/fd_type_names.c"
+#include "../../../types/fd_types_yaml.h"
+#include "../../../types/fd_types_reflect.h"
+#include <ctype.h>
 
-static int
-fd_flamenco_type_lookup( char const *       type,
-                         fd_types_funcs_t * t ) {
-  char fp[255];
-
-#pragma GCC diagnostic ignored "-Wpedantic"
-  sprintf( fp, "%s_footprint", type );
-  t->footprint_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_align", type );
-  t->align_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_new", type );
-  t->new_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_decode_footprint", type );
-  t->decode_footprint_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_decode", type );
-  t->decode_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_walk", type );
-  t->walk_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_encode", type );
-  t->encode_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_destroy", type );
-  t->destroy_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_size", type );
-  t->size_fun = dlsym( RTLD_DEFAULT, fp );
-
-  if(( t->footprint_fun == NULL ) ||
-     ( t->align_fun == NULL ) ||
-     ( t->new_fun == NULL ) ||
-     ( t->decode_footprint_fun == NULL ) ||
-     ( t->decode_fun == NULL ) ||
-     ( t->walk_fun == NULL ) ||
-     ( t->encode_fun == NULL ) ||
-     ( t->destroy_fun == NULL ) ||
-     ( t->size_fun == NULL ))
-    return -1;
-  return 0;
-}
+#include "generated/type.pb.h"
 
 struct CustomerSerializer {
   void * file;
@@ -204,22 +162,13 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
 
     // First byte is the type ID
     uchar type_id = input[0];
-    if( type_id >= FD_TYPE_NAME_COUNT ) {
+    if( type_id >= fd_types_vt_list_cnt ) {
       FD_LOG_WARNING(( "Invalid type ID: %d", type_id ));
       *output_sz = 0;
       return 0;
     }
 
-    // Get the type name from the type ID
-    char const * type_name = fd_type_names[type_id];
-
-    // Look up the type functions
-    fd_types_funcs_t type_meta;
-    if( fd_flamenco_type_lookup( type_name, &type_meta ) == -1 ) {
-      FD_LOG_ERR(( "Failed to lookup type %s (%d)", type_name, type_id ));
-      *output_sz = 0;
-      return 0;
-    }
+    fd_types_vt_t const * type_meta = &fd_types_vt_list[ type_id ];
 
     // Set up decode context
     fd_bincode_decode_ctx_t decode_ctx = {
@@ -229,7 +178,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
 
     // Get the size needed for the decoded object
     ulong total_sz = 0UL;
-    int err = type_meta.decode_footprint_fun( &decode_ctx, &total_sz );
+    int err = type_meta->decode_footprint( &decode_ctx, &total_sz );
     if( err != FD_BINCODE_SUCCESS ) {
       *output_sz = 0;
       return 0;
@@ -243,7 +192,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     }
 
     // Decode the object
-    void * result = type_meta.decode_fun(decoded, &decode_ctx);
+    void * result = type_meta->decode( decoded, &decode_ctx );
     if (result == NULL) {
       *output_sz = 0;
       return 0;
@@ -275,7 +224,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     };
 
     // Walk the decoded object and serialize it
-    type_meta.walk_fun( &serializer, decoded, custom_serializer_walk, type_name, 0 );
+    type_meta->walk( &serializer, decoded, custom_serializer_walk, type_meta->name, 0 );
     if( ferror( file ) ) {
       fclose( file );
       *output_sz = 0;
@@ -303,7 +252,7 @@ fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
     fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
     // Walk the decoded object and generate YAML
-    type_meta.walk_fun( yaml, decoded, fd_flamenco_yaml_walk, type_name, 0 );
+    type_meta->walk( yaml, decoded, fd_flamenco_yaml_walk, type_meta->name, 0 );
     if( ferror( file ) ) {
       fclose( file );
       *output_sz = 0;

@@ -108,11 +108,11 @@ init_param_list( sysctl_param_t const * list ) {
 static void
 init( config_t const * config ) {
   init_param_list( params );
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
     init_param_list( xdp_params );
-  } else if( 0==strcmp( config->development.net.provider, "socket" ) ) {
-    sock_params[ 0 ].value = config->development.net.sock_receive_buffer_size;
-    sock_params[ 1 ].value = config->development.net.sock_send_buffer_size;
+  } else if( 0==strcmp( config->net.provider, "socket" ) ) {
+    sock_params[ 0 ].value = config->net.socket.receive_buffer_size;
+    sock_params[ 1 ].value = config->net.socket.send_buffer_size;
     init_param_list( sock_params );
   }
 }
@@ -153,14 +153,14 @@ check( config_t const * config ) {
   r = check_param_list( params );
   if( r.result!=CONFIGURE_OK ) return r;
 
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
     r = check_param_list( xdp_params );
-  } else if( 0==strcmp( config->development.net.provider, "socket" ) ) {
-    sock_params[ 0 ].value = config->development.net.sock_receive_buffer_size;
-    sock_params[ 1 ].value = config->development.net.sock_send_buffer_size;
+  } else if( 0==strcmp( config->net.provider, "socket" ) ) {
+    sock_params[ 0 ].value = config->net.socket.receive_buffer_size;
+    sock_params[ 1 ].value = config->net.socket.send_buffer_size;
     r = check_param_list( sock_params );
   } else {
-    FD_LOG_ERR(( "unknown net provider: %s", config->development.net.provider ));
+    FD_LOG_ERR(( "unknown net provider: %s", config->net.provider ));
   }
   if( r.result!=CONFIGURE_OK ) return r;
 

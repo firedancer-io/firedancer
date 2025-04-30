@@ -48,7 +48,7 @@
 #define FD_VM_ALIGN_RUST_U32                      (4UL)
 #define FD_VM_ALIGN_RUST_I32                      (4UL)
 #define FD_VM_ALIGN_RUST_U64                      (8UL)
-#define FD_VM_ALIGN_RUST_U128                     (16UL)
+#define FD_VM_ALIGN_RUST_U128                    (16UL)
 #define FD_VM_ALIGN_RUST_SLICE_U8_REF             (8UL)
 #define FD_VM_ALIGN_RUST_POD_U8_ARRAY             (1UL)
 #define FD_VM_ALIGN_RUST_PUBKEY                   (1UL)
@@ -57,6 +57,7 @@
 #define FD_VM_ALIGN_RUST_SYSVAR_FEES              (8UL)
 #define FD_VM_ALIGN_RUST_SYSVAR_RENT              (8UL)
 #define FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS    (16UL)
 #define FD_VM_ALIGN_RUST_STABLE_INSTRUCTION       (8UL)
 
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.

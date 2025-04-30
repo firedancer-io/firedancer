@@ -12,7 +12,7 @@ import cpp
 predicate isDref(Parameter p) {
   exists(Expr e | e = p.getAnAccess().getQualifier())
   or
-  // not 100% accurate but code has to be very weird to tigger an FP
+  // not 100% accurate but code has to be very weird to trigger an FP
   exists(PointerDereferenceExpr e | p.getAnAccess() = e.getAChild*())
   or
   exists(ArrayExpr a | a.getArrayBase() = p.getAnAccess())
@@ -46,4 +46,4 @@ class PureFunc extends RestrictedFunc {
 
 from RestrictedFunc f
 where f.isViolated()
-select f, "Function is attributed with " + f.getAnAttribute().getName() + " but accesses a pointer in an illegal way."
+select f, "Function is attributed with " + f.getAnAttribute().getName() + ", but accesses a pointer in an illegal way."

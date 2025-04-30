@@ -1,14 +1,12 @@
 //  --file d2.bin --type vote_state_versioned
 
-#define _GNU_SOURCE
-#include <dlfcn.h>
-
 #include "../fd_flamenco.h"
-#include "../runtime/fd_runtime.h"
+#include "../types/fd_types.h"
 #include "../types/fd_types_yaml.h"
+#include "../types/fd_types_reflect.h"
 
-#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h> /* mkdir(2) */
 #include <fcntl.h>    /* open(2) */
 #include <unistd.h>   /* close(2) */
@@ -24,55 +22,6 @@ usage( void ) {
     "  --file         name                      filename to read\n"
     "  --type         <type>                    type of the data\n"
     "\n" );
-}
-
-ulong foo_lkasjdf( void ) {
-  return fd_vote_state_versioned_footprint();
-}
-
-int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
-  char fp[255];
-
-#pragma GCC diagnostic ignored "-Wpedantic"
-  sprintf(fp, "%s_footprint", type);
-  t->footprint_fun = dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_align", type);
-  t->align_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_new", type);
-  t->new_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_decode", type);
-  t->decode_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_decode_footprint", type);
-  t->decode_footprint_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_walk", type);
-  t->walk_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_encode", type);
-  t->encode_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_destroy", type);
-  t->destroy_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  sprintf(fp, "%s_size", type);
-  t->size_fun =  dlsym(RTLD_DEFAULT, fp);
-
-  if(( t->footprint_fun == NULL ) ||
-     ( t->align_fun == NULL ) ||
-     ( t->new_fun == NULL ) ||
-     ( t->decode_footprint_fun == NULL ) ||
-     ( t->decode_fun == NULL ) ||
-     ( t->walk_fun == NULL ) ||
-     ( t->encode_fun == NULL ) ||
-     ( t->destroy_fun == NULL ) ||
-     ( t->size_fun == NULL )) {
-    return -1;
-  }
-  return 0;
 }
 
 int
@@ -149,19 +98,18 @@ main( int     argc,
       fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
       stdout );
 
-  fd_types_funcs_t f;
-  if (fd_flamenco_type_lookup(type, &f) != 0)
-    FD_LOG_ERR (( "lookup for %s failed", type));
+  fd_types_vt_t const * f = fd_types_vt_by_name( type, strlen( type ) );
+  if( FD_UNLIKELY( !f ) ) FD_LOG_ERR (( "lookup for %s failed", type ));
 
   ulong total_sz = 0UL;
-  int err = f.decode_footprint_fun( &decode, &total_sz );
+  int err = f->decode_footprint( &decode, &total_sz );
   if( FD_UNLIKELY( err!=0 ) ) return err;
 
-  uchar * d = fd_scratch_alloc( f.align_fun(), total_sz );
+  uchar * d = fd_scratch_alloc( f->align, total_sz );
 
-  f.decode_fun( d, &decode );
+  f->decode( d, &decode );
 
-  f.walk_fun(yaml, d, fd_flamenco_yaml_walk, NULL, 0U );
+  f->walk( yaml, d, fd_flamenco_yaml_walk, NULL, 0U );
 
   fd_scratch_pop();
   fd_scratch_detach( NULL );

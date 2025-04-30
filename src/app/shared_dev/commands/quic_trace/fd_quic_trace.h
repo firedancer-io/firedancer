@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
 
 #include "../../../shared/fd_config.h"
+#include "../../../shared/fd_action.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
 
 /* fd_quic_trace_ctx is the relocated fd_quic_ctx_t of the target quic

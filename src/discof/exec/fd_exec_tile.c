@@ -442,17 +442,17 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       return;
     } else if( sig==EXEC_NEW_SLOT_SIG ) {
       fd_runtime_public_slot_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "new slot=%lu msg recvd", msg->slot ));
+      FD_LOG_DEBUG(( "new slot=%lu msg recvd", msg->slot ));
       prepare_new_slot_execution( ctx, msg );
       return;
     } else if( sig==EXEC_NEW_EPOCH_SIG ) {
       fd_runtime_public_epoch_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "new epoch=%lu msg recvd", msg->epoch_schedule.slots_per_epoch ));
+      FD_LOG_DEBUG(( "new epoch=%lu msg recvd", msg->epoch_schedule.slots_per_epoch ));
       prepare_new_epoch_execution( ctx, msg );
       return;
     } else if( sig==EXEC_HASH_ACCS_SIG ) {
       fd_runtime_public_hash_bank_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
+      FD_LOG_DEBUG(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
       hash_accounts( ctx, msg );
       return;
     } else if( sig==EXEC_BPF_SCAN_SIG ) {
@@ -461,11 +461,11 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       bpf_scan_accounts( ctx, msg );
       return;
     } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
-      FD_LOG_NOTICE(( "snap hash count msg recvd" ));
+      FD_LOG_DEBUG(( "snap hash count msg recvd" ));
       snap_hash_count( ctx );
     } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
       fd_runtime_public_snap_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "snap hash gather msg recvd" ));
+      FD_LOG_DEBUG(( "snap hash gather msg recvd" ));
       snap_hash_gather( ctx, msg );
     } else {
       FD_LOG_ERR(( "Unknown signature" ));

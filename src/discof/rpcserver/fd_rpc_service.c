@@ -71,18 +71,6 @@ typedef struct fd_perf_sample fd_perf_sample_t;
 #define DEQUE_MAX  720UL /* MAX RPC PERF SAMPLES */
 #include "../../util/tmpl/fd_deque.c"
 
-static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    if (key1->ul[i] != key2->ul[i])
-      return 0;
-  return 1;
-}
-
-static void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    keyd->ul[i] = keys->ul[i];
-}
-
 struct fd_rpc_acct_map_elem {
   fd_pubkey_t key;
   ulong next;

@@ -66,8 +66,8 @@ struct fd_fec_intra {
   ulong prev; /* internal use by dlist */
   ulong next; /* internal use by map_chain */
 
-  ulong  slot; /* slot of the block this fec set is part of  */
-  ushort parent_off;
+  ulong  slot;        /* slot of the block this fec set is part of  */
+  ushort parent_off;  /* parent slot's offset from slot */
   uint   fec_set_idx; /* index of the first data shred */
   long   ts;          /* timestamp upon receiving the first shred */
   ulong  recv_cnt;    /* count of shreds received so far data + coding */
@@ -80,9 +80,6 @@ struct fd_fec_intra {
 
   uint  shred_tile_idx; /* index of the shred tile this FEC set is part of */
   ulong deque_ele_idx;  /* index of the element in the corresponding dlist */
-
-  int completed;
-
 
   fd_fec_intra_idxs_t idxs[fd_fec_intra_idxs_word_cnt]; /* bit vec of rx'd data shred idxs */
  };
@@ -240,6 +237,7 @@ fd_fec_repair_query( fd_fec_repair_t * fec_repair, ulong slot, uint fec_set_idx 
 
 static inline void
 fd_fec_repair_remove( fd_fec_repair_t * fec_repair, ulong key ) {
+  FD_LOG_NOTICE(( "remove %lu %u", key >> 32, (uint)key ));
   fd_fec_intra_t * fec = fd_fec_intra_map_ele_query( fec_repair->intra_map, &key, NULL, fec_repair->intra_pool );
   FD_TEST( fec );
 
@@ -267,6 +265,7 @@ fd_fec_repair_insert( fd_fec_repair_t * fec_repair,
                           int               is_code,
                           uint              shred_tile_idx ) {
   FD_TEST( shred_tile_idx < fec_repair->shred_tile_cnt );
+  FD_LOG_NOTICE(( "insert %lu %u", slot, fec_set_idx ));
 
   ulong key = slot << 32 | (ulong)fec_set_idx;
   fd_fec_intra_t * fec = fd_fec_intra_map_ele_query( fec_repair->intra_map, &key, NULL, fec_repair->intra_pool );
@@ -312,7 +311,6 @@ fd_fec_repair_insert( fd_fec_repair_t * fec_repair,
     fec->buffered_idx   = UINT_MAX;
     fec->shred_tile_idx = shred_tile_idx;
     fec->deque_ele_idx  = fd_fec_order_pool_idx( fec_order_pool, fec_order );
-    fec->completed = 0;
     memset( fec->sig, 0, sizeof(fd_ed25519_sig_t));
     fd_fec_intra_idxs_null( fec->idxs );
     fd_fec_intra_map_ele_insert( fec_repair->intra_map, fec, fec_repair->intra_pool ); /* cannot fail */

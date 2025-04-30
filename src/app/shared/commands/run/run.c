@@ -258,14 +258,15 @@ main_pid_namespace( void * _args ) {
   char  child_names[ FD_TOPO_MAX_TILES+1 ][ 32 ];
   struct pollfd fds[ FD_TOPO_MAX_TILES+2 ];
 
-  int config_memfd = fdctl_cfg_to_memfd( config );
+  int config_memfd = fd_config_to_memfd( config );
+  if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     fd_log_private_shared_lock[1] = 1;
   }
 
   ulong child_cnt = 0UL;
-  if( FD_LIKELY( !config->topo.firedancer && !config->development.no_agave ) ) {
+  if( FD_LIKELY( !config->is_firedancer && !config->development.no_agave ) ) {
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
@@ -276,18 +277,18 @@ main_pid_namespace( void * _args ) {
   }
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, NULL ) ) )
-      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, NULL ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
   }
 
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int need_xdp = 0==strcmp( config->development.net.provider, "xdp" );
+  int need_xdp = 0==strcmp( config->net.provider, "xdp" );
   fd_xdp_fds_t xdp_fds = {0};
   if( need_xdp ) {
-    xdp_fds = fd_topo_install_xdp( &config->topo, config->tiles.net.bind_address_parsed );
+    xdp_fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
@@ -402,7 +403,7 @@ main_pid_namespace( void * _args ) {
 
         char * tile_name = child_names[ i ];
         ulong  tile_idx = 0UL;
-        if( FD_LIKELY( i>0UL ) ) tile_idx = (!config->topo.firedancer && config->development.no_agave) ? i : i-1UL;
+        if( FD_LIKELY( i>0UL ) ) tile_idx = (!config->is_firedancer && config->development.no_agave) ? i : i-1UL;
         ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
         /* Child process died, reap it to figure out exit code. */
@@ -662,7 +663,7 @@ fdctl_check_configure( config_t const * config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
-  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->development.net.provider, "xdp" ) ) ) {
+  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->net.provider, "xdp" ) ) ) {
     check = fd_cfg_stage_ethtool_channels.check( config );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
@@ -694,14 +695,16 @@ void
 run_firedancer_init( config_t * config,
                      int        init_workspaces ) {
   struct stat st;
-  int err = stat( config->consensus.identity_path, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->consensus.identity_path ));
-  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->consensus.identity_path, errno, fd_io_strerror( errno ) ));
+  int err = stat( config->paths.identity_key, &st );
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->paths.identity_key ));
+  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
-  for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ ) {
-    err = stat( config->consensus.authorized_voter_paths[ i ], &st );
-    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", config->consensus.authorized_voter_paths[ i ] ));
-    else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", config->consensus.authorized_voter_paths[ i ], errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !config->is_firedancer ) ) {
+    for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
+      err = stat( config->frankendancer.paths.authorized_voter_paths[ i ], &st );
+      if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", config->frankendancer.paths.authorized_voter_paths[ i ] ));
+      else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", config->frankendancer.paths.authorized_voter_paths[ i ], errno, fd_io_strerror( errno ) ));
+    }
   }
 
   fdctl_check_configure( config );
@@ -716,10 +719,10 @@ fdctl_setup_netns( config_t * config,
 
   int original_netns_;
   int * original_netns = stay ? NULL : &original_netns_;
-  if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, original_netns ) ) )
-    FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, original_netns ) ) )
+    FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
 
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_cfg_stage_ethtool_channels.init( config );
     fd_cfg_stage_ethtool_gro     .init( config );
     fd_cfg_stage_ethtool_loopback.init( config );

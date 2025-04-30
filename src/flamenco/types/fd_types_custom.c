@@ -116,13 +116,10 @@ int fd_tower_sync_encode_global( fd_tower_sync_global_t const * self, fd_bincode
   FD_LOG_ERR(( "todo"));
 }
 
-int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_tower_sync_t);
-  void const * start_data = ctx->data;
-  int err = fd_tower_sync_decode_footprint_inner( ctx, total_sz );
-  ctx->data = start_data;
-  return err;
-}
+static void fd_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+static int fd_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+static void fd_lockout_offset_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+static int fd_lockout_offset_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 
 int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   /* This is a modified version of fd_compact_tower_sync_decode_footprint_inner() */
@@ -150,11 +147,8 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
   for( ulong i = 0; i < lockout_offsets_len; ++i ) {
 
     uchar const * start_data = ctx->data;
-    if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
     err = fd_lockout_offset_decode_footprint_inner( ctx, total_sz );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
+    if( FD_UNLIKELY( err ) ) return err;
 
     /* The second modification is that we want to grab the lockout offset from
     the deque to make sure that we can do a checked add successfully. */
@@ -189,16 +183,15 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
   return 0;
 }
 
-void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_tower_sync_t * self = (fd_tower_sync_t *)mem;
-  fd_tower_sync_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_tower_sync_t);
-  void * * alloc_mem = &alloc_region;
-  fd_tower_sync_decode_inner( mem, alloc_mem, ctx );
-  return self;
+int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_tower_sync_t);
+  void const * start_data = ctx->data;
+  int err = fd_tower_sync_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
 }
 
-void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+static void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_tower_sync_t * self = (fd_tower_sync_t *)struct_mem;
   self->has_root = 1;
   fd_bincode_uint64_decode_unsafe( &self->root, ctx );
@@ -237,6 +230,15 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
     }
   }
   fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
+}
+
+void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_tower_sync_t * self = (fd_tower_sync_t *)mem;
+  fd_tower_sync_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_tower_sync_t);
+  void * * alloc_mem = &alloc_region;
+  fd_tower_sync_decode_inner( mem, alloc_mem, ctx );
+  return self;
 }
 
 void fd_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {

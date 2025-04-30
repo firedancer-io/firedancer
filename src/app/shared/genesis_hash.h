@@ -1,7 +1,7 @@
-#ifndef HEADER_fd_src_app_fddev_genesis_hash_h
-#define HEADER_fd_src_app_fddev_genesis_hash_h
+#ifndef HEADER_fd_src_app_shared_genesis_hash_h
+#define HEADER_fd_src_app_shared_genesis_hash_h
 
-#include "../../../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -48,4 +48,4 @@ compute_shred_version( char const * genesis_path,
   return fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
 }
 
-#endif /* HEADER_fd_src_app_fddev_genesis_hash_h */
+#endif /* HEADER_fd_src_app_shared_genesis_hash_h */

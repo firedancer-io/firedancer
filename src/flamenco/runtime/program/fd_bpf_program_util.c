@@ -347,7 +347,7 @@ fd_bpf_scan_task( void * tpool, ulong t0, ulong t1,
   uchar *                 is_bpf_program = (uchar *)args;
   fd_exec_slot_ctx_t *    slot_ctx       = (fd_exec_slot_ctx_t *)reduce;
 
-  for( ulong i=start_idx; i<end_idx; i++ ) {
+  for( ulong i=start_idx; i<=end_idx; i++ ) {
     fd_funk_rec_t const * rec = recs[ i ];
     fd_bpf_is_bpf_program( rec, fd_funk_wksp( slot_ctx->funk ), &is_bpf_program[ i ] );
   }

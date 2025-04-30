@@ -320,8 +320,8 @@ gossip_deliver_fun( fd_crds_data_t * data,
 
     fd_gossip_duplicate_shred_t const * duplicate_shred = &data->inner.duplicate_shred;
     uchar * eqvoc_msg = fd_chunk_to_laddr( ctx->eqvoc_out_mem, ctx->eqvoc_out_chunk );
-    memcpy( eqvoc_msg, duplicate_shred, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT );
-    memcpy( eqvoc_msg + FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, duplicate_shred->chunk, duplicate_shred->chunk_len );
+    memcpy( eqvoc_msg, duplicate_shred, sizeof(fd_gossip_duplicate_shred_t) );
+    memcpy( eqvoc_msg + sizeof(fd_gossip_duplicate_shred_t), duplicate_shred->chunk, duplicate_shred->chunk_len );
 
     ulong sig = 1UL;
     fd_mcache_publish( ctx->eqvoc_out_mcache,
@@ -329,12 +329,12 @@ gossip_deliver_fun( fd_crds_data_t * data,
                        ctx->eqvoc_out_seq,
                        sig,
                        ctx->eqvoc_out_chunk,
-                       FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT,
+                       sizeof(fd_gossip_duplicate_shred_t),
                        0UL,
                        0,
                        0 );
     ctx->eqvoc_out_seq   = fd_seq_inc( ctx->eqvoc_out_seq, 1UL );
-    ctx->eqvoc_out_chunk = fd_dcache_compact_next( ctx->eqvoc_out_chunk, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, ctx->eqvoc_out_chunk0, ctx->eqvoc_out_wmark );
+    ctx->eqvoc_out_chunk = fd_dcache_compact_next( ctx->eqvoc_out_chunk, sizeof(fd_gossip_duplicate_shred_t), ctx->eqvoc_out_chunk0, ctx->eqvoc_out_wmark );
   } else if( fd_crds_data_is_restart_last_voted_fork_slots( data ) ) {
     if( FD_UNLIKELY( !ctx->restart_out_mcache ) ) return;
 

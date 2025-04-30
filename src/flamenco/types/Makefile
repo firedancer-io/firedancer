@@ -10,5 +10,5 @@ clean:
 
 .PHONY: stubs
 stubs: fd_types.json
-	$(PYTHON) gen_stubs.py fd_types.h fd_types.c fd_type_names.c
+	$(PYTHON) gen_stubs.py fd_types.h fd_types.c fd_types_reflect_generated.c
 	$(PYTHON) gen_fuzz.py fd_fuzz_types.h

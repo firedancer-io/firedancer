@@ -143,11 +143,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
     return FD_VM_SUCCESS;
   }
 
-  if( FD_UNLIKELY( !fd_borrowed_account_is_mutable( &callee_acc ) ) ) {
-    /* If the account is not modifiable, we can't change it (and it can't have been changed by the callee) */
-    return FD_VM_SUCCESS;
-  }
-
   if( fd_borrowed_account_get_lamports( &callee_acc )!=*(caller_account->lamports) ) {
     err = fd_borrowed_account_set_lamports( &callee_acc, *(caller_account->lamports) );
     if( FD_UNLIKELY( err ) ) {
@@ -841,6 +836,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
       err = fd_vm_derive_pda( vm, caller_program_id, signer_seed_haddrs, signer_seed_lens, signers_seeds[i].len, NULL, &signers[i] );
       if( FD_UNLIKELY( err ) ) {
+        FD_TXN_PREPARE_ERR_OVERWRITE( vm->instr_ctx->txn_ctx );
         FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
         return FD_VM_SYSCALL_ERR_BAD_SEEDS;
       }

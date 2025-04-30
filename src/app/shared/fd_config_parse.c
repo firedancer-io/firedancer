@@ -1,4 +1,4 @@
-#include "fd_config_parse.h"
+#include "fd_config_private.h"
 
 /* Pod query utils ****************************************************/
 
@@ -165,11 +165,7 @@ fdctl_pod_find_leftover( uchar * pod ) {
 
 /* Converter **********************************************************/
 
-config_t *
-fdctl_pod_to_cfg( config_t * config,
-                  uchar *    pod ) {
-
-# define CFG_POP( type, cfg_path )                                     \
+#define CFG_POP( type, cfg_path )                                      \
   do {                                                                 \
     char const * key = #cfg_path;                                      \
     fd_pod_info_t info[1];                                             \
@@ -180,7 +176,18 @@ fdctl_pod_to_cfg( config_t * config,
     fd_pod_remove( pod, key );                                         \
   } while(0)
 
-# define CFG_POP_ARRAY( type, cfg_path )                               \
+#define CFG_POP1( type, toml_path, cfg_path )                          \
+  do {                                                                 \
+    char const * key = #toml_path;                                      \
+    fd_pod_info_t info[1];                                             \
+    if( fd_pod_query( pod, key, info ) ) break;                        \
+    if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path, sizeof(config->cfg_path), \
+        info, key ) ) )                                                \
+      return NULL;                                                     \
+    fd_pod_remove( pod, key );                                         \
+  } while(0)
+
+#define CFG_POP_ARRAY( type, cfg_path )                                \
   do {                                                                 \
     char const * key = #cfg_path;                                      \
     fd_pod_info_t info[1];                                             \
@@ -204,21 +211,43 @@ fdctl_pod_to_cfg( config_t * config,
     fd_pod_remove( pod, key );                                         \
   } while(0)
 
-  CFG_POP      ( cstr,   name                                             );
-  CFG_POP      ( cstr,   user                                             );
-  CFG_POP      ( cstr,   scratch_directory                                );
-  CFG_POP      ( cstr,   dynamic_port_range                               );
+#define CFG_POP1_ARRAY( type, toml_path, cfg_path )                    \
+  do {                                                                 \
+    char const * key = #toml_path;                                     \
+    fd_pod_info_t info[1];                                             \
+    if( fd_pod_query( pod, key, info ) ) break;                        \
+    if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {      \
+      FD_LOG_WARNING(( "`%s`: expected array", key ));                 \
+      return NULL;                                                     \
+    }                                                                  \
+    ulong  arr_len = sizeof( config->cfg_path ) / sizeof( config->cfg_path[ 0 ] ); \
+    ulong  j       = 0UL;                                              \
+    for( fd_pod_iter_t iter = fd_pod_iter_init( info->val ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) { \
+      if( FD_UNLIKELY( j>=arr_len ) ) {                                \
+        FD_LOG_WARNING(( "`%s`: too many values (max %lu)", key, arr_len )); \
+        return NULL;                                                   \
+      }                                                                \
+      fd_pod_info_t sub_info = fd_pod_iter_info( iter );               \
+      fdctl_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ); \
+      j++;                                                             \
+    }                                                                  \
+    config->cfg_path ## _cnt = j;                                      \
+    fd_pod_remove( pod, key );                                         \
+  } while(0)
 
-  CFG_POP      ( cstr,   log.path                                         );
-  CFG_POP      ( cstr,   log.colorize                                     );
-  CFG_POP      ( cstr,   log.level_logfile                                );
-  CFG_POP      ( cstr,   log.level_stderr                                 );
-  CFG_POP      ( cstr,   log.level_flush                                  );
+fd_configh_t *
+fd_config_extract_podh( uchar *        pod,
+                        fd_configh_t * config ) {
+  CFG_POP      ( cstr,   dynamic_port_range                               );
 
   CFG_POP      ( cstr,   reporting.solana_metrics_config                  );
 
-  CFG_POP      ( cstr,   ledger.path                                      );
-  CFG_POP      ( cstr,   ledger.accounts_path                             );
+  CFG_POP      ( cstr,   layout.agave_affinity                            );
+  CFG_POP      ( uint,   layout.agave_unified_scheduler_handler_threads   );
+
+  CFG_POP1      ( cstr,  ledger.accounts_path,             paths.accounts_path          );
+  CFG_POP1_ARRAY( cstr,  consensus.authorized_voter_paths, paths.authorized_voter_paths );
+
   CFG_POP      ( uint,   ledger.limit_size                                );
   CFG_POP_ARRAY( cstr,   ledger.account_indexes                           );
   CFG_POP_ARRAY( cstr,   ledger.account_index_include_keys                );
@@ -228,32 +257,24 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   ledger.require_tower                             );
   CFG_POP      ( cstr,   ledger.snapshot_archive_format                   );
 
-  CFG_POP_ARRAY( cstr,   gossip.entrypoints                               );
   CFG_POP      ( bool,   gossip.port_check                                );
-  CFG_POP      ( ushort, gossip.port                                      );
   CFG_POP      ( cstr,   gossip.host                                      );
 
-  CFG_POP      ( cstr,   consensus.identity_path                          );
-  CFG_POP      ( cstr,   consensus.vote_account_path                      );
-  CFG_POP_ARRAY( cstr,   consensus.authorized_voter_paths                 );
   CFG_POP      ( bool,   consensus.snapshot_fetch                         );
   CFG_POP      ( bool,   consensus.genesis_fetch                          );
   CFG_POP      ( bool,   consensus.poh_speed_test                         );
   CFG_POP      ( cstr,   consensus.expected_genesis_hash                  );
   CFG_POP      ( uint,   consensus.wait_for_supermajority_at_slot         );
   CFG_POP      ( cstr,   consensus.expected_bank_hash                     );
-  CFG_POP      ( ushort, consensus.expected_shred_version                 );
   CFG_POP      ( bool,   consensus.wait_for_vote_to_start_leader          );
   CFG_POP_ARRAY( uint,   consensus.hard_fork_at_slots                     );
   CFG_POP_ARRAY( cstr,   consensus.known_validators                       );
   CFG_POP      ( bool,   consensus.os_network_limits_test                 );
 
-  CFG_POP      ( ushort, rpc.port                                         );
   CFG_POP      ( bool,   rpc.full_api                                     );
   CFG_POP      ( bool,   rpc.private                                      );
   CFG_POP      ( cstr,   rpc.bind_address                                 );
   CFG_POP      ( bool,   rpc.transaction_history                          );
-  CFG_POP      ( bool,   rpc.extended_tx_metadata_storage                 );
   CFG_POP      ( bool,   rpc.only_known                                   );
   CFG_POP      ( bool,   rpc.pubsub_enable_block_subscription             );
   CFG_POP      ( bool,   rpc.pubsub_enable_vote_subscription              );
@@ -269,9 +290,62 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   snapshots.path                                   );
   CFG_POP      ( cstr,   snapshots.incremental_path                       );
 
+  return config;
+}
+
+fd_configf_t *
+fd_config_extract_podf( uchar *        pod,
+                        fd_configf_t * config ) {
+  CFG_POP      ( uint,   layout.exec_tile_count                           );
+  CFG_POP      ( uint,   layout.writer_tile_count                         );
+
+  CFG_POP      ( ulong,  blockstore.shred_max                             );
+  CFG_POP      ( ulong,  blockstore.block_max                             );
+  CFG_POP      ( ulong,  blockstore.idx_max                               );
+  CFG_POP      ( ulong,  blockstore.txn_max                               );
+  CFG_POP      ( ulong,  blockstore.alloc_max                             );
+  CFG_POP      ( cstr,   blockstore.file                                  );
+  CFG_POP      ( cstr,   blockstore.checkpt                               );
+  CFG_POP      ( cstr,   blockstore.restore                               );
+
+  CFG_POP      ( bool,   consensus.vote                                   );
+
+  return config;
+}
+
+fd_config_t *
+fd_config_extract_pod( uchar *       pod,
+                       fd_config_t * config ) {
+  CFG_POP      ( cstr,   name                                             );
+  CFG_POP      ( cstr,   user                                             );
+
+  CFG_POP      ( cstr,   log.path                                         );
+  CFG_POP      ( cstr,   log.colorize                                     );
+  CFG_POP      ( cstr,   log.level_logfile                                );
+  CFG_POP      ( cstr,   log.level_stderr                                 );
+  CFG_POP      ( cstr,   log.level_flush                                  );
+
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    CFG_POP      ( cstr,   paths.base                                       );
+    CFG_POP      ( cstr,   paths.ledger                                     );
+    CFG_POP      ( cstr,   paths.identity_key                               );
+    CFG_POP      ( cstr,   paths.vote_account                               );
+  } else {
+    CFG_POP1     ( cstr,   scratch_directory,           paths.base          );
+    CFG_POP1     ( cstr,   ledger.path,                 paths.ledger        );
+    CFG_POP1     ( cstr,   consensus.identity_path,     paths.identity_key  );
+    CFG_POP1     ( cstr,   consensus.vote_account_path, paths.vote_account  );
+  }
+
+  CFG_POP_ARRAY( cstr,   gossip.entrypoints                               );
+  CFG_POP      ( ushort, gossip.port                                      );
+
+  CFG_POP      ( ushort, consensus.expected_shred_version                 );
+
+  CFG_POP      ( ushort, rpc.port                                         );
+  CFG_POP      ( bool,   rpc.extended_tx_metadata_storage                 );
+
   CFG_POP      ( cstr,   layout.affinity                                  );
-  CFG_POP      ( cstr,   layout.agave_affinity                            );
-  CFG_POP      ( uint,   layout.agave_unified_scheduler_handler_threads   );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.resolv_tile_count                         );
@@ -283,14 +357,17 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );
   CFG_POP      ( ulong,  hugetlbfs.gigantic_page_threshold_mib            );
 
-  CFG_POP      ( cstr,   tiles.net.interface                              );
-  CFG_POP      ( cstr,   tiles.net.bind_address                           );
-  CFG_POP      ( cstr,   tiles.net.xdp_mode                               );
-  CFG_POP      ( bool,   tiles.net.xdp_zero_copy                          );
-  CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
-  CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
-  CFG_POP      ( uint,   tiles.net.flush_timeout_micros                   );
-  CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
+  CFG_POP      ( cstr,   net.interface                                    );
+  CFG_POP      ( cstr,   net.bind_address                                 );
+  CFG_POP      ( cstr,   net.provider                                     );
+  CFG_POP      ( uint,   net.ingress_buffer_size                          );
+  CFG_POP      ( cstr,   net.xdp.xdp_mode                                 );
+  CFG_POP      ( bool,   net.xdp.xdp_zero_copy                            );
+  CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
+  CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
+  CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
+  CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
+  CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 
   CFG_POP      ( ulong,  tiles.netlink.max_routes                         );
   CFG_POP      ( ulong,  tiles.netlink.max_neighbors                      );
@@ -338,61 +415,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ulong,  tiles.gui.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.gui.send_buffer_size_mb                    );
 
-  CFG_POP      ( bool,   development.sandbox                              );
-  CFG_POP      ( bool,   development.no_clone                             );
-  CFG_POP      ( bool,   development.core_dump                            );
-  CFG_POP      ( bool,   development.no_agave                             );
-  CFG_POP      ( bool,   development.bootstrap                            );
-
-  CFG_POP      ( cstr,   development.net.provider                         );
-  CFG_POP      ( uint,   development.net.sock_receive_buffer_size         );
-  CFG_POP      ( uint,   development.net.sock_send_buffer_size            );
-
-  CFG_POP      ( bool,   development.netns.enabled                        );
-  CFG_POP      ( cstr,   development.netns.interface0                     );
-  CFG_POP      ( cstr,   development.netns.interface0_mac                 );
-  CFG_POP      ( cstr,   development.netns.interface0_addr                );
-  CFG_POP      ( cstr,   development.netns.interface1                     );
-  CFG_POP      ( cstr,   development.netns.interface1_mac                 );
-  CFG_POP      ( cstr,   development.netns.interface1_addr                );
-
-  CFG_POP      ( bool,   development.gossip.allow_private_address         );
-
-  CFG_POP      ( ulong,  development.genesis.hashes_per_tick              );
-  CFG_POP      ( ulong,  development.genesis.target_tick_duration_micros  );
-  CFG_POP      ( ulong,  development.genesis.ticks_per_slot               );
-  CFG_POP      ( ulong,  development.genesis.fund_initial_accounts        );
-  CFG_POP      ( ulong,  development.genesis.fund_initial_amount_lamports );
-  CFG_POP      ( ulong,  development.genesis.vote_account_stake_lamports  );
-  CFG_POP      ( bool,   development.genesis.warmup_epochs                );
-
-  CFG_POP      ( uint,   development.bench.benchg_tile_count              );
-  CFG_POP      ( uint,   development.bench.benchs_tile_count              );
-  CFG_POP      ( cstr,   development.bench.affinity                       );
-  CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
-  CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
-  CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
-  CFG_POP      ( bool,   development.bench.disable_status_cache           );
-
-  CFG_POP      ( cstr,   development.pktgen.affinity                      );
-  CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
-
-  /* Firedancer-only configuration */
-
-  CFG_POP      ( uint,   layout.exec_tile_count                           );
-  CFG_POP      ( uint,   layout.writer_tile_count                         );
-
-  CFG_POP      ( ulong,  blockstore.shred_max                             );
-  CFG_POP      ( ulong,  blockstore.block_max                             );
-  CFG_POP      ( ulong,  blockstore.idx_max                               );
-  CFG_POP      ( ulong,  blockstore.txn_max                               );
-  CFG_POP      ( ulong,  blockstore.alloc_max                             );
-  CFG_POP      ( cstr,   blockstore.file                                  );
-  CFG_POP      ( cstr,   blockstore.checkpt                               );
-  CFG_POP      ( cstr,   blockstore.restore                               );
-
-  CFG_POP      ( bool,   consensus.vote                                   );
-
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
@@ -429,128 +451,81 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
 
-# undef CFG_POP
-# undef CFG_ARRAY
+  CFG_POP      ( bool,   development.sandbox                              );
+  CFG_POP      ( bool,   development.no_clone                             );
+  CFG_POP      ( bool,   development.core_dump                            );
+  CFG_POP      ( bool,   development.no_agave                             );
+  CFG_POP      ( bool,   development.bootstrap                            );
+
+  CFG_POP      ( bool,   development.netns.enabled                        );
+  CFG_POP      ( cstr,   development.netns.interface0                     );
+  CFG_POP      ( cstr,   development.netns.interface0_mac                 );
+  CFG_POP      ( cstr,   development.netns.interface0_addr                );
+  CFG_POP      ( cstr,   development.netns.interface1                     );
+  CFG_POP      ( cstr,   development.netns.interface1_mac                 );
+  CFG_POP      ( cstr,   development.netns.interface1_addr                );
+
+  CFG_POP      ( bool,   development.gossip.allow_private_address         );
+
+  CFG_POP      ( ulong,  development.genesis.hashes_per_tick              );
+  CFG_POP      ( ulong,  development.genesis.target_tick_duration_micros  );
+  CFG_POP      ( ulong,  development.genesis.ticks_per_slot               );
+  CFG_POP      ( ulong,  development.genesis.fund_initial_accounts        );
+  CFG_POP      ( ulong,  development.genesis.fund_initial_amount_lamports );
+  CFG_POP      ( ulong,  development.genesis.vote_account_stake_lamports  );
+  CFG_POP      ( bool,   development.genesis.warmup_epochs                );
+
+  CFG_POP      ( uint,   development.bench.benchg_tile_count              );
+  CFG_POP      ( uint,   development.bench.benchs_tile_count              );
+  CFG_POP      ( cstr,   development.bench.affinity                       );
+  CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
+  CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
+  CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
+  CFG_POP      ( bool,   development.bench.disable_status_cache           );
+
+  CFG_POP      ( cstr,   development.pktgen.affinity                      );
+  CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
+
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;
+  } else {
+    if( FD_UNLIKELY( !fd_config_extract_podh( pod, &config->frankendancer ) ) ) return NULL;
+  }
+
+  /* Renamed config options */
+
+# define CFG_RENAMED( old_path, new_path )                             \
+  do {                                                                 \
+    char const * key = #old_path;                                      \
+    fd_pod_info_t info[1];                                             \
+    if( FD_UNLIKELY( !fd_pod_query( pod, key, info ) ) ) {             \
+      FD_LOG_WARNING(( "Config option `%s` was renamed to `%s`. "      \
+                       "Please update your config file.",              \
+                       #old_path, #new_path ));                        \
+      return NULL;                                                     \
+    }                                                                  \
+    (void)config->new_path; /* assert new path exists */               \
+  } while(0)
+
+  CFG_RENAMED( tiles.net.interface,            net.interface                );
+  CFG_RENAMED( tiles.net.bind_address,         net.bind_address             );
+  CFG_RENAMED( tiles.net.provider,             net.provider                 );
+  CFG_RENAMED( tiles.net.xdp_mode,             net.xdp.xdp_mode             );
+  CFG_RENAMED( tiles.net.xdp_zero_copy,        net.xdp.xdp_zero_copy        );
+  CFG_RENAMED( tiles.net.xdp_rx_queue_size,    net.xdp.xdp_rx_queue_size    );
+  CFG_RENAMED( tiles.net.xdp_tx_queue_size,    net.xdp.xdp_tx_queue_size    );
+  CFG_RENAMED( tiles.net.flush_timeout_micros, net.xdp.flush_timeout_micros );
+  CFG_RENAMED( tiles.net.send_buffer_size,     net.ingress_buffer_size      );
+
+  CFG_RENAMED( development.net.provider,                 net.provider                   );
+  CFG_RENAMED( development.net.sock_receive_buffer_size, net.socket.receive_buffer_size );
+  CFG_RENAMED( development.net.sock_send_buffer_size,    net.socket.send_buffer_size    );
+
+# undef CFG_RENAMED
 
   if( FD_UNLIKELY( !fdctl_pod_find_leftover( pod ) ) ) return NULL;
   return config;
 }
 
-void
-fdctl_cfg_validate( config_t * cfg ) {
-
-# define CFG_HAS_NON_EMPTY( key ) do {             \
-    if( !strnlen( cfg->key, sizeof(cfg->key) ) ) { \
-      FD_LOG_ERR(( "missing `%s`", #key ));        \
-    }                                              \
-  } while(0)
-
-# define CFG_HAS_NON_ZERO( key ) do {                         \
-    if( !cfg->key ) { FD_LOG_ERR(( "missing `%s`", #key )); } \
-  } while(0)
-
-# define CFG_HAS_POW2( key ) do {                        \
-    ulong value = (ulong)( cfg -> key );                 \
-    if( !value || !fd_ulong_is_pow2( value ) ) {         \
-      FD_LOG_ERR(( "`%s` must be a power of 2", #key )); \
-    }                                                    \
-  } while(0)
-
-  CFG_HAS_NON_EMPTY( name );
-  CFG_HAS_NON_EMPTY( scratch_directory );
-  CFG_HAS_NON_EMPTY( dynamic_port_range );
-
-  CFG_HAS_NON_EMPTY( log.colorize );
-  CFG_HAS_NON_EMPTY( log.level_logfile );
-  CFG_HAS_NON_EMPTY( log.level_stderr );
-  CFG_HAS_NON_EMPTY( log.level_flush );
-
-  CFG_HAS_NON_EMPTY( ledger.snapshot_archive_format );
-
-  CFG_HAS_NON_ZERO( gossip.port );
-
-  CFG_HAS_NON_ZERO( snapshots.full_snapshot_interval_slots );
-  CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
-  CFG_HAS_NON_ZERO( snapshots.minimum_snapshot_download_speed );
-
-  CFG_HAS_NON_EMPTY( layout.affinity );
-  CFG_HAS_NON_EMPTY( layout.agave_affinity );
-  CFG_HAS_NON_ZERO ( layout.net_tile_count );
-  CFG_HAS_NON_ZERO ( layout.quic_tile_count );
-  CFG_HAS_NON_ZERO ( layout.resolv_tile_count );
-  CFG_HAS_NON_ZERO ( layout.verify_tile_count );
-  CFG_HAS_NON_ZERO ( layout.bank_tile_count );
-  CFG_HAS_NON_ZERO ( layout.shred_tile_count );
-
-  if( 0U!=cfg->layout.writer_tile_count ) {
-    if( FD_UNLIKELY( cfg->layout.writer_tile_count>cfg->layout.exec_tile_count ) ) {
-      /* There can be at most 1 in-flight transaction per exec tile
-         awaiting finalization. */
-      FD_LOG_ERR(( "More writer tiles (%u) than exec tiles (%u)", cfg->layout.writer_tile_count, cfg->layout.exec_tile_count ));
-    }
-  }
-
-  CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
-  CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
-
-  if( 0!=strcmp( cfg->tiles.net.bind_address, "" ) ) {
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( cfg->tiles.net.bind_address, &cfg->tiles.net.bind_address_parsed ) ) ) {
-      FD_LOG_ERR(( "`tiles.net.bind_address` is not a valid IPv4 address" ));
-    }
-  }
-  CFG_HAS_NON_EMPTY( tiles.net.xdp_mode );
-  CFG_HAS_POW2     ( tiles.net.xdp_rx_queue_size );
-  CFG_HAS_POW2     ( tiles.net.xdp_tx_queue_size );
-  CFG_HAS_NON_ZERO ( tiles.net.send_buffer_size );
-
-  CFG_HAS_NON_ZERO( tiles.netlink.max_routes    );
-  CFG_HAS_NON_ZERO( tiles.netlink.max_neighbors );
-
-  CFG_HAS_NON_ZERO( tiles.quic.regular_transaction_listen_port );
-  CFG_HAS_NON_ZERO( tiles.quic.quic_transaction_listen_port );
-  CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_connections );
-  CFG_HAS_NON_ZERO( tiles.quic.txn_reassembly_count );
-  CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_handshakes );
-  CFG_HAS_NON_ZERO( tiles.quic.idle_timeout_millis );
-
-  CFG_HAS_NON_ZERO( tiles.verify.signature_cache_size );
-  CFG_HAS_NON_ZERO( tiles.verify.receive_buffer_size );
-
-  CFG_HAS_NON_ZERO( tiles.dedup.signature_cache_size );
-
-  CFG_HAS_NON_ZERO( tiles.pack.max_pending_transactions );
-
-  CFG_HAS_NON_ZERO( tiles.shred.max_pending_shred_sets );
-  CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
-
-  CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
-
-  CFG_HAS_NON_ZERO( tiles.gui.gui_listen_port );
-
-  if( strcmp( cfg->development.net.provider, "xdp" ) &&
-      strcmp( cfg->development.net.provider, "socket" ) ) {
-    FD_LOG_ERR(( "invalid `development.net.provider`: must be \"xdp\" or \"socket\"" ));
-  }
-  CFG_HAS_NON_ZERO( development.net.sock_receive_buffer_size );
-  CFG_HAS_NON_ZERO( development.net.sock_send_buffer_size );
-
-  CFG_HAS_NON_EMPTY( development.netns.interface0 );
-  CFG_HAS_NON_EMPTY( development.netns.interface0_mac );
-  CFG_HAS_NON_EMPTY( development.netns.interface0_addr );
-  CFG_HAS_NON_EMPTY( development.netns.interface1 );
-  CFG_HAS_NON_EMPTY( development.netns.interface1_mac );
-  CFG_HAS_NON_EMPTY( development.netns.interface1_addr );
-
-  CFG_HAS_NON_ZERO( development.genesis.target_tick_duration_micros );
-  CFG_HAS_NON_ZERO( development.genesis.ticks_per_slot );
-  CFG_HAS_NON_ZERO( development.genesis.fund_initial_accounts );
-  CFG_HAS_NON_ZERO( development.genesis.fund_initial_amount_lamports );
-
-  CFG_HAS_NON_ZERO ( development.bench.benchg_tile_count );
-  CFG_HAS_NON_ZERO ( development.bench.benchs_tile_count );
-  CFG_HAS_NON_EMPTY( development.bench.affinity );
-
-# undef CFG_HAS_NON_EMPTY
-# undef CFG_HAS_NON_ZERO
-# undef CFG_HAS_POW2
-}
+#undef CFG_POP
+#undef CFG_ARRAY
