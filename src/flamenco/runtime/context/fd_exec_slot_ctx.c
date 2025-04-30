@@ -216,7 +216,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       FD_TEST( fd_vote_accounts_pair_t_map_free( epoch_bank->stakes.vote_accounts.vote_accounts_pool ) );
       fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
       FD_TEST( new_node );
-      fd_memcpy( &new_node->elem, &n->elem, FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT );
+      fd_memcpy( &new_node->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
       fd_vote_accounts_pair_t_map_insert(
         epoch_bank->stakes.vote_accounts.vote_accounts_pool,
         &epoch_bank->stakes.vote_accounts.vote_accounts_root,
@@ -238,7 +238,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
       fd_delegation_pair_t_mapnode_t * new_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
       FD_TEST( new_node );
-      fd_memcpy( &new_node->elem, &n->elem, FD_DELEGATION_PAIR_FOOTPRINT );
+      fd_memcpy( &new_node->elem, &n->elem, sizeof(fd_delegation_pair_t) );
       fd_delegation_pair_t_map_insert(
         epoch_bank->stakes.stake_delegations_pool,
         &epoch_bank->stakes.stake_delegations_root,
@@ -277,11 +277,11 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   epoch_bank->genesis_creation_time = oldbank->genesis_creation_time;
   epoch_bank->slots_per_year = oldbank->slots_per_year;
   slot_bank->max_tick_height = oldbank->max_tick_height;
-  fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, FD_INFLATION_FOOTPRINT );
-  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
+  fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, sizeof(fd_inflation_t) );
+  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, sizeof(fd_epoch_schedule_t) );
   epoch_bank->rent = oldbank->rent_collector.rent;
-  fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, FD_RENT_FOOTPRINT );
-  fd_memcpy( &epoch_bank->rent_epoch_schedule, &oldbank->rent_collector.epoch_schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
+  fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, sizeof(fd_rent_t) );
+  fd_memcpy( &epoch_bank->rent_epoch_schedule, &oldbank->rent_collector.epoch_schedule, sizeof(fd_epoch_schedule_t) );
 
   if( manifest->epoch_account_hash )
     slot_bank->epoch_account_hash = *manifest->epoch_account_hash;
@@ -309,7 +309,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {
     fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_bank->block_hash_queue.ages_pool );
-    fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
+    fd_memcpy( &node->elem, elem, sizeof(fd_hash_hash_age_pair_t) );
     fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
   }
 
@@ -327,9 +327,9 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
   slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( valloc,
                                                            FD_SLOT_PAIR_ALIGN,
-                                                           oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
+                                                           oldbank->hard_forks.hard_forks_len * sizeof(fd_slot_pair_t) );
   memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks,
-          oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
+          oldbank->hard_forks.hard_forks_len * sizeof(fd_slot_pair_t) );
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -485,8 +485,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
     runtime_spad,
     FD_RENT_FRESH_ACCOUNT_ALIGN,
-    FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
+    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   return slot_ctx;
 }

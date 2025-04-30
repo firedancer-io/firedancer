@@ -172,7 +172,7 @@ epoch_ctx_bank_mem_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
 void
 fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
   epoch_ctx_bank_mem_delete( epoch_ctx );
-  memset( &epoch_ctx->epoch_bank, 0UL, FD_EPOCH_BANK_FOOTPRINT);
+  memset( &epoch_ctx->epoch_bank, 0UL, sizeof(fd_epoch_bank_t) );
 }
 
 void

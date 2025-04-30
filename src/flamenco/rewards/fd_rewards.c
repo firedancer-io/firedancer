@@ -850,7 +850,7 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
   result->foundation_rate              = rewards.foundation_rate;
   result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
   result->capitalization               = slot_bank->capitalization;
-  fd_memcpy( &result->point_value, &validator_result->point_value, FD_POINT_VALUE_FOOTPRINT );
+  fd_memcpy( &result->point_value, &validator_result->point_value, sizeof(fd_point_value_t) );
 }
 
 /* Calculate rewards from previous epoch and distribute vote rewards
@@ -922,8 +922,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
   slot_ctx->slot_bank.capitalization += result->distributed_rewards;
 
   /* Cheap because this doesn't copy all the rewards, just pointers to the dlist */
-  fd_memcpy( &result->stake_rewards_by_partition, &rewards_calc_result->stake_rewards_by_partition, FD_STAKE_REWARD_CALCULATION_PARTITIONED_FOOTPRINT );
-  fd_memcpy( &result->point_value, &rewards_calc_result->point_value, FD_POINT_VALUE_FOOTPRINT );
+  fd_memcpy( &result->stake_rewards_by_partition, &rewards_calc_result->stake_rewards_by_partition, sizeof(fd_stake_reward_calculation_partitioned_t) );
+  fd_memcpy( &result->point_value, &rewards_calc_result->point_value, sizeof(fd_point_value_t) );
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -998,7 +998,7 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
   slot_ctx->slot_bank.epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
   slot_ctx->slot_bank.epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
 
-  fd_memcpy( &slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT );
+  fd_memcpy( &slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, sizeof(fd_partitioned_stake_rewards_t) );
 }
 
 /*  Process reward credits for a partition of rewards.
@@ -1233,7 +1233,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stakes->stake_delegations_pool, stakes->stake_delegations_root );
     epoch_info.stake_infos_len = 0UL;
-    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegation_sz );
+    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegation_sz );
 
     fd_stake_history_entry_t _accumulator = {
         .effective = 0UL,

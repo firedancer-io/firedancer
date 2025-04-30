@@ -27,9 +27,9 @@
    client. This means that it includes the max size of the account (10MiB)
    and the associated metadata. */
 
-#define FD_ACC_TOT_SZ_MAX       (FD_ACC_SZ_MAX + FD_ACCOUNT_META_FOOTPRINT)
+#define FD_ACC_TOT_SZ_MAX       (FD_ACC_SZ_MAX + sizeof(fd_account_meta_t))
 
-#define FD_ACC_NONCE_TOT_SZ_MAX (FD_ACC_NONCE_SZ_MAX + FD_ACCOUNT_META_FOOTPRINT)
+#define FD_ACC_NONCE_TOT_SZ_MAX (FD_ACC_NONCE_SZ_MAX + sizeof(fd_account_meta_t))
 
 FD_PROTOTYPES_BEGIN
 

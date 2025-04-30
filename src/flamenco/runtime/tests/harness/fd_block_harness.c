@@ -245,9 +245,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
   slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
     runner->spad,
-    FD_RENT_FRESH_ACCOUNT_ALIGN,
-    FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
+    alignof(fd_rent_fresh_account_t),
+    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );

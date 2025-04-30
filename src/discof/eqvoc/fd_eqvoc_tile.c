@@ -117,9 +117,9 @@ during_frag( fd_eqvoc_tile_ctx_t * ctx,
     handle_new_cluster_contact_info( ctx, dcache_entry, sz );
   } else if( FD_UNLIKELY( in_idx == ctx->gossip_in_idx ) ) {
     uchar * packet = fd_chunk_to_laddr( ctx->gossip_in_mem, chunk );
-    memcpy( &ctx->duplicate_shred, packet, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT );
+    memcpy( &ctx->duplicate_shred, packet, sizeof(fd_gossip_duplicate_shred_t) );
     FD_TEST( ctx->duplicate_shred.chunk_len <= sizeof(ctx->duplicate_shred_chunk) );
-    memcpy( ctx->duplicate_shred_chunk, packet + FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, ctx->duplicate_shred.chunk_len );
+    memcpy( ctx->duplicate_shred_chunk, packet + sizeof(fd_gossip_duplicate_shred_t), ctx->duplicate_shred.chunk_len );
     ctx->duplicate_shred.chunk = ctx->duplicate_shred_chunk;
   } else if ( FD_UNLIKELY( in_idx == ctx->shred_net_in_idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->shred_net_in_chunk0 || chunk > ctx->shred_net_in_wmark ) ) {
