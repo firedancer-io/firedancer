@@ -1,6 +1,28 @@
 #define _GNU_SOURCE
 #include "fd_exec_sol_compat.h"
 
+#include "../../../../ballet/nanopb/pb_encode.h"
+#include "../../../../ballet/nanopb/pb_decode.h"
+
+#include "../../fd_executor_err.h"
+#include "../../../fd_flamenco.h"
+#include "../../../features/fd_features.h"
+#include "../../../../ballet/shred/fd_shred.h"
+
+#include "fd_instr_harness.h"
+#include "fd_txn_harness.h"
+#include "fd_block_harness.h"
+#include "fd_types_harness.h"
+#include "fd_vm_harness.h"
+#include "fd_pack_harness.h"
+#include "fd_elf_harness.h"
+
+#include "generated/elf.pb.h"
+#include "generated/invoke.pb.h"
+#include "generated/shred.pb.h"
+#include "generated/vm.pb.h"
+#include "generated/type.pb.h"
+
 /* FIXME: Spad isn't properly sized out or cleaned up */
 
 /* This file defines stable APIs for compatibility testing.

@@ -7,14 +7,14 @@ with open('fd_types.json', 'r') as json_file:
 
 header = open(sys.argv[1], "w")
 body = open(sys.argv[2], "w")
-names = open(sys.argv[3], "w")
+reflect = open(sys.argv[3], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
 
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
-print("// This is an auto-generated file. To add entries, edit fd_types.json", file=names)
+print("// This is an auto-generated file. To add entries, edit fd_types.json", file=reflect)
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)
@@ -111,6 +111,7 @@ fuzzytypes = {
 class TypeNode:
     def __init__(self, json):
         self.name = json["name"]
+        self.encoders = None
 
     def isFixedSize(self):
         return False
@@ -3067,14 +3068,20 @@ class StructType(TypeNode):
         if self.nomethods:
             return
         n = self.fullname
-        print(f"void {n}_new( {n}_t * self );", file=header)
+        if self.isFixedSize() and self.isFuzzy():
+            print(f"static inline void {n}_new( {n}_t * self ) {{ fd_memset( self, 0, sizeof({n}_t) ); }}", file=header)
+        else:
+            print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_destroy( {n}_t * self );", file=header)
+        if self.isFixedSize() and self.isFuzzy():
+            print(f"static inline void {n}_destroy( {n}_t * self ) {{ (void)self; }}", file=header)
+        else:
+            print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
-        print(f'ulong {n}_align( void );', file=header)
+        print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         if self.isFixedSize() and self.isFuzzy():
-            print(f'inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=header)
+            print(f'static inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=header)
             print(f'  *total_sz += sizeof({n}_t);', file=header)
             print(f'  if( (ulong)ctx->data + {self.fixedSize()}UL > (ulong)ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=header)
             print(f'  return 0;', file=header)
@@ -3130,8 +3137,6 @@ class StructType(TypeNode):
                 print(f'  ctx->data = (void *)( (ulong)ctx->data + {self.fixedSize()}UL );', file=body)
                 print(f'  return 0;', file=body)
                 print(f'}}', file=body)
-
-                print(f'extern inline int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=body)
             else:
                 print(f'static int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
                 print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
@@ -3187,20 +3192,23 @@ class StructType(TypeNode):
                 print(f'  return self;', file=body)
                 print(f'}}', file=body)
 
-        print(f'void {n}_new({n}_t * self) {{', file=body)
-        print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
-        for f in self.fields:
-            f.emitNew()
-        print("}", file=body)
+        if self.isFixedSize() and self.isFuzzy():
+            pass
+        else:
+            print(f'void {n}_new({n}_t * self) {{', file=body)
+            print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
+            for f in self.fields:
+                f.emitNew()
+            print("}", file=body)
 
-        print(f'void {n}_destroy( {n}_t * self ) {{', file=body)
-        for f in self.fields:
-            f.emitDestroy()
-        print("}", file=body)
-        print("", file=body)
-
-        print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
-        print("", file=body)
+        if self.isFixedSize() and self.isFuzzy():
+            pass
+        else:
+            print(f'void {n}_destroy( {n}_t * self ) {{', file=body)
+            for f in self.fields:
+                f.emitDestroy()
+            print("}", file=body)
+            print("", file=body)
 
         print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{', file=body)
         print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++ );', file=body)
@@ -3222,8 +3230,9 @@ class StructType(TypeNode):
             f.emitPostamble()
 
 
-class EnumType:
+class EnumType(TypeNode):
     def __init__(self, json):
+        super().__init__(json)
         self.name = json["name"]
         self.fullname = f'{namespace}_{json["name"]}'
         self.zerocopy = (bool(json["zerocopy"]) if "zerocopy" in json else False)
@@ -3664,11 +3673,26 @@ def main():
         t.emitPostamble()
 
     type_name_count = len(nametypes)
-    print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
-    print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
+    print('#include "fd_types.h"', file=reflect)
+    print('#include "fd_types_custom.h"', file=reflect)
+    print('#include "fd_types_reflect_private.h"', file=reflect)
+    print('#pragma GCC diagnostic ignored "-Wpedantic"', file=reflect)
+    print(f'ulong fd_types_vt_list_cnt = {type_name_count};', file=reflect)
+    print("fd_types_vt_t const fd_types_vt_list[] = {", file=reflect)
     for key,val in nametypes.items():
-        print(f' \"{key}\",', file=names)
-    print("};", file=names)
+        print('  {', file=reflect, end='')
+        print(f' .name=\"{key}\",', file=reflect, end='')
+        print(f' .name_len={len(key)},', file=reflect, end='')
+        print(f' .align={key.upper()}_ALIGN,', file=reflect, end='')
+        print(f' .new_=(void *){key}_new,', file=reflect, end='')
+        print(f' .destroy=(void *){key}_destroy,', file=reflect, end='')
+        print(f' .decode=(void *){key}_decode,', file=reflect, end='')
+        print(f' .size=(void *){key}_size,', file=reflect, end='')
+        print(f' .walk=(void *){key}_walk,', file=reflect, end='')
+        print(f' .decode_footprint=(void *){key}_decode_footprint,', file=reflect, end='')
+        print(f' .encode=(void *){key}_encode', file=reflect, end='')
+        print('  },', file=reflect)
+    print("};", file=reflect)
 
 if __name__ == "__main__":
     main()
