@@ -10,7 +10,7 @@ import cpp
 
 predicate include(Location l) {
     l.getFile().getRelativePath().matches("src/")
-    or not l.getFile().getBaseName().matches("fd_cstr%")
+    and not l.getFile().getBaseName().matches("fd_cstr%")
 }
 
 class SeqNum extends Variable {

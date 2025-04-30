@@ -9,9 +9,10 @@ class CandidateCall extends Call {
     not (
       this.getLocation().getFile().getBaseName().matches("test%") or
       this.getLocation().getFile().getBaseName().matches("%_ci.%") or
-      this.getLocation().getFile().getBaseName() = "main.c" /* annoying mismatch with funk_init */
+      this.getLocation().getFile().getBaseName() = "main.c" or  /* annoying mismatch with funk_init */
+      this.getLocation().getFile().getBaseName() = "spy.c"
     )
-    and not exists(FunctionCall t | t.getTarget().getName() = "fd_log_private_2" | dominates(this, t))
+    // and not exists(FunctionCall t | t.getTarget().getName() = "fd_log_private_2" | dominates(this, t))
   }
 }
 
