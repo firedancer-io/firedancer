@@ -91,7 +91,8 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_tpool_t *               tpool,
                           fd_spad_t * *              exec_spads,
                           ulong                      exec_spad_cnt,
-                          fd_spad_t *                runtime_spad );
+                          fd_spad_t *                runtime_spad,
+                          fd_spad_t *                epoch_spad );
 
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,

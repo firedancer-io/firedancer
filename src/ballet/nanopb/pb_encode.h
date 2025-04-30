@@ -49,7 +49,7 @@ struct pb_ostream_s
 
     /* Number of bytes written so far. */
     size_t bytes_written;
-    
+
 #ifndef PB_NO_ERRMSG
     /* Pointer to constant (ROM) string when decoding function returns error */
     const char *errmsg;
@@ -115,7 +115,7 @@ pb_ostream_t pb_ostream_from_buffer(pb_byte_t *buf, size_t bufsize);
 
 /* Pseudo-stream for measuring the size of a message without actually storing
  * the encoded data.
- * 
+ *
  * Example usage:
  *    MyMessage msg = {};
  *    pb_ostream_t stream = PB_OSTREAM_SIZING;

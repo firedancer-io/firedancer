@@ -15,10 +15,12 @@
 /* This is arbitrary, and needs to be sized for the worst case */
 #define FD_RENT_FRESH_ACCOUNTS_MAX   ( 1000UL )
 
-#define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
-#define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
-#define FD_FUNK_KEY_SLOT_BANK      ((uchar)6)
-#define FD_FUNK_KEY_EPOCH_BANK     ((uchar)7)
+#define FD_FUNK_KEY_TYPE_ACC               ((uchar)1)
+#define FD_FUNK_KEY_TYPE_ELF_CACHE         ((uchar)2)
+#define FD_FUNK_KEY_SLOT_BANK              ((uchar)6)
+#define FD_FUNK_KEY_EPOCH_BANK             ((uchar)7)
+#define FD_FUNK_KEY_TYPE_EPOCH_SPAD        ((uchar)8)
+#define FD_FUNK_KEY_TYPE_EPOCH_REWARD_SPAD ((uchar)9)
 
 /* CLUSTER_VERSION is the default value for the cluster version
    in the epoch context. This value will foll forward to the

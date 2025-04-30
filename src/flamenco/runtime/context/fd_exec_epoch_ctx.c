@@ -1,7 +1,9 @@
 #include "fd_exec_epoch_ctx.h"
+#include "fd_exec_slot_ctx.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_stake_history.h"
 #include "../fd_runtime_public.h"
+#include "../fd_acc_mgr.h"
 
 /* TODO remove this */
 #define MAX_LG_SLOT_CNT   10UL
@@ -228,12 +230,35 @@ fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * self ) {
 void
 fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
                              fd_exec_epoch_ctx_t * prev,
-                             fd_spad_t *           runtime_spad ) {
+                             fd_spad_t *           runtime_spad,
+                             fd_exec_slot_ctx_t * slot_ctx ) {
+
   fd_memcpy( &self->features, &prev->features, sizeof(fd_features_t) );
 
   self->bank_hash_cmp     = prev->bank_hash_cmp;
   self->runtime_public    = prev->runtime_public;
   self->total_epoch_stake = 0UL;
+
+  fd_funk_t     *   funk             = slot_ctx->funk;
+  fd_funk_txn_t *   funk_txn         = slot_ctx->funk_txn;
+  fd_funk_rec_key_t spad_id          = fd_acc_mgr_epoch_spad_key( );
+
+  int funk_err = FD_FUNK_SUCCESS;
+  fd_funk_rec_prepare_t prepare[1];
+  fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, funk_txn, &spad_id, prepare, NULL );
+  if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
+    FD_LOG_ERR(( "Unable to allocate epoch spad into funk" ));
+  }
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  uchar * epoch_spad_mem = fd_funk_val_truncate( rec, fd_spad_footprint( FD_EPOCH_SPAD_SIZE ) + FD_SPAD_ALIGN, fd_funk_alloc( funk, wksp ), wksp, NULL );;
+  epoch_spad_mem = (uchar *) fd_ulong_align_up((ulong) epoch_spad_mem, FD_SPAD_ALIGN);
+
+  self->spad = fd_spad_join( fd_spad_new( epoch_spad_mem, FD_EPOCH_SPAD_SIZE ) );
+
+  fd_funk_rec_publish( prepare );
+
+  self->reward_spad       = NULL;
 
   fd_memcpy( &self->runtime_public->features, &prev->features, sizeof(fd_features_t) );
 

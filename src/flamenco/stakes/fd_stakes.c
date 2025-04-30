@@ -310,7 +310,10 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_tpool_t *               tpool,
                           fd_spad_t * *              exec_spads,
                           ulong                      exec_spad_cnt,
-                          fd_spad_t *                runtime_spad ) {
+                          fd_spad_t *                runtime_spad,
+                          fd_spad_t *                epoch_spad ) {
+
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -320,7 +323,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   ulong vote_states_pool_sz   = fd_vote_accounts_pair_t_map_size( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root )
                               + fd_account_keys_pair_t_map_size( slot_bank->vote_account_keys.account_keys_pool, slot_bank->vote_account_keys.account_keys_root );
   temp_info->vote_states_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
+  uchar * pool_mem = fd_spad_alloc( epoch_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
   temp_info->vote_states_pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
 
   /* Create a map of <pubkey, stake> to store the total stake of each vote account. */
@@ -441,6 +444,8 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
   fd_account_keys_pair_t_map_release_tree( slot_bank->vote_account_keys.account_keys_pool, slot_bank->vote_account_keys.account_keys_root );
   slot_bank->vote_account_keys.account_keys_root = NULL;
+
+  } FD_SPAD_FRAME_END;
 }
 
 static void

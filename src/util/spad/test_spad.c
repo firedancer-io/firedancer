@@ -1,19 +1,8 @@
-#include "../fd_util.h"
-
-/* Use the debug variant for extra code coverage and test strictness */
-
-#if 1
-#define fd_spad_alloc_max fd_spad_alloc_max_debug
-#define fd_spad_frame_lo  fd_spad_frame_lo_debug
-#define fd_spad_frame_hi  fd_spad_frame_hi_debug
-#define fd_spad_push      fd_spad_push_debug
-#define fd_spad_pop       fd_spad_pop_debug
-#define fd_spad_alloc     fd_spad_alloc_debug
-#define fd_spad_trim      fd_spad_trim_debug
-#define fd_spad_prepare   fd_spad_prepare_debug
-#define fd_spad_cancel    fd_spad_cancel_debug
-#define fd_spad_publish   fd_spad_publish_debug
+#ifndef FD_SPAD_USE_HANDHOLDING
+#define FD_SPAD_USE_HANDHOLDING 1
 #endif
+
+#include "../fd_util.h"
 
 FD_STATIC_ASSERT( FD_SPAD_LG_ALIGN      ==7,                       unit_test );
 FD_STATIC_ASSERT( FD_SPAD_ALIGN         ==(1UL<<FD_SPAD_LG_ALIGN), unit_test );

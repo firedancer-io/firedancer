@@ -1243,7 +1243,6 @@ replay( fd_ledger_args_t * args ) {
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
-
   /* Setup slot_ctx */
   fd_funk_t * funk = args->funk;
 
@@ -1251,6 +1250,31 @@ replay( fd_ledger_args_t * args ) {
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
+
+  fd_funk_rec_key_t spad_id          = fd_acc_mgr_epoch_spad_key( );
+
+  int funk_err = FD_FUNK_SUCCESS;
+  fd_funk_rec_prepare_t prepare[1];
+  fd_funk_txn_xid_t xid = fd_funk_generate_xid();
+  fd_funk_txn_start_write( funk );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, &xid, 0UL );
+  fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, funk_txn, &spad_id, prepare, NULL );
+  if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
+    FD_LOG_ERR(( "Unable to allocate epoch spad into funk" ));
+  }
+  fd_funk_txn_end_write( funk );
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  uchar * epoch_spad_mem = fd_funk_val_truncate( rec, fd_spad_footprint( FD_EPOCH_SPAD_SIZE ) + FD_SPAD_ALIGN, fd_funk_alloc( funk, wksp ), wksp, NULL );;
+  epoch_spad_mem = (uchar *) fd_ulong_align_up((ulong) epoch_spad_mem, FD_SPAD_ALIGN);
+
+  args->epoch_ctx->spad = fd_spad_join( fd_spad_new( epoch_spad_mem, FD_EPOCH_SPAD_SIZE ) );
+
+  fd_funk_rec_publish( prepare );
+
+  fd_funk_txn_publish( funk, funk_txn, 1);
+
+  args->epoch_ctx->reward_spad = NULL;
 
   /* TODO: This is very hacky, needs to be cleaned up */
   args->epoch_ctx->epoch_bank.cluster_version[0] = args->cluster_version[0];

@@ -23,6 +23,14 @@ typedef struct fd_exec_epoch_ctx_layout fd_exec_epoch_ctx_layout_t;
 
 typedef struct fd_runtime_public fd_runtime_public_t;
 
+/* During the process of delivering partition rewards, about 80m of
+   this is consumed (when doing rewards distribution on mainnet)
+   leaving another 48m for other applications.  If the spad allocation
+   fails, you should size this up
+*/
+#define FD_EPOCH_REWARD_SPAD_SIZE (128 * 1024 * 1024)
+#define FD_EPOCH_SPAD_SIZE (32 * 1024 * 1024)
+
 struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   ulong                      magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
 
@@ -33,6 +41,8 @@ struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
 
   fd_bank_hash_cmp_t *       bank_hash_cmp;
   fd_runtime_public_t *      runtime_public;
+  fd_spad_t *                spad;
+  fd_spad_t *                reward_spad;
   int                        constipate_root; /* Used for constipation in offline replay. */
   ulong                      total_epoch_stake;
 };
@@ -117,7 +127,8 @@ fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
 void
 fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
                              fd_exec_epoch_ctx_t * prev,
-                             fd_spad_t *           runtime_spad );
+                             fd_spad_t           * runtime_spad,
+                             fd_exec_slot_ctx_t  * slot_ctx );
 
 FD_PROTOTYPES_END
 

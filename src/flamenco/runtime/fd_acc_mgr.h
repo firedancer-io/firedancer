@@ -201,6 +201,24 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
 FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err );
 
+/* fd_acc_mgr_cache_key converts a pubkey into a funk_rec_key specific to
+   bpf cache entries */
+
+fd_funk_rec_key_t
+fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey );
+
+/* fd_acc_mgr_epoch_spad_key converts a pubkey into a funk_rec_key specific to
+   epoch specific shared spad with a lifetime of an epoch */
+
+fd_funk_rec_key_t
+fd_acc_mgr_epoch_spad_key( void );
+
+/* fd_acc_mgr_epoch_reward_spad_key converts a pubkey into a funk_rec_key specific to
+   epoch specific shared spad with a lifetime of the distribution of the partitioned reward distribution */
+
+fd_funk_rec_key_t
+fd_acc_mgr_epoch_reward_spad_key( void );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_acc_mgr_h */

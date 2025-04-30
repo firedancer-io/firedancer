@@ -52,7 +52,7 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               fd_tpool_t *         tpool,
                               fd_spad_t * *        exec_spads,
                               ulong                exec_spad_cnt,
-                              fd_spad_t *          runtime_spad );
+                              fd_spad_t *          spad );
 
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
@@ -67,6 +67,11 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_spad_t * *        exec_spads,
                                          ulong                exec_spad_cnt,
                                          fd_spad_t *          runtime_spad );
+void
+fd_rewards_allocate_reward_spad ( fd_exec_slot_ctx_t * slot_ctx );
+
+void
+fd_rewards_check_and_delete_reward_spad ( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 
