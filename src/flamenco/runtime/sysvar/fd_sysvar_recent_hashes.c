@@ -108,6 +108,9 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   uchar * last_hash = (uchar *)bhq + bhq->last_hash_offset;
   fd_memcpy( last_hash, hash, sizeof(fd_hash_t) );
 
+  bhq->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)bhq;
+  bhq->ages_root_offset = (ulong)ages_root - (ulong)bhq;
+
   fd_bank_mgr_block_hash_queue_save( &slot_ctx->bank_mgr );
 }
 
