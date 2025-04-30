@@ -10,6 +10,7 @@
 
 #include <unistd.h>
 #include <errno.h>
+#include <stdlib.h> /* strtoul */
 #include <sys/utsname.h>
 #include <sys/mman.h>
 
