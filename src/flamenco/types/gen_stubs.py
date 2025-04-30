@@ -517,7 +517,6 @@ class VectorMember(TypeNode):
         print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'  if( {self.name}_len ) {{', file=body)
         el = f'{namespace}_{self.element}'
-        el = el.upper()
 
         if self.element == "uchar":
             print(f'    *total_sz += 8UL + {self.name}_len;', file=body)
@@ -528,7 +527,7 @@ class VectorMember(TypeNode):
             if self.element in simpletypes:
                   print(f'    *total_sz += 8UL + sizeof({self.element})*{self.name}_len;', file=body)
             else:
-                  print(f'    *total_sz += {el}_ALIGN + {el}_FOOTPRINT*{self.name}_len;', file=body)
+                  print(f'    *total_sz += {el.upper()}_ALIGN + sizeof({el}_t)*{self.name}_len;', file=body)
 
             print(f'    for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
 
@@ -549,7 +548,6 @@ class VectorMember(TypeNode):
             print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
         print(f'  if( self->{self.name}_len ) {{', file=body)
         el = f'{namespace}_{self.element}'
-        el = el.upper()
 
         if self.element == "uchar":
             print(f'    self->{self.name} = *alloc_mem;', file=body)
@@ -561,9 +559,9 @@ class VectorMember(TypeNode):
                 print(f'    self->{self.name} = *alloc_mem;', file=body)
                 print(f'    *alloc_mem = (uchar *)(*alloc_mem) + sizeof({self.element})*self->{self.name}_len;', file=body)
             else:
-                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), {el}_ALIGN );', file=body)
+                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), {el.upper()}_ALIGN );', file=body)
                 print(f'    self->{self.name} = *alloc_mem;', file=body)
-                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + {el}_FOOTPRINT*self->{self.name}_len;', file=body)
+                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + sizeof({el}_t)*self->{self.name}_len;', file=body)
 
             print(f'    for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
 
@@ -585,7 +583,6 @@ class VectorMember(TypeNode):
             print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
         print(f'  if( self->{self.name}_len ) {{', file=body)
         el = f'{namespace}_{self.element}'
-        el = el.upper()
 
         if self.element == "uchar":
             print(f'    self->{self.name}_offset = (ulong)*alloc_mem - (ulong)struct_mem;', file=body)
@@ -598,20 +595,20 @@ class VectorMember(TypeNode):
                 print(f'    uchar * cur_mem = (uchar *)(*alloc_mem);', file=body)
                 print(f'    *alloc_mem = (uchar *)(*alloc_mem) + sizeof({self.element})*self->{self.name}_len;', file=body)
             else:
-                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), {el}_ALIGN );', file=body)
+                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), {el.upper()}_ALIGN );', file=body)
                 print(f'    self->{self.name}_offset = (ulong)*alloc_mem - (ulong)struct_mem;', file=body)
                 print(f'    uchar * cur_mem = (uchar *)(*alloc_mem);', file=body)
-                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + {el}_FOOTPRINT*self->{self.name}_len;', file=body)
+                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + sizeof({el}_t)*self->{self.name}_len;', file=body)
 
             print(f'    for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
             if self.element in simpletypes:
                 print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( ({self.element}*)(cur_mem + sizeof({self.element}) * i), ctx );', file=body)
             else:
-                print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun(cur_mem + {el}_FOOTPRINT * i) );', file=body)
+                print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)fd_type_pun(cur_mem + sizeof({el}_t) * i) );', file=body)
                 if self.element in flattypes:
-                    print(f'      {namespace}_{self.element}_decode_inner( cur_mem + {el}_FOOTPRINT * i, alloc_mem, ctx );', file=body)
+                    print(f'      {namespace}_{self.element}_decode_inner( cur_mem + sizeof({el}_t) * i, alloc_mem, ctx );', file=body)
                 else:
-                    print(f'      {namespace}_{self.element}_decode_inner_global( cur_mem + {el}_FOOTPRINT * i, alloc_mem, ctx );', file=body)
+                    print(f'      {namespace}_{self.element}_decode_inner_global( cur_mem + sizeof({el}_t) * i, alloc_mem, ctx );', file=body)
 
             print('    }', file=body)
 
@@ -2492,13 +2489,10 @@ class OptionMember(TypeNode):
               print(f'    *total_sz += 8UL + sizeof({self.element});', file=body)
           else:
               el = f'{namespace}_{self.element}'
-              el = el.upper()
-              print(f'    *total_sz += {el}_ALIGN + {el}_FOOTPRINT;', file=body)
+              print(f'    *total_sz += {el.upper()}_ALIGN + sizeof({el}_t);', file=body)
         if self.element in simpletypes:
             print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_footprint( ctx );', file=body)
         else:
-            el = f'{namespace}_{self.element}'
-            el = el.upper()
             print(f'      err = {namespace}_{self.element}_decode_footprint_inner( ctx, total_sz );', file=body)
         print('      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print('    }', file=body)
@@ -2528,10 +2522,9 @@ class OptionMember(TypeNode):
                 print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name}, ctx );', file=body)
             else:
                 el = f'{namespace}_{self.element}'
-                el = el.upper()
-                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {el}_ALIGN );', file=body)
+                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {el.upper()}_ALIGN );', file=body)
                 print(f'      self->{self.name} = *alloc_mem;', file=body)
-                print(f'      *alloc_mem = (uchar *)*alloc_mem + {el}_FOOTPRINT;', file=body)
+                print(f'      *alloc_mem = (uchar *)*alloc_mem + sizeof({el}_t);', file=body)
                 print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
                 print(f'      {namespace}_{self.element}_decode_inner( self->{self.name}, alloc_mem, ctx );', file=body)
             print('    } else {', file=body)
@@ -2566,11 +2559,10 @@ class OptionMember(TypeNode):
                 print(f'      *alloc_mem = (uchar *)*alloc_mem + sizeof({self.element});', file=body)
             else:
                 el = f'{namespace}_{self.element}'
-                el = el.upper()
-                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {el}_ALIGN );', file=body)
+                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {el.upper()}_ALIGN );', file=body)
                 print(f'      self->{self.name}_offset = (ulong)*alloc_mem - (ulong)struct_mem;', file=body)
                 print(f'      {namespace}_{self.element}_new( *alloc_mem );', file=body)
-                print(f'      *alloc_mem = (uchar *)*alloc_mem + {el}_FOOTPRINT;', file=body)
+                print(f'      *alloc_mem = (uchar *)*alloc_mem + sizeof({el}_t);', file=body)
                 if self.element in flattypes:
                     print(f'      {namespace}_{self.element}_decode_inner( (uchar*)self + self->{self.name}_offset, alloc_mem, ctx );', file=body)
                 else:
@@ -3046,7 +3038,6 @@ class StructType(TypeNode):
         print("};", file=header)
         print(f'typedef struct {n} {n}_t;', file=header)
 
-        print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
         if int(self.alignment) > 0:
             print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         else:
@@ -3063,7 +3054,6 @@ class StructType(TypeNode):
             print("};", file=header)
             print(f'typedef struct {n}_global {n}_global_t;', file=header)
 
-            print(f"#define {n.upper()}_GLOBAL_FOOTPRINT sizeof({n}_global_t)", file=header)
             if int(self.alignment) > 0:
                 print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
             else:
@@ -3335,7 +3325,6 @@ class EnumType:
         print(f'  {n}_inner_t inner;', file=header)
         print("};", file=header)
         print(f"typedef struct {n} {n}_t;", file=header)
-        print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
         if self.alignment > 0:
             print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         else:
@@ -3348,7 +3337,6 @@ class EnumType:
             print("};", file=header)
             print(f"typedef struct {n}_global {n}_global_t;", file=header)
 
-        print(f"#define {n.upper()}_GLOBAL_FOOTPRINT sizeof({n}_global_t)", file=header)
         if self.alignment > 0:
             print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
         else:

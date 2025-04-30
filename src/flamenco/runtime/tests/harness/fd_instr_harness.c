@@ -227,7 +227,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                           .leader_schedule_epoch = 0UL,
                                           .unix_timestamp        = 0L
                                         };
-    uchar * val_clock = fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_CLOCK_ALIGN, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
+    uchar * val_clock = fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_CLOCK_ALIGN, sizeof(fd_sol_sysvar_clock_t) );
     slot_ctx->sysvar_cache->gaddr_clock = fd_wksp_gaddr( runtime_wksp, val_clock );
     memcpy( val_clock, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
   }
@@ -243,7 +243,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                                   .first_normal_epoch          = 14UL,
                                                   .first_normal_slot           = 524256UL
                                                 };
-    uchar * val_epoch_schedule = fd_spad_alloc( runner->spad, FD_EPOCH_SCHEDULE_ALIGN, FD_EPOCH_SCHEDULE_FOOTPRINT );
+    uchar * val_epoch_schedule = fd_spad_alloc( runner->spad, FD_EPOCH_SCHEDULE_ALIGN, sizeof(fd_epoch_schedule_t) );
     slot_ctx->sysvar_cache->gaddr_epoch_schedule = fd_wksp_gaddr( runtime_wksp, val_epoch_schedule );
     memcpy( val_epoch_schedule, &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
   }
@@ -257,7 +257,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                               .exemption_threshold     = 2.0,
                               .burn_percent            = 50
                             };
-    uchar * val_rent = fd_spad_alloc( runner->spad, FD_RENT_ALIGN, FD_RENT_FOOTPRINT );
+    uchar * val_rent = fd_spad_alloc( runner->spad, FD_RENT_ALIGN, sizeof(fd_rent_t) );
     slot_ctx->sysvar_cache->gaddr_rent = fd_wksp_gaddr( runtime_wksp, val_rent );
     memcpy( val_rent, &sysvar_rent, sizeof(fd_rent_t) );
   }
@@ -267,7 +267,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
     fd_sol_sysvar_last_restart_slot_t restart = { .slot = 5000UL };
 
-    uchar * val_last_restart_slot = fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
+    uchar * val_last_restart_slot = fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN, sizeof(fd_sol_sysvar_last_restart_slot_t) );
     slot_ctx->sysvar_cache->gaddr_last_restart_slot = fd_wksp_gaddr( runtime_wksp, val_last_restart_slot );
     memcpy( val_last_restart_slot, &restart, sizeof(fd_sol_sysvar_last_restart_slot_t) );
   }

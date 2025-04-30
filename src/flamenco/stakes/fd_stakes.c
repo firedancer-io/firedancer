@@ -668,8 +668,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   stake_delegations_size += fd_account_keys_pair_t_map_size(
     slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root );
   temp_info->stake_infos_len = 0UL;
-  temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegations_size );
-  fd_memset( temp_info->stake_infos, 0, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegations_size );
+  temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
+  fd_memset( temp_info->stake_infos, 0, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
 
   fd_stake_history_entry_t accumulator = {
     .effective    = 0UL,
