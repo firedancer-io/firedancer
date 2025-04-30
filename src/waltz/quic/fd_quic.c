@@ -3969,9 +3969,10 @@ fd_quic_conn_free( fd_quic_t *      quic,
     }
   }
 
-  /* free tls-hs */
-  fd_quic_tls_hs_delete( conn->tls_hs );
   if( conn->tls_hs ) {
+    /* free tls-hs */
+    fd_quic_tls_hs_delete( conn->tls_hs );
+
     /* Remove the handshake from the cache before releasing it */
     fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool);
     fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
@@ -4575,11 +4576,13 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     conn->handshake_done_ackd = 1;
     conn->handshake_done_send = 0;
     fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-    fd_quic_tls_hs_delete( conn->tls_hs );
-    /* Remove the handshake from the cache before releasing it */
-    fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
-    fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
-    conn->tls_hs = NULL;
+    if( FD_LIKELY( conn->tls_hs ) ) {
+      fd_quic_tls_hs_delete( conn->tls_hs );
+      /* Remove the handshake from the cache before releasing it */
+      fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
+      fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
+      conn->tls_hs = NULL;
+    }
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
@@ -5462,11 +5465,13 @@ fd_quic_handle_handshake_done_frame(
   fd_quic_cb_conn_hs_complete( conn->quic, conn );
 
   /* Deallocate tls_hs once completed */
-  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-  fd_quic_tls_hs_delete( conn->tls_hs );
-  fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
-  fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
-  conn->tls_hs = NULL;
+  if( FD_LIKELY( conn->tls_hs ) ) {
+    fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+    fd_quic_tls_hs_delete( conn->tls_hs );
+    fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
+    fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
+    conn->tls_hs = NULL;
+  }
 
   return 0;
 }
