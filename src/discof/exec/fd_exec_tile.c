@@ -264,30 +264,23 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not find valid sysvar cache" ));
   }
 
-  uchar * block_hash_queue_enc = fd_wksp_laddr_fast( ctx->runtime_public_wksp, slot_msg->block_hash_queue_encoded_gaddr );
-  if( FD_UNLIKELY( !block_hash_queue_enc ) ) {
-    FD_LOG_ERR(( "Could not get laddr for encoded block hash queue" ));
+  uchar * mem = fd_spad_alloc( ctx->exec_spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Could not allocate block hash queue" ));
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = block_hash_queue_enc,
-    .dataend = block_hash_queue_enc + slot_msg->block_hash_queue_encoded_sz
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_block_hash_queue_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Could not decode block hash queue footprint" ));
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( mem ), ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
+  if( FD_UNLIKELY( !bank_mgr ) ) {
+    FD_LOG_ERR(( "Could not join bank mgr" ));
   }
 
-  // FIXME account for this in exec spad footprint
-  uchar *                 block_hash_queue_mem = fd_spad_alloc( ctx->exec_spad, fd_block_hash_queue_align(), total_sz );
-  fd_block_hash_queue_t * block_hash_queue     = fd_block_hash_queue_decode( block_hash_queue_mem, &decode );
-  if( FD_UNLIKELY( !block_hash_queue ) ) {
-    FD_LOG_ERR(( "Could not decode block hash queue" ));
+  ctx->txn_ctx->block_hash_queue_global = fd_bank_mgr_block_hash_queue_query( bank_mgr );
+  if( FD_UNLIKELY( !ctx->txn_ctx->block_hash_queue_global ) ) {
+    FD_LOG_ERR(( "Could not find valid block hash queue" ));
   }
 
-  //ctx->txn_ctx->block_hash_queue = *block_hash_queue;
+  fd_hash_t * last_hash = (fd_hash_t *)((ulong)ctx->txn_ctx->block_hash_queue_global + ctx->txn_ctx->block_hash_queue_global->last_hash_offset);
+  FD_LOG_WARNING(("LAST HASH %s", FD_BASE58_ENC_32_ALLOCA( last_hash)));
 }
 
 static void

@@ -1447,21 +1447,21 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
     /* Save the gaddr of the sysvar cache */
     slot_msg->sysvar_cache_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, slot_ctx->sysvar_cache );
 
-    /* Now encode the bhq */
-    ulong   bhq_encode_sz  = fd_block_hash_queue_size( &slot_ctx->slot_bank.block_hash_queue ) + 128UL;
-    uchar * bhq_encode_mem = fd_spad_alloc( ctx->runtime_spad,
-                                            fd_block_hash_queue_align(),
-                                            bhq_encode_sz );
-    fd_bincode_encode_ctx_t encode = {
-      .data    = bhq_encode_mem,
-      .dataend = bhq_encode_mem + bhq_encode_sz
-    };
-    int err = fd_block_hash_queue_encode( &slot_ctx->slot_bank.block_hash_queue, &encode );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to encode block hash queue" ));
-    }
-    slot_msg->block_hash_queue_encoded_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, bhq_encode_mem );
-    slot_msg->block_hash_queue_encoded_sz    = bhq_encode_sz;
+    // /* Now encode the bhq */
+    // ulong   bhq_encode_sz  = fd_block_hash_queue_size( &slot_ctx->slot_bank.block_hash_queue ) + 128UL;
+    // uchar * bhq_encode_mem = fd_spad_alloc( ctx->runtime_spad,
+    //                                         fd_block_hash_queue_align(),
+    //                                         bhq_encode_sz );
+    // fd_bincode_encode_ctx_t encode = {
+    //   .data    = bhq_encode_mem,
+    //   .dataend = bhq_encode_mem + bhq_encode_sz
+    // };
+    // int err = fd_block_hash_queue_encode( &slot_ctx->slot_bank.block_hash_queue, &encode );
+    // if( FD_UNLIKELY( err ) ) {
+    //   FD_LOG_ERR(( "Failed to encode block hash queue" ));
+    // }
+    // slot_msg->block_hash_queue_encoded_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, bhq_encode_mem );
+    // slot_msg->block_hash_queue_encoded_sz    = bhq_encode_sz;
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem,
@@ -1607,6 +1607,9 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     send_exec_epoch_msg( ctx, stem, fork->slot_ctx );
   }
 
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( &fork->slot_ctx->bank_mgr ), ctx->funk, fork->slot_ctx->funk_txn );
+  FD_TEST( bank_mgr );
+
   /* At this point we need to notify all of the exec tiles and tell them
      that a new slot is ready to be published. At this point, we should
      also mark the tile as not being ready. */
@@ -1649,8 +1652,12 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   msg->hashcnt_per_tick = ctx->epoch_ctx->epoch_bank.hashes_per_tick;
   msg->ticks_per_slot   = ctx->epoch_ctx->epoch_bank.ticks_per_slot;
   msg->tick_duration_ns = (ulong)(epoch_bank->ns_per_slot / epoch_bank->ticks_per_slot);
-  if( ctx->slot_ctx->slot_bank.block_hash_queue.last_hash ) {
-    memcpy(msg->last_entry_hash, ctx->slot_ctx->slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t));
+
+  fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( &ctx->slot_ctx->bank_mgr );
+  fd_hash_t * last_hash = (fd_hash_t *)((ulong)bhq + bhq->last_hash_offset);
+  FD_LOG_WARNING(("LAST HASH %s", FD_BASE58_ENC_32_ALLOCA( last_hash)));
+  if( last_hash ) {
+    memcpy(msg->last_entry_hash, last_hash, sizeof(fd_hash_t));
   } else {
     memset(msg->last_entry_hash, 0UL, sizeof(fd_hash_t));
   }
@@ -2776,6 +2783,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
           break;
         }
 
+        // FIXME: Remove magic numbers, this is very sad...
         *(ulong*)(msg + 24U + i*8U) = s;
         if( ++i == 4095U ) {
           break;
@@ -2786,7 +2794,12 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
 
     fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
-    memcpy( microblock_trailer->hash, reset_fork->slot_ctx->slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
+
+    fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( &reset_fork->slot_ctx->bank_mgr );
+    fd_hash_t * last_hash = (fd_hash_t *)((ulong)bhq + bhq->last_hash_offset);
+    FD_LOG_WARNING(("LAST HASH %s", FD_BASE58_ENC_32_ALLOCA( last_hash)));
+
+    memcpy( microblock_trailer->hash, last_hash, sizeof(fd_hash_t) );
     if( ctx->poh_init_done == 1 ) {
       ulong parent_slot = reset_fork->slot_ctx->slot_bank.prev_slot;
       ulong curr_slot = reset_fork->slot_ctx->slot_bank.slot;
