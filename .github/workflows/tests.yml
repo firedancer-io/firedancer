@@ -79,7 +79,7 @@ jobs:
           - test-case: native
             machine: native
             label: 512G
-            extras: "rpath handholding fuzz-stubs"
+            extras: "rpath handholding"
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: clang

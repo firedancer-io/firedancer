@@ -1,7 +1,5 @@
 #include "fd_vm_harness.h"
 
-static fd_exec_test_instr_effects_t const * cpi_exec_effects = NULL;
-
 static int
 fd_runtime_fuzz_vm_syscall_noop( void * _vm,
                                  ulong arg0,
@@ -418,9 +416,6 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   if( !input->has_vm_ctx ) {
     goto error;
   }
-  if( input->has_exec_effects ){
-    cpi_exec_effects = &input->exec_effects;
-  }
 
   ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
   uchar * rodata = fd_valloc_malloc( valloc, 8UL, rodata_sz );
@@ -646,83 +641,11 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   /* Return the effects */
   ulong actual_end = tmp_end + input_regions_size;
   fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
-  cpi_exec_effects = NULL;
 
   *output = effects;
   return actual_end - (ulong)output_buf;
 
 error:
   fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
-  cpi_exec_effects = NULL;
   return 0;
-}
-
-/* Stubs fd_execute_instr for binaries compiled with
-   `-Xlinker --wrap=fd_execute_instr` */
-int
-__wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
-                         fd_instr_info_t *   instr_info ) {
-  static const pb_byte_t zero_blk[32] = {0};
-
-  if( cpi_exec_effects == NULL ) {
-    FD_LOG_WARNING(( "fd_execute_instr is disabled" ));
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  }
-
-  // Iterate through instruction accounts
-  for( ushort i = 0; i < instr_info->acct_cnt; ++i ) {
-    ushort        idx_in_txn  = instr_info->accounts[i].index_in_transaction;
-    fd_pubkey_t * acct_pubkey = &txn_ctx->account_keys[ idx_in_txn ];
-
-    fd_txn_account_t * acct = NULL;
-    /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey */
-    for( uint j = 0UL; j < cpi_exec_effects->modified_accounts_count; ++j ) {
-      fd_exec_test_acct_state_t * acct_state = &cpi_exec_effects->modified_accounts[j];
-      if( memcmp( acct_state->address, acct_pubkey, sizeof(fd_pubkey_t) ) != 0 ) continue;
-
-      /* Fetch borrowed account */
-      /* First check if account is read-only.
-          TODO: Once direct mapping is enabled we _technically_ don't need
-                this check */
-
-      if( fd_exec_txn_ctx_get_account_at_index( txn_ctx,
-                                                idx_in_txn,
-                                                &acct,
-                                                fd_txn_account_check_exists ) ) {
-        break;
-      }
-      if( !acct->vt->is_mutable( acct ) ){
-        break;
-      }
-
-      /* Now get account with is_writable check */
-      int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
-                                                      idx_in_txn,
-                                                      /* Do not reallocate if data is not going to be modified */
-                                                      &acct,
-                                                      fd_txn_account_check_is_writable );
-      if( err ) break;
-
-      /* Update account state */
-      acct->vt->set_lamports( acct, acct_state->lamports );
-      acct->vt->set_executable( acct, acct_state->executable );
-      acct->vt->set_rent_epoch( acct, acct_state->rent_epoch );
-
-      if( acct_state->data ){
-        /* resize manually */
-        if( acct_state->data->size > acct->vt->get_data_len( acct ) ) {
-          acct->vt->resize( acct, acct_state->data->size );
-        }
-        acct->vt->set_data( acct, acct_state->data->bytes, acct_state->data->size );
-      }
-
-      /* Follow solfuzz-agave, which skips if pubkey is malformed */
-      if( memcmp( acct_state->owner, zero_blk, sizeof(fd_pubkey_t) ) != 0 ) {
-        acct->vt->set_owner( acct, (fd_pubkey_t const *)acct_state->owner );
-      }
-
-      break;
-    }
-  }
-  return FD_EXECUTOR_INSTR_SUCCESS;
 }
