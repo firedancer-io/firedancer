@@ -2889,7 +2889,11 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
      exits, but this is okay since the additional allocations are on the order
      of a few megabytes and are freed after a few thousand slots. */
 
-  fd_spad_push( runtime_spad );
+  if( NULL == slot_ctx->epoch_ctx->reward_spad ) {
+    fd_rewards_allocate_reward_spad( slot_ctx );
+  }
+
+  fd_spad_push( slot_ctx->epoch_ctx->reward_spad );
 
   fd_refresh_vote_accounts( slot_ctx,
                             history,
@@ -2898,7 +2902,8 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                             tpool,
                             exec_spads,
                             exec_spad_cnt,
-                            runtime_spad );
+                            runtime_spad,
+                            slot_ctx->epoch_ctx->reward_spad);
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
@@ -2912,7 +2917,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                   tpool,
                                   exec_spads,
                                   exec_spad_cnt,
-                                  runtime_spad );
+                                  slot_ctx->epoch_ctx->reward_spad );
   } else {
     fd_update_rewards( slot_ctx,
                        parent_blockhash,
@@ -2921,7 +2926,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                        tpool,
                        exec_spads,
                        exec_spad_cnt,
-                       runtime_spad );
+                       slot_ctx->epoch_ctx->reward_spad );
   }
 
   /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
@@ -2931,9 +2936,14 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   fd_update_next_epoch_stakes( slot_ctx );
 
   /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
-  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runtime_spad );
+  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->spad );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
+
+  /* Confirm we have not exhausted the spoch spad memory which is a sign of memory corruption */
+
+  FD_TEST(( !fd_spad_frame_used( slot_ctx->epoch_ctx->spad ) || (fd_spad_check(slot_ctx->epoch_ctx->spad, 8, 1)!=0) ) ||
+          ( !fd_spad_frame_used( slot_ctx->epoch_ctx->reward_spad ) || (fd_spad_check(slot_ctx->epoch_ctx->reward_spad, 8, 1)!=0) ));
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 

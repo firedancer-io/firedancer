@@ -129,11 +129,11 @@ fd_snapshot_dumper_on_manifest( void *                 _d,
     return errno;
   }
 
-  fd_spad_push( spad );
+  FD_SPAD_FRAME_BEGIN( spad ) {
   fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ), file );
   fd_solana_manifest_walk( yaml, manifest, fd_flamenco_yaml_walk, NULL, 0U );
   fd_flamenco_yaml_delete( yaml );
-  fd_spad_pop( spad );
+  } FD_SPAD_FRAME_END;
 
   int err = 0;
   if( FD_UNLIKELY( (err = ferror( file )) ) ) {
@@ -441,19 +441,22 @@ cmd_dump( int     argc,
   if( FD_UNLIKELY( !spad ) ) {
     FD_LOG_ERR(( "Failed to allocate spad" ));
   }
-  fd_spad_push( spad );
+
+  int rc;
+  FD_SPAD_FRAME_BEGIN( spad ) {
 
   /* With dump context */
 
   fd_snapshot_dumper_t  _dumper[1];
   fd_snapshot_dumper_t * dumper = fd_snapshot_dumper_new( _dumper );
 
-  int rc = do_dump( dumper, args, wksp, spad );
+  rc = do_dump( dumper, args, wksp, spad );
   FD_LOG_INFO(( "Done. Cleaning up." ));
 
   fd_snapshot_dumper_delete( dumper );
 
-  fd_spad_pop( spad );
+  } FD_SPAD_FRAME_END;
+
   void * spad_mem = fd_spad_delete( fd_spad_leave( spad ) );
   fd_wksp_free_laddr( spad_mem );
 

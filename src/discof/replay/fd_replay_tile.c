@@ -1569,7 +1569,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   //   }
   //   fd_exec_epoch_ctx_t * prev_epoch_ctx = fork->slot_ctx->epoch_ctx;
 
-  //   fd_exec_epoch_ctx_from_prev( epoch_fork->epoch_ctx, prev_epoch_ctx, ctx->runtime_spad );
+  //   fd_exec_epoch_ctx_from_prev( epoch_fork->epoch_ctx, prev_epoch_ctx, ctx->runtime_spad, fork->slot_ctx);
   //   fork->slot_ctx->epoch_ctx = epoch_fork->epoch_ctx;
   // }
 
@@ -3304,6 +3304,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
   }
   fd_features_enable_cleaned_up( &ctx->epoch_ctx->features, ctx->epoch_ctx->epoch_bank.cluster_version );
+
+  uchar * epoch_spad_mem = fd_spad_alloc( ctx->runtime_spad, FD_SPAD_ALIGN, fd_spad_footprint( FD_EPOCH_SPAD_SIZE ) );
+  ctx->epoch_ctx->spad = fd_spad_join( fd_spad_new( epoch_spad_mem, FD_EPOCH_SPAD_SIZE ) );
+
+  uchar * epoch_reward_spad_mem = fd_spad_alloc( ctx->runtime_spad, FD_SPAD_ALIGN, fd_spad_footprint( FD_EPOCH_REWARD_SPAD_SIZE ) );
+  ctx->epoch_ctx->reward_spad = fd_spad_join( fd_spad_new( epoch_reward_spad_mem, FD_EPOCH_REWARD_SPAD_SIZE ) );
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );

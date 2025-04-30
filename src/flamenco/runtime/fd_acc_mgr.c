@@ -148,3 +148,35 @@ fd_acc_mgr_strerror( int err ) {
     return "unknown";
   }
 }
+
+fd_funk_rec_key_t
+fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
+  fd_funk_rec_key_t id;
+  memcpy( id.uc, pubkey, sizeof(fd_pubkey_t) );
+  memset( id.uc + sizeof(fd_pubkey_t), 0, sizeof(fd_funk_rec_key_t) - sizeof(fd_pubkey_t) );
+
+  id.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
+
+  return id;
+}
+
+fd_funk_rec_key_t
+fd_acc_mgr_epoch_spad_key( void ) {
+  fd_funk_rec_key_t id;
+
+  memset( id.uc, 0, sizeof(fd_funk_rec_key_t) );
+  id.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_EPOCH_SPAD;
+
+  return id;
+}
+
+fd_funk_rec_key_t
+fd_acc_mgr_epoch_reward_spad_key( void ) {
+  fd_funk_rec_key_t id;
+
+  memset( id.uc, 0, sizeof(fd_funk_rec_key_t) );
+
+  id.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_EPOCH_REWARD_SPAD;
+
+  return id;
+}
