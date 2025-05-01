@@ -5,7 +5,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "generated/fd_sender_tile_seccomp.h"
 
-#include "../store/fd_store.h"
 #include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/leaders/fd_leaders.h"

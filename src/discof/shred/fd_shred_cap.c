@@ -39,8 +39,7 @@ fd_shred_cap_archive( fd_shred_cap_ctx_t * ctx,
 }
 
 int
-fd_shred_cap_replay( const char *      shred_cap_fpath,
-                     fd_store_t *      store ) {
+fd_shred_cap_replay( const char *      shred_cap_fpath) {
   FILE * shred_cap = fopen( shred_cap_fpath, "rb" );
   FD_TEST( shred_cap );
 
@@ -55,8 +54,8 @@ fd_shred_cap_replay( const char *      shred_cap_fpath,
     ulong bytes_read = fread( buffer, sizeof( uchar ), shred_len, shred_cap );
     if ( bytes_read != shred_len ) break;
 
-    fd_shred_t const * shred = fd_shred_parse( buffer, shred_len );
-    if ( fd_store_shred_insert( store, shred ) < FD_BLOCKSTORE_SUCCESS ) return FD_SHRED_CAP_ERR;
+    // fd_shred_t const * shred = fd_shred_parse( buffer, shred_len );
+    // if ( fd_store_shred_insert( store, shred ) < FD_BLOCKSTORE_SUCCESS ) return FD_SHRED_CAP_ERR;
     cnt++;
     /*
     if ( FD_SHRED_CAP_FLAG_IS_TURBINE(header.flags) ) {
