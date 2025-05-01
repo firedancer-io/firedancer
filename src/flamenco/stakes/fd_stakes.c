@@ -672,11 +672,13 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                              runtime_spad );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
-  fd_stake_history_entry_t new_elem = {
+  fd_epoch_stake_history_entry_pair_t new_elem = {
     .epoch        = stakes->epoch,
-    .effective    = accumulator.effective,
-    .activating   = accumulator.activating,
-    .deactivating = accumulator.deactivating
+    .entry        = {
+      .effective    = accumulator.effective,
+      .activating   = accumulator.activating,
+      .deactivating = accumulator.deactivating
+    }
   };
 
   fd_sysvar_stake_history_update( slot_ctx, &new_elem, runtime_spad );

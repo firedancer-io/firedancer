@@ -144,7 +144,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   /* Provide default stake history if not provided */
   if( !slot_ctx->sysvar_cache->has_stake_history ) {
     // Provide a 0-set default entry
-    fd_stake_history_entry_t entry = {0};
+    fd_epoch_stake_history_entry_pair_t entry = {0};
     fd_sysvar_stake_history_init( slot_ctx );
     fd_sysvar_stake_history_update( slot_ctx, &entry, runner->spad );
   }

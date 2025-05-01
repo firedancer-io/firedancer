@@ -243,10 +243,18 @@ void *fd_stake_history_entry_generate( void *mem, void **alloc_mem, fd_rng_t * r
   fd_stake_history_entry_t *self = (fd_stake_history_entry_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_history_entry_t);
   fd_stake_history_entry_new(mem);
-  self->epoch = fd_rng_ulong( rng );
   self->effective = fd_rng_ulong( rng );
   self->activating = fd_rng_ulong( rng );
   self->deactivating = fd_rng_ulong( rng );
+  return mem;
+}
+
+void *fd_epoch_stake_history_entry_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_epoch_stake_history_entry_pair_t *self = (fd_epoch_stake_history_entry_pair_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_stake_history_entry_pair_t);
+  fd_epoch_stake_history_entry_pair_new(mem);
+  self->epoch = fd_rng_ulong( rng );
+  fd_stake_history_entry_generate( &self->entry, alloc_mem, rng );
   return mem;
 }
 
@@ -258,7 +266,7 @@ void *fd_stake_history_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   self->fd_stake_history_size = 512;
   self->fd_stake_history_offset = 0;
   for( ulong i=0; i<self->fd_stake_history_len; i++ ) {
-    fd_stake_history_entry_generate( self->fd_stake_history + i, alloc_mem, rng );
+    fd_epoch_stake_history_entry_pair_generate( self->fd_stake_history + i, alloc_mem, rng );
   }
   return mem;
 }
