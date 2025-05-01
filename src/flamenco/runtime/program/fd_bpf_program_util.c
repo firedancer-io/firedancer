@@ -302,6 +302,29 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
+static int
+fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
+                                                 fd_pubkey_t const *  pubkey,
+                                                 fd_spad_t *          runtime_spad ) {
+  FD_TXN_ACCOUNT_DECL( exec_rec );
+  if( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) != FD_ACC_MGR_SUCCESS ) {
+    return -1;
+  }
+
+  if( memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
+    return -1;
+  }
+
+  if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad ) != 0 ) {
+    return -1;
+  }
+
+  return 0;
+}
+
 void
 fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
                        fd_wksp_t *           funk_wksp,
@@ -391,7 +414,6 @@ bpf_tpool_wrapper( void * para_arg_1,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slot_ctx,
-                                                     fd_funk_txn_t *         funk_txn,
                                                      fd_spad_t *             runtime_spad,
                                                      fd_exec_para_cb_ctx_t * exec_para_ctx ) {
   long        elapsed_ns = -fd_log_wallclock();
@@ -409,7 +431,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
   }
   fd_funk_txn_end_write( funk );
 
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
   fd_funk_txn_start_read( funk );
@@ -445,7 +467,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
         }
 
         fd_pubkey_t const * pubkey = fd_type_pun_const( recs[i]->pair.key[0].uc );
-        int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, pubkey, runtime_spad );
+        int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, pubkey, runtime_spad );
         if( res==0 ) {
           cached_cnt++;
         }
@@ -461,7 +483,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
   }
   fd_funk_txn_end_write( funk );
 
-  slot_ctx->funk_txn = parent_txn;
+  slot_ctx->funk_txn = funk_txn;
 
   elapsed_ns += fd_log_wallclock();
 
@@ -472,7 +494,6 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn,
                                                 fd_spad_t *          runtime_spad ) {
   fd_funk_t * funk = slot_ctx->funk;
   ulong       cnt  = 0UL;
@@ -488,7 +509,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   }
   fd_funk_txn_end_write( funk );
 
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
   fd_funk_txn_start_read( funk );
@@ -499,12 +520,9 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    fd_pubkey_t const * program_pubkey = fd_type_pun_const( rec->pair.key[0].uc );
+    fd_pubkey_t const * pubkey = fd_type_pun_const( rec->pair.key[0].uc );
 
-    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx,
-                                                               funk_txn,
-                                                               program_pubkey,
-                                                               runtime_spad );
+    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, pubkey, runtime_spad );
 
     if( res==0 ) {
       cnt++;
@@ -521,31 +539,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   }
   fd_funk_txn_end_write( funk );
 
-  slot_ctx->funk_txn = parent_txn;
-  return 0;
-}
-
-int
-fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_funk_txn_t *      funk_txn,
-                                                 fd_pubkey_t const *  pubkey,
-                                                 fd_spad_t *          runtime_spad ) {
-  FD_TXN_ACCOUNT_DECL( exec_rec );
-  if( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, funk_txn ) != FD_ACC_MGR_SUCCESS ) {
-    return -1;
-  }
-
-  if( memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
-    return -1;
-  }
-
-  if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad ) != 0 ) {
-    return -1;
-  }
-
+  slot_ctx->funk_txn = funk_txn;
   return 0;
 }
 

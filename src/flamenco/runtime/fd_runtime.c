@@ -1528,7 +1528,7 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, runtime_spad );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
     FD_LOG_WARNING(( "update bpf program cache failed" ));
     return;
