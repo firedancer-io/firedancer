@@ -56,8 +56,4 @@ cat contrib/test/test-vectors-fixtures/elf-loader-fixtures/*.list | xargs -P $NU
 LOG=$LOG_PATH/test_exec_instr
 cat contrib/test/test-vectors-fixtures/instr-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
-# disabled for now to migrate CPI fixtures to new format
-# LOG=$LOG_PATH/test_exec_cpi
-# cat contrib/test/test-vectors-fixtures/cpi-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
-
 echo Test vectors success
