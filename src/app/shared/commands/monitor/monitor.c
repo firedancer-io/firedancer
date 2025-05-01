@@ -223,8 +223,8 @@ static void write_stdout( char * buf, ulong buf_sz ) {
 static int stop1 = 0;
 
 #define FD_MONITOR_TEXT_BUF_SZ 131072
-char buffer[ FD_MONITOR_TEXT_BUF_SZ ];
-char buffer2[ FD_MONITOR_TEXT_BUF_SZ ];
+static char buffer[ FD_MONITOR_TEXT_BUF_SZ ];
+static char buffer2[ FD_MONITOR_TEXT_BUF_SZ ];
 
 static void
 drain_to_buffer( char ** buf,
@@ -269,7 +269,7 @@ restore_terminal( void ) {
   (void)tcsetattr( STDIN_FILENO, TCSANOW, &termios_backup );
 }
 
-void
+static void
 run_monitor( config_t const * config,
              int              drain_output_fd,
              int              with_sankey,

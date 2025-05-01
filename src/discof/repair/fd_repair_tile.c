@@ -208,7 +208,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-void
+static void
 repair_signer( void *        signer_ctx,
                uchar         signature[ static 64 ],
                uchar const * buffer,

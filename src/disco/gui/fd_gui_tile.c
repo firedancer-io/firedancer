@@ -51,7 +51,7 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 8192
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
-fd_http_server_params_t
+static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
   return (fd_http_server_params_t) {
     .max_connection_cnt    = tile->gui.max_http_connections,

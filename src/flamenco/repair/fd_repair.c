@@ -160,7 +160,8 @@ fd_repair_decay_stats( fd_repair_t * glob ) {
  * Returns the number of characters read (not counting the null terminator),
  * or -1 on error.
  */
-long read_line(int fd, char *buf) {
+static long
+read_line( int fd, char * buf ) {
     long i = 0;
 
     while (i < 255) {

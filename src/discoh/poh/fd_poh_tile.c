@@ -602,16 +602,16 @@ struct poh_link {
 
 typedef struct poh_link poh_link_t;
 
-poh_link_t gossip_dedup;
-poh_link_t stake_out;
-poh_link_t crds_shred;
-poh_link_t replay_resolv;
+static poh_link_t gossip_dedup;
+static poh_link_t stake_out;
+static poh_link_t crds_shred;
+static poh_link_t replay_resolv;
 
-poh_link_t replay_plugin;
-poh_link_t gossip_plugin;
-poh_link_t start_progress_plugin;
-poh_link_t vote_listener_plugin;
-poh_link_t validator_info_plugin;
+static poh_link_t replay_plugin;
+static poh_link_t gossip_plugin;
+static poh_link_t start_progress_plugin;
+static poh_link_t vote_listener_plugin;
+static poh_link_t validator_info_plugin;
 
 static void
 poh_link_wait_credit( poh_link_t * link ) {

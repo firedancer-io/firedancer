@@ -390,7 +390,7 @@ hash_transactions( void *       mem,
   fd_memcpy( mixin, root, 32UL );
 }
 
-void
+static void
 publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t *    stem,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
@@ -620,7 +620,7 @@ bpf_tiles_cb( void * para_arg_1,
 
 }
 
-void
+static void
 block_finalize_tiles_cb( void * para_arg_1,
                          void * para_arg_2,
                          void * fn_arg_1,
@@ -1553,7 +1553,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   return fork;
 }
 
-void
+FD_FN_UNUSED static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ 0UL ];
