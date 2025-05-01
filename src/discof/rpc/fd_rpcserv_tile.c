@@ -26,7 +26,6 @@
 
 struct fd_rpcserv_tile_ctx {
   fd_rpcserver_args_t args;
-  fd_funk_t funk[1];
   char funk_file[ PATH_MAX ];
 
   int activated;
@@ -142,7 +141,7 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !ctx->activated ) ) {
       fd_rpcserver_args_t * args = &ctx->args;
       fd_funk_t * funk = fd_funk_open_file(
-        ctx->funk, ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
+        args->funk, ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
       if( FD_UNLIKELY( !funk ) ) {
         FD_LOG_ERR(( "failed to join a funky" ));
       }
