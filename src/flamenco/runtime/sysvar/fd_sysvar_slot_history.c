@@ -92,8 +92,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec ),
-    .wksp    = slot_ctx->runtime_wksp
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;
@@ -143,8 +142,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
 fd_slot_history_global_t *
 fd_sysvar_slot_history_read( fd_funk_t *     funk,
                              fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad,
-                             fd_wksp_t *     wksp ) {
+                             fd_spad_t *     spad ) {
 
   /* Set current_slot, and update next_slot */
 
@@ -158,8 +156,7 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec ),
-    .wksp    = wksp
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;

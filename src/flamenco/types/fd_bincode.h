@@ -36,9 +36,6 @@ struct fd_bincode_decode_ctx {
   void const * data;
   /* End of buffer */
   void const * dataend;
-  /* Wksp for laddr to gaddr conversions */
-  /* TODO: This could be split out into a fd_bincode_global_decode_ctx */
-  fd_wksp_t * wksp;
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
 
