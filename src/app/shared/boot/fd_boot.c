@@ -194,7 +194,10 @@ fd_main( int     argc,
 
   action_t * action = NULL;
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
-    if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ) ) {
+    if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ||
+                     (!strcmp( argv[ 0 ], "--version" ) && !strcmp( "version", ACTIONS[ i ]->name )) ||
+                     (!strcmp( argv[ 0 ], "--help" ) && !strcmp( "help", ACTIONS[ i ]->name ))
+    ) ) {
       action = ACTIONS[ i ];
       if( FD_UNLIKELY( action->is_immediate ) ) {
         action->fn( NULL, NULL );
