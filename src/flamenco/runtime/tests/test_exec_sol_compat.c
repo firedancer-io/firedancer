@@ -30,7 +30,7 @@ run_test( fd_runtime_fuzz_runner_t * runner,
   /* Execute test */
   int ok = 0;
 
-  FD_LOG_WARNING(( "Running test %s", path ));
+  FD_LOG_DEBUG(( "Running test %s", path ));
 
   if( strstr( path, "/instr/" ) != NULL ) {
     ok = sol_compat_instr_fixture( runner, buf, file_sz );

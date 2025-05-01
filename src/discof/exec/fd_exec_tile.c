@@ -656,17 +656,18 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "Just joined funk at file=%s", tile->exec.funk_file ));
 
-  //FIXME
   /********************************************************************/
   /* setup txncache                                                   */
   /********************************************************************/
+
+  /* TODO: Implement this. */
 
   /********************************************************************/
   /* setup txn ctx                                                    */
   /********************************************************************/
 
   fd_spad_push( ctx->exec_spad );
-  // FIXME account for this in exec spad footprint
+  // FIXME: account for this in exec spad footprint
   uchar * txn_ctx_mem   = fd_spad_alloc( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
   *ctx->txn_ctx->funk   = *ctx->funk;
@@ -680,7 +681,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* setup bank manager                                                */
   /********************************************************************/
 
-  ctx->bank_mgr = fd_bank_mgr_join( bank_mgr_mem, ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
+  ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( bank_mgr_mem ), ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
   if( FD_UNLIKELY( !ctx->bank_mgr ) ) {
     FD_LOG_ERR(( "Failed to join bank manager" ));
   }

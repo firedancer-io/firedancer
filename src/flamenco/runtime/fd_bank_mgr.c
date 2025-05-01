@@ -50,7 +50,7 @@ fd_bank_mgr_block_hash_queue_query( fd_bank_mgr_t * bank_mgr ) {
                                                             &query );
 
   if( FD_UNLIKELY( !rec ) ) {
-    FD_LOG_ERR( ( "Could not find block hash queue" ) );
+    FD_LOG_WARNING(( "Could not find block hash queue" ));
     return NULL;
   }
 
