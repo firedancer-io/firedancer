@@ -69,6 +69,9 @@ struct fd_block_hash_vec_global {
 typedef struct fd_block_hash_vec_global fd_block_hash_vec_global_t;
 #define FD_BLOCK_HASH_VEC_GLOBAL_ALIGN alignof(fd_block_hash_vec_global_t)
 
+FD_FN_UNUSED static fd_hash_t * fd_block_hash_vec_last_hash_join( fd_block_hash_vec_global_t const * struct_mem ) {
+  return (fd_hash_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->last_hash_offset );
+}
 FD_FN_UNUSED static fd_hash_hash_age_pair_t * fd_block_hash_vec_ages_join( fd_block_hash_vec_global_t * struct_mem ) { // vector
   return (fd_hash_hash_age_pair_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->ages_offset );
 }
@@ -113,6 +116,9 @@ struct fd_block_hash_queue_global {
 typedef struct fd_block_hash_queue_global fd_block_hash_queue_global_t;
 #define FD_BLOCK_HASH_QUEUE_GLOBAL_ALIGN alignof(fd_block_hash_queue_global_t)
 
+FD_FN_UNUSED static fd_hash_t * fd_block_hash_queue_last_hash_join( fd_block_hash_queue_global_t const * struct_mem ) {
+  return (fd_hash_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->last_hash_offset );
+}
 static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_pool_join( void * struct_mem, ulong offset ) { // deque
   return (fd_hash_hash_age_pair_t_mapnode_t *)fd_hash_hash_age_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
@@ -825,6 +831,9 @@ typedef struct fd_versioned_bank_global fd_versioned_bank_global_t;
 FD_FN_UNUSED static fd_slot_pair_t * fd_versioned_bank_ancestors_join( fd_versioned_bank_global_t * struct_mem ) { // vector
   return (fd_slot_pair_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->ancestors_offset );
 }
+FD_FN_UNUSED static ulong * fd_versioned_bank_hashes_per_tick_join( fd_versioned_bank_global_t const * struct_mem ) {
+  return (ulong *)fd_type_pun( (uchar *)struct_mem + struct_mem->hashes_per_tick_offset );
+}
 FD_FN_UNUSED static fd_epoch_epoch_stakes_pair_global_t * fd_versioned_bank_epoch_stakes_join( fd_versioned_bank_global_t * struct_mem ) { // vector
   return (fd_epoch_epoch_stakes_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->epoch_stakes_offset );
 }
@@ -1050,8 +1059,17 @@ struct fd_solana_manifest_global {
 typedef struct fd_solana_manifest_global fd_solana_manifest_global_t;
 #define FD_SOLANA_MANIFEST_GLOBAL_ALIGN alignof(fd_solana_manifest_global_t)
 
+FD_FN_UNUSED static fd_bank_incremental_snapshot_persistence_t * fd_solana_manifest_bank_incremental_snapshot_persistence_join( fd_solana_manifest_global_t const * struct_mem ) {
+  return (fd_bank_incremental_snapshot_persistence_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->bank_incremental_snapshot_persistence_offset );
+}
+FD_FN_UNUSED static fd_hash_t * fd_solana_manifest_epoch_account_hash_join( fd_solana_manifest_global_t const * struct_mem ) {
+  return (fd_hash_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->epoch_account_hash_offset );
+}
 FD_FN_UNUSED static fd_versioned_epoch_stakes_pair_global_t * fd_solana_manifest_versioned_epoch_stakes_join( fd_solana_manifest_global_t * struct_mem ) { // vector
   return (fd_versioned_epoch_stakes_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->versioned_epoch_stakes_offset );
+}
+FD_FN_UNUSED static fd_slot_lthash_t * fd_solana_manifest_lthash_join( fd_solana_manifest_global_t const * struct_mem ) {
+  return (fd_slot_lthash_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->lthash_offset );
 }
 /* Encoded Size: Fixed (12 bytes) */
 struct fd_rust_duration {
@@ -1080,6 +1098,9 @@ struct fd_poh_config_global {
 typedef struct fd_poh_config_global fd_poh_config_global_t;
 #define FD_POH_CONFIG_GLOBAL_ALIGN alignof(fd_poh_config_global_t)
 
+FD_FN_UNUSED static ulong * fd_poh_config_target_tick_count_join( fd_poh_config_global_t const * struct_mem ) {
+  return (ulong *)fd_type_pun( (uchar *)struct_mem + struct_mem->target_tick_count_offset );
+}
 /* Encoded Size: Dynamic */
 struct fd_string_pubkey_pair {
   ulong string_len;
@@ -1704,6 +1725,9 @@ struct fd_slot_history_bitvec_global {
 typedef struct fd_slot_history_bitvec_global fd_slot_history_bitvec_global_t;
 #define FD_SLOT_HISTORY_BITVEC_GLOBAL_ALIGN alignof(fd_slot_history_bitvec_global_t)
 
+FD_FN_UNUSED static fd_slot_history_inner_global_t * fd_slot_history_bitvec_bits_join( fd_slot_history_bitvec_global_t const * struct_mem ) {
+  return (fd_slot_history_inner_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->bits_offset );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 /* Encoded Size: Dynamic */
 struct fd_slot_history {
@@ -2530,6 +2554,9 @@ typedef struct fd_vote_global fd_vote_global_t;
 static FD_FN_UNUSED ulong * fd_vote_slots_join( void * struct_mem, ulong offset ) { // deque
   return (ulong *)deq_ulong_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
+FD_FN_UNUSED static long * fd_vote_timestamp_join( fd_vote_global_t const * struct_mem ) {
+  return (long *)fd_type_pun( (uchar *)struct_mem + struct_mem->timestamp_offset );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L230 */
 /* Encoded Size: Fixed (97 bytes) */
 struct fd_vote_init {
@@ -2908,6 +2935,9 @@ struct fd_stake_lockup_custodian_args_global {
 typedef struct fd_stake_lockup_custodian_args_global fd_stake_lockup_custodian_args_global_t;
 #define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_GLOBAL_ALIGN alignof(fd_stake_lockup_custodian_args_global_t)
 
+FD_FN_UNUSED static fd_pubkey_t * fd_stake_lockup_custodian_args_custodian_join( fd_stake_lockup_custodian_args_global_t const * struct_mem ) {
+  return (fd_pubkey_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->custodian_offset );
+}
 union fd_stake_authorize_inner {
   uchar nonempty; /* Hack to support enums with no inner structures */
 };
@@ -2995,6 +3025,12 @@ struct fd_lockup_checked_args_global {
 typedef struct fd_lockup_checked_args_global fd_lockup_checked_args_global_t;
 #define FD_LOCKUP_CHECKED_ARGS_GLOBAL_ALIGN alignof(fd_lockup_checked_args_global_t)
 
+FD_FN_UNUSED static long * fd_lockup_checked_args_unix_timestamp_join( fd_lockup_checked_args_global_t const * struct_mem ) {
+  return (long *)fd_type_pun( (uchar *)struct_mem + struct_mem->unix_timestamp_offset );
+}
+FD_FN_UNUSED static ulong * fd_lockup_checked_args_epoch_join( fd_lockup_checked_args_global_t const * struct_mem ) {
+  return (ulong *)fd_type_pun( (uchar *)struct_mem + struct_mem->epoch_offset );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228 */
 /* Encoded Size: Dynamic */
 struct fd_lockup_args {
@@ -3013,6 +3049,15 @@ struct fd_lockup_args_global {
 typedef struct fd_lockup_args_global fd_lockup_args_global_t;
 #define FD_LOCKUP_ARGS_GLOBAL_ALIGN alignof(fd_lockup_args_global_t)
 
+FD_FN_UNUSED static long * fd_lockup_args_unix_timestamp_join( fd_lockup_args_global_t const * struct_mem ) {
+  return (long *)fd_type_pun( (uchar *)struct_mem + struct_mem->unix_timestamp_offset );
+}
+FD_FN_UNUSED static ulong * fd_lockup_args_epoch_join( fd_lockup_args_global_t const * struct_mem ) {
+  return (ulong *)fd_type_pun( (uchar *)struct_mem + struct_mem->epoch_offset );
+}
+FD_FN_UNUSED static fd_pubkey_t * fd_lockup_args_custodian_join( fd_lockup_args_global_t const * struct_mem ) {
+  return (fd_pubkey_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->custodian_offset );
+}
 union fd_stake_instruction_inner {
   fd_stake_instruction_initialize_t initialize;
   fd_stake_instruction_authorize_t authorize;
@@ -3377,6 +3422,9 @@ struct fd_bpf_upgradeable_loader_state_buffer_global {
 typedef struct fd_bpf_upgradeable_loader_state_buffer_global fd_bpf_upgradeable_loader_state_buffer_global_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_GLOBAL_ALIGN alignof(fd_bpf_upgradeable_loader_state_buffer_global_t)
 
+FD_FN_UNUSED static fd_pubkey_t * fd_bpf_upgradeable_loader_state_buffer_authority_address_join( fd_bpf_upgradeable_loader_state_buffer_global_t const * struct_mem ) {
+  return (fd_pubkey_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->authority_address_offset );
+}
 /* Encoded Size: Fixed (32 bytes) */
 struct fd_bpf_upgradeable_loader_state_program {
   fd_pubkey_t programdata_address;
@@ -3399,6 +3447,9 @@ struct fd_bpf_upgradeable_loader_state_program_data_global {
 typedef struct fd_bpf_upgradeable_loader_state_program_data_global fd_bpf_upgradeable_loader_state_program_data_global_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_GLOBAL_ALIGN alignof(fd_bpf_upgradeable_loader_state_program_data_global_t)
 
+FD_FN_UNUSED static fd_pubkey_t * fd_bpf_upgradeable_loader_state_program_data_upgrade_authority_address_join( fd_bpf_upgradeable_loader_state_program_data_global_t const * struct_mem ) {
+  return (fd_pubkey_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->upgrade_authority_address_offset );
+}
 union fd_bpf_upgradeable_loader_state_inner {
   fd_bpf_upgradeable_loader_state_buffer_t buffer;
   fd_bpf_upgradeable_loader_state_program_t program;
@@ -4746,6 +4797,9 @@ struct fd_optional_account_global {
 typedef struct fd_optional_account_global fd_optional_account_global_t;
 #define FD_OPTIONAL_ACCOUNT_GLOBAL_ALIGN alignof(fd_optional_account_global_t)
 
+FD_FN_UNUSED static fd_solana_account_global_t * fd_optional_account_account_join( fd_optional_account_global_t const * struct_mem ) {
+  return (fd_solana_account_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->account_offset );
+}
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
 /* Encoded Size: Fixed (25 bytes) */
 struct fd_calculated_stake_points {

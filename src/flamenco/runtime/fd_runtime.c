@@ -2876,7 +2876,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_block_hash_queue_global_t const * bhq              = fd_bank_mgr_block_hash_queue_query( bank_mgr );
-  fd_hash_t const *                    parent_blockhash = (fd_hash_t const *)((ulong)bhq + bhq->last_hash_offset);
+  fd_hash_t const *                    parent_blockhash = fd_block_hash_queue_last_hash_join( bhq );
 
   if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
       FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) {

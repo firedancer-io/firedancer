@@ -307,7 +307,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
       block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
-      fd_hash_t * last_hash = (fd_hash_t *)((ulong)block_hash_queue + block_hash_queue->last_hash_offset);
+      fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
       fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
       fd_bank_mgr_block_hash_queue_save( bank_mgr );
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;

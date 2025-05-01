@@ -110,7 +110,7 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L121-L128
   fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
   // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L130
-  uchar * last_hash = (uchar *)bhq + bhq->last_hash_offset;
+  fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( bhq );
   fd_memcpy( last_hash, hash, sizeof(fd_hash_t) );
 
   bhq->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)bhq;

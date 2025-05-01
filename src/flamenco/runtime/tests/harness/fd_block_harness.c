@@ -227,7 +227,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runner->spad );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
-  uchar * mem = fd_spad_alloc( runner->spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  uchar * mem = fd_spad_alloc( runner->spad, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( mem, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );

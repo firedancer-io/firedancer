@@ -491,7 +491,7 @@ class VectorMember(TypeNode):
         else:
             ret_type = f'{namespace}_{self.element}_global_t'
 
-        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t * struct_mem ) {{ // vector', file=header)
+        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t const * struct_mem ) {{ // vector', file=header)
         print(f'  return ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset );', file=header)
         print(f'}}', file=header)
 
@@ -1056,7 +1056,7 @@ class DequeMember(TypeNode):
 
         prefix = self.prefix() if self.element in flattypes else self.prefix_global()
 
-        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
+        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( void const * struct_mem, ulong offset ) {{ // deque', file=header)
         print(f'  return ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
         print(f'}}', file=header)
 
@@ -1437,11 +1437,11 @@ class MapMember(TypeNode):
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( void const * struct_mem, ulong offset ) {{ // deque', file=header)
         print(f'  return ({nodename} *){mapname}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
         print(f'}}', file=header)
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( void const * struct_mem, ulong offset ) {{ // deque', file=header)
         print(f'  return !!offset ? ({nodename} *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;', file=header)
         print(f'}}', file=header)
 
@@ -2461,6 +2461,22 @@ class OptionMember(TypeNode):
             print(f'  uchar has_{self.name};', file=header)
         else:
             print(f'  ulong {self.name}_offset;', file=header)
+
+    def emitOffsetJoin(self, type_name):
+        if self.flat:
+            return
+
+        ret_type = None
+        if self.element in simpletypes:
+            ret_type = self.element
+        elif self.element in flattypes:
+            ret_type = f'{namespace}_{self.element}_t'
+        else:
+            ret_type = f'{namespace}_{self.element}_global_t'
+
+        print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t const * struct_mem ) {{', file=header)
+        print(f'  return ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset );', file=header)
+        print(f'}}', file=header)
 
     def emitNew(self):
         pass

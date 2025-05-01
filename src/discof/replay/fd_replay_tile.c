@@ -1557,7 +1557,7 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   msg->tick_duration_ns = (ulong)(epoch_bank->ns_per_slot / epoch_bank->ticks_per_slot);
 
   fd_block_hash_queue_global_t * bhq       = fd_bank_mgr_block_hash_queue_query( ctx->bank_mgr );
-  fd_hash_t *                    last_hash = (fd_hash_t *)((ulong)bhq + bhq->last_hash_offset);
+  fd_hash_t *                    last_hash = fd_block_hash_queue_last_hash_join( bhq );
   if( last_hash ) {
     memcpy(msg->last_entry_hash, last_hash, sizeof(fd_hash_t));
   } else {
