@@ -5,6 +5,7 @@
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 #include "fd_pubkey_utils.h"
+#include "fd_bank_mgr.h"
 
 #include "fd_executor.h"
 #include "fd_cost_tracker.h"

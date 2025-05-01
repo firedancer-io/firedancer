@@ -21,6 +21,7 @@
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../choreo/fd_choreo.h"
