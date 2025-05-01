@@ -125,8 +125,8 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
     };
     FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
 
-    if (deq_fd_slot_hash_t_full( hashes ) )
-      fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ) );
+    if( deq_fd_slot_hash_t_full( hashes ) )
+      memset( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), 0, sizeof(fd_slot_hash_t) );
 
     deq_fd_slot_hash_t_push_head( hashes, slot_hash );
   }
