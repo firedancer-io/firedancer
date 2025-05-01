@@ -152,26 +152,18 @@ static fd_vote_state_versioned_t *
 get_state( fd_txn_account_t const * self,
            fd_spad_t *              spad,
            int *                    err ) {
-
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = self->vt->get_data( self ),
-    .dataend = &self->vt->get_data( self )[ self->vt->get_data_len( self ) ]
-  };
-
-  ulong total_sz   = 0UL;
-  int   decode_err = fd_vote_state_versioned_decode_footprint( &decode_ctx, &total_sz );
+  int decode_err;
+  fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
+      vote_state_versioned, spad,
+      self->vt->get_data( self ),
+      self->vt->get_data_len( self ),
+      &decode_err );
   if( FD_UNLIKELY( decode_err ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     return NULL;
   }
-
-  uchar * mem = fd_spad_alloc( spad, fd_vote_state_versioned_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory" ));
-  }
-
   *err = FD_EXECUTOR_INSTR_SUCCESS;
-  return fd_vote_state_versioned_decode( mem, &decode_ctx );
+  return res;
 }
 
 static int
@@ -2410,22 +2402,18 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
-  fd_bincode_decode_ctx_t decode = {
-    .data    = ctx->instr->data,
-    .dataend = ctx->instr->data + ctx->instr->data_sz
-  };
 
-  ulong total_sz      = 0UL;
-  int   decode_result = fd_vote_instruction_decode_footprint( &decode, &total_sz );
+  int decode_result;
+  ulong decoded_sz;
+  fd_vote_instruction_t * instruction = fd_bincode_decode1_spad(
+      vote_instruction, ctx->txn_ctx->spad,
+      ctx->instr->data, ctx->instr->data_sz,
+      &decode_result,
+      &decoded_sz );
   if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_vote_instruction_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory" ));
-  }
-  fd_vote_instruction_t * instruction = fd_vote_instruction_decode( mem, &decode );
-  if( FD_UNLIKELY( (ulong)ctx->instr->data + FD_TXN_MTU < (ulong)decode.data ) ) {
+  if( FD_UNLIKELY( decoded_sz > FD_TXN_MTU ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 

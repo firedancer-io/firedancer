@@ -1,13 +1,8 @@
 #include "fd_address_lookup_table_program.h"
-#include "fd_program_util.h"
 #include "../fd_executor.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_borrowed_account.h"
-#include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
-#include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "fd_native_cpi.h"
 
@@ -1081,25 +1076,16 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
-
-    fd_bincode_decode_ctx_t decode = {
-      .data    = instr_data,
-      .dataend = instr_data + instr_data_sz
-    };
-
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
-    ulong total_sz = 0UL;
-    if( FD_UNLIKELY( fd_addrlut_instruction_decode_footprint( &decode, &total_sz ) ||
-                     (ulong)instr_data + FD_TXN_MTU < (ulong)decode.data ) ) {
+    ulong decoded_sz;
+    fd_addrlut_instruction_t * instr = fd_bincode_decode1_spad(
+        addrlut_instruction, ctx->txn_ctx->spad,
+        instr_data, instr_data_sz,
+        NULL,
+        &decoded_sz );
+    if( FD_UNLIKELY( !instr || decoded_sz > FD_TXN_MTU ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
-
-    uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_addrlut_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for alut instruction" ));
-    }
-
-    fd_addrlut_instruction_t * instr = fd_addrlut_instruction_decode( mem, &decode );
 
     switch( instr->discriminant ) {
     case fd_addrlut_instruction_enum_create_lut:

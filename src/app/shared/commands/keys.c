@@ -118,7 +118,7 @@ generate_keypair( char const *     keyfile,
   fd_memset_explicit( keypair, 0, 64UL );
 }
 
-void
+static void
 keys_pubkey( const char * file_path ) {
   uchar const * pubkey = fd_keyload_load( file_path, 1 );
   char pubkey_str[ FD_BASE58_ENCODED_32_SZ ];

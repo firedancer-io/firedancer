@@ -119,8 +119,6 @@ typedef fd_funk_rec_map_query_t fd_funk_rec_query_t;
    fd_funk_rec_prepare. */
 
 struct _fd_funk_rec_prepare {
-  fd_funk_t *     funk;
-  fd_wksp_t *     wksp;
   fd_funk_rec_t * rec;
   uint *          rec_head_idx;
   uint *          rec_tail_idx;
@@ -200,7 +198,7 @@ int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
    but still set *txn_out to the relevant transaction. This behavior
    differs from fd_funk_rec_query_try. */
 fd_funk_rec_t const *
-fd_funk_rec_query_try_global( fd_funk_t *               funk,
+fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_t const *     txn,
                               fd_funk_rec_key_t const * key,
                               fd_funk_txn_t const **    txn_out,
@@ -248,13 +246,15 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 /* fd_funk_rec_publish inserts a prepared record into the record map. */
 
 void
-fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare );
+fd_funk_rec_publish( fd_funk_t *             funk,
+                     fd_funk_rec_prepare_t * prepare );
 
 /* fd_funk_rec_cancel returns a prepared record to the pool without
    inserting it. */
 
 void
-fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare );
+fd_funk_rec_cancel( fd_funk_t *             funk,
+                    fd_funk_rec_prepare_t * prepare );
 
 /* fd_funk_rec_clone copies a record from an ancestor transaction
    to create a new record in the given transaction. The record can be
@@ -266,12 +266,6 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
                    int *                     opt_err );
-
-/* fd_funk_rec_is_full returns true if no more records can be
-   allocated. */
-
-int
-fd_funk_rec_is_full( fd_funk_t * funk );
 
 /* fd_funk_rec_remove removes the live record with the
    given (xid,key) from funk. Returns FD_FUNK_SUCCESS (0) on
@@ -348,14 +342,20 @@ fd_funk_rec_forget( fd_funk_t *      funk,
                     fd_funk_rec_t ** recs,
                     ulong            recs_cnt );
 
-/* Iterator which walks all records in all transactions. Usage is:
+/* fd_funk_all_iter_t iterators over all funk record objects in all funk
+   transactions.
 
-  fd_funk_all_iter_t iter[1];
-  for( fd_funk_all_iter_new( funk, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
-    fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
-    ...
-  }
-*/
+   Assumes that no other join is doing funk write accesses during the
+   lifetime of the iterator object.  This API is not optimized for
+   performance and has a high fixed cost (slow even for empty DBs).
+
+   Usage is:
+
+   fd_funk_all_iter_t iter[1];
+   for( fd_funk_all_iter_new( funk, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
+     fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
+     ...
+   } */
 
 struct fd_funk_all_iter {
   fd_funk_rec_map_t      rec_map;
@@ -378,7 +378,6 @@ fd_funk_rec_t * fd_funk_all_iter_ele( fd_funk_all_iter_t * iter );
 
 /* Misc */
 
-#ifdef FD_FUNK_HANDHOLDING
 /* fd_funk_rec_verify verifies the record map.  Returns FD_FUNK_SUCCESS
    if the record map appears intact and FD_FUNK_ERR_INVAL if not (logs
    details).  Meant to be called as part of fd_funk_verify.  As such, it
@@ -387,7 +386,6 @@ fd_funk_rec_t * fd_funk_all_iter_ele( fd_funk_all_iter_t * iter );
 
 int
 fd_funk_rec_verify( fd_funk_t * funk );
-#endif
 
 FD_PROTOTYPES_END
 

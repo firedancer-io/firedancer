@@ -30,7 +30,7 @@ struct fd_writer_tile_ctx {
   ulong *                     fseq;
 
   /* Local join of Funk.  R/W. */
-  fd_funk_t *                 funk;
+  fd_funk_t                   funk[1];
   fd_wksp_t *                 funk_wksp;
 
   /* Link management. */
@@ -341,20 +341,21 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_DEBUG(( "Trying to join funk at file=%s", tile->writer.funk_file ));
   fd_funk_txn_start_write( NULL );
-  ctx->funk = fd_funk_open_file( tile->writer.funk_file,
-                                 1UL,
-                                 0UL,
-                                 0UL,
-                                 0UL,
-                                 0UL,
-                                 FD_FUNK_READ_WRITE,
-                                 NULL );
+  int funk_join_ok = !!fd_funk_open_file( ctx->funk,
+      tile->writer.funk_file,
+      1UL,
+      0UL,
+      0UL,
+      0UL,
+      0UL,
+      FD_FUNK_READ_WRITE,
+      NULL );
   fd_funk_txn_end_write( NULL );
   ctx->funk_wksp = fd_funk_wksp( ctx->funk );
-  if( FD_UNLIKELY( !ctx->funk ) ) {
+  if( FD_UNLIKELY( !funk_join_ok ) ) {
     FD_LOG_CRIT(( "Failed to join funk" ));
   }
-  FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->exec.funk_file ));
+  FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->writer.funk_file ));
 
   /********************************************************************/
   /* Setup fseq                                                       */

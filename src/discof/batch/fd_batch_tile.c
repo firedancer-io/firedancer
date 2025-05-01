@@ -28,7 +28,7 @@ struct fd_snapshot_tile_ctx {
   /* Shared data structures. */
   fd_txncache_t * status_cache;
   ulong         * is_constipated;
-  fd_funk_t     * funk;
+  fd_funk_t       funk[1];
 
   /* File descriptors used for snapshot generation. */
   int             tmp_fd;
@@ -377,27 +377,16 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
 
   uint slot_magic = *(uint*)slot_val;
   FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-    fd_bincode_decode_ctx_t slot_decode_ctx = {
-      .data    = (uchar*)slot_val + sizeof(uint),
-      .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec )
-    };
-
     if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
       FD_LOG_ERR(( "Slot bank record has wrong magic" ));
     }
 
-    ulong total_sz = 0UL;
-    int   err      = fd_slot_bank_decode_footprint( &slot_decode_ctx, &total_sz );
-    if( FD_UNLIKELY( err ) ) {
+    int err;
+    fd_slot_bank_t * slot_bank = fd_bincode_decode_spad( slot_bank, ctx->spad, (uchar *)slot_val+sizeof(uint), fd_funk_val_sz( slot_rec )-sizeof(uint), &err );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR(( "Failed to read slot bank record: invalid decode" ));
+      continue;
     }
-
-    uchar * mem = fd_spad_alloc( ctx->spad, fd_slot_bank_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Failed to read slot bank record: unable to allocate memory" ));
-    }
-
-    fd_slot_bank_t * slot_bank = fd_slot_bank_decode( mem, &slot_decode_ctx );
 
     /* At this point, calculate the epoch account hash. */
 
@@ -442,20 +431,15 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
-    ctx->funk = fd_funk_open_file( ctx->funk_file,
-                                   1UL,
-                                   0UL,
-                                   0UL,
-                                   0UL,
-                                   0UL,
-                                   FD_FUNK_READ_WRITE,
-                                   NULL );
-    if( FD_UNLIKELY( !ctx->funk ) ) {
-      FD_LOG_ERR(( "failed to join a funky" ));
+    fd_funk_t * funk = fd_funk_open_file(
+        ctx->funk, ctx->funk_file,
+        1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READ_WRITE, NULL );
+    if( FD_UNLIKELY( !funk ) ) {
+      FD_LOG_ERR(( "Failed to join a funk database" ));
     }
     ctx->is_funk_active = 1;
 
-    FD_LOG_WARNING(( "Just joined funk at file=%s", ctx->funk_file ));
+    FD_LOG_WARNING(( "Joined funk database at file=%s", ctx->funk_file ));
   }
 
   if( fd_batch_fseq_is_snapshot( batch_fseq ) ) {

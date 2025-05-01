@@ -75,7 +75,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                           total_epoch_stake;
   fd_bank_hash_cmp_t *            bank_hash_cmp;
   fd_funk_txn_t *                 funk_txn;
-  fd_funk_t *                     funk;
+  fd_funk_t                       funk[1];
   fd_wksp_t *                     runtime_pub_wksp;
   ulong                           slot;
   fd_fee_rate_governor_t          fee_rate_governor;

@@ -754,17 +754,6 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   return ok;
 }
 
-/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave)
-   do something other than wrap their vm_syscall equivalent */
-int
-sol_compat_vm_cpi_syscall_v1( uchar *       out,
-                              ulong *       out_sz,
-                              uchar const * in,
-                              ulong         in_sz ) {
-  /* Just a wrapper to vm_syscall_execute_v1 */
-  return sol_compat_vm_syscall_execute_v1( out, out_sz, in, in_sz );
-}
-
 int
 sol_compat_vm_interp_v1( uchar *       out,
                          ulong *       out_sz,

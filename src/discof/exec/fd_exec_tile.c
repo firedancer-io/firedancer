@@ -119,7 +119,7 @@ struct fd_exec_tile_ctx {
   int                   pending_epoch_pop;
 
   /* Funk-specific setup.  */
-  fd_funk_t *           funk;
+  fd_funk_t             funk[1];
   fd_wksp_t *           funk_wksp;
 
   /* Data structures related to managing and executing the transaction.
@@ -201,20 +201,10 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
     FD_LOG_ERR(( "Could not get laddr for encoded stakes" ));
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = stakes_enc,
-    .dataend = stakes_enc + epoch_msg->stakes_encoded_sz
-  };
-  ulong total_sz = 0UL;
-  int   err      = fd_stakes_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Could not decode stakes footprint" ));
-  }
-
   // FIXME account for this in exec spad footprint
-  uchar *       stakes_mem = fd_spad_alloc( ctx->exec_spad, fd_stakes_align(), total_sz );
-  fd_stakes_t * stakes     = fd_stakes_decode( stakes_mem, &decode );
-  if( FD_UNLIKELY( !stakes ) ) {
+  int err;
+  fd_stakes_t * stakes = fd_bincode_decode_spad( stakes, ctx->exec_spad, stakes_enc, epoch_msg->stakes_encoded_sz, &err );
+  if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Could not decode stakes" ));
   }
   ctx->txn_ctx->stakes = *stakes;
@@ -246,13 +236,13 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   fd_spad_push( ctx->exec_spad );
   ctx->pending_slot_pop = 1;
 
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( ctx->funk, ctx->funk_wksp );
-  if( FD_UNLIKELY( !txn_map.map ) ) {
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  if( FD_UNLIKELY( !txn_map->map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
   fd_funk_txn_xid_t xid = { .ul = { slot_msg->slot, slot_msg->slot } };
   fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, &txn_map );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
@@ -656,19 +646,13 @@ unprivileged_init( fd_topo_t *      topo,
      the funk that was setup in the replay tile. */
   FD_LOG_NOTICE(( "Trying to join funk at file=%s", tile->exec.funk_file ));
   fd_funk_txn_start_write( NULL );
-  ctx->funk = fd_funk_open_file( tile->exec.funk_file,
-                                  1UL,
-                                  0UL,
-                                  0UL,
-                                  0UL,
-                                  0UL,
-                                  FD_FUNK_READONLY,
-                                  NULL );
+  if( FD_UNLIKELY( !fd_funk_open_file(
+      ctx->funk, tile->exec.funk_file,
+      1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL ) ) ) {
+    FD_LOG_ERR(( "fd_funk_open_file(%s) failed", tile->exec.funk_file ));
+  }
   fd_funk_txn_end_write( NULL );
   ctx->funk_wksp = fd_funk_wksp( ctx->funk );
-  if( FD_UNLIKELY( !ctx->funk ) ) {
-    FD_LOG_ERR(( "failed to join a funk" ));
-  }
 
   FD_LOG_NOTICE(( "Just joined funk at file=%s", tile->exec.funk_file ));
 
@@ -685,7 +669,7 @@ unprivileged_init( fd_topo_t *      topo,
   // FIXME account for this in exec spad footprint
   uchar * txn_ctx_mem   = fd_spad_alloc( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  ctx->txn_ctx->funk    = ctx->funk;
+  *ctx->txn_ctx->funk   = *ctx->funk;
 
   ctx->txn_ctx->runtime_pub_wksp = ctx->runtime_public_wksp;
   if( FD_UNLIKELY( !ctx->txn_ctx->runtime_pub_wksp ) ) {

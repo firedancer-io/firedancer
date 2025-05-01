@@ -64,7 +64,7 @@ fd_loader_v4_get_state( fd_txn_account_t const * program,
    Sets `err` to an instruction error if any of the checks fail. Otherwise, returns a
    const pointer to the program account data, transmuted as a loader v4 state.
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L60-L88 */
-fd_loader_v4_state_t const *
+static fd_loader_v4_state_t const *
 check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
                        fd_borrowed_account_t const * program,
                        fd_pubkey_t const *           authority_address,
@@ -858,25 +858,16 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Note the dataend is capped at a 1232 bytes offset to mirror the semantics of `limited_deserialize`.
          https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497 */
-      uchar const * data = instr_ctx->instr->data;
-      fd_bincode_decode_ctx_t decode_ctx = {
-        .data    = data,
-        .dataend = &data[ instr_ctx->instr->data_sz > FD_TXN_MTU ? FD_TXN_MTU : instr_ctx->instr->data_sz ]
-      };
 
-      ulong total_sz = 0UL;
-      if( FD_UNLIKELY( fd_loader_v4_program_instruction_decode_footprint( &decode_ctx, &total_sz ) ) ) {
+      fd_loader_v4_program_instruction_t * instruction = fd_bincode_decode_spad(
+          loader_v4_program_instruction,
+          instr_ctx->txn_ctx->spad,
+          instr_ctx->instr->data,
+          instr_ctx->instr->data_sz > FD_TXN_MTU ? FD_TXN_MTU : instr_ctx->instr->data_sz,
+          NULL );
+      if( FD_UNLIKELY( !instruction ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
-
-      uchar * mem = fd_spad_alloc( instr_ctx->txn_ctx->spad,
-                                   fd_loader_v4_program_instruction_align(),
-                                   total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for loader v4 instruction" ));
-      }
-
-      fd_loader_v4_program_instruction_t * instruction = fd_loader_v4_program_instruction_decode( mem, &decode_ctx );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497-L518 */
       switch( instruction->discriminant ) {

@@ -15,16 +15,16 @@ run_benchmark( fd_funk_t * funk,
     fd_funk_rec_prepare_t prepare[1];
     fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, NULL, &key, prepare, NULL );
     FD_TEST( rec );
-    fd_funk_val_truncate( rec, 104, fd_funk_alloc( funk, funk_wksp ), funk_wksp, NULL );
-    fd_funk_rec_publish( prepare );
+    fd_funk_val_truncate( rec, 104, fd_funk_alloc( funk ), funk_wksp, NULL );
+    fd_funk_rec_publish( funk, prepare );
   }
 }
 
 static void
 stat_chains( fd_funk_t * funk ) {
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
-  fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map.map, 0UL );
-  ulong chain_cnt = fd_funk_rec_map_chain_cnt( &rec_map );
+  fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
+  fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
+  ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
 
   double sum = 0.0;
   ulong min = ULONG_MAX;
@@ -63,7 +63,7 @@ main( int     argc,
 
   ulong const txn_max = 16UL;
   ulong const acc_cnt = (ulong)acc_cnt_d;
-  uint  const rec_max = (uint)rec_max_d;
+  ulong const rec_max = (ulong)rec_max_d;
 
   fd_rng_t rng_[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_, rng_seed, 0UL ) );
@@ -89,10 +89,12 @@ main( int     argc,
 
   void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, FUNK_TAG );
   if( FD_UNLIKELY( !funk_mem ) ) FD_LOG_ERR(( "failed to allocate funk" ));
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_mem, FUNK_TAG, funk_seed, 16UL, rec_max ) );
+  fd_funk_t funk_[1];
+  fd_funk_t * funk = fd_funk_join( funk_, fd_funk_new( funk_mem, FUNK_TAG, funk_seed, 16UL, rec_max ) );
+  FD_TEST( funk );
 
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
-  FD_TEST( fd_funk_rec_map_chain_cnt( &rec_map ) == chain_cnt );
+  fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
+  FD_TEST( fd_funk_rec_map_chain_cnt( rec_map ) == chain_cnt );
 
   FD_LOG_NOTICE(( "Starting insert loop" ));
   long dt = -fd_log_wallclock();
@@ -106,11 +108,11 @@ main( int     argc,
   stat_chains( funk );
 
   dt = -fd_log_wallclock();
+  fd_funk_leave( funk, NULL );
   if( fast_clean ) {
-    ulong const tags[1] = { FUNK_TAG };
-    fd_wksp_tag_free( wksp, tags, 1UL );
+    fd_funk_delete_fast( funk_mem );
   } else {
-    fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
+    fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );
   }
   if( name ) fd_wksp_detach( wksp );
   else       fd_wksp_delete_anonymous( wksp );

@@ -24,8 +24,8 @@
 #define OSTREAM_BUFSZ (32768UL)
 
 struct fd_snapshot_dumper {
-  fd_alloc_t *   alloc;
-  fd_funk_t *    funk;
+  fd_alloc_t * alloc;
+  fd_funk_t    funk[1];
 
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
@@ -82,9 +82,10 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
     dumper->epoch_ctx = NULL;
   }
 
-  if( dumper->funk ) {
-    fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( dumper->funk ) ) );
-    dumper->funk = NULL;
+  if( dumper->funk->shmem ) {
+    void * shfunk = NULL;
+    fd_funk_leave( dumper->funk, &shfunk );
+    fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
   }
 
   if( dumper->alloc ) {
@@ -328,8 +329,8 @@ do_dump( fd_snapshot_dumper_t *    d,
   uint const rec_max = 1024UL;  /* we evict records as we go */
 
   ulong funk_tag = 42UL;
-  d->funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
-  if( FD_UNLIKELY( !d->funk ) ) { FD_LOG_WARNING(( "Failed to create fd_funk_t" )); return EXIT_FAILURE; }
+  int funk_ok = !!fd_funk_join( d->funk, fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
+  if( FD_UNLIKELY( !funk_ok ) ) { FD_LOG_WARNING(( "Failed to create fd_funk_t" )); return EXIT_FAILURE; }
 
   /* Create a new processing context */
 

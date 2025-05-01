@@ -61,23 +61,11 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_epoch_schedule_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_epoch_schedule_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "fd_spad_alloc failed" ));
-  }
-
-  return (fd_epoch_schedule_t *)fd_epoch_schedule_decode( mem, &decode );
+  return fd_bincode_decode_spad(
+      epoch_schedule, spad,
+      acc->vt->get_data( acc ),
+      acc->vt->get_data_len( acc ),
+      &err );
 }
 
 void

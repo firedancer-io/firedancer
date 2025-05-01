@@ -125,7 +125,12 @@ struct fd_funk_xid_key_pair {
 
 typedef struct fd_funk_xid_key_pair fd_funk_xid_key_pair_t;
 
-/* A fd_funk_t * is an opaque handle of a local join to a funk instance */
+/* A fd_funk_shmem_t is the top part of a funk object in shared memory. */
+
+struct fd_funk_shmem_private;
+typedef struct fd_funk_shmem_private fd_funk_shmem_t;
+
+/* A fd_funk_t * is local join handle to a funk instance */
 
 struct fd_funk_private;
 typedef struct fd_funk_private fd_funk_t;

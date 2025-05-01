@@ -29,7 +29,7 @@
 #include "sham_link.h"
 
 struct fd_geyser {
-  fd_funk_t *          funk;
+  fd_funk_t            funk[1];
   fd_blockstore_t      blockstore_ljoin;
   fd_blockstore_t *    blockstore;
   int                  blockstore_fd;
@@ -72,9 +72,9 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   FD_TEST( scratch_top <= (ulong)mem + fd_geyser_footprint() );
 
-  self->funk = fd_funk_open_file( args->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
-  if( self->funk == NULL ) {
-    FD_LOG_ERR(( "failed to join a funky" ));
+  fd_funk_t * funk = fd_funk_open_file( self->funk, args->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  if( !funk ) {
+    FD_LOG_ERR(( "fd_funk_open_file(%s) failed", args->funk_file ));
   }
 
   fd_wksp_t * wksp = fd_wksp_attach( args->blockstore_wksp );
@@ -216,8 +216,8 @@ replay_sham_link_during_frag( fd_geyser_t * ctx, fd_replay_notif_msg_t * state, 
 
 static const void *
 read_account_with_xid( fd_geyser_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
-  fd_funk_txn_t *   txn     = fd_funk_txn_query( xid, &txn_map );
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  fd_funk_txn_t *     txn     = fd_funk_txn_query( xid, txn_map );
   return fd_funk_rec_query_copy( ctx->funk, txn, recid, fd_scratch_virtual(), result_len );
 }
 

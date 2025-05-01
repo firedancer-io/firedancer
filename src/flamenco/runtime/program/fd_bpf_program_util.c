@@ -86,24 +86,15 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
                                                               fd_spad_t *             runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( programdata_acc );
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = program_acc->vt->get_data( program_acc ),
-    .dataend = program_acc->vt->get_data( program_acc ) + program_acc->vt->get_data_len( program_acc ),
-  };
-
-  ulong total_sz = 0UL;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz ) ) ) {
+  fd_bpf_upgradeable_loader_state_t * program_account_state =
+    fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state, runtime_spad,
+      program_acc->vt->get_data( program_acc ),
+      program_acc->vt->get_data_len( program_acc ),
+      NULL );
+  if( FD_UNLIKELY( !program_account_state ) ) {
     return -1;
   }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_bpf_upgradeable_loader_state_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader state" ));
-  }
-
-  fd_bpf_upgradeable_loader_state_t * program_account_state =
-    fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
-
   if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
     return -1;
   }
@@ -124,6 +115,7 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
     .dataend = programdata_acc->vt->get_data( programdata_acc ) + programdata_acc->vt->get_data_len( programdata_acc ),
   };
 
+  ulong total_sz = 0UL;
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx_programdata, &total_sz ) ) ) {
     return -1;
   }
@@ -216,14 +208,14 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
-    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk, wksp ), wksp, NULL );;
+    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk ), wksp, NULL );;
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
     fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -244,7 +236,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -290,7 +282,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -304,7 +296,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
 
-    fd_funk_rec_publish( prepare );
+    fd_funk_rec_publish( funk, prepare );
 
     return 0;
   } FD_SPAD_FRAME_END;

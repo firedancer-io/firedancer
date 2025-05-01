@@ -5,7 +5,6 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../funk/fd_funk.h"
 #include "fd_txn_account.h"
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are account management specific error codes.
@@ -140,7 +139,7 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    is guaranteed there are no other modifying accesses to the account. */
 
 fd_account_meta_t const *
-fd_funk_get_acc_meta_readonly( fd_funk_t *            funk,
+fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
                                fd_funk_txn_t const *  txn,
                                fd_pubkey_t const *    pubkey,
                                fd_funk_rec_t const ** opt_out_rec,

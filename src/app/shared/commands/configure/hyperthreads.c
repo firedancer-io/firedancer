@@ -4,7 +4,7 @@
 
 #include "../../../../disco/topo/fd_cpu_topo.h"
 
-ulong
+static ulong
 determine_ht_pair( config_t const *       config,
                    fd_topo_cpus_t const * cpus,
                    char const *           kind,

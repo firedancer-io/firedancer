@@ -575,24 +575,14 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
       fd_delegation_pair_t_map_release( old_stakes->stake_delegations_pool, n );
     } else {
       /* Otherwise, just update the delegation in case it is stale. */
-      fd_bincode_decode_ctx_t ctx = {
-        .data    = stake_acc->vt->get_data( stake_acc ),
-        .dataend = stake_acc->vt->get_data( stake_acc ) + stake_acc->vt->get_data_len( stake_acc ),
-      };
-
-      ulong total_sz = 0UL;
-      err = fd_stake_state_v2_decode_footprint( &ctx, &total_sz );
+      fd_stake_state_v2_t * stake_state = fd_bincode_decode_spad(
+          stake_state_v2, snapshot_ctx->spad,
+          stake_acc->vt->get_data( stake_acc ),
+          stake_acc->vt->get_data_len( stake_acc ),
+          &err );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "Failed to decode stake state footprint" ));
+        FD_LOG_ERR(( "Failed to decode stake state" ));
       }
-
-      uchar * mem = fd_spad_alloc( snapshot_ctx->spad, FD_STAKE_STATE_V2_ALIGN, total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Failed to allocate memory for stake state" ));
-      }
-
-      fd_stake_state_v2_t * stake_state = fd_stake_state_v2_decode( mem, &ctx );
-
       n->elem.delegation = stake_state->inner.stake.stake.delegation;
     }
   }
@@ -740,30 +730,21 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
   }
 
   uint epoch_magic = *(uint*)epoch_val;
-
-  fd_bincode_decode_ctx_t epoch_decode_ctx = {
-    .data    = (uchar*)epoch_val + sizeof(uint),
-    .dataend = (uchar*)epoch_val + fd_funk_val_sz( epoch_rec ),
-  };
-
   if( FD_UNLIKELY( epoch_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
     FD_LOG_ERR(( "Epoch bank record has wrong magic" ));
   }
 
-  ulong total_sz = 0UL;
-  int   err      = fd_epoch_bank_decode_footprint( &epoch_decode_ctx, &total_sz );
+  int err;
+  fd_epoch_bank_t * epoch_bank = fd_bincode_decode_spad(
+      epoch_bank, snapshot_ctx->spad,
+      (uchar *)epoch_val          + sizeof(uint),
+      fd_funk_val_sz( epoch_rec ) - sizeof(uint),
+      &err );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     FD_LOG_ERR(( "Failed to decode epoch bank" ));
   }
 
-  uchar * epoch_bank_mem = fd_spad_alloc( snapshot_ctx->spad, FD_EPOCH_BANK_ALIGN, total_sz );
-  if( FD_UNLIKELY( !epoch_bank_mem ) ) {
-    FD_LOG_ERR(( "Failed to allocate memory for epoch bank" ));
-  }
-
-  fd_epoch_bank_decode( epoch_bank_mem, &epoch_decode_ctx );
-
-  fd_memcpy( &snapshot_ctx->epoch_bank, epoch_bank_mem, sizeof(fd_epoch_bank_t) );
+  fd_memcpy( &snapshot_ctx->epoch_bank, epoch_bank, sizeof(fd_epoch_bank_t) );
 
   FD_TEST( !fd_funk_rec_query_test( query ) );
 
@@ -781,30 +762,20 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
   }
 
   uint slot_magic = *(uint*)slot_val;
-
-  fd_bincode_decode_ctx_t slot_decode_ctx = {
-    .data    = (uchar*)slot_val + sizeof(uint),
-    .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
-  };
-
   if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
     FD_LOG_ERR(( "Slot bank record has wrong magic" ));
   }
 
-  total_sz = 0UL;
-  err      = fd_slot_bank_decode_footprint( &slot_decode_ctx, &total_sz );
+  fd_slot_bank_t * slot_bank = fd_bincode_decode_spad(
+      slot_bank, snapshot_ctx->spad,
+      (uchar *)slot_val          + sizeof(uint),
+      fd_funk_val_sz( slot_rec ) - sizeof(uint),
+      &err );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     FD_LOG_ERR(( "Failed to decode slot bank" ));
   }
 
-  uchar * slot_bank_mem = fd_spad_alloc( snapshot_ctx->spad, FD_SLOT_BANK_ALIGN, total_sz );
-  if( FD_UNLIKELY( !slot_bank_mem ) ) {
-    FD_LOG_ERR(( "Failed to allocate memory for slot bank" ));
-  }
-
-  fd_slot_bank_decode( slot_bank_mem, &slot_decode_ctx );
-
-  memcpy( &snapshot_ctx->slot_bank, slot_bank_mem, sizeof(fd_slot_bank_t) );
+  memcpy( &snapshot_ctx->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
 
   FD_TEST( !fd_funk_rec_query_test( query ) );
 

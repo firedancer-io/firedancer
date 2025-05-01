@@ -311,7 +311,7 @@ sim_topo( config_t * config ) {
   fd_topo_print_log( /* stdout */ 1, topo );
 }
 
-void
+static void
 sim_cmd_fn( args_t *   args FD_PARAM_UNUSED,
             config_t * config ) {
   sim_topo( config );
@@ -333,12 +333,12 @@ sim_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   for(;;) pause();
 }
 
-void
+static void
 sim_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
               fd_cap_chk_t *   chk    FD_PARAM_UNUSED,
               config_t const * config FD_PARAM_UNUSED ) {}
 
-void
+static void
 sim_cmd_args( int *    pargc FD_PARAM_UNUSED,
               char *** pargv FD_PARAM_UNUSED,
               args_t * args  FD_PARAM_UNUSED ) {}

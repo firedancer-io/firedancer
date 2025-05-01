@@ -43,22 +43,19 @@ main( int     argc,
   void * shmem = fd_wksp_alloc_laddr( wksp, align, footprint, wksp_tag );
   if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate shmem" ));
 
-#ifdef FD_FUNK_HANDHOLDING
   FD_TEST( !fd_funk_new( NULL,          wksp_tag, seed, txn_max, rec_max ) ); /* NULL shmem */
   FD_TEST( !fd_funk_new( (void *)1UL,   wksp_tag, seed, txn_max, rec_max ) ); /* misaligned shmem */
   FD_TEST( !fd_funk_new( (void *)align, wksp_tag, seed, txn_max, rec_max ) ); /* not a wksp addr */
   FD_TEST( !fd_funk_new( shmem,         0UL,      seed, txn_max, rec_max ) ); /* bad tag */
   /* seed is arbitrary */
   FD_TEST( !fd_funk_new( shmem,         wksp_tag, seed, FD_FUNK_TXN_IDX_NULL+1UL,             rec_max ) ); /* idx compr limited */
-#endif
   void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max ); FD_TEST( shfunk==shmem );
 
-#ifdef FD_FUNK_HANDHOLDING
-  FD_TEST( !fd_funk_join( NULL          ) ); /* NULL shmem */
-  FD_TEST( !fd_funk_join( (void *)1UL   ) ); /* misaligned shmem */
-  FD_TEST( !fd_funk_join( (void *)align ) ); /* not a wksp addr */
-#endif
-  fd_funk_t * funk = fd_funk_join( shfunk ); FD_TEST( funk );
+  fd_funk_t funk_[1];
+  FD_TEST( !fd_funk_join( funk_, NULL          ) ); /* NULL shmem */
+  FD_TEST( !fd_funk_join( funk_, (void *)1UL   ) ); /* misaligned shmem */
+  FD_TEST( !fd_funk_join( funk_, (void *)align ) ); /* not a wksp addr */
+  fd_funk_t * funk = fd_funk_join( funk_, shfunk ); FD_TEST( funk );
 
   FD_TEST( fd_funk_wksp    ( funk )==wksp     );
   FD_TEST( fd_funk_wksp_tag( funk )==wksp_tag );
@@ -76,46 +73,36 @@ main( int     argc,
 
   FD_TEST( !fd_funk_last_publish_is_frozen ( funk          ) );
 
-#ifdef FD_FUNK_HANDHOLDING
   FD_TEST( !fd_funk_verify( funk ) );
-#endif
 
-#ifdef FD_FUNK_HANDHOLDING
-  FD_TEST( !fd_funk_leave( NULL )         ); /* Not a join */
-#endif
-  FD_TEST(  fd_funk_leave( funk )==shfunk );
+  FD_TEST( !fd_funk_leave( NULL, NULL )        ); /* Not a join */
+  FD_TEST(  fd_funk_leave( funk, NULL )==funk_ );
 
-#ifdef FD_FUNK_HANDHOLDING
   FD_TEST( !fd_funk_delete( NULL          )        ); /* NULL shmem */
   FD_TEST( !fd_funk_delete( (void *)1UL   )        ); /* misaligned shmem */
   FD_TEST( !fd_funk_delete( (uchar*)shfunk + align ) ); /* wrong pointer */
-#endif
+  FD_TEST( !fd_funk_delete( (void *)align )        ); /* not wksp addr */
   FD_TEST(  fd_funk_delete( shfunk        )==shmem ); /* NULL shmem */
 
-#ifdef FD_FUNK_HANDHOLDING
-  FD_TEST( !fd_funk_join  ( shfunk        )        ); /* Can't join deleted */
+  FD_TEST( !fd_funk_join  ( funk_, shfunk )        ); /* Can't join deleted */
   FD_TEST( !fd_funk_delete( shfunk        )        ); /* Can't delete twice */
-#endif
 
   /* Test combinations of txn_max==0 and rec_max==0 */
 
-  funk = fd_funk_join( fd_funk_new( shmem, wksp_tag, seed, 0UL, rec_max ) ); FD_TEST( funk );
-#ifdef FD_FUNK_HANDHOLDING
+  funk = fd_funk_join( funk_, fd_funk_new( shmem, wksp_tag, seed, 0UL, rec_max ) ); FD_TEST( funk );
   FD_TEST( !fd_funk_verify( funk ) );
-#endif
-  FD_TEST( fd_funk_delete( fd_funk_leave( funk ) ) );
+  FD_TEST( fd_funk_leave( funk, NULL ) );
+  FD_TEST( fd_funk_delete( shmem ) );
 
-  funk = fd_funk_join( fd_funk_new( shmem, wksp_tag, seed, txn_max, 0UL ) ); FD_TEST( funk );
-#ifdef FD_FUNK_HANDHOLDING
+  funk = fd_funk_join( funk_, fd_funk_new( shmem, wksp_tag, seed, txn_max, 0UL ) ); FD_TEST( funk );
   FD_TEST( !fd_funk_verify( funk ) );
-#endif
-  FD_TEST( fd_funk_delete( fd_funk_leave( funk ) ) );
+  FD_TEST( fd_funk_leave( funk, NULL ) );
+  FD_TEST( fd_funk_delete( shmem ) );
 
-  funk = fd_funk_join( fd_funk_new( shmem, wksp_tag, seed, 0UL, 0UL ) ); FD_TEST( funk );
-#ifdef FD_FUNK_HANDHOLDING
+  funk = fd_funk_join( funk_, fd_funk_new( shmem, wksp_tag, seed, 0UL, 0UL ) ); FD_TEST( funk );
   FD_TEST( !fd_funk_verify( funk ) );
-#endif
-  FD_TEST( fd_funk_delete( fd_funk_leave( funk ) ) );
+  FD_TEST( fd_funk_leave( funk, NULL ) );
+  FD_TEST( fd_funk_delete( shmem ) );
 
   fd_wksp_free_laddr( shmem );
   if( name ) fd_wksp_detach( wksp );

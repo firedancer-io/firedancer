@@ -2530,25 +2530,21 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L79
   fd_spad_t * spad = ctx->txn_ctx->spad;
-  fd_bincode_decode_ctx_t decode = {
-    .data    = ctx->instr->data,
-    .dataend = ctx->instr->data + ctx->instr->data_sz
-  };
-  ulong total_sz      = 0UL;
-  int   decode_result = fd_stake_instruction_decode_footprint( &decode, &total_sz );
+  int decode_result;
+  ulong decoded_sz;
+  fd_stake_instruction_t * instruction = fd_bincode_decode1_spad(
+      stake_instruction, spad,
+      ctx->instr->data,
+      ctx->instr->data_sz,
+      &decode_result,
+      &decoded_sz );
   if( FD_UNLIKELY( decode_result!=FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  uchar * mem = fd_spad_alloc( spad, fd_stake_instruction_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate stake instruction" ));
-  }
-
-  fd_stake_instruction_t * instruction = fd_stake_instruction_decode( mem, &decode );
   /* Fail if the number of bytes consumed by deserialize exceeds 1232
      (hardcoded constant by Agave limited_deserialize) */
-  if( FD_UNLIKELY( (ulong)ctx->instr->data + FD_TXN_MTU<(ulong)decode.data ) ) {
+  if( FD_UNLIKELY( decoded_sz > FD_TXN_MTU ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 

@@ -444,13 +444,14 @@ main( void ) {
 //   /**********************************************************************/
 
 //   fd_wksp_tag_query_info_t funk_info;
-//   fd_funk_t *              funk     = NULL;
+//   fd_funk_t                funk_[1];
+//   fd_funk_t *              funk = NULL;
 //   ulong                    funk_tag = FD_FUNK_MAGIC;
 //   if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
 //     void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
-//     funk         = fd_funk_join( shmem );
+//     funk         = fd_funk_join( funk_, shmem );
 //   }
-//   if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
+//   if( !funk ) FD_LOG_ERR( ( "failed to join a funky" ) );
 
 //   /**********************************************************************/
 //   /* blockstore                                                         */

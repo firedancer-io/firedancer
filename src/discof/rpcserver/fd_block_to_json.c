@@ -21,7 +21,8 @@
 
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 
-void fd_tokenbalance_to_json( fd_webserver_t * ws, struct _fd_solblock_TokenBalance * b ) {
+void
+fd_tokenbalance_to_json( fd_webserver_t * ws, struct _fd_solblock_TokenBalance * b ) {
   fd_web_reply_sprintf(ws, "{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%s\",\"uiTokenAmount\":{",
                        b->account_index, b->mint, b->owner, b->program_id);
   fd_web_reply_sprintf(ws, "\"amount\":\"%s\",", b->ui_token_amount.amount);
@@ -170,7 +171,7 @@ decode_return_data(pb_istream_t *stream, const pb_field_t *field, void **arg) {
   return 1;
 }
 
-const char*
+const char *
 fd_txn_meta_to_json( fd_webserver_t * ws,
                      const void * meta_raw,
                      ulong meta_raw_sz ) {
@@ -265,7 +266,7 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+static const char *
 generic_program_to_json( fd_webserver_t * ws,
                          fd_txn_t * txn,
                          fd_txn_instr_t * instr,
@@ -291,7 +292,7 @@ generic_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char *
+static const char *
 vote_program_to_json( fd_webserver_t * ws,
                       fd_txn_t * txn,
                       fd_txn_instr_t * instr,
@@ -300,23 +301,17 @@ vote_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw + instr->data_off,
-      .dataend = raw + instr->data_off + instr->data_sz,
-    };
-    ulong total_sz      = 0UL;
-    int   decode_result = fd_vote_instruction_decode_footprint( &decode, &total_sz );
-    if( decode_result != FD_BINCODE_SUCCESS ) {
+
+    int decode_result;
+    fd_vote_instruction_t * instruction = fd_bincode_decode_scratch(
+        vote_instruction,
+        raw + instr->data_off,
+        instr->data_sz,
+        &decode_result );
+    if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
-
-    uchar * mem = fd_scratch_alloc( fd_vote_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for vote instruction" ));
-    }
-
-    fd_vote_instruction_t * instruction = fd_vote_instruction_decode( mem, &decode );
 
     EMIT_SIMPLE("{\"parsed\":");
 
@@ -329,7 +324,7 @@ vote_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char *
+static const char *
 system_program_to_json( fd_webserver_t * ws,
                         fd_txn_t * txn,
                         fd_txn_instr_t * instr,
@@ -338,23 +333,17 @@ system_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw + instr->data_off,
-      .dataend = raw + instr->data_off + instr->data_sz
-    };
-    ulong total_sz      = 0UL;
-    int   decode_result = fd_system_program_instruction_decode_footprint( &decode, &total_sz );
-    if( decode_result != FD_BINCODE_SUCCESS ) {
+
+    int decode_result;
+    fd_system_program_instruction_t * instruction = fd_bincode_decode_scratch(
+        system_program_instruction,
+        raw + instr->data_off,
+        instr->data_sz,
+        &decode_result );
+    if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
-
-    uchar * mem = fd_scratch_alloc( fd_system_program_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for system program instruction" ));
-    }
-
-    fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
 
     EMIT_SIMPLE("{\"parsed\":");
 
@@ -367,7 +356,7 @@ system_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+static const char *
 config_program_to_json( fd_webserver_t * ws,
                         fd_txn_t * txn,
                         fd_txn_instr_t * instr,
@@ -378,7 +367,7 @@ config_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+static const char *
 stake_program_to_json( fd_webserver_t * ws,
                        fd_txn_t * txn,
                        fd_txn_instr_t * instr,
@@ -389,7 +378,7 @@ stake_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+static const char *
 compute_budget_program_to_json( fd_webserver_t * ws,
                                 fd_txn_t * txn,
                                 fd_txn_instr_t * instr,
@@ -398,23 +387,17 @@ compute_budget_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw + instr->data_off,
-      .dataend = raw + instr->data_off + instr->data_sz,
-    };
-    ulong total_sz      = 0UL;
-    int   decode_result = fd_compute_budget_program_instruction_decode_footprint( &decode, &total_sz );
-    if( decode_result != FD_BINCODE_SUCCESS ) {
+
+    int decode_result;
+    fd_compute_budget_program_instruction_t * instruction = fd_bincode_decode_scratch(
+        compute_budget_program_instruction,
+        raw + instr->data_off,
+        instr->data_sz,
+        &decode_result );
+    if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
-
-    uchar * mem = fd_scratch_alloc( fd_compute_budget_program_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for compute budget program instruction" ));
-    }
-
-    fd_compute_budget_program_instruction_t * instruction = fd_compute_budget_program_instruction_decode( mem, &decode );
 
     EMIT_SIMPLE("{\"parsed\":");
 
@@ -427,7 +410,7 @@ compute_budget_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+static const char *
 address_lookup_table_program_to_json( fd_webserver_t * ws,
                                       fd_txn_t * txn,
                                       fd_txn_instr_t * instr,
@@ -438,7 +421,7 @@ address_lookup_table_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+static const char *
 executor_zk_elgamal_proof_program_to_json( fd_webserver_t * ws,
                                            fd_txn_t * txn,
                                            fd_txn_instr_t * instr,
@@ -449,7 +432,7 @@ executor_zk_elgamal_proof_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+static const char *
 bpf_loader_program_to_json( fd_webserver_t * ws,
                             fd_txn_t * txn,
                             fd_txn_instr_t * instr,

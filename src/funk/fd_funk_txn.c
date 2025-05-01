@@ -68,18 +68,14 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the root" ));
     return NULL;
   }
-  if( FD_UNLIKELY( fd_funk_txn_xid_eq( xid, funk->last_publish ) ) ) {
+  if( FD_UNLIKELY( fd_funk_txn_xid_eq( xid, funk->shmem->last_publish ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the last published" ));
     return NULL;
   }
 #endif
 
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_funk_txn_map_t txn_map   = fd_funk_txn_map( funk, wksp );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-
   fd_funk_txn_map_query_t query[1];
-  if( FD_UNLIKELY( fd_funk_txn_map_query_try( &txn_map, xid, NULL, query, 0 ) != FD_MAP_ERR_KEY ) ) {
+  if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 ) != FD_MAP_ERR_KEY ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid in use" ));
     return NULL;
   }
@@ -92,12 +88,12 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
     parent_idx = FD_FUNK_TXN_IDX_NULL;
 
-    _child_head_cidx = &funk->child_head_cidx;
-    _child_tail_cidx = &funk->child_tail_cidx;
+    _child_head_cidx = &funk->shmem->child_head_cidx;
+    _child_tail_cidx = &funk->shmem->child_tail_cidx;
 
   } else {
 
-    parent_idx = (ulong)(parent - txn_pool.ele);
+    parent_idx = (ulong)(parent - funk->txn_pool->ele);
 
     _child_head_cidx = &parent->child_head_cidx;
     _child_tail_cidx = &parent->child_tail_cidx;
@@ -106,13 +102,13 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
   /* Get a new transaction from the map */
 
-  fd_funk_txn_t * txn = fd_funk_txn_pool_acquire( &txn_pool, NULL, 1, NULL );
+  fd_funk_txn_t * txn = fd_funk_txn_pool_acquire( funk->txn_pool, NULL, 1, NULL );
   if( txn == NULL ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "transaction pool is exhuasted" ));
     return NULL;
   }
   fd_funk_txn_xid_copy( &txn->xid, xid );
-  ulong txn_idx = (ulong)(txn - txn_pool.ele);
+  ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
 
   /* Join the family */
 
@@ -132,21 +128,14 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
 
   /* TODO: consider branchless impl */
-  if( FD_LIKELY( first_born ) ) *_child_head_cidx                                  = fd_funk_txn_cidx( txn_idx ); /* opt for non-compete */
-  else                          txn_pool.ele[ sibling_prev_idx ].sibling_next_cidx = fd_funk_txn_cidx( txn_idx );
+  if( FD_LIKELY( first_born ) ) *_child_head_cidx                = fd_funk_txn_cidx( txn_idx ); /* opt for non-compete */
+  else funk->txn_pool->ele[ sibling_prev_idx ].sibling_next_cidx = fd_funk_txn_cidx( txn_idx );
 
   *_child_tail_cidx = fd_funk_txn_cidx( txn_idx );
 
-  fd_funk_txn_map_insert( &txn_map, txn, FD_MAP_FLAG_BLOCKING );
+  fd_funk_txn_map_insert( funk->txn_map, txn, FD_MAP_FLAG_BLOCKING );
 
   return txn;
-}
-
-int
-fd_funk_txn_is_full( fd_funk_t * funk ) {
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  return fd_funk_txn_pool_is_empty( &txn_pool );
 }
 
 /* fd_funk_txn_cancel_childless cancels a transaction that is known
@@ -165,35 +154,35 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
      idx with NULL though we can detect cycles as soon as possible
      and abort. */
 
-  fd_wksp_t *        wksp     = fd_funk_wksp( funk );
-  fd_alloc_t *       alloc    = fd_funk_alloc( funk, wksp );
-  fd_funk_rec_map_t  rec_map  = fd_funk_rec_map( funk, wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  uint               rec_max  = funk->rec_max;
-  fd_funk_txn_map_t  txn_map  = fd_funk_txn_map( funk, wksp );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
+  fd_wksp_t *          wksp     = funk->wksp;
+  fd_alloc_t *         alloc    = funk->alloc;
+  fd_funk_rec_map_t *  rec_map  = funk->rec_map;
+  fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
+  ulong                rec_max  = fd_funk_rec_pool_ele_max( rec_pool );
+  fd_funk_txn_map_t *  txn_map  = funk->txn_map;
+  fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
 
-  fd_funk_txn_t * txn = &txn_pool.ele[ txn_idx ];
+  fd_funk_txn_t * txn = &txn_pool->ele[ txn_idx ];
   uint rec_idx = txn->rec_head_idx;
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
 
     if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
-    if( FD_UNLIKELY( fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )!=txn_idx ) )
+    if( FD_UNLIKELY( fd_funk_txn_idx( rec_pool->ele[ rec_idx ].txn_cidx )!=txn_idx ) )
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
 
-    fd_funk_rec_t * rec = &rec_pool.ele[ rec_idx ];
+    fd_funk_rec_t * rec = &rec_pool->ele[ rec_idx ];
     uint next_idx = rec->next_idx;
     rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
     for(;;) {
       fd_funk_rec_map_query_t rec_query[1];
-      int err = fd_funk_rec_map_remove( &rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       if( err == FD_MAP_ERR_KEY ) break;
       if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
       if( rec != fd_funk_rec_map_query_ele( rec_query ) ) break;
       fd_funk_val_flush( rec, alloc, wksp );
-      fd_funk_rec_pool_release( &rec_pool, rec, 1 );
+      fd_funk_rec_pool_release( rec_pool, rec, 1 );
       break;
     }
 
@@ -208,30 +197,30 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
   /* TODO: Consider branchless impl */
 
   if( FD_LIKELY( fd_funk_txn_idx_is_null( sibling_prev_idx ) ) ) { /* opt for non-compete */
-    ulong parent_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].parent_cidx );
+    ulong parent_idx = fd_funk_txn_idx( txn_pool->ele[ txn_idx ].parent_cidx );
     if( FD_LIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) { /* No older sib and is a funk child, opt for incr pub */
-      funk->child_head_cidx = fd_funk_txn_cidx( sibling_next_idx );
+      funk->shmem->child_head_cidx = fd_funk_txn_cidx( sibling_next_idx );
     } else { /* No older sib and has parent */
-      txn_pool.ele[ parent_idx ].child_head_cidx = fd_funk_txn_cidx( sibling_next_idx );
+      txn_pool->ele[ parent_idx ].child_head_cidx = fd_funk_txn_cidx( sibling_next_idx );
     }
   } else { /* Has older sib */
-    txn_pool.ele[ sibling_prev_idx ].sibling_next_cidx = fd_funk_txn_cidx( sibling_next_idx );
+    txn_pool->ele[ sibling_prev_idx ].sibling_next_cidx = fd_funk_txn_cidx( sibling_next_idx );
   }
 
   if( FD_LIKELY( fd_funk_txn_idx_is_null( sibling_next_idx ) ) ) { /* opt for non-compete */
-    ulong parent_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].parent_cidx );
+    ulong parent_idx = fd_funk_txn_idx( txn_pool->ele[ txn_idx ].parent_cidx );
     if( FD_LIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) { /* No younger sib and is a funk child, opt for incr pub */
-      funk->child_tail_cidx = fd_funk_txn_cidx( sibling_prev_idx );
+      funk->shmem->child_tail_cidx = fd_funk_txn_cidx( sibling_prev_idx );
     } else { /* No younger sib and has parent */
-      txn_pool.ele[ parent_idx ].child_tail_cidx = fd_funk_txn_cidx( sibling_prev_idx );
+      txn_pool->ele[ parent_idx ].child_tail_cidx = fd_funk_txn_cidx( sibling_prev_idx );
     }
   } else { /* Has younger sib */
-    txn_pool.ele[ sibling_next_idx ].sibling_prev_cidx = fd_funk_txn_cidx( sibling_prev_idx );
+    txn_pool->ele[ sibling_next_idx ].sibling_prev_cidx = fd_funk_txn_cidx( sibling_prev_idx );
   }
 
   fd_funk_txn_map_query_t query[1];
-  if( fd_funk_txn_map_remove( &txn_map, fd_funk_txn_xid( txn ), NULL, query, FD_MAP_FLAG_BLOCKING ) == FD_MAP_SUCCESS ) {
-    fd_funk_txn_pool_release( &txn_pool, txn, 1 );
+  if( fd_funk_txn_map_remove( txn_map, fd_funk_txn_xid( txn ), NULL, query, FD_MAP_FLAG_BLOCKING ) == FD_MAP_SUCCESS ) {
+    fd_funk_txn_pool_release( txn_pool, txn, 1 );
   }
 }
 
@@ -246,14 +235,11 @@ fd_funk_txn_cancel_family( fd_funk_t *  funk,
                            ulong        txn_idx ) {
   ulong cancel_cnt = 0UL;
 
-  fd_wksp_t *     wksp    = fd_funk_wksp   ( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-
   ulong parent_stack_idx = FD_FUNK_TXN_IDX_NULL;
 
   for(;;) {
 
-    fd_funk_txn_t * txn = &txn_pool.ele[ txn_idx ];
+    fd_funk_txn_t * txn = &funk->txn_pool->ele[ txn_idx ];
     txn->tag = tag;
 
     ulong youngest_idx = fd_funk_txn_idx( txn->child_tail_cidx );
@@ -264,7 +250,7 @@ fd_funk_txn_cancel_family( fd_funk_t *  funk,
 
       txn_idx = parent_stack_idx;                                  /* Pop the parent stack */
       if( FD_LIKELY( fd_funk_txn_idx_is_null( txn_idx ) ) ) break; /* If stack is empty, we are done, opt for incr pub */
-      parent_stack_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].stack_cidx );
+      parent_stack_idx = fd_funk_txn_idx( funk->txn_pool->ele[ txn_idx ].stack_cidx );
       continue;
     }
 
@@ -283,8 +269,8 @@ fd_funk_txn_cancel_family( fd_funk_t *  funk,
 
 ulong
 fd_funk_txn_cancel( fd_funk_t *     funk,
-                       fd_funk_txn_t * txn,
-                       int             verbose ) {
+                    fd_funk_txn_t * txn,
+                    int             verbose ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) {
@@ -299,11 +285,8 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
   (void)verbose;
 #endif
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  ulong txn_idx = (ulong)(txn - txn_pool.ele);
-
-  return fd_funk_txn_cancel_family( funk, funk->cycle_tag++, txn_idx );
+  ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
+  return fd_funk_txn_cancel_family( funk, funk->shmem->cycle_tag++, txn_idx );
 }
 
 /* fd_funk_txn_oldest_sibling returns the index of the oldest sibling
@@ -313,14 +296,11 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
 static inline ulong
 fd_funk_txn_oldest_sibling( fd_funk_t *  funk,
                             ulong        txn_idx ) {
+  ulong parent_idx = fd_funk_txn_idx( funk->txn_pool->ele[ txn_idx ].parent_cidx );
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  ulong parent_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].parent_cidx );
+  if( FD_LIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) return fd_funk_txn_idx( funk->shmem->child_head_cidx ); /* opt for incr pub */
 
-  if( FD_LIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) return fd_funk_txn_idx( funk->child_head_cidx ); /* opt for incr pub */
-
-  return fd_funk_txn_idx( txn_pool.ele[ parent_idx ].child_head_cidx );
+  return fd_funk_txn_idx( funk->txn_pool->ele[ parent_idx ].child_head_cidx );
 }
 
 /* fd_funk_txn_cancel_sibling_list cancels siblings from sibling_idx down
@@ -338,9 +318,6 @@ fd_funk_txn_cancel_sibling_list( fd_funk_t * funk,
                                     ulong          sibling_idx,
                                     ulong          skip_idx ) {
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-
   ulong cancel_stack_idx = FD_FUNK_TXN_IDX_NULL;
 
   /* Push siblings_idx and its younger siblings inclusive (skipping
@@ -352,7 +329,7 @@ fd_funk_txn_cancel_sibling_list( fd_funk_t * funk,
     /* At this point, sibling_idx is a sibling we might want to add to
        the sibling stack.  Validate and tag it. */
 
-    fd_funk_txn_t * sibling = &txn_pool.ele[ sibling_idx ];
+    fd_funk_txn_t * sibling = &funk->txn_pool->ele[ sibling_idx ];
     sibling->tag = tag;
 
     if( FD_UNLIKELY( sibling_idx!=skip_idx ) ) { /* Not skip_idx so push onto the cancel stack, opt for non-compete */
@@ -372,7 +349,7 @@ fd_funk_txn_cancel_sibling_list( fd_funk_t * funk,
 
   while( !fd_funk_txn_idx_is_null( cancel_stack_idx ) ) { /* TODO: peel first iter to make more predictable? */
     ulong sibling_idx = cancel_stack_idx;
-    cancel_stack_idx  = fd_funk_txn_idx( txn_pool.ele[ sibling_idx ].stack_cidx );
+    cancel_stack_idx  = fd_funk_txn_idx( funk->txn_pool->ele[ sibling_idx ].stack_cidx );
     cancel_cnt += fd_funk_txn_cancel_family( funk, tag, sibling_idx );
   }
 
@@ -397,13 +374,11 @@ fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
   (void)verbose;
 #endif
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  ulong txn_idx = (ulong)(txn - txn_pool.ele);
+  ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
 
   ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, txn_idx );
 
-  return fd_funk_txn_cancel_sibling_list( funk, funk->cycle_tag++, oldest_idx, txn_idx );
+  return fd_funk_txn_cancel_sibling_list( funk, funk->shmem->cycle_tag++, oldest_idx, txn_idx );
 }
 
 ulong
@@ -427,7 +402,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
   ulong oldest_idx;
 
   if( FD_LIKELY( txn == NULL ) ) {
-    oldest_idx = fd_funk_txn_idx( funk->child_head_cidx ); /* opt for non-compete */
+    oldest_idx = fd_funk_txn_idx( funk->shmem->child_head_cidx ); /* opt for non-compete */
   } else {
     oldest_idx = fd_funk_txn_idx( txn->child_head_cidx );
   }
@@ -436,7 +411,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
     return 0UL;
   }
 
-  return fd_funk_txn_cancel_sibling_list( funk, funk->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
+  return fd_funk_txn_cancel_sibling_list( funk, funk->shmem->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
 }
 
 /* Cancel all outstanding transactions */
@@ -481,24 +456,24 @@ fd_funk_txn_update( fd_funk_t *                  funk,
                        ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
                        fd_funk_txn_xid_t const * dst_xid,        /* dst xid */
                        ulong                     txn_idx ) {        /* Transaction index of the records to merge */
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
+  fd_wksp_t *          wksp     = funk->wksp;
+  fd_alloc_t *         alloc    = funk->alloc;
+  fd_funk_rec_map_t *  rec_map  = funk->rec_map;
+  fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
+  fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
 
-  fd_funk_txn_t * txn = &txn_pool.ele[ txn_idx ];
+  fd_funk_txn_t * txn = &txn_pool->ele[ txn_idx ];
   uint rec_idx = txn->rec_head_idx;
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-    fd_funk_rec_t * rec = &rec_pool.ele[ rec_idx ];
-    uint next_rec_idx   = rec->next_idx;
+    fd_funk_rec_t * rec = &rec_pool->ele[ rec_idx ];
+    uint next_rec_idx = rec->next_idx;
 
     /* See if (dst_xid,key) already exists.  */
     fd_funk_xid_key_pair_t pair[1];
     fd_funk_xid_key_pair_init( pair, dst_xid, rec->pair.key );
     for(;;) {
       fd_funk_rec_map_query_t rec_query[1];
-      int err = fd_funk_rec_map_remove( &rec_map, pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      int err = fd_funk_rec_map_remove( rec_map, pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       if( err == FD_MAP_ERR_KEY ) break;
       if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
@@ -510,17 +485,17 @@ fd_funk_txn_update( fd_funk_t *                  funk,
       if( fd_funk_rec_idx_is_null( prev_idx ) ) {
         *_dst_rec_head_idx = next_idx;
       } else {
-        rec_pool.ele[ prev_idx ].next_idx = next_idx;
+        rec_pool->ele[ prev_idx ].next_idx = next_idx;
       }
       if( fd_funk_rec_idx_is_null( next_idx ) ) {
         *_dst_rec_tail_idx = prev_idx;
       } else {
-        rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+        rec_pool->ele[ next_idx ].prev_idx = prev_idx;
       }
       /* Clean up value */
       fd_funk_val_flush( rec2, alloc, wksp );
       rec2->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-      fd_funk_rec_pool_release( &rec_pool, rec2, 1 );
+      fd_funk_rec_pool_release( rec_pool, rec2, 1 );
       break;
     }
 
@@ -538,7 +513,7 @@ fd_funk_txn_update( fd_funk_t *                  funk,
       *_dst_rec_head_idx = rec_idx;
       rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     } else {
-      rec_pool.ele[ *_dst_rec_tail_idx ].next_idx = rec_idx;
+      rec_pool->ele[ *_dst_rec_tail_idx ].next_idx = rec_idx;
       rec->prev_idx = *_dst_rec_tail_idx;
     }
     *_dst_rec_tail_idx = rec_idx;
@@ -547,8 +522,8 @@ fd_funk_txn_update( fd_funk_t *                  funk,
     rec_idx = next_rec_idx;
   }
 
-  txn_pool.ele[ txn_idx ].rec_head_idx = FD_FUNK_REC_IDX_NULL;
-  txn_pool.ele[ txn_idx ].rec_tail_idx = FD_FUNK_REC_IDX_NULL;
+  txn_pool->ele[ txn_idx ].rec_head_idx = FD_FUNK_REC_IDX_NULL;
+  txn_pool->ele[ txn_idx ].rec_tail_idx = FD_FUNK_REC_IDX_NULL;
 }
 
 /* fd_funk_txn_publish_funk_child publishes a transaction that is known
@@ -558,13 +533,13 @@ fd_funk_txn_update( fd_funk_t *                  funk,
    plumbing is there if value handling requires it at some point.) */
 
 static int
-fd_funk_txn_publish_funk_child( fd_funk_t *  funk,
-                                ulong        tag,
-                                ulong        txn_idx ) {
+fd_funk_txn_publish_funk_child( fd_funk_t * const funk,
+                                ulong       const tag,
+                                ulong       const txn_idx ) {
 
   /* Apply the updates in txn to the last published transactions */
 
-  fd_funk_txn_update( funk, &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+  fd_funk_txn_update( funk, &funk->shmem->rec_head_idx, &funk->shmem->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
 
   /* Cancel all competing transaction histories */
 
@@ -573,31 +548,28 @@ fd_funk_txn_publish_funk_child( fd_funk_t *  funk,
 
   /* Make all the children children of funk */
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, wksp );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-
-  ulong child_head_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].child_head_cidx );
-  ulong child_tail_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].child_tail_cidx );
+  fd_funk_txn_t * txn = fd_funk_txn_pool_ele( funk->txn_pool, txn_idx );
+  ulong child_head_idx = fd_funk_txn_idx( txn->child_head_cidx );
+  ulong child_tail_idx = fd_funk_txn_idx( txn->child_tail_cidx );
 
   ulong child_idx = child_head_idx;
   while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) { /* opt for incr pub */
-    fd_funk_txn_t * txn = &txn_pool.ele[ child_idx ];
-    txn->tag = tag;
-    txn->parent_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-    child_idx = fd_funk_txn_idx( txn->sibling_next_cidx );
+    fd_funk_txn_t * child_txn = fd_funk_txn_pool_ele( funk->txn_pool, child_idx );
+    child_txn->tag = tag;
+    child_txn->parent_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+    child_idx = fd_funk_txn_idx( child_txn->sibling_next_cidx );
   }
 
-  funk->child_head_cidx = fd_funk_txn_cidx( child_head_idx );
-  funk->child_tail_cidx = fd_funk_txn_cidx( child_tail_idx );
+  funk->shmem->child_head_cidx = fd_funk_txn_cidx( child_head_idx );
+  funk->shmem->child_tail_cidx = fd_funk_txn_cidx( child_tail_idx );
 
-  fd_funk_txn_xid_copy( funk->last_publish, fd_funk_txn_xid( &txn_pool.ele[ txn_idx ] ) );
+  fd_funk_txn_xid_copy( funk->shmem->last_publish, fd_funk_txn_xid( txn ) );
 
   /* Remove the mapping */
 
   fd_funk_txn_map_query_t query[1];
-  if( fd_funk_txn_map_remove( &txn_map, funk->last_publish, NULL, query, FD_MAP_FLAG_BLOCKING ) == FD_MAP_SUCCESS ) {
-    fd_funk_txn_pool_release( &txn_pool, &txn_pool.ele[ txn_idx ], 1 );
+  if( fd_funk_txn_map_remove( funk->txn_map, funk->shmem->last_publish, NULL, query, FD_MAP_FLAG_BLOCKING ) == FD_MAP_SUCCESS ) {
+    fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
   }
 
   return FD_FUNK_SUCCESS;
@@ -621,16 +593,14 @@ fd_funk_txn_publish( fd_funk_t *     funk,
   (void)verbose;
 #endif
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  ulong txn_idx = (ulong)(txn - txn_pool.ele);
+  ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
 
-  ulong tag = funk->cycle_tag++;
+  ulong tag = funk->shmem->cycle_tag++;
 
   ulong publish_stack_idx = FD_FUNK_TXN_IDX_NULL;
 
   for(;;) {
-    fd_funk_txn_t * txn2 = &txn_pool.ele[ txn_idx ];
+    fd_funk_txn_t * txn2 = &funk->txn_pool->ele[ txn_idx ];
     txn2->tag = tag;
 
     /* At this point, txn_idx is a transaction that needs to be
@@ -659,12 +629,12 @@ fd_funk_txn_publish( fd_funk_t *     funk,
        each publish as txn and its siblings we potentially visited in a
        previous iteration of this loop. */
 
-    if( FD_UNLIKELY( fd_funk_txn_publish_funk_child( funk, funk->cycle_tag++, txn_idx ) ) ) break;
+    if( FD_UNLIKELY( fd_funk_txn_publish_funk_child( funk, funk->shmem->cycle_tag++, txn_idx ) ) ) break;
     publish_cnt++;
 
     txn_idx = publish_stack_idx;
     if( FD_LIKELY( fd_funk_txn_idx_is_null( txn_idx ) ) ) break; /* opt for incr pub */
-    publish_stack_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].stack_cidx );
+    publish_stack_idx = fd_funk_txn_idx( funk->txn_pool->ele[ txn_idx ].stack_cidx );
   }
 
   return publish_cnt;
@@ -687,23 +657,22 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
   (void)verbose;
 #endif
 
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  ulong txn_idx = (ulong)(txn - txn_pool.ele);
+  fd_funk_txn_map_t *  txn_map  = funk->txn_map;
+  fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
+  ulong txn_idx = (ulong)(txn - txn_pool->ele);
 
   ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, txn_idx );
-  fd_funk_txn_cancel_sibling_list( funk, funk->cycle_tag++, oldest_idx, txn_idx );
+  fd_funk_txn_cancel_sibling_list( funk, funk->shmem->cycle_tag++, oldest_idx, txn_idx );
 
   ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
   if( fd_funk_txn_idx_is_null( parent_idx ) ) {
     /* Publish to root */
-    fd_funk_txn_update( funk, &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+    fd_funk_txn_update( funk, &funk->shmem->rec_head_idx, &funk->shmem->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
     /* Inherit the children */
-    funk->child_head_cidx = txn->child_head_cidx;
-    funk->child_tail_cidx = txn->child_tail_cidx;
+    funk->shmem->child_head_cidx = txn->child_head_cidx;
+    funk->shmem->child_tail_cidx = txn->child_tail_cidx;
   } else {
-    fd_funk_txn_t * parent_txn = &txn_pool.ele[ parent_idx ];
+    fd_funk_txn_t * parent_txn = &txn_pool->ele[ parent_idx ];
     fd_funk_txn_update( funk, &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid, txn_idx );
     /* Inherit the children */
     parent_txn->child_head_cidx = txn->child_head_cidx;
@@ -713,13 +682,13 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
   /* Adjust the parent pointers of the children to point to their grandparent */
   ulong child_idx = fd_funk_txn_idx( txn->child_head_cidx );
   while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) {
-    txn_pool.ele[ child_idx ].parent_cidx = fd_funk_txn_cidx( parent_idx );
-    child_idx = fd_funk_txn_idx( txn_pool.ele[ child_idx ].sibling_next_cidx );
+    txn_pool->ele[ child_idx ].parent_cidx = fd_funk_txn_cidx( parent_idx );
+    child_idx = fd_funk_txn_idx( txn_pool->ele[ child_idx ].sibling_next_cidx );
   }
 
   fd_funk_txn_map_query_t query[1];
-  if( fd_funk_txn_map_remove( &txn_map, fd_funk_txn_xid( txn ), NULL, query, FD_MAP_FLAG_BLOCKING ) == FD_MAP_SUCCESS ) {
-    fd_funk_txn_pool_release( &txn_pool, txn, 1 );
+  if( fd_funk_txn_map_remove( txn_map, fd_funk_txn_xid( txn ), NULL, query, FD_MAP_FLAG_BLOCKING ) == FD_MAP_SUCCESS ) {
+    fd_funk_txn_pool_release( txn_pool, txn, 1 );
   }
 
   return FD_FUNK_SUCCESS;
@@ -733,13 +702,11 @@ fd_funk_txn_first_rec( fd_funk_t *           funk,
                        fd_funk_txn_t const * txn ) {
   uint rec_idx;
   if( FD_UNLIKELY( NULL == txn ))
-    rec_idx = funk->rec_head_idx;
+    rec_idx = funk->shmem->rec_head_idx;
   else
     rec_idx = txn->rec_head_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  return rec_pool.ele + rec_idx;
+  return funk->rec_pool->ele + rec_idx;
 }
 
 fd_funk_rec_t const *
@@ -747,13 +714,11 @@ fd_funk_txn_last_rec( fd_funk_t *           funk,
                       fd_funk_txn_t const * txn ) {
   uint rec_idx;
   if( FD_UNLIKELY( NULL == txn ))
-    rec_idx = funk->rec_tail_idx;
+    rec_idx = funk->shmem->rec_tail_idx;
   else
     rec_idx = txn->rec_tail_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  return rec_pool.ele + rec_idx;
+  return funk->rec_pool->ele + rec_idx;
 }
 
 /* Return the next record in a transaction. Returns NULL if the
@@ -764,9 +729,7 @@ fd_funk_txn_next_rec( fd_funk_t *           funk,
                       fd_funk_rec_t const * rec ) {
   uint rec_idx = rec->next_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  return rec_pool.ele + rec_idx;
+  return funk->rec_pool->ele + rec_idx;
 }
 
 fd_funk_rec_t const *
@@ -774,9 +737,7 @@ fd_funk_txn_prev_rec( fd_funk_t *           funk,
                       fd_funk_rec_t const * rec ) {
   uint rec_idx = rec->prev_idx;
   if( fd_funk_rec_idx_is_null( rec_idx ) ) return NULL;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  return rec_pool.ele + rec_idx;
+  return funk->rec_pool->ele + rec_idx;
 }
 
 fd_funk_txn_xid_t
@@ -801,12 +762,12 @@ fd_funk_txn_all_iter_skip_nulls( fd_funk_txn_all_iter_t * iter ) {
 }
 
 void
-fd_funk_txn_all_iter_new( fd_funk_t * funk, fd_funk_txn_all_iter_t * iter ) {
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  iter->txn_map = fd_funk_txn_map( funk, wksp );
-  iter->chain_cnt = fd_funk_txn_map_chain_cnt( &iter->txn_map );
+fd_funk_txn_all_iter_new( fd_funk_t *              funk,
+                          fd_funk_txn_all_iter_t * iter ) {
+  iter->txn_map = *funk->txn_map;
+  iter->chain_cnt = fd_funk_txn_map_chain_cnt( funk->txn_map );
   iter->chain_idx = 0;
-  iter->txn_map_iter = fd_funk_txn_map_iter( &iter->txn_map, 0 );
+  iter->txn_map_iter = fd_funk_txn_map_iter( funk->txn_map, 0 );
   fd_funk_txn_all_iter_skip_nulls( iter );
 }
 
@@ -831,32 +792,30 @@ fd_funk_txn_all_iter_ele( fd_funk_txn_all_iter_t * iter ) {
   return fd_funk_txn_map_iter_ele( iter->txn_map_iter );
 }
 
-#ifdef FD_FUNK_HANDHOLDING
 int
 fd_funk_txn_verify( fd_funk_t * funk ) {
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, wksp );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  ulong txn_max = funk->txn_max;
+  fd_funk_txn_map_t *  txn_map  = funk->txn_map;
+  fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
+  ulong                txn_max  = fd_funk_txn_pool_ele_max( txn_pool );
 
-  ulong funk_child_head_idx = fd_funk_txn_idx( funk->child_head_cidx ); /* Previously verified */
-  ulong funk_child_tail_idx = fd_funk_txn_idx( funk->child_tail_cidx ); /* Previously verified */
+  ulong funk_child_head_idx = fd_funk_txn_idx( funk->shmem->child_head_cidx ); /* Previously verified */
+  ulong funk_child_tail_idx = fd_funk_txn_idx( funk->shmem->child_tail_cidx ); /* Previously verified */
 
-  fd_funk_txn_xid_t const * last_publish = funk->last_publish; /* Previously verified */
+  fd_funk_txn_xid_t const * last_publish = funk->shmem->last_publish; /* Previously verified */
 
 # define TEST(c) do {                                                                           \
     if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_FUNK_ERR_INVAL; } \
   } while(0)
 
 # define IS_VALID( idx ) ( (idx==FD_FUNK_TXN_IDX_NULL) || \
-                           ((idx<txn_max) && (!fd_funk_txn_xid_eq( fd_funk_txn_xid( &txn_pool.ele[idx] ), last_publish ))) )
+                           ((idx<txn_max) && (!fd_funk_txn_xid_eq( fd_funk_txn_xid( &txn_pool->ele[idx] ), last_publish ))) )
 
-  TEST( !fd_funk_txn_map_verify( &txn_map ) );
-  TEST( !fd_funk_txn_pool_verify( &txn_pool ) );
+  TEST( !fd_funk_txn_map_verify( txn_map ) );
+  TEST( !fd_funk_txn_pool_verify( txn_pool ) );
 
   /* Tag all transactions as not visited yet */
 
-  for( ulong txn_idx=0UL; txn_idx<txn_max; txn_idx++ ) txn_pool.ele[ txn_idx ].tag = 0UL;
+  for( ulong txn_idx=0UL; txn_idx<txn_max; txn_idx++ ) txn_pool->ele[ txn_idx ].tag = 0UL;
 
   /* Visit all transactions in preparation, traversing from oldest to
      youngest. */
@@ -874,14 +833,14 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
          push to stack and update prep_cnt */
 
       TEST( IS_VALID( child_idx ) );
-      TEST( !txn_pool.ele[ child_idx ].tag );
-      TEST( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn_pool.ele[ child_idx ].parent_cidx ) ) );
-      txn_pool.ele[ child_idx ].tag        = 1UL;
-      txn_pool.ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
+      TEST( !txn_pool->ele[ child_idx ].tag );
+      TEST( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn_pool->ele[ child_idx ].parent_cidx ) ) );
+      txn_pool->ele[ child_idx ].tag        = 1UL;
+      txn_pool->ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
       stack_idx                   = child_idx;
 
-      ulong next_idx = fd_funk_txn_idx( txn_pool.ele[ child_idx ].sibling_next_cidx );
-      if( !fd_funk_txn_idx_is_null( next_idx ) ) TEST( fd_funk_txn_idx( txn_pool.ele[ next_idx ].sibling_prev_cidx )==child_idx );
+      ulong next_idx = fd_funk_txn_idx( txn_pool->ele[ child_idx ].sibling_next_cidx );
+      if( !fd_funk_txn_idx_is_null( next_idx ) ) TEST( fd_funk_txn_idx( txn_pool->ele[ next_idx ].sibling_prev_cidx )==child_idx );
       child_idx = next_idx;
     }
 
@@ -890,11 +849,11 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
       /* Pop the next transaction to traverse */
 
       ulong txn_idx = stack_idx;
-      stack_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].stack_cidx );
+      stack_idx = fd_funk_txn_idx( txn_pool->ele[ txn_idx ].stack_cidx );
 
       /* Push all children of txn to the stack */
 
-      ulong child_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].child_head_cidx );
+      ulong child_idx = fd_funk_txn_idx( txn_pool->ele[ txn_idx ].child_head_cidx );
       while( !fd_funk_txn_idx_is_null( child_idx ) ) {
 
         /* Make sure valid idx, not tagged (detects cycles) and child
@@ -902,14 +861,14 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
            in-prep, push to stack and update prep_cnt */
 
         TEST( IS_VALID( child_idx ) );
-        TEST( !txn_pool.ele[ child_idx ].tag );
-        TEST( fd_funk_txn_idx( txn_pool.ele[ child_idx ].parent_cidx )==txn_idx );
-        txn_pool.ele[ child_idx ].tag        = 1UL;
-        txn_pool.ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
+        TEST( !txn_pool->ele[ child_idx ].tag );
+        TEST( fd_funk_txn_idx( txn_pool->ele[ child_idx ].parent_cidx )==txn_idx );
+        txn_pool->ele[ child_idx ].tag        = 1UL;
+        txn_pool->ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
         stack_idx                   = child_idx;
 
-        ulong next_idx = fd_funk_txn_idx( txn_pool.ele[ child_idx ].sibling_next_cidx );
-        if( !fd_funk_txn_idx_is_null( next_idx ) ) TEST( fd_funk_txn_idx( txn_pool.ele[ next_idx ].sibling_prev_cidx )==child_idx );
+        ulong next_idx = fd_funk_txn_idx( txn_pool->ele[ child_idx ].sibling_next_cidx );
+        if( !fd_funk_txn_idx_is_null( next_idx ) ) TEST( fd_funk_txn_idx( txn_pool->ele[ next_idx ].sibling_prev_cidx )==child_idx );
         child_idx = next_idx;
       }
     }
@@ -932,14 +891,14 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
          in-prep, push to stack and update prep_cnt */
 
       TEST( IS_VALID( child_idx ) );
-      TEST( txn_pool.ele[ child_idx ].tag==1UL );
-      TEST( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn_pool.ele[ child_idx ].parent_cidx ) ) );
-      txn_pool.ele[ child_idx ].tag        = 2UL;
-      txn_pool.ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
-      stack_idx                   = child_idx;
+      TEST( txn_pool->ele[ child_idx ].tag==1UL );
+      TEST( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn_pool->ele[ child_idx ].parent_cidx ) ) );
+      txn_pool->ele[ child_idx ].tag        = 2UL;
+      txn_pool->ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
+      stack_idx                             = child_idx;
 
-      ulong prev_idx = fd_funk_txn_idx( txn_pool.ele[ child_idx ].sibling_prev_cidx );
-      if( !fd_funk_txn_idx_is_null( prev_idx ) ) TEST( fd_funk_txn_idx( txn_pool.ele[ prev_idx ].sibling_next_cidx )==child_idx );
+      ulong prev_idx = fd_funk_txn_idx( txn_pool->ele[ child_idx ].sibling_prev_cidx );
+      if( !fd_funk_txn_idx_is_null( prev_idx ) ) TEST( fd_funk_txn_idx( txn_pool->ele[ prev_idx ].sibling_next_cidx )==child_idx );
       child_idx = prev_idx;
     }
 
@@ -948,11 +907,11 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
       /* Pop the next transaction to traverse */
 
       ulong txn_idx = stack_idx;
-      stack_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].stack_cidx );
+      stack_idx = fd_funk_txn_idx( txn_pool->ele[ txn_idx ].stack_cidx );
 
       /* Push all children of txn to the stack */
 
-      ulong child_idx = fd_funk_txn_idx( txn_pool.ele[ txn_idx ].child_tail_cidx );
+      ulong child_idx = fd_funk_txn_idx( txn_pool->ele[ txn_idx ].child_tail_cidx );
       while( !fd_funk_txn_idx_is_null( child_idx ) ) {
 
         /* Make sure valid idx, tagged as visited above (detects cycles)
@@ -960,14 +919,14 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
            visited / in-prep, push to stack and update prep_cnt */
 
         TEST( IS_VALID( child_idx ) );
-        TEST( txn_pool.ele[ child_idx ].tag==1UL );
-        TEST( fd_funk_txn_idx( txn_pool.ele[ child_idx ].parent_cidx )==txn_idx );
-        txn_pool.ele[ child_idx ].tag        = 2UL;
-        txn_pool.ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
-        stack_idx                   = child_idx;
+        TEST( txn_pool->ele[ child_idx ].tag==1UL );
+        TEST( fd_funk_txn_idx( txn_pool->ele[ child_idx ].parent_cidx )==txn_idx );
+        txn_pool->ele[ child_idx ].tag        = 2UL;
+        txn_pool->ele[ child_idx ].stack_cidx = fd_funk_txn_cidx( stack_idx );
+        stack_idx                             = child_idx;
 
-        ulong prev_idx = fd_funk_txn_idx( txn_pool.ele[ child_idx ].sibling_prev_cidx );
-        if( !fd_funk_txn_idx_is_null( prev_idx ) ) TEST( fd_funk_txn_idx( txn_pool.ele[ prev_idx ].sibling_next_cidx )==child_idx );
+        ulong prev_idx = fd_funk_txn_idx( txn_pool->ele[ child_idx ].sibling_prev_cidx );
+        if( !fd_funk_txn_idx_is_null( prev_idx ) ) TEST( fd_funk_txn_idx( txn_pool->ele[ prev_idx ].sibling_next_cidx )==child_idx );
         child_idx = prev_idx;
       }
     }
@@ -980,16 +939,12 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
 }
 
 int
-fd_funk_txn_valid( fd_funk_t * funk, fd_funk_txn_t const * txn ) {
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-  ulong txn_idx = (ulong)(txn - txn_pool.ele);
-  if( txn_idx >= funk->txn_max || txn != txn_idx + txn_pool.ele ) return 0;
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, wksp );
+fd_funk_txn_valid( fd_funk_t const * funk, fd_funk_txn_t const * txn ) {
+  ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
+  ulong txn_max = fd_funk_txn_pool_ele_max( funk->txn_pool );
+  if( txn_idx>=txn_max || txn != txn_idx + funk->txn_pool->ele ) return 0;
   fd_funk_txn_map_query_t query[1];
-  if( FD_UNLIKELY( fd_funk_txn_map_query_try( &txn_map, &txn->xid, NULL, query, 0 ) ) ) return 0;
+  if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, &txn->xid, NULL, query, 0 ) ) ) return 0;
   if( fd_funk_txn_map_query_ele( query ) != txn ) return 0;
   return 1;
 }
-
-#endif

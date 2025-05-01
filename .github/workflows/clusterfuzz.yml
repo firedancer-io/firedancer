@@ -52,8 +52,6 @@ jobs:
           cp -r src/ ${{ env.COV_OBJ_DIR}}/lib/libfd_exec_sol_compat_src/
           # rename the coverage .so's so they don't overwrite on unpack.
           mv ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat.so ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat_cov.so
-          # also the stubbed target
-          mv ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat_stubbed.so ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat_stubbed_cov.so
           ls ${{ env.COV_OBJ_DIR}}/lib
 
 
