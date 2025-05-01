@@ -84,7 +84,7 @@ fd_bank_mgr_block_hash_queue_modify( fd_bank_mgr_t * bank_mgr ) {
   int     err      = 0;
   uchar * new_data = fd_funk_val_truncate( in_prep_rec,
                                            FD_BANK_MGR_BLOCK_HASH_QUEUE_FOOTPRINT,
-                                           fd_funk_alloc( bank_mgr->funk, fd_funk_wksp( bank_mgr->funk ) ),
+                                           fd_funk_alloc( bank_mgr->funk ),
                                            fd_funk_wksp( bank_mgr->funk ),
                                            &err );
 
@@ -112,7 +112,7 @@ int
 fd_bank_mgr_block_hash_queue_save( fd_bank_mgr_t * bank_mgr ) {
   /* Publish the record into the current funk transaction and clear the
      now stale funk record prepare. */
-  fd_funk_rec_publish( &bank_mgr->prepare );
+  fd_funk_rec_publish( bank_mgr->funk, &bank_mgr->prepare );
   fd_memset( &bank_mgr->prepare, 0, sizeof(fd_funk_rec_prepare_t) );
   return 0;
 }
