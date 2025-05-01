@@ -355,7 +355,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !funk_join_ok ) ) {
     FD_LOG_CRIT(( "Failed to join funk" ));
   }
-  FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->exec.funk_file ));
+  FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->writer.funk_file ));
 
   /********************************************************************/
   /* Setup fseq                                                       */
