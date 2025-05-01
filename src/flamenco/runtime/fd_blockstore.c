@@ -272,18 +272,18 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
   if ( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to prepare block map for slot %lu", smr ));
 
   ele->slot = smr;
-  ele->parent_slot = slot_bank->prev_slot;
+  ele->parent_slot   = slot_bank->prev_slot;
   memset( ele->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
   ele->child_slot_cnt = 0;
-  ele->block_height = slot_bank->block_height;
+  ele->block_height   = slot_bank->block_height;
   memcpy( &ele->block_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
-  ele->bank_hash  = slot_bank->banks_hash;
-  ele->block_hash = slot_bank->poh;
-  ele->flags      = fd_uchar_set_bit(
-                  fd_uchar_set_bit(
-                  fd_uchar_set_bit(
-                  fd_uchar_set_bit(
-                  fd_uchar_set_bit( ele->flags,
+  ele->bank_hash      = slot_bank->banks_hash;
+  ele->in_poh_hash    = slot_bank->poh;
+  ele->flags          = fd_uchar_set_bit(
+                      fd_uchar_set_bit(
+                      fd_uchar_set_bit(
+                      fd_uchar_set_bit(
+                      fd_uchar_set_bit( ele->flags,
                                        FD_BLOCK_FLAG_COMPLETED ),
                                        FD_BLOCK_FLAG_PROCESSED ),
                                        FD_BLOCK_FLAG_EQVOCSAFE ),
