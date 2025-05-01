@@ -17,8 +17,9 @@ typedef struct {
   int   changed_blockhash;
 
   int   has_recent_blockhash;
-  uchar recent_blockhash[ 32 ];
+  uchar recent_blockhash[ 160 ][ 32 ];
   uchar staged_blockhash[ 32 ];
+  ulong blockhash_insert_idx;
 
   int   transaction_mode;
   float contending_fraction;
@@ -302,9 +303,10 @@ after_credit( fd_benchg_ctx_t *   ctx,
       break;
   }
 
+  ulong blockhash_idx = fd_rng_ulong_roll( ctx->rng, ctx->blockhash_insert_idx )%160UL;
   single_signer_hdr_t * txnh = (single_signer_hdr_t *)_txn;
   fd_memcpy( txnh->fee_payer,  ctx->acct_public_keys[ sender_idx ].uc, 32UL );
-  fd_memcpy( recent_blockhash, ctx->recent_blockhash,                  32UL );
+  fd_memcpy( recent_blockhash, ctx->recent_blockhash[ blockhash_idx ], 32UL );
 
   fd_ed25519_sign( txnh->signature,
                    &(txnh->_sig_cnt),
@@ -319,9 +321,10 @@ after_credit( fd_benchg_ctx_t *   ctx,
   ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->acct_cnt;
   if( FD_UNLIKELY( !ctx->sender_idx ) ) {
     if( FD_UNLIKELY( ctx->changed_blockhash ) ) {
-      ctx->lamport_idx = 1UL+ctx->benchg_idx;
       ctx->changed_blockhash = 0;
-      fd_memcpy( ctx->recent_blockhash, ctx->staged_blockhash, 32UL );
+      fd_memcpy( ctx->recent_blockhash[ (ctx->blockhash_insert_idx++)%160UL ], ctx->staged_blockhash, 32UL );
+      if( FD_UNLIKELY( ctx->blockhash_insert_idx%160UL == 0UL ) )
+        ctx->lamport_idx = 1UL+ctx->benchg_idx;
     } else {
       /* Increments of the number of generators so there are never
          duplicate transactions generated. */
@@ -339,11 +342,11 @@ during_frag( fd_benchg_ctx_t * ctx,
              ulong             sz     FD_PARAM_UNUSED,
              ulong             ctl    FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) {
-    fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
+    fd_memcpy( ctx->recent_blockhash[ ctx->blockhash_insert_idx++ ], fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
     ctx->has_recent_blockhash = 1;
     ctx->changed_blockhash    = 0;
   } else {
-    if( FD_UNLIKELY( !memcmp( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL ) ) ) return;
+    if( FD_UNLIKELY( !memcmp( ctx->recent_blockhash[ (ctx->blockhash_insert_idx)%160UL ], fd_chunk_to_laddr( ctx->mem, chunk ), 32UL ) ) ) return;
 
     fd_memcpy( ctx->staged_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
     ctx->changed_blockhash    = 1;
@@ -379,6 +382,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sender_idx        = 0UL;
   ctx->lamport_idx       = 1UL+tile->kind_id;
   ctx->changed_blockhash = 0;
+
+  ctx->blockhash_insert_idx = 0UL;
 
   ctx->benchg_cnt = fd_topo_tile_name_cnt( topo, "benchg" );
   ctx->benchg_idx = tile->kind_id;
