@@ -33,7 +33,10 @@ fd_bank_mgr_new( void * mem ) {
 fd_bank_mgr_t *
 fd_bank_mgr_join( void * mem, fd_funk_t * funk, fd_funk_txn_t * funk_txn ) {
 
-  /* TODO: Check alignment */
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_bank_mgr_align() ) ) ) {
+    FD_LOG_ERR(( "Bank manager mem not aligned" ));
+    return NULL;
+  }
 
   fd_bank_mgr_t * bank_mgr = (fd_bank_mgr_t * )mem;
 

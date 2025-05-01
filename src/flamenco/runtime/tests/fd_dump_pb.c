@@ -339,17 +339,20 @@ dump_sanitized_transaction( fd_funk_t *                            funk,
 
 /** BLOCKHASH QUEUE DUMPING **/
 
-static void FD_FN_UNUSED
-dump_blockhash_queue( fd_block_hash_queue_t const * queue,
-                      fd_spad_t *                   spad,
-                      pb_bytes_array_t **           output_blockhash_queue,
-                      pb_size_t *                   output_blockhash_queue_count ) {
+static void
+dump_blockhash_queue( fd_block_hash_queue_global_t const * queue,
+                      fd_spad_t *                          spad,
+                      pb_bytes_array_t **                  output_blockhash_queue,
+                      pb_size_t *                          output_blockhash_queue_count ) {
   pb_size_t cnt = 0;
   fd_hash_hash_age_pair_t_mapnode_t * nn;
 
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( (void*)queue, queue->ages_pool_offset );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( (void*)queue, queue->ages_root_offset );
+
   // Iterate over all block hashes in the queue and save them in the output
-  for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
-    nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+  for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( ages_pool, ages_root ); n; n = nn ) {
+    nn = fd_hash_hash_age_pair_t_map_successor( ages_pool, n );
 
     /* Get the index in the blockhash queue
        - Lower index = newer
@@ -460,7 +463,11 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                               alignof(pb_bytes_array_t *),
                                                               PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   block_context->blockhash_queue = output_blockhash_queue;
-  // dump_blockhash_queue( &slot_ctx->slot_bank.block_hash_queue, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
+
+  fd_bank_mgr_t                  bank_mgr_obj;
+  fd_bank_mgr_t *                bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_block_hash_queue_global_t * bhq      = fd_bank_mgr_block_hash_queue_query( bank_mgr );
+  dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
 
   /* BlockContext -> SlotContext */
   block_context->has_slot_ctx                       = true;
@@ -822,7 +829,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                       alignof(pb_bytes_array_t *),
                                                       PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue = output_blockhash_queue;
-  //dump_blockhash_queue( &txn_ctx->block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
+  dump_blockhash_queue( txn_ctx->block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
 
   /* Transaction Context -> epoch_ctx */
   txn_context_msg->has_epoch_ctx = true;
