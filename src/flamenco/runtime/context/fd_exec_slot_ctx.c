@@ -288,7 +288,9 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   fd_funk_t *     funk     = slot_ctx->funk;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &slot_ctx->bank_mgr, funk, funk_txn );
+
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( mem ), funk, funk_txn );
   if( FD_UNLIKELY( !bank_mgr ) ) {
     FD_LOG_ERR(( "Could not allocate bank manager" ));
   }
