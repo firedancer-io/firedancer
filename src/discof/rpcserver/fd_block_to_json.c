@@ -300,23 +300,17 @@ vote_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw + instr->data_off,
-      .dataend = raw + instr->data_off + instr->data_sz,
-    };
-    ulong total_sz      = 0UL;
-    int   decode_result = fd_vote_instruction_decode_footprint( &decode, &total_sz );
-    if( decode_result != FD_BINCODE_SUCCESS ) {
+
+    int decode_result;
+    fd_vote_instruction_t * instruction = fd_bincode_decode_scratch(
+        vote_instruction,
+        raw + instr->data_off,
+        instr->data_sz,
+        &decode_result );
+    if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
-
-    uchar * mem = fd_scratch_alloc( fd_vote_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for vote instruction" ));
-    }
-
-    fd_vote_instruction_t * instruction = fd_vote_instruction_decode( mem, &decode );
 
     EMIT_SIMPLE("{\"parsed\":");
 
@@ -338,23 +332,17 @@ system_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw + instr->data_off,
-      .dataend = raw + instr->data_off + instr->data_sz
-    };
-    ulong total_sz      = 0UL;
-    int   decode_result = fd_system_program_instruction_decode_footprint( &decode, &total_sz );
-    if( decode_result != FD_BINCODE_SUCCESS ) {
+
+    int decode_result;
+    fd_system_program_instruction_t * instruction = fd_bincode_decode_scratch(
+        system_program_instruction,
+        raw + instr->data_off,
+        instr->data_sz,
+        &decode_result );
+    if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
-
-    uchar * mem = fd_scratch_alloc( fd_system_program_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for system program instruction" ));
-    }
-
-    fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
 
     EMIT_SIMPLE("{\"parsed\":");
 
@@ -398,23 +386,17 @@ compute_budget_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_bincode_decode_ctx_t decode = {
-      .data    = raw + instr->data_off,
-      .dataend = raw + instr->data_off + instr->data_sz,
-    };
-    ulong total_sz      = 0UL;
-    int   decode_result = fd_compute_budget_program_instruction_decode_footprint( &decode, &total_sz );
-    if( decode_result != FD_BINCODE_SUCCESS ) {
+
+    int decode_result;
+    fd_compute_budget_program_instruction_t * instruction = fd_bincode_decode_scratch(
+        compute_budget_program_instruction,
+        raw + instr->data_off,
+        instr->data_sz,
+        &decode_result );
+    if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
-
-    uchar * mem = fd_scratch_alloc( fd_compute_budget_program_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for compute budget program instruction" ));
-    }
-
-    fd_compute_budget_program_instruction_t * instruction = fd_compute_budget_program_instruction_decode( mem, &decode );
 
     EMIT_SIMPLE("{\"parsed\":");
 

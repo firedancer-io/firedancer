@@ -355,8 +355,8 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
 static int
-fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t * repair_tile_ctx,
-                           fd_repair_t *                 glob,
+fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
+                            fd_repair_t *                 glob,
                             uchar const *                 msg,
                             ulong                         msglen,
                             fd_repair_peer_addr_t const * src_addr,
@@ -365,25 +365,15 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t * repair_tile_ctx,
 
   FD_SCRATCH_SCOPE_BEGIN {
     while( 1 ) {
-      fd_bincode_decode_ctx_t ctx = {
-        .data    = msg,
-        .dataend = msg + msglen
-      };
-
-      ulong total_sz = 0UL;
-      if( FD_UNLIKELY( fd_repair_response_decode_footprint( &ctx, &total_sz ) ) ) {
+      ulong decoded_sz;
+      fd_repair_response_t * gmsg = fd_bincode_decode1_scratch(
+          repair_response, msg, msglen, NULL, &decoded_sz );
+      if( FD_UNLIKELY( !gmsg ) ) {
         /* Solana falls back to assuming we got a shred in this case
            https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1198 */
         break;
       }
-
-      uchar * mem = fd_scratch_alloc( fd_repair_response_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for repair response" ));
-      }
-
-      fd_repair_response_t * gmsg = fd_repair_response_decode( mem, &ctx );
-      if( FD_UNLIKELY( ctx.data != ctx.dataend ) ) {
+      if( FD_UNLIKELY( decoded_sz != msglen ) ) {
         break;
       }
 
@@ -738,7 +728,7 @@ repair_get_parent( ulong  slot,
    dst_ip4_addr is the dst IPv4 address of the incoming packet (i.e. our IP) */
 
 static int
-fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *  repair_tile_ctx,
+fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
                             fd_repair_t *                 glob,
                             uchar *                       msg,
                             ulong                         msglen,
@@ -748,13 +738,10 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *  repair_tile_ctx,
   //ulong recv_serv_pkt_types[FD_METRICS_ENUM_SENT_REQUEST_TYPES_CNT];
 
   FD_SCRATCH_SCOPE_BEGIN {
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = msg,
-      .dataend = msg + msglen
-    };
-
-    ulong total_sz = 0UL;
-    if( FD_UNLIKELY( fd_repair_protocol_decode_footprint( &ctx, &total_sz ) ) ) {
+    ulong decoded_sz;
+    fd_repair_protocol_t * protocol = fd_bincode_decode1_scratch(
+        repair_protocol, msg, msglen, NULL, &decoded_sz );
+    if( FD_UNLIKELY( !protocol ) ) {
       glob->metrics.recv_serv_corrupt_pkt++;
       FD_LOG_WARNING(( "Failed to decode repair request packet" ));
       return 0;
@@ -762,14 +749,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
     glob->metrics.recv_serv_pkt++;
 
-    uchar * mem = fd_scratch_alloc( fd_repair_protocol_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for repair protocol" ));
-    }
-
-    fd_repair_protocol_t * protocol = fd_repair_protocol_decode( mem, &ctx );
-
-    if( FD_UNLIKELY( ctx.data != ctx.dataend ) ) {
+    if( FD_UNLIKELY( decoded_sz != msglen ) ) {
       FD_LOG_WARNING(( "failed to decode repair request packet" ));
       return 0;
     }

@@ -863,7 +863,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
           loader_v4_program_instruction,
           instr_ctx->txn_ctx->spad,
           instr_ctx->instr->data,
-          instr_ctx->instr->data_sz,
+          instr_ctx->instr->data_sz > FD_TXN_MTU ? FD_TXN_MTU : instr_ctx->instr->data_sz,
           NULL );
       if( FD_UNLIKELY( !instruction ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;

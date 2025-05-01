@@ -106,25 +106,15 @@ fd_repair_recv_clnt_packet( fd_repair_t *                 glob,
 
   FD_SCRATCH_SCOPE_BEGIN {
     while( 1 ) {
-      fd_bincode_decode_ctx_t ctx = {
-        .data    = msg,
-        .dataend = msg + msglen
-      };
-
-      ulong total_sz = 0UL;
-      if( FD_UNLIKELY( fd_repair_response_decode_footprint( &ctx, &total_sz ) ) ) {
+      ulong decoded_sz;
+      fd_repair_response_t * gmsg = fd_bincode_decode1_scratch(
+          repair_response, msg, msglen, NULL, &decoded_sz );
+      if( FD_UNLIKELY( !gmsg ) ) {
         /* Solana falls back to assuming we got a shred in this case
            https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1198 */
         break;
       }
-
-      uchar * mem = fd_scratch_alloc( fd_repair_response_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for repair response" ));
-      }
-
-      fd_repair_response_t * gmsg = fd_repair_response_decode( mem, &ctx );
-      if( FD_UNLIKELY( ctx.data != ctx.dataend ) ) {
+      if( FD_UNLIKELY( decoded_sz != msglen ) ) {
         break;
       }
 
