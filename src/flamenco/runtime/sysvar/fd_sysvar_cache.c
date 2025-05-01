@@ -122,8 +122,7 @@ fd_sysvar_cache_restore_##name(                                                 
       type##_decode() does not do heap allocations on failure */                          \
     fd_bincode_decode_ctx_t decode = {                                                    \
       .data    = account->vt->get_data( account ),                                        \
-      .dataend = account->vt->get_data( account ) + account->vt->get_data_len( account ), \
-      .wksp    = wksp                                                                     \
+      .dataend = account->vt->get_data( account ) + account->vt->get_data_len( account )  \
     };                                                                                    \
     ulong total_sz    = 0UL;                                                              \
     int   err         = type##_decode_footprint( &decode, &total_sz );                    \
