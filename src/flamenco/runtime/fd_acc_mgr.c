@@ -111,16 +111,6 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
     return NULL;
   }
 
-#ifdef VLOG
-  FD_LOG_DEBUG(( "fd_funk_get_acc_meta_mutable: %s create: %s  lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld",
-                 FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
-                 do_create ? "true" : "false",
-                 meta->info.lamports,
-                 FD_BASE58_ENC_32_ALLOCA( meta->info.owner ),
-                 meta->info.executable ? "true" : "false",
-                 meta->info.rent_epoch, meta->dlen ));
-#endif
-
   return meta;
 }
 
