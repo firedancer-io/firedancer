@@ -85,7 +85,13 @@ fd_dev_main( int     argc,
   config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
 
   const char * action_name = "dev";
-  if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
+  if( FD_LIKELY( argc > 0 && !strcmp( argv[ 0 ], "--version" ) ) ) {
+    action_name = "version";
+    argc--; argv++;
+  } else if( FD_LIKELY( argc > 0 && !strcmp( argv[ 0 ], "--help" ) ) ) {
+    action_name = "help";
+    argc--; argv++;
+  } else if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
     action_name = argv[ 0 ];
     argc--; argv++;
   }
