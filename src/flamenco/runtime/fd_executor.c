@@ -314,8 +314,7 @@ status_check_tower( ulong slot, void * _ctx ) {
 
   fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk,
                                                                          ctx->funk_txn,
-                                                                         ctx->spad,
-                                                                         ctx->spad_wksp );
+                                                                         ctx->spad );
 
   if( fd_sysvar_slot_history_find_slot( slot_history,
                                         slot,

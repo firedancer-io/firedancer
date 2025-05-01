@@ -146,8 +146,7 @@ fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_bincode_decode_ctx_t decode = {
     .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec ),
-    .wksp    = slot_ctx->runtime_wksp
+    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
   };
 
   ulong total_sz = 0UL;
