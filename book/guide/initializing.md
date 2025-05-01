@@ -158,11 +158,11 @@ information.
 
 In Firedancer, each `net` tile serves one network queue, so the
 `ethtool-channels` stage will modify the combined channel count of the
-configured network device `[net.interface]` to be the same as the number
-of `net` tiles, `[layout.net_tile_count]`. If your NIC does not support
-the required number of queues, you will need to reduce the number of
-`net` tiles, potentially down to one for NICs which don't support queues
-at all.
+configured network device `[tiles.net.interface]` to be the same as the
+number of `net` tiles, `[layout.net_tile_count]`. If your NIC does not
+support the required number of queues, you will need to reduce the
+number of `net` tiles, potentially down to one for NICs which don't
+support queues at all.
 
 The command run by the stage is similar to running `ethtool
 --set-channels <device> combined <N>` but it also supports bonded

@@ -114,32 +114,6 @@ struct fd_configf {
 
 typedef struct fd_configf fd_configf_t;
 
-struct fd_config_net {
-  char provider[ 8 ]; /* "xdp" or "socket" */
-
-  char interface[ IF_NAMESIZE ];
-  char bind_address[ 16 ];
-  uint bind_address_parsed;
-  uint ip_addr;
-
-  uint ingress_buffer_size;
-
-  struct {
-    char xdp_mode[ 8 ];
-    int  xdp_zero_copy;
-
-    uint xdp_rx_queue_size;
-    uint xdp_tx_queue_size;
-    uint flush_timeout_micros;
-  } xdp;
-
-  struct {
-    uint receive_buffer_size;
-    uint send_buffer_size;
-  } socket;
-};
-typedef struct fd_config_net fd_config_net_t;
-
 struct fd_config {
   char name[ NAME_SZ ];
   char user[ 256 ];
@@ -226,8 +200,6 @@ struct fd_config {
     ulong gigantic_page_threshold_mib;
   } hugetlbfs;
 
-  fd_config_net_t net;
-
   struct {
     int sandbox;
     int no_clone;
@@ -235,6 +207,12 @@ struct fd_config {
     int no_agave;
     int bootstrap;
     uint debug_tile;
+
+    struct {
+      char provider[ 8 ];
+      uint sock_receive_buffer_size;
+      uint sock_send_buffer_size;
+    } net;
 
     struct {
       int  enabled;
@@ -277,6 +255,21 @@ struct fd_config {
   } development;
 
   struct {
+    struct {
+      char interface[ IF_NAMESIZE ];
+      char bind_address[ 16 ];
+      uint bind_address_parsed;
+      uint ip_addr;
+      char xdp_mode[ 8 ];
+      int  xdp_zero_copy;
+
+      uint xdp_rx_queue_size;
+      uint xdp_tx_queue_size;
+      uint flush_timeout_micros;
+
+      uint send_buffer_size;
+    } net;
+
     struct {
       ulong max_routes;
       ulong max_neighbors;

@@ -357,17 +357,14 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );
   CFG_POP      ( ulong,  hugetlbfs.gigantic_page_threshold_mib            );
 
-  CFG_POP      ( cstr,   net.interface                                    );
-  CFG_POP      ( cstr,   net.bind_address                                 );
-  CFG_POP      ( cstr,   net.provider                                     );
-  CFG_POP      ( uint,   net.ingress_buffer_size                          );
-  CFG_POP      ( cstr,   net.xdp.xdp_mode                                 );
-  CFG_POP      ( bool,   net.xdp.xdp_zero_copy                            );
-  CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
-  CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
-  CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
-  CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
-  CFG_POP      ( uint,   net.socket.send_buffer_size                      );
+  CFG_POP      ( cstr,   tiles.net.interface                              );
+  CFG_POP      ( cstr,   tiles.net.bind_address                           );
+  CFG_POP      ( cstr,   tiles.net.xdp_mode                               );
+  CFG_POP      ( bool,   tiles.net.xdp_zero_copy                          );
+  CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
+  CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
+  CFG_POP      ( uint,   tiles.net.flush_timeout_micros                   );
+  CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
 
   CFG_POP      ( ulong,  tiles.netlink.max_routes                         );
   CFG_POP      ( ulong,  tiles.netlink.max_neighbors                      );
@@ -457,6 +454,10 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
 
+  CFG_POP      ( cstr,   development.net.provider                         );
+  CFG_POP      ( uint,   development.net.sock_receive_buffer_size         );
+  CFG_POP      ( uint,   development.net.sock_send_buffer_size            );
+
   CFG_POP      ( bool,   development.netns.enabled                        );
   CFG_POP      ( cstr,   development.netns.interface0                     );
   CFG_POP      ( cstr,   development.netns.interface0_mac                 );
@@ -491,37 +492,6 @@ fd_config_extract_pod( uchar *       pod,
   } else {
     if( FD_UNLIKELY( !fd_config_extract_podh( pod, &config->frankendancer ) ) ) return NULL;
   }
-
-  /* Renamed config options */
-
-# define CFG_RENAMED( old_path, new_path )                             \
-  do {                                                                 \
-    char const * key = #old_path;                                      \
-    fd_pod_info_t info[1];                                             \
-    if( FD_UNLIKELY( !fd_pod_query( pod, key, info ) ) ) {             \
-      FD_LOG_WARNING(( "Config option `%s` was renamed to `%s`. "      \
-                       "Please update your config file.",              \
-                       #old_path, #new_path ));                        \
-      return NULL;                                                     \
-    }                                                                  \
-    (void)config->new_path; /* assert new path exists */               \
-  } while(0)
-
-  CFG_RENAMED( tiles.net.interface,            net.interface                );
-  CFG_RENAMED( tiles.net.bind_address,         net.bind_address             );
-  CFG_RENAMED( tiles.net.provider,             net.provider                 );
-  CFG_RENAMED( tiles.net.xdp_mode,             net.xdp.xdp_mode             );
-  CFG_RENAMED( tiles.net.xdp_zero_copy,        net.xdp.xdp_zero_copy        );
-  CFG_RENAMED( tiles.net.xdp_rx_queue_size,    net.xdp.xdp_rx_queue_size    );
-  CFG_RENAMED( tiles.net.xdp_tx_queue_size,    net.xdp.xdp_tx_queue_size    );
-  CFG_RENAMED( tiles.net.flush_timeout_micros, net.xdp.flush_timeout_micros );
-  CFG_RENAMED( tiles.net.send_buffer_size,     net.ingress_buffer_size      );
-
-  CFG_RENAMED( development.net.provider,                 net.provider                   );
-  CFG_RENAMED( development.net.sock_receive_buffer_size, net.socket.receive_buffer_size );
-  CFG_RENAMED( development.net.sock_send_buffer_size,    net.socket.send_buffer_size    );
-
-# undef CFG_RENAMED
 
   if( FD_UNLIKELY( !fdctl_pod_find_leftover( pod ) ) ) return NULL;
   return config;

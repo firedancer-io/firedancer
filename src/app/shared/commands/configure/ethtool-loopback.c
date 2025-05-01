@@ -33,7 +33,7 @@ enabled( config_t const * config ) {
   if( config->development.netns.enabled ) return 0;
 
   /* only enable if network stack is XDP */
-  if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
+  if( 0!=strcmp( config->development.net.provider, "xdp" ) ) return 0;
 
   return 1;
 }
