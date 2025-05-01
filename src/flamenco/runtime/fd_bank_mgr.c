@@ -23,6 +23,8 @@ fd_bank_mgr_new( void * mem ) {
 fd_bank_mgr_t *
 fd_bank_mgr_join( void * mem, fd_funk_t * funk, fd_funk_txn_t * funk_txn ) {
 
+  /* TODO: Check alignment */
+
   fd_bank_mgr_t * bank_mgr = (fd_bank_mgr_t * )mem;
 
   bank_mgr->funk     = funk;
@@ -71,10 +73,6 @@ fd_bank_mgr_block_hash_queue_modify( fd_bank_mgr_t * bank_mgr ) {
                                                                 &txn_out,
                                                                 &query );
 
-  if( txn_out == bank_mgr->funk_txn ) {
-    fd_funk_rec_hard_remove( bank_mgr->funk, bank_mgr->funk_txn, &key );
-  }
-
   uchar * old_data = !!rec ? fd_funk_val( rec, fd_funk_wksp( bank_mgr->funk ) ) : NULL;
 
   fd_funk_rec_t * in_prep_rec = fd_funk_rec_prepare( bank_mgr->funk, bank_mgr->funk_txn, &key, &bank_mgr->prepare, NULL );
@@ -101,7 +99,12 @@ fd_bank_mgr_block_hash_queue_modify( fd_bank_mgr_t * bank_mgr ) {
     fd_memcpy( new_data_start, old_data_start, FD_BANK_MGR_BLOCK_HASH_QUEUE_FOOTPRINT - ((ulong)new_data_start - (ulong)new_data) );
   }
 
-  /* TODO: */
+  /* If the record already exists in the current funk transaction,
+     remove it at this point. */
+  if( txn_out == bank_mgr->funk_txn ) {
+    fd_funk_rec_hard_remove( bank_mgr->funk, bank_mgr->funk_txn, &key );
+  }
+
   return (fd_block_hash_queue_global_t *)new_data_start;
 }
 

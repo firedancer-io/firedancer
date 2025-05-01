@@ -227,11 +227,20 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runner->spad );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
-  // slot_bank->block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
-  // slot_bank->block_hash_queue.ages_root = NULL;
-  // pool_mem = fd_spad_alloc( runner->spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( FD_BLOCKHASH_QUEUE_MAX_ENTRIES+1UL ) );
-  // slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, FD_BLOCKHASH_QUEUE_MAX_ENTRIES+1UL ) );
-  // slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( fd_spad_virtual( runner->spad ), FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  uchar * mem = fd_spad_alloc( runner->spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( mem, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, FD_BLOCKHASH_QUEUE_MAX_ENTRIES ) );
+
+  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
+  block_hash_queue->ages_root_offset = 0UL;
+  block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
+  block_hash_queue->last_hash_index  = 0UL;
+  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+
 
   /* TODO: Restore this from input */
   pool_mem                              = fd_spad_alloc( runner->spad, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint( 10000UL ) );
@@ -251,7 +260,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );
-  //fd_memset( slot_bank->block_hash_queue.last_hash, 0, sizeof(fd_hash_t) );
+  fd_memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  fd_bank_mgr_block_hash_queue_save( bank_mgr );
 
   // Use the latest lamports per signature
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );

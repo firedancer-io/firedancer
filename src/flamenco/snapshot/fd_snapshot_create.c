@@ -618,6 +618,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
      As a note, the size is 300 but in fact is of size 301 due to a knwon bug
      in the agave client that is emulated by the firedancer client. */
 
+  /* TODO: This needs to be converted to a global blockhash queue. */
   // bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
   // bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
   // fd_memcpy( bank->blockhash_queue.last_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );

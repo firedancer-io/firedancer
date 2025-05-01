@@ -117,7 +117,7 @@ static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages
   return (fd_hash_hash_age_pair_t_mapnode_t *)fd_hash_hash_age_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_hash_hash_age_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_fee_rate_governor {
@@ -366,7 +366,7 @@ static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_
   return (fd_vote_accounts_pair_global_t_mapnode_t *)fd_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_account_keys_pair {
@@ -415,7 +415,7 @@ static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_k
   return (fd_account_keys_pair_t_mapnode_t *)fd_account_keys_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_keys_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_account_keys_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_account_keys_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
@@ -465,7 +465,7 @@ static FD_FN_UNUSED fd_stake_weight_t_mapnode_t * fd_stake_weights_stake_weights
   return (fd_stake_weight_t_mapnode_t *)fd_stake_weight_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_stake_weight_t_mapnode_t * fd_stake_weights_stake_weights_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_stake_weight_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_stake_weight_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 /* Encoded Size: Fixed (64 bytes) */
@@ -552,7 +552,7 @@ static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations
   return (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_T fd_stake_pair_t_mapnode_t
@@ -602,7 +602,7 @@ static FD_FN_UNUSED fd_stake_pair_t_mapnode_t * fd_stakes_stake_stake_delegation
   return (fd_stake_pair_t_mapnode_t *)fd_stake_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_stake_pair_t_mapnode_t * fd_stakes_stake_stake_delegations_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_stake_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_stake_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* Encoded Size: Fixed (88 bytes) */
 struct fd_bank_incremental_snapshot_persistence {
@@ -1888,7 +1888,7 @@ static FD_FN_UNUSED fd_clock_timestamp_vote_t_mapnode_t * fd_clock_timestamp_vot
   return (fd_clock_timestamp_vote_t_mapnode_t *)fd_clock_timestamp_vote_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_clock_timestamp_vote_t_mapnode_t * fd_clock_timestamp_votes_votes_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_clock_timestamp_vote_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21 */
 /* Encoded Size: Fixed (8 bytes) */
@@ -2288,7 +2288,7 @@ static FD_FN_UNUSED fd_vote_reward_t_mapnode_t * fd_calculate_stake_vote_rewards
   return (fd_vote_reward_t_mapnode_t *)fd_vote_reward_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_vote_reward_t_mapnode_t * fd_calculate_stake_vote_rewards_result_vote_reward_map_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_vote_reward_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_vote_reward_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102 */
 /* Encoded Size: Dynamic */
@@ -2362,7 +2362,7 @@ static FD_FN_UNUSED fd_vote_reward_t_mapnode_t * fd_partitioned_rewards_calculat
   return (fd_vote_reward_t_mapnode_t *)fd_vote_reward_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_vote_reward_t_mapnode_t * fd_partitioned_rewards_calculation_vote_reward_map_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_vote_reward_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_vote_reward_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L60 */
 /* Encoded Size: Dynamic */
@@ -4883,7 +4883,7 @@ static FD_FN_UNUSED fd_vote_info_pair_global_t_mapnode_t * fd_epoch_info_vote_st
   return (fd_vote_info_pair_global_t_mapnode_t *)fd_vote_info_pair_global_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_vote_info_pair_global_t_mapnode_t * fd_epoch_info_vote_states_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_vote_info_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_vote_info_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
 /* Encoded Size: Fixed (48 bytes) */
@@ -4959,7 +4959,7 @@ static FD_FN_UNUSED fd_account_costs_pair_t_mapnode_t * fd_account_costs_account
   return (fd_account_costs_pair_t_mapnode_t *)fd_account_costs_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
 static FD_FN_UNUSED fd_account_costs_pair_t_mapnode_t * fd_account_costs_account_costs_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_account_costs_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+  return !!offset ? (fd_account_costs_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
 /* Encoded Size: Dynamic */

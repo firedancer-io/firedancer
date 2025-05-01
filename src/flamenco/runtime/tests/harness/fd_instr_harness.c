@@ -65,10 +65,23 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
   /* Blockhash queue init */
-  // fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
-  // blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  // blockhash_queue->last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  // fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
+  uchar * mem = fd_spad_alloc( runner->spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( mem, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
+
+  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  block_hash_queue->ages_root_offset = 0UL;
+  block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
+  block_hash_queue->last_hash_index  = 0UL;
+  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+
+  memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  fd_bank_mgr_block_hash_queue_save( bank_mgr );
 
   /* Set up txn context */
 
@@ -293,7 +306,10 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      //*blockhash_queue->last_hash                = last->blockhash;
+      block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+      fd_hash_t * last_hash = (fd_hash_t *)((ulong)block_hash_queue + block_hash_queue->last_hash_offset);
+      fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
+      fd_bank_mgr_block_hash_queue_save( bank_mgr );
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }

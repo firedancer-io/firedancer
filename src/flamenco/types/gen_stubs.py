@@ -1442,7 +1442,7 @@ class MapMember(TypeNode):
         print(f'}}', file=header)
 
         print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( void * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({nodename} *)fd_type_pun( (uchar *)struct_mem + offset );', file=header)
+        print(f'  return !!offset ? ({nodename} *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;', file=header)
         print(f'}}', file=header)
 
     def emitNew(self):

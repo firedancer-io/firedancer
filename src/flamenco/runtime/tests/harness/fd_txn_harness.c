@@ -201,11 +201,23 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
 
   /* Blockhash queue init */
-  // slot_ctx->slot_bank.block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  // slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
-  // uchar * pool_mem = fd_spad_alloc( runner->spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( 400 ) );
-  // slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, 400 ) );
-  // slot_ctx->slot_bank.block_hash_queue.last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+
+  uchar * mem = fd_spad_alloc( runner->spad, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( mem, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
+
+  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  block_hash_queue->ages_root_offset = 0UL;
+  block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
+  block_hash_queue->last_hash_index  = 0UL;
+  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+
+  fd_bank_mgr_block_hash_queue_save( bank_mgr );
+
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
