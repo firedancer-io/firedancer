@@ -608,7 +608,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-    fd_memcpy(&temp_info->stake_infos[temp_info->stake_infos_len  ].stake.delegation, &stake_state.inner.stake.stake, sizeof(fd_stake_t));
+    fd_memcpy(&temp_info->stake_infos[temp_info->stake_infos_len  ].stake, &stake_state.inner.stake.stake, sizeof(fd_stake_t));
     fd_memcpy(&temp_info->stake_infos[temp_info->stake_infos_len++].account, &n->elem.key, sizeof(fd_pubkey_t));
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator->effective    += new_entry.effective;
