@@ -387,7 +387,7 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   for(;;) {
     int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS )   break;
-    if( err == FD_MAP_ERR_KEY )   return FD_FUNK_SUCCESS;
+    if( err == FD_MAP_ERR_KEY )   return FD_FUNK_ERR_KEY;
     if( err == FD_MAP_ERR_AGAIN ) continue;
     FD_LOG_CRIT(( "query returned err %d", err ));
   }

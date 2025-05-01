@@ -269,7 +269,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 
 /* fd_funk_rec_remove removes the live record with the
    given (xid,key) from funk. Returns FD_FUNK_SUCCESS (0) on
-   success and a FD_FUNK_ERR_* (negative) on failure.  Reasons for
+   success and an FD_FUNK_ERR_* (negative) on failure.  Reasons for
    failure include:
 
      FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL xid)
