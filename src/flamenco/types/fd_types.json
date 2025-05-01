@@ -1237,7 +1237,6 @@
       "type": "struct",
       "fields": [
         { "name": "timestamp_votes",             "type": "clock_timestamp_votes" },
-        { "name": "slot",                        "type": "ulong" },
         { "name": "prev_slot",                   "type": "ulong" },
         { "name": "poh",                         "type": "hash" },
         { "name": "banks_hash",                  "type": "hash" },

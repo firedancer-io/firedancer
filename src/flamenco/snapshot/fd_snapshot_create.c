@@ -785,10 +785,10 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
     FD_LOG_ERR(( "Snapshot directory is not set" ));
   }
 
-  if( FD_UNLIKELY( snapshot_ctx->slot>snapshot_ctx->slot_bank.slot ) ) {
-    FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu",
-                     snapshot_ctx->slot, snapshot_ctx->slot_bank.slot ));
-  }
+  // if( FD_UNLIKELY( snapshot_ctx->slot>snapshot_ctx->slot_bank.slot ) ) {
+  //   FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu",
+  //                    snapshot_ctx->slot, snapshot_ctx->slot_bank.slot ));
+  // }
 
   /* Truncate the two files used for snapshot creation and seek to its start. */
 

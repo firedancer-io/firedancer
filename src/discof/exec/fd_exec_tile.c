@@ -266,6 +266,7 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not join bank mgr" ));
   }
 
+  ctx->txn_ctx->slot             = *fd_bank_mgr_slot_query( bank_mgr );
   ctx->txn_ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( bank_mgr );
   if( FD_UNLIKELY( !ctx->txn_ctx->block_hash_queue ) ) {
     FD_LOG_ERR(( "Could not find valid block hash queue" ));

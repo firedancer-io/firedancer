@@ -71,20 +71,22 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Set up slot context */
+  ulong slot = test_ctx->slot_ctx.slot;
+
   slot_ctx->funk_txn                    = funk_txn;
   slot_ctx->funk                        = funk;
   slot_ctx->enable_exec_recording       = 0;
   slot_ctx->epoch_ctx                   = epoch_ctx;
   slot_ctx->runtime_wksp                = fd_wksp_containing( slot_ctx );
   slot_ctx->prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
+  slot_ctx->slot                        = slot;
+
   fd_memcpy( &slot_ctx->slot_bank.banks_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof( fd_hash_t ) );
 
   /* Set up slot bank */
-  ulong            slot      = test_ctx->slot_ctx.slot;
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
-  slot_bank->slot                   = slot;
   slot_bank->block_height           = test_ctx->slot_ctx.block_height;
   slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
   slot_bank->fee_rate_governor      = (fd_fee_rate_governor_t) {
@@ -224,7 +226,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Update leader schedule */
-  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runner->spad );
+  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot, runner->spad );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   uchar * mem = fd_spad_alloc( runner->spad, fd_bank_mgr_align(), fd_bank_mgr_footprint() );

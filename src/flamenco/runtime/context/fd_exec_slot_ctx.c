@@ -253,7 +253,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   if( oldbank->blockhash_queue.last_hash )
     slot_bank->poh = *oldbank->blockhash_queue.last_hash;
-  slot_bank->slot = oldbank->slot;
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
@@ -325,6 +324,11 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   fd_bank_mgr_block_hash_queue_save( bank_mgr );
 
+  ulong * slot_ptr = fd_bank_mgr_slot_modify( bank_mgr );
+  *slot_ptr = oldbank->slot;
+  fd_bank_mgr_slot_save( bank_mgr );
+  slot_ctx->slot = oldbank->slot;
+
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;
   if( !slot_ctx->slot_bank.timestamp_votes.votes_pool ) {
@@ -362,7 +366,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_slot_pair_t const * tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
 
     for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-      if( pair->slot <= slot_bank->slot ) {
+      if( pair->slot <= slot_ctx->slot ) {
         slot_bank->last_restart_slot.slot = pair->slot;
         break;
       }
@@ -371,7 +375,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* Move EpochStakes */
   do {
-    ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->slot, NULL );
+    ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, NULL );
 
     /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch

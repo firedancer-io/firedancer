@@ -410,7 +410,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                                                                       stake_weights,
                                                                       ctx->runtime_spad );
 
-    stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot ) - 1; /* epoch */
+    stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot ) - 1; /* epoch */
     stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
     stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
     stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
@@ -430,7 +430,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     ulong stake_weight_idx            = fd_stake_weights_by_node( &epoch_bank->next_epoch_stakes, stake_weights, ctx->runtime_spad );
 
     stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule,
-                                                             slot_ctx->slot_bank.slot ); /* epoch */
+                                                             slot_ctx->slot ); /* epoch */
     stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
     stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
     stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
@@ -1359,7 +1359,7 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
 
     fd_runtime_public_slot_msg_t * slot_msg = (fd_runtime_public_slot_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
 
-    slot_msg->slot                        = slot_ctx->slot_bank.slot;
+    slot_msg->slot                        = slot_ctx->slot;
     slot_msg->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
     slot_msg->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
     slot_msg->enable_exec_recording       = slot_ctx->enable_exec_recording;
@@ -1439,8 +1439,8 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx->epoch_ctx );
 
   /* if it is an epoch boundary, push out stake weights */
-  if( fork->slot_ctx->slot_bank.slot != 0 ) {
-    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx->slot_bank.slot, fork->slot_ctx->slot_bank.prev_slot );
+  if( fork->slot_ctx->slot != 0 ) {
+    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx->slot, fork->slot_ctx->slot_bank.prev_slot );
   }
 
   fd_block_map_query_t query[1] = { 0 };
@@ -1451,8 +1451,8 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   curr_block_info->in_poh_hash = fork->slot_ctx->slot_bank.poh;
   fd_block_map_publish( query );
 
-  fork->slot_ctx->slot_bank.prev_slot   = fork->slot_ctx->slot_bank.slot;
-  fork->slot_ctx->slot_bank.slot        = curr_slot;
+  fork->slot_ctx->slot_bank.prev_slot   = fork->slot_ctx->slot;
+  fork->slot_ctx->slot        = curr_slot;
   fork->slot_ctx->slot_bank.tick_height = fork->slot_ctx->slot_bank.max_tick_height;
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( epoch_bank->ticks_per_slot, curr_slot, &fork->slot_ctx->slot_bank.max_tick_height ) ) ) {
     FD_LOG_ERR(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", curr_slot, epoch_bank->ticks_per_slot ));
@@ -1462,11 +1462,11 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
   /* NOTE: By commenting this out, we don't support forking at the epoch boundary
      but this code is buggy and leads to crashes. */
-  // if( fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx->slot_bank.slot, fork->slot_ctx->slot_bank.prev_slot ) ) {
+  // if( fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx->slot, fork->slot_ctx->slot_bank.prev_slot ) ) {
   //   FD_LOG_WARNING(("Epoch boundary"));
 
   //   fd_epoch_fork_elem_t * epoch_fork = NULL;
-  //   ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx->slot_bank.slot, NULL );
+  //   ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx->slot, NULL );
   //   uint found = fd_epoch_forks_prepare( ctx->epoch_forks, fork->slot_ctx->slot_bank.prev_slot, new_epoch, &epoch_fork );
 
   //   if( FD_UNLIKELY( found ) ) {
@@ -1485,12 +1485,19 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
     memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
   } else {
-    xid.ul[1] = fork->slot_ctx->slot_bank.slot;
+    xid.ul[1] = fork->slot_ctx->slot;
   }
-  xid.ul[0] = fork->slot_ctx->slot_bank.slot;
+  xid.ul[0] = fork->slot_ctx->slot;
   /* push a new transaction on the stack */
   fd_funk_txn_start_write( ctx->funk );
   fork->slot_ctx->funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx->funk_txn, &xid, 1);
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, fork->slot_ctx->funk_txn );
+  ulong * slot_ptr = fd_bank_mgr_slot_modify( bank_mgr );
+  *slot_ptr = fork->slot_ctx->slot;
+  fd_bank_mgr_slot_save( bank_mgr );
+
   fd_funk_txn_end_write( ctx->funk );
 
   /* We must invalidate all of the sysvar cache entries in the case that
@@ -1563,9 +1570,9 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   } else {
     memset(msg->last_entry_hash, 0UL, sizeof(fd_hash_t));
   }
-  msg->tick_height = ctx->slot_ctx->slot_bank.slot * msg->ticks_per_slot;
+  msg->tick_height = ctx->slot_ctx->slot * msg->ticks_per_slot;
 
-  ulong sig = fd_disco_replay_old_sig( ctx->slot_ctx->slot_bank.slot, REPLAY_FLAG_INIT );
+  ulong sig = fd_disco_replay_old_sig( ctx->slot_ctx->slot, REPLAY_FLAG_INIT );
   fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, sizeof(fd_poh_init_msg_t), 0UL, 0UL, 0UL );
   bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, sizeof(fd_poh_init_msg_t), bank_out->chunk0, bank_out->wmark );
   bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
@@ -1612,7 +1619,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
   /**********************************************************************/
 
   if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx->slot_bank.slot );
+    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx->slot );
   }
 
 }
@@ -1868,9 +1875,13 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
 static void
 kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
-  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore,
+                      ctx->blockstore_fd,
+                      FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
+                      &ctx->slot_ctx->slot_bank,
+                      ctx->slot_ctx->slot );
 
-  fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
+  fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot );
   publish_stake_weights( ctx, stem, ctx->slot_ctx );
 
 }
@@ -1898,7 +1909,7 @@ read_snapshot( void *              _ctx,
   if( strcmp( snapshot, "funk" )==0 || strncmp( snapshot, "wksp:", 5 )==0 ) {
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
-    base_slot = ctx->slot_ctx->slot_bank.slot;
+    base_slot = ctx->slot_ctx->slot;
     kickoff_repair_orphans( ctx, stem );
   } else {
 
@@ -1965,7 +1976,7 @@ read_snapshot( void *              _ctx,
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL, FD_SNAPSHOT_RESTORE_NONE );
     }
     base_slot = fd_snapshot_get_slot( snap_ctx );
-
+    FD_LOG_WARNING(("BASE SLOT: %lu", base_slot));
     fd_snapshot_load_accounts( snap_ctx );
     fd_snapshot_load_fini( snap_ctx );
   }
@@ -1988,7 +1999,7 @@ read_snapshot( void *              _ctx,
   }
 
   fd_runtime_update_leaders( ctx->slot_ctx,
-                             ctx->slot_ctx->slot_bank.slot,
+                             ctx->slot_ctx->slot,
                              ctx->runtime_spad );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
@@ -2023,18 +2034,18 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
                                               ctx->exec_spad_cnt,
                                               ctx->runtime_spad );
 
-  ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
+  ulong snapshot_slot = ctx->slot_ctx->slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
     /* Genesis-specific setup. */
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
     fd_runtime_update_leaders( ctx->slot_ctx,
-                               ctx->slot_ctx->slot_bank.slot,
+                               ctx->slot_ctx->slot,
                                ctx->runtime_spad );
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
-    ctx->slot_ctx->slot_bank.slot      = 1UL;
+    ctx->slot_ctx->slot      = 1UL;
 
     ulong hashcnt_per_slot = ctx->slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * ctx->slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
     while(hashcnt_per_slot--) {
@@ -2058,7 +2069,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
                                             &exec_para_ctx_block_finalize );
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
-    ctx->slot_ctx->slot_bank.slot      = 1UL;
+    ctx->slot_ctx->slot                = 1UL;
     snapshot_slot                      = 1UL;
 
     fd_exec_para_cb_ctx_t exec_para_ctx_bpf = {
@@ -2185,7 +2196,8 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   fd_blockstore_init( ctx->slot_ctx->blockstore,
                       ctx->blockstore_fd,
                       FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
-                      &ctx->slot_ctx->slot_bank );
+                      &ctx->slot_ctx->slot_bank,
+                      ctx->curr_slot );
   ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
   ctx->epoch_ctx->runtime_public = ctx->runtime_public;
   init_after_snapshot( ctx, stem );
@@ -2195,6 +2207,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Redirect ctx->slot_ctx to point to the memory inside forks. */
+  FD_LOG_WARNING(("CURR SLOT %lu", ctx->curr_slot));
 
   fd_fork_t * fork = fd_forks_query( ctx->forks, ctx->curr_slot );
   ctx->slot_ctx = fork->slot_ctx;
@@ -2208,7 +2221,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   ulong curr_slot = ctx->curr_slot;
   ulong block_entry_height = 0;
 
-  if( is_snapshot ){
+  if( is_snapshot ) {
     for(;;){
       fd_block_map_query_t query[1] = { 0 };
       int err = fd_block_map_query_try( ctx->blockstore->block_map, &curr_slot, NULL, query, 0 );
@@ -2597,8 +2610,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Prepare bank for the next execution and write to debugging files   */
     /**********************************************************************/
 
-    ulong prev_slot = child->slot_ctx->slot_bank.slot;
-    child->slot_ctx->slot_bank.slot                     = curr_slot;
+    ulong prev_slot = child->slot_ctx->slot;
+    child->slot_ctx->slot                     = curr_slot;
     child->slot_ctx->slot_bank.collected_execution_fees = 0UL;
     child->slot_ctx->slot_bank.collected_priority_fees  = 0UL;
     child->slot_ctx->slot_bank.collected_rent           = 0UL;

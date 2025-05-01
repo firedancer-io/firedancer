@@ -193,7 +193,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     uint min_sbpf_version, max_sbpf_version;
     fd_bpf_get_sbpf_versions( &min_sbpf_version,
                               &max_sbpf_version,
-                              slot_ctx->slot_bank.slot,
+                              slot_ctx->slot,
                               &slot_ctx->epoch_ctx->features );
     if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) == NULL ) {
       FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
@@ -227,7 +227,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     fd_vm_syscall_register_slot( syscalls,
-                                 slot_ctx->slot_bank.slot,
+                                 slot_ctx->slot,
                                  &slot_ctx->epoch_ctx->features,
                                  0 );
 
@@ -249,7 +249,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
     fd_exec_instr_ctx_t dummy_instr_ctx = {0};
     fd_exec_txn_ctx_t   dummy_txn_ctx   = {0};
-    dummy_txn_ctx.slot      = slot_ctx->slot_bank.slot;
+    dummy_txn_ctx.slot      = slot_ctx->slot;
     dummy_txn_ctx.features  = slot_ctx->epoch_ctx->features;
     dummy_instr_ctx.txn_ctx = &dummy_txn_ctx;
     vm = fd_vm_init( vm,
@@ -272,7 +272,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
                      0U,
                      NULL,
                      0,
-                     FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, bpf_account_data_direct_mapping ) );
+                     FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, bpf_account_data_direct_mapping ) );
 
     if( FD_UNLIKELY( !vm ) ) {
       FD_LOG_ERR(( "fd_vm_init() failed" ));
@@ -290,7 +290,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     validated_prog->calldests = fd_sbpf_calldests_join( validated_prog->calldests_shmem );
 
     validated_prog->entry_pc = prog->entry_pc;
-    validated_prog->last_updated_slot = slot_ctx->slot_bank.slot;
+    validated_prog->last_updated_slot = slot_ctx->slot;
     validated_prog->text_off = prog->text_off;
     validated_prog->text_cnt = prog->text_cnt;
     validated_prog->text_sz = prog->text_sz;

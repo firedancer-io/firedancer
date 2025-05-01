@@ -381,18 +381,20 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
       FD_LOG_ERR(( "Slot bank record has wrong magic" ));
     }
 
-    int err;
-    fd_slot_bank_t * slot_bank = fd_bincode_decode_spad( slot_bank, ctx->spad, (uchar *)slot_val+sizeof(uint), fd_funk_val_sz( slot_rec )-sizeof(uint), &err );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "Failed to read slot bank record: invalid decode" ));
-      continue;
-    }
+    /* FIXME: The slot bank is getting replaced with the bank manager. */
+    // int err;
+    // fd_slot_bank_t * slot_bank = fd_bincode_decode_spad( slot_bank, ctx->spad, (uchar *)slot_val+sizeof(uint), fd_funk_val_sz( slot_rec )-sizeof(uint), &err );
+    // if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+    //   FD_LOG_ERR(( "Failed to read slot bank record: invalid decode" ));
+    //   continue;
+    // }
 
     /* At this point, calculate the epoch account hash. */
 
     fd_hash_t epoch_account_hash = {0};
 
-    fd_accounts_hash( funk, slot_bank, &epoch_account_hash, ctx->spad, &ctx->runtime_public->features, NULL, NULL );
+    /* FIXME: this has an invalid slot number. */
+    fd_accounts_hash( funk, 0UL, &epoch_account_hash, ctx->spad, &ctx->runtime_public->features, NULL, NULL );
 
     FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 

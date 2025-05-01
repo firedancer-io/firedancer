@@ -16,6 +16,8 @@
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
+  ulong                       slot;
+
   fd_funk_txn_t *             funk_txn;
 
   /* External joins, pointers to be set by caller */

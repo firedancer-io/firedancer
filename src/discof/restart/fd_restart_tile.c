@@ -464,8 +464,9 @@ after_credit( fd_restart_tile_ctx_t * ctx,
     ulong buf_len = 0;
     uchar * buf   = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
 
+    /* FIXME: this has an invalid slot number. */
     fd_restart_init( ctx->restart,
-                     slot_bank->slot,
+                     0UL,
                      &slot_bank->banks_hash,
                      epoch_stakes,
                      &ctx->epoch_bank.epoch_schedule,

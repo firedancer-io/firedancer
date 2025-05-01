@@ -13519,8 +13519,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   int err;
   err = fd_clock_timestamp_votes_encode( &self->timestamp_votes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->prev_slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->poh, ctx );
@@ -13580,8 +13578,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
 int fd_slot_bank_encode_global( fd_slot_bank_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_clock_timestamp_votes_encode_global( &self->timestamp_votes, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->prev_slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13644,8 +13640,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   int err = 0;
   err = fd_clock_timestamp_votes_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
@@ -13716,7 +13710,6 @@ int fd_slot_bank_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
 static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_slot_bank_t * self = (fd_slot_bank_t *)struct_mem;
   fd_clock_timestamp_votes_decode_inner( &self->timestamp_votes, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
   fd_bincode_uint64_decode_unsafe( &self->prev_slot, ctx );
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
@@ -13761,7 +13754,6 @@ void * fd_slot_bank_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
 static void fd_slot_bank_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_slot_bank_global_t * self = (fd_slot_bank_global_t *)struct_mem;
   fd_clock_timestamp_votes_decode_inner_global( &self->timestamp_votes, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
   fd_bincode_uint64_decode_unsafe( &self->prev_slot, ctx );
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
@@ -13843,7 +13835,6 @@ void fd_slot_bank_destroy( fd_slot_bank_t * self ) {
 void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_bank", level++ );
   fd_clock_timestamp_votes_walk( w, &self->timestamp_votes, fun, "timestamp_votes", level );
-  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->prev_slot, "prev_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_hash_walk( w, &self->poh, fun, "poh", level );
   fd_hash_walk( w, &self->banks_hash, fun, "banks_hash", level );
@@ -13878,7 +13869,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
 ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   ulong size = 0;
   size += fd_clock_timestamp_votes_size( &self->timestamp_votes );
-  size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_hash_size( &self->poh );
   size += fd_hash_size( &self->banks_hash );

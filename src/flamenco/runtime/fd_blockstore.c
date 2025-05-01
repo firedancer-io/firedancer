@@ -246,7 +246,11 @@ fd_blockstore_delete( void * shblockstore ) {
 } while(0);
 
 fd_blockstore_t *
-fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_slot_bank_t const * slot_bank ) {
+fd_blockstore_init( fd_blockstore_t *      blockstore,
+                    int                    fd,
+                    ulong                  fd_size_max,
+                    fd_slot_bank_t const * slot_bank,
+                    ulong                  slot ) {
 
   if ( fd_size_max < FD_BLOCKSTORE_ARCHIVE_MIN_SIZE ) {
     FD_LOG_ERR(( "archive file size too small" ));
@@ -259,7 +263,7 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
 
   /* initialize fields using slot bank */
 
-  ulong smr       = slot_bank->slot;
+  ulong smr       = slot;
 
   blockstore->shmem->lps = smr;
   blockstore->shmem->hcs = smr;

@@ -54,7 +54,6 @@ fd_bank_mgr_##name##_query( fd_bank_mgr_t * bank_mgr ) {                        
                                                               NULL,                               \
                                                               &query );                           \
   if( FD_UNLIKELY( !rec ) ) {                                                                     \
-    FD_LOG_WARNING(( "Could not find block hash queue" ));                                        \
     return NULL;                                                                                  \
   }                                                                                               \
   return (type *)fd_ulong_align_up( (ulong)fd_funk_val( rec, fd_funk_wksp( bank_mgr->funk ) ),    \

@@ -286,7 +286,11 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Set slot bank variables */
-  slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache, runner->wksp )->slot;
+  slot_ctx->slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache, runner->wksp )->slot;
+
+  ulong * slot = fd_bank_mgr_slot_modify( bank_mgr );
+  *slot = slot_ctx->slot;
+  fd_bank_mgr_slot_save( bank_mgr );
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 

@@ -17,7 +17,7 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
     FD_LOG_ERR(( "fd_sysvar_fees_encode failed" ));
   }
 
-  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_fees_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_fees_id, enc, sz, slot_ctx->slot );
 }
 
 fd_sysvar_fees_t *
@@ -98,7 +98,7 @@ fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
 
 void
 fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ))
+  if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ))
     return;
 
   fd_sysvar_fees_t * fees = fd_sysvar_fees_read( slot_ctx->funk,

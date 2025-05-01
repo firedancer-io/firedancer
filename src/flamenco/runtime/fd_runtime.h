@@ -50,9 +50,9 @@
 #define FD_FEATURE_JUST_ACTIVATED_OFFSET_(_slot, _features, _offset)      (_slot == (_features).f[_offset>>3] )
 
 #define FD_FEATURE_ACTIVE(_slot,_features,_feature_name)                  FD_FEATURE_ACTIVE_( _slot,_features,_feature_name )
-#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _feature_name )
+#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( _slot_ctx->slot, _slot_ctx->epoch_ctx->features, _feature_name )
 #define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _offset )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( _slot_ctx->slot, _slot_ctx->epoch_ctx->features, _offset )
 
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)
@@ -644,6 +644,7 @@ fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                             ulong                slot,
                              fd_block_t *         block,
                              fd_capture_ctx_t *   capture_ctx,
                              fd_tpool_t *         tpool,
