@@ -67,71 +67,70 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   uint flags;
 
   /* All pointers starting here are valid local joins in txn execution. */
-  fd_features_t                   features;
-  fd_sysvar_cache_t const *       sysvar_cache;
-  fd_txncache_t *                 status_cache;
-  ulong                           prev_lamports_per_signature;
-  int                             enable_exec_recording;
-  ulong                           total_epoch_stake;
-  fd_bank_hash_cmp_t *            bank_hash_cmp;
-  fd_funk_txn_t *                 funk_txn;
-  fd_funk_t                       funk[1];
-  fd_wksp_t *                     runtime_pub_wksp;
-  ulong                           slot;
-  fd_fee_rate_governor_t          fee_rate_governor;
-  //fd_block_hash_queue_t           block_hash_queue;
-  fd_block_hash_queue_global_t const * block_hash_queue_global;
+  fd_features_t                        features;
+  fd_sysvar_cache_t const *            sysvar_cache;
+  fd_txncache_t *                      status_cache;
+  ulong                                prev_lamports_per_signature;
+  int                                  enable_exec_recording;
+  ulong                                total_epoch_stake;
+  fd_bank_hash_cmp_t *                 bank_hash_cmp;
+  fd_funk_txn_t *                      funk_txn;
+  fd_funk_t                            funk[1];
+  fd_wksp_t *                          runtime_pub_wksp;
+  ulong                                slot;
+  fd_fee_rate_governor_t               fee_rate_governor;
+  fd_block_hash_queue_global_t const * block_hash_queue;
 
-  fd_epoch_schedule_t             schedule;
-  fd_rent_t                       rent;
-  double                          slots_per_year;
-  fd_stakes_t                     stakes;
+  fd_epoch_schedule_t                  schedule;
+  fd_rent_t                            rent;
+  double                               slots_per_year;
+  fd_stakes_t                          stakes;
 
-  fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
-  fd_wksp_t *                     spad_wksp;                                   /* Workspace for the spad. */
+  fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
+  fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */
   /* Fields below here are not guaranteed to be local joins in txn execution. */
 
-  ulong                           paid_fees;
-  ulong                           compute_unit_limit;                          /* Compute unit limit for this transaction. */
-  ulong                           compute_unit_price;                          /* Compute unit price for this transaction. */
-  ulong                           compute_meter;                               /* Remaining compute units */
-  ulong                           heap_size;                                   /* Heap size for VMs for this transaction. */
-  ulong                           loaded_accounts_data_size_limit;             /* Loaded accounts data size limit for this transaction. */
-  ulong                           loaded_accounts_data_size;                   /* The actual transaction loaded data size */
-  uint                            prioritization_fee_type;                     /* The type of prioritization fee to use. */
-  fd_txn_t const *                txn_descriptor;                              /* Descriptor of the transaction. */
-  fd_rawtxn_b_t                   _txn_raw[1];                                 /* Raw bytes of the transaction. */
-  uint                            custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
-  uchar                           instr_stack_sz;                              /* Current depth of the instruction execution stack. */
-  fd_exec_instr_ctx_t             instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
-  fd_exec_instr_ctx_t *           failed_instr;
-  int                             instr_err_idx;
+  ulong                                paid_fees;
+  ulong                                compute_unit_limit;                          /* Compute unit limit for this transaction. */
+  ulong                                compute_unit_price;                          /* Compute unit price for this transaction. */
+  ulong                                compute_meter;                               /* Remaining compute units */
+  ulong                                heap_size;                                   /* Heap size for VMs for this transaction. */
+  ulong                                loaded_accounts_data_size_limit;             /* Loaded accounts data size limit for this transaction. */
+  ulong                                loaded_accounts_data_size;                   /* The actual transaction loaded data size */
+  uint                                 prioritization_fee_type;                     /* The type of prioritization fee to use. */
+  fd_txn_t const *                     txn_descriptor;                              /* Descriptor of the transaction. */
+  fd_rawtxn_b_t                        _txn_raw[1];                                 /* Raw bytes of the transaction. */
+  uint                                 custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
+  uchar                                instr_stack_sz;                              /* Current depth of the instruction execution stack. */
+  fd_exec_instr_ctx_t                  instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
+  fd_exec_instr_ctx_t *                failed_instr;
+  int                                  instr_err_idx;
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139
      Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
-  ulong                           accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
-  ulong                           executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
-  fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
-  fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
+  ulong                                accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
+  fd_pubkey_t                          account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
+  ulong                                executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
+  fd_txn_account_t                     executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+  fd_txn_account_t                     accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
   /* This is a bit of a misnomer but Agave calls it "rollback".
      This is the account state that the nonce account should be in when
      the txn fails.
      It will advance the nonce account, rather than "roll back".
    */
-  fd_txn_account_t                rollback_nonce_account[ 1 ];
-  ulong                           nonce_account_idx_in_txn;                    /* If the transaction has a nonce account that must be advanced, this would be !=ULONG_MAX. */
-  uint                            num_instructions;                            /* Counter for number of instructions in txn */
-  fd_txn_return_data_t            return_data;                                 /* Data returned from `return_data` syscalls */
-  fd_vote_account_cache_t *       vote_accounts_map;                           /* Cache of bank's deserialized vote accounts to support fork choice */
-  fd_vote_account_cache_entry_t * vote_accounts_pool;                          /* Memory pool for deserialized vote account cache */
-  ulong                           accounts_resize_delta;                       /* Transaction level tracking for account resizing */
-  fd_hash_t                       blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
-  ulong                           execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
-  ulong                           priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
-  ulong                           collected_rent;                              /* Rent collected from accounts in this transaction */
+  fd_txn_account_t                     rollback_nonce_account[ 1 ];
+  ulong                                nonce_account_idx_in_txn;                    /* If the transaction has a nonce account that must be advanced, this would be !=ULONG_MAX. */
+  uint                                 num_instructions;                            /* Counter for number of instructions in txn */
+  fd_txn_return_data_t                 return_data;                                 /* Data returned from `return_data` syscalls */
+  fd_vote_account_cache_t *            vote_accounts_map;                           /* Cache of bank's deserialized vote accounts to support fork choice */
+  fd_vote_account_cache_entry_t *      vote_accounts_pool;                          /* Memory pool for deserialized vote account cache */
+  ulong                                accounts_resize_delta;                       /* Transaction level tracking for account resizing */
+  fd_hash_t                            blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
+  ulong                                execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
+  ulong                                priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
+  ulong                                collected_rent;                              /* Rent collected from accounts in this transaction */
 
   uchar dirty_vote_acc  : 1; /* 1 if this transaction maybe modified a vote account */
   uchar dirty_stake_acc : 1; /* 1 if this transaction maybe modified a stake account */

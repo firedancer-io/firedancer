@@ -22,7 +22,7 @@
 /* Skips fd_types encoding preflight checks and directly serializes the blockhash queue into a buffer representing
    account data for the recent blockhashes sysvar. */
 
-static void FD_FN_UNUSED
+static void
 encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
   fd_bank_mgr_join( &slot_ctx->bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
   fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( &slot_ctx->bank_mgr );
@@ -75,7 +75,7 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
-static void FD_FN_UNUSED
+static void
 register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   fd_bank_mgr_join( &slot_ctx->bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
   fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_modify( &slot_ctx->bank_mgr );

@@ -1555,9 +1555,8 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   msg->ticks_per_slot   = ctx->epoch_ctx->epoch_bank.ticks_per_slot;
   msg->tick_duration_ns = (ulong)(epoch_bank->ns_per_slot / epoch_bank->ticks_per_slot);
 
-  fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( &ctx->slot_ctx->bank_mgr );
-  fd_hash_t * last_hash = (fd_hash_t *)((ulong)bhq + bhq->last_hash_offset);
-  FD_LOG_WARNING(("LAST HASH %s", FD_BASE58_ENC_32_ALLOCA( last_hash)));
+  fd_block_hash_queue_global_t * bhq       = fd_bank_mgr_block_hash_queue_query( &ctx->slot_ctx->bank_mgr );
+  fd_hash_t *                    last_hash = (fd_hash_t *)((ulong)bhq + bhq->last_hash_offset);
   if( last_hash ) {
     memcpy(msg->last_entry_hash, last_hash, sizeof(fd_hash_t));
   } else {

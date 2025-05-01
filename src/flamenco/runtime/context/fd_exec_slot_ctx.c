@@ -286,7 +286,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
 
-
   fd_funk_t *     funk     = slot_ctx->funk;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &slot_ctx->bank_mgr, funk, funk_txn );
