@@ -197,8 +197,7 @@ test_idempotent( test_fixture_t const * t, fd_spad_t * spad, fd_wksp_t * wksp ) 
   ulong bin_sz = *t->bin_sz;
   fd_bincode_decode_ctx_t decode[1] = {{
       .data    = t->bin,
-      .dataend = t->bin + bin_sz,
-      .wksp    = wksp
+      .dataend = t->bin + bin_sz
   }};
 
   ulong  total_sz = 0UL;
