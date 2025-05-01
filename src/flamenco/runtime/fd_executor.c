@@ -1139,13 +1139,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       ctx->instr_err        = (uint)( -instr_exec_result - 1 );
     }
 
-#ifdef VLOG
-  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
-  } else {
-    FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
-  }
-#endif
     return instr_exec_result;
   } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
@@ -1180,17 +1173,9 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash
 
   fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
   if( hash_age==NULL ) {
-    #ifdef VLOG
-    FD_LOG_WARNING(( "txn with missing recent blockhash - blockhash: %s", FD_BASE58_ENC_32_ALLOCA( blockhash->uc ) ));
-    #endif
     return 0;
   }
   ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
-#ifdef VLOG
-  if( age>max_age ) {
-    FD_LOG_WARNING(( "txn with old blockhash - age: %lu, blockhash: %s", age, FD_BASE58_ENC_32_ALLOCA( hash_age->elem.key.uc ) ));
-  }
-#endif
   return ( age<=max_age );
 }
 
@@ -1356,21 +1341,12 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
   uint use_sysvar_instructions = fd_executor_txn_uses_sysvar_instructions( txn_ctx );
   int  ret                     = 0;
 
-#ifdef VLOG
-  fd_txn_t const *txn = txn_ctx->txn_descriptor;
-  fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
-  uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
-#endif
-
   bool dump_insn = txn_ctx->capture_ctx && txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_insn_to_pb;
 
   /* Initialize log collection */
   fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->enable_exec_recording );
 
   for( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
-#ifdef VLOG
-    FD_LOG_WARNING(( "Start of transaction for %d for %s", i, FD_BASE58_ENC_64_ALLOCA( sig ) ));
-#endif
     txn_ctx->current_instr_idx = i;
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
@@ -1388,35 +1364,11 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
     }
 
     int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
-#ifdef VLOG
-    FD_LOG_WARNING(( "fd_execute_instr result (%d) for %s", exec_result, FD_BASE58_ENC_64_ALLOCA( sig ) ));
-#endif
     if( instr_exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
       if ( txn_ctx->instr_err_idx == INT_MAX )
       {
         txn_ctx->instr_err_idx = i;
       }
-#ifdef VLOG
-      if ( 257037453 == txn_ctx->slot ) {
-#endif
-        if (instr_exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-#ifdef VLOG
-          FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %s",
-                            exec_result,
-                            txn_ctx->custom_err,
-                            FD_BASE58_ENC_64_ALLOCA( sig ) ));
-#endif
-        } else {
-#ifdef VLOG
-          FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %s",
-            exec_result,
-            i,
-            FD_BASE58_ENC_64_ALLOCA( sig ) ));
-#endif
-        }
-#ifdef VLOG
-      }
-#endif
       return instr_exec_result ? FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR : FD_RUNTIME_EXECUTE_SUCCESS;
     }
   }
@@ -1511,7 +1463,6 @@ fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
-#undef VLOG
 
 /* fd_executor_instr_strerror() returns the error message corresponding to err,
    intended to be logged by log_collector, or an empty string if the error code
