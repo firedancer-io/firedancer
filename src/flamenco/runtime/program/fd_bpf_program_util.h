@@ -61,14 +61,7 @@ fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const *     prog,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn,
                                                 fd_spad_t *          runtime_spad );
-
-int
-fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_funk_txn_t *      funk_txn,
-                                                 fd_pubkey_t const *  pubkey,
-                                                 fd_spad_t *          runtime_spad );
 
 void
 fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
@@ -77,7 +70,6 @@ fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slot_ctx,
-                                                     fd_funk_txn_t *         funk_txn,
                                                      fd_spad_t *             runtime_spad,
                                                      fd_exec_para_cb_ctx_t * exec_para_ctx );
 

@@ -2002,7 +2002,6 @@ read_snapshot( void *              _ctx,
     .para_arg_2 = stem
   };
   fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                       ctx->slot_ctx->funk_txn,
                                                        ctx->runtime_spad,
                                                        &exec_para_ctx );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
@@ -2073,7 +2072,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
     fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                         ctx->slot_ctx->funk_txn,
                                                          ctx->runtime_spad,
                                                          &exec_para_ctx_bpf );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));

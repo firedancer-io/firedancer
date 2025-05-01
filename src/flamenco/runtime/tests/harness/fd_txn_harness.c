@@ -76,7 +76,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
