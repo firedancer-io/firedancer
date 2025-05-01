@@ -196,27 +196,18 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
       return NULL;
     }
     uint magic = *(uint*)val;
-    fd_bincode_decode_ctx_t binctx;
-    binctx.data    = (uchar*)val + sizeof(uint);
-    binctx.dataend = (uchar*)val + vallen;
-
-    fd_epoch_bank_t * epoch_bank = NULL;
-    if( magic == FD_RUNTIME_ENC_BINCODE ) {
-      ulong total_sz = 0UL;
-      if( fd_epoch_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-        return NULL;
-      }
-
-      uchar * mem = fd_scratch_alloc( fd_epoch_bank_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for epoch bank" ));
-        return NULL;
-      }
-
-      epoch_bank = fd_epoch_bank_decode( mem, &binctx );
-    } else {
+    if( FD_UNLIKELY( magic != FD_RUNTIME_ENC_BINCODE ) ) {
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
+    }
+
+    fd_epoch_bank_t * epoch_bank = fd_bincode_decode_scratch(
+        epoch_bank,
+        val    + sizeof(uint),
+        vallen - sizeof(uint),
+        NULL );
+    if( FD_UNLIKELY( !epoch_bank ) ) {
+      FD_LOG_WARNING(( "failed to decode epoch_bank" ));
+      return NULL;
     }
 
     glob->epoch_bank       = epoch_bank;
@@ -250,27 +241,18 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   }
 
   uint magic = *(uint*)val;
-  fd_bincode_decode_ctx_t binctx;
-  binctx.data = (uchar*)val + sizeof(uint);
-  binctx.dataend = (uchar*)val + vallen;
-
-  fd_slot_bank_t * slot_bank = NULL;
-  if( magic == FD_RUNTIME_ENC_BINCODE ) {
-    ulong total_sz = 0UL;
-    if( fd_slot_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
-      FD_LOG_WARNING(( "failed to decode slot_bank" ));
-      return NULL;
-    }
-
-    uchar * mem = fd_scratch_alloc( fd_slot_bank_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for slot bank" ));
-      return NULL;
-    }
-
-    slot_bank = fd_slot_bank_decode( mem, &binctx );
-  } else {
+  if( FD_UNLIKELY( magic != FD_RUNTIME_ENC_BINCODE ) ) {
     FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
+  }
+
+  fd_slot_bank_t * slot_bank = fd_bincode_decode_scratch(
+      slot_bank,
+      val    + sizeof(uint),
+      vallen - sizeof(uint),
+      NULL );
+  if( !slot_bank ) {
+    FD_LOG_WARNING(( "failed to decode slot_bank" ));
+    return NULL;
   }
   return slot_bank;
 }

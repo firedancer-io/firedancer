@@ -253,23 +253,12 @@ main( int     argc,
 
   long dt = -fd_log_wallclock();
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = manifest_bin,
-    .dataend = (void *)( (ulong)manifest_bin + manifest_binsz ),
-  };
-
-  ulong total_sz   = 0UL;
-  int   decode_err = fd_solana_manifest_decode_footprint( &decode, &total_sz );
+  int decode_err;
+  fd_solana_manifest_t * manifest = fd_bincode_decode_scratch(
+      solana_manifest, manifest_bin, manifest_binsz, &decode_err );
   if( FD_UNLIKELY( decode_err ) ) {
     FD_LOG_ERR(( "Failed to decode manifest" ));
   }
-
-  uchar * mem = fd_scratch_alloc( alignof(fd_solana_manifest_t), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for manifest" ));
-  }
-
-  fd_solana_manifest_t * manifest = fd_solana_manifest_decode( mem, &decode );
 
   fd_wksp_free_laddr( manifest_bin ); manifest_bin = NULL;
   dt += fd_log_wallclock();
