@@ -42,7 +42,8 @@ struct __attribute__((packed, aligned(8))) fd_replay_complete_msg {
 typedef struct fd_replay_complete_msg fd_replay_complete_msg_t;
 
 #define FD_CLUSTER_NODE_CNT        (200U*201U - 1U)
-#define FD_GOSSIP_LINK_MSG_SIZE    (58U + 13U * 6U)
+#define FD_GOSSIP_NUM_SOCKETS      (13U)
+#define FD_GOSSIP_LINK_MSG_SIZE    (58U + FD_GOSSIP_NUM_SOCKETS * 6U)
 #define FD_VALIDATOR_INFO_MSG_SIZE (          608U)
 
 struct __attribute__((packed)) fd_gossip_update_msg {
@@ -72,7 +73,7 @@ struct __attribute__((packed)) fd_gossip_update_msg {
   struct __attribute__((packed)) {
     uint ip;				// 0..3
     ushort port;			// 4..5
-  } addrs[13];
+  } addrs[FD_GOSSIP_NUM_SOCKETS];
 };
 typedef struct fd_gossip_update_msg fd_gossip_update_msg_t;
 

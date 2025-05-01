@@ -79,7 +79,7 @@ struct fd_gui_gossip_peer {
   struct {
     uint   ipv4;
     ushort port;
-  } sockets[ 12 ];
+  } sockets[ 13 ];
 };
 
 struct fd_gui_vote_account {
