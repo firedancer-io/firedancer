@@ -149,10 +149,6 @@ class PrimitiveMember(TypeNode):
     def isFlat(self):
         return self.type != "char*"
 
-    def emitDestroy(self):
-        if self.type == "char*":
-            print(f'  self->{self.name} = NULL;\n', file=body)
-
     emitMemberMap = {
         "char" :      lambda n: print(f'  char {n};',      file=header),
         "char*" :     lambda n: print(f'  char* {n};',     file=header),
@@ -415,9 +411,6 @@ class StructMember(TypeNode):
     def emitNew(self):
         print(f'{indent}  {namespace}_{self.type}_new( &self->{self.name} );', file=body)
 
-    def emitDestroy(self):
-        print(f'{indent}  {namespace}_{self.type}_destroy( &self->{self.name} );', file=body)
-
     def emitDecodeFootprint(self):
         print(f'{indent}  err = {namespace}_{self.type}_decode_footprint_inner( ctx, total_sz );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
@@ -497,16 +490,6 @@ class VectorMember(TypeNode):
 
     def emitNew(self):
         pass
-
-    def emitDestroy(self):
-        print(f'  if( self->{self.name} ) {{', file=body)
-        if self.element in simpletypes:
-            pass
-        else:
-            print(f'    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
-            print(f'      {namespace}_{self.element}_destroy( self->{self.name} + i );', file=body)
-        print(f'    self->{self.name} = NULL;', file=body)
-        print('  }', file=body)
 
     def emitDecodeFootprint(self):
         if self.compact:
@@ -774,16 +757,6 @@ class StaticVectorMember(TypeNode):
         else:
             print(f'  for( ulong i=0; i<{size}; i++ )', file=body)
             print(f'    {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
-
-
-    def emitDestroy(self):
-        size = self.size
-
-        if self.element in simpletypes:
-            pass
-        else:
-            print(f'  for( ulong i=0; i<{size}; i++ )', file=body)
-            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i );', file=body)
 
     def emitDecodeFootprint(self):
         print(f'  ulong {self.name}_len;', file=body)
@@ -1062,18 +1035,6 @@ class DequeMember(TypeNode):
 
     def emitNew(self):
         pass
-
-    def emitDestroy(self):
-        print(f'  if( self->{self.name} ) {{', file=body)
-        if self.element in simpletypes:
-            pass
-        else:
-            print(f'    for( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
-            print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );', file=body)
-            print(f'      {namespace}_{self.element}_destroy( ele );', file=body)
-            print('    }', file=body)
-        print(f'    self->{self.name} = NULL;', file=body)
-        print('  }', file=body)
 
     def emitDecodeFootprint(self):
         if self.compact:
@@ -1448,17 +1409,6 @@ class MapMember(TypeNode):
     def emitNew(self):
         pass
 
-    def emitDestroy(self):
-        element_type = self.elem_type()
-        mapname = element_type + "_map"
-        nodename = element_type + "_mapnode_t"
-
-        print(f'  for( {nodename} * n = {mapname}_minimum(self->{self.name}_pool, self->{self.name}_root ); n; n = {mapname}_successor(self->{self.name}_pool, n) ) {{', file=body);
-        print(f'    {namespace}_{self.element}_destroy( &n->elem );', file=body)
-        print('  }', file=body)
-        print(f'  self->{self.name}_pool = NULL;', file=body)
-        print(f'  self->{self.name}_root = NULL;', file=body)
-
     def emitDecodeFootprint(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
@@ -1703,23 +1653,6 @@ class PartitionMember(TypeNode):
 
     def emitNew(self):
         pass
-
-    def emitDestroy(self):
-        dlist_name = self.dlist_n + "_dlist"
-        dlist_t = self.dlist_t
-        pool_name = self.dlist_n + "_pool"
-
-        print(f'  if( !self->{self.name} || !self->pool ) return;', file=body)
-        print(f'  for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
-        print(f'    for( {dlist_name}_iter_t iter = {dlist_name}_iter_fwd_init( &self->{self.name}[ i ], self->pool );', file=body);
-        print(f'           !{dlist_name}_iter_done( iter, &self->{self.name}[ i ], self->pool );', file=body);
-        print(f'           iter = {dlist_name}_iter_fwd_next( iter, &self->{self.name}[ i ], self->pool ) ) {{', file=body);
-        print(f'        {dlist_t} * ele = {dlist_name}_iter_ele( iter, &self->{self.name}[ i ], self->pool );', file=body)
-        print(f'        {dlist_t.rstrip("_t")}_destroy( ele );', file=body)
-        print('      }', file=body)
-        print('    }', file=body)
-        print(f'  self->{self.name} = NULL;', file=body)
-        print(f'  self->pool = NULL;', file=body)
 
     def emitDecodeFootprint(self):
         dlist_name = self.dlist_n + "_dlist"
@@ -1974,21 +1907,6 @@ class TreapMember(TypeNode):
 
     def emitNew(self):
         pass
-
-    def emitDestroy(self):
-        treap_name = self.name + '_treap'
-        treap_t = self.treap_t
-        pool = self.name + '_pool'
-
-        print(f'  if( !self->treap || !self->pool ) return;', file=body)
-        print(f'  for( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
-        print(f'         !{treap_name}_fwd_iter_done( iter );', file=body);
-        print(f'         iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
-        print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
-        print(f'      {treap_t.rstrip("_t")}_destroy( ele );', file=body)
-        print('    }', file=body)
-        print(f'  self->pool = NULL;', file=body)
-        print(f'  self->treap = NULL;', file=body)
 
     def emitDecodeFootprint(self):
         treap_name = self.name + '_treap'
@@ -2267,21 +2185,6 @@ class DlistMember(TypeNode):
     def emitNew(self):
         pass
 
-    def emitDestroy(self):
-        dlist_name = self.dlist_n + "_dlist"
-        dlist_t = self.dlist_t
-        pool_name = self.dlist_n + "_pool"
-
-        print(f'  if( !self->{self.name} || !self->pool ) return;', file=body)
-        print(f'  for( {dlist_name}_iter_t iter = {dlist_name}_iter_fwd_init( self->{self.name}, self->pool );', file=body);
-        print(f'         !{dlist_name}_iter_done( iter, self->{self.name}, self->pool );', file=body);
-        print(f'         iter = {dlist_name}_iter_fwd_next( iter, self->{self.name}, self->pool ) ) {{', file=body);
-        print(f'      {dlist_t} * ele = {dlist_name}_iter_ele( iter, self->{self.name}, self->pool );', file=body)
-        print(f'      {dlist_t.rstrip("_t")}_destroy( ele );', file=body)
-        print('    }', file=body)
-        print(f'  self->{self.name} = NULL;', file=body)
-        print(f'  self->pool = NULL;', file=body)
-
     def emitDecodeFootprint(self):
         dlist_name = self.dlist_n + "_dlist"
         dlist_t = self.dlist_t
@@ -2464,20 +2367,6 @@ class OptionMember(TypeNode):
 
     def emitNew(self):
         pass
-
-    def emitDestroy(self):
-        if self.flat:
-            print(f'  if( self->has_{self.name} ) {{', file=body)
-            if self.element not in simpletypes:
-                print(f'    {namespace}_{self.element}_destroy( &self->{self.name} );', file=body)
-            print(f'    self->has_{self.name} = 0;', file=body)
-            print('  }', file=body)
-        else:
-            print(f'  if( self->{self.name} ) {{', file=body)
-            if self.element not in simpletypes:
-                print(f'    {namespace}_{self.element}_destroy( self->{self.name} );', file=body)
-            print(f'    self->{self.name} = NULL;', file=body)
-            print('  }', file=body)
 
     def emitDecodeFootprint(self):
         print('  {', file=body)
@@ -2727,15 +2616,6 @@ class ArrayMember(TypeNode):
             print(f'  for( ulong i=0; i<{length}; i++ )', file=body)
             print(f'    {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
 
-    def emitDestroy(self):
-        length = self.length
-
-        if self.element in simpletypes:
-            pass
-        else:
-            print(f'  for( ulong i=0; i<{length}; i++ )', file=body)
-            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i );', file=body)
-
     def emitDecodeFootprint(self):
         length = self.length
 
@@ -2895,12 +2775,11 @@ class OpaqueType(TypeNode):
         if not self.emitprotos:
             return
         n = self.fullname
-        print(f"void {n}_new( {n}_t * self );", file=header)
+        print(f"static inline void {n}_new( {n}_t * self ) {{ (void)self; }}", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char * name, uint level );", file=header)
-        print(f"ulong {n}_size( {n}_t const * self );", file=header)
-        print(f'ulong {n}_align( void );', file=header)
+        print(f"static inline ulong {n}_size( {n}_t const * self ) {{ (void)self; return sizeof({n}_t); }}", file=header)
+        print(f'static inline ulong {n}_align( void ) {{ return alignof({n}_t); }}', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
@@ -2909,15 +2788,6 @@ class OpaqueType(TypeNode):
         if not self.emitprotos:
             return
         n = self.fullname
-
-        print(f'void {n}_new( {n}_t * self ) {{ }}', file=body)
-
-        print(f'void {n}_destroy( {n}_t * self ) {{ }}', file=body)
-
-        print(f'ulong {n}_align( void ) {{ return alignof({n}_t); }}', file=body)
-
-        print(f'ulong {n}_size( {n}_t const * self ) {{ (void)self; return sizeof({n}_t); }}', file=body)
-
         print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
         print(f'  return fd_bincode_bytes_encode( (uchar const *)self, sizeof({n}_t), ctx );', file=body)
         print("}", file=body)
@@ -3073,10 +2943,6 @@ class StructType(TypeNode):
         else:
             print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        if self.isFixedSize() and self.isFuzzy():
-            print(f"static inline void {n}_destroy( {n}_t * self ) {{ (void)self; }}", file=header)
-        else:
-            print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
@@ -3200,15 +3066,6 @@ class StructType(TypeNode):
             for f in self.fields:
                 f.emitNew()
             print("}", file=body)
-
-        if self.isFixedSize() and self.isFuzzy():
-            pass
-        else:
-            print(f'void {n}_destroy( {n}_t * self ) {{', file=body)
-            for f in self.fields:
-                f.emitDestroy()
-            print("}", file=body)
-            print("", file=body)
 
         print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{', file=body)
         print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++ );', file=body)
@@ -3357,7 +3214,6 @@ class EnumType(TypeNode):
         print(f"void {n}_new_disc( {n}_t * self, {self.repr} discriminant );", file=header)
         print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'ulong {n}_align( void );', file=header)
@@ -3541,23 +3397,6 @@ class EnumType(TypeNode):
         print(f'  {n}_new_disc( self, {self.repr_max_val} );', file=body) # Invalid by default
         print("}", file=body)
 
-        print(f'static void {n}_inner_destroy( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
-        print('  switch( discriminant ) {', file=body)
-        for i, v in enumerate(self.variants):
-            if not isinstance(v, str):
-                print(f'  case {i}: {{', file=body)
-                v.emitDestroy()
-                print('    break;', file=body)
-                print('  }', file=body)
-        print('  default: break; // FD_LOG_ERR(( "unhandled type" ));', file=body)
-        print('  }', file=body)
-        print("}", file=body)
-
-        print(f'void {n}_destroy( {n}_t * self ) {{', file=body)
-        print(f'  {n}_inner_destroy( &self->inner, self->discriminant );', file=body)
-        print("}", file=body)
-        print("", file=body)
-
         print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
         print("", file=body)
 
@@ -3685,7 +3524,6 @@ def main():
         print(f' .name_len={len(key)},', file=reflect, end='')
         print(f' .align={key.upper()}_ALIGN,', file=reflect, end='')
         print(f' .new_=(void *){key}_new,', file=reflect, end='')
-        print(f' .destroy=(void *){key}_destroy,', file=reflect, end='')
         print(f' .decode=(void *){key}_decode,', file=reflect, end='')
         print(f' .size=(void *){key}_size,', file=reflect, end='')
         print(f' .walk=(void *){key}_walk,', file=reflect, end='')

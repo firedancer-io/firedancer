@@ -3350,10 +3350,10 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static void
-fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
-                                   fd_genesis_solana_t * genesis_block,
-                                   fd_hash_t const *     genesis_hash,
-                                   fd_spad_t *           runtime_spad ) {
+fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
+                                   fd_genesis_solana_t const * genesis_block,
+                                   fd_hash_t const *           genesis_hash,
+                                   fd_spad_t *                 runtime_spad ) {
   slot_ctx->slot_bank.slot = 0UL;
 
   memcpy( &slot_ctx->slot_bank.poh, genesis_hash->hash, FD_SHA256_HASH_SZ );
@@ -3363,9 +3363,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   slot_ctx->slot_bank.lamports_per_signature = 0UL;
   slot_ctx->prev_lamports_per_signature      = 0UL;
 
-  fd_poh_config_t *     poh        = &genesis_block->poh_config;
-  fd_exec_epoch_ctx_t * epoch_ctx  = slot_ctx->epoch_ctx;
-  fd_epoch_bank_t *     epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+  fd_poh_config_t const * poh        = &genesis_block->poh_config;
+  fd_exec_epoch_ctx_t *   epoch_ctx  = slot_ctx->epoch_ctx;
+  fd_epoch_bank_t *       epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   if( poh->has_hashes_per_tick ) {
     epoch_bank->hashes_per_tick = poh->hashes_per_tick;
   } else {
@@ -3744,8 +3744,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
     }
   }
-
-  fd_genesis_solana_destroy( genesis_block );
 
   slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );

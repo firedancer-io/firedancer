@@ -180,7 +180,6 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
     }
 
     if( glob->epoch_bank != NULL ) {
-      fd_epoch_bank_destroy( glob->epoch_bank );
       fd_valloc_free( glob->valloc, glob->epoch_bank );
       glob->epoch_bank = NULL;
     }
@@ -2486,7 +2485,6 @@ fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
   if (fd_webserver_stop(valloc, &glob->ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
   if( ctx->global->epoch_bank != NULL ) {
-    fd_epoch_bank_destroy( glob->epoch_bank );
     fd_valloc_free( valloc, glob->epoch_bank );
     glob->epoch_bank = NULL;
   }

@@ -813,7 +813,7 @@ ingest_rocksdb( char const *      file,
 
     ++blk_cnt;
 
-    fd_slot_meta_destroy( &slot_meta );
+    memset( &slot_meta, 0, sizeof(fd_slot_meta_t) );
 
     int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
     if( ret < 0 ) {

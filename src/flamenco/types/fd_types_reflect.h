@@ -28,9 +28,6 @@ struct fd_types_vt {
   void *
   (* new_)( void * );
 
-  void
-  (* destroy)( void * self );
-
   int
   (* decode_footprint)( fd_bincode_decode_ctx_t * ctx,
                         ulong *                   total_sz );

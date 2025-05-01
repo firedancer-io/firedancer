@@ -88,16 +88,16 @@ fd_exec_slot_ctx_delete( void * mem );
 
 /* fd_exec_slot_ctx_recover re-initializes the current epoch/slot
    context and recovers it from the manifest of a Solana Labs snapshot.
-   Moves ownership of manifest to this function.  Assumes objects in
-   manifest were allocated using a spad which is scoped to the replay tile.
-   Assumes that slot context and epoch context use same allocator.
-   On return, manifest is destroyed.  Returns ctx on success.
+
+   Copies content of manifest to ctx.  The 'manifest' object may be
+   freed after this function returns.  Assumes that slot context and
+   epoch context use same allocator.  Returns ctx on success.
    On failure, logs reason for error and returns NULL. */
 
 fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
-                          fd_solana_manifest_t * manifest,
-                          fd_spad_t *            spad );
+fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         ctx,
+                          fd_solana_manifest_t const * manifest,
+                          fd_spad_t *                  spad );
 
 /* fd_exec_slot_ctx_recover re-initializes the current slot
    context's status cache from the provided solana slot deltas.
