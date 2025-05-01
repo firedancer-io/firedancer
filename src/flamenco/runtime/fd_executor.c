@@ -1138,14 +1138,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       txn_ctx->failed_instr = ctx;
       ctx->instr_err        = (uint)( -instr_exec_result - 1 );
     }
-
-#ifdef VLOG
-  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
-  } else {
-    FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
-  }
-#endif
     return instr_exec_result;
   } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
