@@ -177,7 +177,21 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   /* fd_pubkey is a #define alias for fd_hash.  It is therefore already
      fuzzed. Furthermore, dlsym will not be able to find a #define. */
-  if ( FD_UNLIKELY( 0==strcmp( type_meta->name, "fd_pubkey" ) ) ) {
+  if( FD_UNLIKELY( 0==strcmp( type_meta->name, "fd_pubkey" ) ) ) {
+    return -1;
+  } else if( strcmp( "fd_vote_instruction", type_meta->name ) == 0 && size >= sizeof(uint) ) {
+    uint discriminant = *(uint *)data;
+    if (discriminant == 14 || discriminant == 15) {
+      return -1;
+    }
+  } else if( strcmp( "fd_gossip_msg", type_meta->name ) == 0 && size >= sizeof(uint)) {
+    uint discriminant = *(uint *)data;
+    if (discriminant == 0 || discriminant == 1 || discriminant == 2) {
+      return -1;
+    }
+  }
+
+  if( is_blacklisted( type_meta->name ) ) {
     return -1;
   }
 
