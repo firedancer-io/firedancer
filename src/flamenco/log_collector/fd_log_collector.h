@@ -88,12 +88,6 @@ fd_log_collector_check_and_truncate( fd_log_collector_t * log,
 static inline void
 fd_log_collector_delete( fd_log_collector_t const * log ) {
   (void)log;
-#ifdef VLOG
-  if( FD_LIKELY( log->disabled ) ) {
-    return;
-  }
-  fd_log_collector_private_debug( log );
-#endif
 }
 
 /* LOG COLLECTOR MSG API

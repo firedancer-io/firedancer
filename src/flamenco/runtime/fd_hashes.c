@@ -66,13 +66,6 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
     fd_pubkey_hash_pair_t * pairs     = lists[k].pairs;
     ulong                   pairs_len = lists[k].pairs_len;
     for( ulong i = 0; i < pairs_len; ++i ) {
-#ifdef VLOG
-      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },",
-                      i,
-                      FD_BASE58_ENC_32_ALLOCA( pairs[i].pubkey->key ),
-                      FD_BASE58_ENC_32_ALLOCA( pairs[i].hash->hash ) ));
-#endif
-
       if( prev_pair ) FD_TEST(fd_pubkey_hash_pair_compare(prev_pair, &pairs[i]) > 0);
       prev_pair = &pairs[i];
       fd_sha256_append( &shas[0], pairs[i].hash->hash, sizeof( fd_hash_t ) );
