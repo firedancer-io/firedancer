@@ -267,24 +267,16 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
      heap.  Once the epoch context heap is separated out, we need to
      revisit this. */
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = restore->buf,
-    .dataend = restore->buf + restore->buf_sz
-  };
-
-  ulong total_sz = 0UL;
-  int err = fd_solana_manifest_decode_footprint( &decode, &total_sz );
+  int err;
+  fd_solana_manifest_t * manifest = fd_bincode_decode_spad(
+      solana_manifest, restore->spad,
+      restore->buf,
+      restore->buf_sz,
+      &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", err ));
     return err;
   }
-
-  uchar * mem = fd_spad_alloc( restore->spad, fd_solana_manifest_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for solana manifest" ));
-  }
-
-  fd_solana_manifest_t * manifest = fd_solana_manifest_decode( mem, &decode );
 
   if( manifest->bank_incremental_snapshot_persistence ) {
     FD_LOG_NOTICE(( "Incremental snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
@@ -340,13 +332,12 @@ fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
   /* Decode the status cache slot deltas and populate txn cache
      in slot ctx. */
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = restore->buf,
-    .dataend = restore->buf + restore->buf_sz,
-  };
-
-  ulong total_sz   = 0UL;
-  int   decode_err = fd_bank_slot_deltas_decode_footprint( &decode, &total_sz );
+  int decode_err;
+  fd_bank_slot_deltas_t * slot_deltas = fd_bincode_decode_spad(
+      bank_slot_deltas, restore->spad,
+      restore->buf,
+      restore->buf_sz,
+      &decode_err );
   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
     /* TODO: The types generator does not yet handle OOM correctly.
              OOM failures won't always end up here, but could also
@@ -354,13 +345,6 @@ fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
     FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", decode_err ));
     return EINVAL;
   }
-
-  uchar * mem = fd_spad_alloc( restore->spad, fd_bank_slot_deltas_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bank slot deltas" ));
-  }
-
-  fd_bank_slot_deltas_t * slot_deltas = fd_bank_slot_deltas_decode( mem, &decode );
 
   /* Move over objects and recover state. */
   /* TODO: we ignore the error from status cache restore for now since having the status cache is optional.

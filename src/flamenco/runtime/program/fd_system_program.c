@@ -604,26 +604,16 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = data,
-    .dataend = data + ctx->instr->data_sz
-  };
-
-  ulong total_sz   = 0UL;
-  int   decode_err = fd_system_program_instruction_decode_footprint( &decode, &total_sz );
+  int decode_err;
+  ulong decoded_sz;
+  fd_system_program_instruction_t * instruction = fd_bincode_decode1_spad(
+      system_program_instruction, ctx->txn_ctx->spad,
+      data, ctx->instr->data_sz,
+      &decode_err, &decoded_sz );
   if( FD_UNLIKELY( decode_err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
-
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_system_program_instruction_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for system program instruction" ));
-  }
-
-  fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
-  /* If the decoder consumes more than the TXN_MTU (1232) bytes, the transaction
-     should fail. */
-  if( FD_UNLIKELY( (ulong)data + FD_TXN_MTU < (ulong)decode.data ) ) {
+  if( FD_UNLIKELY( decoded_sz > FD_TXN_MTU ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 

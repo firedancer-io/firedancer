@@ -114,26 +114,18 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
 
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
     /* Extract vote timestamp of account */
-
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = n->elem.value.data,
-      .dataend = n->elem.value.data + n->elem.value.data_len,
-    };
-
-    ulong total_sz = 0UL;
-    int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+    int err;
+    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
+        vote_state_versioned, runtime_spad,
+        n->elem.value.data,
+        n->elem.value.data_len,
+        &err );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "vote state decode footprint failed" ));
+      FD_LOG_WARNING(( "vote state decode failed" ));
       return 0;
     }
-
-    uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for versioned vote state" ));
-    }
-
-    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
     long timestamp = 0;
     ulong slot = 0;

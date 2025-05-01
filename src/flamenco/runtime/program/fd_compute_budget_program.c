@@ -123,25 +123,15 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     /* Deserialize the ComputeBudgetInstruction enum */
     uchar * data = (uchar *)txn_raw->raw + instr->data_off;
 
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = data,
-      .dataend = &data[ instr->data_sz ],
-    };
-
-    ulong total_sz = 0UL;
-    int   ret      = fd_compute_budget_program_instruction_decode_footprint( &decode_ctx, &total_sz );
+    int ret;
+    fd_compute_budget_program_instruction_t * instruction =
+      fd_bincode_decode_spad(
+        compute_budget_program_instruction, ctx->spad,
+        data, instr->data_sz, &ret );
     if( FD_UNLIKELY( ret ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
-
-    uchar * mem = fd_spad_alloc( ctx->spad, fd_compute_budget_program_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for ComputeBudgetInstruction" ));
-    }
-
-    fd_compute_budget_program_instruction_t * instruction =
-      fd_compute_budget_program_instruction_decode( mem, &decode_ctx );
 
     switch( instruction->discriminant ) {
       case fd_compute_budget_program_instruction_enum_request_heap_frame: {

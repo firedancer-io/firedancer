@@ -21,24 +21,16 @@ fd_sysvar_rent_read( fd_funk_t *     funk,
     return NULL;
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = rent_rec->vt->get_data( rent_rec ),
-    .dataend = rent_rec->vt->get_data( rent_rec ) + rent_rec->vt->get_data_len( rent_rec )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_rent_decode_footprint( &decode, &total_sz );
+  fd_rent_t * rent = fd_bincode_decode_spad(
+      rent, spad,
+      rent_rec->vt->get_data( rent_rec ),
+      rent_rec->vt->get_data_len( rent_rec ),
+      &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_rent_decode failed" ));
     return NULL;
   }
-
-  uchar * mem = fd_spad_alloc( spad, fd_rent_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "failed to allocate memory for rent" ));
-  }
-
-  return fd_rent_decode( mem, &decode );
+  return rent;
 }
 
 static void

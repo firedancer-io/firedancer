@@ -167,28 +167,21 @@ fd_executor_is_system_nonce_account( fd_txn_account_t * account, fd_spad_t * exe
     if( !account->vt->get_data_len( account ) ) {
       return 0;
     } else {
-      fd_bincode_decode_ctx_t decode = {
-        .data    = account->vt->get_data( account ),
-        .dataend = account->vt->get_data( account ) + account->vt->get_data_len( account )
-      };
-
       if( account->vt->get_data_len( account )!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) {
         return -1;
       }
 
-      ulong total_sz = 0UL;
-      int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+      int err;
+      fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+          nonce_state_versions, exec_spad,
+          account->vt->get_data( account ),
+          account->vt->get_data_len( account ),
+          &err );
       if( FD_UNLIKELY( err ) ) {
         return -1;
       }
 
-      uchar * mem = fd_spad_alloc( exec_spad, fd_nonce_state_versions_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory" ));
-      }
-
-      fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
-      fd_nonce_state_t *          state    = NULL;
+      fd_nonce_state_t * state = NULL;
       if( fd_nonce_state_versions_is_current( versions ) ) {
         state = &versions->inner.current;
       } else {

@@ -196,20 +196,10 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
     FD_LOG_ERR(( "Could not get laddr for encoded stakes" ));
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = stakes_enc,
-    .dataend = stakes_enc + epoch_msg->stakes_encoded_sz
-  };
-  ulong total_sz = 0UL;
-  int   err      = fd_stakes_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Could not decode stakes footprint" ));
-  }
-
   // FIXME account for this in exec spad footprint
-  uchar *       stakes_mem = fd_spad_alloc( ctx->exec_spad, fd_stakes_align(), total_sz );
-  fd_stakes_t * stakes     = fd_stakes_decode( stakes_mem, &decode );
-  if( FD_UNLIKELY( !stakes ) ) {
+  int err;
+  fd_stakes_t * stakes = fd_bincode_decode_spad( stakes, ctx->exec_spad, stakes_enc, epoch_msg->stakes_encoded_sz, &err );
+  if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Could not decode stakes" ));
   }
   ctx->txn_ctx->stakes = *stakes;
@@ -269,22 +259,14 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not get laddr for encoded block hash queue" ));
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = block_hash_queue_enc,
-    .dataend = block_hash_queue_enc + slot_msg->block_hash_queue_encoded_sz
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_block_hash_queue_decode_footprint( &decode, &total_sz );
+  // FIXME account for this in exec spad footprint
+  int err;
+  fd_block_hash_queue_t * block_hash_queue = fd_bincode_decode_spad(
+      block_hash_queue, ctx->exec_spad,
+      block_hash_queue_enc, slot_msg->block_hash_queue_encoded_sz,
+      &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Could not decode block hash queue footprint" ));
-  }
-
-  // FIXME account for this in exec spad footprint
-  uchar *                 block_hash_queue_mem = fd_spad_alloc( ctx->exec_spad, fd_block_hash_queue_align(), total_sz );
-  fd_block_hash_queue_t * block_hash_queue     = fd_block_hash_queue_decode( block_hash_queue_mem, &decode );
-  if( FD_UNLIKELY( !block_hash_queue ) ) {
-    FD_LOG_ERR(( "Could not decode block hash queue" ));
   }
 
   ctx->txn_ctx->block_hash_queue = *block_hash_queue;

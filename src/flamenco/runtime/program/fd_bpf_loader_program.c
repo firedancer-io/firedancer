@@ -108,25 +108,16 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
     return NULL;
   }
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec ),
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz );
+  fd_bpf_upgradeable_loader_state_t * res = fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state,
+      txn_ctx->spad,
+      rec->vt->get_data( rec ),
+      rec->vt->get_data_len( rec ),
+      &err );
   if( FD_UNLIKELY( err ) ) {
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     return NULL;
   }
-
-  uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN, total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader state" ));
-  }
-
-  fd_bpf_upgradeable_loader_state_t * res = fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
-
   return res;
 }
 
@@ -307,24 +298,17 @@ fd_bpf_upgradeable_loader_state_t *
 fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
                                  fd_spad_t *              spad,
                                  int *                    err ) {
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = acct->vt->get_data( acct ),
-      .dataend = acct->vt->get_data( acct ) + acct->vt->get_data_len( acct ),
-    };
-
-    ulong total_sz = 0UL;
-    *err           = fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz );
-    if( FD_UNLIKELY( *err!=FD_BINCODE_SUCCESS ) ) {
-      *err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-      return NULL;
-    }
-
-    uchar * mem = fd_spad_alloc( spad, FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN, total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader state" ));
-    }
-
-    return fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
+  fd_bpf_upgradeable_loader_state_t * res = fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state,
+      spad,
+      acct->vt->get_data( acct ),
+      acct->vt->get_data_len( acct ),
+      err );
+  if( FD_UNLIKELY( *err ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    return NULL;
+  }
+  return res;
 }
 
 /* Mirrors solana_sdk::transaction_context::BorrowedAccount::set_state()
@@ -635,27 +619,16 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   uchar const * data = instr_ctx->instr->data;
   fd_spad_t *   spad = instr_ctx->txn_ctx->spad;
 
-
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = data,
-    .dataend = data + (instr_ctx->instr->data_sz>FD_TXN_MTU ? FD_TXN_MTU: instr_ctx->instr->data_sz),
-  };
-
-  ulong total_sz = 0UL;
-  int err = fd_bpf_upgradeable_loader_program_instruction_decode_footprint( &decode_ctx, &total_sz );
+  int err;
+  fd_bpf_upgradeable_loader_program_instruction_t * instruction =
+    fd_bincode_decode_spad(
+      bpf_upgradeable_loader_program_instruction, spad,
+      data,
+      instr_ctx->instr->data_sz>FD_TXN_MTU ? FD_TXN_MTU: instr_ctx->instr->data_sz,
+      &err );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
-
-  uchar * mem = fd_spad_alloc( spad,
-                               fd_bpf_upgradeable_loader_program_instruction_align(),
-                               total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader instruction" ));
-  }
-
-  fd_bpf_upgradeable_loader_program_instruction_t * instruction =
-    fd_bpf_upgradeable_loader_program_instruction_decode( mem, &decode_ctx );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/lib.rs#L510 */
   fd_pubkey_t const * program_id = NULL;

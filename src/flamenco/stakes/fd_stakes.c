@@ -33,23 +33,15 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const *    in,
     /* ... filter(|(stake, _)| *stake != 0u64) */
     if( n->elem.stake == 0UL ) continue;
 
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = n->elem.value.data,
-      .dataend = n->elem.value.data + n->elem.value.data_len,
-    };
-
-    ulong total_sz = 0UL;
-    int   err      = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+    int err;
+    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
+        vote_state_versioned, runtime_spad,
+        n->elem.value.data,
+        n->elem.value.data_len,
+        &err );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Failed to decode vote account %s (%d)", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ), err ));
     }
-
-    uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Failed to allocate memory for vote account %s", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ) ));
-    }
-
-    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
     fd_pubkey_t node_pubkey;
     switch( vsv->discriminant ) {
@@ -192,23 +184,13 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
   }
 
   // Deserialize the vote account and ensure its in the correct state
-  fd_bincode_decode_ctx_t decode = {
-    .data    = vote_account->vt->get_data( vote_account ),
-    .dataend = vote_account->vt->get_data( vote_account ) + vote_account->vt->get_data_len( vote_account ),
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_vote_state_versioned_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory" ));
-  }
-
-  fd_vote_state_versioned_decode( mem, &decode );
+  int err;
+  fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
+      vote_state_versioned, runtime_spad,
+      vote_account->vt->get_data( vote_account ),
+      vote_account->vt->get_data_len( vote_account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return NULL;
 
   // Get the stake amount from the stake delegations map
   fd_stake_weight_t_mapnode_t temp;
@@ -216,7 +198,7 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
   fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_find( stake_delegations_pool, stake_delegations_root, &temp );
   elem->elem.stake = ( entry==NULL ) ? 0UL : entry->elem.stake;
 
-  return (fd_vote_state_versioned_t *)mem;
+  return res;
 }
 
 static void
