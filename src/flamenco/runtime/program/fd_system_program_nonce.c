@@ -875,11 +875,8 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
-  //fd_block_hash_queue_t hash_queue         = txn_ctx->block_hash_queue;
-  //fd_hash_t *           last_blockhash     = hash_queue.last_hash;
-
-  fd_block_hash_queue_global_t const * hash_queue = txn_ctx->block_hash_queue_global;
-  fd_hash_t * last_blockhash = (fd_hash_t *)((ulong)hash_queue + hash_queue->last_hash_offset);
+  fd_block_hash_queue_global_t const * hash_queue     = txn_ctx->block_hash_queue_global;
+  fd_hash_t *                          last_blockhash = (fd_hash_t *)((ulong)hash_queue + hash_queue->last_hash_offset);
 
   /* check_transaction_age */
   fd_hash_t   next_durable_nonce   = {0};
@@ -891,7 +888,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   /* get_hash_info_if_valid. Check 151 hashes from the block hash queue and its
      age to see if it is valid. */
 
-  if( fd_executor_is_blockhash_valid_for_age2( hash_queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
+  if( fd_executor_is_blockhash_valid_for_age( hash_queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 

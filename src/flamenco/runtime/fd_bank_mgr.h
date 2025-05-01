@@ -8,9 +8,13 @@ struct fd_bank_mgr {
   fd_funk_txn_t *       funk_txn;
   fd_funk_rec_prepare_t prepare;
 };
-
-struct fd_bank_mgr;
 typedef struct fd_bank_mgr fd_bank_mgr_t;
+
+ulong
+fd_bank_mgr_align( void );
+
+ulong
+fd_bank_mgr_footprint( void );
 
 void *
 fd_bank_mgr_new( void * mem );

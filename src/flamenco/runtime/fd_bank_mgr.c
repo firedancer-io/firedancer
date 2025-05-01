@@ -15,6 +15,16 @@ fd_bank_mgr_cache_key( ulong entry_id ) {
   return id;
 }
 
+ulong
+fd_bank_mgr_align( void ) {
+  return alignof(fd_bank_mgr_t);
+}
+
+ulong
+fd_bank_mgr_footprint( void ) {
+  return sizeof(fd_bank_mgr_t);
+}
+
 void *
 fd_bank_mgr_new( void * mem ) {
   return mem;

@@ -129,7 +129,7 @@ fd_sysvar_cache_restore_##name(                                                 
     int   err         = type##_decode_footprint( &decode, &total_sz );                    \
     cache->has_##name = (err==FD_BINCODE_SUCCESS);                                        \
     if( FD_UNLIKELY( err ) ) {                                                            \
-      FD_LOG_WARNING(( "failed to decode footprint %s", __func__ ));                      \
+      FD_LOG_WARNING(( "failed to decode footprint" ));                                   \
       break;                                                                              \
     }                                                                                     \
     type##_t * mem = fd_spad_alloc( runtime_spad,                                         \

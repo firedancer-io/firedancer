@@ -1172,9 +1172,9 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int
-fd_executor_is_blockhash_valid_for_age2( fd_block_hash_queue_global_t const * block_hash_queue,
-                                       fd_hash_t const *                    blockhash,
-                                       ulong                                max_age ) {
+fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * block_hash_queue,
+                                        fd_hash_t const *                    blockhash,
+                                        ulong                                max_age ) {
   fd_hash_hash_age_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
 
@@ -1188,29 +1188,6 @@ fd_executor_is_blockhash_valid_for_age2( fd_block_hash_queue_global_t const * bl
 
   ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
   return age<=max_age;
-}
-
-int
-fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
-                                        fd_hash_t const *             blockhash,
-                                        ulong                         max_age ) {
-  fd_hash_hash_age_pair_t_mapnode_t key;
-  fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
-
-  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
-  if( hash_age==NULL ) {
-    #ifdef VLOG
-    FD_LOG_WARNING(( "txn with missing recent blockhash - blockhash: %s", FD_BASE58_ENC_32_ALLOCA( blockhash->uc ) ));
-    #endif
-    return 0;
-  }
-  ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
-#ifdef VLOG
-  if( age>max_age ) {
-    FD_LOG_WARNING(( "txn with old blockhash - age: %lu, blockhash: %s", age, FD_BASE58_ENC_32_ALLOCA( hash_age->elem.key.uc ) ));
-  }
-#endif
-  return ( age<=max_age );
 }
 
 fd_txn_account_t *

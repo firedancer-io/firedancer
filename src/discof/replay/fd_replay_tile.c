@@ -317,6 +317,8 @@ struct fd_replay_tile_ctx {
   ulong               exec_spad_cnt;
   fd_spad_t *         runtime_spad;
 
+  /* These parameters should be removed as snapshot-creation is not
+     being actively supported at this moment. */
   /* TODO: refactor this all into fd_replay_tile_snapshot_ctx_t. */
   ulong   snapshot_interval;        /* User defined parameter */
   ulong   incremental_interval;     /* User defined parameter */
@@ -335,6 +337,9 @@ struct fd_replay_tile_ctx {
   fd_replay_tile_metrics_t metrics;
 
   ulong * exec_slice_deque; /* Deque to buffer exec slices */
+
+  /* Local join to the bank_mgr that must be refreshed at every slot. */
+  fd_bank_mgr_t * bank_mgr;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -361,6 +366,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -1504,8 +1510,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     send_exec_epoch_msg( ctx, stem, fork->slot_ctx );
   }
 
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( &fork->slot_ctx->bank_mgr ), ctx->funk, fork->slot_ctx->funk_txn );
-  FD_TEST( bank_mgr );
+  ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->funk, fork->slot_ctx->funk_txn );
 
   /* At this point we need to notify all of the exec tiles and tell them
      that a new slot is ready to be published. At this point, we should
@@ -2802,6 +2807,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
+  void * bank_mgr_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -2848,6 +2854,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->last_full_snap       = 0UL;
 
   FD_LOG_NOTICE(( "Snapshot intervals full=%lu incremental=%lu", ctx->snapshot_interval, ctx->incremental_interval ));
+
+  /**********************************************************************/
+  /* bank_mgr                                                               */
+  /**********************************************************************/
+
+  ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( bank_mgr_mem ), ctx->funk, NULL );
 
   /**********************************************************************/
   /* funk                                                               */
