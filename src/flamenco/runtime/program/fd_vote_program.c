@@ -851,22 +851,21 @@ last_voted_slot( fd_vote_state_t * self ) {
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L573
 static uchar
 contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
-  /* Logic is copied from slice::binary_search_by() in Rust */
-  ulong start = 0UL;
-  ulong end   = deq_fd_landed_vote_t_cnt( vote_state->votes );
+  /* Logic is copied from slice::binary_search_by() in Rust. While not fully optimized,
+     it aims to achieve fuzzing conformance for both sorted and unsorted inputs. */
+  ulong size = deq_fd_landed_vote_t_cnt( vote_state->votes );
+  if( FD_UNLIKELY( size==0UL ) ) return 0;
 
-  while( start < end ) {
-    ulong mid      = start + ( end - start ) / 2UL;
+  ulong base = 0UL;
+  while( size>1UL ) {
+    ulong half = size / 2UL;
+    ulong mid = base + half;
     ulong mid_slot = deq_fd_landed_vote_t_peek_index_const( vote_state->votes, mid )->lockout.slot;
-    if( mid_slot == slot ) {
-      return 1;
-    } else if( mid_slot < slot ) {
-      start = mid + 1UL;
-    } else {
-      end = mid;
-    }
+    base = (slot<mid_slot) ? base : mid;
+    size -= half;
   }
-  return 0;
+
+  return deq_fd_landed_vote_t_peek_index_const( vote_state->votes, base )->lockout.slot==slot;
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L201
