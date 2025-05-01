@@ -577,7 +577,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       if( FD_UNLIKELY( rec_pool->ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
         TEST( rec2 == NULL );
       else
-        TEST( rec2 = rec_pool->ele + rec_idx );
+        TEST( rec2 == rec_pool->ele + rec_idx );
       uint next_idx = rec_pool->ele[ rec_idx ].next_idx;
       if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool->ele[ next_idx ].prev_idx==rec_idx );
       rec_idx = next_idx;
@@ -596,7 +596,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         if( FD_UNLIKELY( rec_pool->ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
           TEST( rec2 == NULL );
         else
-          TEST( rec2 = rec_pool->ele + rec_idx );
+          TEST( rec2 == rec_pool->ele + rec_idx );
         uint next_idx = rec_pool->ele[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool->ele[ next_idx ].prev_idx==rec_idx );
         rec_idx = next_idx;
