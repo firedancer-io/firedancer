@@ -2395,28 +2395,22 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   FD_SPAD_FRAME_BEGIN( glob->decode_spad ) {
     glob->recv_pkt_cnt++;
     glob->metrics.recv_pkt_cnt++;
-    /* Deserialize the message */
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = msg,
-      .dataend = msg + msglen,
-    };
 
-    ulong total_sz = 0UL;
-    if( FD_UNLIKELY( fd_gossip_msg_decode_footprint( &ctx, &total_sz ) ) ) {
+    ulong decoded_sz;
+    fd_gossip_msg_t * gmsg = fd_bincode_decode1_spad(
+        gossip_msg,
+        glob->decode_spad,
+        msg, msglen,
+        NULL,
+        &decoded_sz );
+    if( FD_UNLIKELY( !gmsg ) ) {
       glob->metrics.recv_pkt_corrupted_msg += 1UL;
       FD_LOG_WARNING(( "corrupt gossip message" ));
       fd_gossip_unlock( glob );
       return -1;
     }
 
-    uchar * mem = fd_spad_alloc( glob->decode_spad, fd_gossip_msg_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for gossip msg" ));
-    }
-
-    fd_gossip_msg_t * gmsg = fd_gossip_msg_decode( mem, &ctx );
-
-    if( FD_UNLIKELY( ctx.data != ctx.dataend ) ) {
+    if( FD_UNLIKELY( decoded_sz != msglen ) ) {
       glob->metrics.recv_pkt_corrupted_msg += 1UL;
       FD_LOG_WARNING(( "corrupt gossip message" ));
       fd_gossip_unlock( glob );

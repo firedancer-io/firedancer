@@ -32,24 +32,11 @@ fd_sysvar_epoch_rewards_read( fd_funk_t *     funk,
     return NULL;
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_sysvar_epoch_rewards_decode_footprint( &decode, &total_sz );
-
-  if( FD_UNLIKELY( err ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_sysvar_epoch_rewards_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    return NULL;
-  }
-
-  return (fd_sysvar_epoch_rewards_t *)fd_sysvar_epoch_rewards_decode( mem, &decode );
+  return fd_bincode_decode_spad(
+      sysvar_epoch_rewards, spad,
+      acc->vt->get_data( acc ),
+      acc->vt->get_data_len( acc ),
+      &err );
 }
 
 /* Since there are multiple sysvar epoch rewards updates within a single slot,

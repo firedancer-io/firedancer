@@ -148,19 +148,14 @@ dump_executable_account_if_exists( fd_exec_slot_ctx_t const *        slot_ctx,
     return;
   }
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = program_account->data->bytes,
-    .dataend = program_account->data->bytes + program_account->data->size,
-  };
-
-  ulong total_sz = 0UL;
-  int err = fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN, total_sz );
-  fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
+  int err;
+  fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state,
+      spad,
+      program_account->data->bytes,
+      program_account->data->size,
+      &err );
+  if( FD_UNLIKELY( err ) ) return;
 
   if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
     return;

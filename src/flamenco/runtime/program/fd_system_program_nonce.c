@@ -150,24 +150,13 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L34 */
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = fd_borrowed_account_get_data( account ),
-    .dataend = fd_borrowed_account_get_data( account ) + fd_borrowed_account_get_data_len( account )
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
-
-  if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
-  }
-
-  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
+  int err;
+  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+      nonce_state_versions, ctx->txn_ctx->spad,
+      fd_borrowed_account_get_data( account ),
+      fd_borrowed_account_get_data_len( account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L35 */
 
@@ -329,22 +318,12 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L93 */
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = fd_borrowed_account_get_data( &from ),
-    .dataend = fd_borrowed_account_get_data( &from ) + fd_borrowed_account_get_data_len( &from )
-  };
-  ulong total_sz = 0UL;
-  err = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
-  }
-
-  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
+  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+      nonce_state_versions, ctx->txn_ctx->spad,
+      fd_borrowed_account_get_data( &from ),
+      fd_borrowed_account_get_data_len( &from ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L94 */
 
@@ -540,24 +519,13 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L168 */
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = fd_borrowed_account_get_data( account ),
-    .dataend = fd_borrowed_account_get_data( account ) + fd_borrowed_account_get_data_len( account )
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
-
-  if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
-  }
-
-  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
+  int err;
+  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+      nonce_state_versions, ctx->txn_ctx->spad,
+      fd_borrowed_account_get_data( account ),
+      fd_borrowed_account_get_data_len( account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   fd_nonce_state_t * state = NULL;
   switch( versions->discriminant ) {
@@ -718,24 +686,13 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L214-L215 */
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = fd_borrowed_account_get_data( account ),
-    .dataend = fd_borrowed_account_get_data( account ) + fd_borrowed_account_get_data_len( account )
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
-
-  if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
-  }
-
-  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
+  int err;
+  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+      nonce_state_versions, ctx->txn_ctx->spad,
+      fd_borrowed_account_get_data( account ),
+      fd_borrowed_account_get_data_len( account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* Inlining solana_program::nonce::state::Versions::authorize
      https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L76-L102 */
@@ -875,24 +832,12 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L498 */
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = fd_borrowed_account_get_data( &account ),
-    .dataend = fd_borrowed_account_get_data( &account ) + fd_borrowed_account_get_data_len( &account )
-  };
-
-  ulong total_sz = 0UL;
-  err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
-
-  if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
-  }
-
-  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
+  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
+      nonce_state_versions, ctx->txn_ctx->spad,
+      fd_borrowed_account_get_data( &account ),
+      fd_borrowed_account_get_data_len( &account ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* Inlining solana_program::nonce::state::Versions::upgrade
      https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L55-L73 */
@@ -999,23 +944,12 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = durable_nonce_rec->vt->get_data( durable_nonce_rec ),
-    .dataend = durable_nonce_rec->vt->get_data( durable_nonce_rec )+ durable_nonce_rec->vt->get_data_len( durable_nonce_rec ),
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
-  }
-
-  uchar * mem = fd_spad_alloc( txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
-  }
-
-  fd_nonce_state_versions_t * state = fd_nonce_state_versions_decode( mem, &decode );
+  fd_nonce_state_versions_t * state = fd_bincode_decode_spad(
+      nonce_state_versions, txn_ctx->spad,
+      durable_nonce_rec->vt->get_data( durable_nonce_rec ),
+      durable_nonce_rec->vt->get_data_len( durable_nonce_rec ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. Thjis checks that the decoded nonce record is

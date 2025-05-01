@@ -30,23 +30,11 @@ fd_sysvar_fees_read( fd_funk_t *     funk,
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_sysvar_fees_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_sysvar_fees_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "fd_spad_alloc failed" ));
-  }
-
-  return (fd_sysvar_fees_t *)fd_sysvar_fees_decode( mem, &decode );
+  return fd_bincode_decode_spad(
+      sysvar_fees, spad,
+      acc->vt->get_data( acc ),
+      acc->vt->get_data_len( acc ),
+      &err );
 }
 
 /*

@@ -86,24 +86,15 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
                                                               fd_spad_t *             runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( programdata_acc );
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = program_acc->vt->get_data( program_acc ),
-    .dataend = program_acc->vt->get_data( program_acc ) + program_acc->vt->get_data_len( program_acc ),
-  };
-
-  ulong total_sz = 0UL;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz ) ) ) {
+  fd_bpf_upgradeable_loader_state_t * program_account_state =
+    fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state, runtime_spad,
+      program_acc->vt->get_data( program_acc ),
+      program_acc->vt->get_data_len( program_acc ),
+      NULL );
+  if( FD_UNLIKELY( !program_account_state ) ) {
     return -1;
   }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_bpf_upgradeable_loader_state_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader state" ));
-  }
-
-  fd_bpf_upgradeable_loader_state_t * program_account_state =
-    fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
-
   if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
     return -1;
   }
@@ -124,6 +115,7 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
     .dataend = programdata_acc->vt->get_data( programdata_acc ) + programdata_acc->vt->get_data_len( programdata_acc ),
   };
 
+  ulong total_sz = 0UL;
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx_programdata, &total_sz ) ) ) {
     return -1;
   }

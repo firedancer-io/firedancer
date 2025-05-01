@@ -29,23 +29,11 @@ fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = stake_rec->vt->get_data( stake_rec),
-    .dataend = stake_rec->vt->get_data( stake_rec) + stake_rec->vt->get_data_len( stake_rec),
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_stake_history_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_stake_history_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Failed to allocate memory for stake history" ));
-  }
-
-  return fd_stake_history_decode( mem, &ctx );
+  return fd_bincode_decode_spad(
+      stake_history, runtime_spad,
+      stake_rec->vt->get_data( stake_rec ),
+      stake_rec->vt->get_data_len( stake_rec ),
+      &err );
 }
 
 void

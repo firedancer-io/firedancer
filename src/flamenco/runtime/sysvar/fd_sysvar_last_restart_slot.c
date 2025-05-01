@@ -41,24 +41,11 @@ fd_sysvar_last_restart_slot_read( fd_funk_t *     funk,
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_sol_sysvar_last_restart_slot_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_sol_sysvar_last_restart_slot_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "failed to allocate memory for sysvar last restart slot" ));
-  }
-
-  fd_sol_sysvar_last_restart_slot_decode( mem, &decode );
-  return (fd_sol_sysvar_last_restart_slot_t *)mem;
+  return fd_bincode_decode_spad(
+      sol_sysvar_last_restart_slot, spad,
+      acc->vt->get_data( acc ),
+      acc->vt->get_data_len( acc ),
+      &err );
 }
 
 /* fd_sysvar_last_restart_slot_update is equivalent to

@@ -1910,25 +1910,16 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       if( dirty_vote_acc && 0==memcmp( acc_rec->vt->get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( slot_ctx, acc_rec );
         FD_SPAD_FRAME_BEGIN( finalize_spad ) {
-          fd_bincode_decode_ctx_t decode_vsv = {
-            .data    = acc_rec->vt->get_data( acc_rec ),
-            .dataend = acc_rec->vt->get_data( acc_rec ) + acc_rec->vt->get_data_len( acc_rec ),
-          };
-
-          ulong total_sz = 0UL;
-          int err = fd_vote_state_versioned_decode_footprint( &decode_vsv, &total_sz );
+          int err;
+          fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
+              vote_state_versioned, finalize_spad,
+              acc_rec->vt->get_data( acc_rec ),
+              acc_rec->vt->get_data_len( acc_rec ),
+              &err );
           if( FD_UNLIKELY( err ) ) {
             FD_LOG_WARNING(( "failed to decode vote state versioned" ));
             continue;
           }
-
-          uchar * mem = fd_spad_alloc( finalize_spad, 8UL, total_sz );
-          if( FD_UNLIKELY( !mem ) ) {
-            FD_LOG_ERR(( "Unable to allocate memory for vote state versioned" ));
-          }
-
-          fd_vote_state_versioned_decode( mem, &decode_vsv );
-          fd_vote_state_versioned_t * vsv = (fd_vote_state_versioned_t *)mem;
 
           fd_vote_block_timestamp_t const * ts = NULL;
           switch( vsv->discriminant ) {
@@ -2366,24 +2357,13 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L113-L116 */
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = buffer_acc_rec->vt->get_data( buffer_acc_rec ),
-    .dataend = buffer_acc_rec->vt->get_data( buffer_acc_rec ) + buffer_acc_rec->vt->get_data_len( buffer_acc_rec ),
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = 0;
-  err = fd_bpf_upgradeable_loader_state_decode_footprint( &decode_ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
-  }
-  uchar * mem = fd_spad_alloc( runtime_spad, alignof(fd_bpf_upgradeable_loader_state_t), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bpf loader state" ));
-  }
-
-  fd_bpf_upgradeable_loader_state_decode( mem, &decode_ctx );
-  fd_bpf_upgradeable_loader_state_t * state = (fd_bpf_upgradeable_loader_state_t *)mem;
+  int err;
+  fd_bpf_upgradeable_loader_state_t * state = fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state, runtime_spad,
+      buffer_acc_rec->vt->get_data( buffer_acc_rec ),
+      buffer_acc_rec->vt->get_data_len( buffer_acc_rec ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return err;
 
   if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_buffer( state ) ) ) {
     return -1;
@@ -2716,25 +2696,16 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  fd_bincode_decode_ctx_t ctx = {
-      .data    = acct_rec->vt->get_data( acct_rec ),
-      .dataend = acct_rec->vt->get_data( acct_rec ) + acct_rec->vt->get_data_len( acct_rec ),
-  };
-
-  ulong total_sz   = 0UL;
-  int   decode_err = 0;
-  decode_err = fd_feature_decode_footprint( &ctx, &total_sz );
+  int decode_err = 0;
+  fd_feature_t * feature = fd_bincode_decode_spad(
+      feature, runtime_spad,
+      acct_rec->vt->get_data( acct_rec ),
+      acct_rec->vt->get_data_len( acct_rec ),
+      &decode_err );
   if( FD_UNLIKELY( decode_err ) ) {
     FD_LOG_WARNING(( "Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
     return;
   }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, alignof(fd_feature_t), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for feature" ));
-  }
-
-  fd_feature_t * feature = fd_feature_decode( mem, &ctx );
 
   if( feature->has_activated_at ) {
     FD_LOG_INFO(( "feature already activated - acc: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
@@ -3544,22 +3515,13 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       if( found ) {
         /* Load feature activation */
         FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-          fd_bincode_decode_ctx_t decode = {
-            .data    = acc->account.data,
-            .dataend = acc->account.data + acc->account.data_len,
-          };
-
-          ulong total_sz = 0UL;
-          int   err      = fd_feature_decode_footprint( &decode, &total_sz );
+          int err;
+          fd_feature_t * feature = fd_bincode_decode_spad(
+              feature, runtime_spad,
+              acc->account.data,
+              acc->account.data_len,
+              &err );
           FD_TEST( err==FD_BINCODE_SUCCESS );
-
-          uchar * mem = fd_spad_alloc( runtime_spad, FD_FEATURE_ALIGN, total_sz );
-          if( FD_UNLIKELY ( !mem ) ) {
-            FD_LOG_ERR(( "fd_spad_alloc failed" ));
-            return;
-          }
-
-          fd_feature_t * feature = fd_feature_decode( mem, &decode );
 
           if( feature->has_activated_at ) {
             FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ), feature->activated_at ));
@@ -3702,21 +3664,15 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     fd_hash_t             genesis_hash;
     uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
     ssize_t n   = read( fd, buf, (ulong)sbuf.st_size );
+    FD_TEST( n>=0L );
     close( fd );
 
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = buf,
-      .dataend = buf + n,
-    };
-
-    ulong decoded_sz = 0UL;
-    int   err        = fd_genesis_solana_decode_footprint( &decode_ctx, &decoded_sz );
+    int err;
+    genesis_block = fd_bincode_decode_spad(
+        genesis_solana, runtime_spad, buf, (ulong)n, &err );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR(( "fd_genesis_solana_decode_footprint failed (%d)", err ));
     }
-
-    uchar * mem = fd_spad_alloc( runtime_spad, fd_genesis_solana_align(), decoded_sz );
-    genesis_block = fd_genesis_solana_decode( mem, &decode_ctx );
 
     // The hash is generated from the raw data... don't mess with this..
     fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );

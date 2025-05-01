@@ -56,24 +56,12 @@ fd_sysvar_clock_read( fd_funk_t *     funk,
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc ),
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_sol_sysvar_clock_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    return NULL;
-  }
-
-  uchar * clock_mem = fd_spad_alloc( spad, fd_sol_sysvar_clock_align(), total_sz );
-  if( FD_UNLIKELY( !clock_mem ) ) {
-    FD_LOG_ERR(( "Failed to allocate memory for clock" ));
-  }
-
-  fd_sol_sysvar_clock_t const * clock = fd_sol_sysvar_clock_decode( clock_mem, &ctx );
-  return clock;
+  int err;
+  return fd_bincode_decode_spad(
+      sol_sysvar_clock, spad,
+      acc->vt->get_data( acc ),
+      acc->vt->get_data_len( acc ),
+      &err );
 }
 
 void
@@ -225,25 +213,16 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
       ulong vote_timestamp = 0;
       ulong vote_slot = 0;
       if( vote_acc_node == NULL ) {
-
-        fd_bincode_decode_ctx_t ctx = {
-          .data    = n->elem.value.data,
-          .dataend = n->elem.value.data + n->elem.value.data_len,
-        };
-
-        ulong total_sz = 0UL;
-        int   err      = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+        int err;
+        fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
+            vote_state_versioned, runtime_spad,
+            n->elem.value.data,
+            n->elem.value.data_len,
+            &err );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-          FD_LOG_WARNING(( "Vote state versioned decode footprint failed" ));
+          FD_LOG_WARNING(( "Vote state versioned decode failed" ));
           continue;
         }
-
-        uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
-        if( FD_UNLIKELY( !mem ) ) {
-          FD_LOG_ERR(( "Unable to allocate memory for vote state versioned" ));
-        }
-
-        fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
         switch( vsv->discriminant ) {
           case fd_vote_state_versioned_enum_v0_23_5:
@@ -350,23 +329,14 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
     FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(clock) failed: %d", err ));
   }
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = rec->vt->get_data( rec ),
-    .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_sol_sysvar_clock_decode_footprint( &ctx, &total_sz );
+  fd_sol_sysvar_clock_t * clock = fd_bincode_decode_spad(
+      sol_sysvar_clock, runtime_spad,
+      rec->vt->get_data( rec ),
+      rec->vt->get_data_len( rec ),
+      &err );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "fd_sol_sysvar_clock_decode_footprint failed" ));
+    FD_LOG_ERR(( "fd_sol_sysvar_clock_decode failed" ));
   }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_sol_sysvar_clock_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Failed to allocate memory for clock" ));
-  }
-
-  fd_sol_sysvar_clock_t * clock = fd_sol_sysvar_clock_decode( mem, &ctx );
 
   long ancestor_timestamp = clock->unix_timestamp;
 

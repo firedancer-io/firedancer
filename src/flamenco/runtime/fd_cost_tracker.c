@@ -100,23 +100,16 @@ calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
 
       if( instr->data_sz==0UL || !fd_memeq( prog_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) continue;
 
-      fd_bincode_decode_ctx_t decode = {
-        .data    = instr_data,
-        .dataend = instr_data + instr->data_sz
-      };
-
-      ulong total_sz   = 0UL;
-      int   decode_err = fd_system_program_instruction_decode_footprint( &decode, &total_sz );
+      int decode_err;
+      fd_system_program_instruction_t * instruction = fd_bincode_decode_spad(
+          system_program_instruction, spad,
+          instr_data,
+          instr->data_sz,
+          &decode_err );
       if( FD_UNLIKELY( decode_err ) ) continue;
 
-      uchar * mem = fd_spad_alloc( spad, fd_system_program_instruction_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for system program instruction" ));
-      }
-
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L330-L346 */
-      fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
-      ulong                             space       = 0UL;
+      ulong space = 0UL;
 
       switch( instruction->discriminant ) {
         case fd_system_program_instruction_enum_create_account: {

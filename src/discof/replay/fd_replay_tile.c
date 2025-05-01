@@ -2257,24 +2257,15 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
        n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
     if( n->elem.stake == 0 ) continue;
 
-    /* TODO: Define a helper that gets specific fields. */
-    fd_bincode_decode_ctx_t dec_ctx = {
-      .data    = n->elem.value.data,
-      .dataend = n->elem.value.data + n->elem.value.data_len,
-    };
-
-    ulong total_sz = 0UL;
-    int err = fd_vote_state_versioned_decode_footprint( &dec_ctx, &total_sz );
+    int err;
+    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
+        vote_state_versioned, ctx->runtime_spad,
+        n->elem.value.data,
+        n->elem.value.data_len,
+        &err );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Unexpected failure in decoding vote state" ));
     }
-
-    uchar * mem = fd_spad_alloc( ctx->runtime_spad, fd_vote_state_versioned_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for memory" ));
-    }
-
-    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &dec_ctx );
 
     fd_pubkey_t node_pubkey;
     ulong       commission;
