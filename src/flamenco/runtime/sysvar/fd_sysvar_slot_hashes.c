@@ -92,14 +92,16 @@ fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
+/* https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/runtime/src/bank.rs#L2283-L2294 */
 void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx, runtime_spad );
   fd_slot_hash_t *          hashes             = NULL;
-  if( !slot_hashes_global ) {
-    FD_LOG_ERR(( "Unable to read slot hashes" ));
+  if( FD_UNLIKELY( !slot_hashes_global ) ) {
+    /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
+    void * mem = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
+    slot_hashes_global = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP ), &hashes );
   }
 
   hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
