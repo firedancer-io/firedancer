@@ -383,7 +383,7 @@ gossip_deliver_fun( fd_crds_data_t * data,
   }
 }
 
-void
+static void
 gossip_signer( void *        signer_ctx,
                uchar         signature[ static 64 ],
                uchar const * buffer,

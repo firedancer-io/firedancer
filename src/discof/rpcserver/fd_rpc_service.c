@@ -168,7 +168,7 @@ get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx 
   }
 }
 
-fd_epoch_bank_t *
+static fd_epoch_bank_t *
 read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_rpc_global_ctx_t * glob = ctx->global;
 
@@ -224,7 +224,7 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   } FD_SCRATCH_SCOPE_END;
 }
 
-fd_slot_bank_t *
+static fd_slot_bank_t *
 read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_funk_rec_key_t recid = fd_runtime_slot_bank_key();
   ulong vallen;

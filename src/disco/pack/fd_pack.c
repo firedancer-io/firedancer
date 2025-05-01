@@ -578,7 +578,7 @@ typedef struct fd_pack_private fd_pack_t;
 FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_OFF, txn_cnt_off );
 
 /* Forward-declare some helper functions */
-int delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
+static int delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
 static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
 
 FD_FN_PURE ulong
@@ -2547,7 +2547,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
    If move_from_penalty_treap is non-zero and the transaction to delete
    is in the pending treap, move the best transaction in any of the
    conflicting penalty treaps to the pending treap (if there is one). */
-int
+static int
 delete_transaction( fd_pack_t         * pack,
                     fd_pack_ord_txn_t * containing,
                     int                 delete_full_bundle,

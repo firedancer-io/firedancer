@@ -101,7 +101,7 @@ typedef struct {
   fd_wksp_t * mem;
 } fd_benchs_ctx_t;
 
-void
+static void
 service_quic( fd_benchs_ctx_t * ctx ) {
 
   if( !ctx->no_quic ) {
@@ -191,7 +191,7 @@ quic_conn_new( fd_quic_conn_t * conn,
 }
 
 
-void
+static void
 handshake_complete( fd_quic_conn_t * conn,
                     void *           _ctx ) {
   (void)conn;
@@ -223,7 +223,7 @@ scratch_align( void ) {
   return fd_ulong_max( fd_quic_align(), alignof( fd_benchs_ctx_t ) );
 }
 
-void
+static void
 populate_quic_limits( fd_quic_limits_t * limits ) {
   //int    argc = 0;
   //char * args[] = { NULL };
@@ -238,7 +238,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->stream_id_cnt = 1UL<<16;
 }
 
-void
+static void
 populate_quic_config( fd_quic_config_t * config ) {
   config->role = FD_QUIC_ROLE_CLIENT;
   config->retry = 0;

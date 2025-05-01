@@ -64,7 +64,7 @@ fd_loader_v4_get_state( fd_txn_account_t const * program,
    Sets `err` to an instruction error if any of the checks fail. Otherwise, returns a
    const pointer to the program account data, transmuted as a loader v4 state.
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L60-L88 */
-fd_loader_v4_state_t const *
+static fd_loader_v4_state_t const *
 check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
                        fd_borrowed_account_t const * program,
                        fd_pubkey_t const *           authority_address,

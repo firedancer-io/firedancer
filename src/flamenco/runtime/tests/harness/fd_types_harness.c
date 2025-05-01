@@ -10,7 +10,7 @@ struct CustomerSerializer {
 };
 typedef struct CustomerSerializer CustomerSerializer;
 
-void
+static void
 custom_serializer_walk( void *       _self,
                         void const * arg,
                         char const * name,

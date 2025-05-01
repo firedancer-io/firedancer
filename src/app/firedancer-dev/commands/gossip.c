@@ -93,12 +93,12 @@ gossip_topo( config_t * config ) {
   fd_topo_print_log( /* stdout */ 1, topo );
 }
 
-void
+static void
 gossip_cmd_args( int *    pargc FD_PARAM_UNUSED,
                  char *** pargv FD_PARAM_UNUSED,
                  args_t * args  FD_PARAM_UNUSED ) {}
 
-void
+static void
 gossip_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                config_t * config ) {
   gossip_topo( config );
@@ -131,7 +131,7 @@ configure_stage_perm( configure_stage_t const * stage,
     if( stage->init_perm ) stage->init_perm( chk, config );
 }
 
-void
+static void
 gossip_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                  fd_cap_chk_t *   chk,
                  config_t const * config ) {

@@ -127,7 +127,7 @@ set_identity_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
   fd_cap_chk_raise_rlimit( chk, "set-identity", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
 }
 
-fd_keyswitch_t *
+static fd_keyswitch_t *
 find_keyswitch( fd_topo_t const * topo,
                 char const *      tile_name ) {
   ulong tile_idx = fd_topo_find_tile( topo, tile_name, 0UL );
