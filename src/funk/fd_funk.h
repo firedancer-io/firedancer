@@ -261,7 +261,9 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
 /* The details of a fd_funk_private are exposed here to facilitate
    inlining various operations. */
 
-struct fd_funk_private {
+#define FD_FUNK_JOIN_ALIGN 64
+
+struct __attribute__((aligned(FD_FUNK_JOIN_ALIGN))) fd_funk_private {
 
   fd_funk_shmem_t *  shmem;
 
