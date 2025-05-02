@@ -162,8 +162,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
                           fd_solana_manifest_t const * manifest,
                           fd_spad_t *                  runtime_spad ) {
 
-  fd_valloc_t valloc = fd_spad_virtual( runtime_spad );
-
   fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
 
@@ -241,8 +239,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   /* Index vote accounts */
 
   /* Copy over fields */
-
-  slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
   slot_ctx->slot_bank.tick_height          = oldbank->tick_height;
 
   if( oldbank->blockhash_queue.last_hash )
@@ -250,7 +246,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
-  slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
   if( oldbank->hashes_per_tick )
     epoch_bank->hashes_per_tick = *oldbank->hashes_per_tick;
   else
@@ -359,16 +354,22 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   }
   recover_clock( slot_ctx, runtime_spad );
 
+  /* Parent Signature Count */
+  ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_modify( bank_mgr );
+  *parent_signature_cnt = oldbank->signature_count;
+  fd_bank_mgr_parent_signature_cnt_save( bank_mgr );
+
   /* Pass in the hard forks */
 
-  /* The hard forks should be deep copied over.
-     TODO:This should be in the epoch bank and not the slot bank. */
-  slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
-  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( valloc,
-                                                           FD_SLOT_PAIR_ALIGN,
-                                                           oldbank->hard_forks.hard_forks_len * sizeof(fd_slot_pair_t) );
-  memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks,
-          oldbank->hard_forks.hard_forks_len * sizeof(fd_slot_pair_t) );
+  /* The hard forks should be deep copied over. */
+  /* FIXME: The hard forks are only currently used for wen restart
+     and snapshot creation which is not actively supported. */
+  // slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
+  // slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( valloc,
+                                                          //  FD_SLOT_PAIR_ALIGN,
+                                                          //  oldbank->hard_forks.hard_forks_len * sizeof(fd_slot_pair_t) );
+  // memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks,
+          // oldbank->hard_forks.hard_forks_len * sizeof(fd_slot_pair_t) );
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152

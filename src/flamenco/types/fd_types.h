@@ -2418,11 +2418,9 @@ struct fd_slot_bank {
   fd_account_keys_t vote_account_keys;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
-  ulong parent_signature_cnt;
   ulong tick_height;
   ulong use_preceeding_epoch_stakes;
   uchar has_use_preceeding_epoch_stakes;
-  fd_hard_forks_t hard_forks;
   fd_rent_fresh_accounts_t rent_fresh_accounts;
   fd_epoch_reward_status_t epoch_reward_status;
 };
@@ -2445,11 +2443,9 @@ struct fd_slot_bank_global {
   fd_account_keys_global_t vote_account_keys;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
-  ulong parent_signature_cnt;
   ulong tick_height;
   ulong use_preceeding_epoch_stakes;
   uchar has_use_preceeding_epoch_stakes;
-  fd_hard_forks_global_t hard_forks;
   fd_rent_fresh_accounts_global_t rent_fresh_accounts;
   fd_epoch_reward_status_global_t epoch_reward_status;
 };

@@ -1842,7 +1842,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_account_keys_generate( &self->vote_account_keys, alloc_mem, rng );
   fd_slot_lthash_generate( &self->lthash, alloc_mem, rng );
   fd_hash_generate( &self->prev_banks_hash, alloc_mem, rng );
-  self->parent_signature_cnt = fd_rng_ulong( rng );
   self->tick_height = fd_rng_ulong( rng );
   {
     self->has_use_preceeding_epoch_stakes = fd_rng_uchar( rng ) % 2;
@@ -1850,7 +1849,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
       LLVMFuzzerMutate( (uchar *)&(self->use_preceeding_epoch_stakes), sizeof(ulong), sizeof(ulong) );
     }
   }
-  fd_hard_forks_generate( &self->hard_forks, alloc_mem, rng );
   fd_rent_fresh_accounts_generate( &self->rent_fresh_accounts, alloc_mem, rng );
   fd_epoch_reward_status_generate( &self->epoch_reward_status, alloc_mem, rng );
   return mem;

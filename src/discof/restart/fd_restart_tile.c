@@ -312,15 +312,15 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     FD_TEST( !fd_funk_rec_query_test( query ) );
 
     /* Add a hard fork into the slot bank */
-    ulong old_len           = slot_bank->hard_forks.hard_forks_len;
-    ctx->new_hard_forks_len = old_len + 1;
-    ctx->new_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->new_hard_forks_len*sizeof(fd_slot_pair_t) );
-    fd_memcpy( ctx->new_hard_forks, slot_bank->hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
+    // ulong old_len           = slot_bank->hard_forks.hard_forks_len;
+    // ctx->new_hard_forks_len = old_len + 1;
+    // ctx->new_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->new_hard_forks_len*sizeof(fd_slot_pair_t) );
+    // fd_memcpy( ctx->new_hard_forks, slot_bank->hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
 
-    ctx->new_hard_forks[ old_len ].slot  = ctx->restart->heaviest_fork_slot;
-    ctx->new_hard_forks[ old_len ].val   = 1;
-    slot_bank->hard_forks.hard_forks     = ctx->new_hard_forks;
-    slot_bank->hard_forks.hard_forks_len = ctx->new_hard_forks_len;
+    // ctx->new_hard_forks[ old_len ].slot  = ctx->restart->heaviest_fork_slot;
+    // ctx->new_hard_forks[ old_len ].val   = 1;
+    // slot_bank->hard_forks.hard_forks     = ctx->new_hard_forks;
+    // slot_bank->hard_forks.hard_forks_len = ctx->new_hard_forks_len;
 
     /* Write the slot bank back to funk, referencing fd_runtime_save_slot_bank */
     int opt_err = 0;

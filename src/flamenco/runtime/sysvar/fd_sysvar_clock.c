@@ -192,7 +192,9 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_mgr_t   bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  uint            txn_cnt  = (uint)*fd_bank_mgr_transaction_count_query( bank_mgr );
+
+  ulong * txn_cnt_bm = fd_bank_mgr_transaction_count_query( bank_mgr );
+  uint txn_cnt = !!txn_cnt_bm ? (uint)*txn_cnt_bm : 0;
 
   fd_rng_t           _rng[1];
   fd_rng_t *         rng      = fd_rng_join( fd_rng_new( _rng, txn_cnt, 0UL ) );

@@ -209,10 +209,14 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
               fd_pubkey_hash_pair_t * dirty_keys,
               ulong                   dirty_key_cnt ) {
   slot_ctx->slot_bank.prev_banks_hash = slot_ctx->slot_bank.banks_hash;
-  slot_ctx->slot_bank.parent_signature_cnt = slot_ctx->signature_cnt;
 
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_modify( bank_mgr );
+  *parent_signature_cnt = slot_ctx->signature_cnt;
+  fd_bank_mgr_parent_signature_cnt_save( bank_mgr );
+
   ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
 
   ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
