@@ -450,15 +450,15 @@ double fd_rng_double_norm  ( fd_rng_t * rng );
    ETC) */
 
 /* fd_rng_secure reads random bytes from a cryptographically secure
-   source provided by the platform.  Features /dev/urandom like entropy.  
+   source provided by the platform.  Features /dev/urandom like entropy.
 
-   On success, returns d and guarantees that [d,d+sz) is filled with 
+   On success, returns d and guarantees that [d,d+sz) is filled with
    unguessable random bytes.  On failure, returns NULL and prints reason
    for failure to warning log.
 
    (!!!) This operation may fail if no secure RNG is available or the
          RNG failed for some reason.  Always check the return code.
-   
+
    Currently available on Linux, FreeBSD, and macOS.
    On Linux and FreeBSD uses getrandom(2).
    On macOS uses CommonCrypto's CommonRandom. */
@@ -469,71 +469,5 @@ fd_rng_secure( void * d,
                ulong  sz );
 
 FD_PROTOTYPES_END
-
-#if FD_HAS_X86
-
-#include <immintrin.h> /* FIXME: HMMM */
-
-/* rdrand reads sz cryptographically secure bytes using the RDRAND x86
-   instruction.  Returns 1 if the read succeeded, 0 on failure.
-
-   Intel architecture manual section 7.3.17.1 (December 2023):
-
-     The RDRAND instruction returns a random number. All Intel
-     processors that support the RDRAND instruction indicate the
-     availability of the RDRAND instruction via reporting
-     CPUID.01H:ECX.RDRAND[bit 30] = 1.
-
-     RDRAND returns random numbers that are supplied by a
-     cryptographically secure, deterministic] random bit generator DRBG.
-     The DRBG is designed to meet the NIST SP 800-90A standard. The DRBG
-     is re-seeded frequently from an on-chip non-deterministic entropy
-     source to guarantee data returned by RDRAND is statistically
-     uniform, nonperiodic and non-deterministic.
-
-     In order for the hardware design to meet its security goals, the
-     random number generator continuously tests itself and the random
-     data it is generating. Runtime failures in the random number
-     generator circuitry or statistically anomalous data occurring by
-     chance will be detected by the self test hardware and flag the
-     resulting data as being bad. In such extremely rare cases, the
-     RDRAND instruction will return no data instead of bad data.
-
-     Under heavy load, with multiple cores executing RDRAND in parallel,
-     it is possible, though unlikely, for the demand of random numbers
-     by software processes/threads to exceed the rate at which the
-     random number generator hardware can supply them. This will lead to
-     the RDRAND instruction returning no data transitorily. */
-
-FD_PROTOTYPES_BEGIN
-
-__attribute__((warn_unused_result)) static inline int
-fd_rdrand( uchar * dst,
-           ulong   sz ) {
-
-  uchar * cur      = dst;
-  ulong   align_sz = sz & ~0x7UL;
-  while( cur < dst + align_sz ) {
-    unsigned long long slice;
-    if( FD_UNLIKELY( !_rdrand64_step( &slice ) ) )
-      return 0;
-    FD_STORE( ulong, dst, slice );
-    cur += 8UL;
-  }
-  if( FD_UNLIKELY( cur < dst ) ) {
-    unsigned long long slice;
-    if( FD_UNLIKELY( !_rdrand64_step( &slice ) ) )
-      return 0;
-    ulong tail = (ulong)( cur - dst );
-    fd_memcpy( cur, &slice, tail );
-    cur += tail;
-  }
-
-  return 1;
-}
-
-FD_PROTOTYPES_END
-
-#endif /* FD_HAS_X86 */
 
 #endif /* HEADER_fd_src_rng_fd_rng_h */
