@@ -103,7 +103,7 @@ initialize_numa_assignments( fd_topo_t * topo ) {
     if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
 
     int found_strict = 0;
-    int found_lazy   = 1;
+    int found_lazy   = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx!=ULONG_MAX ) ) {
