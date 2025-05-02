@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include "../../util/pod/fd_pod.h"
 
 #if FD_HAS_HOSTED
 
