@@ -3160,35 +3160,37 @@ class EnumType(TypeNode):
         n = self.fullname
 
         # Enum type
-        print(f'union {self.attribute}{n}_inner {{', file=header)
-        empty = True
-        for v in self.variants:
-            if not isinstance(v, str):
-                empty = False
-                v.emitMember()
-        if empty:
-            print('  uchar nonempty; /* Hack to support enums with no inner structures */', file=header)
-        print("};", file=header)
-        print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
-
-        if self.produce_global:
-            print(f'union {self.attribute}{n}_inner_global {{', file=header)
+        if not self.isFixedSize():
+            print(f'union {self.attribute}{n}_inner {{', file=header)
             empty = True
             for v in self.variants:
                 if not isinstance(v, str):
                     empty = False
-                    v.emitMemberGlobal()
+                    v.emitMember()
             if empty:
                 print('  uchar nonempty; /* Hack to support enums with no inner structures */', file=header)
             print("};", file=header)
-            print(f"typedef union {n}_inner_global {n}_inner_global_t;\n", file=header)
+            print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
+
+            if self.produce_global:
+                print(f'union {self.attribute}{n}_inner_global {{', file=header)
+                empty = True
+                for v in self.variants:
+                    if not isinstance(v, str):
+                        empty = False
+                        v.emitMemberGlobal()
+                if empty:
+                    print('  uchar nonempty; /* Hack to support enums with no inner structures */', file=header)
+                print("};", file=header)
+                print(f"typedef union {n}_inner_global {n}_inner_global_t;\n", file=header)
 
         if self.comment is not None:
             print(f'/* {self.comment} */', file=header)
 
         print(f"struct {self.attribute}{n} {{", file=header)
         print(f'  {self.repr} discriminant;', file=header)
-        print(f'  {n}_inner_t inner;', file=header)
+        if not self.isFixedSize():
+            print(f'  {n}_inner_t inner;', file=header)
         print("};", file=header)
         print(f"typedef struct {n} {n}_t;", file=header)
         if self.alignment > 0:
@@ -3211,12 +3213,16 @@ class EnumType(TypeNode):
 
     def emitPrototypes(self):
         n = self.fullname
-        print(f"void {n}_new_disc( {n}_t * self, {self.repr} discriminant );", file=header)
-        print(f"void {n}_new( {n}_t * self );", file=header)
+        if self.isFixedSize():
+            print(f"static inline void {n}_new_disc( {n}_t * self, {self.repr} discriminant ) {{ self->discriminant = discriminant; }}", file=header)
+            print(f"static inline void {n}_new( {n}_t * self ) {{ self->discriminant = ({self.repr})ULONG_MAX; }}", file=header)
+        else:
+            print(f"void {n}_new_disc( {n}_t * self, {self.repr} discriminant );", file=header)
+            print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
-        print(f'ulong {n}_align( void );', file=header)
+        print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         if self.produce_global:
@@ -3246,7 +3252,8 @@ class EnumType(TypeNode):
             print(f'  return self->discriminant == {i};', file=body)
             print("}", file=body)
 
-        print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant );', file=body)
+        if not self.isFixedSize():
+            print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant );', file=body)
 
         print(f'int {n}_inner_decode_footprint( {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
         print('  int err;', file=body)
@@ -3282,29 +3289,30 @@ class EnumType(TypeNode):
         print(f'  return err;', file=body)
         print("}", file=body)
 
-        print(f'static void {n}_inner_decode_inner( {n}_inner_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print('  switch (discriminant) {', file=body)
-        for i, v in enumerate(self.variants):
-            print(f'  case {i}: {{', file=body)
-            if not isinstance(v, str):
-                v.emitDecodeInner()
-            print('    break;', file=body)
-            print('  }', file=body)
-        print('  }', file=body)
-        print("}", file=body)
-
-
-        if self.produce_global:
-            print(f'static void {n}_inner_decode_inner_global( {n}_inner_global_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        if not self.isFixedSize():
+            print(f'static void {n}_inner_decode_inner( {n}_inner_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
             print('  switch (discriminant) {', file=body)
             for i, v in enumerate(self.variants):
                 print(f'  case {i}: {{', file=body)
                 if not isinstance(v, str):
-                    v.emitDecodeInnerGlobal()
+                    v.emitDecodeInner()
                 print('    break;', file=body)
                 print('  }', file=body)
             print('  }', file=body)
             print("}", file=body)
+
+
+            if self.produce_global:
+                print(f'static void {n}_inner_decode_inner_global( {n}_inner_global_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+                print('  switch (discriminant) {', file=body)
+                for i, v in enumerate(self.variants):
+                    print(f'  case {i}: {{', file=body)
+                    if not isinstance(v, str):
+                        v.emitDecodeInnerGlobal()
+                    print('    break;', file=body)
+                    print('  }', file=body)
+                print('  }', file=body)
+                print("}", file=body)
 
         print(f'static void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
@@ -3314,7 +3322,8 @@ class EnumType(TypeNode):
             print('  self->discriminant = tmp;', file=body)
         else:
             print(f'  fd_bincode_{self.repr_codec_stem}_decode_unsafe( &self->discriminant, ctx );', file=body)
-        print(f'  {n}_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
+        if not self.isFixedSize():
+            print(f'  {n}_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
         print(f'}}', file=body)
 
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -3363,7 +3372,8 @@ class EnumType(TypeNode):
                 print('  self->discriminant = tmp;', file=body)
             else:
                 print(f'  fd_bincode_{self.repr_codec_stem}_decode_unsafe( &self->discriminant, ctx );', file=body)
-            print(f'  {n}_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
+            if not self.isFixedSize():
+                print(f'  {n}_inner_decode_inner_global( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
             print(f'}}', file=body)
 
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -3375,29 +3385,29 @@ class EnumType(TypeNode):
             print(f'  return self;', file=body)
             print(f'}}', file=body)
 
-        print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
-        print('  switch( discriminant ) {', file=body)
-        for i, v in enumerate(self.variants):
-            print(f'  case {i}: {{', file=body)
-            if not isinstance(v, str):
-                v.emitNew()
-            print('    break;', file=body)
+        if not self.isFixedSize():
+            print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
+            print('  switch( discriminant ) {', file=body)
+            for i, v in enumerate(self.variants):
+                print(f'  case {i}: {{', file=body)
+                if not isinstance(v, str):
+                    v.emitNew()
+                print('    break;', file=body)
+                print('  }', file=body)
+            print('  default: break; // FD_LOG_ERR(( "unhandled type"));', file=body)
             print('  }', file=body)
-        print('  default: break; // FD_LOG_ERR(( "unhandled type"));', file=body)
-        print('  }', file=body)
-        print("}", file=body)
+            print("}", file=body)
 
-        print(f'void {n}_new_disc( {n}_t * self, {self.repr} discriminant ) {{', file=body)
-        print('  self->discriminant = discriminant;', file=body)
-        print(f'  {n}_inner_new( &self->inner, self->discriminant );', file=body)
-        print("}", file=body)
+            print(f'void {n}_new_disc( {n}_t * self, {self.repr} discriminant ) {{', file=body)
+            print('  self->discriminant = discriminant;', file=body)
+            print(f'  {n}_inner_new( &self->inner, self->discriminant );', file=body)
+            print("}", file=body)
 
-        print(f'void {n}_new( {n}_t * self ) {{', file=body)
-        print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
-        print(f'  {n}_new_disc( self, {self.repr_max_val} );', file=body) # Invalid by default
-        print("}", file=body)
+            print(f'void {n}_new( {n}_t * self ) {{', file=body)
+            print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
+            print(f'  {n}_new_disc( self, {self.repr_max_val} );', file=body) # Invalid by default
+            print("}", file=body)
 
-        print(f'ulong {n}_align( void ){{ return {n.upper()}_ALIGN; }}', file=body)
         print("", file=body)
 
         print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{', file=body)
@@ -3431,22 +3441,23 @@ class EnumType(TypeNode):
         print("}", file=body)
         print("", file=body)
 
-        print(f'int {n}_inner_encode( {n}_inner_t const * self, {self.repr} discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
-        first = True
-        for i, v in enumerate(self.variants):
-            if not isinstance(v, str):
-                if first:
-                    print('  int err;', file=body)
-                    print('  switch (discriminant) {', file=body)
-                    first = False
-                print(f'  case {i}: {{', file=body)
-                v.emitEncode()
-                print('    break;', file=body)
+        if not self.isFixedSize():
+            print(f'int {n}_inner_encode( {n}_inner_t const * self, {self.repr} discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
+            first = True
+            for i, v in enumerate(self.variants):
+                if not isinstance(v, str):
+                    if first:
+                        print('  int err;', file=body)
+                        print('  switch (discriminant) {', file=body)
+                        first = False
+                    print(f'  case {i}: {{', file=body)
+                    v.emitEncode()
+                    print('    break;', file=body)
+                    print('  }', file=body)
+            if not first:
                 print('  }', file=body)
-        if not first:
-            print('  }', file=body)
-        print('  return FD_BINCODE_SUCCESS;', file=body)
-        print("}", file=body)
+            print('  return FD_BINCODE_SUCCESS;', file=body)
+            print("}", file=body)
 
         print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
         if self.compact:
@@ -3455,7 +3466,10 @@ class EnumType(TypeNode):
         else:
             print(f'  int err = fd_bincode_{self.repr_codec_stem}_encode( self->discriminant, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
-        print(f'  return {n}_inner_encode( &self->inner, self->discriminant, ctx );', file=body)
+        if not self.isFixedSize():
+            print(f'  return {n}_inner_encode( &self->inner, self->discriminant, ctx );', file=body)
+        else:
+            print('  return err;', file=body)
         print("}", file=body)
         print("", file=body)
 

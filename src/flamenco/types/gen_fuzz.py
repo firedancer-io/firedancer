@@ -676,20 +676,21 @@ class EnumType:
         n = self.fullname
         indent = '  '
 
-        print(f'void {n}_inner_generate( {n}_inner_t * self, void **alloc_mem, {self.repr} discriminant, fd_rng_t * rng ) {{', file=body)
-        first = True
-        for i, v in enumerate(self.variants):
-            if not isinstance(v, str):
-                if first:
-                    print('  switch (discriminant) {', file=body)
-                    first = False
-                print(f'  case {i}: {{', file=body)
-                v.emitGenerate()
-                print('    break;', file=body)
+        if not self.isFixedSize():
+            print(f'void {n}_inner_generate( {n}_inner_t * self, void **alloc_mem, {self.repr} discriminant, fd_rng_t * rng ) {{', file=body)
+            first = True
+            for i, v in enumerate(self.variants):
+                if not isinstance(v, str):
+                    if first:
+                        print('  switch (discriminant) {', file=body)
+                        first = False
+                    print(f'  case {i}: {{', file=body)
+                    v.emitGenerate()
+                    print('    break;', file=body)
+                    print('  }', file=body)
+            if not first:
                 print('  }', file=body)
-        if not first:
-            print('  }', file=body)
-        print("}", file=body)
+            print("}", file=body)
 
         print(f'void *{n}_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {{', file=body)
         print(f'  {n}_t *self = ({n}_t *) mem;', file=body)
@@ -702,7 +703,8 @@ class EnumType:
             print(f'  while( self->discriminant == 14 || self->discriminant == 15 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
         if 'gossip_msg' == self.name:
             print(f'  while( self->discriminant == 0 || self->discriminant == 1 || self->discriminant == 2 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
-        print(f'  {n}_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );', file=body)
+        if not self.isFixedSize():
+            print(f'  {n}_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );', file=body)
         print(f'  return mem;', file=body)
         print("}", file=body)
         print("", file=body)
