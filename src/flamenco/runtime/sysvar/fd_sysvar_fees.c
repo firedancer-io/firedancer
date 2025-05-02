@@ -91,11 +91,13 @@ fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
 
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
   if( FD_UNLIKELY( *lamports_per_signature==0UL ) ) {
-    slot_ctx->prev_lamports_per_signature = new_lamports_per_signature;
+    *prev_lamports_per_signature = new_lamports_per_signature;
   } else {
-    slot_ctx->prev_lamports_per_signature = *lamports_per_signature;
+    *prev_lamports_per_signature = *lamports_per_signature;
   }
+  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
 
   base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
   *base_fee_rate_governor = me;

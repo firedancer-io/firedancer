@@ -3379,8 +3379,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   memcpy( &slot_ctx->slot_bank.poh, genesis_hash->hash, FD_SHA256_HASH_SZ );
   memset( slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
 
-  slot_ctx->prev_lamports_per_signature      = 0UL;
-
   fd_poh_config_t const * poh        = &genesis_block->poh_config;
   fd_exec_epoch_ctx_t *   epoch_ctx  = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *       epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -3433,6 +3431,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
   *lamports_per_signature = 0UL;
   fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+  *prev_lamports_per_signature = 0UL;
+  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
 
   slot_ctx->signature_cnt = 0UL;
 

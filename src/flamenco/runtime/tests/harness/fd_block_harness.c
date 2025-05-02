@@ -78,7 +78,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_ctx->enable_exec_recording       = 0;
   slot_ctx->epoch_ctx                   = epoch_ctx;
   slot_ctx->runtime_wksp                = fd_wksp_containing( slot_ctx );
-  slot_ctx->prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
   slot_ctx->slot                        = slot;
 
   fd_memcpy( &slot_ctx->slot_bank.banks_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof( fd_hash_t ) );
@@ -250,6 +249,11 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   *lamports_per_signature = 5000UL;
   fd_bank_mgr_lamports_per_signature_save( bank_mgr );
 
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+  *prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
+  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+
+
   block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
   block_hash_queue->ages_root_offset = 0UL;
   block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
@@ -291,7 +295,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
       *lamports_per_signature = 5000UL;
       fd_bank_mgr_lamports_per_signature_save( bank_mgr );
-      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+      *prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
     }
   }
 

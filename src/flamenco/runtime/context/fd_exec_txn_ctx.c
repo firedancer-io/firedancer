@@ -255,7 +255,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
 
-  ctx->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
   ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
   ctx->total_epoch_stake           = slot_ctx->epoch_ctx->total_epoch_stake;
 
@@ -269,6 +268,12 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   if( fee_rate_governor ) {
     ctx->fee_rate_governor = *fee_rate_governor;
   }
+
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_query( bank_mgr );
+  if( prev_lamports_per_signature ) {
+    ctx->prev_lamports_per_signature = *prev_lamports_per_signature;
+  }
+
 
   /* Distribute rewards */
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );

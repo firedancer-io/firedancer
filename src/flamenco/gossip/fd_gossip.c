@@ -1241,13 +1241,12 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_req);
   fd_gossip_pull_req_t * req = &gmsg.inner.pull_req;
   fd_crds_filter_t * filter = &req->filter;
-  filter->mask_bits = nmaskbits;
-  filter->filter.keys_len = nkeys;
-  filter->filter.keys = keys;
-  fd_gossip_bitvec_u64_t * bitvec = &filter->filter.bits;
-  bitvec->len = FD_BLOOM_NUM_BITS;
-  bitvec->has_bits = 1;
-  bitvec->bits.vec_len = FD_BLOOM_NUM_BITS/64U;
+  filter->mask_bits              = nmaskbits;
+  filter->filter.keys_len        = nkeys;
+  filter->filter.keys            = keys;
+  filter->filter.bits_len        = FD_BLOOM_NUM_BITS;
+  filter->filter.has_bits        = 1;
+  filter->filter.bits_bitvec_len = FD_BLOOM_NUM_BITS/64U;
 
   /* The "value" in the request is always my own contact info (v2) */
   fd_crds_value_t * value = &req->value;
@@ -1261,7 +1260,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     ulong index = fd_gossip_filter_selection_iter_idx( iter );
     filter->mask = (nmaskbits == 0 ? ~0UL : ((index << (64U - nmaskbits)) | (~0UL >> nmaskbits)));
     filter->filter.num_bits_set = num_bits_set[index];
-    bitvec->bits.vec = bits + (index*CHUNKSIZE);
+    filter->filter.bits_bitvec = bits + (index*CHUNKSIZE);
     fd_gossip_send(glob, &ele->key, &gmsg);
   }
 }
@@ -1862,8 +1861,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_crds_filter_t * filter = &msg->filter;
   ulong nkeys = filter->filter.keys_len;
   ulong * keys = filter->filter.keys;
-  fd_gossip_bitvec_u64_t * bitvec = &filter->filter.bits;
-  ulong * bitvec2 = bitvec->bits.vec;
+  ulong * inner = filter->filter.bits_bitvec;
   ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_PULL_TIMEOUT;
   ulong hits = 0;
   ulong misses = 0;
@@ -1883,8 +1881,8 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     }
     int miss = 0;
     for (ulong i = 0; i < nkeys; ++i) {
-      ulong pos = fd_gossip_bloom_pos(hash, keys[i], bitvec->len);
-      ulong * j = bitvec2 + (pos>>6U); /* divide by 64 */
+      ulong pos = fd_gossip_bloom_pos(hash, keys[i], filter->filter.bits_len);
+      ulong * j = inner + (pos>>6U); /* divide by 64 */
       ulong bit = 1UL<<(pos & 63U);
       if (!((*j) & bit)) {
         miss = 1;

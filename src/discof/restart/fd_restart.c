@@ -111,17 +111,17 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
 
   /* Decode the bitmap in the message and aggregate validator stake into slot_to_stake */
   /* The gossip tile should have already converted the bitmap into raw format */
-  if( FD_UNLIKELY( msg->last_voted_slot+1<msg->offsets.inner.raw_offsets.offsets.len ) ) {
+  if( FD_UNLIKELY( msg->last_voted_slot+1<msg->offsets.inner.raw_offsets.offsets_len ) ) {
     FD_LOG_WARNING(( "Received invalid last_voted_fork_slot message from validator %s because %lu<%lu",
-                     FD_BASE58_ENC_32_ALLOCA( pubkey ), msg->last_voted_slot+1, msg->offsets.inner.raw_offsets.offsets.len ));
+                     FD_BASE58_ENC_32_ALLOCA( pubkey ), msg->last_voted_slot+1, msg->offsets.inner.raw_offsets.offsets_len ));
   }
-  for( ulong i=0; i<msg->offsets.inner.raw_offsets.offsets.len; i++ ) {
+  for( ulong i=0; i<msg->offsets.inner.raw_offsets.offsets_len; i++ ) {
     if( FD_UNLIKELY( msg->last_voted_slot<restart->funk_root+i ) ) break;
 
     ulong slot     = msg->last_voted_slot-i;
     ulong byte_off = i/BITS_PER_UCHAR;
     int   bit_off  = i%BITS_PER_UCHAR;
-    int   bit      = fd_uchar_extract_bit( msg->offsets.inner.raw_offsets.offsets.bits.bits[byte_off], bit_off );
+    int   bit      = fd_uchar_extract_bit( msg->offsets.inner.raw_offsets.offsets_bitvec[byte_off], bit_off );
     if( FD_LIKELY( bit ) ) {
       ulong offset = slot-restart->funk_root;
       ulong slot_epoch = fd_slot_to_epoch( restart->epoch_schedule, slot, NULL );
@@ -189,7 +189,7 @@ fd_restart_recv_gossip_msg( fd_restart_t * restart,
          Bitmap in raw format (uchar* - bitmap size is specified in the gossip message)
       */
       fd_gossip_restart_last_voted_fork_slots_t * msg = (fd_gossip_restart_last_voted_fork_slots_t * ) fd_type_pun( src );
-      msg->offsets.inner.raw_offsets.offsets.bits.bits = src + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
+      msg->offsets.inner.raw_offsets.offsets_bitvec = src + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
       fd_restart_recv_last_voted_fork_slots( restart, msg, out_heaviest_fork_found );
     }
 }
@@ -315,10 +315,10 @@ fd_restart_convert_runlength_to_raw_bitmap( fd_gossip_restart_last_voted_fork_sl
     bit_cnt        += cnt;
     *out_bitmap_len = (bit_cnt-1)/BITS_PER_UCHAR+1;
   }
-  msg->offsets.discriminant                            = fd_restart_slots_offsets_enum_raw_offsets;
-  msg->offsets.inner.raw_offsets.offsets.has_bits      = 1;
-  msg->offsets.inner.raw_offsets.offsets.len           = bit_cnt;
-  msg->offsets.inner.raw_offsets.offsets.bits.bits_len = *out_bitmap_len;
+  msg->offsets.discriminant                         = fd_restart_slots_offsets_enum_raw_offsets;
+  msg->offsets.inner.raw_offsets.has_offsets        = 1;
+  msg->offsets.inner.raw_offsets.offsets_len        = bit_cnt;
+  msg->offsets.inner.raw_offsets.offsets_bitvec_len = *out_bitmap_len;
 }
 
 void
@@ -328,12 +328,12 @@ fd_restart_convert_raw_bitmap_to_runlength( fd_gossip_restart_last_voted_fork_sl
   int    last_bit    = 1;
   ulong  offsets_len = 0;
   for( ulong raw_bitmap_iter=0;
-       raw_bitmap_iter<msg->offsets.inner.raw_offsets.offsets.len &&
+       raw_bitmap_iter<msg->offsets.inner.raw_offsets.offsets_len &&
        offsets_len<FD_RESTART_PACKET_BITMAP_BYTES_MAX/sizeof(ushort);
        raw_bitmap_iter++ ) {
     ulong idx = raw_bitmap_iter/BITS_PER_UCHAR;
     int   off = raw_bitmap_iter%BITS_PER_UCHAR;
-    int   bit = fd_uchar_extract_bit( msg->offsets.inner.raw_offsets.offsets.bits.bits[idx], off );
+    int   bit = fd_uchar_extract_bit( msg->offsets.inner.raw_offsets.offsets_bitvec[idx], off );
     if( FD_LIKELY( bit==last_bit ) ) {
       cnt++;
     } else {
@@ -428,10 +428,10 @@ fd_restart_init( fd_restart_t *              restart,
   uchar * bitmap   = out_buf+sizeof(fd_gossip_restart_last_voted_fork_slots_t);
   fd_memset( bitmap, 0,  num_slots/BITS_PER_UCHAR+1 );
   msg->offsets.discriminant                            = fd_restart_slots_offsets_enum_raw_offsets;
-  msg->offsets.inner.raw_offsets.offsets.has_bits      = 1;
-  msg->offsets.inner.raw_offsets.offsets.len           = num_slots;
-  msg->offsets.inner.raw_offsets.offsets.bits.bits     = bitmap;
-  msg->offsets.inner.raw_offsets.offsets.bits.bits_len = ( num_slots-1 )/BITS_PER_UCHAR+1;
+  msg->offsets.inner.raw_offsets.has_offsets        = 1;
+  msg->offsets.inner.raw_offsets.offsets_len        = num_slots;
+  msg->offsets.inner.raw_offsets.offsets_bitvec     = bitmap;
+  msg->offsets.inner.raw_offsets.offsets_bitvec_len = ( num_slots-1 )/BITS_PER_UCHAR+1;
   *out_buf_len = sizeof(fd_gossip_restart_last_voted_fork_slots_t)+( num_slots-1 )/BITS_PER_UCHAR+1;
   FD_LOG_NOTICE(( "[%s] last_voted_slot=%lu, bank_hash=%s, encoding %lu bits in bitmap",
                   __func__, msg->last_voted_slot, FD_BASE58_ENC_32_ALLOCA( &tower_bank_hash ), num_slots ));
@@ -457,14 +457,14 @@ fd_restart_init( fd_restart_t *              restart,
   }
 
   for( ulong i=start_slot; i<slot_history->next_slot; i++ ) {
-    ulong in_idx          = ( i/BITS_PER_ULONG )%( slot_history->bits.bits->blocks_len );
+    ulong in_idx          = ( i/BITS_PER_ULONG )%( slot_history->bits_bitvec_len );
     int   in_bit_off      = i%BITS_PER_ULONG;
 
     ulong offset_from_end = end_slot-i;
     ulong out_idx         = offset_from_end/BITS_PER_UCHAR;
     int   out_bit_off     = offset_from_end%BITS_PER_UCHAR;
 
-    if( FD_LIKELY( fd_ulong_extract_bit( slot_history->bits.bits->blocks[in_idx], in_bit_off ) ) ) {
+    if( FD_LIKELY( fd_ulong_extract_bit( slot_history->bits_bitvec[in_idx], in_bit_off ) ) ) {
       /* bit#i in slot_history is 1 */
       bitmap[out_idx] = fd_uchar_set_bit( bitmap[out_idx], out_bit_off );
     }

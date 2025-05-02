@@ -317,7 +317,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
       *lamports_per_signature = last->fee_calculator.lamports_per_signature;
       fd_bank_mgr_lamports_per_signature_save( bank_mgr );
-      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
+      ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+      *prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
     }
   }
 

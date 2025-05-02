@@ -213,7 +213,6 @@ typedef struct fd_runtime_public_epoch_msg fd_runtime_public_epoch_msg_t;
 
 struct fd_runtime_public_slot_msg {
   ulong slot;
-  ulong prev_lamports_per_signature;
   ulong sysvar_cache_gaddr;
   int   enable_exec_recording;
 };

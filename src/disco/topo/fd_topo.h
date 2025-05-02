@@ -73,6 +73,8 @@ typedef struct {
     fd_frag_meta_t * mcache; /* The mcache of this link. */
     void *           dcache; /* The dcache of this link, if it has one. */
   };
+
+  uint permit_unused : 1;  /* Permit a topology where this link has no consumers */
 } fd_topo_link_t;
 
 /* A tile is a unique process that is spawned by Firedancer to represent
@@ -882,12 +884,6 @@ FD_FN_PURE ulong
 fd_topo_huge_page_cnt( fd_topo_t const * topo,
                        ulong             numa_idx,
                        int               include_anonymous );
-
-/* Check all invariants of the given topology to make sure it is valid.
-   An invalid topology will cause the program to abort with an error
-   message. */
-void
-fd_topo_validate( fd_topo_t const * topo );
 
 /* Prints a message describing the topology to an output stream.  If
    stdout is true, will be written to stdout, otherwise will be written

@@ -9053,252 +9053,21 @@ ulong fd_tower_sync_switch_size( fd_tower_sync_switch_t const * self ) {
   return size;
 }
 
-int fd_slot_history_inner_encode( fd_slot_history_inner_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->blocks_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->blocks_len ) {
-    for( ulong i=0; i < self->blocks_len; i++ ) {
-      err = fd_bincode_uint64_encode( self->blocks[i], ctx );
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-int fd_slot_history_inner_encode_global( fd_slot_history_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->blocks_len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->blocks_len ) {
-    uchar * blocks_laddr = (uchar*)self + self->blocks_offset;
-    ulong * blocks = (ulong *)blocks_laddr;
-    for( ulong i=0; i < self->blocks_len; i++ ) {
-      err = fd_bincode_uint64_encode( blocks[i], ctx );
-      if( FD_UNLIKELY( err ) ) return err;
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_slot_history_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  ulong blocks_len;
-  err = fd_bincode_uint64_decode( &blocks_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( blocks_len ) {
-    *total_sz += 8UL + sizeof(ulong)*blocks_len;
-    for( ulong i=0; i < blocks_len; i++ ) {
-      err = fd_bincode_uint64_decode_footprint( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  return 0;
-}
-int fd_slot_history_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_slot_history_inner_t);
-  void const * start_data = ctx->data;
-  int err = fd_slot_history_inner_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_slot_history_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_inner_t * self = (fd_slot_history_inner_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->blocks_len, ctx );
-  if( self->blocks_len ) {
-    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
-    self->blocks = *alloc_mem;
-    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->blocks_len;
-    for( ulong i=0; i < self->blocks_len; i++ ) {
-      fd_bincode_uint64_decode_unsafe( self->blocks + i, ctx );
-    }
-  } else
-    self->blocks = NULL;
-}
-void * fd_slot_history_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_inner_t * self = (fd_slot_history_inner_t *)mem;
-  fd_slot_history_inner_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_slot_history_inner_t);
-  void * * alloc_mem = &alloc_region;
-  fd_slot_history_inner_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_slot_history_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_inner_global_t * self = (fd_slot_history_inner_global_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->blocks_len, ctx );
-  if( self->blocks_len ) {
-    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
-    self->blocks_offset = (ulong)*alloc_mem - (ulong)struct_mem;
-    uchar * cur_mem = (uchar *)(*alloc_mem);
-    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->blocks_len;
-    for( ulong i=0; i < self->blocks_len; i++ ) {
-      fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
-    }
-  } else {
-    self->blocks_offset = 0UL;
-  }
-}
-void * fd_slot_history_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_inner_global_t * self = (fd_slot_history_inner_global_t *)mem;
-  fd_slot_history_inner_new( (fd_slot_history_inner_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_slot_history_inner_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_slot_history_inner_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_slot_history_inner_new(fd_slot_history_inner_t * self) {
-  fd_memset( self, 0, sizeof(fd_slot_history_inner_t) );
-}
-void fd_slot_history_inner_walk( void * w, fd_slot_history_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_history_inner", level++ );
-  if( self->blocks_len ) {
-    fun( w, NULL, "blocks", FD_FLAMENCO_TYPE_ARR, "array", level++ );
-    for( ulong i=0; i < self->blocks_len; i++ )
-      fun( w, self->blocks + i, "blocks", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, "blocks", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_history_inner", level-- );
-}
-ulong fd_slot_history_inner_size( fd_slot_history_inner_t const * self ) {
-  ulong size = 0;
-  do {
-    size += sizeof(ulong);
-    size += self->blocks_len * sizeof(ulong);
-  } while(0);
-  return size;
-}
-
-int fd_slot_history_bitvec_encode( fd_slot_history_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  if( self->bits != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    err = fd_slot_history_inner_encode( self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-int fd_slot_history_bitvec_encode_global( fd_slot_history_bitvec_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  if( self->bits_offset ) {
-    err = fd_bincode_bool_encode( 1, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    fd_slot_history_inner_global_t * bits = (void *)((uchar*)self + self->bits_offset);
-    err = fd_slot_history_inner_encode_global( bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_slot_history_bitvec_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  {
-    uchar o;
-    err = fd_bincode_bool_decode( &o, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( o ) {
-    *total_sz += FD_SLOT_HISTORY_INNER_ALIGN + sizeof(fd_slot_history_inner_t);
-      err = fd_slot_history_inner_decode_footprint_inner( ctx, total_sz );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return 0;
-}
-int fd_slot_history_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_slot_history_bitvec_t);
-  void const * start_data = ctx->data;
-  int err = fd_slot_history_bitvec_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_slot_history_bitvec_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_bitvec_t * self = (fd_slot_history_bitvec_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_SLOT_HISTORY_INNER_ALIGN );
-      self->bits = *alloc_mem;
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_slot_history_inner_t);
-      fd_slot_history_inner_new( self->bits );
-      fd_slot_history_inner_decode_inner( self->bits, alloc_mem, ctx );
-    } else {
-      self->bits = NULL;
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_slot_history_bitvec_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_bitvec_t * self = (fd_slot_history_bitvec_t *)mem;
-  fd_slot_history_bitvec_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_slot_history_bitvec_t);
-  void * * alloc_mem = &alloc_region;
-  fd_slot_history_bitvec_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_slot_history_bitvec_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_bitvec_global_t * self = (fd_slot_history_bitvec_global_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    if( o ) {
-      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, FD_SLOT_HISTORY_INNER_ALIGN );
-      self->bits_offset = (ulong)*alloc_mem - (ulong)struct_mem;
-      fd_slot_history_inner_new( *alloc_mem );
-      *alloc_mem = (uchar *)*alloc_mem + sizeof(fd_slot_history_inner_t);
-      fd_slot_history_inner_decode_inner_global( (uchar*)self + self->bits_offset, alloc_mem, ctx );
-    } else {
-      self->bits_offset = 0UL;
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_slot_history_bitvec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_slot_history_bitvec_global_t * self = (fd_slot_history_bitvec_global_t *)mem;
-  fd_slot_history_bitvec_new( (fd_slot_history_bitvec_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_slot_history_bitvec_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_slot_history_bitvec_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_slot_history_bitvec_new(fd_slot_history_bitvec_t * self) {
-  fd_memset( self, 0, sizeof(fd_slot_history_bitvec_t) );
-}
-void fd_slot_history_bitvec_walk( void * w, fd_slot_history_bitvec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_history_bitvec", level++ );
-  if( !self->bits ) {
-    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "slot_history_inner", level );
-  } else {
-    fd_slot_history_inner_walk( w, self->bits, fun, "bits", level );
-  }
-  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_history_bitvec", level-- );
-}
-ulong fd_slot_history_bitvec_size( fd_slot_history_bitvec_t const * self ) {
-  ulong size = 0;
-  size += sizeof(char);
-  if( NULL != self->bits ) {
-    size += fd_slot_history_inner_size( self->bits );
-  }
-  size += sizeof(ulong);
-  return size;
-}
-
 int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_slot_history_bitvec_encode( &self->bits, ctx );
+  err = fd_bincode_bool_encode( self->has_bits, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_bits ) {
+    err = fd_bincode_uint64_encode( self->bits_bitvec_len, ctx );
+    if( FD_UNLIKELY(err) ) return err;
+    if( self->bits_bitvec_len ) {
+      for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+        err = fd_bincode_uint64_encode( self->bits_bitvec[i], ctx );
+      }
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->bits_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->next_slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9306,7 +9075,23 @@ int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ct
 }
 int fd_slot_history_encode_global( fd_slot_history_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_slot_history_bitvec_encode_global( &self->bits, ctx );
+  err = fd_bincode_bool_encode( self->has_bits, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_bits ) {
+  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_bincode_uint64_encode( self->bits_bitvec_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    if( self->bits_bitvec_len ) {
+      uchar * bits_bitvec_laddr = (uchar*)self + self->bits_bitvec_offset;
+      ulong * bits_bitvec = (ulong *)bits_bitvec_laddr;
+      for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+        err = fd_bincode_uint64_encode( bits_bitvec[i], ctx );
+        if( FD_UNLIKELY( err ) ) return err;
+      }
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->bits_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->next_slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9315,8 +9100,30 @@ int fd_slot_history_encode_global( fd_slot_history_global_t const * self, fd_bin
 static int fd_slot_history_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
-  err = fd_slot_history_bitvec_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    ulong inner_len = 0UL;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      ulong bits_bitvec_len;
+      err = fd_bincode_uint64_decode( &bits_bitvec_len, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      if( bits_bitvec_len ) {
+        *total_sz += 8UL + sizeof(ulong)*bits_bitvec_len;
+        for( ulong i=0; i < bits_bitvec_len; i++ ) {
+          err = fd_bincode_uint64_decode_footprint( ctx );
+          if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+        }
+      }
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      inner_len = bits_bitvec_len;
+    }
+    ulong len;
+    err = fd_bincode_uint64_decode( &len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( len > inner_len * sizeof(ulong) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+  }
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return 0;
@@ -9331,7 +9138,26 @@ int fd_slot_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
 }
 static void fd_slot_history_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_slot_history_t * self = (fd_slot_history_t *)struct_mem;
-  fd_slot_history_bitvec_decode_inner( &self->bits, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->bits_bitvec_len, ctx );
+      if( self->bits_bitvec_len ) {
+        *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+        self->bits_bitvec = *alloc_mem;
+        *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->bits_bitvec_len;
+        for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+          fd_bincode_uint64_decode_unsafe( self->bits_bitvec + i, ctx );
+        }
+      } else
+        self->bits_bitvec = NULL;
+    } else {
+      self->bits_bitvec = NULL;
+    }
+    fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
+  }
   fd_bincode_uint64_decode_unsafe( &self->next_slot, ctx );
 }
 void * fd_slot_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -9344,7 +9170,26 @@ void * fd_slot_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
 }
 static void fd_slot_history_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_slot_history_global_t * self = (fd_slot_history_global_t *)struct_mem;
-  fd_slot_history_bitvec_decode_inner_global( &self->bits, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->bits_bitvec_len, ctx );
+      if( self->bits_bitvec_len ) {
+        *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+        self->bits_bitvec_offset = (ulong)*alloc_mem - (ulong)struct_mem;
+        uchar * cur_mem = (uchar *)(*alloc_mem);
+        *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->bits_bitvec_len;
+        for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+          fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
+        }
+      } else {
+        self->bits_bitvec_offset = 0UL;
+      }
+    }
+    fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
+  }
   fd_bincode_uint64_decode_unsafe( &self->next_slot, ctx );
 }
 void * fd_slot_history_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -9357,17 +9202,33 @@ void * fd_slot_history_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx 
 }
 void fd_slot_history_new(fd_slot_history_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_history_t) );
-  fd_slot_history_bitvec_new( &self->bits );
 }
 void fd_slot_history_walk( void * w, fd_slot_history_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_history", level++ );
-  fd_slot_history_bitvec_walk( w, &self->bits, fun, "bits", level );
+  if( !self->has_bits ) {
+    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    if( self->bits_bitvec_len ) {
+      fun( w, NULL, "bits_bitvec", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+      for( ulong i=0; i < self->bits_bitvec_len; i++ )
+      fun( w, self->bits_bitvec + i, "bits_bitvec", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
+      fun( w, NULL, "bits_bitvec", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
+    }
+  }
+  fun( w, &self->bits_len, "bits_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->next_slot, "next_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_history", level-- );
 }
 ulong fd_slot_history_size( fd_slot_history_t const * self ) {
   ulong size = 0;
-  size += fd_slot_history_bitvec_size( &self->bits );
+  size += sizeof(char);
+  if( self->has_bits ) {
+    do {
+      size += sizeof(ulong);
+      size += self->bits_bitvec_len * sizeof(ulong);
+    } while(0);
+  }
+  size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
 }
@@ -21022,446 +20883,6 @@ int fd_address_lookup_table_state_encode( fd_address_lookup_table_state_t const 
   return fd_address_lookup_table_state_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
-int fd_gossip_bitvec_u8_inner_encode( fd_gossip_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->vec_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->vec_len ) {
-    err = fd_bincode_bytes_encode( self->vec, self->vec_len, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-int fd_gossip_bitvec_u8_inner_encode_global( fd_gossip_bitvec_u8_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->vec_len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->vec_len ) {
-    uchar * vec_laddr = (uchar*)self + self->vec_offset;
-    err = fd_bincode_bytes_encode( vec_laddr, self->vec_len, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_gossip_bitvec_u8_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  ulong vec_len;
-  err = fd_bincode_uint64_decode( &vec_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( vec_len ) {
-    *total_sz += 8UL + vec_len;
-    err = fd_bincode_bytes_decode_footprint( vec_len, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  }
-  return 0;
-}
-int fd_gossip_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_gossip_bitvec_u8_inner_t);
-  void const * start_data = ctx->data;
-  int err = fd_gossip_bitvec_u8_inner_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_gossip_bitvec_u8_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_inner_t * self = (fd_gossip_bitvec_u8_inner_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->vec_len, ctx );
-  if( self->vec_len ) {
-    self->vec = *alloc_mem;
-    fd_bincode_bytes_decode_unsafe( self->vec, self->vec_len, ctx );
-    *alloc_mem = (uchar *)(*alloc_mem) + self->vec_len;
-  } else
-    self->vec = NULL;
-}
-void * fd_gossip_bitvec_u8_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_inner_t * self = (fd_gossip_bitvec_u8_inner_t *)mem;
-  fd_gossip_bitvec_u8_inner_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u8_inner_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u8_inner_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_gossip_bitvec_u8_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_inner_global_t * self = (fd_gossip_bitvec_u8_inner_global_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->vec_len, ctx );
-  if( self->vec_len ) {
-    self->vec_offset = (ulong)*alloc_mem - (ulong)struct_mem;
-    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->vec_len, ctx );
-    *alloc_mem = (uchar *)(*alloc_mem) + self->vec_len;
-  } else {
-    self->vec_offset = 0UL;
-  }
-}
-void * fd_gossip_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_inner_global_t * self = (fd_gossip_bitvec_u8_inner_global_t *)mem;
-  fd_gossip_bitvec_u8_inner_new( (fd_gossip_bitvec_u8_inner_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u8_inner_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u8_inner_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_gossip_bitvec_u8_inner_new(fd_gossip_bitvec_u8_inner_t * self) {
-  fd_memset( self, 0, sizeof(fd_gossip_bitvec_u8_inner_t) );
-}
-void fd_gossip_bitvec_u8_inner_walk( void * w, fd_gossip_bitvec_u8_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u8_inner", level++ );
-  if( self->vec_len ) {
-    fun(w, self->vec, "vec", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->vec, "vec", FD_FLAMENCO_TYPE_NULL, "uchar", level );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u8_inner", level-- );
-}
-ulong fd_gossip_bitvec_u8_inner_size( fd_gossip_bitvec_u8_inner_t const * self ) {
-  ulong size = 0;
-  do {
-    size += sizeof(ulong);
-    size += self->vec_len;
-  } while(0);
-  return size;
-}
-
-int fd_gossip_bitvec_u8_encode( fd_gossip_bitvec_u8_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bool_encode( self->has_bits, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->has_bits ) {
-    err = fd_gossip_bitvec_u8_inner_encode( &self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-int fd_gossip_bitvec_u8_encode_global( fd_gossip_bitvec_u8_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bool_encode( self->has_bits, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->has_bits ) {
-    err = fd_gossip_bitvec_u8_inner_encode_global( &self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_gossip_bitvec_u8_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  {
-    uchar o;
-    err = fd_bincode_bool_decode( &o, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( o ) {
-      err = fd_gossip_bitvec_u8_inner_decode_footprint_inner( ctx, total_sz );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return 0;
-}
-int fd_gossip_bitvec_u8_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_gossip_bitvec_u8_t);
-  void const * start_data = ctx->data;
-  int err = fd_gossip_bitvec_u8_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_gossip_bitvec_u8_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_t * self = (fd_gossip_bitvec_u8_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    self->has_bits = !!o;
-    if( o ) {
-      fd_gossip_bitvec_u8_inner_new( &self->bits );
-      fd_gossip_bitvec_u8_inner_decode_inner( &self->bits, alloc_mem, ctx );
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_gossip_bitvec_u8_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_t * self = (fd_gossip_bitvec_u8_t *)mem;
-  fd_gossip_bitvec_u8_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u8_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u8_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_gossip_bitvec_u8_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_global_t * self = (fd_gossip_bitvec_u8_global_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    self->has_bits = !!o;
-    if( o ) {
-      fd_gossip_bitvec_u8_inner_new( (fd_gossip_bitvec_u8_inner_t *)fd_type_pun(&self->bits) );
-      fd_gossip_bitvec_u8_inner_decode_inner_global( &self->bits, alloc_mem, ctx );
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_gossip_bitvec_u8_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u8_global_t * self = (fd_gossip_bitvec_u8_global_t *)mem;
-  fd_gossip_bitvec_u8_new( (fd_gossip_bitvec_u8_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u8_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u8_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_gossip_bitvec_u8_new(fd_gossip_bitvec_u8_t * self) {
-  fd_memset( self, 0, sizeof(fd_gossip_bitvec_u8_t) );
-}
-void fd_gossip_bitvec_u8_walk( void * w, fd_gossip_bitvec_u8_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u8", level++ );
-  if( !self->has_bits ) {
-    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "gossip_bitvec_u8_inner", level );
-  } else {
-    fd_gossip_bitvec_u8_inner_walk( w, &self->bits, fun, "bits", level );
-  }
-  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u8", level-- );
-}
-ulong fd_gossip_bitvec_u8_size( fd_gossip_bitvec_u8_t const * self ) {
-  ulong size = 0;
-  size += sizeof(char);
-  if( self->has_bits ) {
-    size += fd_gossip_bitvec_u8_inner_size( &self->bits );
-  }
-  size += sizeof(ulong);
-  return size;
-}
-
-int fd_gossip_bitvec_u64_inner_encode( fd_gossip_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->vec_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->vec_len ) {
-    for( ulong i=0; i < self->vec_len; i++ ) {
-      err = fd_bincode_uint64_encode( self->vec[i], ctx );
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-int fd_gossip_bitvec_u64_inner_encode_global( fd_gossip_bitvec_u64_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->vec_len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->vec_len ) {
-    uchar * vec_laddr = (uchar*)self + self->vec_offset;
-    ulong * vec = (ulong *)vec_laddr;
-    for( ulong i=0; i < self->vec_len; i++ ) {
-      err = fd_bincode_uint64_encode( vec[i], ctx );
-      if( FD_UNLIKELY( err ) ) return err;
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_gossip_bitvec_u64_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  ulong vec_len;
-  err = fd_bincode_uint64_decode( &vec_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( vec_len ) {
-    *total_sz += 8UL + sizeof(ulong)*vec_len;
-    for( ulong i=0; i < vec_len; i++ ) {
-      err = fd_bincode_uint64_decode_footprint( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  return 0;
-}
-int fd_gossip_bitvec_u64_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_gossip_bitvec_u64_inner_t);
-  void const * start_data = ctx->data;
-  int err = fd_gossip_bitvec_u64_inner_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_gossip_bitvec_u64_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_inner_t * self = (fd_gossip_bitvec_u64_inner_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->vec_len, ctx );
-  if( self->vec_len ) {
-    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
-    self->vec = *alloc_mem;
-    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->vec_len;
-    for( ulong i=0; i < self->vec_len; i++ ) {
-      fd_bincode_uint64_decode_unsafe( self->vec + i, ctx );
-    }
-  } else
-    self->vec = NULL;
-}
-void * fd_gossip_bitvec_u64_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_inner_t * self = (fd_gossip_bitvec_u64_inner_t *)mem;
-  fd_gossip_bitvec_u64_inner_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u64_inner_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u64_inner_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_gossip_bitvec_u64_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_inner_global_t * self = (fd_gossip_bitvec_u64_inner_global_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->vec_len, ctx );
-  if( self->vec_len ) {
-    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
-    self->vec_offset = (ulong)*alloc_mem - (ulong)struct_mem;
-    uchar * cur_mem = (uchar *)(*alloc_mem);
-    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->vec_len;
-    for( ulong i=0; i < self->vec_len; i++ ) {
-      fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
-    }
-  } else {
-    self->vec_offset = 0UL;
-  }
-}
-void * fd_gossip_bitvec_u64_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_inner_global_t * self = (fd_gossip_bitvec_u64_inner_global_t *)mem;
-  fd_gossip_bitvec_u64_inner_new( (fd_gossip_bitvec_u64_inner_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u64_inner_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u64_inner_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_gossip_bitvec_u64_inner_new(fd_gossip_bitvec_u64_inner_t * self) {
-  fd_memset( self, 0, sizeof(fd_gossip_bitvec_u64_inner_t) );
-}
-void fd_gossip_bitvec_u64_inner_walk( void * w, fd_gossip_bitvec_u64_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64_inner", level++ );
-  if( self->vec_len ) {
-    fun( w, NULL, "vec", FD_FLAMENCO_TYPE_ARR, "array", level++ );
-    for( ulong i=0; i < self->vec_len; i++ )
-      fun( w, self->vec + i, "vec", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
-    fun( w, NULL, "vec", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u64_inner", level-- );
-}
-ulong fd_gossip_bitvec_u64_inner_size( fd_gossip_bitvec_u64_inner_t const * self ) {
-  ulong size = 0;
-  do {
-    size += sizeof(ulong);
-    size += self->vec_len * sizeof(ulong);
-  } while(0);
-  return size;
-}
-
-int fd_gossip_bitvec_u64_encode( fd_gossip_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bool_encode( self->has_bits, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->has_bits ) {
-    err = fd_gossip_bitvec_u64_inner_encode( &self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-int fd_gossip_bitvec_u64_encode_global( fd_gossip_bitvec_u64_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bool_encode( self->has_bits, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->has_bits ) {
-    err = fd_gossip_bitvec_u64_inner_encode_global( &self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_gossip_bitvec_u64_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  {
-    uchar o;
-    err = fd_bincode_bool_decode( &o, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( o ) {
-      err = fd_gossip_bitvec_u64_inner_decode_footprint_inner( ctx, total_sz );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return 0;
-}
-int fd_gossip_bitvec_u64_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_gossip_bitvec_u64_t);
-  void const * start_data = ctx->data;
-  int err = fd_gossip_bitvec_u64_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_gossip_bitvec_u64_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_t * self = (fd_gossip_bitvec_u64_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    self->has_bits = !!o;
-    if( o ) {
-      fd_gossip_bitvec_u64_inner_new( &self->bits );
-      fd_gossip_bitvec_u64_inner_decode_inner( &self->bits, alloc_mem, ctx );
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_gossip_bitvec_u64_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_t * self = (fd_gossip_bitvec_u64_t *)mem;
-  fd_gossip_bitvec_u64_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u64_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u64_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_gossip_bitvec_u64_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_global_t * self = (fd_gossip_bitvec_u64_global_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    self->has_bits = !!o;
-    if( o ) {
-      fd_gossip_bitvec_u64_inner_new( (fd_gossip_bitvec_u64_inner_t *)fd_type_pun(&self->bits) );
-      fd_gossip_bitvec_u64_inner_decode_inner_global( &self->bits, alloc_mem, ctx );
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_gossip_bitvec_u64_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_bitvec_u64_global_t * self = (fd_gossip_bitvec_u64_global_t *)mem;
-  fd_gossip_bitvec_u64_new( (fd_gossip_bitvec_u64_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_bitvec_u64_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_gossip_bitvec_u64_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_gossip_bitvec_u64_new(fd_gossip_bitvec_u64_t * self) {
-  fd_memset( self, 0, sizeof(fd_gossip_bitvec_u64_t) );
-}
-void fd_gossip_bitvec_u64_walk( void * w, fd_gossip_bitvec_u64_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64", level++ );
-  if( !self->has_bits ) {
-    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "gossip_bitvec_u64_inner", level );
-  } else {
-    fd_gossip_bitvec_u64_inner_walk( w, &self->bits, fun, "bits", level );
-  }
-  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u64", level-- );
-}
-ulong fd_gossip_bitvec_u64_size( fd_gossip_bitvec_u64_t const * self ) {
-  ulong size = 0;
-  size += sizeof(char);
-  if( self->has_bits ) {
-    size += fd_gossip_bitvec_u64_inner_size( &self->bits );
-  }
-  size += sizeof(ulong);
-  return size;
-}
-
 int fd_gossip_ping_encode( fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_pubkey_encode( &self->from, ctx );
@@ -22919,7 +22340,18 @@ int fd_gossip_slots_encode( fd_gossip_slots_t const * self, fd_bincode_encode_ct
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->num, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_gossip_bitvec_u8_encode( &self->slots, ctx );
+  err = fd_bincode_bool_encode( self->has_slots, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_slots ) {
+    err = fd_bincode_uint64_encode( self->slots_bitvec_len, ctx );
+    if( FD_UNLIKELY(err) ) return err;
+    if( self->slots_bitvec_len ) {
+      err = fd_bincode_bytes_encode( self->slots_bitvec, self->slots_bitvec_len, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->slots_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22929,7 +22361,20 @@ int fd_gossip_slots_encode_global( fd_gossip_slots_global_t const * self, fd_bin
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->num, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_gossip_bitvec_u8_encode_global( &self->slots, ctx );
+  err = fd_bincode_bool_encode( self->has_slots, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_slots ) {
+  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_bincode_uint64_encode( self->slots_bitvec_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    if( self->slots_bitvec_len ) {
+      uchar * slots_bitvec_laddr = (uchar*)self + self->slots_bitvec_offset;
+      err = fd_bincode_bytes_encode( slots_bitvec_laddr, self->slots_bitvec_len, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->slots_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22940,8 +22385,28 @@ static int fd_gossip_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_gossip_bitvec_u8_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    ulong inner_len = 0UL;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      ulong slots_bitvec_len;
+      err = fd_bincode_uint64_decode( &slots_bitvec_len, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      if( slots_bitvec_len ) {
+        *total_sz += 8UL + slots_bitvec_len;
+        err = fd_bincode_bytes_decode_footprint( slots_bitvec_len, ctx );
+        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      }
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      inner_len = slots_bitvec_len;
+    }
+    ulong len;
+    err = fd_bincode_uint64_decode( &len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( len > inner_len * sizeof(uchar) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+  }
   return 0;
 }
 int fd_gossip_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -22956,7 +22421,23 @@ static void fd_gossip_slots_decode_inner( void * struct_mem, void * * alloc_mem,
   fd_gossip_slots_t * self = (fd_gossip_slots_t *)struct_mem;
   fd_bincode_uint64_decode_unsafe( &self->first_slot, ctx );
   fd_bincode_uint64_decode_unsafe( &self->num, ctx );
-  fd_gossip_bitvec_u8_decode_inner( &self->slots, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_slots = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->slots_bitvec_len, ctx );
+      if( self->slots_bitvec_len ) {
+        self->slots_bitvec = *alloc_mem;
+        fd_bincode_bytes_decode_unsafe( self->slots_bitvec, self->slots_bitvec_len, ctx );
+        *alloc_mem = (uchar *)(*alloc_mem) + self->slots_bitvec_len;
+      } else
+        self->slots_bitvec = NULL;
+    } else {
+      self->slots_bitvec = NULL;
+    }
+    fd_bincode_uint64_decode_unsafe( &self->slots_len, ctx );
+  }
 }
 void * fd_gossip_slots_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_gossip_slots_t * self = (fd_gossip_slots_t *)mem;
@@ -22970,7 +22451,22 @@ static void fd_gossip_slots_decode_inner_global( void * struct_mem, void * * all
   fd_gossip_slots_global_t * self = (fd_gossip_slots_global_t *)struct_mem;
   fd_bincode_uint64_decode_unsafe( &self->first_slot, ctx );
   fd_bincode_uint64_decode_unsafe( &self->num, ctx );
-  fd_gossip_bitvec_u8_decode_inner_global( &self->slots, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_slots = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->slots_bitvec_len, ctx );
+      if( self->slots_bitvec_len ) {
+        self->slots_bitvec_offset = (ulong)*alloc_mem - (ulong)struct_mem;
+        fd_bincode_bytes_decode_unsafe( *alloc_mem, self->slots_bitvec_len, ctx );
+        *alloc_mem = (uchar *)(*alloc_mem) + self->slots_bitvec_len;
+      } else {
+        self->slots_bitvec_offset = 0UL;
+      }
+    }
+    fd_bincode_uint64_decode_unsafe( &self->slots_len, ctx );
+  }
 }
 void * fd_gossip_slots_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_gossip_slots_global_t * self = (fd_gossip_slots_global_t *)mem;
@@ -22982,20 +22478,35 @@ void * fd_gossip_slots_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx 
 }
 void fd_gossip_slots_new(fd_gossip_slots_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_slots_t) );
-  fd_gossip_bitvec_u8_new( &self->slots );
 }
 void fd_gossip_slots_walk( void * w, fd_gossip_slots_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_slots", level++ );
   fun( w, &self->first_slot, "first_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->num, "num", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fd_gossip_bitvec_u8_walk( w, &self->slots, fun, "slots", level );
+  if( !self->has_slots ) {
+    fun( w, NULL, "slots", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+  } else {
+    if( self->slots_bitvec_len ) {
+      fun(w, self->slots_bitvec, "slots_bitvec", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    } else {
+      fun(w, self->slots_bitvec, "slots_bitvec", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    }
+  }
+  fun( w, &self->slots_len, "slots_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_slots", level-- );
 }
 ulong fd_gossip_slots_size( fd_gossip_slots_t const * self ) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
-  size += fd_gossip_bitvec_u8_size( &self->slots );
+  size += sizeof(char);
+  if( self->has_slots ) {
+    do {
+      size += sizeof(ulong);
+      size += self->slots_bitvec_len;
+    } while(0);
+  }
+  size += sizeof(ulong);
   return size;
 }
 
@@ -24751,236 +24262,67 @@ ulong fd_restart_run_length_encoding_size( fd_restart_run_length_encoding_t cons
   return size;
 }
 
-int fd_restart_raw_offsets_bitvec_u8_inner_encode( fd_restart_raw_offsets_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->bits_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->bits_len ) {
-    err = fd_bincode_bytes_encode( self->bits, self->bits_len, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-int fd_restart_raw_offsets_bitvec_u8_inner_encode_global( fd_restart_raw_offsets_bitvec_u8_inner_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->bits_len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->bits_len ) {
-    uchar * bits_laddr = (uchar*)self + self->bits_offset;
-    err = fd_bincode_bytes_encode( bits_laddr, self->bits_len, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  ulong bits_len;
-  err = fd_bincode_uint64_decode( &bits_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( bits_len ) {
-    *total_sz += 8UL + bits_len;
-    err = fd_bincode_bytes_decode_footprint( bits_len, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  }
-  return 0;
-}
-int fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t);
-  void const * start_data = ctx->data;
-  int err = fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_restart_raw_offsets_bitvec_u8_inner_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_u8_inner_t * self = (fd_restart_raw_offsets_bitvec_u8_inner_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
-  if( self->bits_len ) {
-    self->bits = *alloc_mem;
-    fd_bincode_bytes_decode_unsafe( self->bits, self->bits_len, ctx );
-    *alloc_mem = (uchar *)(*alloc_mem) + self->bits_len;
-  } else
-    self->bits = NULL;
-}
-void * fd_restart_raw_offsets_bitvec_u8_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_u8_inner_t * self = (fd_restart_raw_offsets_bitvec_u8_inner_t *)mem;
-  fd_restart_raw_offsets_bitvec_u8_inner_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t);
-  void * * alloc_mem = &alloc_region;
-  fd_restart_raw_offsets_bitvec_u8_inner_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_restart_raw_offsets_bitvec_u8_inner_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_u8_inner_global_t * self = (fd_restart_raw_offsets_bitvec_u8_inner_global_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
-  if( self->bits_len ) {
-    self->bits_offset = (ulong)*alloc_mem - (ulong)struct_mem;
-    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->bits_len, ctx );
-    *alloc_mem = (uchar *)(*alloc_mem) + self->bits_len;
-  } else {
-    self->bits_offset = 0UL;
-  }
-}
-void * fd_restart_raw_offsets_bitvec_u8_inner_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_u8_inner_global_t * self = (fd_restart_raw_offsets_bitvec_u8_inner_global_t *)mem;
-  fd_restart_raw_offsets_bitvec_u8_inner_new( (fd_restart_raw_offsets_bitvec_u8_inner_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_restart_raw_offsets_bitvec_u8_inner_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_restart_raw_offsets_bitvec_u8_inner_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_restart_raw_offsets_bitvec_u8_inner_new(fd_restart_raw_offsets_bitvec_u8_inner_t * self) {
-  fd_memset( self, 0, sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t) );
-}
-void fd_restart_raw_offsets_bitvec_u8_inner_walk( void * w, fd_restart_raw_offsets_bitvec_u8_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_restart_raw_offsets_bitvec_u8_inner", level++ );
-  if( self->bits_len ) {
-    fun(w, self->bits, "bits", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->bits, "bits", FD_FLAMENCO_TYPE_NULL, "uchar", level );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_restart_raw_offsets_bitvec_u8_inner", level-- );
-}
-ulong fd_restart_raw_offsets_bitvec_u8_inner_size( fd_restart_raw_offsets_bitvec_u8_inner_t const * self ) {
-  ulong size = 0;
-  do {
-    size += sizeof(ulong);
-    size += self->bits_len;
-  } while(0);
-  return size;
-}
-
-int fd_restart_raw_offsets_bitvec_encode( fd_restart_raw_offsets_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bool_encode( self->has_bits, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->has_bits ) {
-    err = fd_restart_raw_offsets_bitvec_u8_inner_encode( &self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-int fd_restart_raw_offsets_bitvec_encode_global( fd_restart_raw_offsets_bitvec_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bool_encode( self->has_bits, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->has_bits ) {
-    err = fd_restart_raw_offsets_bitvec_u8_inner_encode_global( &self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  err = fd_bincode_uint64_encode( self->len, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_restart_raw_offsets_bitvec_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  {
-    uchar o;
-    err = fd_bincode_bool_decode( &o, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( o ) {
-      err = fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint_inner( ctx, total_sz );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return 0;
-}
-int fd_restart_raw_offsets_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_restart_raw_offsets_bitvec_t);
-  void const * start_data = ctx->data;
-  int err = fd_restart_raw_offsets_bitvec_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_restart_raw_offsets_bitvec_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_t * self = (fd_restart_raw_offsets_bitvec_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    self->has_bits = !!o;
-    if( o ) {
-      fd_restart_raw_offsets_bitvec_u8_inner_new( &self->bits );
-      fd_restart_raw_offsets_bitvec_u8_inner_decode_inner( &self->bits, alloc_mem, ctx );
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_restart_raw_offsets_bitvec_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_t * self = (fd_restart_raw_offsets_bitvec_t *)mem;
-  fd_restart_raw_offsets_bitvec_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_restart_raw_offsets_bitvec_t);
-  void * * alloc_mem = &alloc_region;
-  fd_restart_raw_offsets_bitvec_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-static void fd_restart_raw_offsets_bitvec_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_global_t * self = (fd_restart_raw_offsets_bitvec_global_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    self->has_bits = !!o;
-    if( o ) {
-      fd_restart_raw_offsets_bitvec_u8_inner_new( (fd_restart_raw_offsets_bitvec_u8_inner_t *)fd_type_pun(&self->bits) );
-      fd_restart_raw_offsets_bitvec_u8_inner_decode_inner_global( &self->bits, alloc_mem, ctx );
-    }
-  }
-  fd_bincode_uint64_decode_unsafe( &self->len, ctx );
-}
-void * fd_restart_raw_offsets_bitvec_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_raw_offsets_bitvec_global_t * self = (fd_restart_raw_offsets_bitvec_global_t *)mem;
-  fd_restart_raw_offsets_bitvec_new( (fd_restart_raw_offsets_bitvec_t *)self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_restart_raw_offsets_bitvec_global_t);
-  void * * alloc_mem = &alloc_region;
-  fd_restart_raw_offsets_bitvec_decode_inner_global( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_restart_raw_offsets_bitvec_new(fd_restart_raw_offsets_bitvec_t * self) {
-  fd_memset( self, 0, sizeof(fd_restart_raw_offsets_bitvec_t) );
-}
-void fd_restart_raw_offsets_bitvec_walk( void * w, fd_restart_raw_offsets_bitvec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_restart_raw_offsets_bitvec", level++ );
-  if( !self->has_bits ) {
-    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "restart_raw_offsets_bitvec_u8_inner", level );
-  } else {
-    fd_restart_raw_offsets_bitvec_u8_inner_walk( w, &self->bits, fun, "bits", level );
-  }
-  fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_restart_raw_offsets_bitvec", level-- );
-}
-ulong fd_restart_raw_offsets_bitvec_size( fd_restart_raw_offsets_bitvec_t const * self ) {
-  ulong size = 0;
-  size += sizeof(char);
-  if( self->has_bits ) {
-    size += fd_restart_raw_offsets_bitvec_u8_inner_size( &self->bits );
-  }
-  size += sizeof(ulong);
-  return size;
-}
-
 int fd_restart_raw_offsets_encode( fd_restart_raw_offsets_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_restart_raw_offsets_bitvec_encode( &self->offsets, ctx );
+  err = fd_bincode_bool_encode( self->has_offsets, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_offsets ) {
+    err = fd_bincode_uint64_encode( self->offsets_bitvec_len, ctx );
+    if( FD_UNLIKELY(err) ) return err;
+    if( self->offsets_bitvec_len ) {
+      err = fd_bincode_bytes_encode( self->offsets_bitvec, self->offsets_bitvec_len, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->offsets_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 int fd_restart_raw_offsets_encode_global( fd_restart_raw_offsets_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_restart_raw_offsets_bitvec_encode_global( &self->offsets, ctx );
+  err = fd_bincode_bool_encode( self->has_offsets, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_offsets ) {
+  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_bincode_uint64_encode( self->offsets_bitvec_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    if( self->offsets_bitvec_len ) {
+      uchar * offsets_bitvec_laddr = (uchar*)self + self->offsets_bitvec_offset;
+      err = fd_bincode_bytes_encode( offsets_bitvec_laddr, self->offsets_bitvec_len, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->offsets_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 static int fd_restart_raw_offsets_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
-  err = fd_restart_raw_offsets_bitvec_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    ulong inner_len = 0UL;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      ulong offsets_bitvec_len;
+      err = fd_bincode_uint64_decode( &offsets_bitvec_len, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      if( offsets_bitvec_len ) {
+        *total_sz += 8UL + offsets_bitvec_len;
+        err = fd_bincode_bytes_decode_footprint( offsets_bitvec_len, ctx );
+        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      }
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      inner_len = offsets_bitvec_len;
+    }
+    ulong len;
+    err = fd_bincode_uint64_decode( &len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( len > inner_len * sizeof(uchar) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+  }
   return 0;
 }
 int fd_restart_raw_offsets_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -24993,7 +24335,23 @@ int fd_restart_raw_offsets_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
 }
 static void fd_restart_raw_offsets_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_restart_raw_offsets_t * self = (fd_restart_raw_offsets_t *)struct_mem;
-  fd_restart_raw_offsets_bitvec_decode_inner( &self->offsets, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_offsets = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->offsets_bitvec_len, ctx );
+      if( self->offsets_bitvec_len ) {
+        self->offsets_bitvec = *alloc_mem;
+        fd_bincode_bytes_decode_unsafe( self->offsets_bitvec, self->offsets_bitvec_len, ctx );
+        *alloc_mem = (uchar *)(*alloc_mem) + self->offsets_bitvec_len;
+      } else
+        self->offsets_bitvec = NULL;
+    } else {
+      self->offsets_bitvec = NULL;
+    }
+    fd_bincode_uint64_decode_unsafe( &self->offsets_len, ctx );
+  }
 }
 void * fd_restart_raw_offsets_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_restart_raw_offsets_t * self = (fd_restart_raw_offsets_t *)mem;
@@ -25005,7 +24363,22 @@ void * fd_restart_raw_offsets_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 }
 static void fd_restart_raw_offsets_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_restart_raw_offsets_global_t * self = (fd_restart_raw_offsets_global_t *)struct_mem;
-  fd_restart_raw_offsets_bitvec_decode_inner_global( &self->offsets, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_offsets = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->offsets_bitvec_len, ctx );
+      if( self->offsets_bitvec_len ) {
+        self->offsets_bitvec_offset = (ulong)*alloc_mem - (ulong)struct_mem;
+        fd_bincode_bytes_decode_unsafe( *alloc_mem, self->offsets_bitvec_len, ctx );
+        *alloc_mem = (uchar *)(*alloc_mem) + self->offsets_bitvec_len;
+      } else {
+        self->offsets_bitvec_offset = 0UL;
+      }
+    }
+    fd_bincode_uint64_decode_unsafe( &self->offsets_len, ctx );
+  }
 }
 void * fd_restart_raw_offsets_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_restart_raw_offsets_global_t * self = (fd_restart_raw_offsets_global_t *)mem;
@@ -25017,16 +24390,31 @@ void * fd_restart_raw_offsets_decode_global( void * mem, fd_bincode_decode_ctx_t
 }
 void fd_restart_raw_offsets_new(fd_restart_raw_offsets_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_raw_offsets_t) );
-  fd_restart_raw_offsets_bitvec_new( &self->offsets );
 }
 void fd_restart_raw_offsets_walk( void * w, fd_restart_raw_offsets_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_restart_raw_offsets", level++ );
-  fd_restart_raw_offsets_bitvec_walk( w, &self->offsets, fun, "offsets", level );
+  if( !self->has_offsets ) {
+    fun( w, NULL, "offsets", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+  } else {
+    if( self->offsets_bitvec_len ) {
+      fun(w, self->offsets_bitvec, "offsets_bitvec", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    } else {
+      fun(w, self->offsets_bitvec, "offsets_bitvec", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    }
+  }
+  fun( w, &self->offsets_len, "offsets_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_restart_raw_offsets", level-- );
 }
 ulong fd_restart_raw_offsets_size( fd_restart_raw_offsets_t const * self ) {
   ulong size = 0;
-  size += fd_restart_raw_offsets_bitvec_size( &self->offsets );
+  size += sizeof(char);
+  if( self->has_offsets ) {
+    do {
+      size += sizeof(ulong);
+      size += self->offsets_bitvec_len;
+    } while(0);
+  }
+  size += sizeof(ulong);
   return size;
 }
 
@@ -26056,7 +25444,19 @@ int fd_crds_bloom_encode( fd_crds_bloom_t const * self, fd_bincode_encode_ctx_t 
       err = fd_bincode_uint64_encode( self->keys[i], ctx );
     }
   }
-  err = fd_gossip_bitvec_u64_encode( &self->bits, ctx );
+  err = fd_bincode_bool_encode( self->has_bits, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_bits ) {
+    err = fd_bincode_uint64_encode( self->bits_bitvec_len, ctx );
+    if( FD_UNLIKELY(err) ) return err;
+    if( self->bits_bitvec_len ) {
+      for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+        err = fd_bincode_uint64_encode( self->bits_bitvec[i], ctx );
+      }
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->bits_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->num_bits_set, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -26074,7 +25474,23 @@ int fd_crds_bloom_encode_global( fd_crds_bloom_global_t const * self, fd_bincode
       if( FD_UNLIKELY( err ) ) return err;
     }
   }
-  err = fd_gossip_bitvec_u64_encode_global( &self->bits, ctx );
+  err = fd_bincode_bool_encode( self->has_bits, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_bits ) {
+  if( FD_UNLIKELY( err ) ) return err;
+    err = fd_bincode_uint64_encode( self->bits_bitvec_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    if( self->bits_bitvec_len ) {
+      uchar * bits_bitvec_laddr = (uchar*)self + self->bits_bitvec_offset;
+      ulong * bits_bitvec = (ulong *)bits_bitvec_laddr;
+      for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+        err = fd_bincode_uint64_encode( bits_bitvec[i], ctx );
+        if( FD_UNLIKELY( err ) ) return err;
+      }
+    }
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_uint64_encode( self->bits_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->num_bits_set, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -26093,8 +25509,30 @@ static int fd_crds_bloom_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
-  err = fd_gossip_bitvec_u64_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    ulong inner_len = 0UL;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      ulong bits_bitvec_len;
+      err = fd_bincode_uint64_decode( &bits_bitvec_len, ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      if( bits_bitvec_len ) {
+        *total_sz += 8UL + sizeof(ulong)*bits_bitvec_len;
+        for( ulong i=0; i < bits_bitvec_len; i++ ) {
+          err = fd_bincode_uint64_decode_footprint( ctx );
+          if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+        }
+      }
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+      inner_len = bits_bitvec_len;
+    }
+    ulong len;
+    err = fd_bincode_uint64_decode( &len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( len > inner_len * sizeof(ulong) * 8UL ) return FD_BINCODE_ERR_ENCODING;
+  }
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return 0;
@@ -26119,7 +25557,26 @@ static void fd_crds_bloom_decode_inner( void * struct_mem, void * * alloc_mem, f
     }
   } else
     self->keys = NULL;
-  fd_gossip_bitvec_u64_decode_inner( &self->bits, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->bits_bitvec_len, ctx );
+      if( self->bits_bitvec_len ) {
+        *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+        self->bits_bitvec = *alloc_mem;
+        *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->bits_bitvec_len;
+        for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+          fd_bincode_uint64_decode_unsafe( self->bits_bitvec + i, ctx );
+        }
+      } else
+        self->bits_bitvec = NULL;
+    } else {
+      self->bits_bitvec = NULL;
+    }
+    fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
+  }
   fd_bincode_uint64_decode_unsafe( &self->num_bits_set, ctx );
 }
 void * fd_crds_bloom_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -26144,7 +25601,26 @@ static void fd_crds_bloom_decode_inner_global( void * struct_mem, void * * alloc
   } else {
     self->keys_offset = 0UL;
   }
-  fd_gossip_bitvec_u64_decode_inner_global( &self->bits, alloc_mem, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->bits_bitvec_len, ctx );
+      if( self->bits_bitvec_len ) {
+        *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
+        self->bits_bitvec_offset = (ulong)*alloc_mem - (ulong)struct_mem;
+        uchar * cur_mem = (uchar *)(*alloc_mem);
+        *alloc_mem = (uchar *)(*alloc_mem) + sizeof(ulong)*self->bits_bitvec_len;
+        for( ulong i=0; i < self->bits_bitvec_len; i++ ) {
+          fd_bincode_uint64_decode_unsafe( (ulong*)(cur_mem + sizeof(ulong) * i), ctx );
+        }
+      } else {
+        self->bits_bitvec_offset = 0UL;
+      }
+    }
+    fd_bincode_uint64_decode_unsafe( &self->bits_len, ctx );
+  }
   fd_bincode_uint64_decode_unsafe( &self->num_bits_set, ctx );
 }
 void * fd_crds_bloom_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -26157,7 +25633,6 @@ void * fd_crds_bloom_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) 
 }
 void fd_crds_bloom_new(fd_crds_bloom_t * self) {
   fd_memset( self, 0, sizeof(fd_crds_bloom_t) );
-  fd_gossip_bitvec_u64_new( &self->bits );
 }
 void fd_crds_bloom_walk( void * w, fd_crds_bloom_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_bloom", level++ );
@@ -26167,7 +25642,17 @@ void fd_crds_bloom_walk( void * w, fd_crds_bloom_t const * self, fd_types_walk_f
       fun( w, self->keys + i, "keys", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
     fun( w, NULL, "keys", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
-  fd_gossip_bitvec_u64_walk( w, &self->bits, fun, "bits", level );
+  if( !self->has_bits ) {
+    fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    if( self->bits_bitvec_len ) {
+      fun( w, NULL, "bits_bitvec", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+      for( ulong i=0; i < self->bits_bitvec_len; i++ )
+      fun( w, self->bits_bitvec + i, "bits_bitvec", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
+      fun( w, NULL, "bits_bitvec", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
+    }
+  }
+  fun( w, &self->bits_len, "bits_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->num_bits_set, "num_bits_set", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_bloom", level-- );
 }
@@ -26177,7 +25662,14 @@ ulong fd_crds_bloom_size( fd_crds_bloom_t const * self ) {
     size += sizeof(ulong);
     size += self->keys_len * sizeof(ulong);
   } while(0);
-  size += fd_gossip_bitvec_u64_size( &self->bits );
+  size += sizeof(char);
+  if( self->has_bits ) {
+    do {
+      size += sizeof(ulong);
+      size += self->bits_bitvec_len * sizeof(ulong);
+    } while(0);
+  }
+  size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
 }

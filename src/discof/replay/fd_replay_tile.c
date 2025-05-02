@@ -1360,7 +1360,6 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
     fd_runtime_public_slot_msg_t * slot_msg = (fd_runtime_public_slot_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
 
     slot_msg->slot                        = slot_ctx->slot;
-    slot_msg->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
     slot_msg->enable_exec_recording       = slot_ctx->enable_exec_recording;
 
     /* Save the gaddr of the sysvar cache */
