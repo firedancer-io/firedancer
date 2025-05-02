@@ -31,12 +31,11 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 #include "../../util/bits/fd_uwide.h"
 
 #include <assert.h>
-#include <errno.h>
+#include <math.h>
 #include <stdio.h>   /* snprintf(3) */
 #include <fcntl.h>   /* openat(2) */
 #include <unistd.h>  /* write(3) */

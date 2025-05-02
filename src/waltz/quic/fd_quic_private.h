@@ -11,6 +11,7 @@
 #include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
 #include "fd_quic_svc_q.h"
+#include <math.h>
 
 #include "../../util/log/fd_dtrace.h"
 #include "../../util/net/fd_ip4.h"

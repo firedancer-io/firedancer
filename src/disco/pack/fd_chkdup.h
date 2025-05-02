@@ -23,6 +23,7 @@
 
 #ifndef FD_CHKDUP_IMPL
 # if FD_HAS_AVX512
+#   include "../../util/simd/fd_avx.h"
 #   define FD_CHKDUP_IMPL 2
 # elif FD_HAS_AVX
 #   define FD_CHKDUP_IMPL 1

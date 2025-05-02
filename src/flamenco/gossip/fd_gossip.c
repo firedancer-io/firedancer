@@ -1,6 +1,7 @@
 #include "fd_gossip.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include <math.h>
 
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232

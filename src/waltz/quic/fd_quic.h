@@ -86,6 +86,7 @@
 
 #include "../aio/fd_aio.h"
 #include "../tls/fd_tls.h"
+#include "../../util/hist/fd_histf.h"
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
 #define FD_QUIC_API

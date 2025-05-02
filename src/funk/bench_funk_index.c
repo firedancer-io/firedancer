@@ -1,5 +1,6 @@
 #include "fd_funk.h"
 #include "fd_funk_base.h"
+#include <math.h>
 
 #define FUNK_TAG 1UL
 

@@ -26,7 +26,7 @@
 #include "sandbox/fd_sandbox.h"     /* includes fd_util_base.h */
 #include "math/fd_stat.h"           /* includes bits/fd_bits.h */
 #include "bits/fd_sat.h"            /* includes bits/fd_bits.h */
-#include "hist/fd_histf.h"          /* includes log/fd_log.h */
+//#include "hist/fd_histf.h"        /* includes log/fd_log.h */
 
 /* Additional fd_util APIs that are not included by default */
 
