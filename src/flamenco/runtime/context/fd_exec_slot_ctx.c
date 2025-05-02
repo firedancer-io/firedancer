@@ -204,7 +204,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
       FD_TEST( fd_vote_accounts_pair_t_map_free( epoch_bank->stakes.vote_accounts.vote_accounts_pool ) );
       fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
       FD_TEST( new_node );
-      fd_memcpy( &new_node->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+      new_node->elem = n->elem;
       fd_vote_accounts_pair_t_map_insert(
         epoch_bank->stakes.vote_accounts.vote_accounts_pool,
         &epoch_bank->stakes.vote_accounts.vote_accounts_root,
@@ -226,7 +226,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
       fd_delegation_pair_t_mapnode_t * new_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
       FD_TEST( new_node );
-      fd_memcpy( &new_node->elem, &n->elem, sizeof(fd_delegation_pair_t) );
+      new_node->elem = n->elem;
       fd_delegation_pair_t_map_insert(
         epoch_bank->stakes.stake_delegations_pool,
         &epoch_bank->stakes.stake_delegations_root,
@@ -281,7 +281,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->transaction_count = oldbank->transaction_count;
   if ( oldbank->blockhash_queue.last_hash ) {
     slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-    fd_memcpy( slot_bank->block_hash_queue.last_hash, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
+    *slot_bank->block_hash_queue.last_hash = *oldbank->blockhash_queue.last_hash;
   } else {
     slot_bank->block_hash_queue.last_hash = NULL;
   }
@@ -295,7 +295,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {
     fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_bank->block_hash_queue.ages_pool );
-    fd_memcpy( &node->elem, elem, sizeof(fd_hash_hash_age_pair_t) );
+    node->elem = *elem;
     fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
   }
 
@@ -423,7 +423,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
           slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
         FD_TEST( elem );
 
-        fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+        elem->elem = n->elem;
 
         fd_vote_accounts_pair_t_map_insert(
           slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
@@ -445,7 +445,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
         epoch_bank->next_epoch_stakes.vote_accounts_pool );
       FD_TEST( elem );
 
-      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+      elem->elem = n->elem;
 
       fd_vote_accounts_pair_t_map_insert(
         epoch_bank->next_epoch_stakes.vote_accounts_pool,

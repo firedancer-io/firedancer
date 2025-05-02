@@ -116,8 +116,8 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Add the account to the rent fresh account list */
   rent_fresh_account->partition = partition;
-  fd_memcpy( &rent_fresh_account->pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
-  rent_fresh_account->present = 1UL;
+  rent_fresh_account->pubkey    = *pubkey;
+  rent_fresh_account->present   = 1UL;
 
   rent_fresh_accounts->total_count++;
 }
@@ -517,7 +517,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
       slot_ctx->block_rewards.collected_fees = fees;
-      memcpy( slot_ctx->block_rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
+      slot_ctx->block_rewards.leader         = *leader;
     } while(0);
 
     ulong old = slot_ctx->slot_bank.capitalization;
@@ -2215,12 +2215,12 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
   for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
     fd_delegation_pair_t_mapnode_t key;
-    fd_memcpy( &key.elem.account, &temp_info->stake_infos[idx].account, sizeof(fd_pubkey_t) );
+    key.elem.account = temp_info->stake_infos[idx].account;
     fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key );
     if( FD_LIKELY( entry==NULL ) ) {
       entry = fd_delegation_pair_t_map_acquire( stakes->stake_delegations_pool );
-      fd_memcpy( &entry->elem.account, &temp_info->stake_infos[idx].account, sizeof(fd_pubkey_t) );
-      fd_memcpy( &entry->elem.delegation, &temp_info->stake_infos[idx].stake.delegation, sizeof(fd_delegation_t) );
+      entry->elem.account    = temp_info->stake_infos[idx].account;
+      entry->elem.delegation = temp_info->stake_infos[idx].stake.delegation;
       fd_delegation_pair_t_map_insert( stakes->stake_delegations_pool, &stakes->stake_delegations_root, entry );
     }
   }
@@ -2257,7 +2257,7 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
       FD_LOG_ERR(( "slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool full" ));
     }
 
-    fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    elem->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
                                         &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
                                         elem );
@@ -2283,7 +2283,7 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
         n;
         n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
     fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
-    fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    elem->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
   }
 }
@@ -3491,11 +3491,11 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       if( !node ) {
         node = fd_delegation_pair_t_map_acquire( sacc_pool );
         fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+        node->elem.delegation = stake_state.inner.stake.stake.delegation;
         fd_delegation_pair_t_map_insert( sacc_pool, &sacc_root, node );
       } else {
         fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+        node->elem.delegation = stake_state.inner.stake.stake.delegation;
       }
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Feature Account */
@@ -3546,20 +3546,19 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
        n;
        n = fd_vote_accounts_pair_t_map_successor( vacc_pool, n )) {
     fd_vote_accounts_pair_t_mapnode_t * e = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
-    fd_memcpy( &e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+    e->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool, &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root, e );
 
     fd_vote_accounts_pair_t_mapnode_t * next_e = fd_vote_accounts_pair_t_map_acquire( next_pool );
-    fd_memcpy( &next_e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+    next_e->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( next_pool, &next_root, next_e );
   }
 
   for( fd_delegation_pair_t_mapnode_t *n = fd_delegation_pair_t_map_minimum( sacc_pool, sacc_root );
        n;
        n = fd_delegation_pair_t_map_successor( sacc_pool, n )) {
-    fd_vote_accounts_pair_t_mapnode_t query_voter  = {0};
-    fd_pubkey_t *                     voter_pubkey = &n->elem.delegation.voter_pubkey;
-    fd_memcpy( &query_voter.elem.key, voter_pubkey, sizeof(fd_pubkey_t) );
+    fd_vote_accounts_pair_t_mapnode_t query_voter = {0};
+    query_voter.elem.key = n->elem.delegation.voter_pubkey;
 
     fd_vote_accounts_pair_t_mapnode_t * voter = fd_vote_accounts_pair_t_map_find( vacc_pool, vacc_root, &query_voter );
 
