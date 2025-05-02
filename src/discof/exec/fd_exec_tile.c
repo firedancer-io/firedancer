@@ -230,28 +230,6 @@ hash_accounts( fd_exec_tile_ctx_t *                ctx,
 }
 
 static void
-bpf_scan_accounts( fd_exec_tile_ctx_t *               ctx,
-                   fd_runtime_public_bpf_scan_msg_t * msg ) {
-  ulong                   start_idx = msg->start_idx;
-  ulong                   end_idx   = msg->end_idx;
-
-  fd_funk_rec_t const * * recs = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->recs_gaddr );
-  if( FD_UNLIKELY( !recs ) ) {
-    FD_LOG_ERR(( "Unable to join recs" ));
-  }
-  uchar * is_bpf = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->is_bpf_gaddr );
-  if( FD_UNLIKELY( !is_bpf ) ) {
-    FD_LOG_ERR(( "Unable to join is_bpf" ));
-  }
-
-  fd_wksp_t * wksp = fd_funk_wksp( ctx->txn_ctx->funk );
-  for( ulong i=start_idx; i<=end_idx; i++ ) {
-    fd_funk_rec_t const * rec = recs[ i ];
-    fd_bpf_is_bpf_program( rec, wksp, &is_bpf[ i ] );
-  }
-}
-
-static void
 snap_hash_count( fd_exec_tile_ctx_t * ctx ) {
   ctx->pairs_len = fd_accounts_sorted_subrange_count( ctx->funk, (uint)ctx->tile_idx, (uint)ctx->tile_cnt );
 }
@@ -306,11 +284,6 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       fd_runtime_public_hash_bank_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
       FD_LOG_DEBUG(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
       hash_accounts( ctx, msg );
-      return;
-    } else if( sig==EXEC_BPF_SCAN_SIG ) {
-      fd_runtime_public_bpf_scan_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_DEBUG(( "bpf scan=%lu msg recvd", msg->end_idx - msg->start_idx ));
-      bpf_scan_accounts( ctx, msg );
       return;
     } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
       FD_LOG_DEBUG(( "snap hash count msg recvd" ));
@@ -368,12 +341,6 @@ after_frag( fd_exec_tile_ctx_t * ctx,
   } else if( sig==EXEC_HASH_ACCS_SIG ) {
     FD_LOG_DEBUG(( "Sending ack for hash accs msg" ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_hash_done( ctx->slot ) );
-  } else if( sig==EXEC_BPF_SCAN_SIG ) {
-    FD_LOG_DEBUG(( "Sending ack for bpf scan msg %u", ctx->bpf_id ));
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_bpf_scan_done( ctx->bpf_id++ ) );
-    if( FD_UNLIKELY( ctx->bpf_id==FD_EXEC_ID_SENTINEL ) ) {
-      ctx->bpf_id = 0U;
-    }
   } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
     FD_LOG_NOTICE(( "Sending ack for snap hash count msg pairs_len=%lu", ctx->pairs_len ));
     fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_snap_hash_cnt_done( (uint)ctx->pairs_len ) );

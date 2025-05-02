@@ -2460,6 +2460,47 @@ fd_runtime_parse_microblock_hdr( void const *          buf FD_PARAM_UNUSED,
   return 0;
 }
 
+void
+fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
+                                 fd_txn_p_t const *   txn_p,
+                                 fd_spad_t *          runtime_spad ) {
+  fd_txn_t const * txn_descriptor = TXN( txn_p );
+
+  /* Iterate over account keys referenced directly in the transaction first */
+  fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
+  for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
+    fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
+    fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+  }
+
+  if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
+
+    /* Iterate over account keys referenced in ALUTs */
+    fd_acct_addr_t alut_accounts[256];
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+      return;
+    }
+
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
+
+    if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables( txn_descriptor,
+                         txn_p->payload,
+                         slot_ctx->funk,
+                         slot_ctx->funk_txn,
+                         slot_ctx->slot,
+                         slot_hash,
+                         alut_accounts ) ) ) {
+      return;
+    }
+
+    for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
+      fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
+      fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
+    }
+  }
+}
+
 /* if we are currently in the middle of a batch, batch_cnt will include the current batch.
    if we are at the start of a batch, batch_cnt will include the current batch. */
 static fd_raw_block_txn_iter_t
@@ -3609,6 +3650,11 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *            slot_ctx,
       /* UPDATE */
 
       if( !mblock_txn_cnt ) continue;
+
+      /* Reverify programs for this epoch if needed */
+      for( ulong txn_idx=0UL; txn_idx<mblock_txn_cnt; txn_idx++ ) {
+        fd_runtime_update_program_cache( slot_ctx, &mblock_txn_ptrs[txn_idx], runtime_spad );
+      }
 
       res = fd_runtime_process_txns_in_microblock_stream( slot_ctx,
                                                           capture_ctx,

@@ -427,96 +427,6 @@ snapshot_hash_tiles_cb( void * para_arg_1,
   }
 }
 
-
-static void
-bpf_tiles_cb( void * para_arg_1,
-              void * para_arg_2,
-              void * fn_arg_1,
-              void * fn_arg_2,
-              void * fn_arg_3,
-              void * fn_arg_4 FD_PARAM_UNUSED ) {
-  fd_replay_tile_ctx_t  * ctx            = (fd_replay_tile_ctx_t *)para_arg_1;
-  fd_stem_context_t     * stem           = (fd_stem_context_t *)para_arg_2;
-  fd_funk_rec_t const * * recs           = (fd_funk_rec_t const **)fn_arg_1;
-  uchar *                 is_bpf_program = (uchar *)fn_arg_2;
-  ulong                   rec_cnt        = (ulong)fn_arg_3;
-
-  ulong cnt_per_worker = rec_cnt / ctx->exec_cnt;
-
-  ulong recs_gaddr   = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, recs );
-  if( FD_UNLIKELY( !recs_gaddr ) ) {
-    FD_LOG_ERR(( "Unable to calculate gaddr for recs arary" ));
-  }
-
-  ulong is_bpf_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, is_bpf_program );
-  if( FD_UNLIKELY( !is_bpf_gaddr ) ) {
-    FD_LOG_ERR(( "Unable to calculate gaddr for is bpf array" ));
-  }
-
-  /* We need to keep track of the previous state because we don't want
-     to duplicate write cache entries back into funk. If we are in an
-     uninitialized state, we set our previous id to UINT_MAX */
-  uint prev_ids[ FD_PACK_MAX_BANK_TILES ];
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-    uint  state = fd_exec_fseq_get_state( res );
-    if( state==FD_EXEC_STATE_BPF_SCAN_DONE ) {
-      prev_ids[ i ] = fd_exec_fseq_get_bpf_id( res );
-    } else {
-      prev_ids[ i ] = FD_EXEC_ID_SENTINEL;
-    }
-  }
-
-  for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
-
-    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
-    ulong start_idx = worker_idx * cnt_per_worker;
-    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                                      fd_ulong_sat_sub( rec_cnt, 1UL );
-    fd_replay_out_link_t * exec_out = &ctx->exec_out[ worker_idx ];
-
-    fd_runtime_public_bpf_scan_msg_t * scan_msg = (fd_runtime_public_bpf_scan_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-    generate_bpf_scan_msg( start_idx, end_idx, recs_gaddr, is_bpf_gaddr, scan_msg );
-    fd_stem_publish( stem,
-                     exec_out->idx,
-                     EXEC_BPF_SCAN_SIG,
-                     exec_out->chunk,
-                     sizeof(fd_runtime_public_bpf_scan_msg_t),
-                     0UL,
-                     tsorig,
-                     fd_frag_meta_ts_comp( fd_tickcount() ) );
-    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk,
-                                              sizeof(fd_runtime_public_bpf_scan_msg_t),
-                                              exec_out->chunk0,
-                                              exec_out->wmark );
-
-  }
-
-  /* Spins and blocks until all exec tiles are done scanning. */
-  uchar scan_done[ FD_PACK_MAX_BANK_TILES ] = {0};
-  for( ;; ) {
-    uchar wait_cnt = 0;
-    for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-      if( !scan_done[ i ] ) {
-        ulong res   = fd_fseq_query( ctx->exec_fseq[ i ] );
-        uint  state = fd_exec_fseq_get_state( res );
-        uint  id    = fd_exec_fseq_get_bpf_id( res );
-        if( state==FD_EXEC_STATE_BPF_SCAN_DONE && id!=prev_ids[ i ] ) {
-          scan_done[ i ] = 1;
-          prev_ids[ i ]  = id;
-        } else {
-          wait_cnt++;
-        }
-      }
-    }
-    if( !wait_cnt ) {
-      break;
-    }
-  }
-
-}
-
 static void
 block_finalize_tiles_cb( void * para_arg_1,
                          void * para_arg_2,
@@ -1221,7 +1131,10 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       fd_txn_p_t txn_p;
       fd_slice_exec_txn_parse( &ctx->slice_exec_ctx, &txn_p );
 
-      /* Iterate and check/update all program ids? */
+      /* Insert or reverify invoked programs for this epoch, if needed
+         FIXME: this should be done during txn parsing so that we don't have to loop
+         over all accounts a second time. */
+      fd_runtime_update_program_cache( ctx->slot_ctx, &txn_p, ctx->runtime_spad );
 
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
                                                      &slot,
@@ -1534,17 +1447,6 @@ read_snapshot( void *              _ctx,
   fd_runtime_update_leaders( ctx->slot_ctx->bank,
                              ctx->slot_ctx->slot,
                              ctx->runtime_spad );
-  FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-
-  fd_exec_para_cb_ctx_t exec_para_ctx = {
-    .func       = bpf_tiles_cb,
-    .para_arg_1 = ctx,
-    .para_arg_2 = stem
-  };
-  fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                       ctx->runtime_spad,
-                                                       &exec_para_ctx );
-  FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 }
 
 static void
@@ -1598,18 +1500,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
     ctx->slot_ctx->slot                = 1UL;
     snapshot_slot                      = 1UL;
-
-    fd_exec_para_cb_ctx_t exec_para_ctx_bpf = {
-      .func       = bpf_tiles_cb,
-      .para_arg_1 = ctx,
-      .para_arg_2 = stem
-    };
-
-    FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-    fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                         ctx->runtime_spad,
-                                                         &exec_para_ctx_bpf );
-    FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
     /* Now setup exec tiles for execution */
     for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {

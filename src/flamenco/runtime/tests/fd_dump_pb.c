@@ -1200,12 +1200,13 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
 
 void
 fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
-                         fd_pubkey_t const * program_id ) {
+                         fd_txn_account_t *  program_acc ) {
 FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
-  /* Query the BPF program cache for the account pubkey */
-  fd_sbpf_validated_program_t * prog = NULL;
-  if( fd_bpf_load_cache_entry( txn_ctx->funk, txn_ctx->funk_txn, program_id, &prog ) != 0 ) {
+  /* Get the programdata for the account */
+  ulong         program_data_len = 0UL;
+  uchar const * program_data     = fd_bpf_get_programdata_from_account( txn_ctx->funk, txn_ctx->funk_txn, program_acc, &program_data_len, txn_ctx->spad );
+  if( program_data==NULL ) {
     return;
   }
 
@@ -1220,7 +1221,7 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
           "%s/elf-%s-%s-%lu.elfctx",
           txn_ctx->capture_ctx->dump_proto_output_dir,
           encoded_signature,
-          FD_BASE58_ENC_32_ALLOCA( program_id ),
+          FD_BASE58_ENC_32_ALLOCA( program_acc->pubkey ),
           txn_ctx->slot );
 
   /* The generated filename should be unique for every call. Silently return otherwise. */
@@ -1232,9 +1233,9 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* ElfLoaderCtx -> elf */
   elf_ctx.has_elf = true;
-  elf_ctx.elf.data = fd_spad_alloc( txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( prog->rodata_sz ) );
-  elf_ctx.elf.data->size = (pb_size_t)prog->rodata_sz;
-  fd_memcpy( elf_ctx.elf.data->bytes, prog->rodata, prog->rodata_sz );
+  elf_ctx.elf.data = fd_spad_alloc( txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( program_data_len ) );
+  elf_ctx.elf.data->size = (pb_size_t)program_data_len;
+  fd_memcpy( elf_ctx.elf.data->bytes, program_data, program_data_len );
 
   /* ElfLoaderCtx -> features */
   elf_ctx.has_features = true;

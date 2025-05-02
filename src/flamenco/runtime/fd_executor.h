@@ -44,6 +44,11 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 fd_exec_instr_fn_t
 fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc );
 
+/* Returns 1 if the given pubkey matches one of the BPF loader v1/v2/v3/v4
+   program IDs, and 0 otherwise. */
+uchar
+fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
+
 int
 fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
 
