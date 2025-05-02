@@ -496,6 +496,8 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   ulong slot = shred->slot;
 
+  if( FD_UNLIKELY( !fd_shred_is_data( shred->variant ) ) ) FD_LOG_ERR(( "Expected data shred" ));
+
   if( FD_UNLIKELY( slot < blockstore->shmem->wmk ) ) {
     FD_LOG_DEBUG(( "[%s] slot %lu < wmk %lu. not inserting shred", __func__, slot, blockstore->shmem->wmk ));
     return;
@@ -524,8 +526,9 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
       if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] %s. shred: (%lu, %u)", __func__, fd_buf_shred_map_strerror( err ), slot, shred->idx ));
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       fd_buf_shred_t * buf_shred = fd_buf_shred_map_query_ele( query );
-      buf_shred->eqvoc = ( fd_shred_payload_sz( &buf_shred->hdr ) == fd_shred_payload_sz( shred ) &&
-                           memcmp( buf_shred, shred, fd_shred_payload_sz( shred ) ) );
+      /* An existing shred has the same key.  Eqvoc iff the payload is different */
+      buf_shred->eqvoc = fd_shred_payload_sz( &buf_shred->hdr ) != fd_shred_payload_sz( shred ) ||
+                         0!=memcmp( fd_shred_data_payload( &buf_shred->hdr ), fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
       err = fd_buf_shred_map_query_test( query );
       if( FD_LIKELY( err == FD_MAP_SUCCESS) ) break;
     }
