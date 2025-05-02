@@ -1,4 +1,5 @@
 #include "fd_wksp_private.h"
+#include "../pod/fd_pod.h"
 
 /* fd_wksp_private_{join,leave}_func are used to automagically handle
    the first join / last leave by the fd_wksp_attach / fd_wksp_detach. */

@@ -18,13 +18,13 @@
 //#include "tile/fd_tile.h"         /* includes shmem/fd_shmem.h */
 //#include "scratch/fd_scratch.h"   /* includes tile/fd_tile.h sanitize/fd_sanitize.h valloc/fd_valloc.h */
 //#include "tpool/fd_tpool.h"       /* includes tile/fd_tile.h scratch/fd_scratch.h */
-//#include "wksp/fd_wksp.h"         /* includes pod/fd_pod.h tpool/fd_tpool.h checkpt/fd_checkpt.h sanitize/fd_sanitize.h */
+//#include "wksp/fd_wksp.h"         /* tpool/fd_tpool.h checkpt/fd_checkpt.h sanitize/fd_sanitize.h */
 #include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h valloc/fd_valloc.h */
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
 
 /* FIXME: Should these be optional APIs? */
 #include "sandbox/fd_sandbox.h"     /* includes fd_util_base.h */
-#include "math/fd_stat.h"           /* includes bits/fd_bits.h */
+//#include "math/fd_stat.h"         /* includes bits/fd_bits.h */
 #include "bits/fd_sat.h"            /* includes bits/fd_bits.h */
 //#include "hist/fd_histf.h"        /* includes log/fd_log.h */
 
