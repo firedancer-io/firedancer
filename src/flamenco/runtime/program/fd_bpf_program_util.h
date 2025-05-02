@@ -31,6 +31,9 @@ struct fd_sbpf_validated_program {
 
   /* SBPF version, SIMD-0161 */
   ulong sbpf_version;
+
+  /* Used to check if the program needs to be reverified */
+  ulong last_verified_epoch;
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 
@@ -87,6 +90,11 @@ fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
                           uint *                sbpf_max_version,
                           ulong                 slot,
                           fd_features_t const * features );
+
+void
+fd_bpf_program_reverify( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_pubkey_t const *  program_pubkey,
+                         fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END
 

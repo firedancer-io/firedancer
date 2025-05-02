@@ -194,6 +194,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     return NULL;
   }
 
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
+
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
      - slot_ctx->slot_bank.block_hash_queue
      - slot_ctx->slot_bank.recent_block_hashes */

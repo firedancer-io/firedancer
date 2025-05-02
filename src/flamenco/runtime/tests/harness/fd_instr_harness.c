@@ -170,11 +170,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acc = &accts[i];
-    if ( memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
-         memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
-         memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
-         memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
-    ) {
+    if ( !fd_executor_pubkey_is_bpf_loader( acc->vt->get_owner( acc ) ) ) {
       continue;
     }
 
