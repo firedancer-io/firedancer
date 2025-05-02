@@ -541,7 +541,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
           FD_LOG_ERR(( "Wen-restart cannot get the block hash of HeaviestForkSlot %lu", ctx->restart_heaviest_fork_slot ));
         }
         fd_funk_txn_xid_t xid;
-        fd_memcpy( &xid, &blk_hash, sizeof(fd_funk_txn_xid_t) );
+        fd_memcpy( &xid, blk_hash.uc, sizeof(fd_funk_txn_xid_t) );
         xid.ul[0] = ctx->restart_heaviest_fork_slot;
 
         /* Send xid to restart tile */
