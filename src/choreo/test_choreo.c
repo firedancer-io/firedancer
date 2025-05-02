@@ -1087,10 +1087,6 @@ test_full_tower( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-
-  FD_LOG_NOTICE(( "Ghost:" ));
-  fd_ghost_print( ghost, epoch, fd_ghost_root(ghost) );
-
   fd_tower_t * tower = TOWER( wksp, 331233273, 331233274, 331233275, 331233276,
       331233277, 331233278, 331233279, 331233280, 331233281,
       331233282, 331233283, 331233284, 331233285, 331233286,
@@ -1098,40 +1094,36 @@ test_full_tower( fd_wksp_t * wksp ) {
       331233292, 331233293, 331233294, 331233295, 331233296,
       331233297, 331233298, 331233299, 331233300, 331233301,
       331233302, 331233303 );
-  fd_tower_print( tower, ULONG_MAX );
+  FD_TEST( tower );
 
-  ulong root = ULONG_MAX;
-  root = ADD_TOWER_VOTE( towers[1], 331233304 );
-  fd_tower_print( tower, root );
+  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
 
-  // fd_tower_vote_t votes[] = {
-  //   {.slot = 331233200, .conf = 4},
-  //   {.slot = 331233201, .conf = 3},
-  //   {.slot = 331233202, .conf = 2},
-  //   {.slot = 331233203, .conf = 1}
-  // };
-  // ulong tower_height = sizeof(votes) / sizeof(fd_tower_vote_t);
-  // fd_tower_t * tower = mock_tower( wksp, tower_height, votes );
+  fd_forks_t * forks;
+  ulong frontier1 = 331233303UL;
+  INIT_FORKS( frontier1 );
+  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
 
-  // void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
-  // fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
 
-  // fd_forks_t * forks;
-  // ulong frontier1 = 331233210UL;
-  // INIT_FORKS( frontier1 );
+  fd_funk_txn_xid_t xid;
+  xid.ul[0] = xid.ul[1] = 331233304;
+  fd_funk_txn_map_query_t query[1];
+  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_funk_txn_map_query_try( &txn_map, &xid, NULL, query, 0 );
+  FD_TEST( query->ele );
 
-  // fd_forks_update( forks, epoch, funk, ghost, frontier1 );
+  ADD_TOWER_VOTE( towers[1], 331233304 );
+  fd_landed_vote_t * landed_votes = mock_landed_votes( wksp, 331233304, towers[1], 30 );
+  set_vote_account_tower( wksp, funk, query->ele, &voter[1], landed_votes );
+  // VOTE_FOR_SLOT( 331233303UL, 331233304, 0 );
+
 
 
   /* Everyone has voted for slot 331233302 in their towers by slot 331233303 */
   // fd_tower_t * tower = mock_tower( wksp, 31, votes );
-  // FD_LOG_NOTICE(( "Updated ghost:" ));
-  // fd_ghost_print( ghost, epoch, fd_ghost_root(ghost) );
+  FD_LOG_NOTICE(( "Updated ghost:" ));
+  fd_ghost_print( ghost, epoch, fd_ghost_root(ghost) );
 
-  // fd_tower_print( tower, ULONG_MAX );
-
-
-  // FD_LOG_NOTICE(("Current Tower:"));
   // ulong root = fd_tower_vote( tower, 331233303 );
   // fd_tower_vote( tower, 331233303 );
   // root = fd_tower_vote( tower, 331233304 );
@@ -1141,7 +1133,8 @@ test_full_tower( fd_wksp_t * wksp ) {
   // FD_TEST( fork );
   // setup_voter_in_funk_txn( funk, fork->slot_ctx->funk_txn, &voter[1], &identity[1] );
   // VOTE_FOR_SLOT( 331233303UL, 331233304, 0 );
-
+  FD_TEST( spad );
+  fd_funk_close_file( &funk_close_args );
 }
 
 
