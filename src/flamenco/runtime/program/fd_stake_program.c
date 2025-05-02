@@ -450,7 +450,7 @@ fd_stake_history_ele_binary_search_const( fd_stake_history_t const * history,
   while ( start<=end ) {
     ulong mid = start + ( end - start ) / 2UL;
     if( history->fd_stake_history[mid].epoch==epoch ) {
-      return &history->fd_stake_history[mid];
+      return &history->fd_stake_history[mid].entry;
     } else if( history->fd_stake_history[mid].epoch<epoch ) {
       if ( mid==0 ) return NULL;
       end = mid - 1;
@@ -480,7 +480,7 @@ fd_stake_history_ele_query_const( fd_stake_history_t const * history,
   ulong e = (off + history->fd_stake_history_offset) & (history->fd_stake_history_size - 1);
 
   if ( history->fd_stake_history[e].epoch == epoch ) {
-    return &history->fd_stake_history[e];
+    return &history->fd_stake_history[e].entry;
   }
 
   // if the epoch did not match, we do a binary search

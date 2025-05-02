@@ -1,4 +1,5 @@
 #include "fd_config_private.h"
+#include "../../util/pod/fd_pod.h"
 
 /* Pod query utils ****************************************************/
 

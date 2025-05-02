@@ -1,5 +1,8 @@
 #include "fd_pack_rebate_sum.h"
 #include "fd_pack.h"
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
 
 static const fd_acct_addr_t null_addr = { 0 };
 

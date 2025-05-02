@@ -6,7 +6,7 @@
 
 /* FD_SYSVAR_STAKE_HISTORY_CAP is the max number of entries that the
    "stake history" sysvar will include.
-   
+
    https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/stake_history.rs#L12 */
 
 #define FD_SYSVAR_STAKE_HISTORY_CAP (512UL)
@@ -21,9 +21,9 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Update the stake history sysvar account - called during epoch boundary*/
 void
-fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
-                                fd_stake_history_entry_t * entry,
-                                fd_spad_t *                runtime_spad );
+fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
+                                fd_epoch_stake_history_entry_pair_t * pair,
+                                fd_spad_t *                           runtime_spad );
 
 FD_PROTOTYPES_END
 

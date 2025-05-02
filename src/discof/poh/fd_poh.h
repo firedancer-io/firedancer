@@ -3,6 +3,7 @@
 
 #include "../../disco/tiles.h"
 #include "../../disco/shred/fd_stake_ci.h"
+#include "../../util/hist/fd_histf.h"
 
 /* Common library functions for the Proof of History tile. */
 

@@ -2372,7 +2372,8 @@ handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong res = fd_fseq_query( ctx->exec_fseq[ i ] );
     if( FD_UNLIKELY( fd_exec_fseq_is_not_joined( res ) ) ) {
-      FD_LOG_WARNING(( "Exec tile fseq idx=%lu is not booted", i ));
+      FD_LOG_WARNING(( "exec tile fseq idx=%lu has not been joined by the corresponding exec tile", i ));
+      continue;
     }
 
     uint state  = fd_exec_fseq_get_state( res );
@@ -2420,6 +2421,7 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
     ulong res = fd_fseq_query( ctx->writer_fseq[ i ] );
     if( FD_UNLIKELY( fd_writer_fseq_is_not_joined( res ) ) ) {
       FD_LOG_WARNING(( "writer tile fseq idx=%lu has not been joined by the corresponding writer tile", i ));
+      continue;
     }
 
     uint state = fd_writer_fseq_get_state( res );
@@ -3166,11 +3168,11 @@ unprivileged_init( fd_topo_t *      topo,
 
     ulong writer_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "writer_fseq.%lu", i );
     if( FD_UNLIKELY( writer_fseq_id==ULONG_MAX ) ) {
-      FD_LOG_ERR(( "writer tile %lu has no fseq", i ));
+      FD_LOG_CRIT(( "writer tile %lu has no fseq", i ));
     }
     ctx->writer_fseq[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, writer_fseq_id ) );
     if( FD_UNLIKELY( !ctx->writer_fseq[ i ] ) ) {
-      FD_LOG_ERR(( "writer tile %lu has no fseq", i ));
+      FD_LOG_CRIT(( "writer tile %lu has no fseq", i ));
     }
 
     /* Setup out links. */

@@ -3635,6 +3635,24 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
+  fd_runtime_update_leaders( slot_ctx, 0, runtime_spad );
+
+  fd_funk_t *     funk = slot_ctx->funk;
+  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
+
+  /* Add all the genesis accounts into the rent fresh list */
+  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+       NULL != rec;
+       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+
+    if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
+      continue;
+    }
+
+    fd_funk_rec_key_t const * pubkey = rec->pair.key;
+    fd_runtime_register_new_fresh_account( slot_ctx, (fd_pubkey_t * const ) fd_type_pun_const(&pubkey->uc[0]) );
+  }
+
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
   /* sort and update bank hash */
@@ -3676,6 +3694,17 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_epoch_bank_t *   epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+
+  /* Allocate all the memory for the rent fresh accounts lists */
+  fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
+  fd_rent_fresh_accounts_new( &slot_bank->rent_fresh_accounts );
+  slot_bank->rent_fresh_accounts.total_count        = 0UL;
+  slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
+  slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
+    runtime_spad,
+    FD_RENT_FRESH_ACCOUNT_ALIGN,
+    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   fd_genesis_solana_t * genesis_block;
   fd_hash_t             genesis_hash;

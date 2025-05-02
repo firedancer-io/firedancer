@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include "../../util/math/fd_stat.h"
 
 /* This are uniform in [-0.5,+0.5] */
 

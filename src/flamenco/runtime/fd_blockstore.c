@@ -278,17 +278,16 @@ fd_blockstore_init( fd_blockstore_t *      blockstore,
   if ( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to prepare block map for slot %lu", smr ));
 
   ele->slot = smr;
-  ele->parent_slot = slot_bank->prev_slot;
+  ele->parent_slot   = slot_bank->prev_slot;
   memset( ele->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
   ele->child_slot_cnt = 0;
-  ele->block_height = slot_bank->block_height;
-  ele->bank_hash  = slot_bank->banks_hash;
-  ele->block_hash = slot_bank->poh;
-  ele->flags      = fd_uchar_set_bit(
-                  fd_uchar_set_bit(
-                  fd_uchar_set_bit(
-                  fd_uchar_set_bit(
-                  fd_uchar_set_bit( ele->flags,
+  ele->block_height   = slot_bank->block_height;
+  ele->in_poh_hash    = slot_bank->poh;
+  ele->flags          = fd_uchar_set_bit(
+                      fd_uchar_set_bit(
+                      fd_uchar_set_bit(
+                      fd_uchar_set_bit(
+                      fd_uchar_set_bit( ele->flags,
                                        FD_BLOCK_FLAG_COMPLETED ),
                                        FD_BLOCK_FLAG_PROCESSED ),
                                        FD_BLOCK_FLAG_EQVOCSAFE ),
@@ -501,6 +500,8 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   ulong slot = shred->slot;
 
+  if( FD_UNLIKELY( !fd_shred_is_data( shred->variant ) ) ) FD_LOG_ERR(( "Expected data shred" ));
+
   if( FD_UNLIKELY( slot < blockstore->shmem->wmk ) ) {
     FD_LOG_DEBUG(( "[%s] slot %lu < wmk %lu. not inserting shred", __func__, slot, blockstore->shmem->wmk ));
     return;
@@ -529,8 +530,9 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
       if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] %s. shred: (%lu, %u)", __func__, fd_buf_shred_map_strerror( err ), slot, shred->idx ));
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       fd_buf_shred_t * buf_shred = fd_buf_shred_map_query_ele( query );
-      buf_shred->eqvoc = ( fd_shred_payload_sz( &buf_shred->hdr ) == fd_shred_payload_sz( shred ) &&
-                           memcmp( buf_shred, shred, fd_shred_payload_sz( shred ) ) );
+      /* An existing shred has the same key.  Eqvoc iff the payload is different */
+      buf_shred->eqvoc = fd_shred_payload_sz( &buf_shred->hdr ) != fd_shred_payload_sz( shred ) ||
+                         0!=memcmp( fd_shred_data_payload( &buf_shred->hdr ), fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
       err = fd_buf_shred_map_query_test( query );
       if( FD_LIKELY( err == FD_MAP_SUCCESS) ) break;
     }

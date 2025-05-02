@@ -14,6 +14,7 @@
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"

@@ -6,6 +6,7 @@
 #include "generated/fd_metrics_all.h"
 
 #include "../../tango/tempo/fd_tempo.h"
+#include "../../util/hist/fd_histf.h"
 
 /* fd_metrics mostly defines way of laying out metrics in shared
    memory so that a producer and consumer can agree on where they

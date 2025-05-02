@@ -25,6 +25,10 @@
 #define OPTIMIZE
 #endif
 
+#if FD_HAS_X86
+#include <x86intrin.h>
+#endif
+
 /* Utility functions for fd_uint256_mul_mod_p.
    Implementation is based on uint128.
    The implementations WITHOUT uint128 are just for completeness, we

@@ -624,21 +624,26 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_lthash_zero( &lt_hashes[i] );
   }
 
-  if( FD_LIKELY( tpool ) ){
-    ulong cnt_per_worker = task_data->info_sz / (wcnt-1UL);
+  if( FD_LIKELY( tpool ) ) {
+    ulong cnt_per_worker = (task_data->info_sz / (wcnt-1UL)) + 1UL;
     for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
       ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-      ulong end_idx   = worker_idx!=wcnt-1 ? start_idx + cnt_per_worker - 1 : task_data->info_sz - 1;
+      if( start_idx >= task_data->info_sz ) {
+        wcnt = worker_idx;
+        break;
+      }
+      ulong end_idx = fd_ulong_sat_sub((worker_idx) * cnt_per_worker, 1UL);
+      if( end_idx >= task_data->info_sz )
+        end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );;
       fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
-                     task_data, start_idx, end_idx,
-                     &lt_hashes[worker_idx], 0UL, 0UL,
-                     0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
+        task_data, start_idx, end_idx,
+        &lt_hashes[worker_idx], slot_ctx, 0UL,
+        0UL, 0UL, worker_idx, 0UL, 0UL, 0UL );
     }
 
     for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
       fd_tpool_wait( tpool, worker_idx );
     }
-
   } else {
     for( ulong i=0UL; i<task_data->info_sz; i++ ) {
       fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
