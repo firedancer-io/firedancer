@@ -2,6 +2,7 @@
 #include "fd_toml.h"
 #include "../../util/fd_util.h"
 #include <ctype.h>
+#include <math.h>
 #include <time.h>
 
 /* Implementation note:

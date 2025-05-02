@@ -1,5 +1,6 @@
 #define FD_UNALIGNED_ACCESS_STYLE 0
 #include "fd_chkdup.h"
+#include <math.h>
 
 #define P 4294967291UL /* A prime that fits in a uint with 2 as a primitive root */
 
