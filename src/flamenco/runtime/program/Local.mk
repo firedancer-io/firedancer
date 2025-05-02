@@ -47,4 +47,11 @@ $(call add-objs,fd_zk_elgamal_proof_program,fd_flamenco)
 
 $(call add-hdrs,fd_native_cpi.h)
 $(call add-objs,fd_native_cpi,fd_flamenco)
+
+### Tests
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_program_cache,test_program_cache,fd_flamenco fd_ballet fd_util fd_funk)
+$(call run-unit-test,test_program_cache)
+endif
+
 endif

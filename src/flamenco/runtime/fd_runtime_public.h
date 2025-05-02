@@ -13,7 +13,6 @@
 
 #define EXEC_NEW_TXN_SIG               (0x777777UL)
 #define EXEC_HASH_ACCS_SIG             (0x888888UL)
-#define EXEC_BPF_SCAN_SIG              (0x999991UL)
 #define EXEC_SNAP_HASH_ACCS_CNT_SIG    (0x191992UL)
 #define EXEC_SNAP_HASH_ACCS_GATHER_SIG (0x193992UL)
 
@@ -24,7 +23,6 @@
 #define FD_EXEC_STATE_NOT_BOOTED       (0xFFFFFFFFUL)
 #define FD_EXEC_STATE_BOOTED           (1<<1UL      )
 #define FD_EXEC_STATE_HASH_DONE        (1<<6UL      )
-#define FD_EXEC_STATE_BPF_SCAN_DONE    (1<<7UL      )
 #define FD_EXEC_STATE_SNAP_CNT_DONE    (1<<8UL      )
 #define FD_EXEC_STATE_SNAP_GATHER_DONE (1<<9UL      )
 
@@ -116,13 +114,6 @@ fd_exec_fseq_get_slot( ulong fseq ) {
   return (uint)(fseq >> 32UL);
 }
 
-static ulong FD_FN_UNUSED
-fd_exec_fseq_set_bpf_scan_done( ulong id ) {
-  ulong state = ((ulong)id << 32UL);
-  state      |= FD_EXEC_STATE_BPF_SCAN_DONE;
-  return state;
-}
-
 static uint FD_FN_UNUSED
 fd_exec_fseq_get_bpf_id( ulong fseq ) {
   return (uint)(fseq >> 32UL);
@@ -202,15 +193,6 @@ struct fd_runtime_public_hash_bank_msg {
   ulong slot;
 };
 typedef struct fd_runtime_public_hash_bank_msg fd_runtime_public_hash_bank_msg_t;
-
-struct fd_runtime_public_bpf_scan_msg {
-  ulong recs_gaddr;
-  ulong is_bpf_gaddr;
-  ulong cache_txn_gaddr;
-  ulong start_idx;
-  ulong end_idx;
-};
-typedef struct fd_runtime_public_bpf_scan_msg fd_runtime_public_bpf_scan_msg_t;
 
 struct fd_runtime_public_snap_hash_msg {
   ulong num_pairs_out_gaddr;
