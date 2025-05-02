@@ -38,27 +38,19 @@
     pretty_print( "\"" #NAME "\": %" FD_QUIC_FMT_##TYPE ", ", data->NAME );
 
 
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME) \
     do { \
       pretty_print( "\"" #NAME "\": [ " ); \
       ulong tmp_len = data->LEN_NAME; \
-      if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
+      if( tmp_len > MAX ) tmp_len = MAX; \
       for( ulong j = 0; j < tmp_len; ++j ) { \
         pretty_print( "0x%2.2x, ", data->NAME[j] ); \
       } \
       pretty_print( " ], " ); \
     } while(0);
 
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
-    do { \
-      pretty_print( "\"" #NAME "\": [ " ); \
-      ulong tmp_len = data->LEN_NAME; \
-      if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
-      for( ulong j = 0; j < tmp_len; ++j ) { \
-        pretty_print( "0x%2.2x, ", data->NAME[j] ); \
-      } \
-      pretty_print( " ], " ); \
-    } while(0);
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME) \
+        FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME)
 
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX) \
     do { \
