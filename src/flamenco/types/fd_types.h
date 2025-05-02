@@ -4476,12 +4476,13 @@ struct fd_addrlut_instruction_global {
 typedef struct fd_addrlut_instruction_global fd_addrlut_instruction_global_t;
 #define FD_ADDRLUT_INSTRUCTION_GLOBAL_ALIGN alignof(fd_addrlut_instruction_global_t)
 
+/* https://github.com/anza-xyz/agave/blob/v2.2.7/core/src/repair/serve_repair.rs#L204-L210 */
 /* Encoded Size: Fixed (140 bytes) */
 struct fd_repair_request_header {
   fd_signature_t signature;
   fd_pubkey_t sender;
   fd_pubkey_t recipient;
-  long timestamp;
+  ulong timestamp;
   uint nonce;
 };
 typedef struct fd_repair_request_header fd_repair_request_header_t;
