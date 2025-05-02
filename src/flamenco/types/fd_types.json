@@ -1251,7 +1251,6 @@
         { "name": "max_tick_height",             "type": "ulong" },
         { "name": "collected_execution_fees",    "type": "ulong" },
         { "name": "collected_priority_fees",     "type": "ulong" },
-        { "name": "collected_rent",              "type": "ulong" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "last_restart_slot",           "type": "sol_sysvar_last_restart_slot" },
         { "name": "stake_account_keys",          "type": "account_keys"},

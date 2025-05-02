@@ -60,7 +60,6 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
   slot_ctx->slot_bank.collected_priority_fees  = 0UL;
-  slot_ctx->slot_bank.collected_rent           = 0UL;
 
   fd_runtime_save_slot_bank( slot_ctx );
   fd_runtime_save_epoch_bank( slot_ctx );

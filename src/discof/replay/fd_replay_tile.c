@@ -2619,7 +2619,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     child->slot_ctx->slot                     = curr_slot;
     child->slot_ctx->slot_bank.collected_execution_fees = 0UL;
     child->slot_ctx->slot_bank.collected_priority_fees  = 0UL;
-    child->slot_ctx->slot_bank.collected_rent           = 0UL;
 
     if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
       FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));

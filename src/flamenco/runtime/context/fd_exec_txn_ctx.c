@@ -265,7 +265,10 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   ulong * slot = fd_bank_mgr_slot_query( bank_mgr );
   ctx->slot = !!slot ? *slot : 0UL;
 
-  ctx->fee_rate_governor = *(fd_bank_mgr_fee_rate_governor_query( bank_mgr ));
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( bank_mgr );
+  if( fee_rate_governor ) {
+    ctx->fee_rate_governor = *fee_rate_governor;
+  }
 
   /* Distribute rewards */
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );

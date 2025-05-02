@@ -532,7 +532,6 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   fd_runtime_run_incinerator( slot_ctx );
 
   FD_LOG_DEBUG(( "fd_runtime_freeze: capitalization %lu ", slot_ctx->slot_bank.capitalization));
-  slot_ctx->slot_bank.collected_rent = 0;
 
   /* At this point we want to invalidate the sysvar cache entries. */
   fd_sysvar_cache_invalidate( slot_ctx->sysvar_cache );
@@ -1493,7 +1492,6 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
   slot_ctx->slot_bank.collected_priority_fees  = 0UL;
-  slot_ctx->slot_bank.collected_rent           = 0UL;
   slot_ctx->signature_cnt                      = 0UL;
   slot_ctx->txn_count                          = 0UL;
   slot_ctx->nonvote_txn_count                  = 0UL;
@@ -1835,7 +1833,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees,  task_info->txn_ctx->priority_fee   );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_rent,           task_info->txn_ctx->collected_rent );
 
   fd_exec_txn_ctx_t * txn_ctx      = task_info->txn_ctx;
   int                 exec_txn_err = task_info->exec_res;
@@ -3626,10 +3623,8 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
   slot_ctx->slot_bank.collected_priority_fees  = 0UL;
-  slot_ctx->slot_bank.collected_rent           = 0UL;
   slot_ctx->signature_cnt                      = 0UL;
   slot_ctx->txn_count                          = 0UL;
-  slot_ctx->nonvote_txn_count                  = 0UL;
   slot_ctx->failed_txn_count                   = 0UL;
   slot_ctx->nonvote_failed_txn_count           = 0UL;
   slot_ctx->total_compute_units_used           = 0UL;

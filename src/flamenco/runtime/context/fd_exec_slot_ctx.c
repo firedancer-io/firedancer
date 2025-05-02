@@ -271,11 +271,9 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   if( manifest->epoch_account_hash )
     slot_bank->epoch_account_hash = *manifest->epoch_account_hash;
 
-  slot_bank->collected_rent = oldbank->collected_rent;
   // did they not change the bank?!
   slot_bank->collected_execution_fees = oldbank->collector_fees;
   slot_bank->collected_priority_fees = 0;
-  slot_bank->capitalization = oldbank->capitalization;
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
 
@@ -287,6 +285,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   if( FD_UNLIKELY( !bank_mgr ) ) {
     FD_LOG_ERR(( "Could not allocate bank manager" ));
   }
+
+  /* Block Hash Queue */
 
   fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
 
@@ -317,14 +317,20 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
   fd_bank_mgr_block_hash_queue_save( bank_mgr );
 
+  /* Slot */
+
   ulong * slot_ptr = fd_bank_mgr_slot_modify( bank_mgr );
   *slot_ptr = oldbank->slot;
   fd_bank_mgr_slot_save( bank_mgr );
   slot_ctx->slot = oldbank->slot;
 
+  /* Fee Rate Governor */
+
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
   *fee_rate_governor = oldbank->fee_rate_governor;
   fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+
+  /* Capitalization*/
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

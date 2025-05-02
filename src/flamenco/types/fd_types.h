@@ -2456,7 +2456,6 @@ struct fd_slot_bank {
   ulong max_tick_height;
   ulong collected_execution_fees;
   ulong collected_priority_fees;
-  ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   fd_account_keys_t stake_account_keys;
@@ -2487,7 +2486,6 @@ struct fd_slot_bank_global {
   ulong max_tick_height;
   ulong collected_execution_fees;
   ulong collected_priority_fees;
-  ulong collected_rent;
   fd_vote_accounts_global_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   fd_account_keys_global_t stake_account_keys;

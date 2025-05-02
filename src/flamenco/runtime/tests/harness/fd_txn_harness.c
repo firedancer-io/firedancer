@@ -317,7 +317,6 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
 
   slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
   slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
-  slot_ctx->slot_bank.collected_rent           += task_info->txn_ctx->collected_rent;
   return task_info;
 }
 
