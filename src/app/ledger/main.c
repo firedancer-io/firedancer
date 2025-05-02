@@ -325,10 +325,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
   }
 
-  if( FD_UNLIKELY( block_found!=0 ) ) {
-    FD_LOG_ERR(( "unable to seek to any slot" ));
-  }
-
   /* Setup trash_hash */
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
@@ -341,6 +337,16 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   ulong block_slot = start_slot;
   uchar aborted = 0U;
+
+  // set up to let us easily jump to the end of execution
+  do {
+
+  if( FD_UNLIKELY( block_found!=0 ) ) {
+    if( 0 == ledger_args->end_slot )
+      break; // special case just letting us do the genesis block
+    FD_LOG_ERR(( "unable to seek to any slot" ));
+  }
+
   for( ulong slot = start_slot; slot<=ledger_args->end_slot && !aborted; ++slot ) {
 
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
@@ -573,6 +579,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
   }
 
+  } while(0);
+
   /* Throw an error if the blockstore wksp has a usage which exceeds the allowed
      threshold. This likely indicates that a memory leak was introduced. */
 
@@ -615,8 +623,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         tps,
         sec_per_slot ));
 
-  if ( slot_cnt == 0 ) {
-    FD_LOG_ERR(( "No slots replayed" ));
+  if( slot_cnt == 0 ) {
+    if( 0 != ledger_args->end_slot )
+      FD_LOG_ERR(( "No slots replayed" ));
+    else
+      FD_LOG_WARNING(( "No slots replayed" ));
   }
 
   args_cleanup( ledger_args );
@@ -647,7 +658,7 @@ allocator_setup( fd_wksp_t * wksp ) {
 }
 
 void
-fd_ledger_main_setup( fd_ledger_args_t * args ) {
+fd_ledger_capture_setup( fd_ledger_args_t * args ) {
   fd_flamenco_boot( NULL, NULL );
 
   /* Setup capture context */
@@ -691,6 +702,11 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->dump_proto_start_slot = args->dump_proto_start_slot;
     }
   }
+}
+
+void
+fd_ledger_main_setup( fd_ledger_args_t * args ) {
+  fd_flamenco_boot( NULL, NULL );
 
   args->slot_ctx->snapshot_freq      = args->snapshot_freq;
   args->slot_ctx->incremental_freq   = args->incremental_freq;
@@ -1318,11 +1334,13 @@ replay( fd_ledger_args_t * args ) {
     }
   }
 
-  if( args->genesis ) {
-    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
-  }
-
   FD_LOG_NOTICE(( "Used memory in spad after loading in snapshot %lu", args->runtime_spad->mem_used ));
+
+  fd_ledger_capture_setup( args );
+
+  if( args->genesis ) {
+    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, args->capture_ctx, args->runtime_spad );
+  }
 
   fd_ledger_main_setup( args );
 
