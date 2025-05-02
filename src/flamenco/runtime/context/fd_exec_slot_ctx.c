@@ -157,14 +157,10 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   return 1;
 }
 
-/* Implementation note: fd_exec_slot_ctx_recover moves objects from
-   manifest to slot_ctx.  This function must not share pointers between
-   slot_ctx and manifest.  Otherwise, would cause a use-after-free. */
-
-static fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
-                           fd_solana_manifest_t * manifest,
-                           fd_spad_t *            runtime_spad ) {
+fd_exec_slot_ctx_t *
+fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
+                          fd_solana_manifest_t const * manifest,
+                          fd_spad_t *                  runtime_spad ) {
 
   fd_valloc_t valloc = fd_spad_virtual( runtime_spad );
 
@@ -173,7 +169,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* Clean out prior bank */
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
-  fd_slot_bank_destroy( slot_bank );
+  memset( slot_bank, 0, sizeof(fd_slot_bank_t) );
   fd_slot_bank_new( slot_bank );
 
   for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
@@ -188,7 +184,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       }
   }
 
-  fd_versioned_bank_t * oldbank = &manifest->bank;
+  fd_versioned_bank_t const * oldbank = &manifest->bank;
 
   /* Populate the epoch context, using the already-allocated statically allocated memory */
   /* Copy stakes */
@@ -209,7 +205,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       FD_TEST( fd_vote_accounts_pair_t_map_free( epoch_bank->stakes.vote_accounts.vote_accounts_pool ) );
       fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
       FD_TEST( new_node );
-      fd_memcpy( &new_node->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+      new_node->elem = n->elem;
       fd_vote_accounts_pair_t_map_insert(
         epoch_bank->stakes.vote_accounts.vote_accounts_pool,
         &epoch_bank->stakes.vote_accounts.vote_accounts_root,
@@ -231,7 +227,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
       fd_delegation_pair_t_mapnode_t * new_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
       FD_TEST( new_node );
-      fd_memcpy( &new_node->elem, &n->elem, sizeof(fd_delegation_pair_t) );
+      new_node->elem = n->elem;
       fd_delegation_pair_t_map_insert(
         epoch_bank->stakes.stake_delegations_pool,
         &epoch_bank->stakes.stake_delegations_root,
@@ -241,8 +237,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* Copy stakes->stake_history */
   fd_memcpy( &epoch_bank->stakes.stake_history, &oldbank->stakes.stake_history, sizeof(oldbank->stakes.stake_history));
-
-  fd_stakes_destroy( &oldbank->stakes );
 
   /* Index vote accounts */
 
@@ -314,7 +308,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   for( ulong i=0UL; i<oldbank->blockhash_queue.ages_len; i++ ) {
     fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
-    fd_memcpy( &node->elem, elem, sizeof(fd_hash_hash_age_pair_t) );
+    node->elem = *elem;
     fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
   }
   bhq->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)bhq;
@@ -454,15 +448,13 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
           slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
         FD_TEST( elem );
 
-        fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+        elem->elem = n->elem;
 
         fd_vote_accounts_pair_t_map_insert(
           slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
           &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
           elem );
     }
-
-    fd_vote_accounts_destroy( &curr_stakes );
 
     /* Move next EpochStakes
        TODO Can we derive this instead of trusting the snapshot? */
@@ -478,7 +470,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
         epoch_bank->next_epoch_stakes.vote_accounts_pool );
       FD_TEST( elem );
 
-      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+      elem->elem = n->elem;
 
       fd_vote_accounts_pair_t_map_insert(
         epoch_bank->next_epoch_stakes.vote_accounts_pool,
@@ -486,8 +478,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
         elem );
 
     }
-
-    fd_vote_accounts_destroy( &next_stakes );
   } while(0);
 
   if ( NULL != manifest->lthash )
@@ -506,21 +496,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   return slot_ctx;
-}
-
-fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
-                          fd_solana_manifest_t * manifest,
-                          fd_spad_t *            spad ) {
-
-  fd_exec_slot_ctx_t * res = fd_exec_slot_ctx_recover_( slot_ctx, manifest, spad );
-
-  /* Regardless of result, always destroy manifest.
-     TODO: This doesn't do anything. */
-  fd_solana_manifest_destroy( manifest );
-  fd_memset( manifest, 0, sizeof(fd_solana_manifest_t) );
-
-  return res;
 }
 
 fd_exec_slot_ctx_t *

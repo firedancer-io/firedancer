@@ -1551,8 +1551,6 @@ void *fd_firedancer_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng )
   self->slot = fd_rng_ulong( rng );
   self->prev_slot = fd_rng_ulong( rng );
   fd_hash_generate( &self->poh, alloc_mem, rng );
-  fd_hash_generate( &self->banks_hash, alloc_mem, rng );
-  fd_fee_rate_governor_generate( &self->fee_rate_governor, alloc_mem, rng );
   self->capitalization = fd_rng_ulong( rng );
   self->block_height = fd_rng_ulong( rng );
   self->lamports_per_signature = fd_rng_ulong( rng );

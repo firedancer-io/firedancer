@@ -245,6 +245,7 @@ slot_ctx_restore( ulong                 slot,
       continue;
     }
 
+    slot_ctx_out->slot = slot;
     fd_memcpy( &slot_ctx_out->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
     FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out, runtime_spad ) );
 

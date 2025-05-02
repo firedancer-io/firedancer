@@ -117,8 +117,8 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Add the account to the rent fresh account list */
   rent_fresh_account->partition = partition;
-  fd_memcpy( &rent_fresh_account->pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
-  rent_fresh_account->present = 1UL;
+  rent_fresh_account->pubkey    = *pubkey;
+  rent_fresh_account->present   = 1UL;
 
   rent_fresh_accounts->total_count++;
 }
@@ -513,12 +513,12 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       /* TODO: is it ok to not check the overflow error here? */
       rec->vt->checked_add_lamports( rec, fees );
       rec->vt->set_slot( rec, slot_ctx->slot );
+      slot_ctx->block_rewards.post_balance = rec->vt->get_lamports( rec );
 
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
       slot_ctx->block_rewards.collected_fees = fees;
-      slot_ctx->block_rewards.post_balance = rec->vt->get_lamports( rec );
-      memcpy( slot_ctx->block_rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
+      slot_ctx->block_rewards.leader         = *leader;
     } while(0);
 
     ulong old = slot_ctx->slot_bank.capitalization;
@@ -1529,7 +1529,7 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, runtime_spad );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
     FD_LOG_WARNING(( "update bpf program cache failed" ));
     return;
@@ -1827,6 +1827,9 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_execute_txn_task_info_t * task_info,
                          fd_spad_t *                  finalize_spad,
                          fd_wksp_t *                  finalize_spad_wksp ) {
+
+  /* for all accounts, if account->is_verified==true, propagate update
+     to cache entry. */
 
   /* Store transaction info including logs */
   // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
@@ -2216,12 +2219,12 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
   for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
     fd_delegation_pair_t_mapnode_t key;
-    fd_memcpy( &key.elem.account, &temp_info->stake_infos[idx].account, sizeof(fd_pubkey_t) );
+    key.elem.account = temp_info->stake_infos[idx].account;
     fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key );
     if( FD_LIKELY( entry==NULL ) ) {
       entry = fd_delegation_pair_t_map_acquire( stakes->stake_delegations_pool );
-      fd_memcpy( &entry->elem.account, &temp_info->stake_infos[idx].account, sizeof(fd_pubkey_t) );
-      fd_memcpy( &entry->elem.delegation, &temp_info->stake_infos[idx].stake.delegation, sizeof(fd_delegation_t) );
+      entry->elem.account    = temp_info->stake_infos[idx].account;
+      entry->elem.delegation = temp_info->stake_infos[idx].stake.delegation;
       fd_delegation_pair_t_map_insert( stakes->stake_delegations_pool, &stakes->stake_delegations_root, entry );
     }
   }
@@ -2258,7 +2261,7 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
       FD_LOG_ERR(( "slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool full" ));
     }
 
-    fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    elem->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
                                         &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
                                         elem );
@@ -2284,7 +2287,7 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
         n;
         n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
     fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
-    fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    elem->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
   }
 }
@@ -3343,6 +3346,7 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
   fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_clock_init( slot_ctx );
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
+  fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_epoch_schedule_init( slot_ctx );
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ) ) {
     fd_sysvar_fees_init( slot_ctx );
@@ -3356,10 +3360,10 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static void
-fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
-                                   fd_genesis_solana_t * genesis_block,
-                                   fd_hash_t const *     genesis_hash,
-                                   fd_spad_t *           runtime_spad ) {
+fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
+                                   fd_genesis_solana_t const * genesis_block,
+                                   fd_hash_t const *           genesis_hash,
+                                   fd_spad_t *                 runtime_spad ) {
   slot_ctx->slot = 0UL;
 
   memcpy( &slot_ctx->slot_bank.poh, genesis_hash->hash, FD_SHA256_HASH_SZ );
@@ -3369,9 +3373,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   slot_ctx->slot_bank.lamports_per_signature = 0UL;
   slot_ctx->prev_lamports_per_signature      = 0UL;
 
-  fd_poh_config_t *     poh        = &genesis_block->poh_config;
-  fd_exec_epoch_ctx_t * epoch_ctx  = slot_ctx->epoch_ctx;
-  fd_epoch_bank_t *     epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+  fd_poh_config_t const * poh        = &genesis_block->poh_config;
+  fd_exec_epoch_ctx_t *   epoch_ctx  = slot_ctx->epoch_ctx;
+  fd_epoch_bank_t *       epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   if( poh->has_hashes_per_tick ) {
     epoch_bank->hashes_per_tick = poh->hashes_per_tick;
   } else {
@@ -3507,11 +3511,11 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       if( !node ) {
         node = fd_delegation_pair_t_map_acquire( sacc_pool );
         fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+        node->elem.delegation = stake_state.inner.stake.stake.delegation;
         fd_delegation_pair_t_map_insert( sacc_pool, &sacc_root, node );
       } else {
         fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+        node->elem.delegation = stake_state.inner.stake.stake.delegation;
       }
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Feature Account */
@@ -3562,20 +3566,19 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
        n;
        n = fd_vote_accounts_pair_t_map_successor( vacc_pool, n )) {
     fd_vote_accounts_pair_t_mapnode_t * e = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
-    fd_memcpy( &e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+    e->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool, &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root, e );
 
     fd_vote_accounts_pair_t_mapnode_t * next_e = fd_vote_accounts_pair_t_map_acquire( next_pool );
-    fd_memcpy( &next_e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+    next_e->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( next_pool, &next_root, next_e );
   }
 
   for( fd_delegation_pair_t_mapnode_t *n = fd_delegation_pair_t_map_minimum( sacc_pool, sacc_root );
        n;
        n = fd_delegation_pair_t_map_successor( sacc_pool, n )) {
-    fd_vote_accounts_pair_t_mapnode_t query_voter  = {0};
-    fd_pubkey_t *                     voter_pubkey = &n->elem.delegation.voter_pubkey;
-    fd_memcpy( &query_voter.elem.key, voter_pubkey, sizeof(fd_pubkey_t) );
+    fd_vote_accounts_pair_t_mapnode_t query_voter = {0};
+    query_voter.elem.key = n->elem.delegation.voter_pubkey;
 
     fd_vote_accounts_pair_t_mapnode_t * voter = fd_vote_accounts_pair_t_map_find( vacc_pool, vacc_root, &query_voter );
 
@@ -3674,83 +3677,92 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_epoch_bank_t *   epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_genesis_solana_t * genesis_block;
-    fd_hash_t             genesis_hash;
-    uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
-    ssize_t n   = read( fd, buf, (ulong)sbuf.st_size );
-    FD_TEST( n>=0L );
-    close( fd );
+  fd_genesis_solana_t * genesis_block;
+  fd_hash_t             genesis_hash;
+
+  /* NOTE: These genesis decode spad allocs persist through the lifetime of fd_runtime,
+     even though they aren't used outside of this function. This is because
+     fd_runtime_init_bank_from_genesis, which depends on the genesis_block, initializes
+     a bunch of structures on spad that need to persist throughout fd_runtime. Using a bump
+     allocator does not let us free memory lower in the stack without freeing everything
+     above it (in a meaningful way).
+
+     FIXME: Use spad frames here once the fd_runtime structures initialized here are no
+     longer spad-backed. */
+
+  uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
+  ulong sz    = 0UL;
+  int res     = fd_io_read( fd, buf, (ulong)sbuf.st_size, (ulong)sbuf.st_size, &sz );
+  FD_TEST( res==0 );
+  FD_TEST( sz==(ulong)sbuf.st_size );
+  close( fd );
 
     int err;
     genesis_block = fd_bincode_decode_spad(
-        genesis_solana, runtime_spad, buf, (ulong)n, &err );
+        genesis_solana, runtime_spad, buf, sz, &err );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR(( "fd_genesis_solana_decode_footprint failed (%d)", err ));
     }
 
-    // The hash is generated from the raw data... don't mess with this..
-    fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+  // The hash is generated from the raw data... don't mess with this..
+  fd_sha256_hash( buf, sz, genesis_hash.uc );
 
-    fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
-    epoch_bank->cluster_type = genesis_block->cluster_type;
+  fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
+  epoch_bank->cluster_type = genesis_block->cluster_type;
 
-    if( !is_snapshot ) {
-      fd_runtime_init_bank_from_genesis( slot_ctx,
-                                         genesis_block,
-                                         &genesis_hash,
-                                         runtime_spad );
+  if( !is_snapshot ) {
+    fd_runtime_init_bank_from_genesis( slot_ctx,
+                                        genesis_block,
+                                        &genesis_hash,
+                                        runtime_spad );
 
-      fd_runtime_init_program( slot_ctx, runtime_spad );
+    fd_runtime_init_program( slot_ctx, runtime_spad );
 
-      FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
+    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
 
-      for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
-        fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
+    for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
+      fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
 
-        FD_TXN_ACCOUNT_DECL( rec );
+      FD_TXN_ACCOUNT_DECL( rec );
 
-        int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                        &a->key,
-                                                        slot_ctx->funk,
-                                                        slot_ctx->funk_txn,
-                                                        1, /* do_create */
-                                                        a->account.data_len );
+      int err = fd_txn_account_init_from_funk_mutable( rec,
+                                                      &a->key,
+                                                      slot_ctx->funk,
+                                                      slot_ctx->funk_txn,
+                                                      1, /* do_create */
+                                                      a->account.data_len );
 
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
-        }
-
-        rec->vt->set_data( rec, a->account.data, a->account.data_len );
-        rec->vt->set_lamports( rec, a->account.lamports );
-        rec->vt->set_rent_epoch( rec, a->account.rent_epoch );
-        rec->vt->set_executable( rec, a->account.executable );
-        rec->vt->set_owner( rec, &a->account.owner );
-
-        fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
-      }
-
-      FD_LOG_DEBUG(( "end genesis accounts" ));
-
-      FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block->native_instruction_processors_len ));
-
-      for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
-        fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
-        fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
-      }
-
-      fd_features_restore( slot_ctx, runtime_spad );
-
-      slot_ctx->slot = 0UL;
-
-      int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, runtime_spad );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
+        FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
       }
+
+      rec->vt->set_data( rec, a->account.data, a->account.data_len );
+      rec->vt->set_lamports( rec, a->account.lamports );
+      rec->vt->set_rent_epoch( rec, a->account.rent_epoch );
+      rec->vt->set_executable( rec, a->account.executable );
+      rec->vt->set_owner( rec, &a->account.owner );
+
+      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
     }
 
-    fd_genesis_solana_destroy( genesis_block );
-  } FD_SPAD_FRAME_END;
+    FD_LOG_DEBUG(( "end genesis accounts" ));
+
+    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block->native_instruction_processors_len ));
+
+    for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
+      fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
+      fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
+    }
+
+    fd_features_restore( slot_ctx, runtime_spad );
+
+    slot_ctx->slot = 0UL;
+
+    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, runtime_spad );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
+    }
+  }
 
   slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
@@ -4075,6 +4087,8 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
       fd_txn_p_t * mblock_txn_ptrs = &txn_ptrs[ to_exec_idx ];
       ulong        mblock_txn_cnt  = txn_cnt;
       to_exec_idx += txn_cnt;
+
+      /* UPDATE */
 
       if( !mblock_txn_cnt ) continue;
 

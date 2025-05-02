@@ -107,25 +107,22 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
 
 static ulong
 slot_hashes_position( fd_slot_hash_t const * hashes, ulong slot ) {
-  /* Logic is copied from slice::binary_search_by() in Rust
+  /* Logic is copied from slice::binary_search_by() in Rust. While not fully optimized,
+     it aims to achieve fuzzing conformance for both sorted and unsorted inputs.
      Returns the slot hash position of the input slot. */
-  ulong start = 0UL;
-  ulong end = deq_fd_slot_hash_t_cnt( hashes );
+  ulong size = deq_fd_slot_hash_t_cnt( hashes );
+  if( FD_UNLIKELY( size==0UL ) ) return ULONG_MAX;
 
-  while( start < end ) {
-    ulong mid      = start + (end - start) / 2UL;
+  ulong base = 0UL;
+  while( size>1UL ) {
+    ulong half = size / 2UL;
+    ulong mid = base + half;
     ulong mid_slot = deq_fd_slot_hash_t_peek_index_const( hashes, mid )->slot;
-
-    if( mid_slot == slot ) {
-      return mid;
-    } else if( mid_slot > slot ) {
-      start = mid + 1UL;
-    } else {
-      end = mid;
-    }
+    base = (slot>mid_slot) ? base : mid;
+    size -= half;
   }
 
-  return ULONG_MAX;
+  return deq_fd_slot_hash_t_peek_index_const( hashes, base )->slot==slot ? base : ULONG_MAX;
 }
 
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */

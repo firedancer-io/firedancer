@@ -1032,8 +1032,6 @@
         { "name": "slot",                  "type": "ulong" },
         { "name": "prev_slot",             "type": "ulong" },
         { "name": "poh",                   "type": "hash" },
-        { "name": "banks_hash",            "type": "hash" },
-        { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
         { "name": "capitalization",        "type": "ulong" },
         { "name": "block_height",          "type": "ulong" },
         { "name": "lamports_per_signature","type": "ulong" },

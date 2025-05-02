@@ -139,7 +139,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
   for(;;) {
     if( delete_first ) {
-      fd_slot_bank_destroy( &slot_ctx->slot_bank );
+      memset( &slot_ctx->slot_bank, 0, sizeof(fd_slot_bank_t) );
     }
     fd_funk_rec_key_t     id  = fd_runtime_slot_bank_key();
     fd_funk_rec_query_t   query[1];
@@ -198,14 +198,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
-
-  /* As the collection pointers are not owned by fd_alloc, zero them
-     out to prevent invalid frees by the destroy function.
-
-     TODO: This free actually doesn't do anything because of spad. */
-
   fd_exec_epoch_ctx_epoch_bank_delete( slot_ctx->epoch_ctx );
-  fd_slot_bank_destroy( &slot_ctx->slot_bank );
+  memset( &slot_ctx->slot_bank, 0, sizeof(fd_slot_bank_t) );
 }
 
 

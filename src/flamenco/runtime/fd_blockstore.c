@@ -252,7 +252,9 @@ fd_blockstore_init( fd_blockstore_t *      blockstore,
                     fd_slot_bank_t const * slot_bank,
                     ulong                  slot ) {
 
-  if ( fd_size_max < FD_BLOCKSTORE_ARCHIVE_MIN_SIZE ) {
+  FD_LOG_WARNING(("SLOT IN BSTORE INIT %lu", slot));
+
+  if( fd_size_max < FD_BLOCKSTORE_ARCHIVE_MIN_SIZE ) {
     FD_LOG_ERR(( "archive file size too small" ));
     return NULL;
   }

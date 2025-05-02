@@ -710,7 +710,6 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
     .para_arg_1 = args->tpool
   };
   fd_bpf_scan_and_create_bpf_program_cache_entry_para( args->slot_ctx,
-                                                       args->slot_ctx->funk_txn,
                                                        args->runtime_spad,
                                                        &exec_para_ctx );
 
@@ -813,7 +812,7 @@ ingest_rocksdb( char const *      file,
 
     ++blk_cnt;
 
-    fd_slot_meta_destroy( &slot_meta );
+    memset( &slot_meta, 0, sizeof(fd_slot_meta_t) );
 
     int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
     if( ret < 0 ) {

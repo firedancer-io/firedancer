@@ -548,7 +548,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
     new_node->elem.value.data_len   = vote_acc->vt->get_data_len( vote_acc );
     new_node->elem.value.data       = fd_spad_alloc( snapshot_ctx->spad, 8UL, vote_acc->vt->get_data_len( vote_acc ) );
     fd_memcpy( new_node->elem.value.data, vote_acc->vt->get_data( vote_acc ), vote_acc->vt->get_data_len( vote_acc ) );
-    fd_memcpy( &new_node->elem.value.owner, vote_acc->vt->get_owner( vote_acc ), sizeof(fd_pubkey_t) );
+    new_node->elem.value.owner      = *vote_acc->vt->get_owner( vote_acc );
     new_node->elem.value.executable = (uchar)vote_acc->vt->is_executable( vote_acc );
     new_node->elem.value.rent_epoch = vote_acc->vt->get_rent_epoch( vote_acc );
     fd_vote_accounts_pair_t_map_insert( new_stakes->vote_accounts.vote_accounts_pool, &new_stakes->vote_accounts.vote_accounts_root, new_node );
@@ -643,7 +643,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   /* The hashes_per_tick needs to be copied over from the epoch bank because
      the pointer could go out of bounds during an epoch boundary. */
   bank->hashes_per_tick                       = fd_spad_alloc( snapshot_ctx->spad, alignof(ulong), sizeof(ulong) );
-  fd_memcpy( bank->hashes_per_tick, &epoch_bank->hashes_per_tick, sizeof(ulong) );
+  *bank->hashes_per_tick                      = epoch_bank->hashes_per_tick;
 
   bank->ticks_per_slot                        = FD_TICKS_PER_SLOT;
   bank->ns_per_slot                           = epoch_bank->ns_per_slot;
@@ -744,7 +744,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
     FD_LOG_ERR(( "Failed to decode epoch bank" ));
   }
 
-  fd_memcpy( &snapshot_ctx->epoch_bank, epoch_bank, sizeof(fd_epoch_bank_t) );
+  snapshot_ctx->epoch_bank = *epoch_bank;
 
   FD_TEST( !fd_funk_rec_query_test( query ) );
 
@@ -775,7 +775,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
     FD_LOG_ERR(( "Failed to decode slot bank" ));
   }
 
-  memcpy( &snapshot_ctx->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
+  snapshot_ctx->slot_bank = *slot_bank;
 
   FD_TEST( !fd_funk_rec_query_test( query ) );
 
@@ -926,12 +926,12 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
 
   if( snapshot_ctx->is_incremental ) {
     manifest.bank_incremental_snapshot_persistence->full_slot                  = snapshot_ctx->last_snap_slot;
-    fd_memcpy( &manifest.bank_incremental_snapshot_persistence->full_hash, snapshot_ctx->last_snap_acc_hash, sizeof(fd_hash_t) );
+    manifest.bank_incremental_snapshot_persistence->full_hash                  = *snapshot_ctx->last_snap_acc_hash;
     manifest.bank_incremental_snapshot_persistence->full_capitalization        = snapshot_ctx->last_snap_capitalization;
     manifest.bank_incremental_snapshot_persistence->incremental_hash           = snapshot_ctx->acc_hash;
     manifest.bank_incremental_snapshot_persistence->incremental_capitalization = incr_capitalization;
   } else {
-    memcpy( out_hash, &manifest.accounts_db.bank_hash_info.accounts_hash, sizeof(fd_hash_t) );
+    *out_hash           = manifest.accounts_db.bank_hash_info.accounts_hash;
     *out_capitalization = snapshot_ctx->slot_bank.capitalization;
   }
 

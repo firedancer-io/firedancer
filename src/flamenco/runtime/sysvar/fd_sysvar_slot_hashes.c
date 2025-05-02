@@ -13,9 +13,9 @@ FD_FN_UNUSED static const ulong slot_hashes_max_entries = 512;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/slot_hashes.rs#L12 */
 static const ulong slot_hashes_account_size = 20488;
 
-static void
-write_slot_hashes( fd_exec_slot_ctx_t *      slot_ctx,
-                   fd_slot_hashes_global_t * slot_hashes_global ) {
+void
+fd_sysvar_slot_hashes_write( fd_exec_slot_ctx_t *      slot_ctx,
+                             fd_slot_hashes_global_t * slot_hashes_global ) {
   uchar enc[slot_hashes_account_size];
   fd_memset( enc, 0, slot_hashes_account_size );
   fd_bincode_encode_ctx_t ctx = {
@@ -29,25 +29,79 @@ write_slot_hashes( fd_exec_slot_ctx_t *      slot_ctx,
   fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size, slot_ctx->slot );
 }
 
-void
-fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t *      slot_ctx,
-                            fd_slot_hashes_global_t * slot_hashes_global ) {
-  write_slot_hashes( slot_ctx, slot_hashes_global );
+ulong
+fd_sysvar_slot_hashes_footprint( ulong slot_hashes_cap ) {
+  return sizeof(fd_slot_hashes_global_t) +
+         deq_fd_slot_hash_t_footprint( slot_hashes_cap ) + deq_fd_slot_hash_t_align();
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
+void *
+fd_sysvar_slot_hashes_new( void * mem,
+                           ulong  slot_hashes_cap ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for slot hashes" ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_SYSVAR_SLOT_HASHES_ALIGN ) ) ) {
+    FD_LOG_ERR(( "Memory for slot hashes is not aligned" ));
+  }
+
+  fd_slot_hashes_global_t * slot_hashes_global = (fd_slot_hashes_global_t *)mem;
+
+  uchar * slot_hash_mem = (uchar*)fd_ulong_align_up( (ulong)((uchar *)mem + sizeof(fd_slot_hashes_global_t)), deq_fd_slot_hash_t_align() );
+  deq_fd_slot_hash_t_new( (void*)slot_hash_mem, slot_hashes_cap );
+  slot_hashes_global->hashes_offset = (ulong)slot_hash_mem - (ulong)slot_hashes_global;
+
+  return slot_hashes_global;
+}
+
+fd_slot_hashes_global_t *
+fd_sysvar_slot_hashes_join( void *            shmem,
+                            fd_slot_hash_t ** slot_hash ) {
+  fd_slot_hashes_global_t * slot_hashes_global = (fd_slot_hashes_global_t *)shmem;
+  *slot_hash                                   = deq_fd_slot_hash_t_join( (uchar*)shmem + slot_hashes_global->hashes_offset );
+
+  return slot_hashes_global;
+}
+
+void *
+fd_sysvar_slot_hashes_leave( fd_slot_hashes_global_t * slot_hashes_global,
+                             fd_slot_hash_t *          slot_hash ) {
+  deq_fd_slot_hash_t_leave( slot_hash );
+
+  return slot_hashes_global;
+}
+
+void *
+fd_sysvar_slot_hashes_delete( void * mem ) {
+  void * slot_hash_mem = (void *)fd_ulong_align_up( (ulong)((uchar *)mem + sizeof(fd_slot_hashes_global_t)), deq_fd_slot_hash_t_align() );
+  deq_fd_slot_hash_t_delete( slot_hash_mem );
+
+  return mem;
+}
+
+void
+fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
+                            fd_spad_t *          runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    void * mem                                    = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
+    fd_slot_hash_t * shnull                       = NULL;
+    fd_slot_hashes_global_t * slot_hashes_global  = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP ), &shnull );
+
+    fd_sysvar_slot_hashes_write( slot_ctx, slot_hashes_global);
+    fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( slot_hashes_global, shnull ) );
+  } FD_SPAD_FRAME_END;
+}
+
+/* https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/runtime/src/bank.rs#L2283-L2294 */
 void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx, runtime_spad );
   fd_slot_hash_t *          hashes             = NULL;
-  if( !slot_hashes_global ) {
-    uchar * deque_mem = fd_spad_alloc( runtime_spad,
-                                       deq_fd_slot_hash_t_align(),
-                                       deq_fd_slot_hash_t_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
-    hashes = deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( deque_mem, FD_SYSVAR_SLOT_HASHES_CAP ) );
-    if( FD_UNLIKELY( !hashes ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for slot hashes" ));
-    }
+  if( FD_UNLIKELY( !slot_hashes_global ) ) {
+    /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
+    void * mem = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
+    slot_hashes_global = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP ), &hashes );
   } else {
     hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
   }
@@ -71,13 +125,15 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
     };
     FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
 
-    if (deq_fd_slot_hash_t_full( hashes ) )
-      fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ) );
+    if( deq_fd_slot_hash_t_full( hashes ) )
+      memset( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), 0, sizeof(fd_slot_hash_t) );
 
     deq_fd_slot_hash_t_push_head( hashes, slot_hash );
   }
 
-  write_slot_hashes( slot_ctx, slot_hashes_global );
+  fd_sysvar_slot_hashes_write( slot_ctx, slot_hashes_global );
+  fd_sysvar_slot_hashes_leave( slot_hashes_global, hashes );
+} FD_SPAD_FRAME_END;
 }
 
 fd_slot_hashes_global_t *
@@ -85,8 +141,9 @@ fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
                             fd_spad_t *           runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( rec );
   int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
+  }
 
   fd_bincode_decode_ctx_t decode = {
     .data    = rec->vt->get_data( rec ),

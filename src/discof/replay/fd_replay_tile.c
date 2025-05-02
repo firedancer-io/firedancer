@@ -1693,6 +1693,8 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       memcpy( &exec_msg->txn, &txn_p, sizeof(fd_txn_p_t) );
 
+      /* Iterate and check/update all program ids? */
+
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
                                                      &slot,
                                                      NULL,
@@ -1874,7 +1876,8 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
 
 static void
 kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
-
+  ctx->slot_ctx->slot = ctx->curr_slot;
+  FD_LOG_WARNING(("BLOCKSTORE INIT 2 %lu", ctx->curr_slot));
   fd_blockstore_init( ctx->slot_ctx->blockstore,
                       ctx->blockstore_fd,
                       FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
@@ -1941,6 +1944,8 @@ read_snapshot( void *              _ctx,
       /* Load the prefetch manifest, and initialize the status cache and slot context,
          so that we can use these to kick off repair. */
       fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
+      ctx->curr_slot = ctx->slot_ctx->slot;
+      FD_LOG_WARNING(( "KICKOFF REPAIR ORPHANS 1 %lu", ctx->slot_ctx->slot));
       kickoff_repair_orphans( ctx, stem );
 
     }
@@ -1966,7 +1971,7 @@ read_snapshot( void *              _ctx,
     if( strlen( incremental )<=0UL ) {
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
         FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
-
+      FD_LOG_WARNING(( "KICKOFF REPAIR ORPHANS 2 %lu", ctx->curr_slot));
       kickoff_repair_orphans( ctx, stem );
       /* If we don't have an incremental snapshot, we can still kick off
          sending the stake weights and snapshot slot to repair. */
@@ -2009,7 +2014,6 @@ read_snapshot( void *              _ctx,
     .para_arg_2 = stem
   };
   fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                       ctx->slot_ctx->funk_txn,
                                                        ctx->runtime_spad,
                                                        &exec_para_ctx );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
@@ -2080,7 +2084,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
     fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
-                                                         ctx->slot_ctx->funk_txn,
                                                          ctx->runtime_spad,
                                                          &exec_para_ctx_bpf );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
@@ -2192,7 +2195,8 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->runtime_spad );
   /* We call this after fd_runtime_read_genesis, which sets up the
      slot_bank needed in blockstore_init. */
-  /* FIXME We should really only call this once. */
+  /* FIXME: We should really only call this once. */
+  FD_LOG_WARNING(("BLOCKSTORE INIT 1 %lu", ctx->curr_slot));
   fd_blockstore_init( ctx->slot_ctx->blockstore,
                       ctx->blockstore_fd,
                       FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,

@@ -888,6 +888,7 @@ dump/test-vectors/txn/fixtures/programs/48464275e40c306289bff2a38821b996cd8f8183
 dump/test-vectors/txn/fixtures/programs/486bd160788cceedac92edc724f3d34380ca6031_265678.fix
 dump/test-vectors/txn/fixtures/programs/488f14ad98c3ec347adca1dc8f3d1b16b61a04c7_1281277.fix
 dump/test-vectors/txn/fixtures/programs/48a1fd5cf2f5199ca6bed76d3c6aa3d5e8692ee0_265678.fix
+dump/test-vectors/txn/fixtures/programs/48af453d026d5bbac53f79e7298e47c6dfc64102_3061637.fix
 dump/test-vectors/txn/fixtures/programs/48c6f8198f8080f3897e62871b4de16d00f9b352_265678.fix
 dump/test-vectors/txn/fixtures/programs/48d2a1b3e313f02c829dd3bf5cfa7ddabe060aa0_265678.fix
 dump/test-vectors/txn/fixtures/programs/48d2d46e4f333f05580132ce985ace65b74a44be_265678.fix

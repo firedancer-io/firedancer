@@ -553,7 +553,7 @@ void
 fd_txn_account_set_meta_info_writable( fd_txn_account_t *               acct,
                                        fd_solana_account_meta_t const * info ) {
   if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
-  fd_memcpy( &acct->private_state.meta->info, info, sizeof(fd_solana_account_meta_t) );
+  acct->private_state.meta->info = *info;
 }
 
 void
