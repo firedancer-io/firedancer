@@ -89,7 +89,7 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
   slot_bank->block_height           = test_ctx->slot_ctx.block_height;
   slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
-  slot_bank->capitalization         = test_ctx->slot_ctx.prev_epoch_capitalization;
+
   slot_bank->lamports_per_signature = 5000UL;
 
   /* Set up epoch context and epoch bank */
@@ -221,10 +221,11 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Update leader schedule */
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot, runner->spad );
 
-  /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
-  uchar * mem = fd_spad_alloc( runner->spad, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( mem, slot_ctx->funk, slot_ctx->funk_txn );
+  /* All bank mgr stuff here. */
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
+  /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
   uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
   uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
@@ -242,6 +243,11 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                                        .burn_percent                   = 50,
   };
   fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+
+  ulong *         capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  *capitalization = test_ctx->slot_ctx.prev_epoch_capitalization;
+  fd_bank_mgr_capitalization_save( bank_mgr );
+
 
   block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
   block_hash_queue->ages_root_offset = 0UL;
@@ -470,7 +476,9 @@ fd_runtime_fuzz_block_run( fd_runtime_fuzz_runner_t * runner,
     effects->has_error = !!( res );
 
     /* Capture capitalization */
-    effects->slot_capitalization = slot_ctx->slot_bank.capitalization;
+    fd_bank_mgr_t   bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr     = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+    effects->slot_capitalization = *(fd_bank_mgr_capitalization_query( bank_mgr ));
 
     /* Capture hashes */
     uchar out_lt_hash[32];

@@ -3,6 +3,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
+#include "../fd_bank_mgr.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
     {                                                                       \
@@ -150,7 +151,11 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_txn_account_mutable_fini( rec, funk, txn );
 
-  slot_ctx->slot_bank.capitalization++;
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, txn );
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  (*capitalization)++;
+  fd_bank_mgr_capitalization_save( bank_mgr );
 
   // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
   FD_TEST( !err );

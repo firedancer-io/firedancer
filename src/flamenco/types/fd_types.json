@@ -1246,7 +1246,6 @@
         { "name": "poh",                         "type": "hash" },
         { "name": "banks_hash",                  "type": "hash" },
         { "name": "epoch_account_hash",          "type": "hash" },
-        { "name": "capitalization",              "type": "ulong" },
         { "name": "block_height",                "type": "ulong" },
         { "name": "max_tick_height",             "type": "ulong" },
         { "name": "collected_execution_fees",    "type": "ulong" },

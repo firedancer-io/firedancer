@@ -1481,8 +1481,9 @@ method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_webserver_t * ws = &ctx->global->ws;
+    ulong capitalization = ULONG_MAX; /* FIXME: This is broken */
     fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
-                          ctx->global->last_slot_notify.slot_exec.slot, slot_bank->capitalization, 0UL, slot_bank->capitalization, ctx->call_id);
+                          ctx->global->last_slot_notify.slot_exec.slot, capitalization, 0UL, capitalization, ctx->call_id);
   } FD_SCRATCH_SCOPE_END;
   return 0;
 }

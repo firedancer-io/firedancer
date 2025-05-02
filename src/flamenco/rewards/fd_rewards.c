@@ -4,6 +4,7 @@
 #include "../runtime/fd_executor_err.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/fd_runtime.h"
+#include "../runtime/fd_bank_mgr.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
 #include "../runtime/program/fd_program_util.h"
@@ -819,9 +820,12 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
                                     fd_spad_t *                            runtime_spad ) {
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L227 */
   fd_prev_epoch_inflation_rewards_t rewards;
-  calculate_previous_epoch_inflation_rewards( slot_ctx, slot_ctx->slot_bank.capitalization, prev_epoch, &rewards );
 
-  fd_slot_bank_t const * slot_bank = &slot_ctx->slot_bank;
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr       = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong *         capitalization = fd_bank_mgr_capitalization_query( bank_mgr );
+  FD_LOG_WARNING(("CAPITALIZATION: %lu", *capitalization));
+  calculate_previous_epoch_inflation_rewards( slot_ctx, *capitalization, prev_epoch, &rewards );
 
   fd_calculate_validator_rewards_result_t validator_result[1] = {0};
   calculate_validator_rewards( slot_ctx,
@@ -849,7 +853,8 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
   result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
-  result->capitalization               = slot_bank->capitalization;
+
+  result->capitalization               = *(fd_bank_mgr_capitalization_query( bank_mgr ));
   fd_memcpy( &result->point_value, &validator_result->point_value, sizeof(fd_point_value_t) );
 }
 
@@ -919,7 +924,11 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
     FD_LOG_ERR(( "Unexpected rewards calculation result" ));
   }
 
-  slot_ctx->slot_bank.capitalization += result->distributed_rewards;
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr       = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong *         capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  *capitalization += result->distributed_rewards;
+  fd_bank_mgr_capitalization_save( bank_mgr );
 
   /* Cheap because this doesn't copy all the rewards, just pointers to the dlist */
   fd_memcpy( &result->stake_rewards_by_partition, &rewards_calc_result->stake_rewards_by_partition, sizeof(fd_stake_reward_calculation_partitioned_t) );
@@ -1039,7 +1048,11 @@ distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * pa
 
   FD_LOG_DEBUG(( "lamports burned: %lu, lamports distributed: %lu", lamports_burned, lamports_distributed ));
 
-  slot_ctx->slot_bank.capitalization += lamports_distributed;
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr       = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong *         capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  *capitalization += lamports_distributed;
+  fd_bank_mgr_capitalization_save( bank_mgr );
 }
 
 /* Process reward distribution for the block if it is inside reward interval.

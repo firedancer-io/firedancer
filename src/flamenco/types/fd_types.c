@@ -12817,8 +12817,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->epoch_account_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->capitalization, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->block_height, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->max_tick_height, ctx );
@@ -12872,8 +12870,6 @@ int fd_slot_bank_encode_global( fd_slot_bank_global_t const * self, fd_bincode_e
   err = fd_hash_encode( &self->banks_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->epoch_account_hash, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->capitalization, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->block_height, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -12938,8 +12934,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_sol_sysvar_last_restart_slot_decode_footprint_inner( ctx, total_sz );
@@ -12992,7 +12986,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->epoch_account_hash, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->capitalization, ctx );
   fd_bincode_uint64_decode_unsafe( &self->block_height, ctx );
   fd_bincode_uint64_decode_unsafe( &self->max_tick_height, ctx );
   fd_bincode_uint64_decode_unsafe( &self->collected_execution_fees, ctx );
@@ -13034,7 +13027,6 @@ static void fd_slot_bank_decode_inner_global( void * struct_mem, void * * alloc_
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->epoch_account_hash, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->capitalization, ctx );
   fd_bincode_uint64_decode_unsafe( &self->block_height, ctx );
   fd_bincode_uint64_decode_unsafe( &self->max_tick_height, ctx );
   fd_bincode_uint64_decode_unsafe( &self->collected_execution_fees, ctx );
@@ -13092,7 +13084,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fd_hash_walk( w, &self->poh, fun, "poh", level );
   fd_hash_walk( w, &self->banks_hash, fun, "banks_hash", level );
   fd_hash_walk( w, &self->epoch_account_hash, fun, "epoch_account_hash", level );
-  fun( w, &self->capitalization, "capitalization", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->block_height, "block_height", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->max_tick_height, "max_tick_height", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->collected_execution_fees, "collected_execution_fees", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -13124,7 +13115,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += fd_hash_size( &self->poh );
   size += fd_hash_size( &self->banks_hash );
   size += fd_hash_size( &self->epoch_account_hash );
-  size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);

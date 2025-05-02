@@ -636,7 +636,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   bank->hard_forks                            = slot_bank->hard_forks;
   bank->transaction_count                     = slot_bank->transaction_count;
   bank->signature_count                       = slot_bank->parent_signature_cnt;
-  bank->capitalization                        = slot_bank->capitalization;
+  // bank->capitalization                        = slot_bank->capitalization;
   bank->tick_height                           = slot_bank->tick_height;
   bank->max_tick_height                       = slot_bank->max_tick_height;
 
@@ -896,6 +896,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
                                                 fd_hash_t *         out_hash,
                                                 ulong *             out_capitalization ) {
 
+  (void)out_capitalization;
 
   fd_solana_manifest_t manifest = {0};
 
@@ -932,7 +933,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
     manifest.bank_incremental_snapshot_persistence->incremental_capitalization = incr_capitalization;
   } else {
     *out_hash           = manifest.accounts_db.bank_hash_info.accounts_hash;
-    *out_capitalization = snapshot_ctx->slot_bank.capitalization;
+    //*out_capitalization = snapshot_ctx->slot_bank.capitalization;
   }
 
   /* At this point, all of the account files are written out and the append

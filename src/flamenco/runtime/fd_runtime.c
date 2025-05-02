@@ -301,9 +301,13 @@ fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
     return -1;
   }
 
-  slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, rec->vt->get_lamports( rec ) );
-  rec->vt->set_lamports( rec, 0UL );
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  *capitalization = fd_ulong_sat_sub( *capitalization, rec->vt->get_lamports( rec ) );
+  fd_bank_mgr_capitalization_save( bank_mgr );
 
+  rec->vt->set_lamports( rec, 0UL );
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
@@ -521,17 +525,23 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       slot_ctx->block_rewards.leader         = *leader;
     } while(0);
 
-    ulong old = slot_ctx->slot_bank.capitalization;
-    slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burn);
-    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, slot_ctx->slot_bank.capitalization));
+    fd_bank_mgr_t   bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+    ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+
+    ulong old = *capitalization;
+    *capitalization = fd_ulong_sat_sub( *capitalization, burn );
+    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, *capitalization));
 
     slot_ctx->slot_bank.collected_execution_fees = 0;
     slot_ctx->slot_bank.collected_priority_fees = 0;
+
+    fd_bank_mgr_capitalization_save( bank_mgr );
   }
 
   fd_runtime_run_incinerator( slot_ctx );
 
-  FD_LOG_DEBUG(( "fd_runtime_freeze: capitalization %lu ", slot_ctx->slot_bank.capitalization));
+
 
   /* At this point we want to invalidate the sysvar cache entries. */
   fd_sysvar_cache_invalidate( slot_ctx->sysvar_cache );
@@ -2592,13 +2602,18 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L281-L284 */
   ulong lamports_to_fund = new_target_program_account->vt->get_lamports( new_target_program_account ) + new_target_program_data_account->vt->get_lamports( new_target_program_data_account );
 
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr       = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong *         capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+
   /* Update capitalization.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L286-L297 */
   if( lamports_to_burn>lamports_to_fund ) {
-    slot_ctx->slot_bank.capitalization -= lamports_to_burn - lamports_to_fund;
+    *capitalization -= lamports_to_burn - lamports_to_fund;
   } else {
-    slot_ctx->slot_bank.capitalization += lamports_to_fund - lamports_to_burn;
+    *capitalization += lamports_to_fund - lamports_to_burn;
   }
+  fd_bank_mgr_capitalization_save( bank_mgr );
 
   /* Reclaim the source buffer account
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L305 */
@@ -3603,7 +3618,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       .stake_history = {0}
   };
 
-  slot_ctx->slot_bank.capitalization             = capitalization;
+  ulong * capitalization_bm = fd_bank_mgr_capitalization_modify( bank_mgr );
+  *capitalization_bm        = capitalization;
+  fd_bank_mgr_capitalization_save( bank_mgr );
+
   pool_mem                                       = fd_spad_alloc( runtime_spad,
                                                                   fd_clock_timestamp_vote_t_map_align(),
                                                                   fd_clock_timestamp_vote_t_map_footprint( FD_HASH_FOOTPRINT * 400 ) );

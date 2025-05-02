@@ -330,7 +330,11 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   *fee_rate_governor = oldbank->fee_rate_governor;
   fd_bank_mgr_fee_rate_governor_save( bank_mgr );
 
-  /* Capitalization*/
+  /* Capitalization */
+
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  *capitalization = oldbank->capitalization;
+  fd_bank_mgr_capitalization_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;
