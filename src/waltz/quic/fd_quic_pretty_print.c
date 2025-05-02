@@ -53,25 +53,31 @@ fd_quic_pretty_print_frame( char **           out_buf,
   uchar const * cur_buf = buf;
   uchar const * buf_end = buf + buf_sz;
 
-  if( cur_buf[0] == 0x00 ) { /* handle padding separately */
+  if( ( cur_buf[0] & 0xfe ) == 0x00 ) { /* handle padding and pings separately */
     ulong padding_cnt = 0;
-    while( cur_buf < buf_end && *cur_buf == 0x00 ) {
-      padding_cnt++;
+    ulong ping_cnt    = 0;
+    while( cur_buf < buf_end && ( *cur_buf & 0xfe ) == 0x00 ) {
+      uint pad = (uint)( *cur_buf == 0 );
+      padding_cnt += pad;
+      ping_cnt    += 1u - pad;
       cur_buf++;
     }
 
-    ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"frame_type\": \"0-padding\", \"count\": %lu, ", padding_cnt );
+    ulong sz = safe_snprintf( *out_buf, *out_buf_sz,
+                 "\"frame_type\": \"pad-ping\", \"pad-count\": %lu, "
+                 "\"ping-count\": %lu, ",
+                 padding_cnt, ping_cnt );
     *out_buf    += sz;
     *out_buf_sz -= sz;
 
-    if( FD_UNLIKELY( cur_buf == buf_end ) ) return (ulong)( cur_buf - buf );
+    return (ulong)( cur_buf - buf );
   }
 
   /* Frame ID is technically a varint but it's sufficient to look at the
      first byte. */
   uint id = cur_buf[0];
   if( FD_UNLIKELY( id >= FD_QUIC_FRAME_TYPE_CNT ) ) {
-    ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"frame_type\": \"%x-unknown\", ...", (uint)id );
+    ulong sz = safe_snprintf( *out_buf, *out_buf_sz, "\"frame_type\": \"%x-unknown\", ", (uint)id );
     *out_buf    += sz;
     *out_buf_sz -= sz;
 
@@ -120,29 +126,65 @@ fd_quic_pretty_print_frame( char **           out_buf,
     {
       ulong ack_range_count = data.ack_frame.ack_range_count;
 
-      /* skip ack ranges */
-      for( ulong j = 0UL; j < ack_range_count; ++j ) {
-        fd_quic_ack_range_frag_t ack_range[1];
-        ulong rc = fd_quic_decode_ack_range_frag( ack_range, cur_buf, (ulong)( buf_end - cur_buf ) );
-        if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-          ulong out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"parse-ack-ranges\"" );
+      if( ack_range_count ) {
+        ulong out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"ack_ranges\": [ " );
+        *out_buf    += out_sz;
+        *out_buf_sz -= out_sz;
+
+        /* skip ack ranges */
+        for( ulong j = 0UL; j < ack_range_count; ++j ) {
+          fd_quic_ack_range_frag_t ack_range[1];
+          ulong rc = fd_quic_decode_ack_range_frag( ack_range, cur_buf, (ulong)( buf_end - cur_buf ) );
+          if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
+            ulong out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"parse-ack-ranges\", " );
+            *out_buf    += out_sz;
+            *out_buf_sz -= out_sz;
+            return FD_QUIC_PARSE_FAIL;
+          }
+
+          cur_buf += rc;
+
+          ulong out_sz = safe_snprintf( *out_buf, *out_buf_sz, "{ " );
           *out_buf    += out_sz;
           *out_buf_sz -= out_sz;
-          return FD_QUIC_PARSE_FAIL;
+
+          fd_quic_pretty_print_struct_ack_range_frag( out_buf, out_buf_sz, ack_range );
+
+          out_sz = safe_snprintf( *out_buf, *out_buf_sz, "}, " );
+          *out_buf    += out_sz;
+          *out_buf_sz -= out_sz;
         }
 
-        fd_quic_pretty_print_struct_ack_range_frag( out_buf, out_buf_sz, ack_range );
+        out_sz = safe_snprintf( *out_buf, *out_buf_sz, "], " );
+        *out_buf    += out_sz;
+        *out_buf_sz -= out_sz;
       }
 
       if( data.ack_frame.type & 1U ) {
         fd_quic_ecn_counts_frag_t ecn_counts[1] = {0};
         ulong rc = fd_quic_decode_ecn_counts_frag( ecn_counts, cur_buf, (ulong)( buf_end - cur_buf ) );
         if( rc == FD_QUIC_PARSE_FAIL ) {
-          ulong out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"parse-ecn-counts\"" );
+          ulong out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"err\": \"parse-ecn-counts\", " );
           *out_buf    += out_sz;
           *out_buf_sz -= out_sz;
           return FD_QUIC_PARSE_FAIL;
         }
+
+        fd_quic_pretty_print_struct_ecn_counts_frag( out_buf, out_buf_sz, ecn_counts );
+
+        // ulong out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"ecn_bytes_skipped\": %lu, ", rc );
+        // *out_buf    += out_sz;
+        // *out_buf_sz -= out_sz;
+
+        // uchar const * next_ptr = cur_buf + rc;
+
+        // out_sz = safe_snprintf( *out_buf, *out_buf_sz, "\"next_bytes\": %02x %02x %02x %02x",
+        //             (uint)next_ptr[0],
+        //             (uint)next_ptr[1],
+        //             (uint)next_ptr[2],
+        //             (uint)next_ptr[3] );
+        // *out_buf    += out_sz;
+        // *out_buf_sz -= out_sz;
 
         cur_buf += rc;
       }
