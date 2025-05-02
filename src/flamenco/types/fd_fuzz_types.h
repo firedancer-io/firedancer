@@ -696,14 +696,11 @@ void *fd_snapshot_slot_acc_vecs_generate( void *mem, void **alloc_mem, fd_rng_t 
   return mem;
 }
 
-void fd_reward_type_inner_generate( fd_reward_type_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-}
 void *fd_reward_type_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_reward_type_t *self = (fd_reward_type_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_reward_type_t);
   fd_reward_type_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 4;
-  fd_reward_type_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 
@@ -1580,14 +1577,11 @@ void *fd_firedancer_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng )
   return mem;
 }
 
-void fd_cluster_type_inner_generate( fd_cluster_type_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-}
 void *fd_cluster_type_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_cluster_type_t *self = (fd_cluster_type_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_cluster_type_t);
   fd_cluster_type_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 4;
-  fd_cluster_type_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 
@@ -1909,14 +1903,11 @@ void *fd_vote_init_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void fd_vote_authorize_inner_generate( fd_vote_authorize_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-}
 void *fd_vote_authorize_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_vote_authorize_t *self = (fd_vote_authorize_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_authorize_t);
   fd_vote_authorize_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 2;
-  fd_vote_authorize_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 
@@ -2187,14 +2178,11 @@ void *fd_system_program_instruction_generate( void *mem, void **alloc_mem, fd_rn
   return mem;
 }
 
-void fd_system_error_inner_generate( fd_system_error_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-}
 void *fd_system_error_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_system_error_t *self = (fd_system_error_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_system_error_t);
   fd_system_error_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 9;
-  fd_system_error_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 
@@ -2247,14 +2235,11 @@ void *fd_stake_lockup_custodian_args_generate( void *mem, void **alloc_mem, fd_r
   return mem;
 }
 
-void fd_stake_authorize_inner_generate( fd_stake_authorize_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-}
 void *fd_stake_authorize_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_stake_authorize_t *self = (fd_stake_authorize_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_authorize_t);
   fd_stake_authorize_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 2;
-  fd_stake_authorize_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 

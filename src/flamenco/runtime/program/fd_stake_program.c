@@ -68,9 +68,9 @@
 #define DEFAULT_SLASH_PENALTY                      ( 12 )
 
 #define STAKE_AUTHORIZE_STAKER                                                                     \
-  ( ( fd_stake_authorize_t ){ .discriminant = fd_stake_authorize_enum_staker, .inner = {0} } )
+  ( ( fd_stake_authorize_t ){ .discriminant = fd_stake_authorize_enum_staker } )
 #define STAKE_AUTHORIZE_WITHDRAWER                                                                 \
-  ( ( fd_stake_authorize_t ){ .discriminant = fd_stake_authorize_enum_withdrawer, .inner = {0} } )
+  ( ( fd_stake_authorize_t ){ .discriminant = fd_stake_authorize_enum_withdrawer } )
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L51
 #define DEFAULT_COMPUTE_UNITS 750UL
