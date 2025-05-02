@@ -634,7 +634,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   bank->parent_hash                           = slot_bank->prev_banks_hash;
   bank->parent_slot                           = slot_bank->prev_slot;
   bank->hard_forks                            = slot_bank->hard_forks;
-  bank->transaction_count                     = slot_bank->transaction_count;
+  // bank->transaction_count                     = slot_bank->transaction_count;
   bank->signature_count                       = slot_bank->parent_signature_cnt;
   // bank->capitalization                        = slot_bank->capitalization;
   bank->tick_height                           = slot_bank->tick_height;

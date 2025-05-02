@@ -1199,7 +1199,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.parent = ctx->parent_slot;
     msg->slot_exec.root = fd_fseq_query( ctx->published_wmark );
     msg->slot_exec.height = block_entry_block_height;
-    msg->slot_exec.transaction_count = fork->slot_ctx->slot_bank.transaction_count;
+    // msg->slot_exec.transaction_count = fork->slot_ctx->slot_bank.transaction_count;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );

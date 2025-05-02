@@ -4172,8 +4172,6 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
     return res;
   }
 
-  slot_ctx->slot_bank.transaction_count += txn_cnt;
-
   block_finalize_time += fd_log_wallclock();
   double block_finalize_time_ms = (double)block_finalize_time * 1e-6;
   FD_LOG_INFO(( "finalized block successfully - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot, block_finalize_time_ms ));
@@ -4341,7 +4339,11 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                 FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                 FD_BASE58_ENC_32_ALLOCA( fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot ) ) ));
 
-  slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, slot_ctx->funk_txn );
+  ulong * transaction_count = fd_bank_mgr_transaction_count_modify( bank_mgr );
+  *transaction_count += block_info.txn_cnt;
+  fd_bank_mgr_transaction_count_save( bank_mgr );
 
   fd_runtime_save_slot_bank( slot_ctx );
 

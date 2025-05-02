@@ -273,7 +273,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->collected_execution_fees = oldbank->collector_fees;
   slot_bank->collected_priority_fees = 0;
   slot_bank->block_height = oldbank->block_height;
-  slot_bank->transaction_count = oldbank->transaction_count;
 
   fd_funk_t *     funk     = slot_ctx->funk;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
@@ -345,6 +344,12 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
   *prev_lamports_per_signature = manifest->lamports_per_signature;
   fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+
+  /* Transaction Count */
+
+  ulong * transaction_count = fd_bank_mgr_transaction_count_modify( bank_mgr );
+  *transaction_count = oldbank->transaction_count;
+  fd_bank_mgr_transaction_count_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

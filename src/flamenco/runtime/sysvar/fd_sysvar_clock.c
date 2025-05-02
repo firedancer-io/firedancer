@@ -2,6 +2,7 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar_rent.h"
 #include "../fd_executor.h"
+#include "../fd_bank_mgr.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_epoch_ctx.h"
@@ -188,8 +189,13 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
   stake_ts_treap_t * treap    = stake_ts_treap_join( stake_ts_treap_new( _treap, 10240UL ) );
   uchar *            pool_mem = fd_spad_alloc( runtime_spad, stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
   stake_ts_ele_t *   pool     = stake_ts_pool_join( stake_ts_pool_new( pool_mem, 10240UL ) );
+
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  uint            txn_cnt  = (uint)*fd_bank_mgr_transaction_count_query( bank_mgr );
+
   fd_rng_t           _rng[1];
-  fd_rng_t *         rng      = fd_rng_join( fd_rng_new( _rng, (uint)slot_ctx->slot_bank.transaction_count, 0UL ) );
+  fd_rng_t *         rng      = fd_rng_join( fd_rng_new( _rng, txn_cnt, 0UL ) );
 
   ulong total_stake = 0;
 

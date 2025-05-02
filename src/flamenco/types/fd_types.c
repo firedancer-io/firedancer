@@ -12597,8 +12597,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_account_keys_encode( &self->vote_account_keys, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->transaction_count, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_encode( &self->lthash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->prev_banks_hash, ctx );
@@ -12648,8 +12646,6 @@ int fd_slot_bank_encode_global( fd_slot_bank_global_t const * self, fd_bincode_e
   err = fd_account_keys_encode_global( &self->stake_account_keys, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_account_keys_encode_global( &self->vote_account_keys, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->transaction_count, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_encode( &self->lthash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -12702,8 +12698,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_account_keys_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_slot_lthash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
@@ -12752,7 +12746,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_sol_sysvar_last_restart_slot_decode_inner( &self->last_restart_slot, alloc_mem, ctx );
   fd_account_keys_decode_inner( &self->stake_account_keys, alloc_mem, ctx );
   fd_account_keys_decode_inner( &self->vote_account_keys, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
   fd_slot_lthash_decode_inner( &self->lthash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->prev_banks_hash, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->parent_signature_cnt, ctx );
@@ -12792,7 +12785,6 @@ static void fd_slot_bank_decode_inner_global( void * struct_mem, void * * alloc_
   fd_sol_sysvar_last_restart_slot_decode_inner( &self->last_restart_slot, alloc_mem, ctx );
   fd_account_keys_decode_inner_global( &self->stake_account_keys, alloc_mem, ctx );
   fd_account_keys_decode_inner_global( &self->vote_account_keys, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
   fd_slot_lthash_decode_inner( &self->lthash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->prev_banks_hash, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->parent_signature_cnt, ctx );
@@ -12848,7 +12840,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fd_sol_sysvar_last_restart_slot_walk( w, &self->last_restart_slot, fun, "last_restart_slot", level );
   fd_account_keys_walk( w, &self->stake_account_keys, fun, "stake_account_keys", level );
   fd_account_keys_walk( w, &self->vote_account_keys, fun, "vote_account_keys", level );
-  fun( w, &self->transaction_count, "transaction_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_slot_lthash_walk( w, &self->lthash, fun, "lthash", level );
   fd_hash_walk( w, &self->prev_banks_hash, fun, "prev_banks_hash", level );
   fun( w, &self->parent_signature_cnt, "parent_signature_cnt", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -12878,7 +12869,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += fd_sol_sysvar_last_restart_slot_size( &self->last_restart_slot );
   size += fd_account_keys_size( &self->stake_account_keys );
   size += fd_account_keys_size( &self->vote_account_keys );
-  size += sizeof(ulong);
   size += fd_slot_lthash_size( &self->lthash );
   size += fd_hash_size( &self->prev_banks_hash );
   size += sizeof(ulong);

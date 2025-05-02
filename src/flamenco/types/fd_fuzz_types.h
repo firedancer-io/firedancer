@@ -1840,7 +1840,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_sol_sysvar_last_restart_slot_generate( &self->last_restart_slot, alloc_mem, rng );
   fd_account_keys_generate( &self->stake_account_keys, alloc_mem, rng );
   fd_account_keys_generate( &self->vote_account_keys, alloc_mem, rng );
-  self->transaction_count = fd_rng_ulong( rng );
   fd_slot_lthash_generate( &self->lthash, alloc_mem, rng );
   fd_hash_generate( &self->prev_banks_hash, alloc_mem, rng );
   self->parent_signature_cnt = fd_rng_ulong( rng );

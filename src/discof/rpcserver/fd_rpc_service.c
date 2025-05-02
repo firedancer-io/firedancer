@@ -1657,9 +1657,10 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error( ctx, -1, "slot bank %lu not found", slot );
       return 0;
     }
+    /* FIXME: should be the transaction count here */
     fd_web_reply_sprintf( ws,
                           "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                          slot_bank->transaction_count,
+                          0UL,
                           ctx->call_id );
   } FD_SCRATCH_SCOPE_END;
   return 0;

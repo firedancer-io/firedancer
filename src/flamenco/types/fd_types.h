@@ -2416,7 +2416,6 @@ struct fd_slot_bank {
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   fd_account_keys_t stake_account_keys;
   fd_account_keys_t vote_account_keys;
-  ulong transaction_count;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
   ulong parent_signature_cnt;
@@ -2444,7 +2443,6 @@ struct fd_slot_bank_global {
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   fd_account_keys_global_t stake_account_keys;
   fd_account_keys_global_t vote_account_keys;
-  ulong transaction_count;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
   ulong parent_signature_cnt;

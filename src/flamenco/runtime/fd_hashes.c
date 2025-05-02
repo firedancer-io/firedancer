@@ -219,7 +219,8 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
   *prev_lamports_per_signature = *lamports_per_signature;
   fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
 
-  slot_ctx->parent_transaction_count = slot_ctx->slot_bank.transaction_count;
+  ulong * transaction_count = fd_bank_mgr_transaction_count_query( bank_mgr );
+  slot_ctx->parent_transaction_count = *transaction_count;
 
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ) {
     sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );

@@ -1238,7 +1238,6 @@
         { "name": "last_restart_slot",           "type": "sol_sysvar_last_restart_slot" },
         { "name": "stake_account_keys",          "type": "account_keys"},
         { "name": "vote_account_keys",           "type": "account_keys" },
-        { "name": "transaction_count",           "type": "ulong" },
         { "name": "lthash",                      "type": "slot_lthash" },
         { "name": "prev_banks_hash",             "type": "hash" },
         { "name": "parent_signature_cnt",        "type": "ulong" },
