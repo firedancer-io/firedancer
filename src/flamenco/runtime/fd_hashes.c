@@ -215,7 +215,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
   ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
 
-  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_query( bank_mgr );
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
   *prev_lamports_per_signature = *lamports_per_signature;
   fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
 
