@@ -1238,8 +1238,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   /* The "value" in the request is always my own contact info (v2) */
   fd_crds_value_t * value = &req->value;
   fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info_v2);
-  fd_gossip_contact_info_v2_t * ci = &value->data.inner.contact_info_v2;
-  fd_memcpy(ci, &glob->my_contact.crd.inner.contact_info_v2, sizeof(fd_gossip_contact_info_v2_t) );
+  value->data.inner.contact_info_v2 = glob->my_contact.crd.inner.contact_info_v2;
   fd_gossip_sign_crds_value(glob, value);
 
   for( fd_gossip_filter_selection_iter_t iter = fd_gossip_filter_selection_iter_init( selected_filters );
@@ -2150,7 +2149,7 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
 
   /* Wrap the data in a value stub. Sign it. */
   fd_crds_value_t crd;
-  fd_memcpy(&crd.data, data, sizeof(fd_crds_data_t));
+  crd.data = *data;
   fd_gossip_sign_crds_value(glob, &crd);
 
   /* Perform the value hash to get the value table key */
