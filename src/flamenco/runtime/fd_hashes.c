@@ -703,11 +703,6 @@ fd_hash_account( uchar                     hash[ static 32 ],
     fd_blake3_fini_varlen( b3, lthash->bytes, FD_LTHASH_LEN_BYTES );
   }
 
-  if (memcmp(pubkey, &fd_sysvar_clock_id, sizeof(fd_sysvar_clock_id)) == 0) {
-    FD_LOG_WARNING(( "sysvar_clock_id: %s", FD_BASE58_ENC_32_ALLOCA( hash ) ));
-    FD_LOG_WARNING(( "hi mom" ));
-  }
-
   return hash;
 }
 
