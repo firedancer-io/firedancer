@@ -250,7 +250,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
-  fd_memcpy(&slot_bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   slot_bank->lamports_per_signature = manifest->lamports_per_signature;
   slot_ctx->prev_lamports_per_signature = manifest->lamports_per_signature;
   slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
@@ -322,6 +321,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   *slot_ptr = oldbank->slot;
   fd_bank_mgr_slot_save( bank_mgr );
   slot_ctx->slot = oldbank->slot;
+
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
+  *fee_rate_governor = oldbank->fee_rate_governor;
+  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

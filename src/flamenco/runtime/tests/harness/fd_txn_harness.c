@@ -84,11 +84,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
   slot_ctx->slot                                                      = slot;
   slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
-  slot_ctx->slot_bank.fee_rate_governor.burn_percent                  = 50;
-  slot_ctx->slot_bank.fee_rate_governor.min_lamports_per_signature    = 0;
-  slot_ctx->slot_bank.fee_rate_governor.max_lamports_per_signature    = 0;
-  slot_ctx->slot_bank.fee_rate_governor.target_lamports_per_signature = 10000;
-  slot_ctx->slot_bank.fee_rate_governor.target_signatures_per_slot    = 20000;
   slot_ctx->slot_bank.lamports_per_signature                          = 5000;
   slot_ctx->prev_lamports_per_signature                               = 5000;
 
@@ -97,6 +92,15 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong * slot_bm = fd_bank_mgr_slot_modify( bank_mgr );
   *slot_bm = slot_ctx->slot;
   fd_bank_mgr_slot_save( bank_mgr );
+
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
+  fee_rate_governor->burn_percent                  = 50;
+  fee_rate_governor->min_lamports_per_signature    = 0;
+  fee_rate_governor->max_lamports_per_signature    = 0;
+  fee_rate_governor->target_lamports_per_signature = 10000;
+  fee_rate_governor->target_signatures_per_slot    = 20000;
+  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+
 
   /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
   fd_epoch_schedule_t default_epoch_schedule = {

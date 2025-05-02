@@ -12817,8 +12817,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->epoch_account_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_fee_rate_governor_encode( &self->fee_rate_governor, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->capitalization, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->block_height, ctx );
@@ -12876,8 +12874,6 @@ int fd_slot_bank_encode_global( fd_slot_bank_global_t const * self, fd_bincode_e
   err = fd_hash_encode( &self->banks_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->epoch_account_hash, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_fee_rate_governor_encode( &self->fee_rate_governor, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->capitalization, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -12937,8 +12933,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_fee_rate_governor_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -13004,7 +12998,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->epoch_account_hash, alloc_mem, ctx );
-  fd_fee_rate_governor_decode_inner( &self->fee_rate_governor, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->capitalization, ctx );
   fd_bincode_uint64_decode_unsafe( &self->block_height, ctx );
   fd_bincode_uint64_decode_unsafe( &self->max_tick_height, ctx );
@@ -13048,7 +13041,6 @@ static void fd_slot_bank_decode_inner_global( void * struct_mem, void * * alloc_
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->epoch_account_hash, alloc_mem, ctx );
-  fd_fee_rate_governor_decode_inner( &self->fee_rate_governor, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->capitalization, ctx );
   fd_bincode_uint64_decode_unsafe( &self->block_height, ctx );
   fd_bincode_uint64_decode_unsafe( &self->max_tick_height, ctx );
@@ -13091,7 +13083,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_hash_new( &self->poh );
   fd_hash_new( &self->banks_hash );
   fd_hash_new( &self->epoch_account_hash );
-  fd_fee_rate_governor_new( &self->fee_rate_governor );
   fd_vote_accounts_new( &self->epoch_stakes );
   fd_sol_sysvar_last_restart_slot_new( &self->last_restart_slot );
   fd_account_keys_new( &self->stake_account_keys );
@@ -13109,7 +13100,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fd_hash_walk( w, &self->poh, fun, "poh", level );
   fd_hash_walk( w, &self->banks_hash, fun, "banks_hash", level );
   fd_hash_walk( w, &self->epoch_account_hash, fun, "epoch_account_hash", level );
-  fd_fee_rate_governor_walk( w, &self->fee_rate_governor, fun, "fee_rate_governor", level );
   fun( w, &self->capitalization, "capitalization", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->block_height, "block_height", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->max_tick_height, "max_tick_height", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -13143,7 +13133,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += fd_hash_size( &self->poh );
   size += fd_hash_size( &self->banks_hash );
   size += fd_hash_size( &self->epoch_account_hash );
-  size += fd_fee_rate_governor_size( &self->fee_rate_governor );
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);

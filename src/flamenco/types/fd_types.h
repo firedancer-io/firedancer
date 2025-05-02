@@ -2451,7 +2451,6 @@ struct fd_slot_bank {
   fd_hash_t poh;
   fd_hash_t banks_hash;
   fd_hash_t epoch_account_hash;
-  fd_fee_rate_governor_t fee_rate_governor;
   ulong capitalization;
   ulong block_height;
   ulong max_tick_height;
@@ -2483,7 +2482,6 @@ struct fd_slot_bank_global {
   fd_hash_t poh;
   fd_hash_t banks_hash;
   fd_hash_t epoch_account_hash;
-  fd_fee_rate_governor_t fee_rate_governor;
   ulong capitalization;
   ulong block_height;
   ulong max_tick_height;

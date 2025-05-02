@@ -89,13 +89,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
   slot_bank->block_height           = test_ctx->slot_ctx.block_height;
   slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
-  slot_bank->fee_rate_governor      = (fd_fee_rate_governor_t) {
-    .target_lamports_per_signature  = 10000UL,
-    .target_signatures_per_slot     = 20000UL,
-    .min_lamports_per_signature     = 5000UL,
-    .max_lamports_per_signature     = 100000UL,
-    .burn_percent                   = 50,
-  };
   slot_bank->capitalization         = test_ctx->slot_ctx.prev_epoch_capitalization;
   slot_bank->lamports_per_signature = 5000UL;
 
@@ -236,6 +229,19 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
   uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, FD_BLOCKHASH_QUEUE_MAX_ENTRIES ) );
+
+  ulong * slot_bm = fd_bank_mgr_slot_modify( bank_mgr );
+  *slot_bm = slot_ctx->slot;
+  fd_bank_mgr_slot_save( bank_mgr );
+
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
+  *fee_rate_governor      = (fd_fee_rate_governor_t) { .target_lamports_per_signature  = 10000UL,
+                                                       .target_signatures_per_slot     = 20000UL,
+                                                       .min_lamports_per_signature     = 5000UL,
+                                                       .max_lamports_per_signature     = 100000UL,
+                                                       .burn_percent                   = 50,
+  };
+  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
 
   block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
   block_hash_queue->ages_root_offset = 0UL;

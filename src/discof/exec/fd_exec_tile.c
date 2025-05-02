@@ -252,7 +252,6 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
 
   ctx->txn_ctx->slot                        = slot_msg->slot;
   ctx->txn_ctx->prev_lamports_per_signature = slot_msg->prev_lamports_per_signature;
-  ctx->txn_ctx->fee_rate_governor           = slot_msg->fee_rate_governor;
   ctx->txn_ctx->enable_exec_recording       = slot_msg->enable_exec_recording;
 
   ctx->txn_ctx->sysvar_cache = fd_wksp_laddr_fast( ctx->runtime_public_wksp, slot_msg->sysvar_cache_gaddr );
@@ -266,11 +265,12 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not join bank mgr" ));
   }
 
-  ctx->txn_ctx->slot             = *fd_bank_mgr_slot_query( bank_mgr );
+  ctx->txn_ctx->slot             = *(fd_bank_mgr_slot_query( bank_mgr ));
   ctx->txn_ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( bank_mgr );
   if( FD_UNLIKELY( !ctx->txn_ctx->block_hash_queue ) ) {
     FD_LOG_ERR(( "Could not find valid block hash queue" ));
   }
+  ctx->txn_ctx->fee_rate_governor = *(fd_bank_mgr_fee_rate_governor_query( bank_mgr ));
 }
 
 static void

@@ -1361,7 +1361,6 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
 
     slot_msg->slot                        = slot_ctx->slot;
     slot_msg->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
-    slot_msg->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
     slot_msg->enable_exec_recording       = slot_ctx->enable_exec_recording;
 
     /* Save the gaddr of the sysvar cache */
@@ -1971,7 +1970,7 @@ read_snapshot( void *              _ctx,
     if( strlen( incremental )<=0UL ) {
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
         FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
-      FD_LOG_WARNING(( "KICKOFF REPAIR ORPHANS 2 %lu", ctx->curr_slot));
+      ctx->curr_slot = ctx->slot_ctx->slot;
       kickoff_repair_orphans( ctx, stem );
       /* If we don't have an incremental snapshot, we can still kick off
          sending the stake weights and snapshot slot to repair. */

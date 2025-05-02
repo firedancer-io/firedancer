@@ -2,6 +2,7 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
+#include "../fd_bank_mgr.h"
 #include "../context/fd_exec_epoch_ctx.h"
 
 static void
@@ -42,18 +43,21 @@ https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1f
 */
 void
 fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
-                            fd_fee_rate_governor_t base_fee_rate_governor,
                             ulong                  latest_singatures_per_slot ) {
+  fd_bank_mgr_t            bank_mgr_obj;
+  fd_bank_mgr_t *          bank_mgr               = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_fee_rate_governor_t * base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
+
   fd_fee_rate_governor_t me = {
-    .target_signatures_per_slot = base_fee_rate_governor.target_signatures_per_slot,
-    .target_lamports_per_signature = base_fee_rate_governor.target_lamports_per_signature,
-    .max_lamports_per_signature = base_fee_rate_governor.max_lamports_per_signature,
-    .min_lamports_per_signature = base_fee_rate_governor.min_lamports_per_signature,
-    .burn_percent = base_fee_rate_governor.burn_percent
+    .target_signatures_per_slot    = base_fee_rate_governor->target_signatures_per_slot,
+    .target_lamports_per_signature = base_fee_rate_governor->target_lamports_per_signature,
+    .max_lamports_per_signature    = base_fee_rate_governor->max_lamports_per_signature,
+    .min_lamports_per_signature    = base_fee_rate_governor->min_lamports_per_signature,
+    .burn_percent                  = base_fee_rate_governor->burn_percent
   };
 
   ulong lamports_per_signature = 0;
-  if ( me.target_signatures_per_slot > 0 ) {
+  if( me.target_signatures_per_slot > 0 ) {
     me.min_lamports_per_signature = fd_ulong_max( 1UL, (ulong)(me.target_lamports_per_signature / 2) );
     me.max_lamports_per_signature = me.target_lamports_per_signature * 10;
     ulong desired_lamports_per_signature = fd_ulong_min(
@@ -81,7 +85,7 @@ fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
       );
     }
   } else {
-    lamports_per_signature = base_fee_rate_governor.target_lamports_per_signature;
+    lamports_per_signature = base_fee_rate_governor->target_lamports_per_signature;
     me.min_lamports_per_signature = me.target_lamports_per_signature;
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
@@ -93,7 +97,9 @@ fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   slot_ctx->slot_bank.lamports_per_signature = lamports_per_signature;
-  fd_memcpy(&slot_ctx->slot_bank.fee_rate_governor, &me, sizeof(fd_fee_rate_governor_t));
+
+  *base_fee_rate_governor = me;
+  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
 }
 
 void

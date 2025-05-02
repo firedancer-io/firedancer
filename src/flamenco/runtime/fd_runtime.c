@@ -984,9 +984,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
-  fd_sysvar_fees_new_derived( slot_ctx,
-                              slot_ctx->slot_bank.fee_rate_governor,
-                              slot_ctx->slot_bank.parent_signature_cnt );
+  fd_sysvar_fees_new_derived( slot_ctx, slot_ctx->slot_bank.parent_signature_cnt );
 
   // TODO: move all these out to a fd_sysvar_update() call...
   long clock_update_time      = -fd_log_wallclock();
@@ -3369,7 +3367,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   memcpy( &slot_ctx->slot_bank.poh, genesis_hash->hash, FD_SHA256_HASH_SZ );
   memset( slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
 
-  slot_ctx->slot_bank.fee_rate_governor      = genesis_block->fee_rate_governor;
   slot_ctx->slot_bank.lamports_per_signature = 0UL;
   slot_ctx->prev_lamports_per_signature      = 0UL;
 
@@ -3417,6 +3414,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   block_hash_queue->ages_root_offset = (ulong)ages_root - (ulong)block_hash_queue;
   block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
   fd_bank_mgr_block_hash_queue_save( bank_mgr );
+
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( bank_mgr );
+  *fee_rate_governor      = genesis_block->fee_rate_governor;
+  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
 
   slot_ctx->signature_cnt = 0UL;
 

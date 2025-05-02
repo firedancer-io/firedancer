@@ -43,6 +43,10 @@
 #define FD_BANK_MGR_SLOT_FOOTPRINT (8UL)
 #define FD_BANK_MGR_SLOT_ALIGN     (8UL)
 
+#define FD_BANK_MGR_FEE_RATE_GOVERNOR_ID        (2)
+#define FD_BANK_MGR_FEE_RATE_GOVERNOR_FOOTPRINT (40UL)
+#define FD_BANK_MGR_FEE_RATE_GOVERNOR_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -73,8 +77,9 @@ fd_bank_mgr_##name##_modify(fd_bank_mgr_t* bank_mgr);    \
 int                                                      \
 fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
 
-#define FD_BANK_MGR_ITER(X)                                           \
-  X(fd_block_hash_queue_global_t, block_hash_queue, BLOCK_HASH_QUEUE) \
-  X(ulong,                        slot,             SLOT)
+#define FD_BANK_MGR_ITER(X)                                             \
+  X(fd_block_hash_queue_global_t, block_hash_queue,  BLOCK_HASH_QUEUE)  \
+  X(ulong,                        slot,              SLOT)              \
+  X(fd_fee_rate_governor_t,       fee_rate_governor, FEE_RATE_GOVERNOR)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)
