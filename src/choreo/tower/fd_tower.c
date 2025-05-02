@@ -114,7 +114,7 @@ fd_tower_lockout_check( fd_tower_t const * tower,
 
   int lockout_check = vote->slot < root->slot ||
                       fd_ghost_is_ancestor( ghost, vote->slot, slot );
-  FD_LOG_NOTICE(( "[fd_tower_lockout_check] ok? %d. top: (slot: %lu, conf: %lu). switch: %lu.", lockout_check, vote->slot, vote->conf, slot ));
+  FD_LOG_DEBUG(( "[fd_tower_lockout_check] ok? %d. top: (slot: %lu, conf: %lu). switch: %lu.", lockout_check, vote->slot, vote->conf, slot ));
   return lockout_check;
 }
 
@@ -271,7 +271,7 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
   }
 
   double threshold_pct = (double)threshold_stake / (double)epoch->total_stake;
-  FD_LOG_NOTICE(( "[%s] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.", __func__, threshold_pct > THRESHOLD_PCT, fd_tower_votes_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
+  FD_LOG_DEBUG(( "[%s] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.", __func__, threshold_pct > THRESHOLD_PCT, fd_tower_votes_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
   return threshold_pct > THRESHOLD_PCT;
 }
 
