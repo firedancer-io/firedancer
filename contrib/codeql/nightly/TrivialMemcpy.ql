@@ -8,6 +8,8 @@
  * @id firedancer-io/trivial-memcpy
  * @problem.severity warning
  * @precision high
+ * @tags maintainability
+ *       readability
  */
 
 import cpp
@@ -24,6 +26,7 @@ class MemcpyFunction extends Function {
 from FunctionCall call, MemcpyFunction memcpy
 where
   included(call.getLocation()) and
+  not call.isInMacroExpansion() and
   call.getTarget() = memcpy and
   call.getArgument(2) instanceof SizeofTypeOperator and
   call.getArgument(0).getUnspecifiedType() = call.getArgument(1).getUnspecifiedType() and
