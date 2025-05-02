@@ -1,5 +1,6 @@
 #include "fd_hashes.h"
 #include "fd_acc_mgr.h"
+#include "fd_bank_mgr.h"
 #include "fd_blockstore.h"
 #include "fd_runtime.h"
 #include "fd_borrowed_account.h"
@@ -209,7 +210,12 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
               ulong                   dirty_key_cnt ) {
   slot_ctx->slot_bank.prev_banks_hash = slot_ctx->slot_bank.banks_hash;
   slot_ctx->slot_bank.parent_signature_cnt = slot_ctx->signature_cnt;
-  slot_ctx->prev_lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
+  slot_ctx->prev_lamports_per_signature = *lamports_per_signature;
+
   slot_ctx->parent_transaction_count = slot_ctx->slot_bank.transaction_count;
 
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ) {

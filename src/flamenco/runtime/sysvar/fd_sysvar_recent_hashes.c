@@ -83,6 +83,8 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   fd_bank_mgr_t   bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
+
   fd_block_hash_queue_global_t *      bhq       = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq, bhq->ages_pool_offset );
   fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq, bhq->ages_root_offset );
@@ -105,7 +107,7 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
   node->elem = (fd_hash_hash_age_pair_t){
     .key = *hash,
-    .val = (fd_hash_age_t){ .hash_index = bhq->last_hash_index, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature}, .timestamp = (ulong)fd_log_wallclock() }
+    .val = (fd_hash_age_t){ .hash_index = bhq->last_hash_index, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = *lamports_per_signature}, .timestamp = (ulong)fd_log_wallclock() }
   };
   // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L121-L128
   fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );

@@ -51,6 +51,14 @@
 #define FD_BANK_MGR_CAPITALIZATION_FOOTPRINT (8UL)
 #define FD_BANK_MGR_CAPITALIZATION_ALIGN     (8UL)
 
+#define FD_BANK_MGR_LAMPORTS_PER_SIGNATURE_ID        (4)
+#define FD_BANK_MGR_LAMPORTS_PER_SIGNATURE_FOOTPRINT (8UL)
+#define FD_BANK_MGR_LAMPORTS_PER_SIGNATURE_ALIGN     (8UL)
+
+#define FD_BANK_MGR_PREV_LAMPORTS_PER_SIGNATURE_ID        (5)
+#define FD_BANK_MGR_PREV_LAMPORTS_PER_SIGNATURE_FOOTPRINT (8UL)
+#define FD_BANK_MGR_PREV_LAMPORTS_PER_SIGNATURE_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -81,10 +89,12 @@ fd_bank_mgr_##name##_modify(fd_bank_mgr_t* bank_mgr);    \
 int                                                      \
 fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
 
-#define FD_BANK_MGR_ITER(X)                                             \
-  X(fd_block_hash_queue_global_t, block_hash_queue,  BLOCK_HASH_QUEUE)  \
-  X(ulong,                        slot,              SLOT)              \
-  X(fd_fee_rate_governor_t,       fee_rate_governor, FEE_RATE_GOVERNOR) \
-  X(ulong,                        capitalization,    CAPITALIZATION)
+#define FD_BANK_MGR_ITER(X)                                                            \
+  X(fd_block_hash_queue_global_t, block_hash_queue,            BLOCK_HASH_QUEUE)       \
+  X(ulong,                        slot,                        SLOT)                   \
+  X(fd_fee_rate_governor_t,       fee_rate_governor,           FEE_RATE_GOVERNOR)      \
+  X(ulong,                        capitalization,              CAPITALIZATION)         \
+  X(ulong,                        lamports_per_signature,      LAMPORTS_PER_SIGNATURE) \
+  X(ulong,                        prev_lamports_per_signature, PREV_LAMPORTS_PER_SIGNATURE)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

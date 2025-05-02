@@ -664,7 +664,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   fd_memset( &bank->collector_id, 0, sizeof(fd_pubkey_t) );
 
   bank->collector_fees                        = slot_bank->collected_execution_fees + slot_bank->collected_priority_fees;
-  bank->fee_calculator.lamports_per_signature = slot_bank->lamports_per_signature;
+  // bank->fee_calculator.lamports_per_signature = slot_bank->lamports_per_signature;
   // bank->fee_rate_governor                     = slot_bank->fee_rate_governor;
   bank->collected_rent                        = 0UL;
 
@@ -906,7 +906,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
 
   /* Populate the rest of the manifest, except for the append vec index. */
 
-  manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
+  // manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
   manifest.epoch_account_hash                    = &snapshot_ctx->slot_bank.epoch_account_hash;
 
   /* FIXME: The versioned epoch stakes needs to be implemented. Right now if

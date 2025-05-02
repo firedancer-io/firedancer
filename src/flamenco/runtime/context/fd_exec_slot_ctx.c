@@ -250,7 +250,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
-  slot_bank->lamports_per_signature = manifest->lamports_per_signature;
   slot_ctx->prev_lamports_per_signature = manifest->lamports_per_signature;
   slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
   if( oldbank->hashes_per_tick )
@@ -335,6 +334,12 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
   *capitalization = oldbank->capitalization;
   fd_bank_mgr_capitalization_save( bank_mgr );
+
+  /* Lamports Per Signature */
+
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  *lamports_per_signature = manifest->lamports_per_signature;
+  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

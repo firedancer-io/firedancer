@@ -84,11 +84,15 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
   slot_ctx->slot                                                      = slot;
   slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
-  slot_ctx->slot_bank.lamports_per_signature                          = 5000;
-  slot_ctx->prev_lamports_per_signature                               = 5000;
 
   fd_bank_mgr_t   bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  *lamports_per_signature = 5000;
+  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+
+  slot_ctx->prev_lamports_per_signature = 5000;
+
   ulong * slot_bm = fd_bank_mgr_slot_modify( bank_mgr );
   *slot_bm = slot_ctx->slot;
   fd_bank_mgr_slot_save( bank_mgr );
@@ -234,7 +238,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+      *lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_lamports_per_signature_save( bank_mgr );
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
   }

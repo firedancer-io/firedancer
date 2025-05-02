@@ -314,7 +314,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
       fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
       fd_bank_mgr_block_hash_queue_save( bank_mgr );
-      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+      *lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_lamports_per_signature_save( bank_mgr );
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
   }

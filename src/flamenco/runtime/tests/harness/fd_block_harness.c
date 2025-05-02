@@ -90,8 +90,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_bank->block_height           = test_ctx->slot_ctx.block_height;
   slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
 
-  slot_bank->lamports_per_signature = 5000UL;
-
   /* Set up epoch context and epoch bank */
   /* TODO: Do we need any more of these? */
   fd_epoch_bank_t * epoch_bank    = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -244,10 +242,13 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   };
   fd_bank_mgr_fee_rate_governor_save( bank_mgr );
 
-  ulong *         capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
   *capitalization = test_ctx->slot_ctx.prev_epoch_capitalization;
   fd_bank_mgr_capitalization_save( bank_mgr );
 
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  *lamports_per_signature = 5000UL;
+  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
 
   block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
   block_hash_queue->ages_root_offset = 0UL;
@@ -287,7 +288,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      slot_bank->lamports_per_signature     = last->fee_calculator.lamports_per_signature;
+      lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+      *lamports_per_signature = 5000UL;
+      fd_bank_mgr_lamports_per_signature_save( bank_mgr );
       slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
     }
   }

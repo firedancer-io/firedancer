@@ -3379,7 +3379,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   memcpy( &slot_ctx->slot_bank.poh, genesis_hash->hash, FD_SHA256_HASH_SZ );
   memset( slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
 
-  slot_ctx->slot_bank.lamports_per_signature = 0UL;
   slot_ctx->prev_lamports_per_signature      = 0UL;
 
   fd_poh_config_t const * poh        = &genesis_block->poh_config;
@@ -3430,6 +3429,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( bank_mgr );
   *fee_rate_governor      = genesis_block->fee_rate_governor;
   fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  *lamports_per_signature = 0UL;
+  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
 
   slot_ctx->signature_cnt = 0UL;
 
