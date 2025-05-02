@@ -110,6 +110,14 @@ fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc 
   return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
 }
 
+uchar
+fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey ) {
+  return !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ||
+         !memcmp( pubkey, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
+         !memcmp( pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ||
+         !memcmp( pubkey, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) );
+}
+
 /* fd_executor_lookup_native_program returns the appropriate instruction processor for the given
    native program ID. Returns NULL if given ID is not a recognized native program.
    https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L520-L544 */
@@ -134,10 +142,7 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
   int is_native_program = !memcmp( owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) );
 
   if( !is_native_program && FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
-    if ( FD_UNLIKELY( memcmp( owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) &&
-                      memcmp( owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) &&
-                      memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-                      memcmp( owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if ( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( owner ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
   }

@@ -44,13 +44,13 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
     fd_funk_txn_xid_copy( pair->xid, &txn->xid );
   }
   fd_funk_rec_key_copy( pair->key, key );
-  for(;;) {
-    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
-    if( err == FD_MAP_SUCCESS )   break;
-    if( err == FD_MAP_ERR_KEY )   return NULL;
-    if( err == FD_MAP_ERR_AGAIN ) continue;
+
+  int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
+  if( FD_UNLIKELY( err ) ) {
+    if( err==FD_MAP_ERR_KEY ) return NULL;
     FD_LOG_CRIT(( "query returned err %d", err ));
   }
+
   return fd_funk_rec_map_query_ele_const( query );
 }
 
@@ -99,6 +99,8 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
 
       /* For cur_txn in path from [txn] to [root] where root is NULL */
 
+      fd_funk_txn_start_read( funk );
+
       for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, funk->txn_pool ) ) {
         /* If record ele is part of transaction cur_txn, we have a
            match. According to the property above, this will be the
@@ -112,11 +114,14 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
           if( txn_out ) *txn_out = cur_txn;
           query->ele = ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL :
                          (fd_funk_rec_t *)ele );
+          fd_funk_txn_end_read( funk );
           return query->ele;
         }
 
         if( cur_txn == NULL ) break;
       }
+
+      fd_funk_txn_end_read( funk );
     }
   }
   return NULL;
@@ -415,6 +420,100 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   fd_funk_rec_set_erase_data( rec, erase_data );
 
   return FD_FUNK_SUCCESS;
+}
+
+fd_funk_rec_t *
+fd_funk_rec_modify_try( fd_funk_t *               funk,
+                        fd_funk_txn_t const *     txn,
+                        fd_funk_rec_key_t const * key,
+                        fd_funk_rec_query_t *     query ) {
+  fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
+  fd_funk_xid_key_pair_t pair[1];
+  if( txn == NULL ) {
+    fd_funk_txn_xid_set_root( pair->xid );
+  } else {
+    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
+  }
+  fd_funk_rec_key_copy( pair->key, key );
+
+  int err = fd_funk_rec_map_modify_try( rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( err ) ) {
+    if( err == FD_MAP_ERR_KEY ) return NULL;
+    FD_LOG_ERR(( "modify returned err %d", err ));
+  }
+
+  return fd_funk_rec_map_query_ele( query );
+}
+
+fd_funk_rec_t *
+fd_funk_rec_modify_try_global( fd_funk_t *               funk,
+                               fd_funk_txn_t const *     txn,
+                               fd_funk_rec_key_t const * key,
+                               fd_funk_txn_t const **    txn_out,
+                               fd_funk_rec_query_t *     query ) {
+#ifdef FD_FUNK_HANDHOLDING
+  if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
+    return NULL;
+  }
+  if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
+    return NULL;
+  }
+#endif
+
+  fd_funk_xid_key_pair_t pair[1];
+  fd_funk_rec_key_copy( pair->key, key );
+
+  /* We can precompute the chain index because all records of the provided key
+     live in the same hash chain. The hash also does not use the xid, so we don't need
+     to set it here. */
+  fd_funk_rec_map_shmem_t * rec_map = funk->rec_map->map;
+  query->memo                       = fd_funk_rec_map_key_hash( pair, rec_map->seed );
+
+  /* For cur_txn in path from [txn] to [root] where root is NULL */
+
+  fd_funk_txn_start_read( funk );
+
+  for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, funk->txn_pool ) ) {
+    if( cur_txn==NULL ) {
+      fd_funk_txn_xid_set_root( pair->xid );
+    } else {
+      fd_funk_txn_xid_copy( pair->xid, &cur_txn->xid );
+    }
+
+    /* Hint to modify_try which hash chain to use */
+    int err = fd_funk_rec_map_modify_try( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING | FD_MAP_FLAG_USE_HINT );
+
+    /* Optimize for key found */
+    if( FD_LIKELY( err==FD_MAP_SUCCESS ) ) {
+      if( txn_out ) *txn_out = cur_txn;
+      if( FD_UNLIKELY( query->ele->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
+        /* Return is NULL. Release the lock here before returning */
+        fd_funk_rec_modify_test( query );
+        query->ele = NULL;
+      }
+      fd_funk_txn_end_read( funk );
+      return query->ele;
+    }
+
+    /* In the blocking case, only continue if the key was not found in the map. */
+    if( FD_UNLIKELY( err!=FD_MAP_ERR_KEY ) ) {
+      FD_LOG_ERR(( "modify returned err %d", err ));
+      fd_funk_txn_end_read( funk );
+      return NULL;
+    }
+
+    /* Key not found, continue iterating over txns... */
+    if( cur_txn==NULL ) break;
+  }
+
+  fd_funk_txn_end_read( funk );
+
+  return NULL;
+}
+
+void
+fd_funk_rec_modify_test( fd_funk_rec_query_t * query ) {
+  fd_funk_rec_map_modify_test( query );
 }
 
 void
