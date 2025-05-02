@@ -27855,7 +27855,7 @@ int fd_repair_request_header_encode( fd_repair_request_header_t const * self, fd
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_pubkey_encode( &self->recipient, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( (ulong)self->timestamp, ctx );
+  err = fd_bincode_uint64_encode( self->timestamp, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_encode( self->nonce, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -27871,7 +27871,7 @@ static void fd_repair_request_header_decode_inner( void * struct_mem, void * * a
   fd_signature_decode_inner( &self->signature, alloc_mem, ctx );
   fd_pubkey_decode_inner( &self->sender, alloc_mem, ctx );
   fd_pubkey_decode_inner( &self->recipient, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( (ulong *) &self->timestamp, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->timestamp, ctx );
   fd_bincode_uint32_decode_unsafe( &self->nonce, ctx );
 }
 void * fd_repair_request_header_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -27887,7 +27887,7 @@ void fd_repair_request_header_walk( void * w, fd_repair_request_header_t const *
   fd_signature_walk( w, &self->signature, fun, "signature", level );
   fd_pubkey_walk( w, &self->sender, fun, "sender", level );
   fd_pubkey_walk( w, &self->recipient, fun, "recipient", level );
-  fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_SLONG, "long", level );
+  fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->nonce, "nonce", FD_FLAMENCO_TYPE_UINT, "uint", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_request_header", level-- );
 }
@@ -27896,7 +27896,7 @@ ulong fd_repair_request_header_size( fd_repair_request_header_t const * self ) {
   size += fd_signature_size( &self->signature );
   size += fd_pubkey_size( &self->sender );
   size += fd_pubkey_size( &self->recipient );
-  size += sizeof(long);
+  size += sizeof(ulong);
   size += sizeof(uint);
   return size;
 }

@@ -2376,9 +2376,10 @@
         { "name": "signature", "type": "signature" },
         { "name": "sender", "type": "pubkey" },
         { "name": "recipient", "type": "pubkey" },
-        { "name": "timestamp", "type": "long" },
+        { "name": "timestamp", "type": "ulong" },
         { "name": "nonce", "type": "uint" }
-      ]
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.7/core/src/repair/serve_repair.rs#L204-L210"
     },
     {
       "name": "repair_window_index",

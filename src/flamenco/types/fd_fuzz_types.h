@@ -3727,7 +3727,7 @@ void *fd_repair_request_header_generate( void *mem, void **alloc_mem, fd_rng_t *
   fd_signature_generate( &self->signature, alloc_mem, rng );
   fd_pubkey_generate( &self->sender, alloc_mem, rng );
   fd_pubkey_generate( &self->recipient, alloc_mem, rng );
-  self->timestamp = fd_rng_long( rng );
+  self->timestamp = fd_rng_ulong( rng );
   self->nonce = fd_rng_uint( rng );
   return mem;
 }
