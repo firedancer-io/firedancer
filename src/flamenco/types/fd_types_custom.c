@@ -112,10 +112,6 @@ int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t 
   FD_LOG_ERR(( "todo"));
 }
 
-int fd_tower_sync_encode_global( fd_tower_sync_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  FD_LOG_ERR(( "todo"));
-}
-
 static void fd_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 static int fd_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 static void fd_lockout_offset_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
