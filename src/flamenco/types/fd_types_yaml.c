@@ -62,24 +62,6 @@
    Finally, we support option types.  During walk, these are presented
    as a separate  */
 
-struct fd_flamenco_yaml {
-  void * file;   /* (FILE *) or platform equivalent */
-
-  int  stack [ FD_FLAMENCO_YAML_MAX_INDENT   ];
-  char indent[ FD_FLAMENCO_YAML_INDENT_BUFSZ ];
-};
-
-
-ulong
-fd_flamenco_yaml_align( void ) {
-  return alignof(fd_flamenco_yaml_t);
-}
-
-ulong
-fd_flamenco_yaml_footprint( void ) {
-  return sizeof(fd_flamenco_yaml_t);
-}
-
 fd_flamenco_yaml_t *
 fd_flamenco_yaml_new( void * mem ) {
 
