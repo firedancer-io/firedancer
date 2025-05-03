@@ -4,11 +4,7 @@ use libc::{in_addr, sockaddr_in, socket, strlen, AF_INET, FILE, IPPROTO_UDP, SOC
 use rand::Rng;
 use solana_client::connection_cache::ConnectionCache;
 use solana_connection_cache::client_connection::ClientConnection;
-use solana_sdk::net::DEFAULT_TPU_COALESCE;
-use solana_sdk::signer::keypair::Keypair;
-use solana_streamer::nonblocking::quic::DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE;
-use solana_streamer::nonblocking::quic::DEFAULT_MAX_STREAMS_PER_MS;
-use solana_streamer::nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT;
+use solana_keypair::Keypair;
 use solana_streamer::streamer::StakedNodes;
 use std::ffi::{c_char, c_void, CString};
 use std::mem::MaybeUninit;
@@ -184,7 +180,8 @@ unsafe fn agave_to_fdquic_bench() {
         handshake_cnt: 1,
         conn_id_cnt: 4,
         stream_id_cnt: 16,
-        inflight_pkt_cnt: 1024,
+        inflight_frame_cnt: 1024,
+        min_inflight_frame_cnt_conn: 128,
         tx_buf_sz: 0,
         stream_pool_cnt: 8,
         log_depth: 128,
@@ -222,15 +219,19 @@ unsafe fn agave_to_fdquic_bench() {
             static mut PCAP_FILE_GLOB: *mut FILE = std::ptr::null_mut();
             PCAP_FILE_GLOB = pcap_file;
 
-            let mut aio_pcapng1_mem: fd_aio_pcapng_t = MaybeUninit::zeroed().assume_init();
-            let mut aio_pcapng2_mem: fd_aio_pcapng_t = MaybeUninit::zeroed().assume_init();
+            let aio_pcapng1_mem: &mut fd_aio_pcapng_t = Box::leak(Box::new(
+                MaybeUninit::<fd_aio_pcapng_t>::zeroed().assume_init(),
+            ));
+            let aio_pcapng2_mem: &mut fd_aio_pcapng_t = Box::leak(Box::new(
+                MaybeUninit::<fd_aio_pcapng_t>::zeroed().assume_init(),
+            ));
             let aio_pcapng1 = fd_aio_pcapng_join(
-                &mut aio_pcapng1_mem as *mut fd_aio_pcapng_t as *mut c_void,
+                aio_pcapng1_mem as *mut fd_aio_pcapng_t as *mut c_void,
                 fd_udpsock_get_tx(udpsock),
                 pcap_file as *mut c_void,
             );
             let aio_pcapng2 = fd_aio_pcapng_join(
-                &mut aio_pcapng2_mem as *mut fd_aio_pcapng_t as *mut c_void,
+                aio_pcapng2_mem as *mut fd_aio_pcapng_t as *mut c_void,
                 fd_quic_get_aio_net_rx(quic3),
                 pcap_file as *mut c_void,
             );
@@ -325,14 +326,8 @@ unsafe fn fdquic_to_agave() {
         &keypair,
         agave_tx,
         Arc::clone(&exit),
-        1,
         Arc::new(RwLock::new(StakedNodes::default())),
-        1,
-        1,
-        DEFAULT_MAX_STREAMS_PER_MS,
-        DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE,
-        DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-        DEFAULT_TPU_COALESCE,
+        solana_streamer::quic::QuicServerParams::default(),
     )
     .unwrap();
     std::thread::sleep(Duration::from_millis(500));
