@@ -241,55 +241,59 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
   /* Copy over fields */
 
-  slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
-  slot_ctx->slot_bank.tick_height          = oldbank->tick_height;
+  slot_ctx->slot_bank.parent_signature_cnt    = oldbank->signature_count;
+  slot_ctx->slot_bank.tick_height             = oldbank->tick_height;
 
-  if( oldbank->blockhash_queue.last_hash )
+  if( oldbank->blockhash_queue.last_hash ) {
     slot_bank->poh = *oldbank->blockhash_queue.last_hash;
+  }
   slot_bank->slot = oldbank->slot;
-  slot_bank->prev_slot = oldbank->parent_slot;
-  fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
-  fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
-  fd_memcpy(&slot_bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
-  slot_bank->lamports_per_signature = manifest->lamports_per_signature;
-  slot_ctx->prev_lamports_per_signature = manifest->lamports_per_signature;
-  slot_ctx->slot_bank.parent_signature_cnt = oldbank->signature_count;
-  if( oldbank->hashes_per_tick )
-    epoch_bank->hashes_per_tick = *oldbank->hashes_per_tick;
-  else
-    epoch_bank->hashes_per_tick = 0;
-  epoch_bank->ticks_per_slot = oldbank->ticks_per_slot;
-  fd_memcpy(&epoch_bank->ns_per_slot, &oldbank->ns_per_slot, sizeof(oldbank->ns_per_slot));
-  epoch_bank->genesis_creation_time = oldbank->genesis_creation_time;
-  epoch_bank->slots_per_year = oldbank->slots_per_year;
-  slot_bank->max_tick_height = oldbank->max_tick_height;
-  fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, sizeof(fd_inflation_t) );
-  fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  epoch_bank->rent = oldbank->rent_collector.rent;
-  fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, sizeof(fd_rent_t) );
-  fd_memcpy( &epoch_bank->rent_epoch_schedule, &oldbank->rent_collector.epoch_schedule, sizeof(fd_epoch_schedule_t) );
-
-  if( manifest->epoch_account_hash )
-    slot_bank->epoch_account_hash = *manifest->epoch_account_hash;
-
-  slot_bank->collected_rent = oldbank->collected_rent;
-  // did they not change the bank?!
-  slot_bank->collected_execution_fees = oldbank->collector_fees;
-  slot_bank->collected_priority_fees = 0;
-  slot_bank->capitalization = oldbank->capitalization;
-  slot_bank->block_height = oldbank->block_height;
-  slot_bank->transaction_count = oldbank->transaction_count;
-  if ( oldbank->blockhash_queue.last_hash ) {
-    slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-    *slot_bank->block_hash_queue.last_hash = *oldbank->blockhash_queue.last_hash;
+  slot_bank->prev_slot                        = oldbank->parent_slot;
+  slot_bank->banks_hash                       = oldbank->hash;
+  slot_ctx->slot_bank.prev_banks_hash         = oldbank->parent_hash;
+  slot_bank->fee_rate_governor                = oldbank->fee_rate_governor;
+  slot_bank->lamports_per_signature           = manifest->lamports_per_signature;
+  slot_ctx->prev_lamports_per_signature       = manifest->lamports_per_signature;
+  slot_ctx->slot_bank.parent_signature_cnt    = oldbank->signature_count;
+  if( oldbank->hashes_per_tick ) {
+    epoch_bank->hashes_per_tick               = *oldbank->hashes_per_tick;
   } else {
-    slot_bank->block_hash_queue.last_hash = NULL;
+    epoch_bank->hashes_per_tick               = 0;
+  }
+  epoch_bank->ticks_per_slot                  = oldbank->ticks_per_slot;
+  epoch_bank->ns_per_slot                     = oldbank->ns_per_slot;
+  epoch_bank->genesis_creation_time           = oldbank->genesis_creation_time;
+  epoch_bank->slots_per_year                  = oldbank->slots_per_year;
+  slot_bank->max_tick_height                  = oldbank->max_tick_height;
+  epoch_bank->inflation                       = oldbank->inflation;
+  epoch_bank->epoch_schedule                  = oldbank->epoch_schedule;
+  epoch_bank->rent                            = oldbank->rent_collector.rent;
+  epoch_bank->rent_epoch_schedule             = oldbank->rent_collector.epoch_schedule;
+
+  if( manifest->epoch_account_hash ) {
+    slot_bank->epoch_account_hash             = *manifest->epoch_account_hash;
   }
 
-  /* FIXME: Avoid using magic number for allocations */
+  slot_bank->collected_rent                   = oldbank->collected_rent;
+  // did they not change the bank?!
+  slot_bank->collected_execution_fees         = oldbank->collector_fees;
+  slot_bank->collected_priority_fees          = 0;
+  slot_bank->capitalization                   = oldbank->capitalization;
+  slot_bank->block_height                     = oldbank->block_height;
+  slot_bank->transaction_count                = oldbank->transaction_count;
+
+  if( oldbank->blockhash_queue.last_hash ) {
+    slot_bank->block_hash_queue.last_hash     = fd_valloc_malloc( valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+    *slot_bank->block_hash_queue.last_hash    = *oldbank->blockhash_queue.last_hash;
+  } else {
+    slot_bank->block_hash_queue.last_hash     = NULL;
+  }
+
   slot_bank->block_hash_queue.last_hash_index = oldbank->blockhash_queue.last_hash_index;
-  slot_bank->block_hash_queue.max_age = oldbank->blockhash_queue.max_age;
-  slot_bank->block_hash_queue.ages_root = NULL;
+  slot_bank->block_hash_queue.max_age         = oldbank->blockhash_queue.max_age;
+  slot_bank->block_hash_queue.ages_root       = NULL;
+
+  /* FIXME: Avoid using magic number for allocations */
   uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( 400 ) );
   slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, 400 ) );
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {

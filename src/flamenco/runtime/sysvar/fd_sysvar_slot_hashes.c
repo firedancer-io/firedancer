@@ -112,7 +112,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
        iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
     if( ele->slot == slot_ctx->slot_bank.slot ) {
-      memcpy( &ele->hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
+      ele->hash = slot_ctx->slot_bank.banks_hash;
       found = 1;
     }
   }

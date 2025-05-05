@@ -76,7 +76,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
   for( ushort i=0; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
     fd_pubkey_t const * pubkey = fd_type_pun_const( VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta ) );
-    memcpy( &out_instr_acct_keys[i], pubkey, sizeof(fd_pubkey_t) );
+    out_instr_acct_keys[i] = *pubkey;
 
     /* The parent flag(s) for is writable/signer is checked in
        fd_vm_prepare_instruction. Signer privilege is allowed iff the account
@@ -549,7 +549,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
     /* Update the caller account owner with the value from the callee */
     fd_pubkey_t const * updated_owner = callee_acc->vt->get_owner( callee_acc );
-    if( updated_owner ) fd_memcpy( caller_account->owner, updated_owner, sizeof(fd_pubkey_t) );
+    if( updated_owner ) *caller_account->owner = *updated_owner;
     else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
 
     /* Update the caller account data with the value from the callee */
@@ -607,7 +607,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
     /* Update the caller account owner with the value from the callee */
     fd_pubkey_t const * updated_owner = callee_acc->vt->get_owner( callee_acc );
     if( updated_owner ) {
-      fd_memcpy( caller_account->owner, updated_owner, sizeof(fd_pubkey_t) );
+      *caller_account->owner = *updated_owner;
     } else {
       fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
     }

@@ -1063,7 +1063,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &program );
 
       loader_state->discriminant = fd_bpf_upgradeable_loader_state_enum_program;
-      fd_memcpy( &loader_state->inner.program.programdata_address, programdata_key, sizeof(fd_pubkey_t) );
+      loader_state->inner.program.programdata_address =  *programdata_key;
       err = fd_bpf_loader_v3_program_set_state( &program, loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
