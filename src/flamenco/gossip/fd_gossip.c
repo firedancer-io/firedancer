@@ -2356,6 +2356,14 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     FD_LOG_WARNING(("received no gossip packets!!"));
   else
     FD_LOG_INFO(("received %lu packets", glob->recv_pkt_cnt));
+
+  /* TODO: Come up with a better way to detect bad shred version */
+  if( fd_peer_table_key_cnt( glob->peers )!=0 &&
+      ( glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]==0 ||
+        glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]==0 ) ) {
+    FD_LOG_WARNING(( "received no CRDS traffic! Likely bad shred version (current: %u)", glob->my_contact.ci->shred_version ));
+  }
+
   glob->recv_pkt_cnt = 0;
   FD_LOG_INFO(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
@@ -2464,7 +2472,7 @@ fd_gossip_compact_values( fd_gossip_t * glob ) {
   glob->need_push_head -= fd_ulong_if( push_head_snapshot != ULONG_MAX, push_head_snapshot, num_deleted );
   fd_value_vec_contract( glob->values, num_deleted );
   glob->metrics.value_vec_cnt = fd_value_vec_cnt( glob->values );
-  FD_LOG_NOTICE(( "GOSSIP compacted %lu values", num_deleted ));
+  FD_LOG_INFO(( "GOSSIP compacted %lu values", num_deleted ));
   return num_deleted;
 }
 
