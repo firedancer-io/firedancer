@@ -160,7 +160,7 @@ fd_restart_recv_heaviest_fork( fd_restart_t * restart,
                          msg->from.key, sizeof(fd_pubkey_t) )==0 ) ) {
     FD_LOG_WARNING(( "Received a restart_heaviest_fork message: slot=%lu, hash=%s",
                      msg->last_slot, FD_BASE58_ENC_32_ALLOCA( &msg->last_slot_hash ) ));
-    fd_memcpy( &restart->coordinator_heaviest_fork_bank_hash, &msg->last_slot_hash, sizeof(fd_hash_t) );
+    restart->coordinator_heaviest_fork_bank_hash = msg->last_slot_hash;
     restart->coordinator_heaviest_fork_slot  = msg->last_slot;
     restart->coordinator_heaviest_fork_ready = 1;
   } else {
@@ -204,7 +204,7 @@ fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
   } else if( FD_UNLIKELY( restart->heaviest_fork_slot==restart->funk_root ) ) {
     FD_LOG_NOTICE(( "Found bank hash of slot%lu in funk: %s",
                     restart->funk_root, FD_BASE58_ENC_32_ALLOCA( &restart->root_bank_hash ) ));
-    fd_memcpy( &restart->heaviest_fork_bank_hash, &restart->root_bank_hash, sizeof(fd_hash_t) );
+    restart->heaviest_fork_bank_hash = restart->root_bank_hash;
     restart->heaviest_fork_ready = 1;
 
     *out_need_repair = 0;

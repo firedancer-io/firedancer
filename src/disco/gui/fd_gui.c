@@ -514,7 +514,7 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_printf_live_txn_waterfall( gui, gui->summary.txn_waterfall_reference, gui->summary.txn_waterfall_current, 0UL /* TODO: REAL NEXT LEADER SLOT */ );
     fd_http_server_ws_broadcast( gui->http );
 
-    memcpy( gui->summary.tile_stats_reference, gui->summary.tile_stats_current, sizeof(struct fd_gui_tile_stats) );
+    *gui->summary.tile_stats_reference = *gui->summary.tile_stats_current;
     fd_gui_tile_stats_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_stats_current );
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
     fd_http_server_ws_broadcast( gui->http );
@@ -566,7 +566,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     if( FD_UNLIKELY( !found ) ) {
       fd_memcpy( removed[ removed_cnt++ ].uc, gui->gossip.peers[ i ].pubkey->uc, 32UL );
       if( FD_LIKELY( i+1UL!=gui->gossip.peer_cnt ) ) {
-        fd_memcpy( &gui->gossip.peers[ i ], &gui->gossip.peers[ gui->gossip.peer_cnt-1UL ], sizeof(struct fd_gui_gossip_peer) );
+        gui->gossip.peers[ i ] = gui->gossip.peers[ gui->gossip.peer_cnt-1UL ];
         gui->gossip.peer_cnt--;
         i--;
       }
@@ -690,7 +690,8 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
     if( FD_UNLIKELY( !found ) ) {
       fd_memcpy( removed[ removed_cnt++ ].uc, gui->vote_account.vote_accounts[ i ].vote_account->uc, 32UL );
       if( FD_LIKELY( i+1UL!=gui->vote_account.vote_account_cnt ) ) {
-        fd_memcpy( &gui->vote_account.vote_accounts[ i ], &gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt-1UL ], sizeof(struct fd_gui_vote_account) );
+        gui->vote_account.vote_accounts[ i ] = gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt-1UL ];
+        gui->vote_account.vote_accounts[ i ] = gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt-1UL ];
         gui->vote_account.vote_account_cnt--;
         i--;
       }

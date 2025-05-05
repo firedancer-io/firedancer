@@ -473,7 +473,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
      all the data around. */
   fd_txn_p_t bundle_txn_temp[ 5UL ];
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_memcpy( bundle_txn_temp+i, txns+i, sizeof(fd_txn_p_t) );
+    bundle_txn_temp[ i ] = txns[ i ];
   }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {

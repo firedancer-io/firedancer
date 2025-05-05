@@ -220,9 +220,9 @@ authorized_voters_new( ulong                         epoch,
   }
   fd_vote_authorized_voter_t * ele =
       fd_vote_authorized_voters_pool_ele_acquire( authorized_voters->pool );
-  ele->epoch = epoch;
-  memcpy( &ele->pubkey, pubkey, sizeof( fd_pubkey_t ) );
-  ele->prio = (ulong)&ele->pubkey;
+  ele->epoch  = epoch;
+  ele->pubkey = *pubkey;
+  ele->prio   = (ulong)&ele->pubkey;
   fd_vote_authorized_voters_treap_ele_insert(
       authorized_voters->treap, ele, authorized_voters->pool );
 }
@@ -331,8 +331,8 @@ authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_v
     }
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     ele->epoch                       = epoch;
-    memcpy( &ele->pubkey, &res->pubkey, sizeof( fd_pubkey_t ) );
-    ele->prio = (ulong)&res->pubkey;
+    ele->pubkey                      = res->pubkey;
+    ele->prio                        = (ulong)&res->pubkey;
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L33
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool );
   }
@@ -429,7 +429,7 @@ convert_to_current( fd_vote_state_versioned_t * self,
 
     /* Emplace new vote state into target */
     self->discriminant = fd_vote_state_versioned_enum_current;
-    memcpy( &self->inner.current, &current, sizeof(fd_vote_state_t) );
+    self->inner.current = current;
 
     break;
   }
@@ -458,7 +458,7 @@ convert_to_current( fd_vote_state_versioned_t * self,
 
     /* Emplace new vote state into target */
     self->discriminant = fd_vote_state_versioned_enum_current;
-    memcpy( &self->inner.current, &current, sizeof( fd_vote_state_t ) );
+    self->inner.current = current;
 
     break;
   }
@@ -750,9 +750,9 @@ set_new_authorized_voter( fd_vote_state_t *                          self,
 
   fd_vote_authorized_voter_t * ele =
       fd_vote_authorized_voters_pool_ele_acquire( self->authorized_voters.pool );
-  ele->epoch = target_epoch;
-  memcpy( &ele->pubkey, authorized_pubkey, sizeof( fd_pubkey_t ) );
-  ele->prio = (ulong)&ele->pubkey;
+  ele->epoch  = target_epoch;
+  ele->pubkey = *authorized_pubkey;
+  ele->prio   = (ulong)&ele->pubkey;
   fd_vote_authorized_voters_treap_ele_insert(
       self->authorized_voters.treap, ele, self->authorized_voters.pool );
 
@@ -1502,7 +1502,7 @@ authorize( fd_borrowed_account_t *       vote_account,
   case fd_vote_authorize_enum_withdrawer:
     rc = verify_authorized_signer( &vote_state->authorized_withdrawer, signers );
     if( FD_UNLIKELY( rc ) ) return rc;
-    memcpy( &vote_state->authorized_withdrawer, authorized, sizeof( fd_pubkey_t ) );
+    vote_state->authorized_withdrawer = *authorized;
     break;
 
   // failing exhaustive check is fatal
@@ -1837,7 +1837,7 @@ verify_and_get_vote_state( fd_borrowed_account_t *       vote_account,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1097
   convert_to_current( versioned, ctx->txn_ctx->spad );
-  memcpy( vote_state, &versioned->inner.current, sizeof( fd_vote_state_t ) );
+  *vote_state = versioned->inner.current;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1098
   fd_pubkey_t * authorized_voter = NULL;

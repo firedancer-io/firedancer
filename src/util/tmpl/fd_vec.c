@@ -161,7 +161,7 @@ VEC_(new)( void * shmem,
   return shmem;
 }
 
-FD_FN_CONST static inline VEC_T *
+static inline VEC_T *
 VEC_(join)( void * shvec ) {
 
   if( FD_UNLIKELY( !shvec ) ) return NULL;
@@ -179,7 +179,7 @@ VEC_(leave)( VEC_T * join ) {
   return (void *)(((ulong)join) - VEC_(private_meta_footprint)());
 }
 
-FD_FN_CONST static inline void *
+static inline void *
 VEC_(delete)( void * shvec ) {
 
   if( FD_UNLIKELY( !shvec ) ) return NULL;
@@ -223,8 +223,8 @@ VEC_(contract)( VEC_T * join,
 }
 
 static inline VEC_T *
-VEC_(remove)( VEC_T * join,
-              ulong   idx ) {
+VEC_(remove_idx)( VEC_T * join,
+                  ulong   idx ) {
   VEC_(private_t) * vec = VEC_(private)( join );
   ulong cnt = vec->cnt - 1UL;
   join[idx] = join[cnt]; /* TODO: Consider letting user decide if self copy is cheaper than testing */
@@ -233,8 +233,14 @@ VEC_(remove)( VEC_T * join,
 }
 
 static inline VEC_T *
-VEC_(remove_compact)( VEC_T * join,
-                      ulong   idx ) {
+VEC_(remove_ele)( VEC_T * join,
+                  VEC_T * ele){
+  return VEC_(remove_idx)( join, (ulong)(ele-join) );
+}
+
+static inline VEC_T *
+VEC_(remove_compact_idx)( VEC_T * join,
+                          ulong   idx ) {
   VEC_(private_t) * vec = VEC_(private)( join );
   ulong cnt = vec->cnt - 1UL;
   for( ; idx<cnt; idx++ ) join[idx] = join[idx+1UL];

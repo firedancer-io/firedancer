@@ -356,7 +356,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     fd_funk_txn_end_write( ctx->funk );
 
     /* Copy the bank hash of HeaviestForkSlot to fd_restart_t */
-    fd_memcpy( &ctx->restart->heaviest_fork_bank_hash, &slot_bank->banks_hash, sizeof(fd_hash_t) );
+    ctx->restart->heaviest_fork_bank_hash = slot_bank->banks_hash;
     ctx->restart->heaviest_fork_ready = 1;
   }
 }

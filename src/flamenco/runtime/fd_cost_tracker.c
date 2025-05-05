@@ -257,7 +257,7 @@ would_fit( fd_cost_tracker_t const *     self,
 
     fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
     fd_account_costs_pair_t_mapnode_t elem;
-    fd_memcpy( &elem.elem.key, writable_acc, sizeof(fd_pubkey_t) );
+    elem.elem.key = *writable_acc;
 
     fd_account_costs_pair_t_mapnode_t * chained_cost = fd_account_costs_pair_t_map_find( pool, root, &elem );
     if( chained_cost ) {
@@ -285,12 +285,12 @@ add_transaction_execution_cost( fd_cost_tracker_t *           self,
 
     fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
     fd_account_costs_pair_t_mapnode_t elem;
-    fd_memcpy( &elem.elem.key, writable_acc, sizeof(fd_pubkey_t) );
+    elem.elem.key = *writable_acc;
 
     fd_account_costs_pair_t_mapnode_t * account_cost = fd_account_costs_pair_t_map_find( pool, *root, &elem );
     if( account_cost==NULL ) {
       account_cost = fd_account_costs_pair_t_map_acquire( pool );
-      fd_memcpy( &account_cost->elem.key, writable_acc, sizeof(fd_pubkey_t) );
+      account_cost->elem.key  = *writable_acc;
       account_cost->elem.cost = adjustment;
       fd_account_costs_pair_t_map_insert( pool, root, account_cost );
     } else {

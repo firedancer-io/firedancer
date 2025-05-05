@@ -241,8 +241,9 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   /* Copy over fields */
   slot_ctx->slot_bank.tick_height          = oldbank->tick_height;
 
-  if( oldbank->blockhash_queue.last_hash )
+  if( oldbank->blockhash_queue.last_hash ) {
     slot_bank->poh = *oldbank->blockhash_queue.last_hash;
+  }
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));

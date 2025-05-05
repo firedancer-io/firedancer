@@ -381,6 +381,8 @@
 | gossip_&#8203;peer_&#8203;counts_&#8203;repair | `gauge` | Number of peers of each type (Repair) |
 | gossip_&#8203;peer_&#8203;counts_&#8203;voter | `gauge` | Number of peers of each type (Voter) |
 | gossip_&#8203;shred_&#8203;version_&#8203;zero | `counter` | Shred version zero |
+| gossip_&#8203;value_&#8203;meta_&#8203;size | `gauge` | Current size of the CRDS value metas map |
+| gossip_&#8203;value_&#8203;vec_&#8203;size | `gauge` | Current size of the CRDS value vector |
 | gossip_&#8203;received_&#8203;packets | `counter` | Number of all gossip packets received |
 | gossip_&#8203;corrupted_&#8203;messages | `counter` | Number of corrupted gossip messages received |
 | gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;pull_&#8203;request | `counter` | Number of gossip messages received (Pull Request) |
