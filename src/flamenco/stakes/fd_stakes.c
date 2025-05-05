@@ -1,5 +1,6 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_bank_mgr.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
@@ -294,6 +295,8 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           ulong                      exec_spad_cnt,
                           fd_spad_t *                runtime_spad ) {
 
+  FD_LOG_NOTICE(("Refreshing vote accounts" ));
+
   fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
@@ -419,7 +422,11 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
   }
 
-  slot_ctx->epoch_ctx->total_epoch_stake = total_epoch_stake;
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * total_epoch_stake_bm = fd_bank_mgr_total_epoch_stake_modify( bank_mgr );
+  *total_epoch_stake_bm = total_epoch_stake;
+  fd_bank_mgr_total_epoch_stake_save( bank_mgr );
 
   fd_account_keys_pair_t_map_release_tree( slot_bank->vote_account_keys.account_keys_pool, slot_bank->vote_account_keys.account_keys_root );
   slot_bank->vote_account_keys.account_keys_root = NULL;

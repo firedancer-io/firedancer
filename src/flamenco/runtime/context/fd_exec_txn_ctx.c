@@ -256,7 +256,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
 
   ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
-  ctx->total_epoch_stake           = slot_ctx->epoch_ctx->total_epoch_stake;
 
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
@@ -274,6 +273,10 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     ctx->prev_lamports_per_signature = *prev_lamports_per_signature;
   }
 
+  ulong * total_epoch_stake = fd_bank_mgr_total_epoch_stake_query( bank_mgr );
+  if( total_epoch_stake ) {
+    ctx->total_epoch_stake = *total_epoch_stake;
+  }
 
   /* Distribute rewards */
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );

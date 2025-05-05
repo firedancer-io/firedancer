@@ -440,6 +440,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   /* Move EpochStakes */
   do {
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, NULL );
+    FD_LOG_WARNING(("THE CURRENT EPOCH %lu", epoch));
 
     /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch
@@ -481,6 +482,12 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
         curr_stakes.vote_accounts_root = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root;
         manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool = NULL;
         manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root = NULL;
+
+        /* We want to save the total epoch stake for the current epoch */
+        ulong * total_epoch_stake = fd_bank_mgr_total_epoch_stake_modify( bank_mgr );
+        *total_epoch_stake = manifest->versioned_epoch_stakes[i].val.inner.Current.total_stake;
+        fd_bank_mgr_total_epoch_stake_save( bank_mgr );
+
       }
       if( manifest->versioned_epoch_stakes[i].epoch == epoch+1UL ) {
         next_stakes.vote_accounts_pool = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool;

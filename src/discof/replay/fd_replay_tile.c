@@ -1302,7 +1302,6 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
     fd_runtime_public_epoch_msg_t * epoch_msg = (fd_runtime_public_epoch_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
 
     epoch_msg->features            = slot_ctx->epoch_ctx->features;
-    epoch_msg->total_epoch_stake   = slot_ctx->epoch_ctx->total_epoch_stake;
     epoch_msg->epoch_schedule      = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
     epoch_msg->rent                = slot_ctx->epoch_ctx->epoch_bank.rent;
     epoch_msg->bank_hash_cmp_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp,

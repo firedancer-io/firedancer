@@ -192,7 +192,7 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
   ctx->pending_epoch_pop = 1;
 
   ctx->txn_ctx->features          = epoch_msg->features;
-  ctx->txn_ctx->total_epoch_stake = epoch_msg->total_epoch_stake;
+  ctx->txn_ctx->total_epoch_stake = *(fd_bank_mgr_total_epoch_stake_query( ctx->bank_mgr ));
   ctx->txn_ctx->schedule          = epoch_msg->epoch_schedule;
   ctx->txn_ctx->rent              = epoch_msg->rent;
   ctx->txn_ctx->slots_per_year    = *(fd_bank_mgr_slots_per_year_query( ctx->bank_mgr ));

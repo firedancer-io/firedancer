@@ -99,6 +99,10 @@
 #define FD_BANK_MGR_INFLATION_FOOTPRINT (48UL)
 #define FD_BANK_MGR_INFLATION_ALIGN     (8UL)
 
+#define FD_BANK_MGR_TOTAL_EPOCH_STAKE_ID        (16)
+#define FD_BANK_MGR_TOTAL_EPOCH_STAKE_FOOTPRINT (8UL)
+#define FD_BANK_MGR_TOTAL_EPOCH_STAKE_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -145,6 +149,7 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                        ticks_per_slot,              TICKS_PER_SLOT)              \
   X(ulong,                        genesis_creation_time,       GENESIS_CREATION_TIME)       \
   X(double,                       slots_per_year,              SLOTS_PER_YEAR)              \
-  X(fd_inflation_t,               inflation,                   INFLATION)
+  X(fd_inflation_t,               inflation,                   INFLATION)                   \
+  X(ulong,                        total_epoch_stake,           TOTAL_EPOCH_STAKE)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)
