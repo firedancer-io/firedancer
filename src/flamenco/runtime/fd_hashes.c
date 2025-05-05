@@ -66,6 +66,12 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
     fd_pubkey_hash_pair_t * pairs     = lists[k].pairs;
     ulong                   pairs_len = lists[k].pairs_len;
     for( ulong i = 0; i < pairs_len; ++i ) {
+//#ifdef VLOG
+      FD_LOG_NOTICE(( "account delta hash X { \"key\":%lu, \"pubkey\":\"%s\", \"hash\":\"%s\" },",
+                      i,
+                      FD_BASE58_ENC_32_ALLOCA( &pairs[i].rec->pair.key->uc[0] ),
+                      FD_BASE58_ENC_32_ALLOCA( pairs[i].hash->hash ) ));
+//#endif
       if( prev_pair ) FD_TEST(fd_pubkey_hash_pair_compare(prev_pair, &pairs[i]) > 0);
       prev_pair = &pairs[i];
       fd_sha256_append( &shas[0], pairs[i].hash->hash, sizeof( fd_hash_t ) );
@@ -680,6 +686,8 @@ fd_hash_account( uchar                     hash[ static 32 ],
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
 
+//  FD_LOG_NOTICE(( "%s", FD_BASE58_ENC_32_ALLOCA( &pubkey->uc[0] )));
+
   if( (hash_needed & FD_HASH_JUST_ACCOUNT_HASH) ) {
     fd_blake3_t b3[1];
     fd_blake3_init  ( b3 );
@@ -702,6 +710,8 @@ fd_hash_account( uchar                     hash[ static 32 ],
     fd_blake3_append( b3, pubkey,      32UL            );
     fd_blake3_fini_varlen( b3, lthash->bytes, FD_LTHASH_LEN_BYTES );
   }
+
+//   FD_LOG_NOTICE(( "%s %s", FD_BASE58_ENC_32_ALLOCA( &pubkey->uc[0] ), FD_BASE58_ENC_32_ALLOCA( hash ) ));
 
   return hash;
 }
