@@ -28,7 +28,11 @@ custom_serializer_walk( void *       _self,
   switch( type ) {
     case FD_FLAMENCO_TYPE_MAP:
     case FD_FLAMENCO_TYPE_MAP_END:
+      break;
     case FD_FLAMENCO_TYPE_ENUM:
+      // print the enum discriminant
+      fprintf( file, "%u,", *(uint const*) arg );
+      break;
     case FD_FLAMENCO_TYPE_ENUM_END:
     case FD_FLAMENCO_TYPE_ARR:
     case FD_FLAMENCO_TYPE_ARR_END:
@@ -131,16 +135,8 @@ custom_serializer_walk( void *       _self,
         fprintf( file, "'%s',", (char const *)arg );
       }
       break;
-    case FD_FLAMENCO_TYPE_ENUM_DISC: {
-      char lowercase_variant[128];
-      memset(lowercase_variant, 0, 128);
-
-      for( ulong i=0; name[i]; ++i ) {
-        lowercase_variant[i] = (char) tolower(name[i]);
-      }
-      fprintf( file, "'%s',", lowercase_variant );
+    case FD_FLAMENCO_TYPE_ENUM_DISC:
       break;
-    }
     default:
       FD_LOG_CRIT(( "unknown type %#x", (uint)type ));
       break;
