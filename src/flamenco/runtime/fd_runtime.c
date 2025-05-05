@@ -3985,12 +3985,16 @@ fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                                                           poh_verification_info_cnt * sizeof(fd_poh_verification_info_t) );
   fd_runtime_block_verify_info_collect( block_info, &tmp_in_poh_hash, poh_verification_info );
 
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr    = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong *         tick_height = fd_bank_mgr_tick_height_query( bank_mgr );
+
   uchar * block_data = fd_spad_alloc( runtime_spad, 128UL, FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT );
   ulong   tick_res   = fd_runtime_block_verify_ticks( slot_ctx->blockstore,
                                                       slot_ctx->slot,
                                                       block_data,
                                                       FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT,
-                                                      slot_ctx->slot_bank.tick_height,
+                                                      *tick_height,
                                                       slot_ctx->slot_bank.max_tick_height,
                                                       slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick
   );

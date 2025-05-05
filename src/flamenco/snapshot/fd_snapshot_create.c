@@ -637,7 +637,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   // bank->transaction_count                     = slot_bank->transaction_count;
   // bank->signature_count                       = slot_bank->parent_signature_cnt;
   // bank->capitalization                        = slot_bank->capitalization;
-  bank->tick_height                           = slot_bank->tick_height;
+  // bank->tick_height                           = slot_bank->tick_height;
   bank->max_tick_height                       = slot_bank->max_tick_height;
 
   /* The hashes_per_tick needs to be copied over from the epoch bank because

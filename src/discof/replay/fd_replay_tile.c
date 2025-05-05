@@ -1451,8 +1451,16 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
   fork->slot_ctx->slot_bank.prev_slot   = fork->slot_ctx->slot;
   fork->slot_ctx->slot        = curr_slot;
-  fork->slot_ctx->slot_bank.tick_height = fork->slot_ctx->slot_bank.max_tick_height;
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( epoch_bank->ticks_per_slot, curr_slot, &fork->slot_ctx->slot_bank.max_tick_height ) ) ) {
+
+  fd_bank_mgr_t bank_mgr_obj_prev;
+  fd_bank_mgr_t * bank_mgr_prev = fd_bank_mgr_join( &bank_mgr_obj_prev, fork->slot_ctx->funk, fork->slot_ctx->funk_txn );
+  ulong * tick_height = fd_bank_mgr_tick_height_modify( bank_mgr_prev );
+  *tick_height = fork->slot_ctx->slot_bank.max_tick_height;
+  fd_bank_mgr_tick_height_save( bank_mgr_prev );
+
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( epoch_bank->ticks_per_slot,
+                                                                                     curr_slot,
+                                                                                     &fork->slot_ctx->slot_bank.max_tick_height ) ) ) {
     FD_LOG_ERR(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", curr_slot, epoch_bank->ticks_per_slot ));
   }
   fork->slot_ctx->enable_exec_recording = ctx->tx_metadata_storage;

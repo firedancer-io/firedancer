@@ -67,6 +67,14 @@
 #define FD_BANK_MGR_PARENT_SIGNATURE_CNT_FOOTPRINT (8UL)
 #define FD_BANK_MGR_PARENT_SIGNATURE_CNT_ALIGN     (8UL)
 
+#define FD_BANK_MGR_TICK_HEIGHT_ID        (8)
+#define FD_BANK_MGR_TICK_HEIGHT_FOOTPRINT (8UL)
+#define FD_BANK_MGR_TICK_HEIGHT_ALIGN     (8UL)
+
+#define FD_BANK_MGR_MAX_TICK_HEIGHT_ID        (9)
+#define FD_BANK_MGR_MAX_TICK_HEIGHT_FOOTPRINT (8UL)
+#define FD_BANK_MGR_MAX_TICK_HEIGHT_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -105,6 +113,8 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                        lamports_per_signature,      LAMPORTS_PER_SIGNATURE)      \
   X(ulong,                        prev_lamports_per_signature, PREV_LAMPORTS_PER_SIGNATURE) \
   X(ulong,                        transaction_count,           TRANSACTION_COUNT)           \
-  X(ulong,                        parent_signature_cnt,        PARENT_SIGNATURE_CNT)
+  X(ulong,                        parent_signature_cnt,        PARENT_SIGNATURE_CNT)        \
+  X(ulong,                        tick_height,                 TICK_HEIGHT)                 \
+  X(ulong,                        max_tick_height,             MAX_TICK_HEIGHT)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

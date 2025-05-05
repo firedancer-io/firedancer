@@ -239,7 +239,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   /* Index vote accounts */
 
   /* Copy over fields */
-  slot_ctx->slot_bank.tick_height          = oldbank->tick_height;
 
   if( oldbank->blockhash_queue.last_hash ) {
     slot_bank->poh = *oldbank->blockhash_queue.last_hash;
@@ -347,6 +346,18 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   *transaction_count = oldbank->transaction_count;
   fd_bank_mgr_transaction_count_save( bank_mgr );
 
+  /* Parent Signature Count */
+
+  ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_modify( bank_mgr );
+  *parent_signature_cnt = oldbank->signature_count;
+  fd_bank_mgr_parent_signature_cnt_save( bank_mgr );
+
+  /* Tick Height */
+
+  ulong * tick_height = fd_bank_mgr_tick_height_modify( bank_mgr );
+  *tick_height = oldbank->tick_height;
+  fd_bank_mgr_tick_height_save( bank_mgr );
+
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;
   if( !slot_ctx->slot_bank.timestamp_votes.votes_pool ) {
@@ -355,10 +366,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   }
   recover_clock( slot_ctx, runtime_spad );
 
-  /* Parent Signature Count */
-  ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_modify( bank_mgr );
-  *parent_signature_cnt = oldbank->signature_count;
-  fd_bank_mgr_parent_signature_cnt_save( bank_mgr );
+
 
   /* Pass in the hard forks */
 
