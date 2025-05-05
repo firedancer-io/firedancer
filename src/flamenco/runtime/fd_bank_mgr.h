@@ -75,6 +75,10 @@
 #define FD_BANK_MGR_MAX_TICK_HEIGHT_FOOTPRINT (8UL)
 #define FD_BANK_MGR_MAX_TICK_HEIGHT_ALIGN     (8UL)
 
+#define FD_BANK_MGR_HASHES_PER_TICK_ID        (10)
+#define FD_BANK_MGR_HASHES_PER_TICK_FOOTPRINT (8UL)
+#define FD_BANK_MGR_HASHES_PER_TICK_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -115,6 +119,7 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                        transaction_count,           TRANSACTION_COUNT)           \
   X(ulong,                        parent_signature_cnt,        PARENT_SIGNATURE_CNT)        \
   X(ulong,                        tick_height,                 TICK_HEIGHT)                 \
-  X(ulong,                        max_tick_height,             MAX_TICK_HEIGHT)
+  X(ulong,                        max_tick_height,             MAX_TICK_HEIGHT)             \
+  X(ulong,                        hashes_per_tick,             HASHES_PER_TICK)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

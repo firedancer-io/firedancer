@@ -1078,7 +1078,6 @@
       "archival": "true",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
-        { "name": "hashes_per_tick",       "type": "ulong" },
         { "name": "ticks_per_slot",        "type": "ulong" },
         { "name": "ns_per_slot",           "type": "uint128" },
         { "name": "genesis_creation_time", "type": "ulong" },
@@ -1235,7 +1234,6 @@
         { "name": "banks_hash",                  "type": "hash" },
         { "name": "epoch_account_hash",          "type": "hash" },
         { "name": "block_height",                "type": "ulong" },
-        { "name": "max_tick_height",             "type": "ulong" },
         { "name": "collected_execution_fees",    "type": "ulong" },
         { "name": "collected_priority_fees",     "type": "ulong" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },

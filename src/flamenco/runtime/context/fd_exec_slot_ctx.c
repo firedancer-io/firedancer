@@ -246,15 +246,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
-  if( oldbank->hashes_per_tick )
-    epoch_bank->hashes_per_tick = *oldbank->hashes_per_tick;
-  else
-    epoch_bank->hashes_per_tick = 0;
   epoch_bank->ticks_per_slot = oldbank->ticks_per_slot;
   fd_memcpy(&epoch_bank->ns_per_slot, &oldbank->ns_per_slot, sizeof(oldbank->ns_per_slot));
   epoch_bank->genesis_creation_time = oldbank->genesis_creation_time;
   epoch_bank->slots_per_year = oldbank->slots_per_year;
-  slot_bank->max_tick_height = oldbank->max_tick_height;
   fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, sizeof(fd_inflation_t) );
   fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, sizeof(fd_epoch_schedule_t) );
   epoch_bank->rent = oldbank->rent_collector.rent;
@@ -357,6 +352,19 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   ulong * tick_height = fd_bank_mgr_tick_height_modify( bank_mgr );
   *tick_height = oldbank->tick_height;
   fd_bank_mgr_tick_height_save( bank_mgr );
+
+  /* Max Tick Height */
+
+  ulong * max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
+  *max_tick_height = oldbank->max_tick_height;
+  fd_bank_mgr_max_tick_height_save( bank_mgr );
+
+  /* Hashes Per Tick */
+
+  ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
+  *hashes_per_tick = !!oldbank->hashes_per_tick ? *oldbank->hashes_per_tick : 0UL;
+  fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

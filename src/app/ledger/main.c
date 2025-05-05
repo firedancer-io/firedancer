@@ -407,13 +407,16 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     fd_bank_mgr_t bank_mgr_obj;
     fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn );
+    ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( bank_mgr );
     ulong * tick_height = fd_bank_mgr_tick_height_modify( bank_mgr );
-    *tick_height = ledger_args->slot_ctx->slot_bank.max_tick_height;
+    *tick_height = *max_tick_height;
     fd_bank_mgr_tick_height_save( bank_mgr );
 
-    if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ledger_args->epoch_ctx->epoch_bank.ticks_per_slot, slot, &ledger_args->slot_ctx->slot_bank.max_tick_height ) ) ) {
+    max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
+    if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ledger_args->epoch_ctx->epoch_bank.ticks_per_slot, slot, max_tick_height ) ) ) {
       FD_LOG_ERR(( "couldn't compute max tick height slot %lu ticks_per_slot %lu", slot, ledger_args->epoch_ctx->epoch_bank.ticks_per_slot ));
     }
+    fd_bank_mgr_max_tick_height_save( bank_mgr );
 
     if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
 

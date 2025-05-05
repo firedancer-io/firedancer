@@ -1454,15 +1454,20 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
   fd_bank_mgr_t bank_mgr_obj_prev;
   fd_bank_mgr_t * bank_mgr_prev = fd_bank_mgr_join( &bank_mgr_obj_prev, fork->slot_ctx->funk, fork->slot_ctx->funk_txn );
-  ulong * tick_height = fd_bank_mgr_tick_height_modify( bank_mgr_prev );
-  *tick_height = fork->slot_ctx->slot_bank.max_tick_height;
+
+  ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( bank_mgr_prev );
+  ulong * tick_height     = fd_bank_mgr_tick_height_modify( bank_mgr_prev );
+  *tick_height = *max_tick_height;
   fd_bank_mgr_tick_height_save( bank_mgr_prev );
 
+  max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr_prev );
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( epoch_bank->ticks_per_slot,
                                                                                      curr_slot,
-                                                                                     &fork->slot_ctx->slot_bank.max_tick_height ) ) ) {
+                                                                                     max_tick_height ) ) ) {
     FD_LOG_ERR(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", curr_slot, epoch_bank->ticks_per_slot ));
   }
+  fd_bank_mgr_max_tick_height_save( bank_mgr_prev );
+
   fork->slot_ctx->enable_exec_recording = ctx->tx_metadata_storage;
   fork->slot_ctx->runtime_wksp          = fd_wksp_containing( ctx->runtime_spad );
 
@@ -1565,7 +1570,8 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ 0UL ];
   fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->epoch_ctx );
-  msg->hashcnt_per_tick = ctx->epoch_ctx->epoch_bank.hashes_per_tick;
+  FD_TEST( ctx->bank_mgr && ctx->bank_mgr->funk && ctx->bank_mgr->funk_txn );
+  msg->hashcnt_per_tick = *(fd_bank_mgr_hashes_per_tick_query( ctx->bank_mgr ));
   msg->ticks_per_slot   = ctx->epoch_ctx->epoch_bank.ticks_per_slot;
   msg->tick_duration_ns = (ulong)(epoch_bank->ns_per_slot / epoch_bank->ticks_per_slot);
 
@@ -2057,7 +2063,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot      = 1UL;
 
-    ulong hashcnt_per_slot = ctx->slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * ctx->slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
+    fd_bank_mgr_t bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
+
+    ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr )) * ctx->slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
     while(hashcnt_per_slot--) {
       fd_sha256_hash( ctx->slot_ctx->slot_bank.poh.uc, 32UL, ctx->slot_ctx->slot_bank.poh.uc );
     }

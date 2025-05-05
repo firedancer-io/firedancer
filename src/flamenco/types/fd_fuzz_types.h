@@ -1625,7 +1625,6 @@ void *fd_epoch_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_bank_t);
   fd_epoch_bank_new(mem);
   fd_stakes_generate( &self->stakes, alloc_mem, rng );
-  self->hashes_per_tick = fd_rng_ulong( rng );
   self->ticks_per_slot = fd_rng_ulong( rng );
   self->ns_per_slot = fd_rng_uint128( rng );
   self->genesis_creation_time = fd_rng_ulong( rng );
@@ -1833,7 +1832,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_hash_generate( &self->banks_hash, alloc_mem, rng );
   fd_hash_generate( &self->epoch_account_hash, alloc_mem, rng );
   self->block_height = fd_rng_ulong( rng );
-  self->max_tick_height = fd_rng_ulong( rng );
   self->collected_execution_fees = fd_rng_ulong( rng );
   self->collected_priority_fees = fd_rng_ulong( rng );
   fd_vote_accounts_generate( &self->epoch_stakes, alloc_mem, rng );

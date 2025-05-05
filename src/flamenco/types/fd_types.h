@@ -1386,7 +1386,6 @@ typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
 /* Encoded Size: Dynamic */
 struct fd_epoch_bank {
   fd_stakes_t stakes;
-  ulong hashes_per_tick;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
   ulong genesis_creation_time;
@@ -1619,7 +1618,6 @@ struct fd_slot_bank {
   fd_hash_t banks_hash;
   fd_hash_t epoch_account_hash;
   ulong block_height;
-  ulong max_tick_height;
   ulong collected_execution_fees;
   ulong collected_priority_fees;
   fd_vote_accounts_t epoch_stakes;

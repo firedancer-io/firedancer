@@ -93,8 +93,15 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* TODO: Do we need any more of these? */
   fd_epoch_bank_t * epoch_bank    = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
 
+  /* All bank mgr stuff here. */
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
-  epoch_bank->hashes_per_tick       = test_ctx->epoch_ctx.hashes_per_tick;
+  ulong * max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
+  *max_tick_height = test_ctx->epoch_ctx.hashes_per_tick;
+  fd_bank_mgr_max_tick_height_save( bank_mgr );
+
   epoch_bank->ticks_per_slot        = test_ctx->epoch_ctx.ticks_per_slot;
   epoch_bank->ns_per_slot           = (uint128)64000000; // TODO: restore from input or smth
   epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
@@ -218,9 +225,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Update leader schedule */
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot, runner->spad );
 
-  /* All bank mgr stuff here. */
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
