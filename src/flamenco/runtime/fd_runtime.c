@@ -436,8 +436,8 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  ulong slot0 = (slot_ctx->slot_bank.prev_slot == 0) ? 0
-    : slot_ctx->slot_bank.prev_slot + 1;   /* Accomodate skipped slots */
+  ulong slot0 = (slot_ctx->slot_bank.prev_slot == 0) ? 0 :
+    slot_ctx->slot_bank.prev_slot + 1;   /* Accomodate skipped slots */
   ulong slot1 = slot_ctx->slot_bank.slot;
 
   for( ulong s = slot0; s <= slot1; ++s ) {
