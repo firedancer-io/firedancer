@@ -125,7 +125,7 @@
    and 7 respectively. This action of voting triggered the popping of
    the expired votes from the top of the tower.
 
-   Next, we add a vote for slot 11:
+   Next, we add a vote for slot 10:
 
    (before)  slot | conf
             -----------
@@ -135,12 +135,12 @@
 
    (after)  slot | conf
             -----------
-             11   | 1
+             10   | 1
              9    | 2
              2    | 3
              1    | 4
 
-   The next vote for slot 11 doesn’t involve expirations, so we just add
+   The next vote for slot 10 doesn’t involve expirations, so we just add
    it to the top of the tower. Also, here is an important property of
    lockouts. Note that the lockout for vote slot 9 doubled (ie. the
    confirmation count increased by 1) but the lockouts of vote slots 2
@@ -149,7 +149,7 @@
    The reason for this is confirmation counts only increase when they
    are consecutive in the vote tower. Because 4 and 3 were expired
    previously by the vote for 9, that consecutive property was broken.
-   In this case, the vote for slot 11 is only consecutive with slot 9,
+   In this case, the vote for slot 10 is only consecutive with slot 9,
    but not 2 and 1. Specifically, there is a gap in the before-tower at
    confirmation count 2.
 
@@ -158,27 +158,27 @@
    result in all lockouts doubling as long as it doesn’t result in more
    expirations.
 
-   One other thing I’d like to point out about this vote for slot 11.
-   Even though 11 exceeds the expiration slot of vote slot 2, which is
+   One other thing I’d like to point out about this vote for slot 10.
+   Even though 10 >= the expiration slot of vote slot 2, which is
    10, voting for 11 did not expire the vote for 2. This is because
    expiration happens top-down and contiguously. Because vote slot 9 was
    not expired, we do not proceed with expiring 2.
 
-   In the Tower rules, once a vote reaches a max lockout of 32, it is
+   In the Tower rules, once a vote reaches a conf count of 32, it is
    considered rooted and it is popped from the bottom of the tower. Here
-   is an example:
+   is an example where 1 got rooted and therefore popped from the bottom:
 
    (before)  slot | conf
             -----------
              50   | 1
              ...  | ... (29 votes elided)
-             1    | 4
+             1    | 31
 
    (after)  slot | conf
             -----------
              53   | 1
              ...  | ... (29 votes elided)
-             1    | 4
+             2    | 31
 
    So the tower is really a double-ended queue rather than a stack.
 
@@ -242,7 +242,7 @@
   2    | 3
   1    | 4
 
-  Here the new Slot 9 descends from 5, and exceeds vote slot 2’s
+  Here the new Slot 9 descends from 5, and exceeds vote slot 4’s
   expiration slot of 6 unlike 5.
 
   After your lockout expires, the tower rules allow you to vote for
