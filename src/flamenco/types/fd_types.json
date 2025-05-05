@@ -329,6 +329,7 @@
     {
       "name": "stakes",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
         { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },

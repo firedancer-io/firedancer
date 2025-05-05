@@ -137,6 +137,8 @@ class TypeNode:
     def subTypes(self):
         return iter(())
 
+    def subMembers(self):
+        return iter(())
 class PrimitiveMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
@@ -2973,12 +2975,26 @@ def extract_sub_type(member):
         return None
     if isinstance(member, BitVectorMember):
         return None
-    if hasattr(member, "type"):
-        return type_map[member.type]
     if hasattr(member, "element"):
-        return type_map[member.element]
+        return type_map[member.element] if member.element in type_map else None
+    if hasattr(member, "type"):
+        return type_map[member.type] if member.type in type_map else None
     raise ValueError(f"Unknown type {member} in extract_sub_type")
 
+def extract_member_type(member):
+    if isinstance(member, str):
+        return None
+    if isinstance(member, PrimitiveMember):
+        return None
+    if isinstance(member, OpaqueType):
+        return None
+    if isinstance(member, BitVectorMember):
+        return None
+    if hasattr(member, "element"):
+        return member
+    if hasattr(member, "type"):
+        return member
+    raise ValueError(f"Unknown type {member} in extract_member_type")
 
 class StructType(TypeNode):
     def __init__(self, json):
@@ -3036,6 +3052,12 @@ class StructType(TypeNode):
             sub_type = extract_sub_type(f)
             if sub_type is not None:
                 yield sub_type
+
+    def subMembers(self):
+        for f in self.fields:
+            sub_member = extract_member_type(f)
+            if sub_member is not None:
+                yield sub_member
 
     def emitHeader(self):
         for f in self.fields:
@@ -3271,6 +3293,11 @@ class EnumType(TypeNode):
             sub_type = extract_sub_type(v)
             if sub_type is not None:
                 yield sub_type
+
+    def subMembers(self):
+        for v in self.variants:
+            if not isinstance(v, str):
+                yield v
 
     def isFlat(self):
         for v in self.variants:
@@ -3632,17 +3659,25 @@ def main():
         if entry['type'] == 'enum':
             alltypes.append(EnumType(entry))
 
+    propagate = set()
+
     global type_map
     for t in alltypes:
+        if t.produce_global:
+            propagate.add(t)
         type_map[t.name] = t
 
-    # Propagate 'global' attribute
-    propagate = set(alltypes)
+    # We need to propagate the 'global' attribute recursively through
+    # all the types specified in fd_types.json to be global. We need
+    # to mark all of the submembers AND subtypes of these global types
+    # as global.
     while len(propagate) > 0:
         t = propagate.pop()
-        if t.produce_global:
-            for sub in t.subTypes():
-                sub.produce_global = True
+        for sub in t.subTypes():
+            sub.produce_global = True
+            propagate.add(sub)
+        for sub in t.subMembers():
+            sub.produce_global = True
 
     nametypes = {}
     for t in alltypes:
