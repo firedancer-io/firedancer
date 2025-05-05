@@ -3416,12 +3416,15 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   uint128 target_tick_duration      = ((uint128)poh->target_tick_duration.seconds * 1000000000UL + (uint128)poh->target_tick_duration.nanoseconds);
 
   epoch_bank->epoch_schedule          = genesis_block->epoch_schedule;
-  epoch_bank->inflation               = genesis_block->inflation;
   epoch_bank->rent                    = genesis_block->rent;
   slot_ctx->slot_bank.block_height    = 0UL;
 
   fd_bank_mgr_t   bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( bank_mgr );
+  *inflation = genesis_block->inflation;
+  fd_bank_mgr_inflation_save( bank_mgr );
 
   fd_block_hash_queue_global_t *      block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
   uchar *                             last_hash_mem    = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );

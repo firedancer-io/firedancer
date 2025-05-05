@@ -118,13 +118,13 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   *slots_per_year = test_ctx->epoch_ctx.slots_per_year;
   fd_bank_mgr_slots_per_year_save( bank_mgr );
 
-  epoch_bank->inflation             = (fd_inflation_t) {
-    .initial         = test_ctx->epoch_ctx.inflation.initial,
-    .terminal        = test_ctx->epoch_ctx.inflation.terminal,
-    .taper           = test_ctx->epoch_ctx.inflation.taper,
-    .foundation      = test_ctx->epoch_ctx.inflation.foundation,
-    .foundation_term = test_ctx->epoch_ctx.inflation.foundation_term
-  };
+  fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( bank_mgr );
+  inflation->initial         = test_ctx->epoch_ctx.inflation.initial;
+  inflation->terminal        = test_ctx->epoch_ctx.inflation.terminal;
+  inflation->taper           = test_ctx->epoch_ctx.inflation.taper;
+  inflation->foundation      = test_ctx->epoch_ctx.inflation.foundation;
+  inflation->foundation_term = test_ctx->epoch_ctx.inflation.foundation_term;
+  fd_bank_mgr_inflation_save( bank_mgr );
 
   /* Load in all accounts with > 0 lamports provided in the context */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {

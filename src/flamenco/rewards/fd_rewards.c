@@ -295,9 +295,14 @@ calculate_previous_epoch_inflation_rewards( fd_exec_slot_ctx_t *                
                                             fd_prev_epoch_inflation_rewards_t * rewards ) {
     double slot_in_year = slot_in_year_for_inflation( slot_ctx );
 
+    fd_bank_mgr_t bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+    fd_inflation_t * inflation = fd_bank_mgr_inflation_query( bank_mgr );
+
     fd_epoch_bank_t const * epoch_bank    = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-    rewards->validator_rate               = validator( &epoch_bank->inflation, slot_in_year );
-    rewards->foundation_rate              = foundation( &epoch_bank->inflation, slot_in_year );
+    rewards->validator_rate               = validator( inflation, slot_in_year );
+    rewards->foundation_rate              = foundation( inflation, slot_in_year );
     rewards->prev_epoch_duration_in_years = epoch_duration_in_years( slot_ctx, epoch_bank, prev_epoch );
     rewards->validator_rewards            = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
     FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));

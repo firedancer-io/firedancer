@@ -674,7 +674,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   bank->rent_collector.rent                   = epoch_bank->rent;
 
   bank->epoch_schedule                        = epoch_bank->epoch_schedule;
-  bank->inflation                             = epoch_bank->inflation;
+  // bank->inflation                             = epoch_bank->inflation;
 
   /* Unused accounts can be left as NULL for both clients. */
 

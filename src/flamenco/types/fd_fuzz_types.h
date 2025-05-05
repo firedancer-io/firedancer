@@ -1625,8 +1625,6 @@ void *fd_epoch_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_bank_t);
   fd_epoch_bank_new(mem);
   fd_stakes_generate( &self->stakes, alloc_mem, rng );
-  self->max_tick_height = fd_rng_ulong( rng );
-  fd_inflation_generate( &self->inflation, alloc_mem, rng );
   fd_epoch_schedule_generate( &self->epoch_schedule, alloc_mem, rng );
   fd_rent_generate( &self->rent, alloc_mem, rng );
   self->eah_start_slot = fd_rng_ulong( rng );

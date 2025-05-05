@@ -1078,8 +1078,6 @@
       "archival": "true",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
-        { "name": "max_tick_height",       "type": "ulong" },
-        { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
         { "name": "eah_start_slot",        "type": "ulong" },

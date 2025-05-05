@@ -490,12 +490,15 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   block_context->epoch_ctx.ticks_per_slot             = *(fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
   block_context->epoch_ctx.slots_per_year             = *(fd_bank_mgr_slots_per_year_query( bank_mgr ));
   block_context->epoch_ctx.has_inflation              = true;
+
+  fd_inflation_t * inflation = fd_bank_mgr_inflation_query( bank_mgr );
+
   block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
-    .initial         = epoch_ctx->epoch_bank.inflation.initial,
-    .terminal        = epoch_ctx->epoch_bank.inflation.terminal,
-    .taper           = epoch_ctx->epoch_bank.inflation.taper,
-    .foundation      = epoch_ctx->epoch_bank.inflation.foundation,
-    .foundation_term = epoch_ctx->epoch_bank.inflation.foundation_term,
+    .initial         = inflation->initial,
+    .terminal        = inflation->terminal,
+    .taper           = inflation->taper,
+    .foundation      = inflation->foundation,
+    .foundation_term = inflation->foundation_term,
   };
   block_context->epoch_ctx.genesis_creation_time      = *(fd_bank_mgr_genesis_creation_time_query( bank_mgr ));
 

@@ -246,7 +246,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
-  fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, sizeof(fd_inflation_t) );
   fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, sizeof(fd_epoch_schedule_t) );
   epoch_bank->rent = oldbank->rent_collector.rent;
   fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, sizeof(fd_rent_t) );
@@ -384,6 +383,12 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   double * slots_per_year = fd_bank_mgr_slots_per_year_modify( bank_mgr );
   *slots_per_year = oldbank->slots_per_year;
   fd_bank_mgr_slots_per_year_save( bank_mgr );
+
+  /* Inflation */
+
+  fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( bank_mgr );
+  *inflation = oldbank->inflation;
+  fd_bank_mgr_inflation_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;
