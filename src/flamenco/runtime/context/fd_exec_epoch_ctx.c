@@ -2,6 +2,7 @@
 #include <assert.h>
 #include "../sysvar/fd_sysvar_stake_history.h"
 #include "../fd_runtime_public.h"
+#include "../fd_bank_mgr.h"
 
 /* TODO remove this */
 #define MAX_LG_SLOT_CNT   10UL

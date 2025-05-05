@@ -485,6 +485,10 @@ fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
                   fd_lthash_value_t *     lt_hash ) {
   (void)check_hash;
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( bank_mgr );
+
   if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
     FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
     fd_sha256_t h;
@@ -499,7 +503,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
-    fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &h, (uchar const *) epoch_account_hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, accounts_hash );
     return 0;
   }
@@ -530,7 +534,7 @@ fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
-    fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    //fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, accounts_hash );
 
     return 0;

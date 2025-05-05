@@ -251,9 +251,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, sizeof(fd_rent_t) );
   fd_memcpy( &epoch_bank->rent_epoch_schedule, &oldbank->rent_collector.epoch_schedule, sizeof(fd_epoch_schedule_t) );
 
-  if( manifest->epoch_account_hash )
-    slot_bank->epoch_account_hash = *manifest->epoch_account_hash;
-
   // did they not change the bank?!
   slot_bank->collected_execution_fees = oldbank->collector_fees;
   slot_bank->collected_priority_fees = 0;
@@ -394,6 +391,16 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
   *block_height = oldbank->block_height;
   fd_bank_mgr_block_height_save( bank_mgr );
+
+  /* Epoch Account Hash */
+
+  fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_modify( bank_mgr );
+  if( manifest->epoch_account_hash ) {
+    *epoch_account_hash = *manifest->epoch_account_hash;
+  } else {
+    memset( epoch_account_hash, 0, sizeof(fd_hash_t) );
+  }
+  fd_bank_mgr_epoch_account_hash_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

@@ -4153,9 +4153,11 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       .para_arg_1 = tpool
     };
 
+    fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( bank_mgr );
+
     fd_accounts_hash( slot_ctx->funk,
                       slot_ctx->slot,
-                      &slot_ctx->slot_bank.epoch_account_hash,
+                      epoch_account_hash,
                       runtime_spad,
                       &slot_ctx->epoch_ctx->features,
                       &exec_para_ctx,

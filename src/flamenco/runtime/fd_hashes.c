@@ -261,6 +261,8 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
   ulong * transaction_count = fd_bank_mgr_transaction_count_query( bank_mgr );
   slot_ctx->parent_transaction_count = *transaction_count;
 
+  fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( bank_mgr );
+
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ) {
     sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );
     fd_pubkey_hash_pair_list_t list1 = { .pairs = dirty_keys, .pairs_len = dirty_key_cnt };
@@ -287,7 +289,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
     if (fd_should_include_epoch_accounts_hash(slot_ctx)) {
       fd_sha256_init( &sha );
       fd_sha256_append( &sha, (uchar const *) &hash->hash, sizeof( fd_hash_t ) );
-      fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
+      fd_sha256_append( &sha, (uchar const *) epoch_account_hash, sizeof( fd_hash_t ) );
       fd_sha256_fini( &sha, hash->hash );
     }
   }
@@ -1269,7 +1271,7 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
   if( should_include_eah ) {
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
-    fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    // fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, snapshot_hash );
   } else {
     *snapshot_hash = *accounts_hash;
@@ -1293,11 +1295,12 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
 
   int should_include_eah = 0;
   (void)epoch_bank;
+  (void)slot_bank;
 
   if( should_include_eah ) {
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) accounts_hash, sizeof( fd_hash_t ) );
-    fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    // fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, snapshot_hash );
   } else {
     *snapshot_hash = *accounts_hash;

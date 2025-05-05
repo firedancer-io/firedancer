@@ -1821,7 +1821,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   self->prev_slot = fd_rng_ulong( rng );
   fd_hash_generate( &self->poh, alloc_mem, rng );
   fd_hash_generate( &self->banks_hash, alloc_mem, rng );
-  fd_hash_generate( &self->epoch_account_hash, alloc_mem, rng );
   self->collected_execution_fees = fd_rng_ulong( rng );
   self->collected_priority_fees = fd_rng_ulong( rng );
   fd_vote_accounts_generate( &self->epoch_stakes, alloc_mem, rng );
@@ -4122,6 +4121,16 @@ void *fd_cost_tracker_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   self->secp256k1_instruction_signature_count = fd_rng_ulong( rng );
   self->ed25519_instruction_signature_count = fd_rng_ulong( rng );
   self->secp256r1_instruction_signature_count = fd_rng_ulong( rng );
+  return mem;
+}
+
+void *fd_cluster_version_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_cluster_version_t *self = (fd_cluster_version_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_cluster_version_t);
+  fd_cluster_version_new(mem);
+  self->major = fd_rng_uint( rng );
+  self->minor = fd_rng_uint( rng );
+  self->patch = fd_rng_uint( rng );
   return mem;
 }
 

@@ -9848,8 +9848,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->banks_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_encode( &self->epoch_account_hash, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->collected_execution_fees, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->collected_priority_fees, ctx );
@@ -9885,8 +9883,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_hash_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
@@ -9936,7 +9932,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_bincode_uint64_decode_unsafe( &self->prev_slot, ctx );
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
-  fd_hash_decode_inner( &self->epoch_account_hash, alloc_mem, ctx );
   fd_bincode_uint64_decode_unsafe( &self->collected_execution_fees, ctx );
   fd_bincode_uint64_decode_unsafe( &self->collected_priority_fees, ctx );
   fd_vote_accounts_decode_inner( &self->epoch_stakes, alloc_mem, ctx );
@@ -9969,7 +9964,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_clock_timestamp_votes_new( &self->timestamp_votes );
   fd_hash_new( &self->poh );
   fd_hash_new( &self->banks_hash );
-  fd_hash_new( &self->epoch_account_hash );
   fd_vote_accounts_new( &self->epoch_stakes );
   fd_sol_sysvar_last_restart_slot_new( &self->last_restart_slot );
   fd_account_keys_new( &self->stake_account_keys );
@@ -9985,7 +9979,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fun( w, &self->prev_slot, "prev_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_hash_walk( w, &self->poh, fun, "poh", level );
   fd_hash_walk( w, &self->banks_hash, fun, "banks_hash", level );
-  fd_hash_walk( w, &self->epoch_account_hash, fun, "epoch_account_hash", level );
   fun( w, &self->collected_execution_fees, "collected_execution_fees", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->collected_priority_fees, "collected_priority_fees", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_vote_accounts_walk( w, &self->epoch_stakes, fun, "epoch_stakes", level );
@@ -10009,7 +10002,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += sizeof(ulong);
   size += fd_hash_size( &self->poh );
   size += fd_hash_size( &self->banks_hash );
-  size += fd_hash_size( &self->epoch_account_hash );
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_vote_accounts_size( &self->epoch_stakes );
@@ -24987,6 +24979,50 @@ ulong fd_cost_tracker_size( fd_cost_tracker_t const * self ) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
+  return size;
+}
+
+int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->major, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->minor, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->patch, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+static inline int fd_cluster_version_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = (void *)( (ulong)ctx->data + 12UL );
+  return 0;
+}
+static void fd_cluster_version_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cluster_version_t * self = (fd_cluster_version_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->major, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->minor, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->patch, ctx );
+}
+void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cluster_version_t * self = (fd_cluster_version_t *)mem;
+  fd_cluster_version_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_cluster_version_t);
+  void * * alloc_mem = &alloc_region;
+  fd_cluster_version_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cluster_version", level++ );
+  fun( w, &self->major, "major", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cluster_version", level-- );
+}
+ulong fd_cluster_version_size( fd_cluster_version_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  size += sizeof(uint);
+  size += sizeof(uint);
   return size;
 }
 

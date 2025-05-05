@@ -729,9 +729,11 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
   ctx->skip_frag = 0;
   if( in_idx==BATCH_IN_IDX ) {
+    fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_modify( ctx->bank_mgr );
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
-    fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
-    FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->slot_bank.epoch_account_hash.uc ) ));
+    fd_memcpy( epoch_account_hash, src, sizeof(fd_hash_t) );
+    fd_bank_mgr_epoch_account_hash_save( ctx->bank_mgr );
+    FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( epoch_account_hash ) ));
   }
 }
 

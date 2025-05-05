@@ -225,7 +225,7 @@ struct fd_solana_account_global {
 typedef struct fd_solana_account_global fd_solana_account_global_t;
 #define FD_SOLANA_ACCOUNT_GLOBAL_ALIGN alignof(fd_solana_account_global_t)
 
-FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_global_t * struct_mem ) { // vector
+FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_global_t const * struct_mem ) { // vector
   return (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->data_offset );
 }
 /* Encoded Size: Fixed (48 bytes) */
@@ -342,11 +342,11 @@ struct fd_vote_accounts_global {
 typedef struct fd_vote_accounts_global fd_vote_accounts_global_t;
 #define FD_VOTE_ACCOUNTS_GLOBAL_ALIGN alignof(fd_vote_accounts_global_t)
 
-static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_pool_join( void * struct_mem, ulong offset ) { // deque
+static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_pool_join( void const * struct_mem, ulong offset ) { // deque
   return (fd_vote_accounts_pair_global_t_mapnode_t *)fd_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
-static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_root_join( void const * struct_mem, ulong offset ) { // deque
+  return !!offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_account_keys_pair {
@@ -502,11 +502,11 @@ struct fd_stakes_global {
 typedef struct fd_stakes_global fd_stakes_global_t;
 #define FD_STAKES_GLOBAL_ALIGN alignof(fd_stakes_global_t)
 
-static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_pool_join( void * struct_mem, ulong offset ) { // deque
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_pool_join( void const * struct_mem, ulong offset ) { // deque
   return (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
-static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_root_join( void * struct_mem, ulong offset ) { // deque
-  return (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_root_join( void const * struct_mem, ulong offset ) { // deque
+  return !!offset ? (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
 }
 typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_T fd_stake_pair_t_mapnode_t
@@ -1679,7 +1679,6 @@ struct fd_slot_bank {
   ulong prev_slot;
   fd_hash_t poh;
   fd_hash_t banks_hash;
-  fd_hash_t epoch_account_hash;
   ulong collected_execution_fees;
   ulong collected_priority_fees;
   fd_vote_accounts_t epoch_stakes;
@@ -3188,6 +3187,15 @@ struct fd_cost_tracker {
 };
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 #define FD_COST_TRACKER_ALIGN alignof(fd_cost_tracker_t)
+
+/* Encoded Size: Fixed (12 bytes) */
+struct fd_cluster_version {
+  uint major;
+  uint minor;
+  uint patch;
+};
+typedef struct fd_cluster_version fd_cluster_version_t;
+#define FD_CLUSTER_VERSION_ALIGN alignof(fd_cluster_version_t)
 
 
 FD_PROTOTYPES_BEGIN
@@ -6079,6 +6087,18 @@ ulong fd_cost_tracker_size( fd_cost_tracker_t const * self );
 static inline ulong fd_cost_tracker_align( void ) { return FD_COST_TRACKER_ALIGN; }
 int fd_cost_tracker_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+static inline void fd_cluster_version_new( fd_cluster_version_t * self ) { fd_memset( self, 0, sizeof(fd_cluster_version_t) ); }
+int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_cluster_version_size( fd_cluster_version_t const * self );
+static inline ulong fd_cluster_version_align( void ) { return FD_CLUSTER_VERSION_ALIGN; }
+static inline int fd_cluster_version_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_cluster_version_t);
+  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return 0;
+}
+void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 
