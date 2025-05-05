@@ -646,9 +646,9 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   // *bank->hashes_per_tick                      = epoch_bank->hashes_per_tick;
 
   bank->ticks_per_slot                        = FD_TICKS_PER_SLOT;
-  bank->ns_per_slot                           = epoch_bank->ns_per_slot;
-  bank->genesis_creation_time                 = epoch_bank->genesis_creation_time;
-  bank->slots_per_year                        = epoch_bank->slots_per_year;
+  // bank->ns_per_slot                           = epoch_bank->ns_per_slot;
+  // bank->genesis_creation_time                 = epoch_bank->genesis_creation_time;
+  // bank->slots_per_year                        = epoch_bank->slots_per_year;
 
   /* This value can be set to 0 because the Agave client recomputes this value
      and the firedancer client doesn't use it. */
@@ -670,7 +670,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
 
   bank->rent_collector.epoch                  = bank->epoch;
   bank->rent_collector.epoch_schedule         = epoch_bank->rent_epoch_schedule;
-  bank->rent_collector.slots_per_year         = epoch_bank->slots_per_year;
+  // bank->rent_collector.slots_per_year         = epoch_bank->slots_per_year;
   bank->rent_collector.rent                   = epoch_bank->rent;
 
   bank->epoch_schedule                        = epoch_bank->epoch_schedule;

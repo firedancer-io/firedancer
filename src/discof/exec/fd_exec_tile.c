@@ -195,7 +195,7 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
   ctx->txn_ctx->total_epoch_stake = epoch_msg->total_epoch_stake;
   ctx->txn_ctx->schedule          = epoch_msg->epoch_schedule;
   ctx->txn_ctx->rent              = epoch_msg->rent;
-  ctx->txn_ctx->slots_per_year    = epoch_msg->slots_per_year;
+  ctx->txn_ctx->slots_per_year    = *(fd_bank_mgr_slots_per_year_query( ctx->bank_mgr ));
 
   uchar * stakes_enc = fd_wksp_laddr_fast( ctx->runtime_public_wksp, epoch_msg->stakes_encoded_gaddr );
   if( FD_UNLIKELY( !stakes_enc ) ) {

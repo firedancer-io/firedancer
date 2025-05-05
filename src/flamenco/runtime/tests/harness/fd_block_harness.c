@@ -102,10 +102,22 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   *max_tick_height = test_ctx->epoch_ctx.hashes_per_tick;
   fd_bank_mgr_max_tick_height_save( bank_mgr );
 
-  epoch_bank->ticks_per_slot        = test_ctx->epoch_ctx.ticks_per_slot;
-  epoch_bank->ns_per_slot           = (uint128)64000000; // TODO: restore from input or smth
-  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
-  epoch_bank->slots_per_year        = test_ctx->epoch_ctx.slots_per_year;
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_modify( bank_mgr );
+  *ticks_per_slot = test_ctx->epoch_ctx.ticks_per_slot;
+  fd_bank_mgr_ticks_per_slot_save( bank_mgr );
+
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_modify( bank_mgr );
+  *ns_per_slot = (uint128)64000000; // TODO: restore from input
+  fd_bank_mgr_ns_per_slot_save( bank_mgr );
+
+  ulong * genesis_creation_time = fd_bank_mgr_genesis_creation_time_modify( bank_mgr );
+  *genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
+  fd_bank_mgr_genesis_creation_time_save( bank_mgr );
+
+  double * slots_per_year = fd_bank_mgr_slots_per_year_modify( bank_mgr );
+  *slots_per_year = test_ctx->epoch_ctx.slots_per_year;
+  fd_bank_mgr_slots_per_year_save( bank_mgr );
+
   epoch_bank->inflation             = (fd_inflation_t) {
     .initial         = test_ctx->epoch_ctx.inflation.initial,
     .terminal        = test_ctx->epoch_ctx.inflation.terminal,

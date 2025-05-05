@@ -1078,10 +1078,6 @@
       "archival": "true",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
-        { "name": "ticks_per_slot",        "type": "ulong" },
-        { "name": "ns_per_slot",           "type": "uint128" },
-        { "name": "genesis_creation_time", "type": "ulong" },
-        { "name": "slots_per_year",        "type": "double" },
         { "name": "max_tick_height",       "type": "ulong" },
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },

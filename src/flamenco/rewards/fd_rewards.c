@@ -94,9 +94,11 @@ get_inflation_num_slots( fd_exec_slot_ctx_t * slot_ctx,
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2121 */
 static double
 slot_in_year_for_inflation( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  ulong num_slots = get_inflation_num_slots( slot_ctx, &epoch_bank->epoch_schedule, slot_ctx->slot );
-  return (double)num_slots / (double)epoch_bank->slots_per_year;
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong num_slots = get_inflation_num_slots( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot );
+  return (double)num_slots / (double)*(fd_bank_mgr_slots_per_year_query( bank_mgr ));
 }
 
 /* For a given stake and vote_state, calculate how many points were earned (credits * stake) and new value
@@ -275,10 +277,14 @@ get_slots_in_epoch( ulong                   epoch,
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L2082 */
 static double
-epoch_duration_in_years( fd_epoch_bank_t const * epoch_bank,
+epoch_duration_in_years( fd_exec_slot_ctx_t *    slot_ctx,
+                         fd_epoch_bank_t const * epoch_bank,
                          ulong                   prev_epoch ) {
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   ulong slots_in_epoch = get_slots_in_epoch( prev_epoch, epoch_bank );
-  return (double)slots_in_epoch / (double) epoch_bank->slots_per_year;
+  return (double)slots_in_epoch / (double)*(fd_bank_mgr_slots_per_year_query( bank_mgr ));
 }
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128 */
@@ -292,7 +298,7 @@ calculate_previous_epoch_inflation_rewards( fd_exec_slot_ctx_t *                
     fd_epoch_bank_t const * epoch_bank    = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     rewards->validator_rate               = validator( &epoch_bank->inflation, slot_in_year );
     rewards->foundation_rate              = foundation( &epoch_bank->inflation, slot_in_year );
-    rewards->prev_epoch_duration_in_years = epoch_duration_in_years( epoch_bank, prev_epoch );
+    rewards->prev_epoch_duration_in_years = epoch_duration_in_years( slot_ctx, epoch_bank, prev_epoch );
     rewards->validator_rewards            = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
     FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));
 }

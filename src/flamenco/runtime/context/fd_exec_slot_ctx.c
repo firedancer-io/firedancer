@@ -246,10 +246,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
-  epoch_bank->ticks_per_slot = oldbank->ticks_per_slot;
-  fd_memcpy(&epoch_bank->ns_per_slot, &oldbank->ns_per_slot, sizeof(oldbank->ns_per_slot));
-  epoch_bank->genesis_creation_time = oldbank->genesis_creation_time;
-  epoch_bank->slots_per_year = oldbank->slots_per_year;
   fd_memcpy( &epoch_bank->inflation, &oldbank->inflation, sizeof(fd_inflation_t) );
   fd_memcpy( &epoch_bank->epoch_schedule, &oldbank->epoch_schedule, sizeof(fd_epoch_schedule_t) );
   epoch_bank->rent = oldbank->rent_collector.rent;
@@ -365,6 +361,29 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   *hashes_per_tick = !!oldbank->hashes_per_tick ? *oldbank->hashes_per_tick : 0UL;
   fd_bank_mgr_hashes_per_tick_save( bank_mgr );
 
+  /* NS Per Slot */
+
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_modify( bank_mgr );
+  *ns_per_slot = oldbank->ns_per_slot;
+  fd_bank_mgr_ns_per_slot_save( bank_mgr );
+
+  /* Ticks Per Slot */
+
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_modify( bank_mgr );
+  *ticks_per_slot = oldbank->ticks_per_slot;
+  fd_bank_mgr_ticks_per_slot_save( bank_mgr );
+
+  /* Genesis Creation Time */
+
+  ulong * genesis_creation_time = fd_bank_mgr_genesis_creation_time_modify( bank_mgr );
+  *genesis_creation_time = oldbank->genesis_creation_time;
+  fd_bank_mgr_genesis_creation_time_save( bank_mgr );
+
+  /* Slots Per Year */
+
+  double * slots_per_year = fd_bank_mgr_slots_per_year_modify( bank_mgr );
+  *slots_per_year = oldbank->slots_per_year;
+  fd_bank_mgr_slots_per_year_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

@@ -79,6 +79,22 @@
 #define FD_BANK_MGR_HASHES_PER_TICK_FOOTPRINT (8UL)
 #define FD_BANK_MGR_HASHES_PER_TICK_ALIGN     (8UL)
 
+#define FD_BANK_MGR_NS_PER_SLOT_ID        (11)
+#define FD_BANK_MGR_NS_PER_SLOT_FOOTPRINT (16UL)
+#define FD_BANK_MGR_NS_PER_SLOT_ALIGN     (16UL)
+
+#define FD_BANK_MGR_TICKS_PER_SLOT_ID        (12)
+#define FD_BANK_MGR_TICKS_PER_SLOT_FOOTPRINT (8UL)
+#define FD_BANK_MGR_TICKS_PER_SLOT_ALIGN     (8UL)
+
+#define FD_BANK_MGR_GENESIS_CREATION_TIME_ID        (13)
+#define FD_BANK_MGR_GENESIS_CREATION_TIME_FOOTPRINT (8UL)
+#define FD_BANK_MGR_GENESIS_CREATION_TIME_ALIGN     (8UL)
+
+#define FD_BANK_MGR_SLOTS_PER_YEAR_ID        (14)
+#define FD_BANK_MGR_SLOTS_PER_YEAR_FOOTPRINT (8UL)
+#define FD_BANK_MGR_SLOTS_PER_YEAR_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -120,6 +136,10 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                        parent_signature_cnt,        PARENT_SIGNATURE_CNT)        \
   X(ulong,                        tick_height,                 TICK_HEIGHT)                 \
   X(ulong,                        max_tick_height,             MAX_TICK_HEIGHT)             \
-  X(ulong,                        hashes_per_tick,             HASHES_PER_TICK)
+  X(ulong,                        hashes_per_tick,             HASHES_PER_TICK)             \
+  X(uint128,                      ns_per_slot,                 NS_PER_SLOT)                 \
+  X(ulong,                        ticks_per_slot,              TICKS_PER_SLOT)              \
+  X(ulong,                        genesis_creation_time,       GENESIS_CREATION_TIME)       \
+  X(double,                       slots_per_year,              SLOTS_PER_YEAR)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

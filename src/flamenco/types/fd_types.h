@@ -1386,10 +1386,6 @@ typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
 /* Encoded Size: Dynamic */
 struct fd_epoch_bank {
   fd_stakes_t stakes;
-  ulong ticks_per_slot;
-  uint128 ns_per_slot;
-  ulong genesis_creation_time;
-  double slots_per_year;
   ulong max_tick_height;
   fd_inflation_t inflation;
   fd_epoch_schedule_t epoch_schedule;

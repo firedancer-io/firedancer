@@ -323,6 +323,11 @@ fd_runtime_slot_count_in_two_day( ulong ticks_per_slot ) {
 // https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5594
 static int
 fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
+
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
 
@@ -330,7 +335,7 @@ fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulon
   ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
   ulong slots_per_normal_epoch = fd_epoch_slot_cnt( schedule, schedule->first_normal_epoch );
 
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( *ticks_per_slot );
 
   int use_multi_epoch_collection = ( epoch >= schedule->first_normal_epoch )
       && ( slots_per_normal_epoch < slot_count_in_two_day );
@@ -340,6 +345,11 @@ fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulon
 
 FD_FN_UNUSED static ulong
 fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
+
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
 
@@ -347,7 +357,7 @@ fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot 
   ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
   ulong slots_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
 
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( *ticks_per_slot );
 
   int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
 
@@ -362,6 +372,11 @@ fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot 
 // https://github.com/anza-xyz/agave/blob/2bdcc838c18d262637524274cbb2275824eb97b8/accounts-db/src/accounts_partition.rs#L30
 static ulong
 fd_runtime_get_rent_partition( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
+
   int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -370,7 +385,7 @@ fd_runtime_get_rent_partition( fd_exec_slot_ctx_t const * slot_ctx, ulong slot )
   ulong off;
   ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
   ulong slot_count_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( *ticks_per_slot );
 
   ulong base_epoch;
   ulong epoch_count_in_cycle;
@@ -3398,13 +3413,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_poh_config_t const * poh        = &genesis_block->poh_config;
   fd_exec_epoch_ctx_t *   epoch_ctx  = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *       epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  epoch_bank->ticks_per_slot        = genesis_block->ticks_per_slot;
-  epoch_bank->genesis_creation_time = genesis_block->creation_time;
   uint128 target_tick_duration      = ((uint128)poh->target_tick_duration.seconds * 1000000000UL + (uint128)poh->target_tick_duration.nanoseconds);
-  epoch_bank->ns_per_slot           = target_tick_duration * epoch_bank->ticks_per_slot;
 
-  epoch_bank->slots_per_year          = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)epoch_bank->ticks_per_slot;
-  epoch_bank->genesis_creation_time   = genesis_block->creation_time;
   epoch_bank->epoch_schedule          = genesis_block->epoch_schedule;
   epoch_bank->inflation               = genesis_block->inflation;
   epoch_bank->rent                    = genesis_block->rent;
@@ -3447,12 +3457,28 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
 
   ulong * max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
-  *max_tick_height = epoch_bank->ticks_per_slot * (slot_ctx->slot + 1);
+  *max_tick_height = genesis_block->ticks_per_slot * (slot_ctx->slot + 1);
   fd_bank_mgr_max_tick_height_save( bank_mgr );
 
   ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
   *hashes_per_tick = !!poh->hashes_per_tick ? poh->hashes_per_tick : 0UL;
   fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_modify( bank_mgr );
+  *ns_per_slot = target_tick_duration * genesis_block->ticks_per_slot;
+  fd_bank_mgr_ns_per_slot_save( bank_mgr );
+
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_modify( bank_mgr );
+  *ticks_per_slot = genesis_block->ticks_per_slot;
+  fd_bank_mgr_ticks_per_slot_save( bank_mgr );
+
+  ulong * genesis_creation_time = fd_bank_mgr_genesis_creation_time_modify( bank_mgr );
+  *genesis_creation_time = genesis_block->creation_time;
+  fd_bank_mgr_genesis_creation_time_save( bank_mgr );
+
+  double * slots_per_year = fd_bank_mgr_slots_per_year_modify( bank_mgr );
+  *slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis_block->ticks_per_slot;
+  fd_bank_mgr_slots_per_year_save( bank_mgr );
 
   slot_ctx->signature_cnt = 0UL;
 
@@ -3661,7 +3687,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
-  ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr )) * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
+  ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr )) * *(fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
   while( hashcnt_per_slot-- ) {
     fd_sha256_hash( slot_ctx->slot_bank.poh.uc, sizeof(fd_hash_t), slot_ctx->slot_bank.poh.uc );
   }

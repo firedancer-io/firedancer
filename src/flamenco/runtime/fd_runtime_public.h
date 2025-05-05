@@ -204,7 +204,6 @@ struct fd_runtime_public_epoch_msg {
   ulong               total_epoch_stake;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t           rent;
-  double              slots_per_year;
   ulong               stakes_encoded_gaddr;
   ulong               stakes_encoded_sz;
   ulong               bank_hash_cmp_gaddr;

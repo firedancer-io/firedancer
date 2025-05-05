@@ -26,10 +26,13 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
 static long
 timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
-  FD_LOG_INFO(("slot %lu", slot_ctx->slot));
-  return (long)( epoch_bank->genesis_creation_time + ( ( slot_ctx->slot * epoch_bank->ns_per_slot ) / NS_IN_S ) );
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+
+  return (long)( *(fd_bank_mgr_genesis_creation_time_query( bank_mgr )) + ( ( slot_ctx->slot * *ns_per_slot ) / NS_IN_S ) );
 }
 
 static void
@@ -87,10 +90,13 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
                           long                 estimate,
                           long                 epoch_start_timestamp ) {
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  uint128 poh_estimate_offset = epoch_bank->ns_per_slot * slot_ctx->slot;
+  uint128 poh_estimate_offset = *ns_per_slot * slot_ctx->slot;
   uint128 estimate_offset = (uint128)( ( estimate - epoch_start_timestamp ) * NS_IN_S );
 
   uint128 max_delta_fast = ( poh_estimate_offset * MAX_ALLOWABLE_DRIFT_FAST ) / 100;
@@ -123,11 +129,14 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
     return timestamp_from_genesis( slot_ctx );
   }
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+
   /* TODO: actually take the stake-weighted median. For now, just use the root node. */
   fd_clock_timestamp_vote_t * head = &votes->elem;
   ulong slots = slot_ctx->slot - head->slot;
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  uint128 ns_correction = epoch_bank->ns_per_slot * slots;
+  uint128 ns_correction = *ns_per_slot * slots;
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
@@ -175,8 +184,11 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
                                        uint                 fix_estimate_into_u64,
                                        fd_spad_t *          runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  ulong slot_duration = (ulong)( epoch_bank->ns_per_slot );
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong slot_duration = (ulong)( *fd_bank_mgr_ns_per_slot_query( bank_mgr ) );
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( slot_ctx->funk,
                                                               slot_ctx->funk_txn,
                                                               runtime_spad );
@@ -189,9 +201,6 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
   stake_ts_treap_t * treap    = stake_ts_treap_join( stake_ts_treap_new( _treap, 10240UL ) );
   uchar *            pool_mem = fd_spad_alloc( runtime_spad, stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
   stake_ts_ele_t *   pool     = stake_ts_pool_join( stake_ts_pool_new( pool_mem, 10240UL ) );
-
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong * txn_cnt_bm = fd_bank_mgr_transaction_count_query( bank_mgr );
   uint txn_cnt = !!txn_cnt_bm ? (uint)*txn_cnt_bm : 0;
