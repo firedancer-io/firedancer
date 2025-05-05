@@ -7,43 +7,73 @@ pull_resp:
           id: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
           gossip: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1024
           tvu: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1025
           tvu_fwd: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1026
           repair: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1031
           tpu: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1027
           tpu_fwd: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1028
           tpu_vote: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1029
           rpc: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 8899
           rpc_pubsub: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 8900
           serve_repair: 
             ip4: 
-              addr: '127.0.0.1'
+              addr: 127
+              addr: 0
+              addr: 0
+              addr: 1
               port: 1032
           wallclock: 1660658416429
           shred_version: 25514
