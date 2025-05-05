@@ -7,6 +7,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
+#include "../runtime/fd_bank_mgr.h"
 #include "../rewards/fd_rewards.h"
 #include "../runtime/fd_runtime.h"
 
@@ -450,16 +451,23 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
 
 static int
 fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash) )
+  if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash ) ) {
     return 0;
+  }
 
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
+  ulong * eah_end_slot   = fd_bank_mgr_eah_stop_slot_query( bank_mgr );
 
   // We need to find the correct logic
-  if (epoch_bank->eah_start_slot != ULONG_MAX)
+  if( *eah_start_slot != ULONG_MAX ) {
     return 0;
-  if (epoch_bank->eah_stop_slot == ULONG_MAX)
+  }
+  if( *eah_end_slot == ULONG_MAX ) {
     return 0;
+  }
   return 1;
 }
 

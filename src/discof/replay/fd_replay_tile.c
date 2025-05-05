@@ -881,15 +881,18 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
   fd_funk_txn_start_write( ctx->funk );
 
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
   fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, to_root_txn );
+  ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
 
   /* Try to publish into Funk */
   if( is_constipated ) {
     FD_LOG_NOTICE(( "Publishing slot=%lu while constipated", wmk ));
 
     /* Sanity-check that we are not constipated and the EHA has not been calculated */
-    if( FD_UNLIKELY( wmk>=epoch_bank->eah_start_slot ) ) {
+    if( FD_UNLIKELY( wmk>=*eah_start_slot ) ) {
       FD_LOG_ERR(( "trying to publish into a constipated funk whilst in front of the EHA start slot - we should never get here" ));
     }
 
@@ -913,7 +916,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
     FD_LOG_NOTICE(( "Publishing slot=%lu xid=%lu", wmk, to_root_txn->xid.ul[0] ));
 
-    if( FD_UNLIKELY( wmk>=epoch_bank->eah_start_slot ) ) {
+    if( FD_UNLIKELY( wmk>=*eah_start_slot ) ) {
 
       FD_LOG_NOTICE(( "EAH is ready to be calculated" ));
 
@@ -932,8 +935,8 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
            either have been published already or must be less than the eah start
            slot. */
 
-        int is_curr_gteq_eah_start = txn->xid.ul[0] >= epoch_bank->eah_start_slot;
-        int is_prev_lt_eah_start   = parent_txn->xid.ul[0] < epoch_bank->eah_start_slot;
+        int is_curr_gteq_eah_start = txn->xid.ul[0] >= *eah_start_slot;
+        int is_prev_lt_eah_start   = parent_txn->xid.ul[0] < *eah_start_slot;
         if( is_curr_gteq_eah_start && is_prev_lt_eah_start ) {
           break;
         }
@@ -945,7 +948,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
          calculate the eah for since it's the minimum slot that is >=
          eah_start_slot. */
 
-      FD_LOG_NOTICE(( "The eah has an expected start slot of %lu and is being created for slot %lu", epoch_bank->eah_start_slot, txn->xid.ul[0] ));
+      FD_LOG_NOTICE(( "The eah has an expected start slot of %lu and is being created for slot %lu", *eah_start_slot, txn->xid.ul[0] ));
 
       if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, txn, 1 ) ) ) {
         FD_LOG_ERR(( "failed to funk publish" ));
@@ -960,7 +963,9 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
       ulong updated_fseq = fd_batch_fseq_pack( 0UL, 0UL, txn->xid.ul[0] );
       fd_fseq_update( ctx->is_constipated, updated_fseq );
-      epoch_bank->eah_start_slot = FD_SLOT_NULL;
+      eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+      *eah_start_slot = FD_SLOT_NULL;
+      fd_bank_mgr_eah_start_slot_save( bank_mgr );
 
     } else {
       /* This is the standard case. Publish all transactions up to and
@@ -2118,7 +2123,16 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
 
   fd_fork_t * snapshot_fork = fd_forks_init( ctx->forks, ctx->slot_ctx );
   FD_TEST( snapshot_fork );
-  fd_epoch_init( ctx->epoch, &snapshot_fork->slot_ctx->epoch_ctx->epoch_bank );
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, snapshot_fork->slot_ctx->funk_txn );
+  ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
+  ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_query( bank_mgr );
+
+  fd_epoch_init( ctx->epoch,
+                 *eah_start_slot,
+                 *eah_stop_slot,
+                 &snapshot_fork->slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts );
   fd_ghost_init( ctx->ghost, snapshot_slot );
 
   fd_funk_rec_key_t key = { 0 };

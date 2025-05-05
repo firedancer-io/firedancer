@@ -8577,12 +8577,6 @@ int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_rent_encode( &self->rent, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->eah_start_slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->eah_stop_slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->eah_interval, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->genesis_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_encode( self->cluster_type, ctx );
@@ -8606,12 +8600,6 @@ static int fd_epoch_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_rent_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_decode_footprint( ctx );
@@ -8639,9 +8627,6 @@ static void fd_epoch_bank_decode_inner( void * struct_mem, void * * alloc_mem, f
   fd_stakes_decode_inner( &self->stakes, alloc_mem, ctx );
   fd_epoch_schedule_decode_inner( &self->epoch_schedule, alloc_mem, ctx );
   fd_rent_decode_inner( &self->rent, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->eah_start_slot, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->eah_stop_slot, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->eah_interval, ctx );
   fd_hash_decode_inner( &self->genesis_hash, alloc_mem, ctx );
   fd_bincode_uint32_decode_unsafe( &self->cluster_type, ctx );
   for( ulong i=0; i<3; i++ ) {
@@ -8672,9 +8657,6 @@ void fd_epoch_bank_walk( void * w, fd_epoch_bank_t const * self, fd_types_walk_f
   fd_stakes_walk( w, &self->stakes, fun, "stakes", level );
   fd_epoch_schedule_walk( w, &self->epoch_schedule, fun, "epoch_schedule", level );
   fd_rent_walk( w, &self->rent, fun, "rent", level );
-  fun( w, &self->eah_start_slot, "eah_start_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, &self->eah_stop_slot, "eah_stop_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, &self->eah_interval, "eah_interval", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_hash_walk( w, &self->genesis_hash, fun, "genesis_hash", level );
   fun( w, &self->cluster_type, "cluster_type", FD_FLAMENCO_TYPE_UINT, "uint", level );
   fun( w, NULL, "cluster_version", FD_FLAMENCO_TYPE_ARR, "uint[]", level++ );
@@ -8690,9 +8672,6 @@ ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
   size += fd_stakes_size( &self->stakes );
   size += fd_epoch_schedule_size( &self->epoch_schedule );
   size += fd_rent_size( &self->rent );
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
   size += fd_hash_size( &self->genesis_hash );
   size += sizeof(uint);
   size += 3 * sizeof(uint);

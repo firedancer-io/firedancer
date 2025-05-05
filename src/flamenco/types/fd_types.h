@@ -1388,9 +1388,6 @@ struct fd_epoch_bank {
   fd_stakes_t stakes;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
-  ulong eah_start_slot;
-  ulong eah_stop_slot;
-  ulong eah_interval;
   fd_hash_t genesis_hash;
   uint cluster_type;
   uint cluster_version[3];

@@ -155,10 +155,21 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, &slot_idx );
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, accounts_lt_hash) ) {
-    epoch_bank->eah_start_slot = ULONG_MAX;
-    epoch_bank->eah_stop_slot = ULONG_MAX;
-    epoch_bank->eah_interval = ULONG_MAX;
+    ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+    *eah_start_slot = ULONG_MAX;
+    fd_bank_mgr_eah_start_slot_save( bank_mgr );
+
+    ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_modify( bank_mgr );
+    *eah_stop_slot = ULONG_MAX;
+    fd_bank_mgr_eah_stop_slot_save( bank_mgr );
+
+    ulong * eah_interval = fd_bank_mgr_eah_interval_modify( bank_mgr );
+    *eah_interval = ULONG_MAX;
+    fd_bank_mgr_eah_interval_save( bank_mgr );
     return;
   }
 
@@ -174,30 +185,54 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   const ulong CALCULATION_INTERVAL_BUFFER = 150UL;
   const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
 
-  if (calculation_interval < MINIMUM_CALCULATION_INTERVAL) {
-    epoch_bank->eah_start_slot = ULONG_MAX;
-    epoch_bank->eah_stop_slot = ULONG_MAX;
-    epoch_bank->eah_interval = ULONG_MAX;
+  if( calculation_interval < MINIMUM_CALCULATION_INTERVAL ) {
+    ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+    *eah_start_slot = ULONG_MAX;
+    fd_bank_mgr_eah_start_slot_save( bank_mgr );
+
+    ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_modify( bank_mgr );
+    *eah_stop_slot = ULONG_MAX;
+    fd_bank_mgr_eah_stop_slot_save( bank_mgr );
+
+    ulong * eah_interval = fd_bank_mgr_eah_interval_modify( bank_mgr );
+    *eah_interval = ULONG_MAX;
+    fd_bank_mgr_eah_interval_save( bank_mgr );
+
     return;
   }
 
-  epoch_bank->eah_start_slot = first_slot_in_epoch + calculation_offset_start;
-  if (slot_ctx->slot > epoch_bank->eah_start_slot)
-    epoch_bank->eah_start_slot = ULONG_MAX;
-  epoch_bank->eah_stop_slot = first_slot_in_epoch + calculation_offset_stop;
-  if (slot_ctx->slot > epoch_bank->eah_stop_slot)
-    epoch_bank->eah_stop_slot = ULONG_MAX;
-  epoch_bank->eah_interval = calculation_interval;
+  ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+
+  *eah_start_slot = first_slot_in_epoch + calculation_offset_start;
+  if( slot_ctx->slot > *eah_start_slot ) {
+    *eah_start_slot = ULONG_MAX;
+  }
+  fd_bank_mgr_eah_start_slot_save( bank_mgr );
+
+  ulong * eah_end_slot = fd_bank_mgr_eah_stop_slot_modify( bank_mgr );
+  *eah_end_slot = first_slot_in_epoch + calculation_offset_stop;
+  if( slot_ctx->slot > *eah_end_slot ) {
+    *eah_end_slot = ULONG_MAX;
+  }
+  fd_bank_mgr_eah_stop_slot_save( bank_mgr );
+
+  ulong * eah_interval = fd_bank_mgr_eah_interval_modify( bank_mgr );
+  *eah_interval = calculation_interval;
+  fd_bank_mgr_eah_interval_save( bank_mgr );
+
 }
 
 // https://github.com/solana-labs/solana/blob/b0dcaf29e358c37a0fcb8f1285ce5fff43c8ec55/runtime/src/bank/epoch_accounts_hash_utils.rs#L13
 static int
-fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, accounts_lt_hash) )
+fd_should_include_epoch_accounts_hash( fd_exec_slot_ctx_t * slot_ctx ) {
+  if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, accounts_lt_hash) ) {
     return 0;
+  }
 
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  ulong calculation_stop = epoch_bank->eah_stop_slot;
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong calculation_stop = *fd_bank_mgr_eah_stop_slot_query( bank_mgr );
   return slot_ctx->slot_bank.prev_slot < calculation_stop && (slot_ctx->slot >= calculation_stop);
 }
 
@@ -1214,6 +1249,7 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_tpool_t *      tpool,
                           fd_spad_t *       runtime_spad,
                           fd_features_t *   features ) {
+  (void)epoch_bank;
 
   fd_sha256_t h;
 
@@ -1226,7 +1262,9 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
   (void)slot_bank;
   fd_accounts_hash( funk, 0UL, accounts_hash, runtime_spad, features, &exec_para_ctx, NULL );
 
-  int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
+
+  // int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
+  int should_include_eah = 0;
 
   if( should_include_eah ) {
     fd_sha256_init( &h );
@@ -1253,7 +1291,8 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
   fd_sha256_t h;
   fd_accounts_hash_inc_no_txn( funk, accounts_hash, pubkeys, pubkeys_len, 0UL, spad, features );
 
-  int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
+  int should_include_eah = 0;
+  (void)epoch_bank;
 
   if( should_include_eah ) {
     fd_sha256_init( &h );

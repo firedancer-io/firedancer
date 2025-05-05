@@ -4077,6 +4077,10 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_txn_pool_t * txnpool    = fd_funk_txn_pool( funk );
   fd_epoch_bank_t *    epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, slot_ctx->funk_txn );
+
+
   if( capture_ctx != NULL ) {
     fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot );
   }
@@ -4120,11 +4124,14 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         }
       }
 
-      if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
+      ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
+      if( txn->xid.ul[0] >= *eah_start_slot ) {
         if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) {
           do_eah = 1;
         }
-        epoch_bank->eah_start_slot = ULONG_MAX;
+        eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+        *eah_start_slot = ULONG_MAX;
+        fd_bank_mgr_eah_start_slot_save( bank_mgr );
       }
 
       break;
