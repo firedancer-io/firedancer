@@ -195,6 +195,20 @@ struct fd_solana_account {
 typedef struct fd_solana_account fd_solana_account_t;
 #define FD_SOLANA_ACCOUNT_ALIGN alignof(fd_solana_account_t)
 
+struct fd_solana_account_global {
+  ulong lamports;
+  ulong data_len;
+  ulong data_offset;
+  fd_pubkey_t owner;
+  uchar executable;
+  ulong rent_epoch;
+};
+typedef struct fd_solana_account_global fd_solana_account_global_t;
+#define FD_SOLANA_ACCOUNT_GLOBAL_ALIGN alignof(fd_solana_account_global_t)
+
+FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_global_t * struct_mem ) { // vector
+  return (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->data_offset );
+}
 /* Encoded Size: Fixed (48 bytes) */
 struct __attribute__((packed)) fd_solana_account_stored_meta {
   ulong write_version_obsolete;
@@ -246,6 +260,14 @@ struct fd_vote_accounts_pair {
 typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_ALIGN alignof(fd_vote_accounts_pair_t)
 
+struct fd_vote_accounts_pair_global {
+  fd_pubkey_t key;
+  ulong stake;
+  fd_solana_account_global_t value;
+};
+typedef struct fd_vote_accounts_pair_global fd_vote_accounts_pair_global_t;
+#define FD_VOTE_ACCOUNTS_PAIR_GLOBAL_ALIGN alignof(fd_vote_accounts_pair_global_t)
+
 typedef struct fd_vote_accounts_pair_t_mapnode fd_vote_accounts_pair_t_mapnode_t;
 #define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
@@ -266,6 +288,26 @@ fd_vote_accounts_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_vote_accounts_pair_t_map_footprint( len );
   return fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( map_mem, len ) );
 }
+typedef struct fd_vote_accounts_pair_global_t_mapnode fd_vote_accounts_pair_global_t_mapnode_t;
+#define REDBLK_T fd_vote_accounts_pair_global_t_mapnode_t
+#define REDBLK_NAME fd_vote_accounts_pair_global_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_vote_accounts_pair_global_t_mapnode {
+    fd_vote_accounts_pair_global_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_vote_accounts_pair_global_t_mapnode_t *
+fd_vote_accounts_pair_global_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_accounts_pair_global_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_vote_accounts_pair_global_t_map_footprint( len );
+  return fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( map_mem, len ) );
+}
 /* Encoded Size: Dynamic */
 struct fd_vote_accounts {
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool;
@@ -274,6 +316,19 @@ struct fd_vote_accounts {
 typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_ALIGN alignof(fd_vote_accounts_t)
 
+struct fd_vote_accounts_global {
+  ulong vote_accounts_pool_offset;
+  ulong vote_accounts_root_offset;
+};
+typedef struct fd_vote_accounts_global fd_vote_accounts_global_t;
+#define FD_VOTE_ACCOUNTS_GLOBAL_ALIGN alignof(fd_vote_accounts_global_t)
+
+static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_pool_join( void * struct_mem, ulong offset ) { // deque
+  return (fd_vote_accounts_pair_global_t_mapnode_t *)fd_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+}
+static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_root_join( void * struct_mem, ulong offset ) { // deque
+  return (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+}
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_account_keys_pair {
   fd_pubkey_t key;
@@ -417,6 +472,23 @@ struct fd_stakes {
 typedef struct fd_stakes fd_stakes_t;
 #define FD_STAKES_ALIGN alignof(fd_stakes_t)
 
+struct fd_stakes_global {
+  fd_vote_accounts_global_t vote_accounts;
+  ulong stake_delegations_pool_offset;
+  ulong stake_delegations_root_offset;
+  ulong unused;
+  ulong epoch;
+  fd_stake_history_t stake_history;
+};
+typedef struct fd_stakes_global fd_stakes_global_t;
+#define FD_STAKES_GLOBAL_ALIGN alignof(fd_stakes_global_t)
+
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_pool_join( void * struct_mem, ulong offset ) { // deque
+  return (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+}
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_root_join( void * struct_mem, ulong offset ) { // deque
+  return (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
+}
 typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_T fd_stake_pair_t_mapnode_t
 #define REDBLK_NAME fd_stake_pair_t_map
@@ -3328,6 +3400,8 @@ ulong fd_solana_account_size( fd_solana_account_t const * self );
 static inline ulong fd_solana_account_align( void ) { return FD_SOLANA_ACCOUNT_ALIGN; }
 int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_solana_account_encode_global( fd_solana_account_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_vote_accounts_pair_new( fd_vote_accounts_pair_t * self );
 int fd_vote_accounts_pair_encode( fd_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -3336,6 +3410,8 @@ ulong fd_vote_accounts_pair_size( fd_vote_accounts_pair_t const * self );
 static inline ulong fd_vote_accounts_pair_align( void ) { return FD_VOTE_ACCOUNTS_PAIR_ALIGN; }
 int fd_vote_accounts_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_vote_accounts_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_vote_accounts_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_accounts_pair_encode_global( fd_vote_accounts_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_vote_accounts_new( fd_vote_accounts_t * self );
 int fd_vote_accounts_encode( fd_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -3344,6 +3420,8 @@ ulong fd_vote_accounts_size( fd_vote_accounts_t const * self );
 static inline ulong fd_vote_accounts_align( void ) { return FD_VOTE_ACCOUNTS_ALIGN; }
 int fd_vote_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_vote_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_vote_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_accounts_encode_global( fd_vote_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 static inline void fd_account_keys_pair_new( fd_account_keys_pair_t * self ) { fd_memset( self, 0, sizeof(fd_account_keys_pair_t) ); }
 int fd_account_keys_pair_encode( fd_account_keys_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -3440,6 +3518,8 @@ ulong fd_stakes_size( fd_stakes_t const * self );
 static inline ulong fd_stakes_align( void ) { return FD_STAKES_ALIGN; }
 int fd_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stakes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_stakes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_stakes_encode_global( fd_stakes_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stakes_stake_new( fd_stakes_stake_t * self );
 int fd_stakes_stake_encode( fd_stakes_stake_t const * self, fd_bincode_encode_ctx_t * ctx );
