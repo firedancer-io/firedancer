@@ -436,11 +436,11 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  ulong slot0 = slot_ctx->slot_bank.prev_slot;
+  ulong slot0 = (slot_ctx->slot_bank.prev_slot == 0) ? 0 :
+    slot_ctx->slot_bank.prev_slot + 1;   /* Accomodate skipped slots */
   ulong slot1 = slot_ctx->slot_bank.slot;
 
-  /* Accomodate skipped slots */
-  for( ulong s = slot0 + 1; s <= slot1; ++s ) {
+  for( ulong s = slot0; s <= slot1; ++s ) {
 
     ulong partition = fd_runtime_get_rent_partition( slot_ctx, s );
 
