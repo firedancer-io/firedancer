@@ -1078,14 +1078,17 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
   (void)exec_spads;
   (void)exec_spad_cnt;
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * block_height = fd_bank_mgr_block_height_query( bank_mgr );
+
   if( slot_ctx->slot_bank.epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Inactive ) {
     return;
   }
 
   fd_start_block_height_and_rewards_t * status = &slot_ctx->slot_bank.epoch_reward_status.inner.Active;
 
-  fd_slot_bank_t *        slot_bank  = &slot_ctx->slot_bank;
-  ulong                   height     = slot_bank->block_height;
+  ulong                   height     = *block_height;
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
 
   ulong distribution_starting_block_height = status->distribution_starting_block_height;
@@ -1159,6 +1162,10 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                exec_spad_cnt,
                               fd_spad_t *          runtime_spad ) {
 
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
   fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
   calculate_rewards_and_distribute_vote_rewards( slot_ctx,
@@ -1172,7 +1179,7 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                                  runtime_spad );
 
   /* https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L62 */
-  ulong distribution_starting_block_height = slot_ctx->slot_bank.block_height + REWARD_CALCULATION_NUM_BLOCKS;
+  ulong distribution_starting_block_height = *(fd_bank_mgr_block_height_query( bank_mgr )) + REWARD_CALCULATION_NUM_BLOCKS;
 
   /* Set the epoch reward status to be active */
   set_epoch_reward_status_active( slot_ctx,

@@ -86,7 +86,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
-  slot_bank->block_height           = test_ctx->slot_ctx.block_height;
   slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
 
   /* Set up epoch context and epoch bank */
@@ -125,6 +124,10 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   inflation->foundation      = test_ctx->epoch_ctx.inflation.foundation;
   inflation->foundation_term = test_ctx->epoch_ctx.inflation.foundation_term;
   fd_bank_mgr_inflation_save( bank_mgr );
+
+  ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+  *block_height = test_ctx->slot_ctx.block_height;
+  fd_bank_mgr_block_height_save( bank_mgr );
 
   /* Load in all accounts with > 0 lamports provided in the context */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {

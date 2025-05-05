@@ -1608,7 +1608,6 @@ struct fd_slot_bank {
   fd_hash_t poh;
   fd_hash_t banks_hash;
   fd_hash_t epoch_account_hash;
-  ulong block_height;
   ulong collected_execution_fees;
   ulong collected_priority_fees;
   fd_vote_accounts_t epoch_stakes;

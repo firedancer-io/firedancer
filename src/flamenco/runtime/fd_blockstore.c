@@ -281,7 +281,6 @@ fd_blockstore_init( fd_blockstore_t *      blockstore,
   ele->parent_slot    = slot_bank->prev_slot;
   memset( ele->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
   ele->child_slot_cnt = 0;
-  ele->block_height   = slot_bank->block_height;
   ele->in_poh_hash    = slot_bank->poh;
   ele->flags          = fd_uchar_set_bit(
                       fd_uchar_set_bit(

@@ -1822,7 +1822,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_hash_generate( &self->poh, alloc_mem, rng );
   fd_hash_generate( &self->banks_hash, alloc_mem, rng );
   fd_hash_generate( &self->epoch_account_hash, alloc_mem, rng );
-  self->block_height = fd_rng_ulong( rng );
   self->collected_execution_fees = fd_rng_ulong( rng );
   self->collected_priority_fees = fd_rng_ulong( rng );
   fd_vote_accounts_generate( &self->epoch_stakes, alloc_mem, rng );

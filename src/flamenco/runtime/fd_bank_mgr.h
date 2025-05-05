@@ -115,6 +115,10 @@
 #define FD_BANK_MGR_EAH_INTERVAL_FOOTPRINT (8UL)
 #define FD_BANK_MGR_EAH_INTERVAL_ALIGN     (8UL)
 
+#define FD_BANK_MGR_BLOCK_HEIGHT_ID        (20)
+#define FD_BANK_MGR_BLOCK_HEIGHT_FOOTPRINT (8UL)
+#define FD_BANK_MGR_BLOCK_HEIGHT_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -165,6 +169,7 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                        total_epoch_stake,           TOTAL_EPOCH_STAKE)           \
   X(ulong,                        eah_start_slot,              EAH_START_SLOT)              \
   X(ulong,                        eah_stop_slot,               EAH_STOP_SLOT)               \
-  X(ulong,                        eah_interval,                EAH_INTERVAL)
+  X(ulong,                        eah_interval,                EAH_INTERVAL)                \
+  X(ulong,                        block_height,                BLOCK_HEIGHT)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

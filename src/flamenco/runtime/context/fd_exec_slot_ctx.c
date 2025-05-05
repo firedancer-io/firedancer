@@ -257,7 +257,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   // did they not change the bank?!
   slot_bank->collected_execution_fees = oldbank->collector_fees;
   slot_bank->collected_priority_fees = 0;
-  slot_bank->block_height = oldbank->block_height;
 
   fd_funk_t *     funk     = slot_ctx->funk;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
@@ -389,6 +388,12 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( bank_mgr );
   *inflation = oldbank->inflation;
   fd_bank_mgr_inflation_save( bank_mgr );
+
+  /* Block Height */
+
+  ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+  *block_height = oldbank->block_height;
+  fd_bank_mgr_block_height_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

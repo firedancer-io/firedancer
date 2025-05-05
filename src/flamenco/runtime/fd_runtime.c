@@ -1514,10 +1514,13 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   if( slot_ctx->blockstore && slot_ctx->slot != 0UL ) {
     fd_blockstore_block_height_update( slot_ctx->blockstore,
                                        slot_ctx->slot,
-                                       slot_ctx->slot_bank.block_height );
+                                       *(fd_bank_mgr_block_height_query( bank_mgr )) );
   }
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
@@ -3417,10 +3420,13 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   epoch_bank->epoch_schedule          = genesis_block->epoch_schedule;
   epoch_bank->rent                    = genesis_block->rent;
-  slot_ctx->slot_bank.block_height    = 0UL;
 
   fd_bank_mgr_t   bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+  *block_height = 0UL;
+  fd_bank_mgr_block_height_save( bank_mgr );
 
   fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( bank_mgr );
   *inflation = genesis_block->inflation;
@@ -4255,8 +4261,13 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary ) {
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   /* Update block height. */
-  slot_ctx->slot_bank.block_height += 1UL;
+  ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+  *block_height += 1UL;
+  fd_bank_mgr_block_height_save( bank_mgr );
 
   if( slot_ctx->slot != 0UL ) {
     ulong             slot_idx;
@@ -4265,7 +4276,9 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     ulong             new_epoch  = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, &slot_idx );
     if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
       /* The block after genesis has a height of 1. */
-      slot_ctx->slot_bank.block_height = 1UL;
+      ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+      *block_height = 1UL;
+      fd_bank_mgr_block_height_save( bank_mgr );
     }
 
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {

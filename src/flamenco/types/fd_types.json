@@ -1224,7 +1224,6 @@
         { "name": "poh",                         "type": "hash" },
         { "name": "banks_hash",                  "type": "hash" },
         { "name": "epoch_account_hash",          "type": "hash" },
-        { "name": "block_height",                "type": "ulong" },
         { "name": "collected_execution_fees",    "type": "ulong" },
         { "name": "collected_priority_fees",     "type": "ulong" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },

@@ -68,7 +68,6 @@ usage( void ) {
     fd_slot_bank_t slot_bank = {                                                         \
         .prev_slot = 0,                                                                  \
         .banks_hash = { .hash = {0} },                                                   \
-        .block_height = 1,                                                               \
     };                                                                                   \
     fd_slot_bank_new( &slot_bank );                                                      \
     int fd = open( "dummy.archv", O_RDWR | O_CREAT, 0666 );                              \

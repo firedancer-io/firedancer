@@ -657,7 +657,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
 
   bank->slot                                  = snapshot_ctx->slot;
   bank->epoch                                 = fd_slot_to_epoch( &epoch_bank->epoch_schedule, bank->slot, NULL );
-  bank->block_height                          = slot_bank->block_height;
+  // bank->block_height                          = slot_bank->block_height;
 
   /* Collector id can be left as null for both clients */
 
