@@ -1218,7 +1218,7 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
     fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, snapshot_hash );
   } else {
-    fd_memcpy( snapshot_hash, accounts_hash, sizeof(fd_hash_t) );
+    *snapshot_hash = *accounts_hash;
   }
 
   return 0;
@@ -1245,7 +1245,7 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
     fd_sha256_append( &h, (uchar const *) slot_bank->epoch_account_hash.hash, sizeof( fd_hash_t ) );
     fd_sha256_fini( &h, snapshot_hash );
   } else {
-    fd_memcpy( snapshot_hash, accounts_hash, sizeof(fd_hash_t) );
+    *snapshot_hash = *accounts_hash;
   }
 
   return 0;

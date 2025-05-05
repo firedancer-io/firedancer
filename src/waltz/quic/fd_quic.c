@@ -309,10 +309,9 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
                         fd_aio_t const * aio_tx ) {
 
   if( aio_tx ) {
-    /* TODO unclear if memcpy violates fd_aio semantics (breaks downcasting) */
-    memcpy( &quic->aio_tx, aio_tx, sizeof(fd_aio_t) );
+    quic->aio_tx = *aio_tx;
   } else {
-    memset( &quic->aio_tx, 0,      sizeof(fd_aio_t) );
+    memset( &quic->aio_tx, 0, sizeof(fd_aio_t) );
   }
 }
 

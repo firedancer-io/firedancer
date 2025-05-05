@@ -178,7 +178,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !last_restart_slot ) ) {
     FD_LOG_ERR(( "failed to read sysvar last restart slot" ));
   }
-  memcpy( out, last_restart_slot, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+  *out = *last_restart_slot;
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -405,7 +405,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   if( FD_LIKELY( src_sz!=0UL ) ) {
     fd_memcpy( return_data->data, src, src_sz );
   }
-  memcpy( &return_data->program_id, program_id, sizeof(fd_pubkey_t) );
+  return_data->program_id = *program_id;
 
   *_ret = 0;
   return FD_VM_SUCCESS;

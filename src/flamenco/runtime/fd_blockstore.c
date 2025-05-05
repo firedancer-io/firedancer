@@ -272,11 +272,11 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
   if ( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to prepare block map for slot %lu", smr ));
 
   ele->slot = smr;
-  ele->parent_slot   = slot_bank->prev_slot;
+  ele->parent_slot    = slot_bank->prev_slot;
   memset( ele->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
   ele->child_slot_cnt = 0;
   ele->block_height   = slot_bank->block_height;
-  memcpy( &ele->block_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
+  ele->block_hash     = *slot_bank->block_hash_queue.last_hash;
   ele->bank_hash      = slot_bank->banks_hash;
   ele->in_poh_hash    = slot_bank->poh;
   ele->flags          = fd_uchar_set_bit(
@@ -284,11 +284,11 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
                       fd_uchar_set_bit(
                       fd_uchar_set_bit(
                       fd_uchar_set_bit( ele->flags,
-                                       FD_BLOCK_FLAG_COMPLETED ),
-                                       FD_BLOCK_FLAG_PROCESSED ),
-                                       FD_BLOCK_FLAG_EQVOCSAFE ),
-                                       FD_BLOCK_FLAG_CONFIRMED ),
-                                       FD_BLOCK_FLAG_FINALIZED );
+                                        FD_BLOCK_FLAG_COMPLETED ),
+                                        FD_BLOCK_FLAG_PROCESSED ),
+                                        FD_BLOCK_FLAG_EQVOCSAFE ),
+                                        FD_BLOCK_FLAG_CONFIRMED ),
+                                        FD_BLOCK_FLAG_FINALIZED );
   // ele->ref_tick = 0;
   ele->ts             = 0;
   ele->consumed_idx   = 0;
@@ -763,7 +763,7 @@ fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_has
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) )   return FD_BLOCKSTORE_ERR_KEY;
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     fd_block_info_t * block_info = fd_block_map_query_ele( query );
-    memcpy( hash_out, &block_info->block_hash, sizeof(fd_hash_t) );
+    *hash_out = block_info->block_hash;
     if( FD_LIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) return FD_BLOCKSTORE_SUCCESS;
   }
 }
@@ -776,7 +776,7 @@ fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) )   return FD_BLOCKSTORE_ERR_KEY;
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     fd_block_info_t * block_info = fd_block_map_query_ele( query );
-    memcpy( hash_out, &block_info->bank_hash, sizeof(fd_hash_t) );
+    *hash_out = block_info->bank_hash;
     if( FD_LIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) return FD_BLOCKSTORE_SUCCESS;
   }
 }
@@ -1078,7 +1078,7 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
     fd_block_info_t const * query = fd_block_map_query_ele_const( quer );
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
-    fd_memcpy( block_info_out, query, sizeof( fd_block_info_t ) );
+    *block_info_out = *query;
 
     err = fd_block_map_query_test( quer );
   }
