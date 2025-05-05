@@ -13,6 +13,7 @@
 #include "../../ballet/base64/fd_base64.h"
 
 #include <linux/unistd.h>
+#define FD_PACK_USE_EXTRA_STORAGE 1
 
 /* fd_pack is responsible for taking verified transactions, and
    arranging them into "microblocks" (groups) of transactions to
@@ -99,8 +100,9 @@ FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 #define DEQUE_NAME extra_txn_deq
 #define DEQUE_T    fd_txn_e_t
 #define DEQUE_MAX  (128UL*1024UL)
-#include "../../../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque.c"
 
+#define TPU_DELAY 295 /* measured in 1<<20 ticks */
 #endif
 
 typedef struct {
@@ -421,7 +423,7 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   spot->txnp->payload_sz = insert->txnp->payload_sz;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
-  ulong blockhash_slot = insert->txnp->blockhash_slot;
+  ulong blockhash_slot = insert->txnp->extra.blockhash_slot;
 
   long insert_duration = -fd_tickcount();
   int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot );
@@ -538,7 +540,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
 #if FD_PACK_USE_EXTRA_STORAGE
     if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) &&
-         fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+         fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions &&
+        (((now>>20) - extra_txn_deq_peek_head( ctx->extra_txn_deq )->txnp->extra.insert_time)>TPU_DELAY) ) ) {
       *charge_busy = 1;
 
       int result = insert_from_extra( ctx );
@@ -694,7 +697,10 @@ after_credit( fd_pack_ctx_t *     ctx,
     ulong avail_space   = (ulong)fd_long_max( 0L, (long)(ctx->max_pending_transactions>>1)-(long)fd_pack_avail_txn_cnt( ctx->pack ) );
     ulong qty_to_insert = fd_ulong_min( 10UL, fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space ) );
     int any_successes = 0;
-    for( ulong i=0UL; i<qty_to_insert; i++ ) any_successes |= (0<=insert_from_extra( ctx ));
+    for( ulong i=0UL; i<qty_to_insert; i++ ) {
+      if( ((now>>20) - extra_txn_deq_peek_head( ctx->extra_txn_deq )->txnp->extra.insert_time)<TPU_DELAY ) break;
+      any_successes |= (0<=insert_from_extra( ctx ));
+    }
     if( FD_LIKELY( any_successes ) ) ctx->last_successful_insert = now;
   }
 #endif
@@ -869,7 +875,7 @@ during_frag( fd_pack_ctx_t * ctx,
     } else {
       ctx->is_bundle = 0;
 #if FD_PACK_USE_EXTRA_STORAGE
-      if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+      if( fd_txn_is_simple_vote_transaction( txn, fd_txn_m_payload( txnm ) ) ) {
         ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
         ctx->insert_to_extra = 0;
       } else {
@@ -881,8 +887,9 @@ during_frag( fd_pack_ctx_t * ctx,
         /* We want to store the current time in cur_spot so that we can
            track its expiration better.  We just stash it in the CU
            fields, since those aren't important right now. */
-        ctx->cur_spot->txnp->blockhash_slot = sig;
-        ctx->insert_to_extra                = 1;
+        ctx->cur_spot->txnp->extra.blockhash_slot = (uint)sig;
+        ctx->cur_spot->txnp->extra.insert_time    = (int)(fd_tickcount()>>20);
+        ctx->insert_to_extra                      = 1;
         FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
       }
 #else
