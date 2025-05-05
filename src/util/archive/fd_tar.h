@@ -84,7 +84,7 @@ fd_tar_set_octal( char  buf[ static 12 ],
                   ulong val );
 
 /* fd_tar_meta_set_size sets the size field.  Returns 1 on success, 0
-   if sz is too large to be represented in TAR header. Set size using the 
+   if sz is too large to be represented in TAR header. Set size using the
    OLDGNU size extension to allow for unlimited file sizes. The first byte
    must be 0x80 followed by 0s and then the size in binary. */
 
@@ -240,30 +240,30 @@ fd_tar_read( void *        reader,
     2. Write out file data with fd_tar_writer_write_file_data( writer, data, data_sz ).
        This can be done as many times as you want.
     3. Finish the current file with fd_tar_writer_fini_file( writer ).
-  
-   When you are done, call fd_tar_writer_delete( writer ) to write out the 
+
+   When you are done, call fd_tar_writer_delete( writer ) to write out the
    tar archive trailer and close otu the file descriptor.
 
-   If you want to reserve space for an existing file and write back to it 
+   If you want to reserve space for an existing file and write back to it
    at some point in the future see the below comments for
    fd_tar_writer_{make,fill}_space().
-   
+
    */
 
 struct fd_tar_writer {
   int                      fd;         /* The file descriptor for the tar archive. */
   ulong                    header_pos; /* The position in the file for the current files header.
-                                          If there is no current file that is being streamed out, 
+                                          If there is no current file that is being streamed out,
                                           the header_pos will be equal to ULONG_MAX. */
   ulong                    data_sz;    /* The size of the current files data. If there is no
                                           current file that is being streamed out, the data_sz
                                           will be equal to ULONG_MAX. */
   ulong                    wb_pos;     /* If this value is not equal to ULONG_MAX that means that
-                                          this is the position at which to write back to with a 
+                                          this is the position at which to write back to with a
                                           call to fd_tar_writer_fill_space. */
-  /* TODO: Right now, the stream to the tar writer just uses fd_io_write. 
+  /* TODO: Right now, the stream to the tar writer just uses fd_io_write.
      This can eventually be abstracted to use write callbacks that use
-     fd_io streaming under the hood. This adds some additional complexity 
+     fd_io streaming under the hood. This adds some additional complexity
      that's related to writing back into the header: if the header is still
      in the ostream buf, modify the buffer. Otherwise, read the header
      directly from the file. */
@@ -333,15 +333,15 @@ fd_tar_writer_fini_file( fd_tar_writer_t * writer );
 /* fd_tar_writer_make_space and fd_tar_writer_fill_space, allow for writing
    back to a specific place in the tar stream. This can be used by first
    making a call to fd_tar_write_new_file, fd_tar_writer_make_space, and
-   fd_tar_writer_fini_file. This will populate the header and write out 
+   fd_tar_writer_fini_file. This will populate the header and write out
    random bytes. The start of this data file will be saved by the tar writer.
-   Up to n data files can be appended to the tar archive before a call to 
+   Up to n data files can be appended to the tar archive before a call to
    fd_tar_writer_fill_space. fd_tar_writer_fill_space should only be called
    after an unpaired call to fd_tar_writer_make_space and it requires a valid
    fd_tar_writer_t handle. It allows the user to write back to the point at
    which they made space. _make_space and _fill_space should be paired together.
    There can only be one oustanding call to make_space at a time.
-   
+
    TODO: This can be extended to support multiple write backs. */
 
 int

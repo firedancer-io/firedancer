@@ -90,16 +90,19 @@ echo "
     idx_max = 8192
     alloc_max = 1073741824
     file = \"$DATA_DIR/shredcap_testnet.blockstore\"
+[funk]
+    max_account_records = 150000000
+    heap_size_gb = 100
+    max_database_transactions = 2000
+    [funk.filemap]
+        enabled = true
+        path = \"$DATA_DIR/shredcap_testnet.funk\"
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384
     [tiles.replay]
         snapshot = \"$SNAPSHOT\"
         incremental = \"$INCREMENTAL\"
-        funk_sz_gb = 100
-        funk_rec_max = 150000000
-        funk_txn_max = 2000
-        funk_file = \"$DATA_DIR/shredcap_testnet.funk\"
     [tiles.store_int]
         shred_cap_replay = \"$SHREDCAP\"
         shred_cap_end_slot = 317018450

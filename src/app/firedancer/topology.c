@@ -838,10 +838,10 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
       strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
       strncpy( tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(tile->replay.funk_checkpt) );
-      tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
-      tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
-      tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
-      strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
+      tile->replay.funk_rec_max = (uint)config->firedancer.funk.max_account_records;
+      tile->replay.funk_sz_gb   = (uint)config->firedancer.funk.heap_size_gb;
+      tile->replay.funk_txn_max = (uint)config->firedancer.funk.max_database_transactions;
+      strncpy( tile->replay.funk_file, config->firedancer.funk.filemap.path, sizeof(tile->replay.funk_file) );
       tile->replay.plugins_enabled = plugins_enabled;
 
       if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
@@ -895,11 +895,6 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "eqvoc" ) ) ) {
       strncpy( tile->eqvoc.identity_key_path, config->paths.identity_key, sizeof(tile->eqvoc.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
-      strncpy( tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(tile->replay.blockstore_file) );
-      tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
-      tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
-      tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
-      strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
       tile->rpcserv.rpc_port = config->rpc.port;
       tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
       tile->rpcserv.tpu_ip_addr = config->net.ip_addr;
@@ -908,7 +903,6 @@ fd_topo_initialize( config_t * config ) {
       tile->batch.full_interval        = config->tiles.batch.full_interval;
       tile->batch.incremental_interval = config->tiles.batch.incremental_interval;
       strncpy( tile->batch.out_dir, config->tiles.batch.out_dir, sizeof(tile->batch.out_dir) );
-      strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
       if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )
         FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
@@ -923,12 +917,12 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "exec" ) ) ) {
-      strncpy( tile->exec.funk_file, config->tiles.replay.funk_file, sizeof(tile->exec.funk_file) );
+      strncpy( tile->exec.funk_file, config->firedancer.funk.filemap.path, sizeof(tile->exec.funk_file) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
-      strncpy( tile->writer.funk_file, config->tiles.replay.funk_file, sizeof(tile->writer.funk_file) );
+      strncpy( tile->writer.funk_file, config->firedancer.funk.filemap.path, sizeof(tile->writer.funk_file) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rstart" ) ) ) {
       tile->restart.in_wen_restart = config->tiles.restart.in_wen_restart;
-      strncpy( tile->restart.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
+      strncpy( tile->restart.funk_file, config->firedancer.funk.filemap.path, sizeof(tile->replay.funk_file) );
       strncpy( tile->restart.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
       strncpy( tile->restart.identity_key_path, config->paths.identity_key, sizeof(tile->restart.identity_key_path) );
       fd_memcpy( tile->restart.genesis_hash, config->tiles.restart.genesis_hash, FD_BASE58_ENCODED_32_SZ );

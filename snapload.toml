@@ -1,0 +1,7 @@
+[hugetlbfs]
+max_page_size = "huge"
+
+[log]
+    level_stderr = "INFO"
+    level_logfile = "INFO"
+    path = "-"

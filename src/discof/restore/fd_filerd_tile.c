@@ -3,8 +3,8 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <unistd.h>
-#include <sys/uio.h>
 
 #define NAME "FileRd"
 
@@ -12,9 +12,13 @@ struct fd_filerd_tile {
   int fd;
 
   uchar * buf; /* dcache */
+  ulong   buf_base;
   ulong   buf_off;
   ulong   buf_sz;
   ulong   goff;
+  ulong   read_max;
+
+  ulong * out_sync; /* mcache seq sync */
 };
 
 typedef struct fd_filerd_tile fd_filerd_tile_t;
@@ -36,9 +40,7 @@ privileged_init( fd_topo_t *      topo,
   fd_filerd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_memset( ctx, 0, sizeof(fd_filerd_tile_t) );
 
-  if( FD_UNLIKELY( tile->in_cnt !=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 0",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
-
+  if( FD_UNLIKELY( !tile->filerd.file_path[0] ) ) FD_LOG_ERR(( "File path not set" ));
   ctx->fd = open( tile->filerd.file_path, O_RDONLY|O_CLOEXEC );
   if( FD_UNLIKELY( ctx->fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
@@ -48,13 +50,19 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   fd_filerd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  if( FD_UNLIKELY( tile->in_cnt !=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 0",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
+
   void * out_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ) );
   FD_TEST( out_dcache );
 
-  ctx->buf     = out_dcache;
-  ctx->buf_off = 0UL;
-  ctx->buf_sz  = fd_dcache_data_sz( out_dcache );
-  ctx->goff    = 0UL;
+  ctx->buf      = out_dcache;
+  ctx->buf_base = (ulong)out_dcache - (ulong)fd_wksp_containing( out_dcache );
+  ctx->buf_off  = 0UL;
+  ctx->buf_sz   = fd_dcache_data_sz( out_dcache );
+  ctx->goff     = 0UL;
+  ctx->read_max = (8UL<<20);
+  ctx->out_sync = fd_mcache_seq_laddr( topo->links[ tile->out_link_id[ 0 ] ].mcache );
 }
 
 static void
@@ -67,18 +75,24 @@ metrics_write( fd_filerd_tile_t * ctx ) {
   (void)ctx;
 }
 
-static void
-close_file( fd_filerd_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->fd<0 ) ) return;
+__attribute__((noreturn)) FD_FN_UNUSED static void
+fd_filerd_shutdown( fd_filerd_tile_t * ctx,
+                    ulong              seq_final ) {
   if( FD_UNLIKELY( close( ctx->fd ) ) ) {
     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   ctx->fd = -1;
+  FD_MGAUGE_SET( TILE, STATUS, 2UL );
+  FD_VOLATILE( ctx->out_sync[ 3 ] ) = seq_final;
+  FD_COMPILER_MFENCE();
+  FD_LOG_INFO(( "Reached end of file" ));
+
+  for(;;) pause();
 }
 
 static void
 after_credit( fd_filerd_tile_t *      ctx,
-              fd_frag_stream_meta_t * out_mcache,
+              fd_stream_frag_meta_t * out_mcache,
               ulong const             out_depth,
               ulong * restrict        out_seq,
               ulong * restrict        cr_frag_avail,
@@ -93,18 +107,13 @@ after_credit( fd_filerd_tile_t *      ctx,
     FD_LOG_CRIT(( "Buffer overflow (buf_off=%lu buf_sz=%lu)", ctx->buf_off, ctx->buf_sz ));
   }
 
-  ulong const iov0_sz = fd_ulong_min( *cr_byte_avail, ctx->buf_sz - ctx->buf_off );
-  struct iovec iov[2];
-  iov[ 0 ].iov_base = ctx->buf + ctx->buf_off;
-  iov[ 0 ].iov_len  = iov0_sz;
-  iov[ 1 ].iov_base = ctx->buf;
-  iov[ 1 ].iov_len  = fd_ulong_min( (ulong)fd_long_max( 0L, (long)*cr_byte_avail-(long)iov0_sz ), ctx->buf_off );
+  ulong const read_max = fd_ulong_min( *cr_byte_avail, ctx->read_max );
+  ulong const read_sz  = fd_ulong_min( read_max, ctx->buf_sz - ctx->buf_off );
 
-  long res = readv( fd, iov, 2 );
+  long res = read( fd, ctx->buf + ctx->buf_off, read_sz );
   if( FD_UNLIKELY( res<=0L ) ) {
     if( FD_UNLIKELY( res==0 ) ) {
-      FD_LOG_INFO(( "Reached end of file" ));
-      close_file( ctx );
+      fd_filerd_shutdown( ctx, out_seq[0] );
       return;
     }
     if( FD_LIKELY( errno==EAGAIN ) ) return;
@@ -116,23 +125,15 @@ after_credit( fd_filerd_tile_t *      ctx,
   cr_byte_avail[0] -= sz;
   *charge_busy_after = 1;
 
-  ulong frag0_sz = fd_ulong_min( iov0_sz, sz );
-  ulong frag1_sz = (ulong)res - frag0_sz;
+  ulong frag_sz = fd_ulong_min( read_sz, sz );
 
-  fd_mcache_publish_stream( out_mcache, out_depth, out_seq[0], ctx->goff, ctx->buf_off, frag0_sz );
+  ulong loff = ctx->buf_base + ctx->buf_off;
+  fd_mcache_publish_stream( out_mcache, out_depth, out_seq[0], ctx->goff, loff, frag_sz, 0 );
   out_seq[0] = fd_seq_inc( out_seq[0], 1UL );
   cr_frag_avail[0]--;
-  ctx->goff    += frag0_sz;
-  ctx->buf_off += frag0_sz;
+  ctx->goff    += frag_sz;
+  ctx->buf_off += frag_sz;
   if( ctx->buf_off >= ctx->buf_sz ) ctx->buf_off = 0UL; /* cmov */
-
-  if( FD_UNLIKELY( frag1_sz ) ) {
-    fd_mcache_publish_stream( out_mcache, out_depth, out_seq[0], ctx->goff, 0UL, frag1_sz );
-    out_seq[0] = fd_seq_inc( out_seq[0], 1UL );
-    cr_frag_avail[0]--;
-    ctx->goff    += frag1_sz;
-    ctx->buf_off += frag1_sz;
-  }
 }
 
 /* run/run1 are a custom run loop based on fd_stem.c. */
@@ -140,7 +141,7 @@ after_credit( fd_filerd_tile_t *      ctx,
 __attribute__((noinline)) static void
 fd_filerd_run1(
     fd_filerd_tile_t *         ctx,
-    fd_frag_stream_meta_t *    out_mcache,
+    fd_stream_frag_meta_t *    out_mcache,
     void *                     out_dcache,
     ulong                      cons_cnt,
     ushort * restrict          event_map, /* cnt=1+cons_cnt */
@@ -194,7 +195,8 @@ fd_filerd_run1(
 
   /* housekeeping init */
 
-  if( lazy<=0L ) lazy = fd_tempo_lazy_default( out_depth );
+  //if( lazy<=0L ) lazy = fd_tempo_lazy_default( out_depth );
+  lazy = 1e3L;
   FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
   /* Initial event sequence */
@@ -284,7 +286,7 @@ fd_filerd_run1(
 
     if( FD_UNLIKELY( cr_byte_avail<burst_byte || cr_frag_avail<burst_frag ) ) {
       metric_backp_cnt += (ulong)!metric_in_backp;
-      metric_in_backp   = 1UL;
+      metric_in_backp   = 1UL + (cr_byte_avail<burst_byte);
       FD_SPIN_PAUSE();
       metric_regime_ticks[2] += housekeeping_ticks;
       long next = fd_tickcount();
@@ -292,6 +294,7 @@ fd_filerd_run1(
       now = next;
       continue;
     }
+    metric_in_backp = 0UL;
 
     int charge_busy_after = 0;
     after_credit( ctx, out_mcache, out_depth, &out_seq, &cr_frag_avail, &cr_byte_avail, &charge_busy_after );
@@ -307,7 +310,7 @@ fd_filerd_run1(
 static void
 fd_filerd_run( fd_topo_t *        topo,
                fd_topo_tile_t *   tile ) {
-  fd_frag_stream_meta_t * out_mcache = fd_type_pun( topo->links[ tile->out_link_id[ 0 ] ].mcache );
+  fd_stream_frag_meta_t * out_mcache = fd_type_pun( topo->links[ tile->out_link_id[ 0 ] ].mcache );
   FD_TEST( out_mcache );
 
   ulong   reliable_cons_cnt = 0UL;
@@ -332,7 +335,7 @@ fd_filerd_run( fd_topo_t *        topo,
   ushort           event_map[ 1+reliable_cons_cnt ];
   ulong volatile * cons_slow[   reliable_cons_cnt ];
   ulong            cons_seq [ 2*reliable_cons_cnt ];
-  fd_filerd_run1( ctx, out_mcache, ctx->buf, reliable_cons_cnt, event_map, cons_fseq, cons_slow, cons_seq, 0L, rng );
+  fd_filerd_run1( ctx, out_mcache, ctx->buf, reliable_cons_cnt, event_map, cons_fseq, cons_slow, cons_seq, (ulong)10e3, rng );
 }
 
 fd_topo_run_tile_t fd_tile_snapshot_restore_FileRd = {

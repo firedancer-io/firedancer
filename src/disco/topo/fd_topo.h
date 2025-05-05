@@ -432,6 +432,10 @@ typedef struct {
       char file_path[ PATH_MAX ];
     } filerd;
 
+    struct {
+      ulong scratch_sz;
+    } snapin;
+
   };
 } fd_topo_tile_t;
 
