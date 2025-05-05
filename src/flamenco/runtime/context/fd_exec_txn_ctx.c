@@ -279,7 +279,8 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
   ctx->schedule                    = epoch_bank->epoch_schedule;
   ctx->rent                        = epoch_bank->rent;
-  ctx->slots_per_year              = *(fd_bank_mgr_slots_per_year_query( bank_mgr ));
+  double * slots_per_year = fd_bank_mgr_slots_per_year_query( bank_mgr );
+  ctx->slots_per_year              = !!slots_per_year ? *slots_per_year : 0.0;
   ctx->stakes                      = epoch_bank->stakes;
 
 }

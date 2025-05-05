@@ -30,9 +30,15 @@ timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
 
-  return (long)( *(fd_bank_mgr_genesis_creation_time_query( bank_mgr )) + ( ( slot_ctx->slot * *ns_per_slot ) / NS_IN_S ) );
+
+  uint128 * ns_per_slot_bm = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+  uint128   ns_per_slot = !!ns_per_slot_bm ? *ns_per_slot_bm : 0;
+
+  ulong * genesis_creation_time_bm = fd_bank_mgr_genesis_creation_time_query( bank_mgr );
+  ulong   genesis_creation_time = !!genesis_creation_time_bm ? *genesis_creation_time_bm : 0;
+
+  return (long)(genesis_creation_time + ((slot_ctx->slot * ns_per_slot) / NS_IN_S));
 }
 
 static void
@@ -92,11 +98,11 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
-
+  uint128 * ns_per_slot_bm = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+  uint128   ns_per_slot = !!ns_per_slot_bm ? *ns_per_slot_bm : 0;
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
-  uint128 poh_estimate_offset = *ns_per_slot * slot_ctx->slot;
+  uint128 poh_estimate_offset = ns_per_slot * slot_ctx->slot;
   uint128 estimate_offset = (uint128)( ( estimate - epoch_start_timestamp ) * NS_IN_S );
 
   uint128 max_delta_fast = ( poh_estimate_offset * MAX_ALLOWABLE_DRIFT_FAST ) / 100;
@@ -188,7 +194,8 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
-  ulong slot_duration = (ulong)( *fd_bank_mgr_ns_per_slot_query( bank_mgr ) );
+  uint128 * ns_per_slot_bm = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+  ulong     slot_duration  = !!ns_per_slot_bm ? (ulong)*ns_per_slot_bm : 0UL;
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( slot_ctx->funk,
                                                               slot_ctx->funk_txn,
                                                               runtime_spad );
