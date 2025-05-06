@@ -4,9 +4,12 @@ on:
     workflow_call:
     workflow_dispatch:
 
+permissions:
+  security-events: write
+
 jobs:
   analyze:
-    name: Analyze (${{matrix.language}})
+    name: Analyze (${{ matrix.language }})
     runs-on: 1T
 
     strategy:
@@ -18,6 +21,7 @@ jobs:
           compiler: clang
           machine: linux_clang_x86_64
           compiler-version: 15.0.6
+          targets: fddev
           extras: rpath
     env:
       MACHINE: ${{ matrix.machine }}
@@ -33,7 +37,7 @@ jobs:
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
           extras: +dev
-      - uses: dtolnay/rust-toolchain@1.73.0
+      - uses: dtolnay/rust-toolchain@1.84.1
       - name: clean targets
         run: |
           make clean --silent >/dev/null
@@ -42,7 +46,7 @@ jobs:
           machine: ${{ matrix.machine }}
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-        if: ${{ contains(matrix.targets, 'fdctl') }}
+        if: ${{ contains(matrix.targets, 'fdctl') || contains(matrix.targets, 'fddev') }}
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -54,10 +58,10 @@ jobs:
       - if: matrix.build-mode == 'manual'
         shell: bash
         run: |
-          make -j fddev
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          make -j ${{ matrix.targets }}
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{matrix.language}}"
+          category: "/language:${{ matrix.language }}"
           upload: 'always'
-
