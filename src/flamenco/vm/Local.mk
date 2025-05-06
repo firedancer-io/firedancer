@@ -10,11 +10,12 @@ $(call add-objs,test_vm_util,fd_flamenco)
 
 $(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 
+# Unfortunately, the get_sysvar syscall handler depends on the funk database
 $(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
 
-$(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util)
 
-$(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vm_instr)
 
 $(call run-unit-test,test_vm_base)

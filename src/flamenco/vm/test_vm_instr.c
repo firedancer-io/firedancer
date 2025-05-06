@@ -5,6 +5,8 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>

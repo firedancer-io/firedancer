@@ -2,7 +2,7 @@
 #include "fd_snapshot_restore_private.h"
 #include "../../util/archive/fd_tar.h"
 #include "../runtime/fd_acc_mgr.h"
-#include "../runtime/fd_borrowed_account.h"
+#include "../runtime/fd_runtime.h"
 
 #include <assert.h>
 #include <errno.h>

@@ -230,15 +230,6 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * ctx,
                        fd_rawtxn_b_t const * txn_raw );
 
 void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        ctx,
-                                    fd_wksp_t const *          funk_wksp,
-                                    fd_wksp_t const *          runtime_pub_wksp,
-                                    ulong                      funk_txn_gaddr,
-                                    ulong                      sysvar_cache_gaddr,
-                                    ulong                      funk_gaddr );
-
-void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
 
 /* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account
