@@ -2936,8 +2936,6 @@ void
 fd_runtime_reverify_cached_programs( fd_exec_slot_ctx_t * slot_ctx,
                                      fd_txn_p_t const *   txn_p,
                                      fd_spad_t *          runtime_spad ) {
-FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
   fd_txn_t const * txn_descriptor = TXN( txn_p );
 
   /* Iterate over account keys referenced directly in the transaction first */
@@ -2973,8 +2971,6 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
       fd_bpf_program_reverify( slot_ctx, account, runtime_spad );
     }
   }
-
-} FD_SPAD_FRAME_END;
 }
 
 /* if we are currently in the middle of a batch, batch_cnt will include the current batch.
