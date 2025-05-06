@@ -450,12 +450,8 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
       for( ; NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
         if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) continue;
         recs[ rec_cnt ] = rec;
-
-        if( rec_cnt==65536UL ) {
-          break;
-        }
-
         rec_cnt++;
+        if( FD_UNLIKELY( rec_cnt==65536UL ) ) break;
       }
 
       /* Pass in args */
