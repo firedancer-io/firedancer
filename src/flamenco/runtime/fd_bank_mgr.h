@@ -127,7 +127,13 @@
 struct fd_bank_mgr {
   fd_funk_t *           funk;
   fd_funk_txn_t *       funk_txn;
+  /* Used for modifying/creating records that don't exist
+     in the current funk txn */
   fd_funk_rec_prepare_t prepare;
+  int                   is_new;
+  /* Used for modifying records in existing funk txn */
+  fd_funk_rec_query_t   query;
+  int                   is_modify;
 };
 typedef struct fd_bank_mgr fd_bank_mgr_t;
 

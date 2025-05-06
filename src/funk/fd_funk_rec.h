@@ -134,6 +134,17 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==FD_FUNK_REC_IDX_NULL; }
 
+/* Modifiers */
+
+fd_funk_rec_t *
+fd_funk_rec_modify_prepare( fd_funk_t *               funk,
+                            fd_funk_txn_t const *     txn,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_query_t *     query );
+
+void
+fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
+
 /* Accessors */
 
 /* fd_funk_rec_query_try queries the in-preparation transaction pointed to
