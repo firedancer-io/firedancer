@@ -142,7 +142,7 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
   int is_native_program = !memcmp( owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) );
 
   if( !is_native_program && FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
-    if ( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( owner ) ) ) {
+    if( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( owner ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
   }

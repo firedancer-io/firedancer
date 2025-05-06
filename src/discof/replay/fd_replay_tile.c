@@ -1684,7 +1684,9 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
 
-      /* Reverify invoked programs for this epoch, if needed */
+      /* Reverify invoked programs for this epoch, if needed
+         FIXME: this should be done during txn parsing so that we don't have to loop
+         over all accounts a second time. */
       fd_runtime_reverify_cached_programs( ctx->slot_ctx, &txn_p, ctx->runtime_spad );
 
       fd_memcpy( txn_p.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );

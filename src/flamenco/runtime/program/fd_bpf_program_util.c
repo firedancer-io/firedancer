@@ -230,7 +230,6 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t * slot_ctx,
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( runtime_spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   if( FD_UNLIKELY( !syscalls ) ) {
     FD_LOG_CRIT(( "Call to fd_sbpf_syscalls_new() failed" ));
-    return -1;
   }
 
   fd_vm_syscall_register_slot( syscalls,
@@ -252,7 +251,6 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t * slot_ctx,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
   if( FD_UNLIKELY( !vm ) ) {
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
-    return -1;
   }
 
   fd_exec_instr_ctx_t dummy_instr_ctx = {0};
@@ -284,7 +282,6 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t * slot_ctx,
 
   if( FD_UNLIKELY( !vm ) ) {
     FD_LOG_CRIT(( "fd_vm_init() failed" ));
-    return -1;
   }
 
   int res = fd_vm_validate( vm );
@@ -342,8 +339,6 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     void * sbpf_program_mem = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk ), wksp, NULL );
     if( FD_UNLIKELY( !sbpf_program_mem ) ) {
       FD_LOG_CRIT(( "Failed to allocate memory for sbpf program" ));
-      fd_funk_rec_cancel( funk, prepare );
-      return -1;
     }
 
     int res = fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, sbpf_program_mem, program_data, program_data_len, runtime_spad );

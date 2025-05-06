@@ -67,7 +67,7 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
   /* the record does not exist in the current funk transaction */
   if( !rec ) {
     /* clones a record from an ancestor transaction */
-    rec = fd_funk_rec_clone( funk, txn, &id, out_prepare, &funk_err );
+    rec = fd_funk_rec_clone( funk, txn, &id, out_prepare, NULL, &funk_err );
 
     if( rec == NULL ) {
       /* the record does not exist at all */

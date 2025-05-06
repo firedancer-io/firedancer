@@ -265,6 +265,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_txn_t *           txn,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
+                   fd_funk_txn_t const **    txn_out,
                    int *                     opt_err );
 
 /* fd_funk_rec_remove removes the live record with the
@@ -332,7 +333,7 @@ fd_funk_rec_modify_try( fd_funk_t *               funk,
 
 fd_funk_rec_t *
 fd_funk_rec_modify_try_global( fd_funk_t *               funk,
-                               fd_funk_txn_t const *     txn,
+                               fd_funk_txn_t *           txn,
                                fd_funk_rec_key_t const * key,
                                fd_funk_txn_t const **    txn_out,
                                fd_funk_rec_query_t *     query );

@@ -45,12 +45,12 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
   }
   fd_funk_rec_key_copy( pair->key, key );
 
-  int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
-  if( FD_UNLIKELY( err ) ) {
-    if( err==FD_MAP_ERR_KEY ) return NULL;
-    FD_LOG_CRIT(( "query returned err %d", err ));
+  for(;;) {
+    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
+    if( err == FD_MAP_SUCCESS )   break;
+    if( err == FD_MAP_ERR_KEY )   return NULL;
+    if( err == FD_MAP_ERR_AGAIN ) continue;
   }
-
   return fd_funk_rec_map_query_ele_const( query );
 }
 
@@ -273,13 +273,14 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_txn_t *           txn,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
+                   fd_funk_txn_t const **    txn_out,
                    int *                     opt_err ) {
   fd_funk_rec_t * new_rec = fd_funk_rec_prepare( funk, txn, key, prepare, opt_err );
   if( !new_rec ) return NULL;
 
   for(;;) {
     fd_funk_rec_query_t query[1];
-    fd_funk_rec_t const * old_rec = fd_funk_rec_query_try_global( funk, txn, key, NULL, query );
+    fd_funk_rec_t const * old_rec = fd_funk_rec_query_try_global( funk, txn, key, txn_out, query );
     if( !old_rec ) {
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_KEY );
       fd_funk_rec_cancel( funk, prepare );
@@ -296,6 +297,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
     memcpy( buf, fd_funk_val( old_rec, wksp ), val_sz );
 
     if( !fd_funk_rec_query_test( query ) ) {
+      if( txn_out ) *txn_out = txn;
       return new_rec;
     }
   }
@@ -447,7 +449,7 @@ fd_funk_rec_modify_try( fd_funk_t *               funk,
 
 fd_funk_rec_t *
 fd_funk_rec_modify_try_global( fd_funk_t *               funk,
-                               fd_funk_txn_t const *     txn,
+                               fd_funk_txn_t *           txn,
                                fd_funk_rec_key_t const * key,
                                fd_funk_txn_t const **    txn_out,
                                fd_funk_rec_query_t *     query ) {
@@ -460,55 +462,33 @@ fd_funk_rec_modify_try_global( fd_funk_t *               funk,
   }
 #endif
 
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_copy( pair->key, key );
-
-  /* We can precompute the chain index because all records of the provided key
-     live in the same hash chain. The hash also does not use the xid, so we don't need
-     to set it here. */
-  fd_funk_rec_map_shmem_t * rec_map = funk->rec_map->map;
-  query->memo                       = fd_funk_rec_map_key_hash( pair, rec_map->seed );
-
-  /* For cur_txn in path from [txn] to [root] where root is NULL */
-
-  fd_funk_txn_start_read( funk );
-
-  for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, funk->txn_pool ) ) {
-    if( cur_txn==NULL ) {
-      fd_funk_txn_xid_set_root( pair->xid );
-    } else {
-      fd_funk_txn_xid_copy( pair->xid, &cur_txn->xid );
-    }
-
-    /* Hint to modify_try which hash chain to use */
-    int err = fd_funk_rec_map_modify_try( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING | FD_MAP_FLAG_USE_HINT );
-
-    /* Optimize for key found */
-    if( FD_LIKELY( err==FD_MAP_SUCCESS ) ) {
-      if( txn_out ) *txn_out = cur_txn;
-      if( FD_UNLIKELY( query->ele->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
-        /* Return is NULL. Release the lock here before returning */
-        fd_funk_rec_modify_test( query );
-        query->ele = NULL;
-      }
-      fd_funk_txn_end_read( funk );
-      return query->ele;
-    }
-
-    /* In the blocking case, only continue if the key was not found in the map. */
-    if( FD_UNLIKELY( err!=FD_MAP_ERR_KEY ) ) {
-      FD_LOG_ERR(( "modify returned err %d", err ));
-      fd_funk_txn_end_read( funk );
-      return NULL;
-    }
-
-    /* Key not found, continue iterating over txns... */
-    if( cur_txn==NULL ) break;
+  /* Try modifying within the current transaction first to see if the record exists */
+  fd_funk_rec_t * rec = fd_funk_rec_modify_try( funk, txn, key, query );
+  if( rec ) {
+    if( txn_out ) *txn_out = txn;
+    return rec;
   }
 
-  fd_funk_txn_end_read( funk );
+  /* Record does not exist in the current transaction. It must belong
+     to a parent transaction, if it exists in funk. If so, clone it down
+     to the child transaction. */
+  fd_funk_rec_prepare_t prepare;
+  rec = fd_funk_rec_clone( funk, txn, key, &prepare, txn_out, NULL );
+  if( FD_UNLIKELY( rec==NULL ) ) {
+    /* Failed to clone the record or find the record in a parent txn. */
+    return NULL;
+  }
 
-  return NULL;
+  /* Publish record and release the lock */
+  fd_funk_rec_publish( funk, &prepare );
+
+  /* Get a modifiable handle to the cloned record */
+  rec = fd_funk_rec_modify_try( funk, txn, key, query );
+  if( rec ) {
+    if( txn_out ) *txn_out = txn;
+  }
+
+  return rec;
 }
 
 void
