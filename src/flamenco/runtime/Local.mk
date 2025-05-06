@@ -54,6 +54,7 @@ endif
 $(call add-hdrs,fd_system_ids.h)
 $(call add-objs,fd_system_ids,fd_flamenco)
 $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_ballet)
+$(call make-unit-test,bench_acc_mgr,bench_acc_mgr,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_system_ids,)
 
 ifdef FD_HAS_ROCKSDB
