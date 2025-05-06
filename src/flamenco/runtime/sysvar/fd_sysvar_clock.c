@@ -133,9 +133,8 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( bank_mgr );
-  fd_clock_timestamp_vote_t_mapnode_t * votes = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes, clock_timestamp_votes->votes_root_offset );
-
-  if( NULL == votes ) {
+  fd_clock_timestamp_vote_t_mapnode_t * votes = !!clock_timestamp_votes ? fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes, clock_timestamp_votes->votes_root_offset ) : NULL;
+  if( NULL==votes ) {
     return timestamp_from_genesis( slot_ctx );
   }
   uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
@@ -219,12 +218,17 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
   ulong total_stake = 0;
 
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( bank_mgr );
+  if( FD_UNLIKELY( !clock_timestamp_votes ) ) {
+    *result_timestamp = 0;
+    return;
+  }
+
   fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes, clock_timestamp_votes->votes_pool_offset );
   fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes, clock_timestamp_votes->votes_root_offset );
 
   fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
   fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
-  for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
+  for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
        n;
        n = fd_vote_accounts_pair_t_map_successor( vote_acc_pool, n ) ) {
 
