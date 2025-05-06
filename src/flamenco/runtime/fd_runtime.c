@@ -3749,7 +3749,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_update_leaders( slot_ctx, 0, runtime_spad );
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_partitioned_rent_collection ) ) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, disable_partitioned_rent_collection ) ) {
     fd_funk_t *     funk = slot_ctx->funk;
     fd_funk_txn_t * txn  = slot_ctx->funk_txn;
 
