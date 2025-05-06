@@ -44,12 +44,12 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
     fd_funk_txn_xid_copy( pair->xid, &txn->xid );
   }
   fd_funk_rec_key_copy( pair->key, key );
-
   for(;;) {
     int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS )   break;
     if( err == FD_MAP_ERR_KEY )   return NULL;
     if( err == FD_MAP_ERR_AGAIN ) continue;
+    FD_LOG_CRIT(( "query returned err %d", err ));
   }
   return fd_funk_rec_map_query_ele_const( query );
 }
