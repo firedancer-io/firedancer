@@ -1579,7 +1579,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   return fork;
 }
 
-FD_FN_UNUSED static void
+static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ 0UL ];
@@ -2282,6 +2282,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
        (using the above for loop), but blockstore/fork setup on genesis is
        broken for now. */
     block_entry_height = 1UL;
+    init_poh( ctx );
   }
 
   publish_slot_notifications( ctx, stem, fork, block_entry_height, curr_slot );
