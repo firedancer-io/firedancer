@@ -251,9 +251,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   fd_memcpy( &epoch_bank->rent, &oldbank->rent_collector.rent, sizeof(fd_rent_t) );
   fd_memcpy( &epoch_bank->rent_epoch_schedule, &oldbank->rent_collector.epoch_schedule, sizeof(fd_epoch_schedule_t) );
 
-  // did they not change the bank?!
-  slot_bank->collected_execution_fees = oldbank->collector_fees;
-  slot_bank->collected_priority_fees = 0;
 
   fd_funk_t *     funk     = slot_ctx->funk;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
@@ -401,6 +398,15 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
     memset( epoch_account_hash, 0, sizeof(fd_hash_t) );
   }
   fd_bank_mgr_epoch_account_hash_save( bank_mgr );
+
+
+  /* Execution Fees */
+
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  *execution_fees = oldbank->collector_fees;
+  fd_bank_mgr_execution_fees_save( bank_mgr );
+
+  slot_bank->collected_priority_fees = 0;
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

@@ -59,8 +59,12 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
   slot_ctx->slot_bank.vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
 
-  slot_ctx->slot_bank.collected_execution_fees = 0UL;
-  slot_ctx->slot_bank.collected_priority_fees  = 0UL;
+  fd_bank_mgr_t   bank_mgr_obj = {0};
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  *execution_fees = 0UL;
+  fd_bank_mgr_execution_fees_save( bank_mgr );
 
   fd_runtime_save_slot_bank( slot_ctx );
   fd_runtime_save_epoch_bank( slot_ctx );

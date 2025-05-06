@@ -6,7 +6,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
-
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
@@ -267,7 +267,8 @@ slot_ctx_restore( ulong                 slot,
 
   /* Prepare bank for next slot */
   slot_ctx_out->slot                               = slot;
-  slot_ctx_out->slot_bank.collected_execution_fees = 0;
+
+  /* FEES TO 0*/
   slot_ctx_out->slot_bank.collected_priority_fees  = 0;
 
   /* FIXME epoch boundary stuff when replaying */

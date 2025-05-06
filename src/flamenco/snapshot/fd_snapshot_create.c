@@ -663,7 +663,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
 
   fd_memset( &bank->collector_id, 0, sizeof(fd_pubkey_t) );
 
-  bank->collector_fees                        = slot_bank->collected_execution_fees + slot_bank->collected_priority_fees;
+  // bank->collector_fees                        = slot_bank->collected_execution_fees + slot_bank->collected_priority_fees;
   // bank->fee_calculator.lamports_per_signature = slot_bank->lamports_per_signature;
   // bank->fee_rate_governor                     = slot_bank->fee_rate_governor;
   bank->collected_rent                        = 0UL;

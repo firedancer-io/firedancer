@@ -1232,6 +1232,11 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
       .parent_slot = ctx->parent_slot,
     };
     */
+
+    fd_bank_mgr_t bank_mgr_obj = {0};
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
+    ulong * execution_fee = fd_bank_mgr_execution_fees_query( bank_mgr );
+
     ulong msg[11];
     msg[ 0 ] = ctx->curr_slot;
     msg[ 1 ] = fork->slot_ctx->txn_count;
@@ -1239,7 +1244,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg[ 3 ] = fork->slot_ctx->failed_txn_count;
     msg[ 4 ] = fork->slot_ctx->nonvote_failed_txn_count;
     msg[ 5 ] = fork->slot_ctx->total_compute_units_used;
-    msg[ 6 ] = fork->slot_ctx->slot_bank.collected_execution_fees;
+    msg[ 6 ] = *execution_fee;
     msg[ 7 ] = fork->slot_ctx->slot_bank.collected_priority_fees;
     msg[ 8 ] = 0UL; /* todo ... track tips */
     msg[ 9 ] = ctx->parent_slot;
@@ -2649,7 +2654,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     ulong prev_slot = child->slot_ctx->slot;
     child->slot_ctx->slot                     = curr_slot;
-    child->slot_ctx->slot_bank.collected_execution_fees = 0UL;
+
+    fd_bank_mgr_t bank_mgr_obj = {0};
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
+    ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
+    *execution_fee = 0UL;
+    fd_bank_mgr_execution_fees_save( bank_mgr );
+
     child->slot_ctx->slot_bank.collected_priority_fees  = 0UL;
 
     if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {

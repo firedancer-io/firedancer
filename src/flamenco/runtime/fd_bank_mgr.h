@@ -123,6 +123,10 @@
 #define FD_BANK_MGR_EPOCH_ACCOUNT_HASH_FOOTPRINT (32UL)
 #define FD_BANK_MGR_EPOCH_ACCOUNT_HASH_ALIGN     (8UL)
 
+#define FD_BANK_MGR_EXECUTION_FEES_ID        (22)
+#define FD_BANK_MGR_EXECUTION_FEES_FOOTPRINT (8UL)
+#define FD_BANK_MGR_EXECUTION_FEES_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -181,6 +185,7 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                        eah_stop_slot,               EAH_STOP_SLOT)               \
   X(ulong,                        eah_interval,                EAH_INTERVAL)                \
   X(ulong,                        block_height,                BLOCK_HEIGHT)                \
-  X(fd_hash_t,                    epoch_account_hash,          EPOCH_ACCOUNT_HASH)
+  X(fd_hash_t,                    epoch_account_hash,          EPOCH_ACCOUNT_HASH)          \
+  X(ulong,                        execution_fees,              EXECUTION_FEES)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

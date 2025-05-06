@@ -331,7 +331,12 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
       task_info->exec_res    = fd_execute_txn( task_info );
   }
 
-  slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
+  fd_bank_mgr_t bank_mgr_obj = {0};
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  *execution_fees += task_info->txn_ctx->execution_fee;
+  fd_bank_mgr_execution_fees_save( bank_mgr );
+
   slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
   return task_info;
 }
@@ -541,8 +546,12 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
       }
     }
 
+    fd_bank_mgr_t bank_mgr_obj = {0};
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+    ulong * execution_fees = fd_bank_mgr_execution_fees_query( bank_mgr );
+
     txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
+    txn_result->fee_details.transaction_fee    = *execution_fees;
     txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
 
     /* Rent is only collected on successfully loaded transactions */

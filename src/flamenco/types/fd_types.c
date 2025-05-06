@@ -9848,8 +9848,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->banks_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->collected_execution_fees, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->collected_priority_fees, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_accounts_encode( &self->epoch_stakes, ctx );
@@ -9887,8 +9885,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
@@ -9932,7 +9928,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_bincode_uint64_decode_unsafe( &self->prev_slot, ctx );
   fd_hash_decode_inner( &self->poh, alloc_mem, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->collected_execution_fees, ctx );
   fd_bincode_uint64_decode_unsafe( &self->collected_priority_fees, ctx );
   fd_vote_accounts_decode_inner( &self->epoch_stakes, alloc_mem, ctx );
   fd_sol_sysvar_last_restart_slot_decode_inner( &self->last_restart_slot, alloc_mem, ctx );
@@ -9979,7 +9974,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fun( w, &self->prev_slot, "prev_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_hash_walk( w, &self->poh, fun, "poh", level );
   fd_hash_walk( w, &self->banks_hash, fun, "banks_hash", level );
-  fun( w, &self->collected_execution_fees, "collected_execution_fees", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->collected_priority_fees, "collected_priority_fees", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_vote_accounts_walk( w, &self->epoch_stakes, fun, "epoch_stakes", level );
   fd_sol_sysvar_last_restart_slot_walk( w, &self->last_restart_slot, fun, "last_restart_slot", level );
@@ -10002,7 +9996,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += sizeof(ulong);
   size += fd_hash_size( &self->poh );
   size += fd_hash_size( &self->banks_hash );
-  size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_vote_accounts_size( &self->epoch_stakes );
   size += fd_sol_sysvar_last_restart_slot_size( &self->last_restart_slot );

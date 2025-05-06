@@ -1821,7 +1821,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   self->prev_slot = fd_rng_ulong( rng );
   fd_hash_generate( &self->poh, alloc_mem, rng );
   fd_hash_generate( &self->banks_hash, alloc_mem, rng );
-  self->collected_execution_fees = fd_rng_ulong( rng );
   self->collected_priority_fees = fd_rng_ulong( rng );
   fd_vote_accounts_generate( &self->epoch_stakes, alloc_mem, rng );
   fd_sol_sysvar_last_restart_slot_generate( &self->last_restart_slot, alloc_mem, rng );
