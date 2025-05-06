@@ -987,6 +987,22 @@ user = ""
         incremental = ""
         incremental_url = ""
 
+        # Absolute path to the directory to store downloaded snapshots.
+        #
+        # If not specified, the validator will download snapshots into
+        # memory buffers.  When the validator shuts down, there will be
+        # no snapshot files on disk.
+        #
+        # If specified, the validator will download snapshots into the
+        # specified directory.  Moreover, on subsequent validator
+        # restarts, the validator will check for snapshot files in the
+        # specified directory first, before attempting to download over
+        # the network.
+        #
+        # Therefore, it is recommended to specify this if large full
+        # snapshots and frequent validator restarts are expected.
+        snapshot_dir = ""
+
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024

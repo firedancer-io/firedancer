@@ -185,6 +185,7 @@ struct fd_replay_tile_ctx {
   char const * genesis;
   char const * incremental;
   char const * snapshot;
+  char const * snapshot_dir;
   int          incremental_src_type;
   int          snapshot_src_type;
 
@@ -1882,8 +1883,9 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 static void
 read_snapshot( void *              _ctx,
                fd_stem_context_t * stem,
-               char const *        snapshotfile,
-               char const *        incremental ) {
+               char const *        snapshot,
+               char const *        incremental,
+               char const *        snapshot_dir ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
   fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
@@ -1898,7 +1900,6 @@ read_snapshot( void *              _ctx,
 
      We pull this out of the full snapshot to use when verifying the incremental snapshot. */
   ulong        base_slot = 0UL;
-  const char * snapshot  = snapshotfile;
   if( strcmp( snapshot, "funk" )==0 || strncmp( snapshot, "wksp:", 5 )==0 ) {
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
@@ -1923,6 +1924,7 @@ read_snapshot( void *              _ctx,
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
                                                                     ctx->incremental_src_type,
+                                                                    NULL,
                                                                     ctx->slot_ctx,
                                                                     false,
                                                                     false,
@@ -1943,6 +1945,7 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->snapshot_src_type,
+                                                              snapshot_dir,
                                                               ctx->slot_ctx,
                                                               false,
                                                               false,
@@ -1980,6 +1983,7 @@ read_snapshot( void *              _ctx,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
     fd_snapshot_load_all( incremental,
                           ctx->incremental_src_type,
+                          NULL,
                           ctx->slot_ctx,
                           &base_slot,
                           NULL,
@@ -2166,7 +2170,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   uchar is_snapshot = strlen( ctx->snapshot ) > 0;
   if( is_snapshot ) {
-    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental );
+    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental, ctx->snapshot_dir );
   }
 
   if( ctx->replay_plugin_out_mem ) {
@@ -2917,6 +2921,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->genesis             = tile->replay.genesis;
   ctx->incremental         = tile->replay.incremental;
   ctx->snapshot            = tile->replay.snapshot;
+  ctx->snapshot_dir        = tile->replay.snapshot_dir;
 
   ctx->incremental_src_type = tile->replay.incremental_src_type;
   ctx->snapshot_src_type    = tile->replay.snapshot_src_type;
