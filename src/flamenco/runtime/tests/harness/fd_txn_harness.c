@@ -75,9 +75,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
-
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
@@ -193,6 +190,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       ( rent->burn_percent            >      100 ) ) {
     return NULL;
   }
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
      - slot_ctx->slot_bank.block_hash_queue
