@@ -462,15 +462,15 @@ fd_funk_rec_modify_try_global( fd_funk_t *               funk,
   }
 #endif
 
-  /* Try modifying within the current transaction first to see if the record exists */
+  /* Try to get a modifiable handle to the record within the current transaction. */
   fd_funk_rec_t * rec = fd_funk_rec_modify_try( funk, txn, key, query );
   if( rec ) {
     if( txn_out ) *txn_out = txn;
     return rec;
   }
 
-  /* Record does not exist in the current transaction. It must belong
-     to a parent transaction, if it exists in funk. If so, clone it down
+  /* Record does not exist in the current transaction. If it exists at all, it must
+     belong to a parent transaction, if it exists in funk. If so, clone it down
      to the child transaction. */
   fd_funk_rec_prepare_t prepare;
   rec = fd_funk_rec_clone( funk, txn, key, &prepare, txn_out, NULL );
