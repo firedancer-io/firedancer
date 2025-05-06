@@ -167,6 +167,7 @@ setup_snapshots( config_t *       config,
     strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
     tile->replay.incremental_src_type = FD_SNAPSHOT_SRC_FILE;
   }
+  tile->replay.incremental[ sizeof(tile->replay.incremental)-1UL ] = '\0';
 
   uchar snapshot_is_file, snapshot_is_url;
   if( strnlen( config->tiles.replay.snapshot, PATH_MAX )>0UL ) {
@@ -191,6 +192,10 @@ setup_snapshots( config_t *       config,
     strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
     tile->replay.snapshot_src_type = FD_SNAPSHOT_SRC_FILE;
   }
+  tile->replay.snapshot[ sizeof(tile->replay.snapshot)-1UL ] = '\0';
+
+  strncpy( tile->replay.snapshot_dir, config->tiles.replay.snapshot_dir, sizeof(tile->replay.snapshot_dir) );
+  tile->replay.snapshot_dir[ sizeof(tile->replay.snapshot_dir)-1UL ] = '\0';
 }
 
 void

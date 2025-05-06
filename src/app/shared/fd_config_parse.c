@@ -236,6 +236,18 @@ fdctl_pod_find_leftover( uchar * pod ) {
     fd_pod_remove( pod, key );                                         \
   } while(0)
 
+static void
+fd_config_check_configf( fd_config_t *  config,
+                         fd_configf_t * config_f ) {
+  (void)config_f;
+  if( FD_UNLIKELY( strlen( config->tiles.replay.snapshot_dir )>PATH_MAX-1UL ) ) {
+    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] is too long (max %lu)", PATH_MAX-1UL ));
+  }
+  if( FD_UNLIKELY( config->tiles.replay.snapshot_dir[ 0 ]!='\0' && config->tiles.replay.snapshot_dir[ 0 ]!='/' ) ) {
+    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] must be an absolute path and hence start with a '/'"));
+  }
+}
+
 fd_configh_t *
 fd_config_extract_podh( uchar *        pod,
                         fd_configh_t * config ) {
@@ -432,6 +444,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
   CFG_POP      ( cstr,   tiles.replay.snapshot_url                        );
+  CFG_POP      ( cstr,   tiles.replay.snapshot_dir                        );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
@@ -489,6 +502,7 @@ fd_config_extract_pod( uchar *       pod,
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;
+    fd_config_check_configf( config, &config->firedancer );
   } else {
     if( FD_UNLIKELY( !fd_config_extract_podh( pod, &config->frankendancer ) ) ) return NULL;
   }

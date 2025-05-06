@@ -1129,6 +1129,7 @@ ingest( fd_ledger_args_t * args ) {
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
                           FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           slot_ctx,
                           NULL,
                           args->tpool,
@@ -1143,6 +1144,7 @@ ingest( fd_ledger_args_t * args ) {
   if( args->incremental ) {
     fd_snapshot_load_all( args->incremental,
                           FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           slot_ctx,
                           NULL,
                           args->tpool,
@@ -1319,6 +1321,7 @@ replay( fd_ledger_args_t * args ) {
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
                           FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           args->slot_ctx,
                           NULL,
                           args->tpool,
@@ -1332,6 +1335,7 @@ replay( fd_ledger_args_t * args ) {
     if( args->incremental ) {
       fd_snapshot_load_all( args->incremental,
                             FD_SNAPSHOT_SRC_FILE,
+                            NULL,
                             args->slot_ctx,
                             NULL,
                             args->tpool,
