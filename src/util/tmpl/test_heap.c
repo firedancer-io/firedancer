@@ -1,9 +1,4 @@
-#include "../fd_util.h"
-#if FD_HAS_HOSTED
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
+#include "../fd_util_test.h"
 
 #define CIDX_T uchar
 #define VAL_T  schar
@@ -183,22 +178,6 @@ main( int     argc,
 
   /* test handholding */
 #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
-  #define FD_EXPECT_LOG_CRIT( CALL ) do {                          \
-    FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
-    pid_t pid = fork();                                            \
-    FD_TEST( pid >= 0 );                                           \
-    if( pid == 0 ) {                                               \
-      fd_log_level_logfile_set( 6 );                               \
-      __typeof__(CALL) res = (CALL);                               \
-      __asm__("" : "+r"(res));                                     \
-      _exit( 0 );                                                  \
-    }                                                              \
-    int status = 0;                                                \
-    wait( &status );                                               \
-                                                                   \
-    FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
-  } while( 0 )
-
   ele_t f = { 0, 0, 0 };
 
   FD_EXPECT_LOG_CRIT( heap_ele_insert( heap, &f, pool ) );

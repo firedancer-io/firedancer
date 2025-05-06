@@ -1,9 +1,4 @@
-#include "../fd_util.h"
-#if FD_HAS_HOSTED
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
+#include "../fd_util_test.h"
 
 struct pair {
   uint mykey;
@@ -278,23 +273,9 @@ main( int     argc,
   /* Test handholding */
   FD_LOG_NOTICE(( "Testing handholding" ));
 #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
-  #define FD_EXPECT_LOG_CRIT( ACTION ) do {                         \
-    pid_t pid = fork();                                            \
-    FD_TEST( pid >= 0 );                                           \
-    if( pid == 0 ) {                                               \
-      fd_log_level_logfile_set( 6 );                               \
-      ACTION;                                                      \
-      _exit( 0 );                                                  \
-    }                                                              \
-    int status = 0;                                                \
-    wait( &status );                                               \
-                                                                   \
-    FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
-  } while( 0 )
-
   /* we know from above that the map is empty */
-  FD_TEST(           map_idx_insert( map, 1, pool ) );
-  FD_EXPECT_LOG_CRIT( map_idx_insert( map, 1, pool ) );
+  FD_TEST(                 map_idx_insert( map, 1, pool ) );
+  FD_EXPECT_LOG_CRIT_VOID( map_idx_insert( map, 1, pool ) );
 
   map_iter_t iter = map_iter_init( map, pool );
   for( ; !map_iter_done( iter, map, pool ); iter=map_iter_next( iter, map, pool ) ) {
@@ -302,8 +283,10 @@ main( int     argc,
   }
   /* work around "inline asm not supported yet: don't know how to handle
      tied indirect register inputs" */
-  FD_EXPECT_LOG_CRIT( __extension__({ iter = map_iter_next( iter, map, pool );
-                                     FD_LOG_NOTICE(( "%lu", iter.chain_rem )); }) );
+  FD_EXPECT_LOG_CRIT_VOID( __extension__({
+    iter = map_iter_next( iter, map, pool );
+    FD_LOG_NOTICE(( "%lu", iter.chain_rem ));
+  }) );
 #else
   FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
 #endif
