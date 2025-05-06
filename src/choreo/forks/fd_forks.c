@@ -266,10 +266,7 @@ slot_ctx_restore( ulong                 slot,
                    FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.poh.hash ) ));
 
   /* Prepare bank for next slot */
-  slot_ctx_out->slot                               = slot;
-
-  /* FEES TO 0*/
-  slot_ctx_out->slot_bank.collected_priority_fees  = 0;
+  slot_ctx_out->slot = slot;
 
   /* FIXME epoch boundary stuff when replaying */
   // fd_features_restore( slot_ctx );

@@ -185,11 +185,15 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_bank_mgr_t bank_mgr_obj = {0};
     fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
     ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
     *execution_fees = 0;
     fd_bank_mgr_execution_fees_save( bank_mgr );
 
-    slot_ctx->slot_bank.collected_priority_fees = 0;
+    ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+    *priority_fees = 0;
+    fd_bank_mgr_priority_fees_save( bank_mgr );
+
     slot_ctx->txn_count = 0;
     slot_ctx->nonvote_txn_count = 0;
     slot_ctx->failed_txn_count = 0;

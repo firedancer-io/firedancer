@@ -497,14 +497,15 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   ulong fees = 0UL;
   ulong burn = 0UL;
 
-  ulong * execution_fee = fd_bank_mgr_execution_fees_query( bank_mgr );
+  ulong * execution_fees = fd_bank_mgr_execution_fees_query( bank_mgr );
+  ulong * priority_fees  = fd_bank_mgr_priority_fees_query( bank_mgr );
 
   if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, reward_full_priority_fee ) ) {
-    ulong half_fee = *execution_fee / 2;
-    fees = fd_ulong_sat_add( slot_ctx->slot_bank.collected_priority_fees, *execution_fee - half_fee );
+    ulong half_fee = *execution_fees / 2;
+    fees = fd_ulong_sat_add( *priority_fees, *execution_fees - half_fee );
     burn = half_fee;
   } else {
-    ulong total_fees = fd_ulong_sat_add( *execution_fee, slot_ctx->slot_bank.collected_priority_fees );
+    ulong total_fees = fd_ulong_sat_add( *execution_fees, *priority_fees );
     ulong half_fee = total_fees / 2;
     fees = total_fees - half_fee;
     burn = half_fee;
@@ -555,11 +556,13 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
     fd_bank_mgr_capitalization_save( bank_mgr );
 
-    execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
-    *execution_fee = 0;
+    execution_fees  = fd_bank_mgr_execution_fees_modify( bank_mgr );
+    *execution_fees = 0UL;
     fd_bank_mgr_execution_fees_save( bank_mgr );
 
-    slot_ctx->slot_bank.collected_priority_fees = 0;
+    priority_fees  = fd_bank_mgr_priority_fees_modify( bank_mgr );
+    *priority_fees = 0UL;
+    fd_bank_mgr_priority_fees_save( bank_mgr );
   }
 
   fd_runtime_run_incinerator( slot_ctx );
@@ -1531,11 +1534,14 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                        *(fd_bank_mgr_block_height_query( bank_mgr )) );
   }
 
-  ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
-  *execution_fee = 0UL;
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  *execution_fees = 0UL;
   fd_bank_mgr_execution_fees_save( bank_mgr );
 
-  slot_ctx->slot_bank.collected_priority_fees  = 0UL;
+  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+  *priority_fees = 0UL;
+  fd_bank_mgr_priority_fees_save( bank_mgr );
+
   slot_ctx->signature_cnt                      = 0UL;
   slot_ctx->txn_count                          = 0UL;
   slot_ctx->nonvote_txn_count                  = 0UL;
@@ -1878,12 +1884,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
   fd_bank_mgr_t bank_mgr_obj = {0};
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
   *execution_fee += task_info->txn_ctx->execution_fee;
   fd_bank_mgr_execution_fees_save( bank_mgr );
 
-  // FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees,  task_info->txn_ctx->priority_fee   );
+  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+  *priority_fees += task_info->txn_ctx->priority_fee;
+  fd_bank_mgr_priority_fees_save( bank_mgr );
 
   fd_exec_txn_ctx_t * txn_ctx      = task_info->txn_ctx;
   int                 exec_txn_err = task_info->exec_res;
@@ -3719,11 +3727,14 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
     fd_sha256_hash( slot_ctx->slot_bank.poh.uc, sizeof(fd_hash_t), slot_ctx->slot_bank.poh.uc );
   }
 
-  ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
-  *execution_fee = 0UL;
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  *execution_fees = 0UL;
   fd_bank_mgr_execution_fees_save( bank_mgr );
 
-  slot_ctx->slot_bank.collected_priority_fees  = 0UL;
+  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+  *priority_fees = 0UL;
+  fd_bank_mgr_priority_fees_save( bank_mgr );
+
   slot_ctx->signature_cnt                      = 0UL;
   slot_ctx->txn_count                          = 0UL;
   slot_ctx->failed_txn_count                   = 0UL;

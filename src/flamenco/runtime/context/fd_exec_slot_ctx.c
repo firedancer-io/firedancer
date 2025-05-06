@@ -406,7 +406,11 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   *execution_fees = oldbank->collector_fees;
   fd_bank_mgr_execution_fees_save( bank_mgr );
 
-  slot_bank->collected_priority_fees = 0;
+  /* Priority Fees */
+
+  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+  *priority_fees = 0UL;
+  fd_bank_mgr_priority_fees_save( bank_mgr );
 
   /* FIXME: Remove the magic number here. */
   uchar * pool_mem = NULL;

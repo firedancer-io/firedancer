@@ -1235,7 +1235,9 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
 
     fd_bank_mgr_t bank_mgr_obj = {0};
     fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
-    ulong * execution_fee = fd_bank_mgr_execution_fees_query( bank_mgr );
+
+    ulong * execution_fees = fd_bank_mgr_execution_fees_query( bank_mgr );
+    ulong * priority_fees  = fd_bank_mgr_priority_fees_query( bank_mgr );
 
     ulong msg[11];
     msg[ 0 ] = ctx->curr_slot;
@@ -1244,8 +1246,8 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg[ 3 ] = fork->slot_ctx->failed_txn_count;
     msg[ 4 ] = fork->slot_ctx->nonvote_failed_txn_count;
     msg[ 5 ] = fork->slot_ctx->total_compute_units_used;
-    msg[ 6 ] = *execution_fee;
-    msg[ 7 ] = fork->slot_ctx->slot_bank.collected_priority_fees;
+    msg[ 6 ] = *execution_fees;
+    msg[ 7 ] = *priority_fees;
     msg[ 8 ] = 0UL; /* todo ... track tips */
     msg[ 9 ] = ctx->parent_slot;
     msg[ 10 ] = 0UL;  /* todo ... max compute units */
@@ -2657,11 +2659,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     fd_bank_mgr_t bank_mgr_obj = {0};
     fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
-    ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
-    *execution_fee = 0UL;
+    ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+    *execution_fees = 0UL;
     fd_bank_mgr_execution_fees_save( bank_mgr );
 
-    child->slot_ctx->slot_bank.collected_priority_fees  = 0UL;
+    ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+    *priority_fees = 0UL;
+    fd_bank_mgr_priority_fees_save( bank_mgr );
 
     if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
       FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));

@@ -1224,7 +1224,6 @@
         { "name": "prev_slot",                   "type": "ulong" },
         { "name": "poh",                         "type": "hash" },
         { "name": "banks_hash",                  "type": "hash" },
-        { "name": "collected_priority_fees",     "type": "ulong" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "last_restart_slot",           "type": "sol_sysvar_last_restart_slot" },
         { "name": "stake_account_keys",          "type": "account_keys"},
