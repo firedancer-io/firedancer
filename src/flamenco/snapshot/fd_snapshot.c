@@ -18,6 +18,7 @@
 
 struct fd_snapshot_load_ctx {
   /* User-defined parameters. */
+  const char *           snapshot_dir;
   const char *           snapshot_src;
   int                    snapshot_src_type;
   fd_exec_slot_ctx_t *   slot_ctx;
@@ -101,6 +102,7 @@ fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_src,
                       int                    snapshot_src_type,
+                      const char *           snapshot_dir,
                       fd_exec_slot_ctx_t *   slot_ctx,
                       uint                   verify_hash,
                       uint                   check_hash,
@@ -115,6 +117,7 @@ fd_snapshot_load_new( uchar *                mem,
 
   fd_snapshot_load_ctx_t * ctx = (fd_snapshot_load_ctx_t *)mem;
 
+  ctx->snapshot_dir      = snapshot_dir;
   ctx->snapshot_src      = snapshot_src;
   ctx->snapshot_src_type = snapshot_src_type;
   ctx->slot_ctx          = slot_ctx;
@@ -173,6 +176,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr, ctx->snapshot_src_type ) ) ) {
     FD_LOG_ERR(( "Failed to parse snapshot src" ));
   }
+  src->snapshot_dir = ctx->snapshot_dir;
 
   fd_exec_epoch_ctx_bank_mem_clear( ctx->slot_ctx->epoch_ctx );
 
@@ -366,6 +370,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       int                  source_type,
+                      const char *         snapshot_dir,
                       fd_exec_slot_ctx_t * slot_ctx,
                       ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
@@ -385,6 +390,7 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem,
                                                        source_cstr,
                                                        source_type,
+                                                       snapshot_dir,
                                                        slot_ctx,
                                                        verify_hash,
                                                        check_hash,
@@ -414,6 +420,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr, ctx->snapshot_src_type ) ) ) {
     FD_LOG_ERR(( "Failed to parse snapshot src" ));
   }
+  src->snapshot_dir = ctx->snapshot_dir;
 
   fd_funk_t *     funk     = ctx->slot_ctx->funk;
   fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;

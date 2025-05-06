@@ -363,6 +363,7 @@ struct fd_config {
       char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  snapshot_url[ PATH_MAX ];
+      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
