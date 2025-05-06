@@ -449,7 +449,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
         epoch_bank->next_epoch_stakes.vote_accounts_pool );
       FD_TEST( elem );
 
-      elem->elem = n->elem;
+      elem->elem                    = n->elem;
+      epoch_ctx->total_epoch_stake += n->elem.stake;
 
       fd_vote_accounts_pair_t_map_insert(
         epoch_bank->next_epoch_stakes.vote_accounts_pool,
