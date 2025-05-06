@@ -1817,7 +1817,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_slot_bank_t *self = (fd_slot_bank_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_slot_bank_t);
   fd_slot_bank_new(mem);
-  fd_clock_timestamp_votes_generate( &self->timestamp_votes, alloc_mem, rng );
   self->prev_slot = fd_rng_ulong( rng );
   fd_hash_generate( &self->poh, alloc_mem, rng );
   fd_hash_generate( &self->banks_hash, alloc_mem, rng );

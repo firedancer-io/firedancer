@@ -963,6 +963,7 @@
     {
       "name": "clock_timestamp_votes",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "votes", "type": "map", "element": "clock_timestamp_vote", "key": "pubkey", "minalloc":15000 }
       ],
@@ -1220,7 +1221,6 @@
       "name": "slot_bank",
       "type": "struct",
       "fields": [
-        { "name": "timestamp_votes",             "type": "clock_timestamp_votes" },
         { "name": "prev_slot",                   "type": "ulong" },
         { "name": "poh",                         "type": "hash" },
         { "name": "banks_hash",                  "type": "hash" },

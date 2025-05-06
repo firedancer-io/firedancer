@@ -131,6 +131,10 @@
 #define FD_BANK_MGR_PRIORITY_FEES_FOOTPRINT (8UL)
 #define FD_BANK_MGR_PRIORITY_FEES_ALIGN     (8UL)
 
+#define FD_BANK_MGR_CLOCK_TIMESTAMP_VOTES_ID        (24)
+#define FD_BANK_MGR_CLOCK_TIMESTAMP_VOTES_FOOTPRINT (2000000UL)
+#define FD_BANK_MGR_CLOCK_TIMESTAMP_VOTES_ALIGN     (1024UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -168,29 +172,30 @@ int                                                      \
 fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
 
 #define FD_BANK_MGR_ITER(X)                                                                 \
-  X(fd_block_hash_queue_global_t, block_hash_queue,            BLOCK_HASH_QUEUE)            \
-  X(ulong,                        slot,                        SLOT)                        \
-  X(fd_fee_rate_governor_t,       fee_rate_governor,           FEE_RATE_GOVERNOR)           \
-  X(ulong,                        capitalization,              CAPITALIZATION)              \
-  X(ulong,                        lamports_per_signature,      LAMPORTS_PER_SIGNATURE)      \
-  X(ulong,                        prev_lamports_per_signature, PREV_LAMPORTS_PER_SIGNATURE) \
-  X(ulong,                        transaction_count,           TRANSACTION_COUNT)           \
-  X(ulong,                        parent_signature_cnt,        PARENT_SIGNATURE_CNT)        \
-  X(ulong,                        tick_height,                 TICK_HEIGHT)                 \
-  X(ulong,                        max_tick_height,             MAX_TICK_HEIGHT)             \
-  X(ulong,                        hashes_per_tick,             HASHES_PER_TICK)             \
-  X(uint128,                      ns_per_slot,                 NS_PER_SLOT)                 \
-  X(ulong,                        ticks_per_slot,              TICKS_PER_SLOT)              \
-  X(ulong,                        genesis_creation_time,       GENESIS_CREATION_TIME)       \
-  X(double,                       slots_per_year,              SLOTS_PER_YEAR)              \
-  X(fd_inflation_t,               inflation,                   INFLATION)                   \
-  X(ulong,                        total_epoch_stake,           TOTAL_EPOCH_STAKE)           \
-  X(ulong,                        eah_start_slot,              EAH_START_SLOT)              \
-  X(ulong,                        eah_stop_slot,               EAH_STOP_SLOT)               \
-  X(ulong,                        eah_interval,                EAH_INTERVAL)                \
-  X(ulong,                        block_height,                BLOCK_HEIGHT)                \
-  X(fd_hash_t,                    epoch_account_hash,          EPOCH_ACCOUNT_HASH)          \
-  X(ulong,                        execution_fees,              EXECUTION_FEES)              \
-  X(ulong,                        priority_fees,               PRIORITY_FEES)
+  X(fd_block_hash_queue_global_t,      block_hash_queue,            BLOCK_HASH_QUEUE)            \
+  X(ulong,                             slot,                        SLOT)                        \
+  X(fd_fee_rate_governor_t,            fee_rate_governor,           FEE_RATE_GOVERNOR)           \
+  X(ulong,                             capitalization,              CAPITALIZATION)              \
+  X(ulong,                             lamports_per_signature,      LAMPORTS_PER_SIGNATURE)      \
+  X(ulong,                             prev_lamports_per_signature, PREV_LAMPORTS_PER_SIGNATURE) \
+  X(ulong,                             transaction_count,           TRANSACTION_COUNT)           \
+  X(ulong,                             parent_signature_cnt,        PARENT_SIGNATURE_CNT)        \
+  X(ulong,                             tick_height,                 TICK_HEIGHT)                 \
+  X(ulong,                             max_tick_height,             MAX_TICK_HEIGHT)             \
+  X(ulong,                             hashes_per_tick,             HASHES_PER_TICK)             \
+  X(uint128,                           ns_per_slot,                 NS_PER_SLOT)                 \
+  X(ulong,                             ticks_per_slot,              TICKS_PER_SLOT)              \
+  X(ulong,                             genesis_creation_time,       GENESIS_CREATION_TIME)       \
+  X(double,                            slots_per_year,              SLOTS_PER_YEAR)              \
+  X(fd_inflation_t,                    inflation,                   INFLATION)                   \
+  X(ulong,                             total_epoch_stake,           TOTAL_EPOCH_STAKE)           \
+  X(ulong,                             eah_start_slot,              EAH_START_SLOT)              \
+  X(ulong,                             eah_stop_slot,               EAH_STOP_SLOT)               \
+  X(ulong,                             eah_interval,                EAH_INTERVAL)                \
+  X(ulong,                             block_height,                BLOCK_HEIGHT)                \
+  X(fd_hash_t,                         epoch_account_hash,          EPOCH_ACCOUNT_HASH)          \
+  X(ulong,                             execution_fees,              EXECUTION_FEES)              \
+  X(ulong,                             priority_fees,               PRIORITY_FEES)               \
+  X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       CLOCK_TIMESTAMP_VOTES)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

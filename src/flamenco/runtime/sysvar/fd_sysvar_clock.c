@@ -130,13 +130,14 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  fd_clock_timestamp_vote_t_mapnode_t * votes = slot_ctx->slot_bank.timestamp_votes.votes_root;
-  if ( NULL == votes ) {
-    return timestamp_from_genesis( slot_ctx );
-  }
-
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( bank_mgr );
+  fd_clock_timestamp_vote_t_mapnode_t * votes = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes, clock_timestamp_votes->votes_root_offset );
+
+  if( NULL == votes ) {
+    return timestamp_from_genesis( slot_ctx );
+  }
   uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
 
   /* TODO: actually take the stake-weighted median. For now, just use the root node. */
@@ -217,8 +218,10 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
 
   ulong total_stake = 0;
 
-  fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_ctx->slot_bank.timestamp_votes.votes_root;
-  fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
+  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( bank_mgr );
+  fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes, clock_timestamp_votes->votes_pool_offset );
+  fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes, clock_timestamp_votes->votes_root_offset );
+
   fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
   fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
   for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
@@ -233,7 +236,9 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
     } else {
       fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
       query_vote_acc_node.elem.pubkey = *vote_pubkey;
-      fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
+      fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find( timestamp_votes_pool,
+                                                                                                timestamp_votes_root,
+                                                                                                &query_vote_acc_node );
       ulong vote_timestamp = 0;
       ulong vote_slot = 0;
       if( vote_acc_node == NULL ) {
