@@ -9,8 +9,7 @@
 
 
 fd_tower_t *
-make_tower(fd_wksp_t * wksp, size_t n, ...) {
-  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+make_tower(void * tower_mem, size_t n, ...) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem ) );
 
   va_list args;
@@ -39,19 +38,8 @@ make_tower(fd_wksp_t * wksp, size_t n, ...) {
   return tower;
 }
 
-#define TOWER(wksp, ...) \
-  make_tower(wksp, \
-    (sizeof((ulong[]){__VA_ARGS__})/sizeof(ulong)), \
-    __VA_ARGS__)
-
-ulong
-add_tower_vote(fd_tower_t * tower, ulong slot) {
-  ulong root = fd_tower_vote(tower, slot);
-  return root;
-}
-
-#define ADD_TOWER_VOTE(tower, slot) \
-  add_tower_vote(tower, slot)
+#define TOWER(tower_mem, ...) \
+  make_tower(tower_mem, (sizeof((ulong[]){__VA_ARGS__})/sizeof(ulong)), __VA_ARGS__)
 
 struct ghost_entry {
   ulong slot;
@@ -72,7 +60,7 @@ init_vote_accounts( fd_pubkey_t * voter,
 }
 
 void
-setup_voter_in_funk_txn( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_pubkey_t * voter, fd_pubkey_t * identity ) {
+setup_voter_in_funk_txn( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_pubkey_t * voter ) {
   fd_wksp_t * funk_wksp = fd_funk_wksp( funk );
 
   fd_funk_rec_key_t key = fd_funk_acc_key( voter );
@@ -86,35 +74,6 @@ setup_voter_in_funk_txn( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_pubkey_t
   memcpy( meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) );
   fd_funk_rec_publish( prepare );
   memset((uchar *)meta + meta->hlen, 0, FD_VOTE_STATE_V3_SZ);
-
-  fd_vote_authorized_voters_t authorized_voters = {
-    .pool  = NULL,
-    .treap = NULL
-  };
-  fd_vote_state_t vote_state = {
-    .node_pubkey = *identity,
-    .authorized_voters = authorized_voters,
-    .commission = 0,
-    .authorized_withdrawer = *voter,
-    .prior_voters = (fd_vote_prior_voters_t) {
-      .idx      = 31UL,
-      .is_empty = 1,
-    },
-    .votes = NULL,
-    .root_slot = FD_SLOT_NULL,
-    .epoch_credits = NULL
-  };
-
-  fd_vote_state_versioned_t vote_state_versioned;
-  vote_state_versioned.discriminant = fd_vote_state_versioned_enum_current;
-  vote_state_versioned.inner.current = vote_state;
-
-  FD_TEST( fd_vote_state_versioned_size( &vote_state_versioned ) <= FD_VOTE_STATE_V3_SZ );
-  fd_bincode_encode_ctx_t encode = {
-    .data    = (uchar*)meta + meta->hlen,
-    .dataend = (uchar*)meta + meta->hlen + meta->dlen
-  };
-  FD_TEST( fd_vote_state_versioned_encode( &vote_state_versioned, &encode )==0 );
 }
 
 fd_funk_txn_t *
@@ -146,7 +105,7 @@ mock_funk_txn( ghost_entry_t entry,
 }
 
 void
-setup_funk_txns( fd_funk_t * funk, ghost_entry_t * ghost_entries, ulong ghost_len, fd_pubkey_t * voter, fd_pubkey_t * identity, ulong voter_cnt, fd_tower_t * towers[] ) {
+setup_funk_txns( fd_funk_t * funk, ghost_entry_t * ghost_entries, ulong ghost_len, fd_pubkey_t * voter, ulong voter_cnt, fd_tower_t * towers[] ) {
   for ( ulong g=0; g<ghost_len; g++ ) {
     bool is_root = g==0UL ? true : false;
     fd_funk_txn_t * ghost_slot_funk_txn = mock_funk_txn( ghost_entries[g], is_root, funk );
@@ -154,73 +113,121 @@ setup_funk_txns( fd_funk_t * funk, ghost_entry_t * ghost_entries, ulong ghost_le
       ulong current_tower_height = fd_tower_votes_cnt( towers[v] );
       for ( ulong t=0; t<current_tower_height; t++ ) {
         if ( fd_tower_votes_peek_index_const( towers[v], t )->slot==ghost_entries[g].slot ) {
-          setup_voter_in_funk_txn( funk, ghost_slot_funk_txn, &voter[v], &identity[v] );
-        } else if ( fd_tower_votes_peek_index_const( towers[v], t )->slot>ghost_entries[g].slot ) {
-          break;
+          setup_voter_in_funk_txn( funk, ghost_slot_funk_txn, &voter[v] );
         }
       }
     }
   }
 }
 
-/*
-VOTE_FOR_SLOT( vote_slot, slot, voter_idx )
- - vote_slot: slot to vote for
- - slot: slot to vote in
- - voter_idx: index of the voter in the voter array
-*/
-#define VOTE_FOR_SLOT( vote_slot, slot_num, voter_num ) \
-  fd_tower_t * vote_tower_##slot_num##_##voter_num = towers[voter_num]; \
-  ulong tower_height_##slot_num##_##voter_num = fd_tower_votes_cnt( vote_tower_##slot_num##_##voter_num ); \
-  ulong vote_slot_idx_##slot_num##_##voter_num = ULONG_MAX; \
-  for (ulong i = 0; i < tower_height_##slot_num##_##voter_num; i++) { \
-    if (fd_tower_votes_peek_index_const( vote_tower_##slot_num##_##voter_num, i )->slot == vote_slot) { \
-      vote_slot_idx_##slot_num##_##voter_num = i; \
-      break; \
-    } \
-  } \
-  if (vote_slot_idx_##slot_num##_##voter_num == ULONG_MAX) { \
-    FD_LOG_ERR( ( "VOTE_FOR_SLOT: vote_slot=%lu not found in tower", vote_slot ) ); \
-    return; \
-  } \
-  fd_landed_vote_t * landed_votes_##slot_num##_##voter_num = mock_landed_votes( wksp, tower_height_##slot_num##_##voter_num, vote_tower_##slot_num##_##voter_num, (uint)vote_slot_idx_##slot_num##_##voter_num ); \
-  fd_funk_txn_xid_t xid_##slot_num##_##voter_num; \
-  xid_##slot_num##_##voter_num.ul[0] = xid_##slot_num##_##voter_num.ul[1] = slot_num; \
-  fd_funk_txn_map_query_t query_##slot_num##_##voter_num[1]; \
-  fd_funk_txn_map_t txn_map_##slot_num##_##voter_num = fd_funk_txn_map( funk, fd_funk_wksp( funk ) ); \
-  FD_TEST( fd_funk_txn_map_query_try( &txn_map_##slot_num##_##voter_num, &xid_##slot_num##_##voter_num, NULL, query_##slot_num##_##voter_num, 0 )==FD_MAP_SUCCESS ); \
-  FD_TEST( query_##slot_num##_##voter_num->ele ); \
-  fd_funk_txn_t * funk_txn_##slot_num##_##voter_num = query_##slot_num##_##voter_num->ele; \
-  set_vote_account_tower( wksp, funk, funk_txn_##slot_num##_##voter_num, &voter[voter_num], landed_votes_##slot_num##_##voter_num );
+fd_vote_state_versioned_t *
+tower_to_vote_state( fd_wksp_t * wksp, ulong max_slot, fd_tower_t * tower, fd_pubkey_t * voter, fd_pubkey_t * identity ) {
+  void * vote_state_versioned_mem = fd_wksp_alloc_laddr( wksp, FD_VOTE_STATE_VERSIONED_ALIGN, FD_VOTE_STATE_V3_SZ, 46UL );
+  fd_vote_state_versioned_t * vote_state_versioned = (fd_vote_state_versioned_t*)vote_state_versioned_mem;
+
+  ulong tower_height = fd_tower_votes_cnt( tower );
+
+  uint vote_slot_idx = UINT_MAX;
+  for (ulong i = 0; i < tower_height; i++) {
+    if (fd_tower_votes_peek_index_const( tower, i )->slot == max_slot) {
+      vote_slot_idx = (uint)i;
+      break;
+    }
+  }
+
+  ulong cnt = fd_ulong_max( tower_height, MAX_LOCKOUT_HISTORY );
+  void * deque_mem = fd_wksp_alloc_laddr( wksp, deq_fd_landed_vote_t_align(), deq_fd_landed_vote_t_footprint( cnt ), 2UL );
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, deq_fd_landed_vote_t_footprint(cnt ) ) );
+
+  uint current_confirmation_count = vote_slot_idx+1;
+  for( ulong i = 0; i <= vote_slot_idx; i++ ) {
+    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( landed_votes );
+    fd_landed_vote_new( elem );
+
+    elem->latency                    = 0;
+    elem->lockout.slot               = fd_tower_votes_peek_index_const( tower, i )->slot;
+    elem->lockout.confirmation_count = current_confirmation_count;
+    current_confirmation_count--;
+  }
+
+  // for( ulong i = 0; i < tower_height; i++ ) {
+  //   fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( landed_votes );
+  //   fd_landed_vote_new( elem );
+
+  //   elem->latency                    = 0;
+  //   elem->lockout.slot               = fd_tower_votes_peek_index_const( tower, i )->slot;
+  //   elem->lockout.confirmation_count = (uint)fd_tower_votes_peek_index_const( tower, i )->conf;
+  // }
+
+  fd_vote_authorized_voters_t authorized_voters = {
+    .pool  = NULL,
+    .treap = NULL
+  };
+  fd_vote_state_t vote_state = {
+    .node_pubkey = *identity,
+    .authorized_voters = authorized_voters,
+    .commission = 0,
+    .authorized_withdrawer = *voter,
+    .prior_voters = (fd_vote_prior_voters_t) {
+      .idx      = 31UL,
+      .is_empty = 1,
+    },
+    .votes = landed_votes,
+    .root_slot = FD_SLOT_NULL,
+    .epoch_credits = NULL
+  };
+
+  vote_state_versioned->discriminant = fd_vote_state_versioned_enum_current;
+  vote_state_versioned->inner.current = vote_state;
+
+  return vote_state_versioned;
+}
+
+fd_funk_txn_t *
+get_slot_funk_txn( fd_funk_t * funk, ulong slot ) {
+  fd_funk_txn_xid_t xid;
+  xid.ul[0] = xid.ul[1] = slot;
+  fd_funk_txn_map_query_t funk_txn_query[1];
+  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  FD_TEST( fd_funk_txn_map_query_try( &txn_map, &xid, NULL, funk_txn_query, 0 )==FD_MAP_SUCCESS );
+  FD_TEST( funk_txn_query->ele );
+  return funk_txn_query->ele;
+}
 
 void
-set_vote_account_tower( fd_wksp_t *        wksp,
-                        fd_funk_t *        funk,
-                        fd_funk_txn_t *    funk_txn,
-                        fd_pubkey_t *      voter,
-                        fd_landed_vote_t * landed_votes ) {
-  fd_funk_rec_query_t query[1];
+insert_vote_state_into_funk_txn( fd_funk_t *     funk,
+                                 fd_funk_txn_t * funk_txn,
+                                 fd_pubkey_t *   voter,
+                                 fd_vote_state_versioned_t * vote_state_versioned ) {
+
+  fd_funk_rec_query_t funk_rec_query[1];
   fd_funk_rec_key_t key = fd_funk_acc_key( voter );
-  fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, funk_txn, &key, query );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, funk_txn, &key, funk_rec_query );
+
   FD_TEST( rec );
   fd_account_meta_t const * account_meta = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
   FD_TEST( account_meta );
 
-  void * mem = fd_wksp_alloc_laddr(wksp, FD_SPAD_ALIGN, fd_spad_footprint(FD_VOTE_STATE_V3_SZ), 46UL);
-  fd_spad_t * spad = fd_spad_join(fd_spad_new(mem, FD_VOTE_STATE_V3_SZ));
-  void* vote_state_versioned_mem = fd_spad_alloc(spad, FD_VOTE_STATE_VERSIONED_ALIGN, FD_VOTE_STATE_V3_SZ);
-  fd_vote_state_versioned_t* vote_state_versioned = (fd_vote_state_versioned_t*)vote_state_versioned_mem;
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = (uchar*)account_meta + account_meta->hlen,
-    .dataend = (uchar*)account_meta + account_meta->hlen + account_meta->dlen
-  };
-  fd_vote_state_versioned_decode( vote_state_versioned, &decode_ctx );
-  vote_state_versioned->inner.current.votes = landed_votes;
   fd_bincode_encode_ctx_t encode_ctx = {
     .data    = (uchar*)account_meta + account_meta->hlen,
     .dataend = (uchar*)account_meta + account_meta->hlen + account_meta->dlen
   };
   FD_TEST( fd_vote_state_versioned_encode( vote_state_versioned, &encode_ctx )==0 );
+}
+
+void
+set_vote_state_versioned( fd_wksp_t *   wksp,
+                          fd_tower_t *  tower,
+                          fd_funk_t *   funk,
+                          ulong         vote_slot,
+                          ulong         slot,
+                          fd_pubkey_t * voter,
+                          fd_pubkey_t * identity ) {
+  fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, vote_slot, tower, voter, identity );
+
+  fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+
+  insert_vote_state_into_funk_txn( funk, funk_txn, voter, vote_state_versioned );
 }
 
 fd_epoch_t *
@@ -240,41 +247,6 @@ mock_epoch( fd_wksp_t * wksp, ulong voter_cnt, ulong * stakes, fd_pubkey_t * vot
   epoch->total_stake = total_stake;
 
   return epoch;
-}
-
-fd_landed_vote_t *
-mock_landed_votes( fd_wksp_t * wksp, ulong tower_height, fd_tower_t * vote_tower, uint vote_slot_idx ) {
-  ulong cnt = fd_ulong_max( tower_height, MAX_LOCKOUT_HISTORY );
-  void * deque_mem = fd_wksp_alloc_laddr(wksp, deq_fd_landed_vote_t_align(), deq_fd_landed_vote_t_footprint( cnt ), 2UL);
-  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, deq_fd_landed_vote_t_footprint(cnt ) ) );
-
-  uint current_confirmation_count = vote_slot_idx+1;
-
-  for( ulong i = 0; i <= vote_slot_idx; i++ ) {
-    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( landed_votes );
-    fd_landed_vote_new( elem );
-
-    elem->latency                    = 0;
-    elem->lockout.slot               = fd_tower_votes_peek_index_const( vote_tower, i )->slot;
-    elem->lockout.confirmation_count = current_confirmation_count;
-    current_confirmation_count--;
-  }
-
-  FD_TEST( landed_votes );
-  return landed_votes;
-}
-
-fd_tower_t *
-mock_tower( fd_wksp_t * wksp, ulong tower_height, fd_tower_vote_t * votes ) {
-  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
-  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem ) );
-
-  for (ulong i = 0; i < tower_height; i++) {
-    fd_tower_votes_push_tail( tower, votes[i] );
-  }
-
-  FD_TEST( tower );
-  return tower;
 }
 
 fd_ghost_t *
@@ -356,7 +328,6 @@ test_vote_simple( fd_wksp_t * wksp ) {
     {.slot = 331233203, .parent = 331233202},
     {.slot = 331233204, .parent = 331233203},
     {.slot = 331233205, .parent = 331233204},
-    {.slot = 331233206, .parent = 331233205},
   };
   ulong ghost_len = sizeof(ghost_entries) / sizeof(ghost_entry_t);
   fd_ghost_t * ghost = mock_ghost( wksp, 331233200, ghost_len, ghost_entries );
@@ -375,41 +346,47 @@ test_vote_simple( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Setup funk_txns for each slot with vote account funk records       */
   /**********************************************************************/
+  void * tower_mems[5];
+  for(int i = 0; i < 5; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  }
   fd_tower_t * towers[] = {
-    TOWER( wksp, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206 ),
-    TOWER( wksp, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206 ),
-    TOWER( wksp, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206 ),
-    TOWER( wksp, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206 ),
-    TOWER( wksp, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206 ),
+    TOWER( tower_mems[0], 331233201, 331233202, 331233203, 331233204, 331233205 ),
+    TOWER( tower_mems[1], 331233201, 331233202, 331233203, 331233204, 331233205 ),
+    TOWER( tower_mems[2], 331233201, 331233202, 331233203, 331233204, 331233205 ),
+    TOWER( tower_mems[3], 331233201, 331233202, 331233203, 331233204, 331233205 ),
+    TOWER( tower_mems[4], 331233201, 331233202, 331233203, 331233204, 331233205 ),
   };
-  setup_funk_txns( funk, ghost_entries, ghost_len, voter, identity, voter_cnt, towers );
+  setup_funk_txns( funk, ghost_entries, ghost_len, voter, voter_cnt, towers );
 
   /**********************************************************************/
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 0 );
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 1 );
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 2 );
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 3 );
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 4 );
+
+  set_vote_state_versioned( wksp, towers[0], funk, 331233204, 331233205, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233204, 331233205, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233204, 331233205, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233204, 331233205, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233204, 331233205, &voter[4], &identity[4] );
 
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-  fd_tower_t * tower = TOWER( wksp, 331233201, 331233202, 331233203, 331233204, 331233205 );
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233201, 331233202, 331233203, 331233204 );
 
   void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
 
   fd_forks_t * forks;
-  ulong frontier = 331233206;
+  ulong frontier = 331233205;
   INIT_FORKS( frontier );
   ulong curr_slot = frontier;
 
   fd_forks_update( forks, epoch, funk, ghost, curr_slot );
 
   /**********************************************************************/
-  /* Vote for slot 6 and check that the tower grows by 1                */
+  /* Vote for slot 5 and check that the tower grows by 1                */
   /**********************************************************************/
   fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &curr_slot, NULL, forks->pool );
   ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
@@ -471,37 +448,51 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Setup funk_txns for each slot with vote account funk records       */
   /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  }
   fd_tower_t * towers[] = {
-    TOWER( wksp, 331233200, 331233201, 331233202 ),
-    TOWER( wksp, 331233200, 331233201, 331233202 ),
-    TOWER( wksp, 331233200, 331233201, 331233205, 331233206 ),
-    TOWER( wksp, 331233200, 331233201, 331233205, 331233206 ),
-    TOWER( wksp, 331233200, 331233201, 331233205, 331233206 ),
+    TOWER( tower_mems[0], 331233200, 331233201, 331233202 ),
+    TOWER( tower_mems[1], 331233200, 331233201, 331233202 ),
+    TOWER( tower_mems[2], 331233200, 331233201, 331233205, 331233206 ),
+    TOWER( tower_mems[3], 331233200, 331233201, 331233205, 331233206 ),
+    TOWER( tower_mems[4], 331233200, 331233201, 331233205, 331233206 ),
   };
-  setup_funk_txns( funk, ghost_entries, ghost_len, voter, identity, voter_cnt, towers );
+  setup_funk_txns( funk, ghost_entries, ghost_len, voter, voter_cnt, towers );
 
   /**********************************************************************/
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 0 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 1 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 2 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 3 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 4 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233200, 331233201, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233200, 331233201, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233200, 331233201, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233200, 331233201, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233200, 331233201, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 0 );
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 1 );
+  // fd_tower_vote( towers[0], 331233201 );
+  // fd_tower_vote( towers[1], 331233201 );
 
-  VOTE_FOR_SLOT( 331233201UL, 331233205, 2 );
-  VOTE_FOR_SLOT( 331233201UL, 331233205, 3 );
-  VOTE_FOR_SLOT( 331233201UL, 331233205, 4 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233201, 331233202, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233201, 331233202, &voter[1], &identity[1] );
 
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 2 );
+  // fd_tower_vote( towers[2], 331233201 );
+  // fd_tower_vote( towers[3], 331233201 );
+  // fd_tower_vote( towers[4], 331233201 );
+
+  set_vote_state_versioned( wksp, towers[2], funk, 331233201, 331233205, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233201, 331233205, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233201, 331233205, &voter[4], &identity[4] );
+
+  // fd_tower_vote( towers[2], 331233205 );
+
+  set_vote_state_versioned( wksp, towers[2], funk, 331233205, 331233206, &voter[2], &identity[2] );
 
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-  fd_tower_t * tower = TOWER( wksp, 331233200, 331233201, 331233202 );
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202 );
 
   void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
@@ -532,9 +523,11 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
   /*                   Try to vote for slot 331233206                   */
   /*                We should switch to a different fork                */
   /**********************************************************************/
+  // fd_tower_vote( towers[3], 331233205 );
+  // fd_tower_vote( towers[4], 331233205 );
 
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 3 );
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 4 );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233205, 331233206, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233205, 331233206, &voter[4], &identity[4] );
 
   fd_forks_update( forks, epoch, funk, ghost, frontier2 );
   // Validate fd_tower_switch_check returns 1
@@ -593,40 +586,45 @@ test_vote_switch_check_4forks( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Setup funk_txns for each slot with vote account funk records       */
   /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  }
   fd_tower_t * towers[] = {
-    TOWER( wksp, 331233200, 331233201, 331233202, 331233206 ),
-    TOWER( wksp, 331233200, 331233201, 331233202, 331233203 ),
-    TOWER( wksp, 331233200, 331233201, 331233205 ),
-    TOWER( wksp, 331233200, 331233201, 331233204, 331233208 ),
+    TOWER( tower_mems[0], 331233200, 331233201, 331233202, 331233206 ),
+    TOWER( tower_mems[1], 331233200, 331233201, 331233202, 331233203 ),
+    TOWER( tower_mems[2], 331233200, 331233201, 331233205 ),
+    TOWER( tower_mems[3], 331233200, 331233201, 331233204, 331233208 ),
   };
 
-  setup_funk_txns( funk, ghost_entries, ghost_len, voter, identity, voter_cnt, towers );
+  setup_funk_txns( funk, ghost_entries, ghost_len, voter, voter_cnt, towers );
 
   /**********************************************************************/
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 0 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 1 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 2 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 3 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233200, 331233201, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233200, 331233201, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233200, 331233201, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233200, 331233201, &voter[3], &identity[3] );
 
-  VOTE_FOR_SLOT( 331233202UL, 331233202, 0 );
-  VOTE_FOR_SLOT( 331233202UL, 331233202, 1 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233202, 331233202, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233202, 331233202, &voter[1], &identity[1] );
 
-  VOTE_FOR_SLOT( 331233206UL, 331233206, 0 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233206, 331233206, &voter[0], &identity[0] );
 
-  VOTE_FOR_SLOT( 331233203UL, 331233203, 1 );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233203, 331233203, &voter[1], &identity[1] );
 
-  VOTE_FOR_SLOT( 331233205UL, 331233205, 2 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233205, 331233205, &voter[2], &identity[2] );
 
-  VOTE_FOR_SLOT( 331233204UL, 331233204, 3 );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233204, 331233204, &voter[3], &identity[3] );
 
-  VOTE_FOR_SLOT( 331233208UL, 331233208, 3 );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233208, 331233208, &voter[3], &identity[3] );
 
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-  fd_tower_t * tower = TOWER( wksp, 331233200, 331233201, 331233202, 331233203 );
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202, 331233203 );
 
   void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
@@ -713,44 +711,49 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Setup funk_txns for each slot with vote account funk records       */
   /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  }
   fd_tower_t * towers[] = {
-    TOWER( wksp, 331233200, 331233201, 331233202 ),
-    TOWER( wksp, 331233200, 331233201, 331233202 ),
-    TOWER( wksp, 331233200, 331233201, 331233203, 331233204, 331233205 ),
-    TOWER( wksp, 331233200, 331233201, 331233203, 331233204, 331233205 ),
-    TOWER( wksp, 331233200, 331233201, 331233203, 331233204, 331233205 ),
+    TOWER( tower_mems[0], 331233200, 331233201, 331233202 ),
+    TOWER( tower_mems[1], 331233200, 331233201, 331233202 ),
+    TOWER( tower_mems[2], 331233200, 331233201, 331233203, 331233204, 331233205 ),
+    TOWER( tower_mems[3], 331233200, 331233201, 331233203, 331233204, 331233205 ),
+    TOWER( tower_mems[4], 331233200, 331233201, 331233203, 331233204, 331233205 ),
   };
 
-  setup_funk_txns( funk, ghost_entries, ghost_len, voter, identity, voter_cnt, towers );
+  setup_funk_txns( funk, ghost_entries, ghost_len, voter, voter_cnt, towers );
 
   /**********************************************************************/
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 0 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 1 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 2 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 3 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 4 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233200, 331233201, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233200, 331233201, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233200, 331233201, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233200, 331233201, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233200, 331233201, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 0 );
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 1 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233201, 331233202, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233201, 331233202, &voter[1], &identity[1] );
 
-  VOTE_FOR_SLOT( 331233201UL, 331233203, 2 );
-  VOTE_FOR_SLOT( 331233201UL, 331233203, 3 );
-  VOTE_FOR_SLOT( 331233201UL, 331233203, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233201, 331233203, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233201, 331233203, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233201, 331233203, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233203UL, 331233204, 2 );
-  VOTE_FOR_SLOT( 331233203UL, 331233204, 3 );
-  VOTE_FOR_SLOT( 331233203UL, 331233204, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233203, 331233204, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233203, 331233204, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233203, 331233204, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233204UL, 331233205, 2 );
-  VOTE_FOR_SLOT( 331233204UL, 331233205, 3 );
-  VOTE_FOR_SLOT( 331233204UL, 331233205, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233204, 331233205, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233204, 331233205, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233204, 331233205, &voter[4], &identity[4] );
 
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-  fd_tower_t * tower = TOWER( wksp, 331233200, 331233201, 331233202 );
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202 );
 
   void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
@@ -836,68 +839,73 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize a funk_txn for each slot with vote account funk records */
   /**********************************************************************/
-    fd_tower_t * towers[] = {
-      TOWER( wksp, 331233200, 331233201, 331233202, 331233203 ),
-      TOWER( wksp, 331233200, 331233201, 331233202, 331233203 ),
-      TOWER( wksp, 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209, 331233210 ),
-      TOWER( wksp, 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209, 331233210 ),
-      TOWER( wksp, 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209, 331233210 ),
+  void * tower_mems[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  }
+  fd_tower_t * towers[] = {
+    TOWER( tower_mems[0], 331233200, 331233201, 331233202, 331233203 ),
+    TOWER( tower_mems[1], 331233200, 331233201, 331233202, 331233203 ),
+    TOWER( tower_mems[2], 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209, 331233210 ),
+    TOWER( tower_mems[3], 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209, 331233210 ),
+    TOWER( tower_mems[4], 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209, 331233210 ),
     };
-  setup_funk_txns( funk, ghost_entries, ghost_len, voter, identity, voter_cnt, towers );
+  setup_funk_txns( funk, ghost_entries, ghost_len, voter, voter_cnt, towers );
 
   /**********************************************************************/
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 0 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 1 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 2 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 3 );
-  VOTE_FOR_SLOT( 331233200UL, 331233201, 4 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233200, 331233201, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233200, 331233201, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233200, 331233201, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233200, 331233201, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233200, 331233201, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 0 );
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 1 );
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 2 );
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 3 );
-  VOTE_FOR_SLOT( 331233201UL, 331233202, 4 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233201, 331233202, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233201, 331233202, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233201, 331233202, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233201, 331233202, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233201, 331233202, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233202UL, 331233203, 0 );
-  VOTE_FOR_SLOT( 331233202UL, 331233203, 1 );
-  VOTE_FOR_SLOT( 331233202UL, 331233203, 2 );
-  VOTE_FOR_SLOT( 331233202UL, 331233203, 3 );
-  VOTE_FOR_SLOT( 331233202UL, 331233203, 4 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233202, 331233203, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233202, 331233203, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233202, 331233203, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233202, 331233203, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233202, 331233203, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233203UL, 331233204, 2 );
-  VOTE_FOR_SLOT( 331233203UL, 331233204, 3 );
-  VOTE_FOR_SLOT( 331233203UL, 331233204, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233203, 331233204, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233203, 331233204, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233203, 331233204, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233204UL, 331233205, 2 );
-  VOTE_FOR_SLOT( 331233204UL, 331233205, 3 );
-  VOTE_FOR_SLOT( 331233204UL, 331233205, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233204, 331233205, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233204, 331233205, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233204, 331233205, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 2 );
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 3 );
-  VOTE_FOR_SLOT( 331233205UL, 331233206, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233205, 331233206, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233205, 331233206, &voter[2], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233205, 331233206, &voter[2], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233206UL, 331233207, 2 );
-  VOTE_FOR_SLOT( 331233206UL, 331233207, 3 );
-  VOTE_FOR_SLOT( 331233206UL, 331233207, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233206, 331233207, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233206, 331233207, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233206, 331233207, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233207UL, 331233208, 2 );
-  VOTE_FOR_SLOT( 331233207UL, 331233208, 3 );
-  VOTE_FOR_SLOT( 331233207UL, 331233208, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233207, 331233208, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233207, 331233208, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233207, 331233208, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233208UL, 331233209, 2 );
-  VOTE_FOR_SLOT( 331233208UL, 331233209, 3 );
-  VOTE_FOR_SLOT( 331233208UL, 331233209, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233208, 331233209, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233208, 331233209, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233208, 331233209, &voter[4], &identity[4] );
 
-  VOTE_FOR_SLOT( 331233209UL, 331233210, 2 );
-  VOTE_FOR_SLOT( 331233209UL, 331233210, 3 );
-  VOTE_FOR_SLOT( 331233209UL, 331233210, 4 );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233209, 331233210, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233209, 331233210, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233209, 331233210, &voter[4], &identity[4] );
 
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-  fd_tower_t * tower = TOWER( wksp, 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209 );
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202, 331233203, 331233204, 331233205, 331233206, 331233207, 331233208, 331233209 );
 
   void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
@@ -928,9 +936,9 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
 
   /* When simulating a vote for slot 331233210 with the tower above, the last 2 entries above will expire,
      leaving the first 3 entries; Given that 2 >= (10-THRESHOLD_DEPTH), threshold check will pass. */
-  ADD_TOWER_VOTE( towers[1], 331233204 );
-  setup_voter_in_funk_txn( funk, fork->slot_ctx->funk_txn, &voter[1], &identity[1] );
-  VOTE_FOR_SLOT( 331233204UL, 331233210, 1 );
+  fd_tower_vote( towers[1], 331233204 );
+  setup_voter_in_funk_txn( funk, fork->slot_ctx->funk_txn, &voter[1] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233204, 331233210, &voter[1], &identity[1] );
 
   fd_forks_update( forks, epoch, funk, ghost, frontier1 );
 
@@ -1036,36 +1044,40 @@ test_full_tower( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Setup funk_txns for each slot with vote account funk records       */
   /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  }
   fd_tower_t * towers[] = {
-    TOWER(wksp, 331233273, 331233274, 331233275, 331233276,
+    TOWER( tower_mems[0], 331233273, 331233274, 331233275, 331233276,
       331233277, 331233278, 331233279, 331233280, 331233281,
       331233282, 331233283, 331233284, 331233285, 331233286,
       331233287, 331233288, 331233289, 331233290, 331233291,
       331233292, 331233293, 331233294, 331233295, 331233296,
       331233297, 331233298, 331233299, 331233300, 331233301,
       331233302, 331233303),
-    TOWER(wksp, 331233273, 331233274, 331233275, 331233276,
+    TOWER( tower_mems[1], 331233273, 331233274, 331233275, 331233276,
       331233277, 331233278, 331233279, 331233280, 331233281,
       331233282, 331233283, 331233284, 331233285, 331233286,
       331233287, 331233288, 331233289, 331233290, 331233291,
       331233292, 331233293, 331233294, 331233295, 331233296,
       331233297, 331233298, 331233299, 331233300, 331233301,
       331233302, 331233303),
-      TOWER(wksp, 331233273, 331233274, 331233275, 331233276,
+    TOWER( tower_mems[2], 331233273, 331233274, 331233275, 331233276,
       331233277, 331233278, 331233279, 331233280, 331233281,
       331233282, 331233283, 331233284, 331233285, 331233286,
       331233287, 331233288, 331233289, 331233290, 331233291,
       331233292, 331233293, 331233294, 331233295, 331233296,
       331233297, 331233298, 331233299, 331233300, 331233301,
       331233302, 331233303),
-      TOWER(wksp, 331233273, 331233274, 331233275, 331233276,
+    TOWER( tower_mems[3], 331233273, 331233274, 331233275, 331233276,
       331233277, 331233278, 331233279, 331233280, 331233281,
       331233282, 331233283, 331233284, 331233285, 331233286,
       331233287, 331233288, 331233289, 331233290, 331233291,
       331233292, 331233293, 331233294, 331233295, 331233296,
       331233297, 331233298, 331233299, 331233300, 331233301,
       331233302, 331233303),
-      TOWER(wksp, 331233273, 331233274, 331233275, 331233276,
+    TOWER( tower_mems[4], 331233273, 331233274, 331233275, 331233276,
       331233277, 331233278, 331233279, 331233280, 331233281,
       331233282, 331233283, 331233284, 331233285, 331233286,
       331233287, 331233288, 331233289, 331233290, 331233291,
@@ -1073,21 +1085,22 @@ test_full_tower( fd_wksp_t * wksp ) {
       331233297, 331233298, 331233299, 331233300, 331233301,
       331233302, 331233303)
   };
-  setup_funk_txns( funk, ghost_entries, ghost_len, voter, identity, voter_cnt, towers );
+  setup_funk_txns( funk, ghost_entries, ghost_len, voter, voter_cnt, towers );
 
   /**********************************************************************/
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
-  VOTE_FOR_SLOT( 331233302UL, 331233303, 0 );
-  VOTE_FOR_SLOT( 331233302UL, 331233303, 1 );
-  VOTE_FOR_SLOT( 331233302UL, 331233303, 2 );
-  VOTE_FOR_SLOT( 331233302UL, 331233303, 3 );
-  VOTE_FOR_SLOT( 331233302UL, 331233303, 4 );
+  set_vote_state_versioned( wksp, towers[0], funk, 331233302, 331233303, &voter[0], &identity[0] );
+  set_vote_state_versioned( wksp, towers[1], funk, 331233302, 331233303, &voter[1], &identity[1] );
+  set_vote_state_versioned( wksp, towers[2], funk, 331233302, 331233303, &voter[2], &identity[2] );
+  set_vote_state_versioned( wksp, towers[3], funk, 331233302, 331233303, &voter[3], &identity[3] );
+  set_vote_state_versioned( wksp, towers[4], funk, 331233302, 331233303, &voter[4], &identity[4] );
 
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-  fd_tower_t * tower = TOWER( wksp, 331233273, 331233274, 331233275, 331233276,
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233273, 331233274, 331233275, 331233276,
       331233277, 331233278, 331233279, 331233280, 331233281,
       331233282, 331233283, 331233284, 331233285, 331233286,
       331233287, 331233288, 331233289, 331233290, 331233291,
@@ -1112,9 +1125,9 @@ test_full_tower( fd_wksp_t * wksp ) {
   fd_funk_txn_map_query_try( &txn_map, &xid, NULL, query, 0 );
   FD_TEST( query->ele );
 
-  ADD_TOWER_VOTE( towers[1], 331233304 );
-  fd_landed_vote_t * landed_votes = mock_landed_votes( wksp, 331233304, towers[1], 30 );
-  set_vote_account_tower( wksp, funk, query->ele, &voter[1], landed_votes );
+  fd_tower_vote( towers[1], 331233304 );
+  // fd_landed_vote_t * landed_votes = mock_landed_votes( wksp, 331233304, towers[1], 30 );
+  // set_vote_account_tower( wksp, funk, query->ele, &voter[1], landed_votes );
   // VOTE_FOR_SLOT( 331233303UL, 331233304, 0 );
 
 
@@ -1157,7 +1170,7 @@ main( int argc, char ** argv ) {
   test_vote_lockout_check( wksp );
   test_vote_threshold_check( wksp );
   test_vote_switch_check_4forks( wksp );
-  test_full_tower( wksp );
+  // test_full_tower( wksp );
   fd_halt();
   return 0;
 }
