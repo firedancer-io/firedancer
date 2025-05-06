@@ -1,7 +1,7 @@
 #include "../fd_util.h"
 
 #define TYPE float
-#define MAX  1024UL
+#define MAX  65536UL
 
 #define SORT_NAME        mysort
 #define SORT_KEY_T       TYPE
@@ -25,10 +25,17 @@ shuffle( fd_rng_t *   rng,
   return y;
 }
 
+static TYPE ref[ MAX ];
+static TYPE tst[ MAX ];
+static TYPE tmp[ MAX ];
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  ulong iter_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-max", NULL, (ulong)1e4 );
+  ulong diag_int = fd_env_strip_cmdline_ulong( &argc, &argv, "--diag-int", NULL, (ulong)1e2 );
 
   ulong thread_cnt = fd_tile_cnt();
 
@@ -44,56 +51,81 @@ main( int     argc,
   for( ulong thread_idx=1UL; thread_idx<thread_cnt; thread_idx++ )
     if( FD_UNLIKELY( !fd_tpool_worker_push( tpool, thread_idx, NULL, 0UL ) ) ) FD_LOG_ERR(( "fd_tpool_worker_push failed" ));
 
-  FD_LOG_NOTICE(( "Running" ));
+  FD_LOG_NOTICE(( "Running (--iter-max %lu --diag-int %lu)", iter_max, diag_int ));
 
-  TYPE ref[ MAX ];
-  TYPE tst[ MAX ];
+  TYPE * out;
 
-  for( ulong t0=0UL; t0<thread_cnt; t0++ ) {
-    for( ulong t1=t0+1UL; t1<=thread_cnt; t1++ ) {
+  ulong diag_rem = 0UL;
+  for( ulong iter_idx=0UL; iter_idx<iter_max; iter_idx++ ) {
+    ulong t0 = fd_rng_ulong_roll( rng, thread_cnt );
+    ulong t1 = fd_rng_ulong_roll( rng, thread_cnt ); fd_swap_if( t1<t0, t0, t1 );
+    t1++;
 
-      for( ulong cnt=0UL; cnt<256UL; cnt++ ) {
+    ulong cnt  = fd_rng_ulong_roll( rng, MAX+1UL );
+    ulong zcnt = fd_rng_ulong_roll( rng, cnt+1UL );
 
-        for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)i;
-
-        /* Monotonically increasing unique */
-
-        for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
-        FD_TEST( mysort_inplace_para( tpool,t0,t1, tst, cnt )==tst &&
-                 !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
-        /* Monotonically decreasing unique */
-
-        for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
-        FD_TEST( mysort_inplace_para( tpool,t0,t1, tst, cnt )==tst &&
-                 !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
-
-        /* Unique shuffled */
-
-        for( ulong trial=0UL; trial<10UL; trial++ )
-          FD_TEST( mysort_inplace_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt )==tst &&
-                   !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
-
-        /* Random permutation with i 0s, cnt-i 1s for i in [0,cnt] */
-
-        for( ulong i=0UL; i<cnt+1UL; i++ ) {
-          for( ulong j=0UL; j<i;   j++ ) ref[j] = (TYPE)0;
-          for( ulong j=i;   j<cnt; j++ ) ref[j] = (TYPE)1;
-          for( ulong trial=0UL; trial<10UL; trial++ )
-            FD_TEST( mysort_inplace_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt )==tst &&
-                     !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
-        }
-
-      }
-
-      for( ulong trial=0UL; trial<1000UL; trial++ ) {
-        ulong cnt = fd_rng_ulong( rng ) % (MAX+1UL);
-        for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)(fd_rng_ulong( rng ) % cnt);
-        mysort_inplace( ref, cnt );
-        FD_TEST( !memcmp( mysort_inplace_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt ), ref, cnt*sizeof(TYPE) ) );
-      }
-
-      FD_LOG_NOTICE(( "sorts distributed over main thread and tpool threads [%lu,%lu): pass", t0+1UL, t1 ));
+    if( FD_UNLIKELY( !diag_rem ) ) {
+      FD_LOG_NOTICE(( "Iter %lu of %lu: threads [%lu,%lu) cnt %lu zcnt %lu", iter_idx, iter_max, t0, t1, cnt, zcnt ));
+      diag_rem = diag_int;
     }
+    diag_rem--;
+
+    for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)i;
+
+    /* Monotonically increasing unique */
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
+    FD_TEST( mysort_inplace_para( tpool,t0,t1, tst, cnt )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
+    out = mysort_stable_fast_para( tpool,t0,t1, tst, cnt, tmp );
+    FD_TEST( (out==tst || out==tmp) && !memcmp( out, ref, cnt*sizeof(TYPE) ) );
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
+    FD_TEST( mysort_stable_para( tpool,t0,t1, tst, cnt, tmp )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+
+    /* Monotonically decreasing unique */
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
+    FD_TEST( mysort_inplace_para( tpool,t0,t1, tst, cnt )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
+    out = mysort_stable_fast_para( tpool,t0,t1, tst, cnt, tmp );
+    FD_TEST( (out==tst || out==tmp) && !memcmp( out, ref, cnt*sizeof(TYPE) ) );
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
+    FD_TEST( mysort_stable_para( tpool,t0,t1, tst, cnt, tmp )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+
+    /* Unique shuffled */
+
+#   define TEST_ALL_PARA_SORTS                                                                  \
+    FD_TEST( mysort_inplace_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt )==tst &&     \
+             !memcmp( tst, ref, cnt*sizeof(TYPE) ) );                                           \
+                                                                                                \
+    out = mysort_stable_fast_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt, tmp );      \
+    FD_TEST( (out==tst || out==tmp) && !memcmp( out, ref, cnt*sizeof(TYPE) ) );                 \
+                                                                                                \
+    FD_TEST( mysort_stable_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt, tmp )==tst && \
+             !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+
+    TEST_ALL_PARA_SORTS
+
+    /* Random permutation of i 0s and cnt-i 1s */
+
+    for( ulong i=0UL;  i<zcnt; i++ ) ref[i] = (TYPE)0;
+    for( ulong i=zcnt; i< cnt; i++ ) ref[i] = (TYPE)1;
+
+    TEST_ALL_PARA_SORTS
+
+    /* Non-unique shuffled */
+
+    for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)fd_rng_ulong_roll( rng, cnt );
+    mysort_inplace( ref, cnt );
+
+    TEST_ALL_PARA_SORTS
+
+#   undef TEST_ALL_PARA_SORTS
+
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));
