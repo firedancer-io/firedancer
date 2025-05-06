@@ -34,6 +34,9 @@ struct fd_sbpf_validated_program {
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 
+/* arbitrary unique value, in this case
+   echo -n "fd_sbpf_validated_program" | sha512sum | head -c 16 */
+#define FD_SBPF_VALIDATED_PROGRAM_MAGIC 0xfd5540ddc5a33496
 
 FD_PROTOTYPES_BEGIN
 
