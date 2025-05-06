@@ -486,7 +486,7 @@ fd_topo_print_log( int         stdout,
     for( ulong j=0UL; j<tile->uses_obj_cnt; j++ ) {
       if( FD_LIKELY( j!=0 ) ) PRINT( " " );
       int is_rw = tile->uses_obj_mode[ j ] == FD_SHMEM_JOIN_MODE_READ_WRITE;
-      PRINT( "%lu:%.*s", tile->uses_obj_id[ j ], is_rw?2:1, is_rw?"rw":"ro" );
+      PRINT( "%lu:%s", tile->uses_obj_id[ j ], is_rw?"rw":"ro" );
     }
     PRINT( "]" );
 
