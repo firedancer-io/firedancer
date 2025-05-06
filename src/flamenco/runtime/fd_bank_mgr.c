@@ -85,7 +85,7 @@ fd_bank_mgr_##name##_modify( fd_bank_mgr_t * bank_mgr ) {                       
                                           &bank_mgr->query );                                      \
     bank_mgr->is_modify = 1;                                                                       \
     return (type *)fd_ulong_align_up( (ulong)fd_funk_val( rec, fd_funk_wksp( bank_mgr->funk ) ),   \
-                                      FD_BANK_MGR_##uppername##_FOOTPRINT );                       \
+                                      FD_BANK_MGR_##uppername##_ALIGN );                           \
   }                                                                                                \
   /* Case where the record does not exist in the current funk txn */                               \
   bank_mgr->is_new = 1;                                                                            \
