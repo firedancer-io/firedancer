@@ -31,9 +31,9 @@ $(call add-hdrs,fd_sysvar_recent_hashes.h)
 $(call add-objs,fd_sysvar_recent_hashes,fd_flamenco)
 
 $(call add-hdrs,fd_sysvar_rent.h)
-$(call add-objs,fd_sysvar_rent,fd_flamenco)
+$(call add-objs,fd_sysvar_rent fd_sysvar_rent1,fd_flamenco)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_sysvar_rent,test_sysvar_rent,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_sysvar_rent,test_sysvar_rent,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_sysvar_rent)
 endif
 
