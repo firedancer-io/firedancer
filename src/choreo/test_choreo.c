@@ -60,13 +60,12 @@ init_vote_accounts( voter_t * voters,
 fd_funk_txn_t *
 create_slot_funk_txn( ulong       slot,
                       ulong       parent,
-                      bool        is_root,
                       fd_funk_t * funk ) {
 
   fd_funk_txn_t * funk_txn;
   fd_funk_txn_t * parent_funk_txn;
 
-  if( is_root ) {
+  if( parent==ULONG_MAX ) {
     parent_funk_txn = NULL;
   } else {
     fd_funk_txn_xid_t xid;
@@ -232,10 +231,15 @@ mock_epoch( fd_wksp_t * wksp, ulong voter_cnt, ulong * stakes, voter_t * voters 
 }
 
 void
+ghost_init( fd_ghost_t * ghost, ulong root, fd_funk_t * funk ) {
+  fd_ghost_init( ghost, root );
+  create_slot_funk_txn( root, ULONG_MAX, funk );
+}
+
+void
 ghost_insert( fd_ghost_t * ghost, ulong parent, ulong slot, fd_funk_t * funk ) {
   fd_ghost_insert( ghost, parent, slot );
-  bool is_root = parent==fd_ghost_root( ghost )->slot;
-  create_slot_funk_txn( slot, parent, is_root, funk );
+  create_slot_funk_txn( slot, parent, funk );
 }
 
 fd_forks_t *
@@ -299,7 +303,7 @@ test_vote_simple( fd_wksp_t * wksp ) {
   void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
 
-  fd_ghost_init( ghost, 331233200 );
+  ghost_init( ghost, 331233200, funk );
   ghost_insert( ghost, 331233200, 331233201, funk );
   ghost_insert( ghost, 331233201, 331233202, funk );
   ghost_insert( ghost, 331233202, 331233203, funk );
@@ -395,7 +399,7 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
   void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
 
-  fd_ghost_init( ghost, 331233200 );
+  ghost_init( ghost, 331233200, funk );
   ghost_insert( ghost, 331233200, 331233201, funk );
   ghost_insert( ghost, 331233201, 331233202, funk );
   ghost_insert( ghost, 331233201, 331233205, funk );
@@ -514,7 +518,7 @@ test_vote_switch_check_4forks( fd_wksp_t * wksp ) {
   void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
 
-  fd_ghost_init( ghost, 331233200 );
+  ghost_init( ghost, 331233200, funk );
   ghost_insert( ghost, 331233200, 331233201, funk );
   ghost_insert( ghost, 331233201, 331233202, funk );
   ghost_insert( ghost, 331233202, 331233203, funk );
@@ -633,7 +637,7 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
 
-  fd_ghost_init( ghost, 331233200 );
+  ghost_init( ghost, 331233200, funk );
   ghost_insert( ghost, 331233200, 331233201, funk );
   ghost_insert( ghost, 331233201, 331233202, funk );
   ghost_insert( ghost, 331233201, 331233203, funk );
@@ -748,7 +752,7 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
   void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
 
-  fd_ghost_init( ghost, 331233200 );
+  ghost_init( ghost, 331233200, funk );
   ghost_insert( ghost, 331233200, 331233201, funk );
   ghost_insert( ghost, 331233201, 331233202, funk );
   ghost_insert( ghost, 331233202, 331233203, funk );
@@ -904,7 +908,7 @@ test_full_tower( fd_wksp_t * wksp ) {
   void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
 
-  fd_ghost_init( ghost, 331233273 );
+  ghost_init( ghost, 331233273, funk );
   ghost_insert( ghost, 331233273, 331233274, funk );
   ghost_insert( ghost, 331233274, 331233275, funk );
   ghost_insert( ghost, 331233275, 331233276, funk );
