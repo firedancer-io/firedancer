@@ -390,6 +390,7 @@ struct fd_config {
 
     struct {
       int   enabled;
+      ulong end_slot;
       char  archiver_path[ PATH_MAX ];
     } archiver;
 

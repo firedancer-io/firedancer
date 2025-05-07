@@ -74,7 +74,8 @@ typedef struct {
     void *           dcache; /* The dcache of this link, if it has one. */
   };
 
-  uint permit_unused : 1;  /* Permit a topology where this link has no consumers */
+  uint permit_no_consumers : 1;  /* Permit a topology where this link has no consumers */
+  uint permit_no_producers : 1;  /* Permit a topology where this link has no producers */
 } fd_topo_link_t;
 
 /* A tile is a unique process that is spawned by Firedancer to represent
@@ -422,8 +423,9 @@ typedef struct {
     } pktgen;
 
     struct {
-      int  enabled;
-      char archiver_path[ PATH_MAX ];
+      int   enabled;
+      ulong end_slot;
+      char  archiver_path[ PATH_MAX ];
 
       /* Set internally by the archiver tile */
       int archive_fd;

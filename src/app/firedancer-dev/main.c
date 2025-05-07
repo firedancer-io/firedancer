@@ -94,6 +94,7 @@ extern fd_topo_run_tile_t fd_tile_restart;
 extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
+extern fd_topo_run_tile_t fd_tile_archiver_backtest;
 
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
@@ -131,6 +132,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_feeder,
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
+  &fd_tile_archiver_backtest,
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
@@ -159,6 +161,7 @@ extern action_t fd_action_txn;
 extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
 extern action_t fd_action_sim;
+extern action_t fd_action_backtest;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -183,6 +186,7 @@ action_t * ACTIONS[] = {
   &fd_action_wksp,
   &fd_action_gossip,
   &fd_action_sim,
+  &fd_action_backtest,
   NULL,
 };
 
