@@ -21,6 +21,7 @@
 struct fd_archiver_backtest_tile_ctx {
   ulong                  use_rocksdb;
   fd_rocksdb_t           rocksdb;
+  rocksdb_iterator_t *   rocksdb_iter;
   fd_rocksdb_root_iter_t rocksdb_root_iter;
   fd_slot_meta_t         rocksdb_slot_meta;
   ulong                  rocksdb_curr_idx;
@@ -53,8 +54,7 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static void
-rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
-                 fd_stem_context_t *               stem ) {
+rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx ) {
   ulong start_slot = 0;
   ulong end_slot   = 0;
   ulong shred_cnt  = 0;
@@ -74,7 +74,6 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
 
     rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
 
-    uint entry_batch_start_idx=0;
     for (ulong i = start_idx; i < end_idx; i++) {
       ulong cur_slot, index;
       uchar valid = rocksdb_iter_valid(iter);
@@ -107,18 +106,6 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
       end_slot = shred->slot;
       shred_cnt++;
 
-      fd_blockstore_shred_insert( ctx->blockstore, shred );
-      if( !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) ) {
-        int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-        /* Notify the replay tile after inserting a FEC set */
-        FD_LOG_INFO(( "%lu:[%u, %u] notifies replay", slot, entry_batch_start_idx, shred->idx ));
-        uint  cnt             = shred->idx+1-entry_batch_start_idx;
-        entry_batch_start_idx = shred->idx+1;
-        ulong sig             = fd_disco_repair_replay_sig( slot, (ushort)(slot - ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
-        ulong tspub           = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
-      }
-
       rocksdb_iter_next(iter);
     }
   } while(1);
@@ -130,6 +117,81 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
   }
   FD_LOG_WARNING(( "rocksdb contains %lu shreds from slot %lu to %lu", shred_cnt, start_slot, end_slot ));
   FD_TEST( shred_cnt>0 );
+}
+
+static fd_shred_t const *
+rocksdb_get_shred( fd_archiver_backtest_tile_ctx_t * ctx,
+                   ulong                           * out_sz ) {
+  if( ctx->rocksdb_curr_idx==ctx->rocksdb_end_idx ) {
+    if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &ctx->rocksdb_root_iter, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) return NULL;
+    ctx->rocksdb_curr_idx = 0;
+    ctx->rocksdb_end_idx  = ctx->rocksdb_slot_meta.received;
+  }
+  ulong slot                = ctx->rocksdb_slot_meta.slot;
+
+  char k[16];
+  *((ulong *) &k[0]) = fd_ulong_bswap(slot);
+  *((ulong *) &k[8]) = fd_ulong_bswap(ctx->rocksdb_curr_idx);
+  rocksdb_iter_seek(ctx->rocksdb_iter, (const char *) k, sizeof(k));
+
+  ulong cur_slot, index;
+  uchar valid = rocksdb_iter_valid(ctx->rocksdb_iter);
+
+  if (valid) {
+    size_t klen = 0;
+    const char* key = rocksdb_iter_key(ctx->rocksdb_iter, &klen); // There is no need to free key
+    if (klen != 16)  // invalid key
+      FD_LOG_ERR(( "rocksdb has invalid key length" ));
+    cur_slot = fd_ulong_bswap(*((ulong *) &key[0]));
+    index = fd_ulong_bswap(*((ulong *) &key[8]));
+  }
+
+  if (!valid || cur_slot != slot)
+    FD_LOG_ERR(("missing shreds for slot %lu, valid=%u", slot, valid));
+
+  if (index != ctx->rocksdb_curr_idx)
+    FD_LOG_ERR(("missing shred %lu at index %lu for slot %lu", ctx->rocksdb_curr_idx, index, slot));
+
+  size_t dlen = 0;
+  // Data was first copied from disk into memory to make it available to this API
+  const unsigned char *data = (const unsigned char *) rocksdb_iter_value(ctx->rocksdb_iter, &dlen);
+  if (data == NULL)
+    FD_LOG_ERR(("failed to read shred %lu/%lu", slot, ctx->rocksdb_curr_idx));
+
+  // This just correctly selects from inside the data pointer to the
+  // actual data without a memory copy
+  fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
+  ctx->rocksdb_curr_idx++;
+
+  *out_sz = dlen;
+  return shred;
+}
+
+static void
+notify_one_slot( fd_archiver_backtest_tile_ctx_t * ctx,
+                 fd_stem_context_t *               stem ) {
+  uint entry_batch_start_idx = 0;
+  int  slot_complete         = 0;
+  while(!slot_complete) {
+    ulong sz                 = 0;
+    fd_shred_t const * shred = rocksdb_get_shred( ctx, &sz );
+    if( FD_UNLIKELY( shred==NULL ) ) {
+      break;
+    } else {
+      fd_blockstore_shred_insert( ctx->blockstore, shred );
+      if( !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) ) {
+        slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+        /* Notify the replay tile after inserting a FEC set */
+        FD_LOG_DEBUG(( "%lu:[%u, %u] notifies replay", shred->slot, entry_batch_start_idx, shred->idx ));
+        uint  cnt             = shred->idx+1-entry_batch_start_idx;
+        entry_batch_start_idx = shred->idx+1;
+        ulong sig             = fd_disco_repair_replay_sig( shred->slot, (ushort)(shred->slot-ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
+        ulong tspub           = fd_frag_meta_ts_comp( fd_tickcount() );
+        fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
+      }
+    }
+  }
 }
 
 static void
@@ -203,7 +265,14 @@ after_credit( fd_archiver_backtest_tile_ctx_t * ctx,
     fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
     if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta, ctx->valloc ) ) )
         FD_LOG_ERR(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
-    rocksdb_inspect( ctx, stem );
+    rocksdb_inspect( ctx );
+
+    fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
+    if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta, ctx->valloc ) ) )
+        FD_LOG_ERR(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
+    ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+
+    notify_one_slot( ctx, stem );
   }
 }
 
@@ -269,6 +338,7 @@ after_frag( fd_archiver_backtest_tile_ctx_t * ctx,
                    FD_BASE58_ENC_32_ALLOCA( versioned->inner.current.frozen_hash.hash ),
                    FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
     }
+    notify_one_slot( ctx, stem );
 
     if( FD_UNLIKELY( slot>=ctx->playback_end_slot ) ) FD_LOG_ERR(( "Rocksdb playback done." ));
   }
@@ -285,7 +355,7 @@ after_frag( fd_archiver_backtest_tile_ctx_t * ctx,
 #include "../stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_archiver_backtest = {
-  .name                     = "arch_b",
+  .name                     = "btest",
   .loose_footprint          = loose_footprint,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
@@ -304,7 +374,7 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 fd_topo_run_tile_t fd_tile_archiver_backtest = {
-  .name              = "arch_b",
+  .name              = "btest",
   .unprivileged_init = unprivileged_init,
 };
 
