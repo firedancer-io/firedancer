@@ -46,12 +46,6 @@ make_tower(void * tower_mem, size_t n, ...) {
 #define TOWER(tower_mem, ...) \
   make_tower(tower_mem, (sizeof((ulong[]){__VA_ARGS__})/sizeof(ulong)), __VA_ARGS__)
 
-struct ghost_entry {
-  ulong slot;
-  ulong parent;
-};
-typedef struct ghost_entry ghost_entry_t;
-
 void
 init_vote_accounts( voter_t * voters,
                     ulong     voter_cnt ) {
@@ -64,9 +58,10 @@ init_vote_accounts( voter_t * voters,
 }
 
 fd_funk_txn_t *
-mock_funk_txn( ghost_entry_t entry,
-               bool          is_root,
-               fd_funk_t *   funk ) {
+create_slot_funk_txn( ulong       slot,
+                      ulong       parent,
+                      bool        is_root,
+                      fd_funk_t * funk ) {
 
   fd_funk_txn_t * funk_txn;
   fd_funk_txn_t * parent_funk_txn;
@@ -75,7 +70,7 @@ mock_funk_txn( ghost_entry_t entry,
     parent_funk_txn = NULL;
   } else {
     fd_funk_txn_xid_t xid;
-    xid.ul[0] = xid.ul[1] = entry.parent;
+    xid.ul[0] = xid.ul[1] = parent;
     fd_funk_txn_map_query_t query[1];
     fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
     FD_TEST( fd_funk_txn_map_query_try( &txn_map, &xid, NULL, query, 0 )==FD_MAP_SUCCESS );
@@ -84,7 +79,7 @@ mock_funk_txn( ghost_entry_t entry,
   }
 
   fd_funk_txn_xid_t xid;
-  xid.ul[0] = xid.ul[1] = entry.slot;
+  xid.ul[0] = xid.ul[1] = slot;
   funk_txn = fd_funk_txn_prepare( funk, parent_funk_txn, &xid, 1 );
 
   FD_TEST( funk_txn );
@@ -204,16 +199,16 @@ voter_vote_for_slot( fd_wksp_t *  wksp,
                      ulong        vote_slot,
                      ulong        slot,
                      voter_t *    voter ) {
-  // Add vote to tower
+  // Update tower with vote
   fd_tower_vote( tower, vote_slot );
 
-  // Convert tower to vote state
+  // Convert updated tower to vote state
   fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, tower, voter );
 
-  // Get funk_txn for slot
+  // Get funk_txn for specified slot
   fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
 
-  // Insert vote state into funk_txn
+  // Insert updated vote state into funk
   insert_vote_state_into_funk_txn( funk, funk_txn, &voter->pubkey, vote_state_versioned );
 }
 
@@ -236,20 +231,11 @@ mock_epoch( fd_wksp_t * wksp, ulong voter_cnt, ulong * stakes, voter_t * voters 
   return epoch;
 }
 
-fd_ghost_t *
-mock_ghost( fd_wksp_t * wksp, ulong root, ulong ghost_len, ghost_entry_t * ghost_entries, fd_funk_t * funk ) {
-  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 3UL );
-  fd_ghost_t * ghost     = fd_ghost_join( fd_ghost_new( ghost_mem, 42UL, FD_BLOCK_MAX ) );
-  fd_ghost_init( ghost, root );
-  for (ulong i = 0; i < ghost_len; i++) {
-    if (ghost_entries[i].parent != ULONG_MAX) {
-      fd_ghost_insert( ghost, ghost_entries[i].parent, ghost_entries[i].slot );
-    }
-    mock_funk_txn( ghost_entries[i], ghost_entries[i].parent==root, funk );
-  }
-
-  FD_TEST( ghost );
-  return ghost;
+void
+ghost_insert( fd_ghost_t * ghost, ulong parent, ulong slot, fd_funk_t * funk ) {
+  fd_ghost_insert( ghost, parent, slot );
+  bool is_root = parent==fd_ghost_root( ghost )->slot;
+  create_slot_funk_txn( slot, parent, is_root, funk );
 }
 
 fd_forks_t *
@@ -310,15 +296,15 @@ test_vote_simple( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize ghost tree                                              */
   /**********************************************************************/
-  ghost_entry_t ghost_entries[] = {
-    {.slot = 331233201, .parent = 331233200},
-    {.slot = 331233202, .parent = 331233201},
-    {.slot = 331233203, .parent = 331233202},
-    {.slot = 331233204, .parent = 331233203},
-    {.slot = 331233205, .parent = 331233204},
-  };
-  ulong ghost_len = sizeof(ghost_entries) / sizeof(ghost_entry_t);
-  fd_ghost_t * ghost = mock_ghost( wksp, 331233200, ghost_len, ghost_entries, funk );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  fd_ghost_init( ghost, 331233200 );
+  ghost_insert( ghost, 331233200, 331233201, funk );
+  ghost_insert( ghost, 331233201, 331233202, funk );
+  ghost_insert( ghost, 331233202, 331233203, funk );
+  ghost_insert( ghost, 331233203, 331233204, funk );
+  ghost_insert( ghost, 331233204, 331233205, funk );
 
   /**********************************************************************/
   /* Initialize voters, stakes, epoch and funk_txns                     */
@@ -333,9 +319,9 @@ test_vote_simple( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Setup funk_txns for each slot with vote account funk records       */
   /**********************************************************************/
-  void * tower_mems[5];
-  fd_tower_t * towers[5];
-  for(int i = 0; i < 5; i++) {
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
     tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
     towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
   }
@@ -406,14 +392,14 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize ghost tree                                              */
   /*********************************************************************/
-  ghost_entry_t ghost_entries[] = {
-    {.slot = 331233201, .parent = 331233200},
-    {.slot = 331233202, .parent = 331233201},
-    {.slot = 331233205, .parent = 331233201},
-    {.slot = 331233206, .parent = 331233205},
-  };
-  ulong ghost_len = sizeof(ghost_entries) / sizeof(ghost_entry_t);
-  fd_ghost_t * ghost = mock_ghost( wksp, 331233200, ghost_len, ghost_entries, funk );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  fd_ghost_init( ghost, 331233200 );
+  ghost_insert( ghost, 331233200, 331233201, funk );
+  ghost_insert( ghost, 331233201, 331233202, funk );
+  ghost_insert( ghost, 331233201, 331233205, funk );
+  ghost_insert( ghost, 331233205, 331233206, funk );
 
   /**********************************************************************/
   /* Initialize voters, stakes, epoch and funk_txns                     */
@@ -525,17 +511,17 @@ test_vote_switch_check_4forks( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize ghost tree                                              */
   /*********************************************************************/
-  ghost_entry_t ghost_entries[] = {
-    {.slot = 331233201, .parent = 331233200},
-    {.slot = 331233202, .parent = 331233201},
-    {.slot = 331233203, .parent = 331233202},
-    {.slot = 331233204, .parent = 331233201},
-    {.slot = 331233205, .parent = 331233201},
-    {.slot = 331233206, .parent = 331233202},
-    {.slot = 331233208, .parent = 331233204}
-  };
-  ulong ghost_len = sizeof(ghost_entries) / sizeof(ghost_entry_t);
-  fd_ghost_t * ghost = mock_ghost( wksp, 331233200, ghost_len, ghost_entries, funk );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  fd_ghost_init( ghost, 331233200 );
+  ghost_insert( ghost, 331233200, 331233201, funk );
+  ghost_insert( ghost, 331233201, 331233202, funk );
+  ghost_insert( ghost, 331233202, 331233203, funk );
+  ghost_insert( ghost, 331233201, 331233204, funk );
+  ghost_insert( ghost, 331233201, 331233205, funk );
+  ghost_insert( ghost, 331233202, 331233206, funk );
+  ghost_insert( ghost, 331233204, 331233208, funk );
 
   /**********************************************************************/
   /* Initialize voters, stakes, epoch and funk_txns                     */
@@ -644,16 +630,14 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize ghost tree                                              */
   /**********************************************************************/
-  ghost_entry_t ghost_entries[] = {
-    {.slot = 331233201, .parent = 331233200},
-    {.slot = 331233202, .parent = 331233201},
-    {.slot = 331233203, .parent = 331233201},
-    {.slot = 331233204, .parent = 331233203},
-    {.slot = 331233205, .parent = 331233204}
-  };
-  ulong ghost_len = sizeof(ghost_entries) / sizeof(ghost_entry_t);
-  /* slot5 is added to ghost later in this function */
-  fd_ghost_t * ghost = mock_ghost( wksp, 331233200, ghost_len-1, ghost_entries, funk );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  fd_ghost_init( ghost, 331233200 );
+  ghost_insert( ghost, 331233200, 331233201, funk );
+  ghost_insert( ghost, 331233201, 331233202, funk );
+  ghost_insert( ghost, 331233201, 331233203, funk );
+  ghost_insert( ghost, 331233203, 331233204, funk );
 
   /**********************************************************************/
   /* Initialize voters, stakes, epoch and funk_txns                     */
@@ -727,8 +711,7 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   /*                   Try to vote for slot 331233205                   */
   /*                We should switch to a different fork                */
   /**********************************************************************/
-  fd_ghost_insert( ghost, ghost_entries[ghost_len-1].parent, ghost_entries[ghost_len-1].slot );
-  mock_funk_txn( ghost_entries[ghost_len-1], false, funk );
+  ghost_insert( ghost, 331233204, 331233205, funk );
 
   voter_vote_for_slot( wksp, towers[2], funk, 331233204, 331233205, &voters[2] );
   voter_vote_for_slot( wksp, towers[3], funk, 331233204, 331233205, &voters[3] );
@@ -762,20 +745,20 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize ghost tree                                              */
   /**********************************************************************/
-  ghost_entry_t ghost_entries[] = {
-    {.slot = 331233201, .parent = 331233200},
-    {.slot = 331233202, .parent = 331233201},
-    {.slot = 331233203, .parent = 331233202},
-    {.slot = 331233204, .parent = 331233203},
-    {.slot = 331233205, .parent = 331233204},
-    {.slot = 331233206, .parent = 331233205},
-    {.slot = 331233207, .parent = 331233206},
-    {.slot = 331233208, .parent = 331233207},
-    {.slot = 331233209, .parent = 331233208},
-    {.slot = 331233210, .parent = 331233209},
-  };
-  ulong ghost_len = sizeof(ghost_entries) / sizeof(ghost_entry_t);
-  fd_ghost_t * ghost = mock_ghost( wksp, 331233200, ghost_len, ghost_entries, funk );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  fd_ghost_init( ghost, 331233200 );
+  ghost_insert( ghost, 331233200, 331233201, funk );
+  ghost_insert( ghost, 331233201, 331233202, funk );
+  ghost_insert( ghost, 331233202, 331233203, funk );
+  ghost_insert( ghost, 331233203, 331233204, funk );
+  ghost_insert( ghost, 331233204, 331233205, funk );
+  ghost_insert( ghost, 331233205, 331233206, funk );
+  ghost_insert( ghost, 331233206, 331233207, funk );
+  ghost_insert( ghost, 331233207, 331233208, funk );
+  ghost_insert( ghost, 331233208, 331233209, funk );
+  ghost_insert( ghost, 331233209, 331233210, funk );
 
   /**********************************************************************/
   /* Initialize voters, stakes, epoch and funk_txns                     */
@@ -918,62 +901,64 @@ test_full_tower( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize ghost tree                                              */
   /**********************************************************************/
-  ghost_entry_t ghost_entries[] = {
-    {.slot = 331233274, .parent = 331233273},
-    {.slot = 331233275, .parent = 331233274},
-    {.slot = 331233276, .parent = 331233275},
-    {.slot = 331233277, .parent = 331233276},
-    {.slot = 331233278, .parent = 331233277},
-    {.slot = 331233279, .parent = 331233278},
-    {.slot = 331233280, .parent = 331233279},
-    {.slot = 331233281, .parent = 331233280},
-    {.slot = 331233282, .parent = 331233281},
-    {.slot = 331233283, .parent = 331233282},
-    {.slot = 331233284, .parent = 331233283},
-    {.slot = 331233285, .parent = 331233284},
-    {.slot = 331233286, .parent = 331233285},
-    {.slot = 331233287, .parent = 331233286},
-    {.slot = 331233288, .parent = 331233287},
-    {.slot = 331233289, .parent = 331233288},
-    {.slot = 331233290, .parent = 331233289},
-    {.slot = 331233291, .parent = 331233290},
-    {.slot = 331233292, .parent = 331233291},
-    {.slot = 331233293, .parent = 331233292},
-    {.slot = 331233294, .parent = 331233293},
-    {.slot = 331233295, .parent = 331233294},
-    {.slot = 331233296, .parent = 331233295},
-    {.slot = 331233297, .parent = 331233296},
-    {.slot = 331233298, .parent = 331233297},
-    {.slot = 331233299, .parent = 331233298},
-    {.slot = 331233300, .parent = 331233299},
-    {.slot = 331233301, .parent = 331233300},
-    {.slot = 331233302, .parent = 331233301},
-    {.slot = 331233303, .parent = 331233302},
-    {.slot = 331233304, .parent = 331233303},
-    {.slot = 331233305, .parent = 331233304},
-    {.slot = 331233306, .parent = 331233305},
-    {.slot = 331233307, .parent = 331233305},
-    {.slot = 331233308, .parent = 331233303},
-    {.slot = 331233310, .parent = 331233307},
-    {.slot = 331233311, .parent = 331233310},
-    {.slot = 331233312, .parent = 331233311},
-    {.slot = 331233313, .parent = 331233312},
-    {.slot = 331233314, .parent = 331233313},
-    {.slot = 331233315, .parent = 331233314},
-    {.slot = 331233316, .parent = 331233315},
-    {.slot = 331233317, .parent = 331233316},
-    {.slot = 331233318, .parent = 331233317},
-    {.slot = 331233319, .parent = 331233318},
-    {.slot = 331233320, .parent = 331233319},
-    {.slot = 331233321, .parent = 331233320},
-    {.slot = 331233322, .parent = 331233321},
-    {.slot = 331233323, .parent = 331233322},
-    {.slot = 331233324, .parent = 331233319},
-    {.slot = 331233326, .parent = 331233323},
-    {.slot = 331233327, .parent = 331233326},
-  };
-  ulong ghost_len = sizeof(ghost_entries) / sizeof(ghost_entry_t);
-  fd_ghost_t * ghost = mock_ghost( wksp, 331233273, ghost_len, ghost_entries, funk );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  fd_ghost_init( ghost, 331233273 );
+  ghost_insert( ghost, 331233273, 331233274, funk );
+  ghost_insert( ghost, 331233274, 331233275, funk );
+  ghost_insert( ghost, 331233275, 331233276, funk );
+  ghost_insert( ghost, 331233276, 331233277, funk );
+  ghost_insert( ghost, 331233277, 331233278, funk );
+  ghost_insert( ghost, 331233278, 331233279, funk );
+  ghost_insert( ghost, 331233279, 331233280, funk );
+  ghost_insert( ghost, 331233280, 331233281, funk );
+  ghost_insert( ghost, 331233281, 331233282, funk );
+  ghost_insert( ghost, 331233282, 331233283, funk );
+  ghost_insert( ghost, 331233283, 331233284, funk );
+  ghost_insert( ghost, 331233284, 331233285, funk );
+  ghost_insert( ghost, 331233285, 331233286, funk );
+  ghost_insert( ghost, 331233286, 331233287, funk );
+  ghost_insert( ghost, 331233287, 331233288, funk );
+  ghost_insert( ghost, 331233288, 331233289, funk );
+  ghost_insert( ghost, 331233289, 331233290, funk );
+  ghost_insert( ghost, 331233290, 331233291, funk );
+  ghost_insert( ghost, 331233291, 331233292, funk );
+  ghost_insert( ghost, 331233292, 331233293, funk );
+  ghost_insert( ghost, 331233293, 331233294, funk );
+  ghost_insert( ghost, 331233294, 331233295, funk );
+  ghost_insert( ghost, 331233295, 331233296, funk );
+  ghost_insert( ghost, 331233296, 331233297, funk );
+  ghost_insert( ghost, 331233297, 331233298, funk );
+  ghost_insert( ghost, 331233298, 331233299, funk );
+  ghost_insert( ghost, 331233299, 331233300, funk );
+  ghost_insert( ghost, 331233300, 331233301, funk );
+  ghost_insert( ghost, 331233301, 331233302, funk );
+  ghost_insert( ghost, 331233302, 331233303, funk );
+  ghost_insert( ghost, 331233303, 331233304, funk );
+  ghost_insert( ghost, 331233304, 331233305, funk );
+  ghost_insert( ghost, 331233305, 331233306, funk );
+  ghost_insert( ghost, 331233305, 331233307, funk );
+  ghost_insert( ghost, 331233303, 331233308, funk );
+  ghost_insert( ghost, 331233308, 331233309, funk );
+  ghost_insert( ghost, 331233307, 331233310, funk );
+  ghost_insert( ghost, 331233310, 331233311, funk );
+  ghost_insert( ghost, 331233311, 331233312, funk );
+  ghost_insert( ghost, 331233312, 331233313, funk );
+  ghost_insert( ghost, 331233313, 331233314, funk );
+  ghost_insert( ghost, 331233314, 331233315, funk );
+  ghost_insert( ghost, 331233315, 331233316, funk );
+  ghost_insert( ghost, 331233316, 331233317, funk );
+  ghost_insert( ghost, 331233317, 331233318, funk );
+  ghost_insert( ghost, 331233318, 331233319, funk );
+  ghost_insert( ghost, 331233319, 331233320, funk );
+  ghost_insert( ghost, 331233320, 331233321, funk );
+  ghost_insert( ghost, 331233321, 331233322, funk );
+  ghost_insert( ghost, 331233322, 331233323, funk );
+  ghost_insert( ghost, 331233319, 331233324, funk );
+  ghost_insert( ghost, 331233324, 331233325, funk );
+  ghost_insert( ghost, 331233323, 331233326, funk );
+  ghost_insert( ghost, 331233326, 331233327, funk );
 
   /**********************************************************************/
   /* Initialize voters, stakes, epoch and funk_txns                     */
@@ -985,6 +970,7 @@ test_full_tower( fd_wksp_t * wksp ) {
   ulong stakes[] = {12, 27, 16, 7, 38};
   fd_epoch_t * epoch = mock_epoch(wksp, voter_cnt, stakes, voters);
 
+  fd_ghost_print( ghost, epoch, fd_ghost_root(ghost) );
   /**********************************************************************/
   /* Setup funk_txns for each slot with vote account funk records       */
   /**********************************************************************/
