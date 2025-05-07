@@ -432,7 +432,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame, which only exist if...
      - direct mapping is enabled (config.enable_stack_frame_gaps == !direct_mapping)
      - dynamic stack frames are not enabled (!(SBPF version >= SBPF_V1))
-     https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/lib.rs#L341-L345
+     https://github.com/anza-xyz/agave/blob/v2.2.12/programs/bpf_loader/src/lib.rs#L344-L351
     */
   if( FD_UNLIKELY( region==FD_VM_STACK_REGION && !vm->direct_mapping && vm->sbpf_version<FD_SBPF_V1 ) ) {
     /* If an access starts in a gap region, that is an access violation */
