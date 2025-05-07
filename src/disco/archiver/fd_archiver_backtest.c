@@ -17,8 +17,15 @@
 
 #define REPLAY_IN_IDX                 (0UL)
 #define REPLAY_OUT_IDX                (0UL)
+#define MAX_FEC_NUM                   (1000000UL)
 
 #define FD_ARCHIVER_ROCKSDB_ALLOC_TAG (4UL)
+
+struct backtest_notify_entry {
+  ulong slot;
+  ulong sig;
+};
+typedef struct backtest_notify_entry backtest_notify_entry_t;
 
 struct fd_archiver_backtest_tile_ctx {
   ulong                  use_rocksdb;
@@ -34,6 +41,10 @@ struct fd_archiver_backtest_tile_ctx {
   fd_wksp_t *            blockstore_wksp;
   fd_blockstore_t        blockstore_ljoin;
   fd_blockstore_t *      blockstore;
+
+  ulong                   notifs_cnt;
+  ulong                   next_notify_idx;
+  backtest_notify_entry_t slot_notifs[MAX_FEC_NUM];
 
   fd_wksp_t *            replay_in_mem;
   ulong                  replay_in_chunk0;
@@ -52,6 +63,26 @@ typedef struct fd_archiver_backtest_tile_ctx fd_archiver_backtest_tile_ctx_t;
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return 2UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+}
+
+static void
+notify_one_slot( fd_archiver_backtest_tile_ctx_t * ctx,
+                 fd_stem_context_t *               stem ) {
+
+  if( FD_UNLIKELY( ctx->next_notify_idx==ctx->notifs_cnt ) ) return;
+
+  for( ulong slot=ctx->slot_notifs[ ctx->next_notify_idx ].slot;
+       ctx->next_notify_idx<ctx->notifs_cnt && ctx->slot_notifs[ ctx->next_notify_idx ].slot==slot;
+       ctx->next_notify_idx++ ) {
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong sig   = ctx->slot_notifs[ ctx->next_notify_idx ].sig;
+    fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
+
+    uint cnt     = fd_disco_repair_replay_sig_data_cnt( sig );
+    int complete =  fd_disco_repair_replay_sig_slot_complete( sig );
+    FD_LOG_INFO(( "Notify with slot=%lu, cnt=%u, complete=%d", slot, cnt, complete ));
+  }
+
 }
 
 static void
@@ -112,12 +143,12 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
       if( !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) ) {
         int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
         /* Notify the replay tile after inserting a FEC set */
-        FD_LOG_INFO(( "%lu:[%u, %u] notifies replay", slot, entry_batch_start_idx, shred->idx ));
         uint  cnt             = shred->idx+1-entry_batch_start_idx;
         entry_batch_start_idx = shred->idx+1;
         ulong sig             = fd_disco_repair_replay_sig( slot, (ushort)(slot - ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
-        ulong tspub           = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
+
+        ctx->slot_notifs[ ctx->notifs_cnt ].slot  = slot;
+        ctx->slot_notifs[ ctx->notifs_cnt++ ].sig = sig;
       }
 
       rocksdb_iter_next(iter);
@@ -131,6 +162,8 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
   }
   FD_LOG_WARNING(( "rocksdb contains %lu shreds from slot %lu to %lu", shred_cnt, start_slot, end_slot ));
   FD_TEST( shred_cnt>0 );
+
+  notify_one_slot( ctx, stem );
 }
 
 static void
@@ -169,6 +202,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->playback_started           = 0;
   ctx->playback_end_slot          = tile->archiver.end_slot;
   if( FD_UNLIKELY( 0==ctx->playback_end_slot ) ) FD_LOG_ERR(( "end_slot is required for rocksdb playback" ));
+
+  ctx->next_notify_idx = 0;
+  ctx->notifs_cnt      = 0;
 
   /* Setup the blockstore */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
@@ -269,6 +305,7 @@ after_frag( fd_archiver_backtest_tile_ctx_t * ctx,
                    FD_BASE58_ENC_32_ALLOCA( versioned->inner.current.frozen_hash.hash ),
                    FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
     }
+    notify_one_slot( ctx, stem );
 
     if( FD_UNLIKELY( slot==ctx->playback_end_slot ) ) FD_LOG_ERR(( "Rocksdb playback done." ));
     if( FD_UNLIKELY( slot>ctx->playback_end_slot ) ) FD_LOG_ERR(( "Rocksdb playback beyond end_slot=%lu", ctx->playback_end_slot ));
