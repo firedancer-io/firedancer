@@ -463,6 +463,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.restart.genesis_hash                       );
 
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
+  CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
 
   CFG_POP      ( bool,   development.sandbox                              );

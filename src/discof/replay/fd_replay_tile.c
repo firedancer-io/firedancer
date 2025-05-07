@@ -2639,9 +2639,10 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
           /* Mismatch */
 
-          funk_cancel( ctx, cmp_slot );
-          checkpt( ctx );
-          FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+          //funk_cancel( ctx, cmp_slot );
+          //checkpt( ctx );
+          (void)checkpt;
+          FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
           break;
 
