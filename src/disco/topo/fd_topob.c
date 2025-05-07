@@ -64,7 +64,7 @@ fd_topob_obj( fd_topo_t *  topo,
   return obj;
 }
 
-void
+fd_topo_link_t *
 fd_topob_link( fd_topo_t *  topo,
                char const * link_name,
                char const * wksp_name,
@@ -100,6 +100,8 @@ fd_topob_link( fd_topo_t *  topo,
     FD_TEST( fd_pod_insertf_ulong( topo->props, mtu,   "obj.%lu.mtu",   obj->id ) );
   }
   topo->link_cnt++;
+
+  return link;
 }
 
 void
