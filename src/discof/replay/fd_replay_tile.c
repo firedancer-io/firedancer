@@ -1186,6 +1186,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_replay_notif_msg_t * msg = NULL;
 
+  FD_LOG_NOTICE(( "shred cnt %lu %lu", curr_slot, fork->slot_ctx->shred_cnt ));
   {
     NOTIFY_START;
     msg->type = FD_REPLAY_SLOT_TYPE;
@@ -1194,6 +1195,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.root = fd_fseq_query( ctx->published_wmark );
     msg->slot_exec.height = block_entry_block_height;
     msg->slot_exec.transaction_count = fork->slot_ctx->slot_bank.transaction_count;
+    msg->slot_exec.shred_cnt = fork->slot_ctx->shred_cnt;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
@@ -1864,6 +1866,7 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   ctx->slice_exec_ctx.mblks_rem  = FD_LOAD( ulong, ctx->mbatch );
   ctx->slice_exec_ctx.wmark      = sizeof(ulong);
   ctx->slice_exec_ctx.last_mblk_off = 0;
+  fork->slot_ctx->shred_cnt    += data_cnt;
 
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
