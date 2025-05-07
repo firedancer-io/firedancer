@@ -1,6 +1,7 @@
 #include "fd_types_custom.h"
 #include "fd_bincode.h"
 #include "fd_types.h"
+#include "fd_types_meta.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -89,10 +90,12 @@ fd_gossip_ip4_addr_walk( void *                       w,
                          char const *                 name,
                          uint                         level ) {
 
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip4_addr", level++ );
   uchar * octet = (uchar *)self;
   for( uchar i = 0; i < 4; ++i ) {
     fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip4_addr", level-- );
   /* TODO: Add support for optional pretty-printing like serde?
      Saving this in the meantime */
   // char buf[ 16 ];
@@ -106,10 +109,12 @@ fd_gossip_ip6_addr_walk( void *                       w,
                          fd_types_walk_fn_t           fun,
                          char const *                 name,
                          uint                         level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip6_addr", level++ );
   uchar * octet = (uchar *)self;
   for( uchar i = 0; i < 16; ++i ) {
     fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip6_addr", level-- );
   /* Saving this for when we support configurable pretty-printing mode */
   // char buf[ 40 ];
   // sprintf( buf,
