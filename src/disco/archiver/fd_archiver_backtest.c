@@ -270,8 +270,7 @@ after_frag( fd_archiver_backtest_tile_ctx_t * ctx,
                    FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
     }
 
-    if( FD_UNLIKELY( slot==ctx->playback_end_slot ) ) FD_LOG_ERR(( "Rocksdb playback done." ));
-    if( FD_UNLIKELY( slot>ctx->playback_end_slot ) ) FD_LOG_ERR(( "Rocksdb playback beyond end_slot=%lu", ctx->playback_end_slot ));
+    if( FD_UNLIKELY( slot>=ctx->playback_end_slot ) ) FD_LOG_ERR(( "Rocksdb playback done." ));
   }
 }
 
