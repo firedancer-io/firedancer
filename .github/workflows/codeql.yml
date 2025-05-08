@@ -21,7 +21,7 @@ jobs:
           compiler: clang
           machine: linux_clang_x86_64
           compiler-version: 15.0.6
-          targets: fddev
+          targets: fddev firedancer-dev
           extras: rpath
     env:
       MACHINE: ${{ matrix.machine }}
