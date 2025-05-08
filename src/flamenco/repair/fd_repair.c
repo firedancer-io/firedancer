@@ -567,7 +567,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   for( ulong i=0UL; i<fd_ulong_min( fd_needed_table_key_max( glob->needed ) - fd_needed_table_key_cnt( glob->needed ), peer_cnt ); i++ ) {
     fd_repair_nonce_t key = glob->next_nonce++;
     fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
-    fd_hash_copy(&val->id, ids[i]);
+    val->id = *ids[i];
     val->dupkey = dupkey;
     val->when = glob->now;
   }

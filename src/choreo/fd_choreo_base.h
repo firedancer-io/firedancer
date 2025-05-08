@@ -33,6 +33,5 @@
 /* clang-format on */
 
 typedef fd_slot_hash_t fd_slot_pubkey_t;
-static const fd_slot_hash_t FD_SLOT_HASH_NULL = { .slot = FD_SLOT_NULL, .hash = { { 0 } } };
 
 #endif /* HEADER_fd_src_choreo_fd_choreo_base_h */

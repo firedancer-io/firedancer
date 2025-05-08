@@ -28,8 +28,11 @@ union __attribute__((packed)) fd_hash {
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
 
-static const fd_pubkey_t pubkey_null = { 0 };
-static const fd_hash_t   hash_null   = { 0 };
+FD_FN_PURE static inline int
+fd_hash_eq( fd_hash_t const * a,
+            fd_hash_t const * b ) {
+  return 0==memcmp( a, b, sizeof(fd_hash_t) );
+}
 
 union fd_signature {
   uchar uc[ 64 ];
@@ -54,6 +57,7 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode_footprint        fd_hash_decode_footprint
 #define fd_pubkey_decode_footprint_inner  fd_hash_decode_footprint_inner
 #define fd_pubkey_decode                  fd_hash_decode
+#define fd_pubkey_eq                      fd_hash_eq
 
 struct __attribute__((aligned(8UL))) fd_option_slot {
   uchar is_some;

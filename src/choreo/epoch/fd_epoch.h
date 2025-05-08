@@ -31,7 +31,7 @@ typedef struct fd_epoch fd_epoch_t;
 #define MAP_NAME               fd_epoch_voters
 #define MAP_T                  fd_voter_t
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_KEY_NULL           pubkey_null
+#define MAP_KEY_NULL           (fd_pubkey_t){0}
 #define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
 #define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
 #define MAP_KEY_EQUAL_IS_SLOW  1
