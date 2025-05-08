@@ -673,7 +673,11 @@ fd_block_to_json( fd_webserver_t * ws,
   char hash[50];
   fd_base58_encode_32(info->slot_exec.block_hash.uc, 0, hash);
   char phash[50];
-  fd_base58_encode_32(parent_info->slot_exec.block_hash.uc, 0, phash);
+  if( parent_info ) {
+    fd_base58_encode_32(parent_info->slot_exec.block_hash.uc, 0, phash);
+  } else {
+    phash[0] = '\0';
+  }
   fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
                        info->slot_exec.height, meta->ts/(long)1e9, info->slot_exec.parent, hash, phash);
 
