@@ -107,6 +107,10 @@ struct fd_configf {
   } blockstore;
 
   struct {
+    ulong heap_size_gib;
+  } runtime;
+
+  struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
   } layout;

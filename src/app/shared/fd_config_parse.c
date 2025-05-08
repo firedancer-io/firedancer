@@ -323,6 +323,8 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   consensus.vote                                   );
 
+  CFG_POP      ( ulong,  runtime.heap_size_gib                            );
+
   return config;
 }
 

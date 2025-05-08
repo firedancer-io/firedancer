@@ -50,15 +50,13 @@ setup_topo_blockstore( fd_topo_t *  topo,
   return obj;
 }
 
-fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo, char const * wksp_name ) {
+static fd_topo_obj_t *
+setup_topo_runtime_pub( fd_topo_t *  topo,
+                        char const * wksp_name,
+                        ulong        mem_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "runtime_pub", wksp_name );
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,        "obj.%lu.wksp_tag",   obj->id ) );
-
-  ulong footprint = fd_runtime_public_footprint();
-  FD_TEST( fd_pod_insertf_ulong( topo->props, footprint,  "obj.%lu.loose", obj->id ) );
-
+  FD_TEST( fd_pod_insertf_ulong( topo->props, mem_max, "obj.%lu.mem_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,    "obj.%lu.wksp_tag", obj->id ) );
   return obj;
 }
 
@@ -463,7 +461,7 @@ fd_topo_initialize( config_t * config ) {
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub" );
+  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
   fd_topob_tile_uses( topo, replay_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, batch_tile,  runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, pack_tile,   runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -938,6 +936,7 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->restart.identity_key_path, config->paths.identity_key, sizeof(tile->restart.identity_key_path) );
       fd_memcpy( tile->restart.genesis_hash, config->tiles.restart.genesis_hash, FD_BASE58_ENCODED_32_SZ );
       fd_memcpy( tile->restart.restart_coordinator, config->tiles.restart.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
+      tile->restart.heap_mem_max = config->firedancer.runtime.heap_size_gib<<30;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                             !strcmp( tile->name, "arch_w" ) ) ) {
       tile->archiver.enabled = config->tiles.archiver.enabled;

@@ -318,6 +318,7 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+      ulong heap_mem_max;
     } restart;
 
     struct {

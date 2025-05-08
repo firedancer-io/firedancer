@@ -1,7 +1,6 @@
 #include "../shared/fd_config.h"
 #include "../../disco/topo/fd_pod_format.h"
 
-#include "../../funk/fd_funk.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -13,9 +12,10 @@
   __x; }))
 
 static ulong
-runtime_pub_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                      fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_runtime_public_footprint();
+runtime_pub_footprint( fd_topo_t const *     topo,
+                       fd_topo_obj_t const * obj ) {
+  (void)topo;
+  return fd_runtime_public_footprint( VAL("mem_max") );
 }
 
 static ulong
@@ -26,8 +26,8 @@ runtime_pub_align( fd_topo_t const *     topo FD_FN_UNUSED,
 
 static void
 runtime_pub_new( fd_topo_t const *     topo,
-                fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_runtime_public_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+                 fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_runtime_public_new( fd_topo_obj_laddr( topo, obj->id ), VAL("mem_max") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub = {

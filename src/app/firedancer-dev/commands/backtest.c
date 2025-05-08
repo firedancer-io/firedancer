@@ -31,16 +31,13 @@
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
-#include "../../../flamenco/runtime/fd_runtime_public.h"
 static fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo, char const * wksp_name ) {
+setup_topo_runtime_pub( fd_topo_t *  topo,
+                        char const * wksp_name,
+                        ulong        mem_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "runtime_pub", wksp_name );
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,        "obj.%lu.wksp_tag",   obj->id ) );
-
-  ulong footprint = fd_runtime_public_footprint();
-  FD_TEST( fd_pod_insertf_ulong( topo->props, footprint,  "obj.%lu.loose", obj->id ) );
-
+  FD_TEST( fd_pod_insertf_ulong( topo->props, mem_max, "obj.%lu.mem_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,    "obj.%lu.wksp_tag", obj->id ) );
   return obj;
 }
 
@@ -359,7 +356,7 @@ backtest_topo( config_t * config ) {
 
   /* runtime_pub_obj shared by replay, exec and writer tiles */
   fd_topob_wksp( topo, "runtime_pub" );
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub" );
+  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
   fd_topob_tile_uses( topo, replay_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
