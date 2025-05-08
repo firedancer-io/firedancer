@@ -25,7 +25,7 @@ fd_groove_new( void * shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_groove_t *          groove             = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_groove_t), sizeof(fd_groove_t) );
   void *                 meta_map_ele_shmem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_groove_meta_t), fd_ulong_sat_mul( meta_map_ele_max, sizeof(fd_groove_meta_t) ) );
-  void *                 meta_map           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_groove_meta_map_t), fd_groove_meta_map_footprint(
+  void *                 meta_map           = FD_SCRATCH_ALLOC_APPEND( l, fd_groove_meta_map_align(), fd_groove_meta_map_footprint(
         meta_map_ele_max,
         fd_groove_meta_map_lock_cnt_est( meta_map_ele_max ),
         fd_groove_meta_map_probe_max_est( meta_map_ele_max ) ) );

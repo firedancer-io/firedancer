@@ -64,11 +64,6 @@ struct fd_groove_tile_ctx {
 };
 typedef struct fd_groove_tile_ctx fd_groove_tile_ctx_t;
 
-FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
-}
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 4096UL;
@@ -526,7 +521,6 @@ after_frag( fd_groove_tile_ctx_t * ctx,
 
 fd_topo_run_tile_t fd_tile_groove = {
   .name                     = "groove",
-  .loose_footprint          = loose_footprint,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
