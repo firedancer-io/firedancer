@@ -633,9 +633,10 @@ block_finalize_tiles_cb( void * para_arg_1,
   fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
   fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
-  ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
+  ulong cnt_per_worker   = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL;
   ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
 
+  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
 
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -647,8 +648,15 @@ block_finalize_tiles_cb( void * para_arg_1,
     }
 
     ulong start_idx = worker_idx * cnt_per_worker;
-    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                                      fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    if( start_idx >= task_data->info_sz ) {
+      /* If we do not any work for this worker to do, skip it. */
+      hash_done[ worker_idx ] = 1;
+      continue;
+    }
+    ulong end_idx   = fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL );
+    if( end_idx >= task_data->info_sz ) {
+      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    }
 
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
 
@@ -671,7 +679,6 @@ block_finalize_tiles_cb( void * para_arg_1,
   }
 
   /* Spins and blocks until all exec tiles are done hashing. */
-  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ;; ) {
     uchar wait_cnt = 0;
     for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
@@ -1939,7 +1946,6 @@ read_snapshot( void *              _ctx,
       kickoff_repair_orphans( ctx, stem );
 
     }
-
 
     uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
