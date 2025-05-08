@@ -260,8 +260,6 @@ STEM_(run1)( ulong                        in_cnt,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   in = (fd_stem_tile_in_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t) );
 
-  ulong min_in_depth = (ulong)LONG_MAX;
-
   if( FD_UNLIKELY( !!in_cnt && !in_mcache ) ) FD_LOG_ERR(( "NULL in_mcache" ));
   if( FD_UNLIKELY( !!in_cnt && !in_fseq   ) ) FD_LOG_ERR(( "NULL in_fseq"   ));
   if( FD_UNLIKELY( in_cnt > UINT_MAX ) )      FD_LOG_ERR(( "in_cnt too large" ));
@@ -275,7 +273,7 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->mcache = in_mcache[ in_idx ];
     this_in->fseq   = in_fseq  [ in_idx ];
 
-    ulong depth    = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, depth );
+    ulong depth    = fd_mcache_depth( this_in->mcache );
     if( FD_UNLIKELY( depth > UINT_MAX ) ) FD_LOG_ERR(( "in_mcache[%lu] too deep", in_idx ));
     this_in->depth = (uint)depth;
     this_in->idx   = (uint)in_idx;
