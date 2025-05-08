@@ -126,28 +126,16 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   offset += sizeof(ushort);
 }
 
-int
-fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
-                                                 ushort              current_instr_idx ) {
-  fd_txn_account_t * rec = NULL;
-
-  /* Obtain the sysvar instruction account
-     https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L53-L55 */
-  int err = fd_exec_txn_ctx_get_account_with_key( txn_ctx,
-                                                  &fd_sysvar_instructions_id,
-                                                  &rec,
-                                                  fd_txn_account_check_borrow_mut );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/message_processor.rs#L40 */
-    return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX;
+/* Stores the current instruction index in the instructions sysvar account.
+   https://github.com/anza-xyz/solana-sdk/blob/instructions-sysvar%40v2.2.1/instructions-sysvar/src/lib.rs#L164-L167 */
+void
+fd_sysvar_instructions_update_current_instr_idx( fd_txn_account_t * rec,
+                                                 ushort             current_instr_idx ) {
+  /* Extra safety checks */
+  if( FD_UNLIKELY( rec->vt->get_data_len( rec )<sizeof(ushort) ) ) {
+    return;
   }
 
-  /* Store the current instruction index
-     https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L58-L61 */
   uchar * serialized_current_instr_idx = rec->vt->get_data_mut( rec ) + (rec->vt->get_data_len( rec ) - sizeof(ushort));
   FD_STORE( ushort, serialized_current_instr_idx, current_instr_idx );
-
-  rec->vt->drop( rec );
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
 }
