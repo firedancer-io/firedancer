@@ -442,12 +442,14 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_TRANSACTIONDETAILS,
     (JSON_TOKEN_STRING<<16)
   };
+  /*
   static const uint PATH_REWARDS[4] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
     (JSON_TOKEN_LBRACKET<<16) | 1,
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_REWARDS,
     (JSON_TOKEN_BOOL<<16)
   };
+  */
 
   fd_webserver_t * ws = &ctx->global->ws;
   ulong slot_sz = 0;
@@ -493,9 +495,6 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
     return 0;
   }
 
-  ulong rewards_sz = 0;
-  const void* rewards_flag = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
-
   fd_rpc_global_ctx_t * glob = ctx->global;
   if( slotn < glob->first_slot || slotn > glob->last_slot ) {
     fd_method_error(ctx, -1, "unable to find slot info");
@@ -503,16 +502,16 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
   fd_replay_notif_msg_t * info = &glob->slot_info[ slotn & (MAX_RECENT_BLOCKHASHES-1) ];
   fd_replay_notif_msg_t * parent_info = NULL;
-  if( !( info->parent < glob->first_slot || info->parent > glob->last_slot ) ) {
-    parent_info = &glob->slot_info[ info->parent & (MAX_RECENT_BLOCKHASHES-1) ];
+  if( !( info->slot_exec.parent < glob->first_slot || info->slot_exec.parent > glob->last_slot ) ) {
+    parent_info = &glob->slot_info[ info->slot_exec.parent & (MAX_RECENT_BLOCKHASHES-1) ];
   }
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
 
-  ulong blk_max = info->slot_exec.shred_cnt * FD_SHRED_MAX_SIZE;
+  ulong blk_max = info->slot_exec.shred_cnt * FD_SHRED_MAX_SZ;
   uchar * blk_data = fd_scratch_alloc( 1, blk_max );
   ulong blk_sz;
-  if( fd_blockstore_slice_query( blockstore, slotn, 0, info->slot_exec.shred_cnt-1, blk_max, blk_data, &blk_sz) ) {
+  if( fd_blockstore_slice_query( blockstore, slotn, 0, (uint)(info->slot_exec.shred_cnt-1), blk_max, blk_data, &blk_sz) ) {
     fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
   }

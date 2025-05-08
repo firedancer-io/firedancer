@@ -678,8 +678,8 @@ fd_block_to_json( fd_webserver_t * ws,
   } else {
     phash[0] = '\0';
   }
-  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
-                       info->slot_exec.height, meta->ts/(long)1e9, info->slot_exec.parent, hash, phash);
+  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%lu,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
+                       info->slot_exec.height, info->slot_exec.ts/(ulong)1e9, info->slot_exec.parent, hash, phash);
 
   if( rewards ) {
     fd_base58_encode_32(rewards->leader.uc, 0, hash);
