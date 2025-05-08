@@ -220,6 +220,11 @@ backtest_topo( config_t * config ) {
   replay_tile->replay.writer_tile_cuont = config->firedancer.layout.writer_tile_count;
   strncpy( replay_tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(replay_tile->replay.tower_checkpt) );
 
+  replay_tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
+  for( ulong i = 0; i < replay_tile->replay.enable_features_cnt; i++ ) {
+    strncpy( replay_tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(replay_tile->replay.enable_features[i]) );
+  }
+
   /* not specified by [tiles.replay] */
 
   strncpy( replay_tile->replay.identity_key_path, config->paths.identity_key, sizeof(replay_tile->replay.identity_key_path) );
