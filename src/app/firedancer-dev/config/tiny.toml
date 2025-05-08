@@ -1,0 +1,5 @@
+[hugetlbfs]
+max_page_size = "huge"
+
+[runtime]
+heap_size_gib = 4

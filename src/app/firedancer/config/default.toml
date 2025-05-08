@@ -266,6 +266,26 @@ user = ""
     # entrypoint validator is using.
     expected_shred_version = 0
 
+[runtime]
+    # Specifies the size in gigibytes of the runtime heap allocator.
+    #
+    # Persistent usages of the runtime heap include:
+    # - Epoch state (scales with number of vote and stake accounts)
+    # - Slot state (scale with number of vote accounts)
+    # - Sysvar cache (tiny)
+    #
+    # Notable temporary usages of the runtime heap include:
+    # - Computing a full/snapshot account hash (scales with number of
+    #   funk records / accounts)
+    # - Snapshot deserialize scratch space (~8 GiB)
+    # - Computing bank hashes
+    # - Distributing stake rewards
+    #
+    # Full Firedancer still lacks an ability to robustly scale above
+    # runtime heap allocations dynamically.  Thus, a conservative
+    # default is chosen below.
+    heap_size_gib = 50
+
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this

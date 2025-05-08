@@ -3007,7 +3007,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Now join the spad that was setup in the runtime public topo obj. */
 
-  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join the runtime_spad" ));
   }
