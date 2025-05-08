@@ -776,28 +776,6 @@ fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_block_data_query_volatile queries the block map entry
-   (metadata and block data) in a lock-free thread-safe manner that does
-   not block writes.  Copies the metadata (fd_block_map_t) into
-   block_info_out.  Allocates a new block data (uchar *) using
-   alloc, copies the block data into it, and sets the block_data_out
-   pointer.  Caller provides the allocator via alloc for the copied
-   block data (an allocator is needed because the block data sz is not
-   known apriori).  Returns FD_BLOCKSTORE_SLOT_MISSING if slot is
-   missing: caller MUST ignore out pointers in this case. Otherwise this
-   call cannot fail and returns FD_BLOCKSTORE_SUCCESS. */
-
-int
-fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
-                                         int                  fd,
-                                         ulong                slot,
-                                         fd_valloc_t          alloc,
-                                         fd_hash_t *          parent_block_hash_out,
-                                         fd_block_info_t *    block_info_out,
-                                         fd_block_rewards_t * block_rewards_out,
-                                         uchar **             block_data_out,
-                                         ulong *              block_data_sz_out );
-
 /* fd_blockstore_block_map_query_volatile is the same as above except it
    only copies out the metadata (fd_block_map_t).  Returns
    FD_BLOCKSTORE_SLOT_MISSING if slot is missing, otherwise

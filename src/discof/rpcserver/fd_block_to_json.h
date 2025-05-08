@@ -2,6 +2,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../discof/geyser/fd_replay_notif.h"
 
 typedef struct fd_webserver fd_webserver_t;
 
@@ -29,8 +30,8 @@ const char* fd_block_to_json( fd_webserver_t * ws,
                               const char * call_id,
                               const uchar * blk_data,
                               ulong blk_sz,
-                              fd_block_info_t * meta,
-                              fd_hash_t * parent_hash,
+                              fd_replay_notif_msg_t * info,
+                              fd_replay_notif_msg_t * parent_info,
                               fd_rpc_encoding_t encoding,
                               long maxvers,
                               enum fd_block_detail detail,

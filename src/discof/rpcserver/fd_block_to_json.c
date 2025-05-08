@@ -662,8 +662,8 @@ fd_block_to_json( fd_webserver_t * ws,
                   const char * call_id,
                   const uchar * blk_data,
                   ulong blk_sz,
-                  fd_block_info_t * meta,
-                  fd_hash_t * parent_hash,
+                  fd_replay_notif_msg_t * info,
+                  fd_replay_notif_msg_t * parent_info,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
@@ -671,11 +671,11 @@ fd_block_to_json( fd_webserver_t * ws,
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
-  fd_base58_encode_32(meta->block_hash.uc, 0, hash);
+  fd_base58_encode_32(info->slot_exec.block_hash.uc, 0, hash);
   char phash[50];
-  fd_base58_encode_32(parent_hash->uc, 0, phash);
+  fd_base58_encode_32(parent_info->slot_exec.block_hash.uc, 0, phash);
   fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
-                       meta->block_height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
+                       info->slot_exec.height, meta->ts/(long)1e9, info->slot_exec.parent, hash, phash);
 
   if( rewards ) {
     fd_base58_encode_32(rewards->leader.uc, 0, hash);
