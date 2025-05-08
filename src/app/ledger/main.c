@@ -1244,13 +1244,12 @@ replay( fd_ledger_args_t * args ) {
 
   void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp,
     fd_runtime_public_align(),
-    fd_runtime_public_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
+    fd_runtime_public_footprint( args->runtime_mem_bound ), FD_EXEC_EPOCH_CTX_MAGIC );
   if( FD_UNLIKELY( !runtime_public_mem ) ) {
     FD_LOG_ERR(( "Unable to allocate runtime_public mem" ));
   }
-  fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint() );
 
-  fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_runtime_public_new( runtime_public_mem ) );
+  fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_runtime_public_new( runtime_public_mem, args->runtime_mem_bound ) );
   args->runtime_spad = fd_spad_join( fd_wksp_laddr( args->wksp, runtime_public->runtime_spad_gaddr ) );
   if( FD_UNLIKELY( !args->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join runtime spad" ));
@@ -1429,7 +1428,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   double       allowed_mem_delta     = fd_env_strip_cmdline_double( &argc, &argv, "--allowed-mem-delta",     NULL, 0.1                                                );
   int          snapshot_mismatch     = fd_env_strip_cmdline_int   ( &argc, &argv, "--snapshot-mismatch",     NULL, 0                                                  );
   ulong        thread_mem_bound      = fd_env_strip_cmdline_ulong ( &argc, &argv, "--thread-mem-bound",      NULL, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-  ulong        runtime_mem_bound     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--runtime-mem-bound",     NULL, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               );
+  ulong        runtime_mem_bound     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--runtime-mem-bound",     NULL, (ulong)50e9                                        );
 
   if( FD_UNLIKELY( !verify_acc_hash ) ) {
     /* We've got full snapshots that contain all 0s for the account

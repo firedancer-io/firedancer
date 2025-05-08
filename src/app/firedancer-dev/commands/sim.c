@@ -17,7 +17,6 @@
    a notification for the previous frag from storei_notif.
  */
 
-#include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
@@ -47,16 +46,13 @@ setup_topo_txncache( fd_topo_t *  topo,
   return obj;
 }
 
-#include "../../../flamenco/runtime/fd_runtime_public.h"
 static fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo, char const * wksp_name ) {
+setup_topo_runtime_pub( fd_topo_t *  topo,
+                        char const * wksp_name,
+                        ulong        mem_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "runtime_pub", wksp_name );
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,        "obj.%lu.wksp_tag",   obj->id ) );
-
-  ulong footprint = fd_runtime_public_footprint();
-  FD_TEST( fd_pod_insertf_ulong( topo->props, footprint,  "obj.%lu.loose", obj->id ) );
-
+  FD_TEST( fd_pod_insertf_ulong( topo->props, mem_max, "obj.%lu.mem_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,    "obj.%lu.wksp_tag", obj->id ) );
   return obj;
 }
 
@@ -265,7 +261,7 @@ sim_topo( config_t * config ) {
                                                           config->firedancer.blockstore.alloc_max );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub" );
+  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache", FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT );
   fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
   fd_topo_obj_t * constipated_obj = fd_topob_obj( topo, "fseq", "constipate" );
