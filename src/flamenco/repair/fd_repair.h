@@ -36,14 +36,6 @@
 #define FD_REPAIR_NUM_NEEDED_PEERS (4)
 
 typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
-/* Test if two hash values are equal */
-FD_FN_PURE static inline int
-fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    if (key1->ul[i] != key2->ul[i])
-      return 0;
-  return 1;
-}
 
 /* Hash a hash value */
 FD_FN_PURE static inline
@@ -51,12 +43,6 @@ ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
   return key->ul[0] ^ seed;
 }
 
-/* Copy a hash value */
-static inline void
-fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    keyd->ul[i] = keys->ul[i];
-}
 
 /* Test if two addresses are equal */
 FD_FN_PURE static inline int
@@ -99,9 +85,8 @@ struct fd_active_elem {
 typedef struct fd_active_elem fd_active_elem_t;
 #define MAP_NAME     fd_active_table
 #define MAP_KEY_T    fd_pubkey_t
-#define MAP_KEY_EQ   fd_hash_eq
+#define MAP_KEY_EQ(a,b) (0==memcmp( (a),(b),sizeof(fd_pubkey_t) ))
 #define MAP_KEY_HASH fd_hash_hash
-#define MAP_KEY_COPY fd_hash_copy
 #define MAP_T        fd_active_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
