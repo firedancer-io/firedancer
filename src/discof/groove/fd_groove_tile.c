@@ -28,7 +28,7 @@
 #include "generated/fd_groove_tile_seccomp.h"
 
 /* FIXME: adjust these constants */
-#define FD_GROOVE_META_MAP_ELE_MAX (1UL << 20)
+#define FD_GROOVE_META_MAP_ELE_MAX (1UL << 10)
 #define FD_GROOVE_META_MAP_SEED    (0xDEADBEEF)
 #define FD_GROOVE_VOLUME_MAX       (6000UL)
 
