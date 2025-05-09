@@ -707,6 +707,15 @@ class VectorMember(TypeNode):
     }
 
     def emitWalk(self, inner, indent=''):
+        # The `serialize` function in Rust's `short_vec` (analagous to our `walk()` implementation) handles serializing
+        # the vector's length independently, rather than relying on the Serializer (i.e., the `walk` function callback)
+        # to do it. To remain consistent, we have to replicate this behavior here.
+        # Reference: https://docs.rs/solana-short-vec/latest/src/solana_short_vec/lib.rs.html#166-185
+        # Additionally, does this imply that `short_vec` encodes lengths twice? No, because it uses the `serialize_tuple`
+        # callback (which, in Bincode's implementation, does not encode the sequence length) rather than `serialize_seq`.
+        # Reference: https://docs.rs/bincode/latest/src/bincode/features/serde/ser.rs.html#226-228 (see the `serialize_seq` implementation above for comparison)
+        if self.compact:
+            print(f'{indent}  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body)
         if self.element == "uchar":
             print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
             print(f'{indent}    fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body)
