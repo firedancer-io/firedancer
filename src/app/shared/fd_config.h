@@ -37,6 +37,7 @@ struct fd_configh {
     char  accounts_hash_cache_path[ PATH_MAX ];
     int   require_tower;
     char  snapshot_archive_format[ 10 ];
+    int   disable_accounts_disk_index;
   } ledger;
 
   struct {
