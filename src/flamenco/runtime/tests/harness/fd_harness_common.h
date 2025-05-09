@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #include "../../fd_runtime.h"
+#include "../../fd_bank_mgr.h"
 #include "generated/context.pb.h"
 
 /* fd_runtime_fuzz_runner_t provides a funk instance and spad, generic

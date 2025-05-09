@@ -71,49 +71,63 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Set up slot context */
+  ulong slot = test_ctx->slot_ctx.slot;
+
   slot_ctx->funk_txn                    = funk_txn;
   slot_ctx->funk                        = funk;
   slot_ctx->enable_exec_recording       = 0;
   slot_ctx->epoch_ctx                   = epoch_ctx;
   slot_ctx->runtime_wksp                = fd_wksp_containing( slot_ctx );
-  slot_ctx->prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
+  slot_ctx->slot                        = slot;
+
   fd_memcpy( &slot_ctx->slot_bank.banks_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof( fd_hash_t ) );
 
   /* Set up slot bank */
-  ulong            slot      = test_ctx->slot_ctx.slot;
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
-  slot_bank->slot                   = slot;
-  slot_bank->block_height           = test_ctx->slot_ctx.block_height;
   slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
-  slot_bank->fee_rate_governor      = (fd_fee_rate_governor_t) {
-    .target_lamports_per_signature  = 10000UL,
-    .target_signatures_per_slot     = 20000UL,
-    .min_lamports_per_signature     = 5000UL,
-    .max_lamports_per_signature     = 100000UL,
-    .burn_percent                   = 50,
-  };
-  slot_bank->capitalization         = test_ctx->slot_ctx.prev_epoch_capitalization;
-  slot_bank->lamports_per_signature = 5000UL;
 
   /* Set up epoch context and epoch bank */
   /* TODO: Do we need any more of these? */
   fd_epoch_bank_t * epoch_bank    = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
 
+  /* All bank mgr stuff here. */
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
-  epoch_bank->hashes_per_tick       = test_ctx->epoch_ctx.hashes_per_tick;
-  epoch_bank->ticks_per_slot        = test_ctx->epoch_ctx.ticks_per_slot;
-  epoch_bank->ns_per_slot           = (uint128)64000000; // TODO: restore from input or smth
-  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
-  epoch_bank->slots_per_year        = test_ctx->epoch_ctx.slots_per_year;
-  epoch_bank->inflation             = (fd_inflation_t) {
-    .initial         = test_ctx->epoch_ctx.inflation.initial,
-    .terminal        = test_ctx->epoch_ctx.inflation.terminal,
-    .taper           = test_ctx->epoch_ctx.inflation.taper,
-    .foundation      = test_ctx->epoch_ctx.inflation.foundation,
-    .foundation_term = test_ctx->epoch_ctx.inflation.foundation_term
-  };
+  ulong * max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
+  *max_tick_height = test_ctx->epoch_ctx.hashes_per_tick;
+  fd_bank_mgr_max_tick_height_save( bank_mgr );
+
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_modify( bank_mgr );
+  *ticks_per_slot = test_ctx->epoch_ctx.ticks_per_slot;
+  fd_bank_mgr_ticks_per_slot_save( bank_mgr );
+
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_modify( bank_mgr );
+  *ns_per_slot = (uint128)64000000; // TODO: restore from input
+  fd_bank_mgr_ns_per_slot_save( bank_mgr );
+
+  ulong * genesis_creation_time = fd_bank_mgr_genesis_creation_time_modify( bank_mgr );
+  *genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
+  fd_bank_mgr_genesis_creation_time_save( bank_mgr );
+
+  double * slots_per_year = fd_bank_mgr_slots_per_year_modify( bank_mgr );
+  *slots_per_year = test_ctx->epoch_ctx.slots_per_year;
+  fd_bank_mgr_slots_per_year_save( bank_mgr );
+
+  fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( bank_mgr );
+  inflation->initial         = test_ctx->epoch_ctx.inflation.initial;
+  inflation->terminal        = test_ctx->epoch_ctx.inflation.terminal;
+  inflation->taper           = test_ctx->epoch_ctx.inflation.taper;
+  inflation->foundation      = test_ctx->epoch_ctx.inflation.foundation;
+  inflation->foundation_term = test_ctx->epoch_ctx.inflation.foundation_term;
+  fd_bank_mgr_inflation_save( bank_mgr );
+
+  ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+  *block_height = test_ctx->slot_ctx.block_height;
+  fd_bank_mgr_block_height_save( bank_mgr );
 
   /* Load in all accounts with > 0 lamports provided in the context */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
@@ -224,19 +238,55 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Update leader schedule */
-  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runner->spad );
+  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot, runner->spad );
+
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
-  slot_bank->block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
-  slot_bank->block_hash_queue.ages_root = NULL;
-  pool_mem = fd_spad_alloc( runner->spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( FD_BLOCKHASH_QUEUE_MAX_ENTRIES+1UL ) );
-  slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, FD_BLOCKHASH_QUEUE_MAX_ENTRIES+1UL ) );
-  slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( fd_spad_virtual( runner->spad ), FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, FD_BLOCKHASH_QUEUE_MAX_ENTRIES ) );
+
+  ulong * slot_bm = fd_bank_mgr_slot_modify( bank_mgr );
+  *slot_bm = slot_ctx->slot;
+  fd_bank_mgr_slot_save( bank_mgr );
+
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
+  *fee_rate_governor      = (fd_fee_rate_governor_t) { .target_lamports_per_signature  = 10000UL,
+                                                       .target_signatures_per_slot     = 20000UL,
+                                                       .min_lamports_per_signature     = 5000UL,
+                                                       .max_lamports_per_signature     = 100000UL,
+                                                       .burn_percent                   = 50,
+  };
+  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  *capitalization = test_ctx->slot_ctx.prev_epoch_capitalization;
+  fd_bank_mgr_capitalization_save( bank_mgr );
+
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  *lamports_per_signature = 5000UL;
+  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+  *prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
+  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+
+
+  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
+  block_hash_queue->ages_root_offset = 0UL;
+  block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
+  block_hash_queue->last_hash_index  = 0UL;
+  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+
 
   /* TODO: Restore this from input */
-  pool_mem                              = fd_spad_alloc( runner->spad, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint( 10000UL ) );
-  slot_bank->timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new( pool_mem, 10000UL ) );
-  slot_bank->timestamp_votes.votes_root = NULL;
+  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( bank_mgr );
+  pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
+  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new( pool_mem, 15000UL ) );
+  clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( clock_pool) - (ulong)clock_timestamp_votes;
+  clock_timestamp_votes->votes_root_offset = 0UL;
+  fd_bank_mgr_clock_timestamp_votes_save( bank_mgr );
 
   /* TODO: We might need to load this in from the input. We also need to size this out for worst case, but this also blows up the memory requirement. */
   /* Allocate all the memory for the rent fresh accounts list */
@@ -251,7 +301,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );
-  fd_memset( slot_bank->block_hash_queue.last_hash, 0, sizeof(fd_hash_t) );
+  fd_memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  fd_bank_mgr_block_hash_queue_save( bank_mgr );
 
   // Use the latest lamports per signature
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
@@ -263,8 +314,12 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      slot_bank->lamports_per_signature     = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+      *lamports_per_signature = 5000UL;
+      fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+      ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+      *prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
     }
   }
 
@@ -452,7 +507,9 @@ fd_runtime_fuzz_block_run( fd_runtime_fuzz_runner_t * runner,
     effects->has_error = !!( res );
 
     /* Capture capitalization */
-    effects->slot_capitalization = slot_ctx->slot_bank.capitalization;
+    fd_bank_mgr_t   bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr     = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+    effects->slot_capitalization = *(fd_bank_mgr_capitalization_query( bank_mgr ));
 
     /* Capture hashes */
     uchar out_lt_hash[32];

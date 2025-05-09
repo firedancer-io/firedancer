@@ -82,15 +82,34 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  slot_ctx->slot_bank.slot                                            = slot;
-  slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot_bank.slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
-  slot_ctx->slot_bank.fee_rate_governor.burn_percent                  = 50;
-  slot_ctx->slot_bank.fee_rate_governor.min_lamports_per_signature    = 0;
-  slot_ctx->slot_bank.fee_rate_governor.max_lamports_per_signature    = 0;
-  slot_ctx->slot_bank.fee_rate_governor.target_lamports_per_signature = 10000;
-  slot_ctx->slot_bank.fee_rate_governor.target_signatures_per_slot    = 20000;
-  slot_ctx->slot_bank.lamports_per_signature                          = 5000;
-  slot_ctx->prev_lamports_per_signature                               = 5000;
+  slot_ctx->slot                                                      = slot;
+  slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
+
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  *lamports_per_signature = 5000;
+  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+  *prev_lamports_per_signature = 5000;
+  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+
+  ulong * slot_bm = fd_bank_mgr_slot_modify( bank_mgr );
+  *slot_bm = slot_ctx->slot;
+  fd_bank_mgr_slot_save( bank_mgr );
+
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
+  fee_rate_governor->burn_percent                  = 50;
+  fee_rate_governor->min_lamports_per_signature    = 0;
+  fee_rate_governor->max_lamports_per_signature    = 0;
+  fee_rate_governor->target_lamports_per_signature = 10000;
+  fee_rate_governor->target_signatures_per_slot    = 20000;
+  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_modify( bank_mgr );
+  *ticks_per_slot = 64;
+  fd_bank_mgr_ticks_per_slot_save( bank_mgr );
 
   /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
   fd_epoch_schedule_t default_epoch_schedule = {
@@ -108,8 +127,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   epoch_bank->epoch_schedule      = default_epoch_schedule;
   epoch_bank->rent_epoch_schedule = default_epoch_schedule;
   epoch_bank->rent                = default_rent;
-  epoch_bank->ticks_per_slot      = 64;
-  epoch_bank->slots_per_year      = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)epoch_bank->ticks_per_slot;
+
+  double * slots_per_year = fd_bank_mgr_slots_per_year_modify( bank_mgr );
+  *slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(*fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
+  fd_bank_mgr_slots_per_year_save( bank_mgr );
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
@@ -172,8 +193,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
      THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
      the epoch rewards sysvar, we may need to update this.
   */
-  if( (FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
-       FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ))
+  if( (FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
+       FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ))
       && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
     fd_point_value_t point_value = {0};
     fd_hash_t const * last_hash = test_ctx->blockhash_queue_count > 0 ? (fd_hash_t const *)test_ctx->blockhash_queue[0]->bytes : (fd_hash_t const *)empty_bytes;
@@ -200,11 +221,19 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
 
   /* Blockhash queue init */
-  slot_ctx->slot_bank.block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runner->spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( 400 ) );
-  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, 400 ) );
-  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
+
+  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  block_hash_queue->ages_root_offset = 0UL;
+  block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
+  block_hash_queue->last_hash_index  = 0UL;
+  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+
+  fd_bank_mgr_block_hash_queue_save( bank_mgr );
+
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
@@ -216,8 +245,13 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
+      lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+      *lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+
+      ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+      *prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
     }
   }
 
@@ -297,9 +331,16 @@ fd_runtime_fuzz_txn_ctx_exec( fd_runtime_fuzz_runner_t * runner,
       task_info->exec_res    = fd_execute_txn( task_info );
   }
 
-  slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
-  slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
-  slot_ctx->slot_bank.collected_rent           += task_info->txn_ctx->collected_rent;
+  fd_bank_mgr_t bank_mgr_obj = {0};
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  *execution_fees += task_info->txn_ctx->execution_fee;
+  fd_bank_mgr_execution_fees_save( bank_mgr );
+
+  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+  *priority_fees += task_info->txn_ctx->priority_fee;
+  fd_bank_mgr_priority_fees_save( bank_mgr );
+
   return task_info;
 }
 
@@ -508,9 +549,15 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
       }
     }
 
+    fd_bank_mgr_t bank_mgr_obj = {0};
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+    ulong * execution_fees = fd_bank_mgr_execution_fees_query( bank_mgr );
+    ulong * priority_fees  = fd_bank_mgr_priority_fees_query( bank_mgr );
+
     txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
-    txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
+    txn_result->fee_details.transaction_fee    = *execution_fees;
+    txn_result->fee_details.prioritization_fee = *priority_fees;
 
     /* Rent is only collected on successfully loaded transactions */
     txn_result->rent                           = txn_ctx->collected_rent;

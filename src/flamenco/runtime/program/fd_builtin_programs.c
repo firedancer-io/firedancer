@@ -3,6 +3,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
+#include "../fd_bank_mgr.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
     {                                                                       \
@@ -150,7 +151,11 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_txn_account_mutable_fini( rec, funk, txn );
 
-  slot_ctx->slot_bank.capitalization++;
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, txn );
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  (*capitalization)++;
+  fd_bank_mgr_capitalization_save( bank_mgr );
 
   // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
   FD_TEST( !err );
@@ -194,9 +199,9 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/runtime/src/bank/builtins/mod.rs#L33
   fd_builtin_program_t const * builtins = fd_builtins();
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
-    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot, slot_ctx->epoch_ctx->features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
-    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, builtins[i].enable_feature_offset ) ) {
+    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( slot_ctx->slot, slot_ctx->epoch_ctx->features, builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
       fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
@@ -204,11 +209,11 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   //TODO: remove when no longer necessary
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, zk_token_sdk_enabled ) ) {
+  if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, zk_token_sdk_enabled ) ) {
     fd_write_builtin_account( slot_ctx, fd_solana_zk_token_proof_program_id, "zk_token_proof_program", 22UL );
   }
 
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, zk_elgamal_proof_program_enabled ) ) {
+  if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, zk_elgamal_proof_program_enabled ) ) {
     fd_write_builtin_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id, "zk_elgamal_proof_program", 24UL );
   }
 
@@ -217,12 +222,12 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
     char data[1] = {1};
     fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, data, 1 );
     fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, data, 1 );
-    if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_secp256r1_precompile ) )
+    if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, enable_secp256r1_precompile ) )
       fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, data, 1 );
   } else {
     fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
     fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
-    if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_secp256r1_precompile ) )
+    if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, enable_secp256r1_precompile ) )
       fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, "", 0 );
   }
 

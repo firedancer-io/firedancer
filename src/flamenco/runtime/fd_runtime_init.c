@@ -5,6 +5,7 @@
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "fd_bank_mgr.h"
 #include "fd_system_ids.h"
 
 /* This file must not depend on fd_executor.h */
@@ -24,11 +25,16 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp(funk), NULL);
+  uchar * buf = fd_funk_val_truncate( rec,
+                                      sz,
+                                      fd_funk_alloc( funk ),
+                                      fd_funk_wksp( funk ),
+                                      fd_funk_val_min_align(),
+                                      NULL );
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
-      .data = buf + sizeof(uint),
-      .dataend = buf + sz,
+    .data = buf + sizeof(uint),
+    .dataend = buf + sz,
   };
 
   if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
@@ -41,7 +47,7 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_funk_rec_publish( funk, prepare );
 
-  FD_LOG_DEBUG(( "epoch frozen, slot=%lu bank_hash=%s poh_hash=%s", slot_ctx->slot_bank.slot, FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ), FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
+  FD_LOG_DEBUG(( "epoch frozen, slot=%lu bank_hash=%s poh_hash=%s", slot_ctx->slot, FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ), FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -63,7 +69,12 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp( funk ), NULL);
+  uchar * buf = fd_funk_val_truncate( rec,
+                                      sz,
+                                      fd_funk_alloc( funk ),
+                                      fd_funk_wksp( funk ),
+                                      fd_funk_val_min_align(),
+                                      NULL );
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data    = buf + sizeof(uint),
@@ -83,7 +94,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_rec_publish( funk, prepare );
 
   FD_LOG_DEBUG(( "slot frozen, slot=%lu bank_hash=%s poh_hash=%s",
-                 slot_ctx->slot_bank.slot,
+                 slot_ctx->slot,
                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 
@@ -177,14 +188,22 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%s poh_hash %s lthash %s",
-                    (long)slot_ctx->slot_bank.slot,
+                    (long)slot_ctx->slot,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ),
                     FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ) ));
 
-    slot_ctx->slot_bank.collected_execution_fees = 0;
-    slot_ctx->slot_bank.collected_priority_fees = 0;
-    slot_ctx->slot_bank.collected_rent = 0;
+    fd_bank_mgr_t bank_mgr_obj = {0};
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+    ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+    *execution_fees = 0;
+    fd_bank_mgr_execution_fees_save( bank_mgr );
+
+    ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+    *priority_fees = 0;
+    fd_bank_mgr_priority_fees_save( bank_mgr );
+
     slot_ctx->txn_count = 0;
     slot_ctx->nonvote_txn_count = 0;
     slot_ctx->failed_txn_count = 0;

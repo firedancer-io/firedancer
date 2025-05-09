@@ -7,7 +7,7 @@
 void
 fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) {
     FD_LOG_INFO(( "sysvar LastRestartSlot not supported by this ledger version!" ));
     return;
   }
@@ -29,7 +29,7 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
                  &fd_sysvar_owner_id,
                  &fd_sysvar_last_restart_slot_id,
                  enc, sz,
-                 slot_ctx->slot_bank.slot );
+                 slot_ctx->slot );
 }
 
 fd_sol_sysvar_last_restart_slot_t *
@@ -55,7 +55,7 @@ void
 fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) return;
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) return;
 
   int   has_current_last_restart_slot = 0;
   ulong current_last_restart_slot     = 0UL;
@@ -78,6 +78,6 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * r
         slot_ctx, &fd_sysvar_owner_id,
         &fd_sysvar_last_restart_slot_id,
         &last_restart_slot, sizeof(ulong),
-        slot_ctx->slot_bank.slot );
+        slot_ctx->slot );
   }
 }

@@ -21,7 +21,7 @@ write_rent( fd_exec_slot_ctx_t * slot_ctx,
   if( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot );
 }
 
 void

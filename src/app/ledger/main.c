@@ -7,6 +7,7 @@
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -291,7 +292,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
 
-  fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad );
+  fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot, ledger_args->runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
 
@@ -300,8 +301,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ulong             slot_cnt    = 0;
   fd_blockstore_t * blockstore  = ledger_args->slot_ctx->blockstore;
 
-  ulong prev_slot  = ledger_args->slot_ctx->slot_bank.slot;
-  ulong start_slot = ledger_args->slot_ctx->slot_bank.slot + 1;
+  ulong prev_slot  = ledger_args->slot_ctx->slot;
+  ulong start_slot = ledger_args->slot_ctx->slot + 1;
 
   ledger_args->slot_ctx->root_slot = prev_slot;
 
@@ -350,7 +351,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   for( ulong slot = start_slot; slot<=ledger_args->end_slot && !aborted; ++slot ) {
 
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
-    ledger_args->slot_ctx->slot_bank.slot      = slot;
 
     FD_LOG_DEBUG(( "reading slot %lu", slot ));
 
@@ -405,10 +405,20 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       continue;
     }
 
-    ledger_args->slot_ctx->slot_bank.tick_height = ledger_args->slot_ctx->slot_bank.max_tick_height;
-    if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ledger_args->epoch_ctx->epoch_bank.ticks_per_slot, slot, &ledger_args->slot_ctx->slot_bank.max_tick_height ) ) ) {
-      FD_LOG_ERR(( "couldn't compute max tick height slot %lu ticks_per_slot %lu", slot, ledger_args->epoch_ctx->epoch_bank.ticks_per_slot ));
+    fd_bank_mgr_t bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn );
+    ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( bank_mgr );
+    ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
+    ulong * tick_height = fd_bank_mgr_tick_height_modify( bank_mgr );
+    *tick_height = *max_tick_height;
+    fd_bank_mgr_tick_height_save( bank_mgr );
+
+    max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
+
+    if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( *ticks_per_slot, slot, max_tick_height ) ) ) {
+      FD_LOG_ERR(( "couldn't compute max tick height slot %lu ticks_per_slot %lu", slot, *ticks_per_slot ));
     }
+    fd_bank_mgr_max_tick_height_save( bank_mgr );
 
     if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
 
@@ -455,8 +465,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
 
     ulong blk_txn_cnt = 0UL;
-    FD_LOG_NOTICE(( "Used memory in spad before slot=%lu %lu", ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad->mem_used ));
+    FD_LOG_NOTICE(( "Used memory in spad before slot=%lu %lu", slot, ledger_args->runtime_spad->mem_used ));
     FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx,
+                                          slot,
                                           blk,
                                           ledger_args->capture_ctx,
                                           ledger_args->tpool,
@@ -718,7 +729,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
-  fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot, args->runtime_spad );
+  fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
   fd_exec_para_cb_ctx_t exec_para_ctx = {
@@ -1156,11 +1167,11 @@ ingest( fd_ledger_args_t * args ) {
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
   if( args->start_slot == 0 ) {
-    args->start_slot = slot_ctx->slot_bank.slot + 1;
+    args->start_slot = slot_ctx->slot + 1;
   }
   fd_blockstore_t * blockstore = args->blockstore;
   if( blockstore ) {
-    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->wmk = slot_ctx->slot_bank.slot;
+    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->wmk = slot_ctx->slot;
   }
 
   if( args->funk_only ) {
@@ -1169,8 +1180,8 @@ ingest( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "using shredcap" ));
     fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
   } else if( args->rocksdb_list[ 0UL ] ) {
-    if( args->end_slot >= slot_ctx->slot_bank.slot + args->slot_history_max ) {
-      args->end_slot = slot_ctx->slot_bank.slot + args->slot_history_max - 1;
+    if( args->end_slot >= slot_ctx->slot + args->slot_history_max ) {
+      args->end_slot = slot_ctx->slot + args->slot_history_max - 1;
     }
     ingest_rocksdb( args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot,
                     blockstore, args->copy_txn_status, args->trash_hash, args->valloc );
@@ -1347,7 +1358,11 @@ replay( fd_ledger_args_t * args ) {
 
   fd_ledger_main_setup( args );
 
-  fd_blockstore_init( args->blockstore, -1, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &args->slot_ctx->slot_bank );
+  fd_blockstore_init( args->blockstore,
+                      -1,
+                      FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
+                      &args->slot_ctx->slot_bank,
+                      args->slot_ctx->slot );
   fd_buf_shred_pool_reset( args->blockstore->shred_pool, 0 );
 
   FD_LOG_WARNING(( "setup done" ));
