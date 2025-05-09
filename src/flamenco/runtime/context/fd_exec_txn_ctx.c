@@ -226,69 +226,6 @@ fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * ctx ) {
 }
 
 void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        ctx,
-                                    fd_wksp_t const *          funk_wksp,
-                                    fd_wksp_t const *          runtime_pub_wksp,
-                                    ulong                      funk_txn_gaddr,
-                                    ulong                      sysvar_cache_gaddr,
-                                    ulong                      funk_gaddr ) {
-
-  ctx->runtime_pub_wksp = (fd_wksp_t *)runtime_pub_wksp;
-
-  ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
-  if( FD_UNLIKELY( !ctx->funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
-
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
-    FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
-  }
-
-  ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
-  if( FD_UNLIKELY( !ctx->sysvar_cache ) ) {
-    FD_LOG_ERR(( "Could not find valid sysvar cache" ));
-  }
-
-  ctx->features     = slot_ctx->epoch_ctx->features;
-  ctx->status_cache = slot_ctx->status_cache;
-
-  ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
-
-  ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
-
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( bank_mgr );
-  ulong * slot = fd_bank_mgr_slot_query( bank_mgr );
-  ctx->slot = !!slot ? *slot : 0UL;
-
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( bank_mgr );
-  if( fee_rate_governor ) {
-    ctx->fee_rate_governor = *fee_rate_governor;
-  }
-
-  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_query( bank_mgr );
-  if( prev_lamports_per_signature ) {
-    ctx->prev_lamports_per_signature = *prev_lamports_per_signature;
-  }
-
-  ulong * total_epoch_stake = fd_bank_mgr_total_epoch_stake_query( bank_mgr );
-  if( total_epoch_stake ) {
-    ctx->total_epoch_stake = *total_epoch_stake;
-  }
-
-  /* Distribute rewards */
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
-  ctx->schedule                    = epoch_bank->epoch_schedule;
-  ctx->rent                        = epoch_bank->rent;
-  double * slots_per_year = fd_bank_mgr_slots_per_year_query( bank_mgr );
-  ctx->slots_per_year              = !!slots_per_year ? *slots_per_year : 0.0;
-  ctx->stakes                      = epoch_bank->stakes;
-
-}
-
-void
 fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->return_data.len = 0;
 }

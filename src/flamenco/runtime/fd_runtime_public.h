@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_public_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_public_h
 
-#include "../fd_flamenco_base.h"
 #include "../features/fd_features.h"
 #include "../types/fd_types.h"
 #include "../../disco/pack/fd_microblock.h"
@@ -280,23 +279,24 @@ struct fd_runtime_public {
 };
 typedef struct fd_runtime_public fd_runtime_public_t;
 
-FD_FN_CONST static inline ulong
-fd_runtime_public_align( void ) {
-  return alignof(fd_runtime_public_t);
-}
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST ulong
+fd_runtime_public_align( void );
 
 ulong
-fd_runtime_public_footprint( void );
+fd_runtime_public_footprint( ulong spad_mem_max );
 
 void *
-fd_runtime_public_new( void * shmem );
+fd_runtime_public_new( void * shmem,
+                       ulong  spad_mem_max );
 
 fd_runtime_public_t *
 fd_runtime_public_join( void * shmem );
 
 /* Returns a local join of the runtime spad */
 fd_spad_t *
-fd_runtime_public_join_and_get_runtime_spad( fd_runtime_public_t const * runtime_public );
+fd_runtime_public_spad( fd_runtime_public_t const * runtime_public );
 
 FD_PROTOTYPES_END
 

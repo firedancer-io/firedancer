@@ -323,6 +323,8 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   consensus.vote                                   );
 
+  CFG_POP      ( ulong,  runtime.heap_size_gib                            );
+
   return config;
 }
 
@@ -448,6 +450,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
+  CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
@@ -463,6 +466,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.restart.genesis_hash                       );
 
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
+  CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
 
   CFG_POP      ( bool,   development.sandbox                              );

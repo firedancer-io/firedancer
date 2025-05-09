@@ -25,11 +25,16 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp(funk), NULL);
+  uchar * buf = fd_funk_val_truncate( rec,
+                                      sz,
+                                      fd_funk_alloc( funk ),
+                                      fd_funk_wksp( funk ),
+                                      fd_funk_val_min_align(),
+                                      NULL );
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
-      .data = buf + sizeof(uint),
-      .dataend = buf + sz,
+    .data = buf + sizeof(uint),
+    .dataend = buf + sz,
   };
 
   if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
@@ -64,7 +69,12 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp( funk ), NULL);
+  uchar * buf = fd_funk_val_truncate( rec,
+                                      sz,
+                                      fd_funk_alloc( funk ),
+                                      fd_funk_wksp( funk ),
+                                      fd_funk_val_min_align(),
+                                      NULL );
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data    = buf + sizeof(uint),

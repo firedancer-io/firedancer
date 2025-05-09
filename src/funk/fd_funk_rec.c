@@ -23,35 +23,16 @@
 #define MAP_IMPL_STYLE        2
 #include "../util/tmpl/fd_map_chain_para.c"
 
-fd_funk_rec_t *
-fd_funk_rec_modify_prepare( fd_funk_t *               funk,
-                            fd_funk_txn_t const *     txn,
-                            fd_funk_rec_key_t const * key,
-                            fd_funk_rec_query_t *     query ) {
-  fd_funk_rec_map_t *    rec_map = fd_funk_rec_map( funk );
-  fd_funk_xid_key_pair_t pair[1];
-  if( txn == NULL ) {
-    fd_funk_txn_xid_set_root( pair->xid );
+static void
+fd_funk_rec_key_set_pair( fd_funk_xid_key_pair_t *  key_pair,
+                          fd_funk_txn_t const *     txn,
+                          fd_funk_rec_key_t const * key ) {
+  if( !txn ) {
+    fd_funk_txn_xid_set_root( key_pair->xid );
   } else {
-    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
+    fd_funk_txn_xid_copy( key_pair->xid, &txn->xid );
   }
-  fd_funk_rec_key_copy( pair->key, key );
-
-  for( ;; ) {
-    int err = fd_funk_rec_map_modify_try( rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-    if( err==FD_MAP_SUCCESS ) break;
-    if( err==FD_MAP_ERR_KEY ) return NULL;
-    if( err==FD_MAP_ERR_AGAIN ) continue;
-    FD_LOG_CRIT(( "query returned err %d", err ));
-  }
-
-  fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
-  return rec;
-}
-
-void
-fd_funk_rec_modify_publish( fd_funk_rec_query_t * query ) {
-  fd_funk_rec_map_modify_test( query );
+  fd_funk_rec_key_copy( key_pair->key, key );
 }
 
 fd_funk_rec_t const *
@@ -69,12 +50,8 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 #endif
 
   fd_funk_xid_key_pair_t pair[1];
-  if( txn == NULL ) {
-    fd_funk_txn_xid_set_root( pair->xid );
-  } else {
-    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
-  }
-  fd_funk_rec_key_copy( pair->key, key );
+  fd_funk_rec_key_set_pair( pair, txn, key );
+
   for(;;) {
     int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS )   break;
@@ -106,12 +83,7 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
      newest to oldest. */
 
   fd_funk_xid_key_pair_t pair[1];
-  if( txn == NULL ) {
-    fd_funk_txn_xid_set_root( pair->xid );
-  } else {
-    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
-  }
-  fd_funk_rec_key_copy( pair->key, key );
+  fd_funk_rec_key_set_pair( pair, txn, key );
 
   fd_funk_rec_map_shmem_t * rec_map = funk->rec_map->map;
   ulong hash = fd_funk_rec_map_key_hash( pair, rec_map->seed );
@@ -161,12 +133,8 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
                         ulong *                   sz_out ) {
   *sz_out = ULONG_MAX;
   fd_funk_xid_key_pair_t pair[1];
-  if( txn == NULL ) {
-    fd_funk_txn_xid_set_root( pair->xid );
-  } else {
-    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
-  }
-  fd_funk_rec_key_copy( pair->key, key );
+  fd_funk_rec_key_set_pair( pair, txn, key );
+
   void * last_copy = NULL;
   ulong last_copy_sz = 0;
   for(;;) {
@@ -294,6 +262,151 @@ fd_funk_rec_cancel( fd_funk_t *             funk,
   fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
 }
 
+static void
+fd_funk_rec_txn_publish( fd_funk_t *             funk,
+                         fd_funk_rec_prepare_t * prepare ) {
+  fd_funk_rec_t * rec = prepare->rec;
+  uint * rec_head_idx = prepare->rec_head_idx;
+  uint * rec_tail_idx = prepare->rec_tail_idx;
+
+  uint rec_prev_idx;
+  uint rec_idx  = (uint)( rec - funk->rec_pool->ele );
+  rec_prev_idx  = *rec_tail_idx;
+  *rec_tail_idx = rec_idx;
+  rec->prev_idx = rec_prev_idx;
+  rec->next_idx = FD_FUNK_REC_IDX_NULL;
+  if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
+    *rec_head_idx = rec_idx;
+  } else {
+    funk->rec_pool->ele[ rec_prev_idx ].next_idx = rec_idx;
+  }
+
+  if( FD_UNLIKELY( fd_funk_rec_map_txn_insert( funk->rec_map, rec ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
+  }
+}
+
+void
+fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
+                            fd_funk_txn_t *           txn,
+                            fd_funk_rec_key_t const * key,
+                            ulong                     min_sz,
+                            ulong                     align ) {
+
+  /* TODO: There is probably a cleaner way to allocate the txn memory. */
+
+  /* See the header comment for why the max is 2. */
+  #define MAX_TXN_KEY_CNT (2UL)
+  uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__( ( aligned( alignof(fd_funk_rec_map_txn_t) ) ) );
+  #undef MAX_TXN_KEY_CNT
+
+  /* First, we will do a global query to find a version of the record
+     from either the current transaction or one of its ancestors. */
+
+  fd_funk_rec_t const * rec_glob = NULL;
+  fd_funk_txn_t const * txn_glob = NULL;
+
+  for( ;; ) {
+    fd_funk_rec_query_t query_glob[1];
+    txn_glob = NULL;
+    rec_glob = fd_funk_rec_query_try_global( funk,
+                                             txn,
+                                             key,
+                                             &txn_glob,
+                                             query_glob );
+
+    /* If the record exists and already exists in the specified funk txn,
+      we can return successfully. */
+    if( rec_glob && txn==txn_glob ) {
+      return;
+    }
+
+    if( fd_funk_rec_query_test( query_glob )==FD_FUNK_SUCCESS ) {
+      break;
+    }
+  }
+
+  /* At this point, we need to atomically clone the record and copy
+     in the contents of the global record. We at most will be trying to
+     create a txn with two record keys. If the key exists in some
+     ancestor txn, than we need to add the ancestor key to the txn. We
+     will always need to add the current key to the txn. */
+  /* TODO: Turn key_max into a const. */
+
+  fd_funk_rec_map_txn_t * map_txn = fd_funk_rec_map_txn_init( txn_mem, funk->rec_map, 2UL );
+
+  fd_funk_xid_key_pair_t pair[1];
+  fd_funk_rec_key_set_pair( pair, txn, key );
+
+  fd_funk_rec_map_txn_add( map_txn, pair, 1 );
+
+  fd_funk_xid_key_pair_t pair_glob[1];
+  if( rec_glob ) {
+    /* We can reuse the pair, just need to replace the xid. */
+    fd_funk_rec_key_set_pair( pair_glob, txn_glob, key );
+    fd_funk_rec_map_txn_add( map_txn, pair_glob, 1 );
+  }
+
+  /* Now that the keys are in the txn, we can try to start the
+     transaction on the record_map. */
+
+  int err = fd_funk_rec_map_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_txn_try returned err %d", err ));
+  }
+
+  /* We are now in a txn try with a lock on both record keys. */
+
+  /* First we need to make sure that the record hasn't been created yet. */
+  fd_funk_rec_map_query_t query[1];
+  err = fd_funk_rec_map_txn_query( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( err==FD_MAP_SUCCESS ) ) {
+    /* The key has been inserted. We need to gracefully exit the txn. */
+    fd_funk_rec_map_txn_test( map_txn );
+    fd_funk_rec_map_txn_fini( map_txn );
+    return;
+  }
+
+  /* Now we know for certain that the record hasn't been created yet. so
+     we will copy in the record from the global txn (if one exists). */
+
+  fd_funk_rec_prepare_t prepare[1];
+  fd_funk_rec_t *       new_rec = fd_funk_rec_prepare( funk, txn, key, prepare, &err );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
+  }
+
+  /* It is fine to use the old version of the record because we can
+     assume that it comes from a frozen txn. */
+  ulong old_val_sz = !!rec_glob ? rec_glob->val_sz : 0UL;
+  ulong new_val_sz = fd_ulong_max( old_val_sz, min_sz );
+
+  uchar * new_val = fd_funk_val_truncate( new_rec,
+                                          new_val_sz,
+                                          fd_funk_alloc( funk ),
+                                          fd_funk_wksp( funk ),
+                                          align,
+                                          &err );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_CRIT(( "fd_funk_val_truncate returned err=%d", err ));
+  }
+
+  if( rec_glob ) {
+    /* If we have a global copy of the record, copy it in. */
+    uchar * old_data = fd_funk_val( rec_glob, fd_funk_wksp( funk ) );
+    memcpy( new_val, old_data, old_val_sz );
+  }
+
+  fd_funk_rec_txn_publish( funk, prepare );
+
+  fd_funk_rec_map_txn_test( map_txn );
+
+
+  /* We can omit a fd_funk_rec_map_txn_test() because we are blocking. */
+  fd_funk_rec_map_txn_fini( map_txn );
+
+}
+
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_txn_t *           txn,
@@ -314,7 +427,12 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     ulong val_sz     = old_rec->val_sz;
-    void * buf = fd_funk_val_truncate( new_rec, val_sz, funk->alloc, wksp, opt_err );
+    void * buf = fd_funk_val_truncate( new_rec,
+                                       val_sz,
+                                       funk->alloc,
+                                       wksp,
+                                       fd_funk_val_min_align(),
+                                       opt_err );
     if( !buf ) {
       fd_funk_rec_cancel( funk, prepare );
       return NULL;
@@ -332,12 +450,7 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
                          fd_funk_txn_t *           txn,
                          fd_funk_rec_key_t const * key ) {
   fd_funk_xid_key_pair_t pair[1];
-  if( txn == NULL ) {
-    fd_funk_txn_xid_set_root( pair->xid );
-  } else {
-    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
-  }
-  fd_funk_rec_key_copy( pair->key, key );
+  fd_funk_rec_key_set_pair( pair, txn, key );
 
   uchar * lock = NULL;
   if( txn==NULL ) {
@@ -408,12 +521,8 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   }
 
   fd_funk_xid_key_pair_t pair[1];
-  if( txn == NULL ) {
-    fd_funk_txn_xid_set_root( pair->xid );
-  } else {
-    fd_funk_txn_xid_copy( pair->xid, &txn->xid );
-  }
-  fd_funk_rec_key_copy( pair->key, key );
+  fd_funk_rec_key_set_pair( pair, txn, key );
+
   fd_funk_rec_query_t query[ 1 ];
   for(;;) {
     int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );

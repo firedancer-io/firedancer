@@ -83,7 +83,7 @@ typedef struct fd_rpc_acct_map_elem fd_rpc_acct_map_elem_t;
 #define MAP_KEY_T fd_pubkey_t
 #define MAP_ELE_T fd_rpc_acct_map_elem_t
 #define MAP_KEY_HASH(key,seed) fd_hash( seed, key, sizeof(fd_pubkey_t) )
-#define MAP_KEY_EQ(k0,k1)      fd_hash_eq( k0, k1 )
+#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
 #define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
 #define POOL_NAME fd_rpc_acct_map_pool
@@ -2584,8 +2584,8 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
     }
 
     subs->last_slot_notify = *msg;
-    fd_hash_t * h = &subs->recent_blockhash[msg->slot_exec.slot % MAX_RECENT_BLOCKHASHES];
-    fd_hash_copy( h, &msg->slot_exec.block_hash );
+    subs->recent_blockhash[ msg->slot_exec.slot % MAX_RECENT_BLOCKHASHES ]
+      = msg->slot_exec.block_hash;
 
     for( ulong j = 0; j < subs->sub_cnt; ++j ) {
       struct fd_ws_subscription * sub = &subs->sub_list[ j ];

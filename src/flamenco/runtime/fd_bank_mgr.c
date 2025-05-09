@@ -79,7 +79,7 @@ fd_bank_mgr_##name##_modify( fd_bank_mgr_t * bank_mgr ) {                       
   if( !!rec ) {                                                                                    \
     /* If rec exists in the current funk txn, modify the current rec */                            \
     memset( &bank_mgr->query, 0, sizeof(fd_funk_rec_query_t) );                                    \
-    mod_rec = fd_funk_rec_modify_prepare( bank_mgr->funk,                                          \
+    mod_rec = fd_funk_rec_modify_try( bank_mgr->funk,                                          \
                                           bank_mgr->funk_txn,                                      \
                                           &key,                                                    \
                                           &bank_mgr->query );                                      \
@@ -114,6 +114,7 @@ fd_bank_mgr_##name##_modify( fd_bank_mgr_t * bank_mgr ) {                       
                                            FD_BANK_MGR_##uppername##_FOOTPRINT,                    \
                                            fd_funk_alloc( bank_mgr->funk ),                        \
                                            fd_funk_wksp( bank_mgr->funk ),                         \
+                                           fd_funk_val_min_align(),                                \
                                            &err );                                                 \
   if( FD_UNLIKELY( err ) ) {                                                                       \
     FD_LOG_ERR(( "Could not truncate new data" ));                                                 \

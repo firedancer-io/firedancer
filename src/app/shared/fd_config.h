@@ -107,6 +107,10 @@ struct fd_configf {
   } blockstore;
 
   struct {
+    ulong heap_size_gib;
+  } runtime;
+
+  struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
   } layout;
@@ -367,6 +371,8 @@ struct fd_config {
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
+      ulong enable_features_cnt;
+      char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
 
     struct {
@@ -390,6 +396,7 @@ struct fd_config {
 
     struct {
       int   enabled;
+      ulong end_slot;
       char  archiver_path[ PATH_MAX ];
     } archiver;
 

@@ -212,7 +212,12 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
-    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk ), wksp, NULL );;
+    void * val = fd_funk_val_truncate( rec,
+                                       fd_sbpf_validated_program_footprint( &elf_info ),
+                                       fd_funk_alloc( funk ),
+                                       wksp,
+                                       fd_funk_val_min_align(),
+                                       NULL );
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();

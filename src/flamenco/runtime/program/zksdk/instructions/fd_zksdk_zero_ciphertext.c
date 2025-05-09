@@ -74,6 +74,9 @@ fd_zksdk_verify_proof_zero_ciphertext(
   uchar c[ 32 ];
   uchar w[ 32 ];
   fd_zksdk_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
+
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z"), proof->z );
+
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
   /* Compute scalars */

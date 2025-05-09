@@ -15,10 +15,11 @@
      sort_double_descend_insert( double * key,
                                  ulong    cnt );
 
-     // Return 1 if cnt is a sensible value for the stable sorting APIs
-     // (i.e. cnt*sizeof(double)+alignof(double)-1 will not overflow).
+     // Return 1 if cnt is a sensible value for the sorting APIs
+     // (i.e. cnt*sizeof(double)+alignof(double)-1 will not overflow,
+     // 3*cnt*ceil(log_3(cnt)) will not overflow, etc).
 
-     int sort_double_descend_stable_cnt_valid( ulong cnt );
+     int sort_double_descend_cnt_valid( ulong cnt );
 
      // Return the alignment and footprint required for a scratch region
      // adequate for sorting up to cnt elements.  The results will be
@@ -80,11 +81,23 @@
                                      ulong          cnt,
                                      double         query );
 
-     // Same as sort_double_descend_inplace above but will be adaptively
-     // parallelized over the caller (typically tpool thread t0) and
-     // tpool threads (t0,t1).  Assumes tpool is valid and tpool threads
-     // (t0,t1) are idle (or soon to be idle).  Only available if
-     // SORT_PARALLEL was requested.
+     // sort_double_descend_{stable_fast,stable,inplace} is the same as
+     // above is adaptively parallelized over the caller (typically
+     // tpool thread t0) and tpool threads (t0,t1).  Assumes tpool is
+     // valid, tpool threads (t0,t1) are idle (or soon to be idle).
+     // These are only available if SORT_PARALLEL was requested.
+
+     double *
+     sort_double_descend_stable_fast_para( fd_tpool_t * tpool, ulong t0, ulong t1,
+                                           double * key,
+                                           ulong    cnt,
+                                           void *   scratch );
+
+     double *
+     sort_double_descend_stable_para( fd_tpool_t * tpool, ulong t0, ulong t1,
+                                      double * key,
+                                      ulong    cnt,
+                                      void *   scratch );
 
      double *
      sort_double_descend_inplace_para( fd_tpool_t * tpool, ulong t0, ulong t1,
@@ -193,11 +206,11 @@
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline int
-SORT_(stable_cnt_valid)( SORT_IDX_T cnt ) {
+SORT_(cnt_valid)( SORT_IDX_T cnt ) {
   /* Written funny for supporting different signed idx types without
-     generating compiler warnings */
+     generating compiler warnings. */
   SORT_IDX_T max = (SORT_IDX_T)fd_ulong_min( (-alignof(SORT_KEY_T))/sizeof(SORT_KEY_T), /* ==floor( (2^64-align-1)/sz ) */
-                                             (ulong)(SORT_IDX_T)((~0UL)>>1) );          /* ==SORT_IDX_MAX as ulong */
+                                             (ulong)(SORT_IDX_T)((1UL<<57)-1UL) );      /* ==SORT_IDX_MAX as ulong */
   return (!cnt) | ((((SORT_IDX_T)0)<cnt) & (cnt<max)) | (cnt==max);
 }
 
@@ -206,7 +219,7 @@ FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt 
 
 SORT_STATIC SORT_KEY_T *
 SORT_(private_merge)( SORT_KEY_T * key,
-                      SORT_IDX_T   cnt,
+                      long         cnt,
                       SORT_KEY_T * tmp );
 
 SORT_STATIC SORT_KEY_T *
@@ -226,19 +239,19 @@ static inline SORT_KEY_T *
 SORT_(stable_fast)( SORT_KEY_T * key,
                     SORT_IDX_T   cnt,
                     void *       scratch ) {
+  if( FD_UNLIKELY( cnt<(SORT_IDX_T)2 ) ) return key;
   SORT_KEY_T * tmp = (SORT_KEY_T *)scratch;
-  return SORT_(private_merge)( key, cnt, tmp );
+  return SORT_(private_merge)( key, (long)cnt, tmp );
 }
 
 static inline SORT_KEY_T *
 SORT_(stable)( SORT_KEY_T * key,
                SORT_IDX_T   cnt,
                void *       scratch ) {
-  if( FD_LIKELY( cnt>(SORT_IDX_T)1 ) ) {
-    SORT_KEY_T * tmp = (SORT_KEY_T *)scratch;
-    if( SORT_(private_merge)( key, cnt, tmp )==tmp ) /* 50/50 branch prob */
-      fd_memcpy( key, tmp, sizeof(SORT_KEY_T)*(ulong)cnt );
-  }
+  if( FD_UNLIKELY( cnt<(SORT_IDX_T)2 ) ) return key;
+  SORT_KEY_T * tmp = (SORT_KEY_T *)scratch;
+  if( SORT_(private_merge)( key, (long)cnt, tmp )==tmp ) /* 50/50 branch prob */
+    memcpy( key, tmp, sizeof(SORT_KEY_T)*(ulong)cnt );
   return key;
 }
 
@@ -274,6 +287,84 @@ SORT_(search_geq)( SORT_KEY_T const * sorted,
 
 #if SORT_PARALLEL
 
+SORT_STATIC FD_MAP_REDUCE_PROTO( SORT_(private_merge_para)  );
+SORT_STATIC FD_FOR_ALL_PROTO   ( SORT_(private_memcpy_para) );
+
+static inline SORT_KEY_T *
+SORT_(stable_fast_para)( fd_tpool_t * tpool,
+                         ulong        t0,
+                         ulong        t1,
+                         SORT_KEY_T * key,
+                         SORT_IDX_T   cnt,
+                         void *       scratch ) {
+
+  /* The wallclock time of the below for N keys and T threads is
+     roughly:
+
+       alpha N + beta N (ln N - ln T) / T + gamma ln T
+
+     where the first term represents the cost of the final sort rounds
+     (which are parallelized over increasingly fewer threads than the
+     initial rounds ... wallclock sums up to something proportional to N
+     in the limit of large T), the second term represents the cost of
+     the initial parallel rounds (which are parallelized over T threads)
+     and the last term represents the wallclock to dispatch and
+     synchronize the threads.  Optimizing T for a given N yields:
+
+       -beta N (ln N - ln T_opt) / T_opt^2 - beta N / T_opt^2 + gamma / T_opt = 0
+
+     Solving for T_opt in the limit N >> T_opt yields:
+
+       T_opt = (beta/gamma) N ln N
+
+     where the ratio beta is roughly the merge pass marginal wallclock
+     per key and gamma is proportional to the marginal wallclock to
+     start and stop a thread.  Since these are typically used over a
+     domain of moderate N, we can approximate ln N by ln N_ref,
+     yielding:
+
+       T_opt ~ N / thresh
+
+    where thresh ~ gamma / (beta ln N_ref).  We use an empirical value
+    such threads will have at least one normal page of work of keys to
+    process in a block typically. */
+
+  if( FD_UNLIKELY( cnt<2L ) ) return key;
+
+  static ulong const thresh = (4096UL + sizeof(SORT_KEY_T)-1UL) / sizeof(SORT_KEY_T); /* ceil(page_sz/key_sz) */
+  ulong t_cnt = fd_ulong_min( t1 - t0, ((ulong)cnt) / thresh );
+  if( FD_UNLIKELY( t_cnt<2UL ) ) return SORT_(stable_fast)( key, cnt, scratch );
+  t1 = t0 + t_cnt;
+
+  SORT_KEY_T * out[1];
+  FD_MAP_REDUCE( SORT_(private_merge_para), tpool,t0,t1, 0L,(long)cnt, key, scratch, out );
+  return out[0];
+}
+
+static inline SORT_KEY_T *
+SORT_(stable_para)( fd_tpool_t * tpool,
+                    ulong        t0,
+                    ulong        t1,
+                    SORT_KEY_T * key,
+                    SORT_IDX_T   cnt,
+                    void *       scratch ) {
+
+  /* This works the same as the above but does a parallel memcpy if the
+     result doesn't end up in the correct place. */
+
+  if( FD_UNLIKELY( cnt<2L ) ) return key;
+
+  static ulong const thresh = (4096UL + sizeof(SORT_KEY_T)-1UL) / sizeof(SORT_KEY_T); /* ceil(page_sz/key_sz) */
+  ulong t_cnt = fd_ulong_min( t1 - t0, ((ulong)cnt) / thresh );
+  if( FD_UNLIKELY( t_cnt<2UL ) ) return SORT_(stable)( key, cnt, scratch );
+  t1 = t0 + t_cnt;
+
+  SORT_KEY_T * out[1];
+  FD_MAP_REDUCE( SORT_(private_merge_para), tpool,t0,t1, 0L,(long)cnt, key, scratch, out );
+  if( out[0]!=key ) FD_FOR_ALL( SORT_(private_memcpy_para), tpool,t0,t1, 0L,(long)cnt, key, scratch ); /* 50/50 branch prob */
+  return key;
+}
+
 SORT_STATIC void
 SORT_(private_quick_node)( void * _tpool,
                            ulong  t0,      ulong t1,
@@ -289,8 +380,8 @@ SORT_(inplace_para)( fd_tpool_t * tpool,
                      ulong        t1,
                      SORT_KEY_T * key,
                      SORT_IDX_T   cnt ) {
-  if( FD_LIKELY( cnt>(SORT_IDX_T)1 ) )
-    SORT_(private_quick_node)( tpool, t0, t1, (void *)key, (void *)(ulong)cnt, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_UNLIKELY( cnt<(SORT_IDX_T)2 ) ) return key;
+  SORT_(private_quick_node)( tpool,t0,t1, (void *)key, (void *)(ulong)cnt, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
   return key;
 }
 
@@ -319,73 +410,78 @@ SORT_(insert)( SORT_KEY_T * key,
   return key;
 }
 
-/* FIXME: USE IMPLICIT RECURSION ALA QUICK BELOW? */
-
-SORT_KEY_T *
-SORT_(private_merge)( SORT_KEY_T * key,
-                      SORT_IDX_T   cnt,
-                      SORT_KEY_T * tmp ) {
-
-  /* If below threshold, use insertion sort */
-
-  if( cnt<=((SORT_IDX_T)(SORT_MERGE_THRESH)) ) return SORT_(insert)( key, cnt );
-
-  /* Otherwise, break input in half and sort the halves */
-
-  SORT_KEY_T * key_left  = key;
-  SORT_KEY_T * tmp_left  = tmp;
-  SORT_IDX_T   cnt_left  = cnt >> 1;
-  SORT_KEY_T * out_left  = SORT_(private_merge)( key_left,  cnt_left,  tmp_left  );
-
-  SORT_KEY_T * key_right = key + cnt_left;
-  SORT_KEY_T * tmp_right = tmp + cnt_left;
-  SORT_IDX_T   cnt_right = cnt - cnt_left;
-  SORT_KEY_T * out_right = SORT_(private_merge)( key_right, cnt_right, tmp_right );
-
-  /* Merge out_left / out_right */
-
-  if( out_left==key ) key = tmp; /* If out_left overlaps with key, merge into tmp.  Otherwise, merge into key */
-
-  /* Note that out_left does not overlap with the location for merge
-     output at this point.  out_right might overlap (with the right
-     half) with the location for merge output but this will still work
-     in that case.  */
-
-  SORT_IDX_T i = ((SORT_IDX_T)0);
-  SORT_IDX_T j = ((SORT_IDX_T)0);
-  SORT_IDX_T k = ((SORT_IDX_T)0);
+static void
+SORT_(private_merge_pass)( SORT_KEY_T const * key_l, long cnt_l,
+                           SORT_KEY_T const * key_r, long cnt_r,
+                           SORT_KEY_T       * key_m ) {
+  long i = 0L;
+  long j = 0L;
+  long k = 0L;
 # if 1 /* Minimal C language operations */
   for(;;) { /* Note that cnt_left>0 and cnt_right>0 as cnt > SORT_MERGE_THRESH >= 1 at this point */
-    if( SORT_BEFORE( out_right[k], out_left[j] ) ) {
-      key[i++] = out_right[k++];
-      if( k>=cnt_right ) {
-        do key[i++] = out_left [j++]; while( j<cnt_left  ); /* append left  stragglers (at least one) */
+    if( SORT_BEFORE( key_r[j], key_l[i] ) ) {
+      key_m[k++] = key_r[j++];
+      if( j>=cnt_r ) {
+        memcpy( key_m + k, key_l + i, sizeof(SORT_KEY_T)*(ulong)(cnt_l-i) ); /* append left  stragglers (at least one) */
         break;
       }
     } else {
-      key[i++] = out_left [j++];
-      if( j>=cnt_left  ) {
-        do key[i++] = out_right[k++]; while( k<cnt_right ); /* append right stragglers (at least one) */
+      key_m[k++] = key_l[i++];
+      if( i>=cnt_l ) {
+        memcpy( key_m + k, key_r + j, sizeof(SORT_KEY_T)*(ulong)(cnt_r-j) ); /* append right stragglers (at least one) */
         break;
       }
     }
   }
 # else /* Branch free variant (Pyth investigations suggested the above is better) */
-  for(;;) { /* Note that cnt_left>0 and cnt_right>0 as cnt > SORT_MERGE_THRESH >= 1 at this point */
-    SORT_KEY_T out_j = out_left [j];
-    SORT_KEY_T out_k = out_right[k];
-    int from_right = (SORT_BEFORE( out_k, out_j ));
-    key[i++] = from_right ? out_k : out_j; FD_COMPILER_FORGET( from_right );
-    j += (SORT_IDX_T)(from_right^1);       FD_COMPILER_FORGET( from_right );
-    k += (SORT_IDX_T) from_right;
-    int c = (j<cnt_left) & (k<cnt_right); FD_COMPILER_FORGET( c ); /* prevent compiler from branch nesting the compares */
-    if( !c ) break;
+  while( ((i<cnt_l) & (j<cnt_r)) ) {
+    SORT_KEY_T ki = key_l[ i ];
+    SORT_KEY_T kj = key_r[ j ];
+    int use_left = !(SORT_BEFORE( kj, ki ));
+    key_m[ k ] = use_left ? ki : kj; /* cmov ideally */
+    i += (long) use_left;
+    j += (long)!use_left;
+    k++;
   }
-  for( ; j<cnt_left;  j++ ) key[i++] = out_left [j];
-  for( ; k<cnt_right; k++ ) key[i++] = out_right[k];
+  if(      i<cnt_l ) memcpy( key_m + k, key_l + i, sizeof(SORT_KEY_T)*(ulong)(cnt_l-i) );
+  else if( j<cnt_r ) memcpy( key_m + k, key_r + j, sizeof(SORT_KEY_T)*(ulong)(cnt_r-j) );
 # endif
+}
 
-  return key;
+SORT_KEY_T *
+SORT_(private_merge)( SORT_KEY_T * key,
+                      long         cnt,
+                      SORT_KEY_T * tmp ) {
+
+  /* FIXME: USE IMPLICIT RECURSION ALA QUICK BELOW? */
+
+  /* If below threshold, use insertion sort */
+
+  if( cnt<=((long)(SORT_MERGE_THRESH)) ) return SORT_(insert)( key, (SORT_IDX_T)cnt );
+
+  /* Otherwise, break input in half and sort the halves */
+
+  SORT_KEY_T * key_l = key;
+  SORT_KEY_T * tmp_l = tmp;
+  long         cnt_l = cnt >> 1;
+  SORT_KEY_T * in_l  = SORT_(private_merge)( key_l, cnt_l, tmp_l );
+
+  SORT_KEY_T * key_r = key + cnt_l;
+  SORT_KEY_T * tmp_r = tmp + cnt_l;
+  long         cnt_r = cnt - cnt_l;
+  SORT_KEY_T * in_r  = SORT_(private_merge)( key_r, cnt_r, tmp_r );
+
+  /* Merge in_l / in_r */
+
+  SORT_KEY_T * out = (in_l==key) ? tmp : key; /* If in_l overlaps with key, merge into tmp.  Otherwise, merge into key */
+
+  /* Note that in_l does not overlap with out at this point.  in_r might
+     overlap with the right half of out but the merge pass is fine for
+     that case. */
+
+  SORT_(private_merge_pass)( in_l, cnt_l, in_r, cnt_r, out );
+
+  return out;
 }
 
 /* This uses a dual pivot quick sort for better theoretical and
@@ -855,6 +951,41 @@ SORT_(private_quick_node)( void * _tpool,
 
   while( wait_stack_cnt ) fd_tpool_wait( tpool, wait_stack[ --wait_stack_cnt ] );
 }
+
+FD_MAP_REDUCE_BEGIN( SORT_(private_merge_para), 1L, alignof(SORT_KEY_T *), sizeof(SORT_KEY_T *) ) {
+
+  SORT_KEY_T *  key = (SORT_KEY_T * )_a0;
+  SORT_KEY_T *  tmp = (SORT_KEY_T * )_a1;
+  SORT_KEY_T ** out = (SORT_KEY_T **)_r0;
+
+  *out = SORT_(stable_fast)( key + block_i0, (SORT_IDX_T)block_cnt, tmp + block_i0 );
+
+} FD_MAP_END {
+
+  SORT_KEY_T *  key   = (SORT_KEY_T * )_a0;
+  SORT_KEY_T *  tmp   = (SORT_KEY_T * )_a1;
+  SORT_KEY_T ** _in_l = (SORT_KEY_T **)_r0; SORT_KEY_T * in_l = *_in_l; long cnt_l = block_is - block_i0;
+  SORT_KEY_T ** _in_r = (SORT_KEY_T **)_r1; SORT_KEY_T * in_r = *_in_r; long cnt_r = block_i1 - block_is;
+
+  /* Merge in_l / in_r (see private_merge above for details) */
+
+  SORT_KEY_T * out = ((in_l==(key+block_i0)) ? tmp : key) + block_i0; /* cmov */
+
+  SORT_(private_merge_pass)( in_l, cnt_l, in_r, cnt_r, out );
+
+  *_in_l = out;
+
+} FD_REDUCE_END
+
+FD_FOR_ALL_BEGIN( SORT_(private_memcpy_para), 1L ) {
+
+  SORT_KEY_T       * dst = (SORT_KEY_T       *)_a0;
+  SORT_KEY_T const * src = (SORT_KEY_T const *)_a1;
+
+  if( FD_LIKELY( block_cnt ) ) memcpy( dst + block_i0, src + block_i0, sizeof(SORT_KEY_T)*(ulong)block_cnt );
+
+} FD_FOR_ALL_END
+
 #endif
 
 #endif

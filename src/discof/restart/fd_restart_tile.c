@@ -69,13 +69,13 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
 
   /* Do not modify order! This is join-order in unprivileged_init. */
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->restart.heap_mem_max ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -116,7 +116,7 @@ unprivileged_init( fd_topo_t      * topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_restart_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   void * restart_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->restart.heap_mem_max ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /**********************************************************************/
@@ -139,7 +139,7 @@ unprivileged_init( fd_topo_t      * topo,
   /* spad                                                               */
   /**********************************************************************/
 
-  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem, tile->restart.heap_mem_max ) );
   fd_spad_push( ctx->runtime_spad );
 
   /**********************************************************************/
@@ -335,7 +335,12 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     }
 
     ulong sz    = sizeof(uint) + fd_slot_bank_size( slot_bank );
-    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk ), fd_funk_wksp( ctx->funk ), &opt_err );
+    uchar * buf = fd_funk_val_truncate( new_rec,
+                                        sz,
+                                        fd_funk_alloc( ctx->funk ),
+                                        fd_funk_wksp( ctx->funk ),
+                                        fd_funk_val_min_align(),
+                                        &opt_err );
     *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
     fd_bincode_encode_ctx_t slot_bank_encode_ctx = {
       .data    = buf + sizeof(uint),

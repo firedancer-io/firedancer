@@ -158,6 +158,11 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
       has_program_id = 1;
       info->program_id = (uchar)txn_ctx->accounts_cnt;
     }
+
+    /* Since the instructions sysvar is set as mutable at the txn level, we need to make it mutable here as well. */
+    if( !memcmp( accts[j].pubkey, &fd_sysvar_instructions_id, sizeof(fd_pubkey_t) ) ) {
+      acc->vt->set_mutable( acc );
+    }
   }
 
   /* If the program id is not in the set of accounts it must be added to the set of accounts. */

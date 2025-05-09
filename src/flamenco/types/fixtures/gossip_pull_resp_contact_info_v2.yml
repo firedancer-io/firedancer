@@ -7,73 +7,83 @@ push_msg:
           id: 'Hm5NNNZpBgAo5j3gRwJtkHXihpLzdCyP3WRWHLzcPSup'
           gossip: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1024
           tvu: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1025
           tvu_fwd: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1026
           repair: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1035
           tpu: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1027
           tpu_fwd: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1028
           tpu_vote: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1029
           rpc: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 8899
           rpc_pubsub: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 8900
           serve_repair: 
             ip4: 
-              addr: 127
-              addr: 0
-              addr: 0
-              addr: 1
+              addr: 
+                - 127
+                - 0
+                - 0
+                - 1
               port: 1032
           wallclock: 1702312087747
           shred_version: 22793
@@ -92,10 +102,11 @@ push_msg:
             feature_set: 367846227
             client: 0
           addrs: 
-            - ip4: 127
-              ip4: 0
-              ip4: 0
-              ip4: 1
+            - ip4: 
+                - 127
+                - 0
+                - 0
+                - 1
           sockets: 
             - key: 0
               index: 0

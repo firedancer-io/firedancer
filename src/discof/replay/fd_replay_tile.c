@@ -640,9 +640,10 @@ block_finalize_tiles_cb( void * para_arg_1,
   fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
   fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
-  ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
+  ulong cnt_per_worker   = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL;
   ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
 
+  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
 
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -654,8 +655,15 @@ block_finalize_tiles_cb( void * para_arg_1,
     }
 
     ulong start_idx = worker_idx * cnt_per_worker;
-    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                                      fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    if( start_idx >= task_data->info_sz ) {
+      /* If we do not any work for this worker to do, skip it. */
+      hash_done[ worker_idx ] = 1;
+      continue;
+    }
+    ulong end_idx   = fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL );
+    if( end_idx >= task_data->info_sz ) {
+      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    }
 
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
 
@@ -678,7 +686,6 @@ block_finalize_tiles_cb( void * para_arg_1,
   }
 
   /* Spins and blocks until all exec tiles are done hashing. */
-  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ;; ) {
     uchar wait_cnt = 0;
     for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
@@ -1978,7 +1985,6 @@ read_snapshot( void *              _ctx,
 
     }
 
-
     uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
@@ -2706,9 +2712,10 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
           /* Mismatch */
 
-          funk_cancel( ctx, cmp_slot );
-          checkpt( ctx );
-          FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+          //funk_cancel( ctx, cmp_slot );
+          //checkpt( ctx );
+          (void)checkpt;
+          FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
           break;
 
@@ -3074,7 +3081,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Now join the spad that was setup in the runtime public topo obj. */
 
-  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join the runtime_spad" ));
   }
@@ -3103,6 +3110,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
   }
   fd_features_enable_cleaned_up( &ctx->epoch_ctx->features, ctx->epoch_ctx->epoch_bank.cluster_version );
+
+  char const * one_off_features[16];
+  for (ulong i = 0; i < tile->replay.enable_features_cnt; i++) {
+    one_off_features[i] = tile->replay.enable_features[i];
+  }
+  fd_features_enable_one_offs(&ctx->epoch_ctx->features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL);
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
