@@ -186,6 +186,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.netlink.max_peer_routes                    );
   CFG_POP      ( ulong,  tiles.netlink.max_neighbors                      );
 
+  CFG_POP      ( ulong,  tiles.gossip.max_entries                         );
+
   CFG_POP      ( ushort, tiles.quic.regular_transaction_listen_port       );
   CFG_POP      ( ushort, tiles.quic.quic_transaction_listen_port          );
   CFG_POP      ( uint,   tiles.quic.txn_reassembly_count                  );
