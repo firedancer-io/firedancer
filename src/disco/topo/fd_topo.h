@@ -195,6 +195,31 @@ struct fd_topo_tile {
     } netlink;
 
     struct {
+      char identity_key_path[ PATH_MAX ];
+
+      ulong         entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ 16UL ];
+
+      uint   ip_addr;
+      int    has_expected_shred_version;
+      ushort expected_shred_version;
+
+      ulong  max_entries;
+      ulong  max_purged;
+      ulong  max_failed;
+
+      struct {
+        ushort gossip;
+        ushort tvu;
+        ushort tvu_quic;
+        ushort tpu;
+        ushort tpu_quic;
+        ushort vote;
+        ushort repair;
+      } ports;
+    } gossip;
+
+    struct {
       uint   out_depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
@@ -375,21 +400,6 @@ struct fd_topo_tile {
       float contending_fraction;
       float cu_price_spread;
     } benchg;
-
-    struct {
-      ushort  gossip_listen_port;
-#     define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16
-      ulong   entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
-      uint    ip_addr;
-      char    identity_key_path[ PATH_MAX ];
-      ushort  tvu_port;
-      ushort  tpu_port;
-      ushort  tpu_quic_port;
-      ushort  tpu_vote_port;
-      ushort  repair_serve_port;
-      ulong   expected_shred_version;
-    } gossip;
 
     struct {
       ushort  repair_intake_listen_port;
