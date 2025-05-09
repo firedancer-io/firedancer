@@ -1086,7 +1086,7 @@ ingest( fd_ledger_args_t * args ) {
   fd_funk_t * funk = args->funk;
 
   args->valloc = allocator_setup( args->wksp );
-  uchar * epoch_ctx_mem = fd_spad_alloc( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
+  uchar * epoch_ctx_mem = fd_spad_alloc_check( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
@@ -1099,7 +1099,7 @@ ingest( fd_ledger_args_t * args ) {
   slot_ctx->blockstore = args->blockstore;
 
   if( args->status_cache_wksp ) {
-    void * status_cache_mem = fd_spad_alloc( spad,
+    void * status_cache_mem = fd_spad_alloc_check( spad,
                                                    fd_txncache_align(),
                                                    fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                                               FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
@@ -1263,7 +1263,7 @@ replay( fd_ledger_args_t * args ) {
   /* Setup slot_ctx */
   fd_funk_t * funk = args->funk;
 
-  void * epoch_ctx_mem = fd_spad_alloc( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
+  void * epoch_ctx_mem = fd_spad_alloc_check( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
@@ -1281,18 +1281,18 @@ replay( fd_ledger_args_t * args ) {
   // activate them
   fd_memcpy( &args->epoch_ctx->runtime_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
-  void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  void * slot_ctx_mem        = fd_spad_alloc_check( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
   args->slot_ctx->epoch_ctx  = args->epoch_ctx;
   args->slot_ctx->funk       = funk;
   args->slot_ctx->blockstore = args->blockstore;
 
-  void * status_cache_mem = fd_spad_alloc( spad,
-                                           FD_TXNCACHE_ALIGN,
-                                           fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-                                                                 MAX_CACHE_TXNS_PER_SLOT,
-                                                                 FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS) );
+  void * status_cache_mem = fd_spad_alloc_check( spad,
+      FD_TXNCACHE_ALIGN,
+      fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                             FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                             MAX_CACHE_TXNS_PER_SLOT,
+                             FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS) );
   args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem,
                                                                     FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                                     FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,

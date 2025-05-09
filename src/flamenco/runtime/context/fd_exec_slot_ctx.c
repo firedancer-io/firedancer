@@ -25,7 +25,7 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *)mem;
   fd_slot_bank_new( &self->slot_bank );
 
-  uchar * sysvar_cache_mem = fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() );
+  uchar * sysvar_cache_mem = fd_spad_alloc_check( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() );
   if( FD_UNLIKELY( !sysvar_cache_mem ) ) {
     FD_LOG_WARNING(( "failed to allocate sysvar cache" ));
   }
@@ -294,7 +294,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   slot_bank->block_hash_queue.ages_root       = NULL;
 
   /* FIXME: Avoid using magic number for allocations */
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( 400 ) );
+  uchar * pool_mem = fd_spad_alloc_check( runtime_spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( 400 ) );
   slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, 400 ) );
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {
     fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
@@ -305,7 +305,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
   /* FIXME: Remove the magic number here. */
   if( !slot_ctx->slot_bank.timestamp_votes.votes_pool ) {
-    pool_mem = fd_spad_alloc( runtime_spad, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint( 15000UL ) );
+    pool_mem = fd_spad_alloc_check( runtime_spad, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint( 15000UL ) );
     slot_ctx->slot_bank.timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new( pool_mem, 15000UL ) );
   }
   recover_clock( slot_ctx, runtime_spad );
@@ -412,7 +412,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
     }
 
     /* Move current EpochStakes */
-    pool_mem = fd_spad_alloc( runtime_spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( 100000 ) );
+    pool_mem = fd_spad_alloc_check( runtime_spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( 100000 ) );
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool =
       fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( pool_mem, 100000 ) ); /* FIXME: Remove magic constant */
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
@@ -498,10 +498,10 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
       num_entries += slot_delta->slot_delta_vec[j].value.statuses_len;
     }
   }
-  fd_txncache_insert_t * insert_vals = fd_spad_alloc( runtime_spad, alignof(fd_txncache_insert_t), num_entries * sizeof(fd_txncache_insert_t) );
+  fd_txncache_insert_t * insert_vals = fd_spad_alloc_check( runtime_spad, alignof(fd_txncache_insert_t), num_entries * sizeof(fd_txncache_insert_t) );
 
   /* Dumb sort for 300 slot entries to insert in order. */
-  fd_slot_delta_t ** deltas = fd_spad_alloc( runtime_spad, alignof(fd_slot_delta_t*), slot_deltas->slot_deltas_len * sizeof(fd_slot_delta_t*) );
+  fd_slot_delta_t ** deltas = fd_spad_alloc_check( runtime_spad, alignof(fd_slot_delta_t*), slot_deltas->slot_deltas_len * sizeof(fd_slot_delta_t*) );
 
   long curr = -1;
   for( ulong i = 0UL; i < slot_deltas->slot_deltas_len; i++ ) {
