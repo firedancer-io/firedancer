@@ -3,6 +3,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
+#include <math.h>
 
 /* A txn cache is a concurrent map for saving the result (status) of
    transactions that have executed.  In addition to supporting fast
@@ -280,6 +281,13 @@ fd_txncache_footprint( ulong max_rooted_slots,
                        ulong max_live_slots,
                        ulong max_txn_per_slot,
                        ulong max_constipated_slots );
+
+static inline ulong
+fd_txncache_max_constipated_slots_est( ulong stall_duration_secs ) {
+  double stall_slots_d = (double)stall_duration_secs * 0.4;
+  ulong  stall_slots   = (ulong)ceil( stall_slots_d );
+  return stall_slots;
+}
 
 void *
 fd_txncache_new( void * shmem,

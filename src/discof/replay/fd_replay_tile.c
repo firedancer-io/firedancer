@@ -2975,11 +2975,8 @@ unprivileged_init( fd_topo_t *      topo,
     if (status_cache_mem == NULL) {
       FD_LOG_ERR(( "failed to allocate status cache" ));
     }
-    ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                                           FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT,
-                                                           FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+    ctx->status_cache = fd_txncache_join( status_cache_mem );
     if (ctx->status_cache == NULL) {
-      fd_wksp_free_laddr( status_cache_mem );
       FD_LOG_ERR(( "failed to join + new status cache" ));
     }
   }
