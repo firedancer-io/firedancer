@@ -1125,8 +1125,6 @@ ingest( fd_ledger_args_t * args ) {
                           args->verify_acc_hash,
                           args->check_acc_hash ,
                           FD_SNAPSHOT_TYPE_FULL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
                           args->runtime_spad );
     FD_LOG_NOTICE(( "imported records from snapshot" ));
   }
@@ -1140,8 +1138,6 @@ ingest( fd_ledger_args_t * args ) {
                           args->verify_acc_hash,
                           args->check_acc_hash,
                           FD_SNAPSHOT_TYPE_INCREMENTAL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
                           args->runtime_spad );
     FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
   }
@@ -1316,8 +1312,6 @@ replay( fd_ledger_args_t * args ) {
                           args->verify_acc_hash,
                           args->check_acc_hash,
                           FD_SNAPSHOT_TYPE_FULL,
-                          args->exec_spads,
-                          args->exec_spad_cnt,
                           args->runtime_spad );
     FD_LOG_NOTICE(( "imported from snapshot" ));
     if( args->incremental ) {
@@ -1330,8 +1324,6 @@ replay( fd_ledger_args_t * args ) {
                             args->verify_acc_hash,
                             args->check_acc_hash,
                             FD_SNAPSHOT_TYPE_INCREMENTAL,
-                            args->exec_spads,
-                            args->exec_spad_cnt,
                             args->runtime_spad );
       FD_LOG_NOTICE(( "imported from snapshot" ));
     }

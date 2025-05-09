@@ -62,8 +62,6 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 /* Main snapshot restore **********************************************/
 
 struct fd_snapshot_restore {
-  fd_funk_t *       funk;
-  fd_funk_txn_t *   funk_txn;
   fd_spad_t *       spad;
 
   ulong slot;  /* Slot number the snapshot was taken at */
@@ -108,6 +106,9 @@ struct fd_snapshot_restore {
 
   fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account;
   void *                                         cb_rent_fresh_account_ctx;
+
+  fd_snapshot_restore_cb_new_account_fn_t cb_new_account;
+  void *                                  cb_new_account_ctx;
 };
 
 /* STATE_{...} are the state IDs that control file processing in the

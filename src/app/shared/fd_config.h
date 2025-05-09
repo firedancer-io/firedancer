@@ -400,6 +400,10 @@ struct fd_config {
       char  archiver_path[ PATH_MAX ];
     } archiver;
 
+    struct {
+      char cold_store_dir[ PATH_MAX ];
+    } groove;
+
   } tiles;
 };
 

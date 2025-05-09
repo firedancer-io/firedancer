@@ -519,6 +519,11 @@ fd_funk_txn_update( fd_funk_t *                  funk,
     *_dst_rec_tail_idx = rec_idx;
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
+    /* If we are publishing into the root transaction, and the record is evictable, add it to the LRU. */
+    // if( dst_txn_idx == FD_FUNK_TXN_IDX_NULL && fd_funk_rec_is_evictable( rec ) ) {
+    //   fd_funk_rec_lru_push_tail( funk, rec );
+    // }
+
     rec_idx = next_rec_idx;
   }
 

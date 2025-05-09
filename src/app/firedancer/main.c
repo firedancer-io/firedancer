@@ -70,6 +70,7 @@ extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_storei;
 extern fd_topo_run_tile_t fd_tile_replay;
+extern fd_topo_run_tile_t fd_tile_groove;
 extern fd_topo_run_tile_t fd_tile_execor;
 extern fd_topo_run_tile_t fd_tile_writer;
 extern fd_topo_run_tile_t fd_tile_batch;
@@ -97,6 +98,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_repair,
   &fd_tile_storei,
   &fd_tile_replay,
+  &fd_tile_groove,
   &fd_tile_execor,
   &fd_tile_writer,
   &fd_tile_batch,
