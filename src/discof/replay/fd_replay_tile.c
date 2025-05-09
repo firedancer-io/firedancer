@@ -633,7 +633,9 @@ block_finalize_tiles_cb( void * para_arg_1,
   fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
   fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
-  ulong cnt_per_worker   = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL;
+  ulong cnt_per_worker;
+  if( ctx->exec_cnt>1 ) cnt_per_worker = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL; /* ??? */
+  else                  cnt_per_worker = task_data->info_sz;
   ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
 
   uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
