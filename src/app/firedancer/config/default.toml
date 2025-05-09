@@ -1096,7 +1096,7 @@ user = ""
         send_buffer_size_mb = 5120
 
     [tiles.restart]
-        in_wen_restart = false
+        enabled = false
 
     [tiles.archiver]
         enabled = false
