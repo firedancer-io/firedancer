@@ -1926,7 +1926,7 @@ read_snapshot( void *              _ctx,
     /* TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
-      uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+      uchar * tmp_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
 
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
@@ -2166,7 +2166,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                fd_stem_context_t *    stem ) {
   /* Init slot_ctx */
 
-  uchar * slot_ctx_mem        = fd_spad_alloc( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, ctx->runtime_spad ) );
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->blockstore   = ctx->blockstore;
@@ -3028,7 +3028,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* joins                                                              */
   /**********************************************************************/
 
-  uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
+  uchar * bank_hash_cmp_shmem = fd_spad_alloc_check( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
   ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
 
@@ -3286,7 +3286,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->runtime_public!=NULL );
 
-  uchar * deque_mem = fd_spad_alloc( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
+  uchar * deque_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
   ctx->exec_slice_deque = fd_exec_slice_join( fd_exec_slice_new( deque_mem ) );
   if( FD_UNLIKELY( !ctx->exec_slice_deque ) ) {
     FD_LOG_ERR(( "failed to join and create exec slice deque" ));

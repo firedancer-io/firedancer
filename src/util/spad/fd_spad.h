@@ -497,7 +497,8 @@ void * fd_spad_frame_lo_debug ( fd_spad_t       * spad                          
 void * fd_spad_frame_hi_debug ( fd_spad_t       * spad                          );
 void   fd_spad_push_debug     ( fd_spad_t       * spad                          );
 void   fd_spad_pop_debug      ( fd_spad_t       * spad                          );
-void * fd_spad_alloc_debug    ( fd_spad_t       * spad, ulong  align, ulong sz  );
+void * fd_spad_alloc_check    ( fd_spad_t       * spad, ulong  align, ulong sz  );
+#define fd_spad_alloc_debug fd_spad_alloc_check
 void   fd_spad_trim_debug     ( fd_spad_t       * spad, void * hi               );
 void * fd_spad_prepare_debug  ( fd_spad_t       * spad, ulong  align, ulong max );
 void   fd_spad_cancel_debug   ( fd_spad_t       * spad                          );
