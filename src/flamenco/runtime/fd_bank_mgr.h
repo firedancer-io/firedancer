@@ -135,6 +135,10 @@
 #define FD_BANK_MGR_CLOCK_TIMESTAMP_VOTES_FOOTPRINT (2000000UL)
 #define FD_BANK_MGR_CLOCK_TIMESTAMP_VOTES_ALIGN     (1024UL)
 
+#define FD_BANK_MGR_SIGNATURE_CNT_ID        (25)
+#define FD_BANK_MGR_SIGNATURE_CNT_FOOTPRINT (8UL)
+#define FD_BANK_MGR_SIGNATURE_CNT_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -196,6 +200,7 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(fd_hash_t,                         epoch_account_hash,          EPOCH_ACCOUNT_HASH)          \
   X(ulong,                             execution_fees,              EXECUTION_FEES)              \
   X(ulong,                             priority_fees,               PRIORITY_FEES)               \
-  X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       CLOCK_TIMESTAMP_VOTES)
+  X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       CLOCK_TIMESTAMP_VOTES)       \
+  X(ulong,                             signature_cnt,               SIGNATURE_CNT)
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

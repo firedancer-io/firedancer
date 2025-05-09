@@ -2549,7 +2549,10 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /**************************************************************************************************/
 
     fd_runtime_block_info_t runtime_block_info[1];
-    runtime_block_info->signature_cnt = fork->slot_ctx->signature_cnt;
+    fd_bank_mgr_t bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, fork->slot_ctx->funk_txn );
+    ulong * signature_cnt = fd_bank_mgr_signature_cnt_query( bank_mgr );
+    runtime_block_info->signature_cnt = *signature_cnt;
 
     ctx->block_finalizing = 0;
 
@@ -2675,8 +2678,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     ulong prev_slot = child->slot_ctx->slot;
     child->slot_ctx->slot                     = curr_slot;
 
-    fd_bank_mgr_t bank_mgr_obj = {0};
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
+    bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
     ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
     *execution_fees = 0UL;
     fd_bank_mgr_execution_fees_save( bank_mgr );

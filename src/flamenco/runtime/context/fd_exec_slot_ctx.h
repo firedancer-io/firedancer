@@ -36,7 +36,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       part_width;
 
   /* TODO remove this stuff */
-  ulong                       signature_cnt;
   fd_hash_t                   account_delta_hash;
   ulong                       parent_transaction_count;
   ulong                       txn_count;

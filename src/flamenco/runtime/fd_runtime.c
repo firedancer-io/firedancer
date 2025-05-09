@@ -1542,7 +1542,10 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   *priority_fees = 0UL;
   fd_bank_mgr_priority_fees_save( bank_mgr );
 
-  slot_ctx->signature_cnt                      = 0UL;
+  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+  *signature_cnt = 0UL;
+  fd_bank_mgr_signature_cnt_save( bank_mgr );
+
   slot_ctx->txn_count                          = 0UL;
   slot_ctx->nonvote_txn_count                  = 0UL;
   slot_ctx->failed_txn_count                   = 0UL;
@@ -1900,7 +1903,10 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   if( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns && slot_ctx->slot>=capture_ctx->solcap_start_slot ) {
     fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
   }
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
+
+  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+  *signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
+  fd_bank_mgr_signature_cnt_save( bank_mgr );
 
   // if( slot_ctx->status_cache ) {
   //   fd_txncache_insert_t status_insert = {0};
@@ -3515,7 +3521,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   *slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis_block->ticks_per_slot;
   fd_bank_mgr_slots_per_year_save( bank_mgr );
 
-  slot_ctx->signature_cnt = 0UL;
+  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+  *signature_cnt = 0UL;
+  fd_bank_mgr_signature_cnt_save( bank_mgr );
 
   /* Derive epoch stakes */
 
@@ -3739,7 +3747,10 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   *priority_fees = 0UL;
   fd_bank_mgr_priority_fees_save( bank_mgr );
 
-  slot_ctx->signature_cnt                      = 0UL;
+  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+  *signature_cnt = 0UL;
+  fd_bank_mgr_signature_cnt_save( bank_mgr );
+
   slot_ctx->txn_count                          = 0UL;
   slot_ctx->failed_txn_count                   = 0UL;
   slot_ctx->nonvote_failed_txn_count           = 0UL;
@@ -3773,7 +3784,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   int result = fd_update_hash_bank_tpool( slot_ctx,
                                           capture_ctx,
                                           &slot_ctx->slot_bank.banks_hash,
-                                          slot_ctx->signature_cnt,
+                                          0UL,
                                           NULL,
                                           runtime_spad );
   if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {

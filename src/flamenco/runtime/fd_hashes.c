@@ -248,8 +248,10 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
+  ulong * signature_cnt_bm     = fd_bank_mgr_signature_cnt_query( bank_mgr );
+  ulong   signature_cnt        = !!signature_cnt_bm ? *signature_cnt_bm : 0UL;
   ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_modify( bank_mgr );
-  *parent_signature_cnt = slot_ctx->signature_cnt;
+  *parent_signature_cnt        = signature_cnt;
   fd_bank_mgr_parent_signature_cnt_save( bank_mgr );
 
   ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
@@ -274,7 +276,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) )
     fd_sha256_append( &sha, (uchar const *) &slot_ctx->account_delta_hash, sizeof( fd_hash_t  ) );
-  fd_sha256_append( &sha, (uchar const *) &slot_ctx->signature_cnt, sizeof( ulong ) );
+  fd_sha256_append( &sha, (uchar const *) &signature_cnt, sizeof( ulong ) );
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.poh, sizeof( fd_hash_t ) );
 
   fd_sha256_fini( &sha, hash->hash );
@@ -309,7 +311,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
         FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ? NULL : slot_ctx->account_delta_hash.hash,
         lthash,
         &slot_ctx->slot_bank.poh.hash,
-        slot_ctx->signature_cnt );
+        signature_cnt );
   }
 
   if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ) {
@@ -324,7 +326,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
                     FD_BASE58_ENC_32_ALLOCA( hash->hash ),
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
                     FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
-                    slot_ctx->signature_cnt,
+                    signature_cnt,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
   } else {
     FD_LOG_NOTICE(( "\n\n[Replay]\n"
@@ -340,7 +342,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->account_delta_hash.hash ),
                     FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
-                    slot_ctx->signature_cnt,
+                    signature_cnt,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
   }
 }
@@ -613,7 +615,12 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
 
     /* Sort and hash "dirty keys" to the accounts delta hash. */
 
-    slot_ctx->signature_cnt = signature_cnt;
+    fd_bank_mgr_t bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+    ulong * signature_cnt_bm = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+    *signature_cnt_bm = signature_cnt;
+    fd_bank_mgr_signature_cnt_save( bank_mgr );
+
     fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
 
     for( ulong i = 0; i < task_data->info_sz; i++ ) {
