@@ -28,5 +28,6 @@ struct __attribute__((aligned(64UL))) fd_replay_notif_msg {
 typedef struct fd_replay_notif_msg fd_replay_notif_msg_t;
 
 #define FD_REPLAY_NOTIF_MTU sizeof(fd_replay_notif_msg_t)
+#define FD_REPLAY_NOTIF_DEPTH 1024
 
 #endif /* HEADER_fd_src_discof_geyser_fd_replay_notif_h */

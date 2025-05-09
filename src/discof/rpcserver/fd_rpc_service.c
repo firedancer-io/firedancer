@@ -32,7 +32,7 @@
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 
-#define MAX_RECENT_BLOCKHASHES 1024
+#define MAX_RECENT_BLOCKHASHES (1U<<16)
 
 static const uint PATH_COMMITMENT[4] = { ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_PARAMS,
                                          ( JSON_TOKEN_LBRACKET << 16 ) | 1,
@@ -2326,15 +2326,16 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
   FD_SCRATCH_SCOPE_BEGIN {
     ulong val_sz;
     fd_funk_rec_key_t recid = fd_funk_acc_key(&sub->acct_subscribe.acct);
-    const void * val = read_account_with_xid(ctx, &recid, &msg->accts.funk_xid, &val_sz);
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = xid.ul[1] = msg->slot_exec.slot;
+    const void * val = read_account_with_xid(ctx, &recid, &xid, &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"subscription\":%lu}" CRLF,
-                           msg->accts.funk_xid.ul[0], sub->subsc_id);
-      return 1;
+      /* Account not in tranaction */
+      return 0;
     }
 
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
-                         msg->accts.funk_xid.ul[0]);
+                         msg->slot_exec.slot);
     const char * err = fd_account_to_json( ws, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len );
     if( err ) {
       FD_LOG_WARNING(( "error converting account to json: %s", err ));
@@ -2508,8 +2509,7 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
   gctx->funk = args->funk;
   memcpy( gctx->blockstore, args->blockstore, sizeof(fd_blockstore_t) );
   gctx->blockstore_fd = args->blockstore_fd;
-
-  msg->first_slot = msg->last_slot = ULONG_MAX;
+  gctx->first_slot = gctx->last_slot = ULONG_MAX;
 }
 
 void
@@ -2548,27 +2548,6 @@ fd_webserver_ws_closed(ulong conn_id, void * cb_arg) {
     if( subs->sub_list[i].conn_id == conn_id ) {
       subs->sub_list[i] = subs->sub_list[--(subs->sub_cnt)];
       --i;
-    }
-  }
-}
-
-static void
-fd_rpc_acct_map_purge( fd_rpc_global_ctx_t * glob ) {
-  fd_rpc_acct_map_private_t * map = fd_rpc_acct_map_private( glob->acct_map );
-  fd_rpc_acct_map_elem_t * pool = glob->acct_pool;
-  ulong thresh = glob->acct_age - FD_RPC_ACCT_MAP_POOL_SIZE/3U;
-  ulong * chain = fd_rpc_acct_map_private_chain( map );
-  for( ulong i = 0; i < map->chain_cnt; ++i ) {
-    ulong * idx_ptr = &chain[i];
-    ulong idx;
-    while( !fd_rpc_acct_map_private_idx_is_null( idx = *idx_ptr ) ) {
-      fd_rpc_acct_map_elem_t * ele = pool + idx;
-      if( ele->age < thresh ) {
-        *idx_ptr = ele->next;
-        fd_rpc_acct_map_pool_ele_release( pool, ele );
-      } else {
-        idx_ptr = &ele->next;
-      }
     }
   }
 }
@@ -2631,32 +2610,9 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
         if( ws_method_slotSubscribe_update( ctx, msg, sub ) )
           fd_web_ws_send( &subs->ws, sub->conn_id );
       }
-    }
-
-  } else if( msg->type == FD_REPLAY_ACCTS_TYPE ) {
-    /* TODO: replace with a hash table lookup? */
-    for( uint i = 0; i < msg->accts.accts_cnt; ++i ) {
-      fd_pubkey_t id;
-      memcpy( &id, &msg->accts.accts[i].id, sizeof(id) );
-      if( FD_UNLIKELY( fd_rpc_acct_map_pool_free( subs->acct_pool ) == 0 ) ) {
-        fd_rpc_acct_map_purge( subs );
-      }
-      fd_rpc_acct_map_elem_t * ele = fd_rpc_acct_map_pool_ele_acquire( subs->acct_pool );
-      fd_memcpy( &ele->key, &id, sizeof( ele->key ) );
-      ele->slot = msg->accts.funk_xid.ul[0];
-      ele->age = subs->acct_age++;
-      fd_memcpy( ele->sig, msg->accts.sig, sizeof( ele->sig ) );
-      fd_rpc_acct_map_ele_insert( subs->acct_map, ele, subs->acct_pool );
-
-      if( ( msg->accts.accts[i].flags & FD_REPLAY_NOTIF_ACCT_WRITTEN ) ) {
-        for( ulong j = 0; j < subs->sub_cnt; ++j ) {
-          struct fd_ws_subscription * sub = &subs->sub_list[ j ];
-          if( sub->meth_id == KEYW_WS_METHOD_ACCOUNTSUBSCRIBE &&
-              !memcmp( &id, &sub->acct_subscribe.acct, sizeof(fd_pubkey_t) ) ) {
-            if( ws_method_accountSubscribe_update( ctx, msg, sub ) )
-              fd_web_ws_send( &subs->ws, sub->conn_id );
-          }
-        }
+      if( sub->meth_id == KEYW_WS_METHOD_ACCOUNTSUBSCRIBE ) {
+        if( ws_method_accountSubscribe_update( ctx, msg, sub ) )
+          fd_web_ws_send( &subs->ws, sub->conn_id );
       }
     }
   }
