@@ -69,84 +69,25 @@ fd_bank_mgr_##name##_query( fd_bank_mgr_t * bank_mgr ) {                        
                                                                                                    \
 type *                                                                                             \
 fd_bank_mgr_##name##_modify( fd_bank_mgr_t * bank_mgr ) {                                          \
-  fd_funk_rec_query_t   query = {0};                                                               \
   fd_funk_rec_key_t     key   = fd_bank_mgr_cache_key( FD_BANK_MGR_##uppername##_ID );             \
-  fd_funk_rec_t const * rec   = fd_funk_rec_query_try( bank_mgr->funk,                             \
-                                                       bank_mgr->funk_txn,                         \
-                                                       &key,                                       \
-                                                       &query );                                   \
-  fd_funk_rec_t * mod_rec = NULL;                                                                  \
-  if( !!rec ) {                                                                                    \
-    /* If rec exists in the current funk txn, modify the current rec */                            \
-    memset( &bank_mgr->query, 0, sizeof(fd_funk_rec_query_t) );                                    \
-    mod_rec = fd_funk_rec_modify_try( bank_mgr->funk,                                          \
-                                          bank_mgr->funk_txn,                                      \
-                                          &key,                                                    \
-                                          &bank_mgr->query );                                      \
-    bank_mgr->is_modify = 1;                                                                       \
-    return (type *)fd_ulong_align_up( (ulong)fd_funk_val( rec, fd_funk_wksp( bank_mgr->funk ) ),   \
-                                      FD_BANK_MGR_##uppername##_ALIGN );                           \
+  fd_funk_rec_try_clone_safe( bank_mgr->funk,                                                      \
+                              bank_mgr->funk_txn,                                                  \
+                              &key,                                                                \
+                              FD_BANK_MGR_##uppername##_FOOTPRINT,                                 \
+                              FD_BANK_MGR_##uppername##_ALIGN );                                   \
+  fd_funk_rec_t * mod_rec = fd_funk_rec_modify_try( bank_mgr->funk,                                \
+                                                    bank_mgr->funk_txn,                            \
+                                                    &key,                                          \
+                                                    &bank_mgr->query );                            \
+  if( FD_UNLIKELY( !mod_rec ) ) {                                                                  \
+    FD_LOG_CRIT(( "Failed to modify bank manager record" ));                                       \
   }                                                                                                \
-  /* Case where the record does not exist in the current funk txn */                               \
-  bank_mgr->is_new = 1;                                                                            \
-  for( ;; ) {                                                                                      \
-    fd_funk_rec_query_t glob_query = {0};                                                          \
-    rec = fd_funk_rec_query_try_global( bank_mgr->funk,                                            \
-                                        bank_mgr->funk_txn,                                        \
-                                        &key,                                                      \
-                                        NULL,                                                      \
-                                        &glob_query );                                             \
-    if( FD_UNLIKELY( !rec ) ) {                                                                    \
-      break;                                                                                       \
-    }                                                                                              \
-    if( FD_LIKELY( fd_funk_rec_query_test( &glob_query )==FD_FUNK_SUCCESS ) ) {                    \
-      break;                                                                                       \
-    }                                                                                              \
-  }                                                                                                \
-  /* Prepare a new record to be inserted into the funk txn */                                      \
-  mod_rec = fd_funk_rec_prepare( bank_mgr->funk,                                                   \
-                                 bank_mgr->funk_txn,                                               \
-                                 &key,                                                             \
-                                 &bank_mgr->prepare,                                               \
-                                 NULL );                                                           \
-  int     err      = 0;                                                                            \
-  uchar * new_data = fd_funk_val_truncate( mod_rec,                                                \
-                                           FD_BANK_MGR_##uppername##_FOOTPRINT,                    \
-                                           fd_funk_alloc( bank_mgr->funk ),                        \
-                                           fd_funk_wksp( bank_mgr->funk ),                         \
-                                           fd_funk_val_min_align(),                                \
-                                           &err );                                                 \
-  if( FD_UNLIKELY( err ) ) {                                                                       \
-    FD_LOG_ERR(( "Could not truncate new data" ));                                                 \
-  }                                                                                                \
-  uchar * new_data_start = (uchar *)fd_ulong_align_up( (ulong)new_data,                            \
-                                                       FD_BANK_MGR_##uppername##_ALIGN );          \
-  if( FD_LIKELY( rec ) ) {                                                                         \
-    /* Copy over most recent data into the newly created funk rec */                               \
-    uchar * old_data       = fd_funk_val( rec, fd_funk_wksp( bank_mgr->funk ) );                   \
-    uchar * old_data_start = (uchar *)fd_ulong_align_up( (ulong)old_data,                          \
-                                                         FD_BANK_MGR_##uppername##_ALIGN );        \
-    fd_memcpy( new_data_start,                                                                     \
-               old_data_start,                                                                     \
-               FD_BANK_MGR_##uppername##_FOOTPRINT - ((ulong)new_data_start - (ulong)new_data) );  \
-  }                                                                                                \
-  return (type *)new_data_start;                                                                   \
+  return fd_funk_val( mod_rec, fd_funk_wksp( bank_mgr->funk ) );                                   \
 }                                                                                                  \
 int                                                                                                \
 fd_bank_mgr_##name##_save( fd_bank_mgr_t * bank_mgr ) {                                            \
-  if( FD_UNLIKELY( (bank_mgr->is_modify && bank_mgr->is_new) ||                                    \
-                   (!bank_mgr->is_modify && !bank_mgr->is_new) ) ) {                               \
-    FD_LOG_ERR(( "Bank manager is_modify and is_new are both %d", bank_mgr->is_modify ));          \
-  }                                                                                                \
-  if( bank_mgr->is_new ) {                                                                         \
-    fd_funk_rec_publish( bank_mgr->funk, &bank_mgr->prepare );                                     \
-    bank_mgr->is_new = 0;                                                                          \
-    fd_memset( &bank_mgr->prepare, 0, sizeof(fd_funk_rec_prepare_t) );                             \
-  } else {                                                                                         \
-    fd_funk_rec_modify_publish( &bank_mgr->query );                                                \
-    bank_mgr->is_modify = 0;                                                                       \
-    fd_memset( &bank_mgr->query, 0, sizeof(fd_funk_rec_query_t) );                                 \
-  }                                                                                                \
+  fd_funk_rec_modify_publish( &bank_mgr->query );                                                  \
+  fd_memset( &bank_mgr->query, 0, sizeof(fd_funk_rec_query_t) );                                   \
   return 0;                                                                                        \
 }
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTION_IMPL)
