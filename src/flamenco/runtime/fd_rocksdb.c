@@ -32,7 +32,6 @@ fd_rocksdb_init( fd_rocksdb_t * db,
   db->cfgs[ FD_ROCKSDB_CFIDX_BLOCKTIME                ] = "blocktime";
   db->cfgs[ FD_ROCKSDB_CFIDX_PERF_SAMPLES             ] = "perf_samples";
   db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             ] = "block_height";
-  db->cfgs[ FD_ROCKSDB_CFIDX_PROGRAM_COSTS            ] = "program_costs";
   db->cfgs[ FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         ] = "optimistic_slots";
   db->cfgs[ FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         ] = "merkle_root_meta";
 
@@ -87,7 +86,6 @@ fd_rocksdb_new( fd_rocksdb_t * db,
   db->cfgs[ FD_ROCKSDB_CFIDX_BLOCKTIME                ] = "blocktime";
   db->cfgs[ FD_ROCKSDB_CFIDX_PERF_SAMPLES             ] = "perf_samples";
   db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             ] = "block_height";
-  db->cfgs[ FD_ROCKSDB_CFIDX_PROGRAM_COSTS            ] = "program_costs";
   db->cfgs[ FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         ] = "optimistic_slots";
   db->cfgs[ FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         ] = "merkle_root_meta";
 
@@ -403,7 +401,6 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
   FD_LOG_NOTICE(( "fd_rocksdb_copy_over_slot_indexed_range: %lu", cf_idx ));
 
   if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS  ||
-       cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS      ||
        cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ||
        cf_idx == FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES ) {
     FD_LOG_NOTICE(( "fd_rocksdb_copy_over_range: skipping cf_idx=%lu because not slot indexed", cf_idx ));

@@ -233,6 +233,7 @@ fd_rangeproofs_verify(
   uchar w[ 32 ];
   uchar c[ 32 ];
   fd_rangeproofs_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
+  /* c will be overwritten later: https://github.com/anza-xyz/agave/commit/fd63ecda7ae7d32fe4ee0f3c933af8f2d5759ea2 */
   fd_rangeproofs_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
   /* Inner Product (sub)Proof */
@@ -249,6 +250,12 @@ fd_rangeproofs_verify(
     fd_rangeproofs_transcript_challenge_scalar( &u[ i*32 ], transcript, FD_TRANSCRIPT_LITERAL("u") );
   }
   fd_curve25519_scalar_batch_inv( batchinv_out, allinv, batchinv_in, logn+1 );
+
+  fd_rangeproofs_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("ipp_a"), ipp_proof->a );
+  fd_rangeproofs_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("ipp_b"), ipp_proof->b );
+
+  /* c is overwritten: https://github.com/anza-xyz/agave/commit/fd63ecda7ae7d32fe4ee0f3c933af8f2d5759ea2 */
+  fd_rangeproofs_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("d") );
 
   /* Compute scalars */
 

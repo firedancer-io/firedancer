@@ -61,7 +61,7 @@ FD_PROTOTYPES_END
 #include "../../ballet/shred/fd_shred.h"
 #include <rocksdb/c.h>
 
-#define FD_ROCKSDB_CF_CNT (22UL)
+#define FD_ROCKSDB_CF_CNT (21UL)
 
 #define FD_ROCKSDB_CFIDX_DEFAULT                  (0UL)
 #define FD_ROCKSDB_CFIDX_META                     (1UL)
@@ -82,9 +82,8 @@ FD_PROTOTYPES_END
 #define FD_ROCKSDB_CFIDX_BLOCKTIME                (16UL)
 #define FD_ROCKSDB_CFIDX_PERF_SAMPLES             (17UL)
 #define FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             (18UL)
-#define FD_ROCKSDB_CFIDX_PROGRAM_COSTS            (19UL) /* Usually empty */
-#define FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         (20UL)
-#define FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         (21UL) /* Usually empty */
+#define FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         (19UL)
+#define FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         (20UL) /* Usually empty */
 
 /* Solana rocksdb client */
 struct fd_rocksdb {
