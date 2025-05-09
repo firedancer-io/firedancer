@@ -177,6 +177,8 @@ struct fd_repair_tile_ctx {
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
+
+  ulong * current_slot;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -920,6 +922,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
+    if( fd_fseq_query( ctx->current_slot ) == ULONG_MAX ) {
+      fd_fseq_update( ctx->current_slot, shred->slot );
+    }
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) return; /* shred too old */
 
     // FD_LOG_NOTICE(( "shred %lu %u", shred->slot, shred->idx ));
@@ -1438,6 +1443,13 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_repair_update_addr( ctx->repair, &ctx->repair_intake_addr, &ctx->repair_serve_addr );
+
+  /* TODO: this is a hack so replay generates votes.
+     Once we develop a better notion of 'caught up',
+     remove all uses of current_slot in this file */
+  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
+  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
+  ctx->current_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_start( ctx->repair );
