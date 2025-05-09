@@ -136,6 +136,55 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==
 
 /* Accessors */
 
+/* fd_funk_rec_modify_try attempts to modify the record corresponding
+   to the given key in the given transaction. If the record does not
+   exist, NULL will be returned. If the txn is NULL, the query will be
+   done against funk's last published transaction (the root). On
+   success, a mutable pointer to the funk record is returned.
+
+   Assumes funk is a current local join (NULL returns NULL), txn is NULL
+   or points to an in-preparation transaction in the caller's address
+   space, key points to a record key in the caller's address space (NULL
+   returns NULL). It is SAFE to do concurrent operations on funk with
+   fd_funk_rec_modify_try.
+
+   If there is contention for this record (or any records that are
+   hashed to same chain as this record), the function will block the
+   caller until the contention is resolved.
+
+   A call to fd_funk_rec_modify_try must be followed by a call to
+   fd_funk_rec_modify_publish.
+
+   The query argument remembers the query for later validity testing.
+
+   Important safety tips:
+
+   1. This function can encounter records that have the ERASE flag set
+   (i.e. are tombstones of erased records). fd_funk_rec_query_try will
+   still return the record in this case, and the application should
+   check for the flag.
+
+   2. This function will not error if a caller attempts to modify a
+   record from a non-current transaction (i.e. any funk transaction
+   with a child). However, the caller should NEVER do this as it
+   violates funk's invariants. */
+
+fd_funk_rec_t *
+fd_funk_rec_modify_try( fd_funk_t *               funk,
+                        fd_funk_txn_t *           txn,
+                        fd_funk_rec_key_t const * key,
+                        fd_funk_rec_query_t *     query );
+
+/* fd_funk_rec_modify_publish commits any modifications to the record
+   done by fd_funk_rec_modify_try. All notes from fd_funk_rec_modify_try
+   apply. Calling fd_funk_rec_modify_publish is required and is
+   responsible for freeing the lock on the record (and the hash
+   chain). */
+
+void
+fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
+
+
 /* fd_funk_rec_query_try queries the in-preparation transaction pointed to
    by txn for the record whose key matches the key pointed to by key.
    If txn is NULL, the query will be done for the funk's last published
@@ -183,10 +232,10 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 
 int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
 
-/* fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but will
-   query txn's ancestors for key from youngest to oldest if key is not
-   part of txn.  As such, the txn of the returned record may not match
-   txn but will be the txn of most recent ancestor with the key
+/* fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but
+   will query txn's ancestors for key from youngest to oldest if key is
+   not part of txn.  As such, the txn of the returned record may not
+   match txn but will be the txn of most recent ancestor with the key
    otherwise. *txn_out is set to the transaction where the record was
    found.
 
@@ -196,7 +245,11 @@ int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
    that have the ERASE flag set (i.e. are tombstones of erased
    records). fd_funk_rec_query_try_global will return a NULL in this case
    but still set *txn_out to the relevant transaction. This behavior
-   differs from fd_funk_rec_query_try. */
+   differs from fd_funk_rec_query_try.
+
+   TODO: This function should be renamed to fd_funk_rec_query_try
+   and fd_funk_rec_query_try should be renamed to
+   fd_funk_rec_query_try_strict. */
 fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_t const *     txn,
@@ -258,7 +311,10 @@ fd_funk_rec_cancel( fd_funk_t *             funk,
 
 /* fd_funk_rec_clone copies a record from an ancestor transaction
    to create a new record in the given transaction. The record can be
-   modified afterward and must then be published. */
+   modified afterward and must then be published.
+
+   NOTE: fd_funk_rec_clone is NOT thread safe and should not be used
+   concurrently with other funk read/write operations. */
 
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,
@@ -266,6 +322,44 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
                    int *                     opt_err );
+
+/* fd_funk_rec_try_clone_safe is the thread-safe analog to
+   fd_funk_rec_clone. This function will try to atomically query and
+   copy the given funk record from the youngest ancestor transaction
+   of the given txn and copy it into a new record of the same key into
+   the current funk txn.
+
+   Detailed Behavior:
+
+   More specifically, first this function will query the transaction
+   stack to identify what the youngest transaction with the key is. If
+   a record is found in the current transaction then it will exit.
+   In the case where a record is found in some ancestor txn or if the
+   record doesn't exist, the function will then acquire a lock on the
+   keypair of the youngest ancestor account (if it exists) and the
+   keypair of the account we want to create. These two keys are
+   guaranteed to be on the same hash chain so in practice we will just
+   be locking the hash chain for the key.
+
+   Once this lock is acquired, we will query the keypair for the keypair
+   we are going to create to make sure that it wasn't added in the time
+   that we were attempting to acquire the lock. If a keypair is found,
+   we will free the lock and exit the function.
+
+   Otherwise, we will allocate the account and copy over the data from
+   the ancestor record. Now we will add this into the record map. At
+   this point, we can now free the lock on the hash chain.
+
+   The caller can specify the alignment and min_sz they would like for
+   the value of the record. */
+
+void
+fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
+                            fd_funk_txn_t *           txn,
+                            fd_funk_rec_key_t const * key,
+                            ulong                     min_sz,
+                            ulong                     align );
+
 
 /* fd_funk_rec_remove removes the live record with the
    given (xid,key) from funk. Returns FD_FUNK_SUCCESS (0) on

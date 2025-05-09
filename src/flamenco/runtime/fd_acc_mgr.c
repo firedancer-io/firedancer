@@ -93,7 +93,12 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
   ulong sz = sizeof(fd_account_meta_t)+min_data_sz;
   void * val;
   if( fd_funk_val_sz( rec ) < sz )
-    val = fd_funk_val_truncate( rec, sz, fd_funk_alloc( funk ), wksp, &funk_err );
+    val = fd_funk_val_truncate( rec,
+                                sz,
+                                fd_funk_alloc( funk ),
+                                wksp,
+                                fd_funk_val_min_align(),
+                                &funk_err );
   else
     val = fd_funk_val( rec, wksp );
 

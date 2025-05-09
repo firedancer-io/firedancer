@@ -335,7 +335,12 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     }
 
     ulong sz    = sizeof(uint) + fd_slot_bank_size( slot_bank );
-    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk ), fd_funk_wksp( ctx->funk ), &opt_err );
+    uchar * buf = fd_funk_val_truncate( new_rec,
+                                        sz,
+                                        fd_funk_alloc( ctx->funk ),
+                                        fd_funk_wksp( ctx->funk ),
+                                        fd_funk_val_min_align(),
+                                        &opt_err );
     *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
     fd_bincode_encode_ctx_t slot_bank_encode_ctx = {
       .data    = buf + sizeof(uint),

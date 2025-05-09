@@ -300,7 +300,12 @@ fd_txn_account_save( fd_txn_account_t * acct,
   acct->private_state.rec = rec;
   ulong reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk ), wksp, &err ) == NULL ) {
+  if( FD_UNLIKELY( fd_funk_val_truncate( rec,
+                                         reclen,
+                                         fd_funk_alloc( funk ),
+                                         wksp,
+                                         fd_funk_val_min_align(),
+                                         &err ) == NULL ) ) {
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
   err = fd_txn_account_save_internal( acct, funk );
