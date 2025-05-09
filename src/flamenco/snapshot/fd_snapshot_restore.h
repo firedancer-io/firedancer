@@ -150,6 +150,15 @@ fd_snapshot_restore_chunk( void *       restore,
 ulong
 fd_snapshot_restore_get_slot( fd_snapshot_restore_t * restore );
 
+/* fd_snapshot_enable_nt_copy enables non-temporal stores for account
+   data if the target has AVX2 or AVX512.  This should only be enabled
+   if multiple gigabytes worth of account data are going to be restored
+   without reads to that same data until after the restore operation
+   completes. */
+
+void
+fd_snapshot_enable_nt_copy( fd_snapshot_restore_t * restore );
+
 extern fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt;
 
 FD_PROTOTYPES_END

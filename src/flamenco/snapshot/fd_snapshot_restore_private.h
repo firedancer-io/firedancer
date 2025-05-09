@@ -70,8 +70,9 @@ struct fd_snapshot_restore {
 
   uchar state;
   uchar manifest_done;
+  uchar use_nt_copy       : 1;
   uchar status_cache_done : 1;
-  uchar failed        : 1;
+  uchar failed            : 1;
 
   /* Buffer params.  This buffer is used to gather file content into
      a contiguous byte array.  Currently in use for the manifest and the
