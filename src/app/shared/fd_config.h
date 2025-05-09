@@ -397,7 +397,7 @@ struct fd_config {
     } batch;
 
     struct {
-      int   in_wen_restart;
+      int   enabled;
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } restart;
