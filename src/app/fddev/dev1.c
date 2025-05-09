@@ -13,7 +13,7 @@
 extern fd_topo_run_tile_t * TILES[];
 
 void
-update_config_for_dev( config_t * config );
+update_config_for_dev( fd_config_t * config );
 
 int
 agave_main( void * args );
@@ -118,9 +118,10 @@ dev1_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_dev1 = {
-  .name        = "dev1",
-  .args        = dev1_cmd_args,
-  .fn          = dev1_cmd_fn,
-  .perm        = dev_cmd_perm,
-  .description = "Start up a single tile"
+  .name             = "dev1",
+  .args             = dev1_cmd_args,
+  .fn               = dev1_cmd_fn,
+  .perm             = dev_cmd_perm,
+  .is_local_cluster = 1,
+  .description      = "Start up a single tile"
 };

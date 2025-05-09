@@ -3,7 +3,7 @@
 #error "Include fd_features.h instead of this file."
 #endif
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (233UL)
+#define FD_FEATURE_ID_CNT (234UL)
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
   struct {
@@ -173,7 +173,7 @@ union fd_features {
     /* 0x3cbf822ccb2eebd4 */ ulong enable_poseidon_syscall;
     /* 0xe9d32123513c4d0d */ ulong timely_vote_credits;
     /* 0x64205286d7935342 */ ulong remaining_compute_units_syscall_enabled;
-    /* 0xcd1f03efb7c2f96a */ ulong enable_loader_v4;
+    /* 0x7cc7d1c81116eae0 */ ulong enable_loader_v4;
     /* 0x4b241cb4c6f3b3b2 */ ulong require_rent_exempt_split_destination;
     /* 0x21746beaa849f9d9 */ ulong better_error_codes_for_tx_lamport_check;
     /* 0x9bb55b5df1c396c5 */ ulong enable_alt_bn128_compression_syscall;
@@ -240,5 +240,6 @@ union fd_features {
     /* 0xa841eda250bdcc9c */ ulong verify_retransmitter_signature;
     /* 0x0272a3278356fa9c */ ulong enable_turbine_extended_fanout_experiments;
     /* 0x494f963ae12b5106 */ ulong vote_only_retransmitter_signed_fec_sets;
+    /* 0x210aba8db8103506 */ ulong mask_out_rent_epoch_in_vm_serialization;
   };
 };

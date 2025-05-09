@@ -75,7 +75,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                           total_epoch_stake;
   fd_bank_hash_cmp_t *            bank_hash_cmp;
   fd_funk_txn_t *                 funk_txn;
-  fd_funk_t *                     funk;
+  fd_funk_t                       funk[1];
   fd_wksp_t *                     runtime_pub_wksp;
   ulong                           slot;
   fd_fee_rate_governor_t          fee_rate_governor;
@@ -228,15 +228,6 @@ void
 fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * ctx,
                        fd_txn_t const * txn_descriptor,
                        fd_rawtxn_b_t const * txn_raw );
-
-void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        ctx,
-                                    fd_wksp_t const *          funk_wksp,
-                                    fd_wksp_t const *          runtime_pub_wksp,
-                                    ulong                      funk_txn_gaddr,
-                                    ulong                      sysvar_cache_gaddr,
-                                    ulong                      funk_gaddr );
 
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );

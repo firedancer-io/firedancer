@@ -6,7 +6,7 @@ FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 64UL, unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_REC_FLAG_ERASE==1UL, unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_REC_IDX_NULL==ULONG_MAX, unit_test );
+FD_STATIC_ASSERT( FD_FUNK_REC_IDX_NULL==UINT_MAX, unit_test );
 
 #include "test_funk_common.h"
 
@@ -22,7 +22,7 @@ main( int     argc,
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,          1234UL );
   ulong        seed     = fd_env_strip_cmdline_ulong( &argc, &argv, "--seed",      NULL,          5678UL );
   ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,            32UL );
-  ulong        rec_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rec-max",   NULL,           128UL );
+  uint         rec_max  = fd_env_strip_cmdline_uint(  &argc, &argv, "--rec-max",   NULL,             128 );
   ulong        iter_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-max",  NULL,       1048576UL );
   int          verbose  = fd_env_strip_cmdline_int  ( &argc, &argv, "--verbose",   NULL,               0 );
 
@@ -40,15 +40,18 @@ main( int     argc,
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %lu --iter-max %lu --verbose %i",
+  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %u --iter-max %lu --verbose %i",
                   wksp_tag, seed, txn_max, rec_max, iter_max, verbose ));
 
-  fd_funk_t * tst = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), wksp_tag ),
-                                               wksp_tag, seed, txn_max, rec_max ) );
+  void * shfunk = fd_funk_new( fd_wksp_alloc_laddr(
+      wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), wksp_tag ),
+      wksp_tag, seed, txn_max, rec_max );
+  fd_funk_t tst_[1];
+  fd_funk_t * tst = fd_funk_join( tst_, shfunk );
   if( FD_UNLIKELY( !tst ) ) FD_LOG_ERR(( "Unable to create tst" ));
 
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( tst, wksp );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( tst, wksp );
+  fd_funk_txn_map_t *  txn_map  = fd_funk_txn_map( tst );
+  fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( tst );
 
   funk_t * ref = funk_new();
 
@@ -145,13 +148,13 @@ main( int     argc,
     txn_t * rtxn = ref->txn_map_head;
     while( rtxn ) {
 
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), &txn_map );
+      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
       FD_TEST( ttxn && xid_eq( fd_funk_txn_xid( ttxn ), rtxn->xid ) );
 
-#     define TEST_RELATIVE(rel) do {                                    \
-        txn_t *         r##rel = rtxn->rel;                             \
-        fd_funk_txn_t * t##rel = fd_funk_txn_##rel( ttxn, &txn_pool ); \
-        if( !r##rel ) FD_TEST( !t##rel );                               \
+#     define TEST_RELATIVE(rel) do {                                  \
+        txn_t *         r##rel = rtxn->rel;                           \
+        fd_funk_txn_t * t##rel = fd_funk_txn_##rel( ttxn, txn_pool ); \
+        if( !r##rel ) FD_TEST( !t##rel );                             \
         else          FD_TEST( t##rel && xid_eq( fd_funk_txn_xid( t##rel ), r##rel->xid ) ); \
       } while(0)
       TEST_RELATIVE( parent       );
@@ -167,12 +170,12 @@ main( int     argc,
       FD_TEST( txn_is_only_child( rtxn )==fd_funk_txn_is_only_child( ttxn ) );
 
       txn_t *         rancestor = txn_ancestor( rtxn );
-      fd_funk_txn_t * tancestor = fd_funk_txn_ancestor( ttxn, &txn_pool );
+      fd_funk_txn_t * tancestor = fd_funk_txn_ancestor( ttxn, txn_pool );
       if( rancestor ) FD_TEST( tancestor && xid_eq( fd_funk_txn_xid( tancestor ), rancestor->xid ) );
       else            FD_TEST( !tancestor );
 
       txn_t *         rdescendant = txn_descendant( rtxn );
-      fd_funk_txn_t * tdescendant = fd_funk_txn_descendant( ttxn, &txn_pool );
+      fd_funk_txn_t * tdescendant = fd_funk_txn_descendant( ttxn, txn_pool );
       if( rdescendant ) FD_TEST( tdescendant && xid_eq( fd_funk_txn_xid( tdescendant ), rdescendant->xid ) );
       else              FD_TEST( !tdescendant );
 
@@ -259,7 +262,7 @@ main( int     argc,
       xid_set( txid, rxid );
       key_set( tkey, rkey );
 
-      fd_funk_txn_t const * ttxn = rxid ? fd_funk_txn_query( txid, &txn_map ) : NULL;
+      fd_funk_txn_t const * ttxn = rxid ? fd_funk_txn_query( txid, txn_map ) : NULL;
       fd_funk_rec_query_t rec_query[1];
       fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, ttxn, tkey, rec_query );
       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rxid ) && key_eq( fd_funk_rec_key( trec ), rkey ) );
@@ -310,12 +313,12 @@ main( int     argc,
       rec_insert( ref, rtxn, rkey );
 
       int err;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rxid ), &txn_map );
+      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rxid ), txn_map );
       fd_funk_rec_prepare_t prepare[1];
       fd_funk_rec_t const * trec = fd_funk_rec_prepare( tst, ttxn, key_set( tkey, rkey ), prepare, &err );
       FD_TEST( trec );
       FD_TEST( !err );
-      fd_funk_rec_publish( prepare );
+      fd_funk_rec_publish( tst, prepare );
 
     } else if( op>=18UL ) { /* Remove and insert at same rate */
 
@@ -336,7 +339,7 @@ main( int     argc,
 
       rec_remove( ref, rrec );
 
-      fd_funk_txn_t * ttxn = rxid ? fd_funk_txn_query( xid_set( txid, rxid ), &txn_map ) : NULL;
+      fd_funk_txn_t * ttxn = rxid ? fd_funk_txn_query( xid_set( txid, rxid ), txn_map ) : NULL;
       fd_funk_rec_query_t query[1];
       fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, ttxn, key_set( tkey, rkey ), query );
       FD_TEST( trec );
@@ -356,7 +359,7 @@ main( int     argc,
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt+1UL );
       if( idx<ref->txn_cnt ) { /* Branch off in-prep */
         rparent = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rparent = rparent->map_next;
-        tparent = fd_funk_txn_query( xid_set( txid, rparent->xid ), &txn_map );
+        tparent = fd_funk_txn_query( xid_set( txid, rparent->xid ), txn_map );
       } else { /* Branch off last published */
         rparent = NULL;
         tparent = NULL;
@@ -373,7 +376,7 @@ main( int     argc,
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
 
       txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), &txn_map );
+      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
 
       ulong cnt = ref->txn_cnt; txn_cancel( ref, rtxn ); cnt -= ref->txn_cnt;
       FD_TEST( fd_funk_txn_cancel( tst, ttxn, verbose )==cnt );
@@ -384,7 +387,7 @@ main( int     argc,
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
       txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), &txn_map );
+      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
 
       ulong cnt = txn_publish( ref, rtxn, 0UL );
       FD_TEST( fd_funk_txn_publish( tst, ttxn, verbose )==cnt );
@@ -394,7 +397,8 @@ main( int     argc,
 
   funk_delete( ref );
 
-  fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( tst ) ) );
+  fd_funk_leave( tst, NULL );
+  fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
   if( name ) fd_wksp_detach( wksp );
   else       fd_wksp_delete_anonymous( wksp );
 

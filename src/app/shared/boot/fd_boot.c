@@ -2,6 +2,8 @@
 #include "fd_boot.h"
 
 #include "../fd_config.h"
+#include "../fd_action.h"
+#include "../fd_file_util.h"
 #include "../../../disco/topo/fd_topo.h"
 
 #include <errno.h>
@@ -73,11 +75,11 @@ void
 fd_main_init( int *        pargc,
               char ***     pargv,
               config_t   * config,
+              int          is_firedancer,
+              int          is_local_cluster,
               char const * log_path,
-              char const * default_config1,
-              ulong        default_config1_sz,
-              char const * default_config2,
-              ulong        default_config2_sz,
+              char const * default_config,
+              ulong        default_config_sz,
               void (* topo_init )( config_t * config ) ) {
   fd_log_enable_unclean_exit(); /* Don't call atexit handlers on FD_LOG_ERR */
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
@@ -94,9 +96,26 @@ fd_main_init( int *        pargc,
        they can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
-    fdctl_cfg_from_env( pargc, pargv, config, default_config1, default_config1_sz, default_config2, default_config2_sz );
+    const char * user_config_path = fd_env_strip_cmdline_cstr(
+      pargc,
+      pargv,
+      "--config",
+      "FIREDANCER_CONFIG_TOML",
+      NULL );
+
+    char * user_config = NULL;
+    ulong user_config_sz = 0UL;
+    if( FD_LIKELY( user_config_path ) ) {
+      user_config = fd_file_util_read_all( user_config_path, &user_config_sz );
+      if( FD_UNLIKELY( user_config==MAP_FAILED ) ) FD_LOG_ERR(( "failed to read user config file `%s` (%d-%s)", user_config_path, errno, fd_io_strerror( errno ) ));
+    }
+
+    int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
+    fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, user_config, user_config_sz, user_config_path, config );
     topo_init( config );
-    config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+
+    if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
     config->log.lock_fd = init_log_memfd();
     config->log.log_fd  = -1;
     thread = "main";
@@ -165,12 +184,11 @@ fd_main_init( int *        pargc,
 static config_t config;
 
 int
-fd_main( int     argc,
-         char ** _argv,
-         char const * default_config1,
-         ulong        default_config1_sz,
-         char const * default_config2,
-         ulong        default_config2_sz,
+fd_main( int          argc,
+         char **      _argv,
+         int          is_firedancer,
+         char const * default_config,
+         ulong        default_config_sz,
          void (* topo_init )( config_t * config ) ) {
   char ** argv = _argv;
   argc--; argv++;
@@ -194,7 +212,10 @@ fd_main( int     argc,
 
   action_t * action = NULL;
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
-    if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ) ) {
+    if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ||
+                     (!strcmp( argv[ 0 ], "--version" ) && !strcmp( "version", ACTIONS[ i ]->name )) ||
+                     (!strcmp( argv[ 0 ], "--help" ) && !strcmp( "help", ACTIONS[ i ]->name ))
+    ) ) {
       action = ACTIONS[ i ];
       if( FD_UNLIKELY( action->is_immediate ) ) {
         action->fn( NULL, NULL );
@@ -204,7 +225,8 @@ fd_main( int     argc,
     }
   }
 
-  fd_main_init( &argc, &argv, &config, NULL, default_config1, default_config1_sz, default_config2, default_config2_sz, topo_init );
+  int is_local_cluster = action ? action->is_local_cluster : 0;
+  fd_main_init( &argc, &argv, &config, is_firedancer, is_local_cluster, NULL, default_config, default_config_sz, topo_init );
 
   if( FD_UNLIKELY( !action ) ) {
     for( ulong i=0UL; ACTIONS[ i ]; i++ ) {

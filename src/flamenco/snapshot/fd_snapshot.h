@@ -7,6 +7,8 @@
 
 #include "fd_snapshot_base.h"
 #include "../runtime/fd_runtime_public.h"
+#include "../../funk/fd_funk_txn.h"
+#include "../../ballet/lthash/fd_lthash.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -65,7 +67,9 @@ fd_snapshot_load_ctx_footprint( void );
 
 fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                 mem,
-                      const char *            snapshot_file,
+                      const char *            snapshot_src,
+                      int                     snapshot_src_type,
+                      const char *            snapshot_dir,
                       fd_exec_slot_ctx_t *    slot_ctx,
                       uint                    verify_hash,
                       uint                    check_hash,
@@ -92,6 +96,8 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx );
 
 void
 fd_snapshot_load_all( const char *         source_cstr,
+                      int                  source_type,
+                      const char *         snapshot_dir,
                       fd_exec_slot_ctx_t * slot_ctx,
                       ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
@@ -107,6 +113,24 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );
 
 ulong
 fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx );
+
+/* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
+int
+fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
+                  fd_hash_t *             accounts_hash,
+                  uint                    check_hash,
+                  fd_spad_t *             runtime_spad,
+                  fd_exec_para_cb_ctx_t * exec_para_ctx,
+                  fd_lthash_value_t *     lt_hash );
+
+/* Generate an incremental hash of the entire account database, conditionally including in the epoch account hash. */
+int
+fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
+                      fd_hash_t *          accounts_hash,
+                      fd_funk_txn_t *      child_txn,
+                      uint                 check_hash,
+                      fd_spad_t *          spad,
+                      fd_lthash_value_t *  lt_hash );
 
 FD_PROTOTYPES_END
 

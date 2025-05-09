@@ -7,23 +7,22 @@
 FD_PROTOTYPES_BEGIN
 
 int
-fd_main( int     argc,
-         char ** _argv,
-         char const * default_config1,
-         ulong        default_config1_sz,
-         char const * default_config2,
-         ulong        default_config2_sz,
+fd_main( int          argc,
+         char **      _argv,
+         int          is_firedancer,
+         char const * default_config,
+         ulong        default_config_sz,
          void (* topo_init )( config_t * config ) );
 
 void
 fd_main_init( int *        pargc,
               char ***     pargv,
               config_t   * config,
+              int          is_firedancer,
+              int          is_local_cluster,
               char const * log_path,
-              char const * default_config1,
-              ulong        default_config1_sz,
-              char const * default_config2,
-              ulong        default_config2_sz,
+              char const * default_config,
+              ulong        default_config_sz,
               void (* topo_init )( config_t * config ) );
 
 FD_PROTOTYPES_END

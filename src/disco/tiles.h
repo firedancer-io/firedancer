@@ -107,10 +107,29 @@ struct fd_microblock_trailer {
      mixed into PoH. */
   uchar hash[ 32UL ];
 
-  /* If this is a microblock for the last transaction in a bundle,
-     (or always true, if not a bundle). Useful for monitoring tools to
-     determine when the bank is done executing. */
-  uchar is_last_in_bundle;
+   /* A sequentially increasing index of the first transaction in the
+     microblock, across all slots ever processed by pack.  This is used
+     by monitoring tools that maintain an ordered history of
+     transactions. */
+  ulong pack_txn_idx;
+
+  /* The tips included in the transaction, in lamports. 0 for non-bundle
+     transactions */
+  ulong tips;
+
+  /* If the duration of a microblock is the difference between the
+     publish timestamp of the microblock from pack and the publish
+     timestamp of the microblock from bank, then these represent the
+     elapsed time between the start of the microblock and the 3 state
+     transitions (ready->start loading, loading -> execute, execute ->
+     done) for the first transaction.
+
+     For example, if a microblock starts at t=10 and ends at t=20, and
+     txn_exec_end_pct is UCHAR_MAX / 2, then this transaction started
+     executing at roughly 10+(20-10)*(128/UCHAR_MAX)=15 */
+  uchar txn_start_pct;
+  uchar txn_load_end_pct;
+  uchar txn_end_pct;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
@@ -131,8 +150,14 @@ struct fd_microblock_bank_trailer {
      in the same order they are executed. */
   ulong microblock_idx;
 
+  /* A sequentially increasing index of the first transaction in the
+     microblock, across all slots ever processed by pack.  This is used
+     by monitoring tools that maintain an ordered history of
+     transactions. */
+  ulong pack_txn_idx;
+
   /* If the microblock is a bundle, with a set of potentially
-     conflciting transactions that should be executed in order, and
+     conflicting transactions that should be executed in order, and
      all either commit or fail atomically. */
   int is_bundle;
 };

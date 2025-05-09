@@ -11,14 +11,15 @@
 #define PAGESIZE (1UL<<12)  /* 4 KiB */
 
 fd_funk_t *
-fd_funk_open_file( const char * filename,
-                      ulong        wksp_tag,
-                      ulong        seed,
-                      ulong        txn_max,
-                      ulong        rec_max,
-                      ulong        total_sz,
-                      fd_funk_file_mode_t mode,
-                      fd_funk_close_file_args_t * close_args_out ) {
+fd_funk_open_file( void *       ljoin,
+                   const char * filename,
+                   ulong        wksp_tag,
+                   ulong        seed,
+                   ulong        txn_max,
+                   ulong        rec_max,
+                   ulong        total_sz,
+                   fd_funk_file_mode_t mode,
+                   fd_funk_close_file_args_t * close_args_out ) {
 
   /* See if we already have the file open */
 
@@ -34,14 +35,14 @@ fd_funk_open_file( const char * filename,
 
       fd_wksp_tag_query_info_t info2;
       if( FD_UNLIKELY( !fd_wksp_tag_query( wksp, &wksp_tag, 1, &info2, 1 ) ) ) {
-        FD_LOG_WARNING(( "%s does not contain a funky", filename ));
+        FD_LOG_WARNING(( "%s does not contain a funk database", filename ));
         return NULL;
       }
 
       void * funk_shmem = fd_wksp_laddr_fast( wksp, info2.gaddr_lo );
-      fd_funk_t * funk = fd_funk_join( funk_shmem );
+      fd_funk_t * funk = fd_funk_join( ljoin, funk_shmem );
       if( FD_UNLIKELY( funk == NULL ) ) {
-        FD_LOG_WARNING(( "failed to join a funky" ));
+        FD_LOG_WARNING(( "Failed to join funk database at %s:0x%lx", fd_wksp_name( wksp ), info2.gaddr_lo ));
         return NULL;
       }
 
@@ -226,7 +227,7 @@ fd_funk_open_file( const char * filename,
       return NULL;
     }
 
-    fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_shmem, wksp_tag, seed, txn_max, rec_max ) );
+    fd_funk_t * funk = fd_funk_join( ljoin, fd_funk_new( funk_shmem, wksp_tag, seed, txn_max, rec_max ) );
     if( FD_UNLIKELY( funk == NULL ) ) {
       FD_LOG_WARNING(( "failed to allocate a funky" ));
       munmap( shmem, total_sz );
@@ -271,7 +272,7 @@ fd_funk_open_file( const char * filename,
     }
 
     void * funk_shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-    fd_funk_t * funk = fd_funk_join( funk_shmem );
+    fd_funk_t * funk = fd_funk_join( ljoin, funk_shmem );
     if( FD_UNLIKELY( funk == NULL ) ) {
       FD_LOG_WARNING(( "failed to join a funky" ));
       munmap( shmem, total_sz );
@@ -297,10 +298,11 @@ fd_funk_open_file( const char * filename,
 }
 
 fd_funk_t *
-fd_funk_recover_checkpoint( const char * funk_filename,
-                               ulong        wksp_tag,
-                               const char * checkpt_filename,
-                               fd_funk_close_file_args_t * close_args_out ) {
+fd_funk_recover_checkpoint( void *       ljoin,
+                            const char * funk_filename,
+                            ulong        wksp_tag,
+                            const char * checkpt_filename,
+                            fd_funk_close_file_args_t * close_args_out ) {
   /* Make the funk workspace match the parameters used to create the
      checkpoint. */
 
@@ -421,7 +423,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
   }
 
   void * funk_shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-  fd_funk_t * funk = fd_funk_join( funk_shmem );
+  fd_funk_t * funk = fd_funk_join( ljoin, funk_shmem );
   if( FD_UNLIKELY( funk == NULL ) ) {
     FD_LOG_WARNING(( "failed to join a funky" ));
     munmap( shmem, total_sz );

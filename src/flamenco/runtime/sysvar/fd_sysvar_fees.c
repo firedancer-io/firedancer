@@ -9,55 +9,41 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
   ulong sz = fd_sysvar_fees_size( fees );
   uchar enc[sz];
   fd_memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
-  ctx.dataend = enc + sz;
-  if ( fd_sysvar_fees_encode( fees, &ctx ) )
-    FD_LOG_ERR(("fd_sysvar_fees_encode failed"));
+  fd_bincode_encode_ctx_t ctx = {
+    .data    = enc,
+    .dataend = enc + sz
+  };
+  if( fd_sysvar_fees_encode( fees, &ctx ) ) {
+    FD_LOG_ERR(( "fd_sysvar_fees_encode failed" ));
+  }
 
   fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_fees_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
 fd_sysvar_fees_t *
-fd_sysvar_fees_read( fd_sysvar_fees_t *        result,
-                     fd_sysvar_cache_t const * sysvar_cache,
-                     fd_funk_t *               funk,
-                     fd_funk_txn_t *           funk_txn ) {
-  fd_sysvar_fees_t const * ret = fd_sysvar_cache_fees( sysvar_cache );
-  if( FD_UNLIKELY( NULL != ret ) ) {
-    fd_memcpy(result, ret, sizeof(fd_sysvar_fees_t));
-    return result;
-  }
+fd_sysvar_fees_read( fd_funk_t *     funk,
+                     fd_funk_txn_t * funk_txn,
+                     fd_spad_t *     spad ) {
 
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_fees_id, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = acc->vt->get_data( acc ),
-    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_sysvar_fees_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    return NULL;
-  }
-
-  fd_sysvar_fees_decode( result, &decode );
-  return result;
+  return fd_bincode_decode_spad(
+      sysvar_fees, spad,
+      acc->vt->get_data( acc ),
+      acc->vt->get_data_len( acc ),
+      &err );
 }
 
 /*
 https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/program/src/fee_calculator.rs#L105-L165
 */
 void
-fd_sysvar_fees_new_derived(
-  fd_exec_slot_ctx_t * slot_ctx,
-  fd_fee_rate_governor_t base_fee_rate_governor,
-  ulong latest_singatures_per_slot
-) {
+fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
+                            fd_fee_rate_governor_t base_fee_rate_governor,
+                            ulong                  latest_singatures_per_slot ) {
   fd_fee_rate_governor_t me = {
     .target_signatures_per_slot = base_fee_rate_governor.target_signatures_per_slot,
     .target_lamports_per_signature = base_fee_rate_governor.target_lamports_per_signature,
@@ -107,21 +93,23 @@ fd_sysvar_fees_new_derived(
   }
 
   slot_ctx->slot_bank.lamports_per_signature = lamports_per_signature;
-  fd_memcpy(&slot_ctx->slot_bank.fee_rate_governor, &me, sizeof(fd_fee_rate_governor_t));
+  slot_ctx->slot_bank.fee_rate_governor      = me;
 }
 
 void
-fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ))
     return;
-  fd_sysvar_fees_t fees;
-  fd_sysvar_fees_read( &fees,
-                       slot_ctx->sysvar_cache,
-                       slot_ctx->funk,
-                       slot_ctx->funk_txn );
+
+  fd_sysvar_fees_t * fees = fd_sysvar_fees_read( slot_ctx->funk,
+                                                 slot_ctx->funk_txn,
+                                                 runtime_spad );
+  if( FD_UNLIKELY( fees == NULL ) ) {
+    FD_LOG_ERR(( "failed to read sysvar fees" ));
+  }
   /* todo: I need to the lamports_per_signature field */
-  fees.fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
-  write_fees( slot_ctx, &fees );
+  fees->fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
+  write_fees( slot_ctx, fees );
 }
 
 void fd_sysvar_fees_init( fd_exec_slot_ctx_t * slot_ctx ) {

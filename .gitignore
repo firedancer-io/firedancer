@@ -73,6 +73,7 @@ mainnet.sh
 localnet.sh
 sim.sh
 backtest.sh
+local.toml
 
 # Python
 venv

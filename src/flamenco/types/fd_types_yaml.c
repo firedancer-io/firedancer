@@ -62,24 +62,6 @@
    Finally, we support option types.  During walk, these are presented
    as a separate  */
 
-struct fd_flamenco_yaml {
-  void * file;   /* (FILE *) or platform equivalent */
-
-  int  stack [ FD_FLAMENCO_YAML_MAX_INDENT   ];
-  char indent[ FD_FLAMENCO_YAML_INDENT_BUFSZ ];
-};
-
-
-ulong
-fd_flamenco_yaml_align( void ) {
-  return alignof(fd_flamenco_yaml_t);
-}
-
-ulong
-fd_flamenco_yaml_footprint( void ) {
-  return sizeof(fd_flamenco_yaml_t);
-}
-
 fd_flamenco_yaml_t *
 fd_flamenco_yaml_new( void * mem ) {
 
@@ -135,7 +117,6 @@ fd_flamenco_yaml_walk( void *       _self,
                        int          type,
                        char const * type_name,
                        uint         level ) {
-
   (void)type_name;
 
   if( level>=FD_FLAMENCO_YAML_MAX_INDENT-1 ) {
@@ -352,10 +333,6 @@ fd_flamenco_yaml_walk( void *       _self,
   /* Remember that we processed an element in the current level */
   self->stack[ level ] |= 1;
 }
-
-
-// (gdb) call fd_vote_state_walk(fd_get_types_yaml(), self, fd_flamenco_yaml_walk, 0, 0U)
-// (gdb) call fd_flush_yaml_dump()
 
 static fd_flamenco_yaml_t * g_yaml = NULL;
 

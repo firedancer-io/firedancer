@@ -64,7 +64,7 @@ fd_loader_v4_get_state( fd_txn_account_t const * program,
    Sets `err` to an instruction error if any of the checks fail. Otherwise, returns a
    const pointer to the program account data, transmuted as a loader v4 state.
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L60-L88 */
-fd_loader_v4_state_t const *
+static fd_loader_v4_state_t const *
 check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
                        fd_borrowed_account_t const * program,
                        fd_pubkey_t const *           authority_address,
@@ -230,9 +230,9 @@ fd_loader_v4_program_instruction_copy( fd_exec_instr_ctx_t *                    
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L149-L162 */
   fd_pubkey_t const * source_owner = fd_borrowed_account_get_owner( &source_program );
   if( !memcmp( source_owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    source_offset += (uint)LOADER_V4_PROGRAM_DATA_OFFSET;
+    source_offset = fd_uint_sat_add( source_offset, (uint)LOADER_V4_PROGRAM_DATA_OFFSET );
   } else if( !memcmp( source_owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    source_offset += (uint)PROGRAMDATA_METADATA_SIZE;
+    source_offset = fd_uint_sat_add( source_offset, (uint)PROGRAMDATA_METADATA_SIZE );
   } else if( FD_UNLIKELY( memcmp( source_owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) &&
                           memcmp( source_owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Source is not a program" );
@@ -333,7 +333,7 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L221-L227 */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -451,7 +451,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   int err;
 
   /* These variables should exist outside of borrowed account scopes. */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L280 */
   fd_guarded_borrowed_account_t program;
@@ -627,7 +627,7 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L368 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
   if( FD_UNLIKELY( clock==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -858,25 +858,16 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Note the dataend is capped at a 1232 bytes offset to mirror the semantics of `limited_deserialize`.
          https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497 */
-      uchar const * data = instr_ctx->instr->data;
-      fd_bincode_decode_ctx_t decode_ctx = {
-        .data    = data,
-        .dataend = &data[ instr_ctx->instr->data_sz > FD_TXN_MTU ? FD_TXN_MTU : instr_ctx->instr->data_sz ]
-      };
 
-      ulong total_sz = 0UL;
-      if( FD_UNLIKELY( fd_loader_v4_program_instruction_decode_footprint( &decode_ctx, &total_sz ) ) ) {
+      fd_loader_v4_program_instruction_t * instruction = fd_bincode_decode_spad(
+          loader_v4_program_instruction,
+          instr_ctx->txn_ctx->spad,
+          instr_ctx->instr->data,
+          instr_ctx->instr->data_sz > FD_TXN_MTU ? FD_TXN_MTU : instr_ctx->instr->data_sz,
+          NULL );
+      if( FD_UNLIKELY( !instruction ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
-
-      uchar * mem = fd_spad_alloc( instr_ctx->txn_ctx->spad,
-                                   fd_loader_v4_program_instruction_align(),
-                                   total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for loader v4 instruction" ));
-      }
-
-      fd_loader_v4_program_instruction_t * instruction = fd_loader_v4_program_instruction_decode( mem, &decode_ctx );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497-L518 */
       switch( instruction->discriminant ) {

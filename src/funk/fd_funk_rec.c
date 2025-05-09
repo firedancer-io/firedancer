@@ -15,12 +15,13 @@
 #define MAP_KEY               pair
 #define MAP_KEY_EQ(k0,k1)     fd_funk_xid_key_pair_eq((k0),(k1))
 #define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
+#define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MEMO              map_hash
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
 #define MAP_MEMOIZE           1
 #define MAP_IMPL_STYLE        2
-#include "../util/tmpl/fd_map_para.c"
+#include "../util/tmpl/fd_map_chain_para.c"
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
@@ -36,8 +37,6 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
   }
 #endif
 
-  fd_wksp_t * wksp          = fd_funk_wksp( funk );
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
   fd_funk_xid_key_pair_t pair[1];
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( pair->xid );
@@ -46,7 +45,7 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
   }
   fd_funk_rec_key_copy( pair->key, key );
   for(;;) {
-    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query );
+    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS )   break;
     if( err == FD_MAP_ERR_KEY )   return NULL;
     if( err == FD_MAP_ERR_AGAIN ) continue;
@@ -56,7 +55,7 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 }
 
 fd_funk_rec_t const *
-fd_funk_rec_query_try_global( fd_funk_t *               funk,
+fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_t const *     txn,
                               fd_funk_rec_key_t const * key,
                               fd_funk_txn_t const **    txn_out,
@@ -75,10 +74,6 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
      the same record key appear on the same hash chain in order of
      newest to oldest. */
 
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_funk_rec_map_t rec_map   = fd_funk_rec_map( funk, wksp );
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp );
-
   fd_funk_xid_key_pair_t pair[1];
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( pair->xid );
@@ -86,15 +81,17 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
     fd_funk_txn_xid_copy( pair->xid, &txn->xid );
   }
   fd_funk_rec_key_copy( pair->key, key );
-  ulong hash  = fd_funk_rec_map_key_hash( pair, rec_map.map->seed );
-  ulong chain_idx = (hash & (rec_map.map->chain_cnt-1UL) );
 
-  fd_funk_rec_map_shmem_private_chain_t * chain = (fd_funk_rec_map_shmem_private_chain_t *)(rec_map.map+1) + chain_idx;
+  fd_funk_rec_map_shmem_t * rec_map = funk->rec_map->map;
+  ulong hash = fd_funk_rec_map_key_hash( pair, rec_map->seed );
+  ulong chain_idx = (hash & (rec_map->chain_cnt-1UL) );
+
+  fd_funk_rec_map_shmem_private_chain_t * chain = fd_funk_rec_map_shmem_private_chain( rec_map, hash );
   query->ele     = NULL;
   query->chain   = chain;
   query->ver_cnt = chain->ver_cnt; /* After unlock */
 
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( &rec_map, chain_idx );
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( funk->rec_map, chain_idx );
        !fd_funk_rec_map_iter_done( iter );
        iter = fd_funk_rec_map_iter_next( iter ) ) {
     fd_funk_rec_t const * ele = fd_funk_rec_map_iter_ele_const( iter );
@@ -102,7 +99,7 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
 
       /* For cur_txn in path from [txn] to [root] where root is NULL */
 
-      for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, &txn_pool ) ) {
+      for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, funk->txn_pool ) ) {
         /* If record ele is part of transaction cur_txn, we have a
            match. According to the property above, this will be the
            youngest descendent in the transaction stack. */
@@ -132,7 +129,6 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
                         fd_valloc_t               valloc,
                         ulong *                   sz_out ) {
   *sz_out = ULONG_MAX;
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
   fd_funk_xid_key_pair_t pair[1];
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( pair->xid );
@@ -144,7 +140,7 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
   ulong last_copy_sz = 0;
   for(;;) {
     fd_funk_rec_query_t query[1];
-    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query );
+    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_ERR_KEY )   {
       if( last_copy ) fd_valloc_free( valloc, last_copy );
       return NULL;
@@ -200,10 +196,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     }
   }
 
-  prepare->funk = funk;
-  prepare->wksp = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, prepare->wksp );
-  fd_funk_rec_t * rec = prepare->rec = fd_funk_rec_pool_acquire( &rec_pool, NULL, 1, opt_err );
+  fd_funk_rec_t * rec = prepare->rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 1, opt_err );
   if( opt_err && *opt_err == FD_POOL_ERR_CORRUPT ) {
     FD_LOG_ERR(( "corrupt element returned from funk rec pool" ));
   }
@@ -212,14 +205,15 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     if( txn == NULL ) {
       fd_funk_txn_xid_set_root( rec->pair.xid );
       rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-      prepare->rec_head_idx = &funk->rec_head_idx;
-      prepare->rec_tail_idx = &funk->rec_tail_idx;
+      prepare->rec_head_idx = &funk->shmem->rec_head_idx;
+      prepare->rec_tail_idx = &funk->shmem->rec_tail_idx;
+      prepare->txn_lock     = &funk->shmem->lock;
     } else {
       fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
-      fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, prepare->wksp );
-      rec->txn_cidx = fd_funk_txn_cidx( (ulong)( txn - txn_pool.ele ) );
+      rec->txn_cidx = fd_funk_txn_cidx( (ulong)( txn - funk->txn_pool->ele ) );
       prepare->rec_head_idx = &txn->rec_head_idx;
       prepare->rec_tail_idx = &txn->rec_tail_idx;
+      prepare->txn_lock     = &txn->lock;
     }
     fd_funk_rec_key_copy( rec->pair.key, key );
     fd_funk_val_init( rec );
@@ -234,18 +228,17 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 }
 
 void
-fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
+fd_funk_rec_publish( fd_funk_t *             funk,
+                     fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_t * rec = prepare->rec;
-  ulong * rec_head_idx = prepare->rec_head_idx;
-  ulong * rec_tail_idx = prepare->rec_tail_idx;
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( prepare->funk, prepare->wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
+  uint * rec_head_idx = prepare->rec_head_idx;
+  uint * rec_tail_idx = prepare->rec_tail_idx;
 
-  /* We need a global lock to protect the prev/next update */
-  fd_funk_rec_pool_lock( &rec_pool, 1 );
+  /* Lock the txn */
+  while( FD_ATOMIC_CAS( prepare->txn_lock, 0, 1 ) ) FD_SPIN_PAUSE();
 
-  ulong rec_prev_idx;
-  ulong rec_idx = (ulong)( rec - rec_pool.ele );
+  uint rec_prev_idx;
+  uint rec_idx = (uint)( rec - funk->rec_pool->ele );
   rec_prev_idx = *rec_tail_idx;
   *rec_tail_idx = rec_idx;
   rec->prev_idx = rec_prev_idx;
@@ -253,21 +246,21 @@ fd_funk_rec_publish( fd_funk_rec_prepare_t * prepare ) {
   if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
     *rec_head_idx = rec_idx;
   } else {
-    rec_pool.ele[ rec_prev_idx ].next_idx = rec_idx;
+    funk->rec_pool->ele[ rec_prev_idx ].next_idx = rec_idx;
   }
 
-  if( fd_funk_rec_map_insert( &rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
+  if( fd_funk_rec_map_insert( funk->rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
   }
 
-  fd_funk_rec_pool_unlock( &rec_pool );
+  FD_VOLATILE( *prepare->txn_lock ) = 0;
 }
 
 void
-fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare ) {
-  fd_funk_val_flush( prepare->rec, fd_funk_alloc( prepare->funk, prepare->wksp ), prepare->wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( prepare->funk, prepare->wksp );
-  fd_funk_rec_pool_release( &rec_pool, prepare->rec, 1 );
+fd_funk_rec_cancel( fd_funk_t *             funk,
+                    fd_funk_rec_prepare_t * prepare ) {
+  fd_funk_val_flush( prepare->rec, funk->alloc, funk->wksp );
+  fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
 }
 
 fd_funk_rec_t *
@@ -284,15 +277,15 @@ fd_funk_rec_clone( fd_funk_t *               funk,
     fd_funk_rec_t const * old_rec = fd_funk_rec_query_try_global( funk, txn, key, NULL, query );
     if( !old_rec ) {
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_KEY );
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return NULL;
     }
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     ulong val_sz     = old_rec->val_sz;
-    void * buf = fd_funk_val_truncate( new_rec, val_sz, fd_funk_alloc( funk, wksp ), wksp, opt_err );
+    void * buf = fd_funk_val_truncate( new_rec, val_sz, funk->alloc, wksp, opt_err );
     if( !buf ) {
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return NULL;
     }
     memcpy( buf, fd_funk_val( old_rec, wksp ), val_sz );
@@ -303,25 +296,10 @@ fd_funk_rec_clone( fd_funk_t *               funk,
   }
 }
 
-
-
-int
-fd_funk_rec_is_full( fd_funk_t * funk ) {
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-  return fd_funk_rec_pool_is_empty( &rec_pool );
-}
-
 void
 fd_funk_rec_hard_remove( fd_funk_t *               funk,
                          fd_funk_txn_t *           txn,
                          fd_funk_rec_key_t const * key ) {
-
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_alloc_t * alloc          = fd_funk_alloc( funk, wksp );
-  fd_funk_rec_map_t rec_map   = fd_funk_rec_map( funk, wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-
   fd_funk_xid_key_pair_t pair[1];
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( pair->xid );
@@ -330,15 +308,22 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
   }
   fd_funk_rec_key_copy( pair->key, key );
 
-  fd_funk_rec_pool_lock( &rec_pool, 1 );
+  uchar * lock = NULL;
+  if( txn==NULL ) {
+    lock = &funk->shmem->lock;
+  } else {
+    lock = &txn->lock;
+  }
+
+  while( FD_ATOMIC_CAS( lock, 0, 1 ) ) FD_SPIN_PAUSE();
 
   fd_funk_rec_t * rec = NULL;
   for(;;) {
     fd_funk_rec_map_query_t rec_query[1];
-    int err = fd_funk_rec_map_remove( &rec_map, pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+    int err = fd_funk_rec_map_remove( funk->rec_map, pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
-      fd_funk_rec_pool_unlock( &rec_pool );
+      FD_VOLATILE( *lock ) = 0;
       return;
     }
     if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
@@ -346,23 +331,24 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
     break;
   }
 
-  ulong prev_idx = rec->prev_idx;
-  ulong next_idx = rec->next_idx;
+  uint prev_idx = rec->prev_idx;
+  uint next_idx = rec->next_idx;
   if( txn == NULL ) {
-    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->shmem->rec_head_idx                = next_idx;
+    else                                      funk->rec_pool->ele[ prev_idx ].next_idx = next_idx;
+    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->shmem->rec_tail_idx                = prev_idx;
+    else                                      funk->rec_pool->ele[ next_idx ].prev_idx = prev_idx;
   } else {
-    if( fd_funk_rec_idx_is_null( prev_idx ) ) txn->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+    if( fd_funk_rec_idx_is_null( prev_idx ) ) txn->rec_head_idx                        = next_idx;
+    else                                      funk->rec_pool->ele[ prev_idx ].next_idx = next_idx;
+    if( fd_funk_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx                        = prev_idx;
+    else                                      funk->rec_pool->ele[ next_idx ].prev_idx = prev_idx;
   }
-  fd_funk_rec_pool_unlock( &rec_pool );
 
-  fd_funk_val_flush( rec, alloc, wksp );
-  fd_funk_rec_pool_release( &rec_pool, rec, 1 );
+  FD_VOLATILE( *lock ) = 0;
+
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+  fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
 }
 
 int
@@ -390,8 +376,6 @@ fd_funk_rec_remove( fd_funk_t *               funk,
     }
   }
 
-  fd_wksp_t * wksp          = fd_funk_wksp( funk );
-  fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, wksp );
   fd_funk_xid_key_pair_t pair[1];
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( pair->xid );
@@ -401,9 +385,9 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   fd_funk_rec_key_copy( pair->key, key );
   fd_funk_rec_query_t query[ 1 ];
   for(;;) {
-    int err = fd_funk_rec_map_query_try( &rec_map, pair, NULL, query );
+    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS )   break;
-    if( err == FD_MAP_ERR_KEY )   return FD_FUNK_SUCCESS;
+    if( err == FD_MAP_ERR_KEY )   return FD_FUNK_ERR_KEY;
     if( err == FD_MAP_ERR_AGAIN ) continue;
     FD_LOG_CRIT(( "query returned err %d", err ));
   }
@@ -423,7 +407,7 @@ fd_funk_rec_remove( fd_funk_t *               funk,
      lead to an unbounded number of records, but for application
      reasons, we need to remember what was deleted. */
 
-  fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp );
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
 
   /* At this point, the 5 most significant bytes should store data about the
      transaction that the record was updated in. */
@@ -451,21 +435,16 @@ fd_funk_rec_forget( fd_funk_t *      funk,
   if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
 #endif
 
-  fd_wksp_t * wksp            = fd_funk_wksp( funk );
-  fd_alloc_t * alloc          = fd_funk_alloc( funk, wksp );
-  fd_funk_rec_map_t rec_map   = fd_funk_rec_map( funk, wksp );
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp );
-
 #ifdef FD_FUNK_HANDHOLDING
-  ulong rec_max = funk->rec_max;
+  ulong rec_max = funk->shmem->rec_max;
 #endif
 
   for( ulong i = 0; i < recs_cnt; ++i ) {
     fd_funk_rec_t * rec = recs[i];
 
 #ifdef FD_FUNK_HANDHOLDING
-    ulong rec_idx = (ulong)(rec - rec_pool.ele);
-    if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_pool.ele+rec_idx)) /* Bad alignment */ ) )
+    ulong rec_idx = (ulong)(rec - funk->rec_pool->ele);
+    if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(funk->rec_pool->ele+rec_idx)) /* Bad alignment */ ) )
       return FD_FUNK_ERR_INVAL;
 #endif
 
@@ -477,7 +456,7 @@ fd_funk_rec_forget( fd_funk_t *      funk,
 
     for(;;) {
       fd_funk_rec_map_query_t rec_query[1];
-      int err = fd_funk_rec_map_remove( &rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      int err = fd_funk_rec_map_remove( funk->rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       if( err == FD_MAP_ERR_KEY ) return FD_FUNK_ERR_KEY;
       if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
@@ -485,15 +464,15 @@ fd_funk_rec_forget( fd_funk_t *      funk,
       break;
     }
 
-    ulong prev_idx = rec->prev_idx;
-    ulong next_idx = rec->next_idx;
-    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
-    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
-    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+    uint prev_idx = rec->prev_idx;
+    uint next_idx = rec->next_idx;
+    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->shmem->rec_head_idx =                next_idx;
+    else                                      funk->rec_pool->ele[ prev_idx ].next_idx = next_idx;
+    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->shmem->rec_tail_idx =                prev_idx;
+    else                                      funk->rec_pool->ele[ next_idx ].prev_idx = prev_idx;
 
-    fd_funk_val_flush( rec, alloc, wksp );
-    fd_funk_rec_pool_release( &rec_pool, rec, 1 );
+    fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+    fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
   }
 
   return FD_FUNK_SUCCESS;
@@ -510,8 +489,7 @@ fd_funk_all_iter_skip_nulls( fd_funk_all_iter_t * iter ) {
 
 void
 fd_funk_all_iter_new( fd_funk_t * funk, fd_funk_all_iter_t * iter ) {
-  fd_wksp_t * wksp   = fd_funk_wksp( funk );
-  iter->rec_map      = fd_funk_rec_map( funk, wksp );
+  iter->rec_map      = *funk->rec_map;
   iter->chain_cnt    = fd_funk_rec_map_chain_cnt( &iter->rec_map );
   iter->chain_idx    = 0;
   iter->rec_map_iter = fd_funk_rec_map_iter( &iter->rec_map, 0 );
@@ -534,89 +512,93 @@ fd_funk_all_iter_ele_const( fd_funk_all_iter_t * iter ) {
   return fd_funk_rec_map_iter_ele_const( iter->rec_map_iter );
 }
 
-#ifdef FD_FUNK_HANDHOLDING
+fd_funk_rec_t *
+fd_funk_all_iter_ele( fd_funk_all_iter_t * iter ) {
+  return fd_funk_rec_map_iter_ele( iter->rec_map_iter );
+}
+
 int
 fd_funk_rec_verify( fd_funk_t * funk ) {
-  fd_wksp_t *           wksp     = fd_funk_wksp( funk );          /* Previously verified */
-  fd_funk_txn_map_t  txn_map  = fd_funk_txn_map( funk, wksp ); /* Previously verified */
-  fd_funk_rec_map_t  rec_map  = fd_funk_rec_map( funk, wksp ); /* Previously verified */
-  fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, wksp ); /* Previously verified */
-  fd_funk_rec_pool_t rec_pool = fd_funk_rec_pool( funk, wksp ); /* Previously verified */
-  ulong                 txn_max  = funk->txn_max;                 /* Previously verified */
-  ulong                 rec_max  = funk->rec_max;                 /* Previously verified */
-
-  /* At this point, txn_map has been extensively verified */
+  fd_funk_rec_map_t *  rec_map  = funk->rec_map;
+  fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
+  fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
+  ulong txn_max = fd_funk_txn_pool_ele_max( txn_pool );
+  ulong rec_max = fd_funk_rec_pool_ele_max( rec_pool );
 
 # define TEST(c) do {                                                                           \
     if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_FUNK_ERR_INVAL; } \
   } while(0)
 
-  TEST( !fd_funk_rec_map_verify( &rec_map ) );
-  TEST( !fd_funk_rec_pool_verify( &rec_pool ) );
+  TEST( !fd_funk_rec_map_verify( rec_map ) );
+  TEST( !fd_funk_rec_pool_verify( rec_pool ) );
 
-  /* Iterate over all records in use */
+  /* Iterate (again) over all records in use */
 
-  fd_funk_all_iter_t iter[1];
-  for( fd_funk_all_iter_new( funk, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
-    fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
+  ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
+  for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
+         !fd_funk_rec_map_iter_done( iter );
+         iter = fd_funk_rec_map_iter_next( iter ) ) {
+      fd_funk_rec_t const * rec = fd_funk_rec_map_iter_ele_const( iter );
 
-    /* Make sure every record either links up with the last published
-       transaction or an in-prep transaction and the flags are sane. */
+      /* Make sure every record either links up with the last published
+         transaction or an in-prep transaction and the flags are sane. */
 
-    fd_funk_txn_xid_t const * txn_xid = fd_funk_rec_xid( rec );
-    ulong                        txn_idx = fd_funk_txn_idx( rec->txn_cidx );
+      fd_funk_txn_xid_t const * txn_xid = fd_funk_rec_xid( rec );
+      ulong                     txn_idx = fd_funk_txn_idx( rec->txn_cidx );
 
-    if( fd_funk_txn_idx_is_null( txn_idx ) ) { /* This is a record from the last published transaction */
+      if( fd_funk_txn_idx_is_null( txn_idx ) ) { /* This is a record from the last published transaction */
 
-      TEST( fd_funk_txn_xid_eq_root( txn_xid ) );
+        TEST( fd_funk_txn_xid_eq_root( txn_xid ) );
 
-    } else { /* This is a record from an in-prep transaction */
+      } else { /* This is a record from an in-prep transaction */
 
-      TEST( txn_idx<txn_max );
-      fd_funk_txn_t const * txn = fd_funk_txn_query( txn_xid, &txn_map );
-      TEST( txn );
-      TEST( txn==(txn_pool.ele+txn_idx) );
+        TEST( txn_idx<txn_max );
+        fd_funk_txn_t const * txn = fd_funk_txn_query( txn_xid, funk->txn_map );
+        TEST( txn );
+        TEST( txn==(funk->txn_pool->ele+txn_idx) );
 
+      }
     }
   }
 
   /* Clear record tags and then verify the forward and reverse linkage */
 
-  for( ulong rec_idx=0UL; rec_idx<rec_max; rec_idx++ ) rec_pool.ele[ rec_idx ].tag = 0U;
+  for( ulong rec_idx=0UL; rec_idx<rec_max; rec_idx++ ) rec_pool->ele[ rec_idx ].tag = 0U;
 
   do {
     ulong txn_idx = FD_FUNK_TXN_IDX_NULL;
-    ulong rec_idx = funk->rec_head_idx;
+    uint  rec_idx = funk->shmem->rec_head_idx;
     while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-      TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==0U );
-      rec_pool.ele[ rec_idx ].tag = 1U;
+      TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool->ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool->ele[ rec_idx ].tag==0U );
+      rec_pool->ele[ rec_idx ].tag = 1U;
       fd_funk_rec_query_t query[1];
-      fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, NULL, rec_pool.ele[ rec_idx ].pair.key, NULL, query );
-      if( FD_UNLIKELY( rec_pool.ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
+      fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, NULL, rec_pool->ele[ rec_idx ].pair.key, NULL, query );
+      if( FD_UNLIKELY( rec_pool->ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
         TEST( rec2 == NULL );
       else
-        TEST( rec2 = rec_pool.ele + rec_idx );
-      ulong next_idx = rec_pool.ele[ rec_idx ].next_idx;
-      if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool.ele[ next_idx ].prev_idx==rec_idx );
+        TEST( rec2 == rec_pool->ele + rec_idx );
+      uint next_idx = rec_pool->ele[ rec_idx ].next_idx;
+      if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool->ele[ next_idx ].prev_idx==rec_idx );
       rec_idx = next_idx;
     }
     fd_funk_txn_all_iter_t txn_iter[1];
     for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
       fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
 
-      ulong txn_idx = (ulong)(txn-txn_pool.ele);
-      ulong rec_idx = txn->rec_head_idx;
+      ulong txn_idx = (ulong)(txn-txn_pool->ele);
+      uint  rec_idx = txn->rec_head_idx;
       while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-        TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==0U );
-        rec_pool.ele[ rec_idx ].tag = 1U;
+        TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool->ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool->ele[ rec_idx ].tag==0U );
+        rec_pool->ele[ rec_idx ].tag = 1U;
         fd_funk_rec_query_t query[1];
-        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, txn, rec_pool.ele[ rec_idx ].pair.key, NULL, query );
-        if( FD_UNLIKELY( rec_pool.ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
+        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, txn, rec_pool->ele[ rec_idx ].pair.key, NULL, query );
+        if( FD_UNLIKELY( rec_pool->ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
           TEST( rec2 == NULL );
         else
-          TEST( rec2 = rec_pool.ele + rec_idx );
-        ulong next_idx = rec_pool.ele[ rec_idx ].next_idx;
-        if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool.ele[ next_idx ].prev_idx==rec_idx );
+          TEST( rec2 == rec_pool->ele + rec_idx );
+        uint next_idx = rec_pool->ele[ rec_idx ].next_idx;
+        if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool->ele[ next_idx ].prev_idx==rec_idx );
         rec_idx = next_idx;
       }
     }
@@ -624,12 +606,12 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   do {
     ulong txn_idx = FD_FUNK_TXN_IDX_NULL;
-    ulong rec_idx = funk->rec_tail_idx;
+    uint  rec_idx = funk->shmem->rec_tail_idx;
     while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-      TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==1U );
-      rec_pool.ele[ rec_idx ].tag = 2U;
-      ulong prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
-      if( !fd_funk_rec_idx_is_null( prev_idx ) ) TEST( rec_pool.ele[ prev_idx ].next_idx==rec_idx );
+      TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool->ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool->ele[ rec_idx ].tag==1U );
+      rec_pool->ele[ rec_idx ].tag = 2U;
+      uint prev_idx = rec_pool->ele[ rec_idx ].prev_idx;
+      if( !fd_funk_rec_idx_is_null( prev_idx ) ) TEST( rec_pool->ele[ prev_idx ].next_idx==rec_idx );
       rec_idx = prev_idx;
     }
 
@@ -637,13 +619,13 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
     for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
       fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
 
-      ulong txn_idx = (ulong)(txn-txn_pool.ele);
-      ulong rec_idx = txn->rec_tail_idx;
+      ulong txn_idx = (ulong)(txn-txn_pool->ele);
+      uint  rec_idx = txn->rec_tail_idx;
       while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-        TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==1U );
-        rec_pool.ele[ rec_idx ].tag = 2U;
-        ulong prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
-        if( !fd_funk_rec_idx_is_null( prev_idx ) ) TEST( rec_pool.ele[ prev_idx ].next_idx==rec_idx );
+        TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_pool->ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool->ele[ rec_idx ].tag==1U );
+        rec_pool->ele[ rec_idx ].tag = 2U;
+        uint prev_idx = rec_pool->ele[ rec_idx ].prev_idx;
+        if( !fd_funk_rec_idx_is_null( prev_idx ) ) TEST( rec_pool->ele[ prev_idx ].next_idx==rec_idx );
         rec_idx = prev_idx;
       }
     }
@@ -653,4 +635,3 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-#endif

@@ -33,7 +33,7 @@
    
    Specifically, we pick a "large" superblock size that will nest as
    tightly inside a block of a "huge" superblock when the huge
-   superblock is divided into the minimum 8 blocks.  Noting that the the
+   superblock is divided into the minimum 8 blocks.  Noting that the
    large superblock will have the same 19B overhead and the huge huge
    superblock has a 16B header, we have L=floor((H-16B)/8)-19B=65512B.
 

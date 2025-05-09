@@ -109,7 +109,7 @@ main( int argc, char ** argv ) {
     .handshake_cnt      = 10,
     .stream_id_cnt      = 10,
     .stream_pool_cnt    = 400,
-    .inflight_pkt_cnt   = 1024,
+    .inflight_frame_cnt = 1024 * 10,
     .tx_buf_sz          = 1<<14
   };
 
@@ -198,6 +198,31 @@ main( int argc, char ** argv ) {
 
     FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
   }
+
+  /* testing keep_alive */
+  ulong const idle_timeout = fd_ulong_min(
+                                  client_quic->config.idle_timeout,
+                                  server_quic->config.idle_timeout
+                                 );
+  ulong const timestep     = idle_timeout>>3;
+
+  for( int keep_alive=1; keep_alive>=0; --keep_alive ) {
+    client_quic->config.keep_alive = keep_alive;
+    for( int i=0; i<10; ++i ) {
+      now+=timestep;
+      fd_quic_service( client_quic );
+      fd_quic_service( server_quic );
+    }
+    if( keep_alive ) {
+      FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+    } else {
+      FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_DEAD ||
+              client_conn->state == FD_QUIC_CONN_STATE_INVALID );
+    }
+  }
+
+  FD_LOG_NOTICE(( "Validated idle_timeout and keep_alive" ));
+
 
   FD_LOG_NOTICE(( "Closing connections" ));
 

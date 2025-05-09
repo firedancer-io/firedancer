@@ -44,9 +44,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Set up slot context */
 
-  slot_ctx->epoch_ctx = epoch_ctx;
-  slot_ctx->funk_txn  = funk_txn;
-  slot_ctx->funk      = funk;
+  slot_ctx->epoch_ctx    = epoch_ctx;
+  slot_ctx->funk_txn     = funk_txn;
+  slot_ctx->funk         = funk;
+  slot_ctx->runtime_wksp = runner->wksp;
 
   /* Restore feature flags */
 
@@ -75,7 +76,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
@@ -112,28 +113,38 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
-    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
+    uchar * val_epoch_schedule      = fd_wksp_laddr_fast( runner->wksp, slot_ctx->sysvar_cache->gaddr_epoch_schedule );
+    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t *)fd_type_pun_const( val_epoch_schedule );
+    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t *)fd_type_pun_const( val_epoch_schedule );
   }
 
   if( slot_ctx->sysvar_cache->has_rent ) {
-    epoch_bank->rent = *(fd_rent_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_rent );
+    uchar * val_rent = fd_wksp_laddr_fast( runner->wksp, slot_ctx->sysvar_cache->gaddr_rent );
+    epoch_bank->rent = *(fd_rent_t *)fd_type_pun_const( val_rent );
   }
 
   /* Provide default slot hashes of size 1 if not provided */
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
-    uchar * deque_mem = fd_spad_alloc( runner->spad, deq_fd_slot_hash_t_align(), deq_fd_slot_hash_t_footprint( 1 ) );
-    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( deque_mem, 1 ) );
-    fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
-    memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
-    fd_slot_hashes_t default_slot_hashes = { .hashes = slot_hashes };
-    fd_sysvar_slot_hashes_init( slot_ctx, &default_slot_hashes );
+    FD_SPAD_FRAME_BEGIN( runner->spad ) {
+      /* The offseted gaddr aware types need the memory for the entire
+         struct to be allocated out of a contiguous memory region. */
+      fd_slot_hash_t * slot_hashes                          = NULL;
+      void * mem                                            = fd_spad_alloc( runner->spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( 1UL ) );
+      fd_slot_hashes_global_t * default_slot_hashes_global  = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, 1UL ), &slot_hashes );
+
+      fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
+      memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
+
+      fd_sysvar_slot_hashes_write( slot_ctx, default_slot_hashes_global );
+
+      fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( default_slot_hashes_global, slot_hashes ) );
+    } FD_SPAD_FRAME_END;
   }
 
   /* Provide default stake history if not provided */
   if( !slot_ctx->sysvar_cache->has_stake_history ) {
     // Provide a 0-set default entry
-    fd_stake_history_entry_t entry = {0};
+    fd_epoch_stake_history_entry_pair_t entry = {0};
     fd_sysvar_stake_history_init( slot_ctx );
     fd_sysvar_stake_history_update( slot_ctx, &entry, runner->spad );
   }
@@ -173,7 +184,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache, runner->wksp );
   if( ( rent->exemption_threshold != 0.0 &&
         !fd_dblbits_is_normal( fd_dblbits( rent->exemption_threshold ) ) ) |
       ( rent->exemption_threshold     <      0.0 ) |
@@ -196,10 +207,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   slot_ctx->slot_bank.block_hash_queue.last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( fd_wksp_containing( runner->spad ), rbh_global->hashes_gaddr ) );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {

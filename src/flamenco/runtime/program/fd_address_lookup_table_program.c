@@ -1,13 +1,8 @@
 #include "fd_address_lookup_table_program.h"
-#include "fd_program_util.h"
 #include "../fd_executor.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_borrowed_account.h"
-#include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
-#include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "fd_native_cpi.h"
 
@@ -112,25 +107,22 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
 
 static ulong
 slot_hashes_position( fd_slot_hash_t const * hashes, ulong slot ) {
-  /* Logic is copied from slice::binary_search_by() in Rust
+  /* Logic is copied from slice::binary_search_by() in Rust. While not fully optimized,
+     it aims to achieve fuzzing conformance for both sorted and unsorted inputs.
      Returns the slot hash position of the input slot. */
-  ulong start = 0UL;
-  ulong end = deq_fd_slot_hash_t_cnt( hashes );
+  ulong size = deq_fd_slot_hash_t_cnt( hashes );
+  if( FD_UNLIKELY( size==0UL ) ) return ULONG_MAX;
 
-  while( start < end ) {
-    ulong mid      = start + (end - start) / 2UL;
+  ulong base = 0UL;
+  while( size>1UL ) {
+    ulong half = size / 2UL;
+    ulong mid = base + half;
     ulong mid_slot = deq_fd_slot_hash_t_peek_index_const( hashes, mid )->slot;
-
-    if( mid_slot == slot ) {
-      return mid;
-    } else if( mid_slot > slot ) {
-      start = mid + 1UL;
-    } else {
-      end = mid;
-    }
+    base = (slot>mid_slot) ? base : mid;
+    size -= half;
   }
 
-  return ULONG_MAX;
+  return deq_fd_slot_hash_t_peek_index_const( hashes, base )->slot==slot ? base : ULONG_MAX;
 }
 
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */
@@ -259,14 +251,13 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong derivation_slot = 1UL;
 
   do {
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
 
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     }
 
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp,
-                                                          slot_hashes_global->hashes_gaddr ) );
+    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
     ulong is_recent_slot = slot_hashes_position( slot_hash, create->recent_slot )!=ULONG_MAX;
@@ -678,12 +669,11 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L290 */
-  fd_sol_sysvar_clock_t clock[1];
-  if( FD_UNLIKELY( !fd_sysvar_clock_read( clock,
-                                          ctx->txn_ctx->sysvar_cache,
-                                          ctx->txn_ctx->funk,
-                                          ctx->txn_ctx->funk_txn ) ) )
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache,
+                                                               ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L291-L299 */
   if( clock->slot!=state->meta.last_extended_slot ) {
@@ -874,11 +864,9 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L380 */
-  fd_sol_sysvar_clock_t clock[1];
-  if( FD_UNLIKELY( !fd_sysvar_clock_read( clock,
-                                          ctx->txn_ctx->sysvar_cache,
-                                          ctx->txn_ctx->funk,
-                                          ctx->txn_ctx->funk_txn ) ) ) {
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache,
+                                                               ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
@@ -996,22 +984,19 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L437 */
-  fd_sol_sysvar_clock_t clock[1];
-  if( FD_UNLIKELY( !fd_sysvar_clock_read( clock,
-                                          ctx->txn_ctx->sysvar_cache,
-                                          ctx->txn_ctx->funk,
-                                          ctx->txn_ctx->funk_txn ) ) ) {
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache,
+                                                               ctx->txn_ctx->runtime_pub_wksp );
+  if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
-  fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
+  fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
   if( FD_UNLIKELY( !slot_hashes_global ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
-  fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( fd_wksp_laddr_fast( ctx->txn_ctx->runtime_pub_wksp,
-                                                        slot_hashes_global->hashes_gaddr ) );
+  fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
   ulong remaining_blocks = 0UL;
@@ -1088,25 +1073,16 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
-
-    fd_bincode_decode_ctx_t decode = {
-      .data    = instr_data,
-      .dataend = instr_data + instr_data_sz
-    };
-
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
-    ulong total_sz = 0UL;
-    if( FD_UNLIKELY( fd_addrlut_instruction_decode_footprint( &decode, &total_sz ) ||
-                     (ulong)instr_data + FD_TXN_MTU < (ulong)decode.data ) ) {
+    ulong decoded_sz;
+    fd_addrlut_instruction_t * instr = fd_bincode_decode1_spad(
+        addrlut_instruction, ctx->txn_ctx->spad,
+        instr_data, instr_data_sz,
+        NULL,
+        &decoded_sz );
+    if( FD_UNLIKELY( !instr || decoded_sz > FD_TXN_MTU ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
-
-    uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_addrlut_instruction_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for alut instruction" ));
-    }
-
-    fd_addrlut_instruction_t * instr = fd_addrlut_instruction_decode( mem, &decode );
 
     switch( instr->discriminant ) {
     case fd_addrlut_instruction_enum_create_lut:

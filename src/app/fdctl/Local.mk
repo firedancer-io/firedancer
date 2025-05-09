@@ -39,7 +39,7 @@ $(call add-objs,commands/run_agave,fd_fdctl)
 $(call make-lib,fdctl_version)
 $(call add-objs,version,fdctl_version)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco agave_validator firedancer_plugin_bundle fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco agave_validator firedancer_plugin_bundle fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util fdctl_version)
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
@@ -72,28 +72,28 @@ cargo-plugin-bundle:
     cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p agave-validator
-cargo-solana:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --bin solana
-cargo-ledger-tool:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --bin agave-ledger-tool
+cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" ./cargo build --release --bin solana
+cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" ./cargo build --release --bin agave-ledger-tool
 else ifeq ($(RUST_PROFILE),release-with-debug)
 cargo-plugin-bundle:
 	cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ../../agave/cargo build --profile=release-with-debug --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p agave-validator
-cargo-solana:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --bin solana
-cargo-ledger-tool:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --bin agave-ledger-tool
+cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" ./cargo build --profile=release-with-debug --bin solana
+cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" ./cargo build --profile=release-with-debug --bin agave-ledger-tool
 else
 cargo-plugin-bundle:
     cd ./plugin/bundle && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p firedancer-plugin-bundle
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p agave-validator
-cargo-solana:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --bin solana
-cargo-ledger-tool:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --bin agave-ledger-tool
+cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" ./cargo build --bin solana
+cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" ./cargo build --bin agave-ledger-tool
 endif
 
 # We sleep as a workaround for a bizarre problem where the build system

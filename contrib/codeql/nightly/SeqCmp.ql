@@ -10,7 +10,7 @@ import cpp
 
 predicate include(Location l) {
     l.getFile().getRelativePath().matches("src/")
-    or not l.getFile().getBaseName().matches("fd_cstr%")
+    and not l.getFile().getBaseName().matches("fd_cstr%")
 }
 
 class SeqNum extends Variable {
@@ -34,4 +34,4 @@ a != b and
 include(a.getLocation()) and
 include(b.getLocation()) and
 a.getTarget().getName() < b.getTarget().getName() /* Avoid duplicate results */
-select a, "Use fd_seq_lt, fd_seq_le, fd_seq_ge, fd_seq_gt or equivlanet implementations to compare sequence numbers"
+select a, "Use fd_seq_lt, fd_seq_le, fd_seq_ge, fd_seq_gt or equivalent implementations to compare sequence numbers"

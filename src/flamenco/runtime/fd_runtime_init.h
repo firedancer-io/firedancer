@@ -7,22 +7,26 @@
 #include "../fd_flamenco_base.h"
 #include "../../funk/fd_funk_rec.h"
 
-/* FD_BLOCK_SLOT_BANK_TYPE stores fd_slot_bank_t bincode encoded */
-#define FD_BLOCK_SLOT_BANK_TYPE ((uchar)6)
-
-/* FD_BLOCK_EPOCH_BANK_TYPE stores fd_epoch_bank_t bincode encoded */
-#define FD_BLOCK_EPOCH_BANK_TYPE ((uchar)7)
-
 #define FD_RUNTIME_ENC_BINCODE 0xB13C0DEFU /* classic bincode encoding */
 #define FD_RUNTIME_ENC_ARCHIVE 0xA3C417EAU /* archival encoding */
 
 FD_PROTOTYPES_BEGIN
 
-fd_funk_rec_key_t
-fd_runtime_epoch_bank_key( void );
+static inline fd_funk_rec_key_t
+fd_runtime_epoch_bank_key( void ) {
+  fd_funk_rec_key_t id;
+  fd_memset(&id, 1, sizeof(id));
+  id.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_EPOCH_BANK;
+  return id;
+}
 
-fd_funk_rec_key_t
-fd_runtime_slot_bank_key( void );
+static inline fd_funk_rec_key_t
+fd_runtime_slot_bank_key( void ) {
+  fd_funk_rec_key_t id;
+  fd_memset(&id, 1, sizeof(id));
+  id.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_SLOT_BANK;
+  return id;
+}
 
 int
 fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx );

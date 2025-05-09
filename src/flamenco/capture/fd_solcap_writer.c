@@ -422,7 +422,7 @@ fd_solcap_write_account2( fd_solcap_writer_t *             writer,
 
   if( writer->account_idx < FD_SOLCAP_ACC_TBL_CNT ) {
     fd_solcap_account_tbl_t * account = &writer->accounts[ writer->account_idx ];
-    memcpy( account, tbl, sizeof(fd_solcap_account_tbl_t) );
+    *account = *tbl;
 
     /* Since we don't yet know the final position of the account table,
        we temporarily store a global offset.  This will later get
@@ -474,6 +474,7 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
                                void const *         bank_hash,
                                void const *         prev_bank_hash,
                                void const *         account_delta_hash,
+                               void const *         accounts_lt_hash_checksum,
                                void const *         poh_hash,
                                ulong                signature_cnt ) {
 
@@ -482,10 +483,17 @@ fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
   fd_solcap_BankPreimage preimage_pb[1] = {{0}};
   preimage_pb->signature_cnt = signature_cnt;
   preimage_pb->account_cnt   = writer->account_idx;
-  memcpy( preimage_pb->bank_hash,          bank_hash,          32UL );
-  memcpy( preimage_pb->prev_bank_hash,     prev_bank_hash,     32UL );
-  memcpy( preimage_pb->account_delta_hash, account_delta_hash, 32UL );
-  memcpy( preimage_pb->poh_hash,           poh_hash,           32UL );
+  memcpy( preimage_pb->bank_hash,                 bank_hash,          32UL );
+  memcpy( preimage_pb->prev_bank_hash,            prev_bank_hash,     32UL );
+  if (NULL != account_delta_hash )
+    memcpy( preimage_pb->account_delta_hash,        account_delta_hash, 32UL );
+  else
+    fd_memset( preimage_pb->account_delta_hash, 0, 32UL );
+  if( NULL != accounts_lt_hash_checksum )
+    memcpy( preimage_pb->accounts_lt_hash_checksum, accounts_lt_hash_checksum, 32UL );
+  else
+    fd_memset(preimage_pb->accounts_lt_hash_checksum, 0, 32UL );
+  memcpy( preimage_pb->poh_hash,                  poh_hash,           32UL );
 
   return fd_solcap_write_bank_preimage2( writer, preimage_pb );
 }

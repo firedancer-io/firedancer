@@ -140,9 +140,9 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
   if( FD_LIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
     if( FD_UNLIKELY( !ctx->activated ) ) {
       fd_rpcserver_args_t * args = &ctx->args;
-      args->funk = fd_funk_open_file(
-        ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
-      if( FD_UNLIKELY( args->funk == NULL ) ) {
+      fd_funk_t * funk = fd_funk_open_file(
+        args->funk, ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
+      if( FD_UNLIKELY( !funk ) ) {
         FD_LOG_ERR(( "failed to join a funky" ));
       }
 

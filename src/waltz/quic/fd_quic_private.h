@@ -11,6 +11,7 @@
 #include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
 #include "fd_quic_svc_q.h"
+#include <math.h>
 
 #include "../../util/log/fd_dtrace.h"
 #include "../../util/net/fd_ip4.h"
@@ -66,6 +67,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   fd_quic_transport_params_t transport_params;
 
+  ulong max_inflight_frame_cnt_conn; /* per-conn max, computed from limits */
+
   /* Various internal state */
 
   fd_quic_log_tx_t        log_tx[1];
@@ -77,6 +80,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_tls_hs_cache_t  hs_cache; /* dlist <> dlist_private */
 
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
+  fd_quic_pkt_meta_t    * pkt_meta_pool;
   fd_rng_t                _rng[1];        /* random number generator */
 
   /* need to be able to access connections by index */
@@ -446,12 +450,21 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
 }
 
 uchar *
-fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
-                           uchar *              payload_ptr,
-                           uchar *              payload_end,
-                           fd_quic_pkt_meta_t * pkt_meta,
-                           ulong                pkt_number,
-                           ulong                now );
+fd_quic_gen_stream_frames( fd_quic_conn_t *             conn,
+                           uchar *                      payload_ptr,
+                           uchar *                      payload_end,
+                           fd_quic_pkt_meta_t   * pkt_meta_tmpl,
+                           fd_quic_pkt_meta_tracker_t * tracker );
+
+void
+fd_quic_process_ack_range( fd_quic_conn_t      *      conn,
+                           fd_quic_frame_ctx_t *      context,
+                           uint                       enc_level,
+                           ulong                      largest_ack,
+                           ulong                      ack_range,
+                           int                        is_largest,
+                           ulong                      now,
+                           ulong                      ack_delay );
 
 FD_PROTOTYPES_END
 

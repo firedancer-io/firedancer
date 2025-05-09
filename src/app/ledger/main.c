@@ -22,7 +22,7 @@ struct fd_ledger_args {
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t       blockstore_ljoin;
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
-  fd_funk_t *           funk;                    /* handle to funk */
+  fd_funk_t             funk[1];                 /* handle to funk */
   fd_alloc_t *          alloc;                   /* handle to alloc */
   char const *          cmd;                     /* user passed command to fd_ledger */
   ulong                 start_slot;              /* start slot for offline replay */
@@ -37,7 +37,7 @@ struct fd_ledger_args {
   ulong                 shred_max;               /* maximum number of shreds*/
   ulong                 slot_history_max;        /* number of slots stored by blockstore*/
   ulong                 txns_max;                /* txns_max*/
-  ulong                 index_max;               /* size of funk index (same as rec max) */
+  uint                  index_max;               /* size of funk index (same as rec max) */
   char const *          funk_file;               /* path to funk backing store */
   ulong                 funk_page_cnt;
   fd_funk_close_file_args_t funk_close_args;
@@ -325,10 +325,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
   }
 
-  if( FD_UNLIKELY( block_found!=0 ) ) {
-    FD_LOG_ERR(( "unable to seek to any slot" ));
-  }
-
   /* Setup trash_hash */
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
@@ -341,6 +337,16 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   ulong block_slot = start_slot;
   uchar aborted = 0U;
+
+  // set up to let us easily jump to the end of execution
+  do {
+
+  if( FD_UNLIKELY( block_found!=0 ) ) {
+    if( 0 == ledger_args->end_slot )
+      break; // special case just letting us do the genesis block
+    FD_LOG_ERR(( "unable to seek to any slot" ));
+  }
+
   for( ulong slot = start_slot; slot<=ledger_args->end_slot && !aborted; ++slot ) {
 
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
@@ -573,6 +579,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
   }
 
+  } while(0);
+
   /* Throw an error if the blockstore wksp has a usage which exceeds the allowed
      threshold. This likely indicates that a memory leak was introduced. */
 
@@ -615,8 +623,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         tps,
         sec_per_slot ));
 
-  if ( slot_cnt == 0 ) {
-    FD_LOG_ERR(( "No slots replayed" ));
+  if( slot_cnt == 0 ) {
+    if( 0 != ledger_args->end_slot )
+      FD_LOG_ERR(( "No slots replayed" ));
+    else
+      FD_LOG_WARNING(( "No slots replayed" ));
   }
 
   args_cleanup( ledger_args );
@@ -647,7 +658,7 @@ allocator_setup( fd_wksp_t * wksp ) {
 }
 
 void
-fd_ledger_main_setup( fd_ledger_args_t * args ) {
+fd_ledger_capture_setup( fd_ledger_args_t * args ) {
   fd_flamenco_boot( NULL, NULL );
 
   /* Setup capture context */
@@ -691,6 +702,11 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->dump_proto_start_slot = args->dump_proto_start_slot;
     }
   }
+}
+
+void
+fd_ledger_main_setup( fd_ledger_args_t * args ) {
+  fd_flamenco_boot( NULL, NULL );
 
   args->slot_ctx->snapshot_freq      = args->snapshot_freq;
   args->slot_ctx->incremental_freq   = args->incremental_freq;
@@ -710,7 +726,6 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
     .para_arg_1 = args->tpool
   };
   fd_bpf_scan_and_create_bpf_program_cache_entry_para( args->slot_ctx,
-                                                       args->slot_ctx->funk_txn,
                                                        args->runtime_spad,
                                                        &exec_para_ctx );
 
@@ -813,7 +828,7 @@ ingest_rocksdb( char const *      file,
 
     ++blk_cnt;
 
-    fd_slot_meta_destroy( &slot_meta );
+    memset( &slot_meta, 0, sizeof(fd_slot_meta_t) );
 
     int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
     if( ret < 0 ) {
@@ -894,13 +909,13 @@ void
 init_funk( fd_ledger_args_t * args ) {
   fd_funk_t * funk;
   if( args->restore_funk ) {
-    funk = fd_funk_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
+    funk = fd_funk_recover_checkpoint( args->funk, args->funk_file, 1, args->restore_funk, &args->funk_close_args );
   } else  {
-    funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
+    funk = fd_funk_open_file( args->funk, args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
   }
-  args->funk = funk;
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Failed to join funk" ));
   args->funk_wksp = fd_funk_wksp( funk );
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( args->funk_wksp, funk ) ));
+  FD_LOG_NOTICE(( "Funk database is at %s:0x%lx", fd_wksp_name( args->wksp ), fd_wksp_gaddr_fast( args->funk_wksp, funk ) ));
 }
 
 void
@@ -1102,6 +1117,8 @@ ingest( fd_ledger_args_t * args ) {
   /* Load in snapshot(s) */
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
+                          FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           slot_ctx,
                           NULL,
                           args->tpool,
@@ -1115,6 +1132,8 @@ ingest( fd_ledger_args_t * args ) {
   }
   if( args->incremental ) {
     fd_snapshot_load_all( args->incremental,
+                          FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           slot_ctx,
                           NULL,
                           args->tpool,
@@ -1128,7 +1147,7 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
+    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
   }
 
   if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
@@ -1169,9 +1188,9 @@ ingest( fd_ledger_args_t * args ) {
 
 #ifdef FD_FUNK_HANDHOLDING
   if( args->verify_funk ) {
-    FD_LOG_NOTICE(( "verifying funky" ));
+    FD_LOG_NOTICE(( "fd_funk_verify() start" ));
     if( fd_funk_verify( funk ) ) {
-      FD_LOG_ERR(( "verification failed" ));
+      FD_LOG_ERR(( "fd_funk_verify() failed" ));
     }
   }
 #endif
@@ -1225,13 +1244,12 @@ replay( fd_ledger_args_t * args ) {
 
   void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp,
     fd_runtime_public_align(),
-    fd_runtime_public_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
+    fd_runtime_public_footprint( args->runtime_mem_bound ), FD_EXEC_EPOCH_CTX_MAGIC );
   if( FD_UNLIKELY( !runtime_public_mem ) ) {
     FD_LOG_ERR(( "Unable to allocate runtime_public mem" ));
   }
-  fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint() );
 
-  fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_runtime_public_new( runtime_public_mem ) );
+  fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_runtime_public_new( runtime_public_mem, args->runtime_mem_bound ) );
   args->runtime_spad = fd_spad_join( fd_wksp_laddr( args->wksp, runtime_public->runtime_spad_gaddr ) );
   if( FD_UNLIKELY( !args->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join runtime spad" ));
@@ -1290,6 +1308,8 @@ replay( fd_ledger_args_t * args ) {
   /* Load in snapshot(s) */
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
+                          FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           args->slot_ctx,
                           NULL,
                           args->tpool,
@@ -1302,6 +1322,8 @@ replay( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "imported from snapshot" ));
     if( args->incremental ) {
       fd_snapshot_load_all( args->incremental,
+                            FD_SNAPSHOT_SRC_FILE,
+                            NULL,
                             args->slot_ctx,
                             NULL,
                             args->tpool,
@@ -1315,11 +1337,13 @@ replay( fd_ledger_args_t * args ) {
     }
   }
 
-  if( args->genesis ) {
-    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
-  }
-
   FD_LOG_NOTICE(( "Used memory in spad after loading in snapshot %lu", args->runtime_spad->mem_used ));
+
+  fd_ledger_capture_setup( args );
+
+  if( args->genesis ) {
+    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, args->capture_ctx, args->runtime_spad );
+  }
 
   fd_ledger_main_setup( args );
 
@@ -1354,7 +1378,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        page_cnt              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",              NULL, 5                                                  );
   int          reset                 = fd_env_strip_cmdline_int   ( &argc, &argv, "--reset",                 NULL, 0                                                  );
   char const * cmd                   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cmd",                   NULL, NULL                                               );
-  ulong        index_max             = fd_env_strip_cmdline_ulong ( &argc, &argv, "--index-max",             NULL, 450000000                                          );
+  uint        index_max              = fd_env_strip_cmdline_uint  ( &argc, &argv, "--index-max",             NULL, 450000000                                          );
   ulong        txns_max              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--txn-max",               NULL,      1000                                          );
   char const * funk_file             = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--funk-file",             NULL, NULL                                               );
   int          verify_funk           = fd_env_strip_cmdline_int   ( &argc, &argv, "--verify-funky",          NULL, 0                                                  );
@@ -1404,13 +1428,13 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   double       allowed_mem_delta     = fd_env_strip_cmdline_double( &argc, &argv, "--allowed-mem-delta",     NULL, 0.1                                                );
   int          snapshot_mismatch     = fd_env_strip_cmdline_int   ( &argc, &argv, "--snapshot-mismatch",     NULL, 0                                                  );
   ulong        thread_mem_bound      = fd_env_strip_cmdline_ulong ( &argc, &argv, "--thread-mem-bound",      NULL, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-  ulong        runtime_mem_bound     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--runtime-mem-bound",     NULL, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               );
+  ulong        runtime_mem_bound     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--runtime-mem-bound",     NULL, (ulong)50e9                                        );
 
   if( FD_UNLIKELY( !verify_acc_hash ) ) {
     /* We've got full snapshots that contain all 0s for the account
        hash in account meta.  Running hash verify allows us to
        populate the hash in account meta with real values. */
-    FD_LOG_WARNING(( "verify-acc-hash needs to be 1" ));
+    FD_LOG_WARNING(( "verify-acc-hash should be 1" ));
   }
 
   // TODO: Add argument validation. Make sure that we aren't including any arguments that aren't parsed for

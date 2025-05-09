@@ -76,7 +76,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
   for( ushort i=0; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
     fd_pubkey_t const * pubkey = fd_type_pun_const( VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta ) );
-    memcpy( &out_instr_acct_keys[i], pubkey, sizeof(fd_pubkey_t) );
+    out_instr_acct_keys[i] = *pubkey;
 
     /* The parent flag(s) for is writable/signer is checked in
        fd_vm_prepare_instruction. Signer privilege is allowed iff the account
@@ -140,11 +140,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
   err = fd_exec_instr_ctx_try_borrow_instr_account( vm->instr_ctx, instr_acc_idx, &callee_acc );
   if( FD_UNLIKELY( err ) ) {
     /* No need to do anything if the account is missing from the borrowed accounts cache */
-    return FD_VM_SUCCESS;
-  }
-
-  if( FD_UNLIKELY( !fd_borrowed_account_is_mutable( &callee_acc ) ) ) {
-    /* If the account is not modifiable, we can't change it (and it can't have been changed by the callee) */
     return FD_VM_SUCCESS;
   }
 
@@ -554,7 +549,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
     /* Update the caller account owner with the value from the callee */
     fd_pubkey_t const * updated_owner = callee_acc->vt->get_owner( callee_acc );
-    if( updated_owner ) fd_memcpy( caller_account->owner, updated_owner, sizeof(fd_pubkey_t) );
+    if( updated_owner ) *caller_account->owner = *updated_owner;
     else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
 
     /* Update the caller account data with the value from the callee */
@@ -612,7 +607,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
     /* Update the caller account owner with the value from the callee */
     fd_pubkey_t const * updated_owner = callee_acc->vt->get_owner( callee_acc );
     if( updated_owner ) {
-      fd_memcpy( caller_account->owner, updated_owner, sizeof(fd_pubkey_t) );
+      *caller_account->owner = *updated_owner;
     } else {
       fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
     }
@@ -841,6 +836,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
       err = fd_vm_derive_pda( vm, caller_program_id, signer_seed_haddrs, signer_seed_lens, signers_seeds[i].len, NULL, &signers[i] );
       if( FD_UNLIKELY( err ) ) {
+        FD_TXN_PREPARE_ERR_OVERWRITE( vm->instr_ctx->txn_ctx );
         FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
         return FD_VM_SYSCALL_ERR_BAD_SEEDS;
       }

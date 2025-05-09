@@ -9,10 +9,9 @@ FD_PROTOTYPES_BEGIN
 
 /* Read the current value of the EpochRewards sysvar from Funk. */
 fd_sysvar_epoch_rewards_t *
-fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
-                              fd_sysvar_cache_t const *   sysvar_cache,
-                              fd_funk_t *                 funk,
-                              fd_funk_txn_t *             funk_txn );
+fd_sysvar_epoch_rewards_read( fd_funk_t *     funk,
+                              fd_funk_txn_t * funk_txn,
+                              fd_spad_t *     spad );
 
 /* Update EpochRewards sysvar with distributed rewards
 

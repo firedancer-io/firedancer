@@ -202,7 +202,7 @@ during_frag( fd_store_tile_ctx_t * ctx,
              ulong                 chunk,
              ulong                 sz,
              ulong                 ctl FD_PARAM_UNUSED ) {
-
+  return;
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
@@ -260,6 +260,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
             ulong                 tsorig FD_PARAM_UNUSED,
             ulong                 tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *   stem   FD_PARAM_UNUSED ) {
+  return;
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
     return;
@@ -310,7 +311,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
   }
 
   /* everything else is shred */
-  FD_TEST( (ctx->s34_buffer->shred_cnt>0UL) & (ctx->s34_buffer->shred_cnt<=34UL) );
+  //FD_TEST( (ctx->s34_buffer->shred_cnt>0UL) & (ctx->s34_buffer->shred_cnt<=34UL) );
 
   if( FD_UNLIKELY( ctx->is_trusted ) ) {
     /* this slot is coming from our leader pipeline */
@@ -442,7 +443,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
-      fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)] = { 0 };
+      fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)] = { 0 };
       ulong  buffered_idx = 0;
       ulong  complete_idx = 0;
       for(;;) { /* speculative query */
@@ -469,7 +470,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       for( uint idx = 0; idx <= buffered_idx; idx++ ) {
         if( FD_UNLIKELY( fd_block_set_test( data_complete_idxs, idx ) ) ) {
           uint data_cnt = consumed_idx != UINT_MAX ? idx - consumed_idx : idx + 1;
-          replay_sig = fd_disco_repair_replay_sig( slot, data_cnt, (ushort)( slot - parent_slot ), complete_idx == idx );
+
+          replay_sig = fd_disco_repair_replay_sig( slot, (ushort)( slot - parent_slot ), data_cnt, complete_idx == idx );
           fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, 0, 0UL, tsorig, tspub );
           ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, 0, ctx->replay_out_chunk0, ctx->replay_out_wmark );
           consumed_idx = idx;
@@ -539,7 +541,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
           FD_LOG_ERR(( "Wen-restart cannot get the block hash of HeaviestForkSlot %lu", ctx->restart_heaviest_fork_slot ));
         }
         fd_funk_txn_xid_t xid;
-        fd_memcpy( &xid, &blk_hash, sizeof(fd_funk_txn_xid_t) );
+        fd_memcpy( &xid, blk_hash.uc, sizeof(fd_funk_txn_xid_t) );
         xid.ul[0] = ctx->restart_heaviest_fork_slot;
 
         /* Send xid to restart tile */

@@ -1,6 +1,11 @@
 ifdef FD_HAS_INT128
+$(call add-hdrs,fd_replay.h)
+$(call add-objs,fd_replay,fd_discof)
 ifdef FD_HAS_SSE
-$(call add-objs,fd_replay_tile fd_replay,fd_discof)
-$(call make-unit-test,test_replay,test_replay,fd_discof fd_disco fd_flamenco fd_tango fd_util)
+ifdef FD_HAS_ZSTD # required to load snapshot
+$(call add-objs,fd_replay_tile,fd_discof)
+else
+$(warning "zstd not installed, skipping replay")
+endif
 endif
 endif

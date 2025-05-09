@@ -73,6 +73,9 @@ typedef struct {
     fd_frag_meta_t * mcache; /* The mcache of this link. */
     void *           dcache; /* The dcache of this link, if it has one. */
   };
+
+  uint permit_no_consumers : 1;  /* Permit a topology where this link has no consumers */
+  uint permit_no_producers : 1;  /* Permit a topology where this link has no producers */
 } fd_topo_link_t;
 
 /* A tile is a unique process that is spawned by Firedancer to represent
@@ -271,7 +274,7 @@ typedef struct {
       int   tx_metadata_storage;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
-      ulong funk_rec_max;
+      uint  funk_rec_max;
       ulong funk_sz_gb;
       ulong funk_txn_max;
       char  funk_file[ PATH_MAX ];
@@ -279,12 +282,11 @@ typedef struct {
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
+      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
       int   plugins_enabled;
-
-      /* not specified in TOML */
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
@@ -292,11 +294,20 @@ typedef struct {
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
       ulong exec_tile_count;
+      ulong writer_tile_cuont;
       ulong full_interval;
       ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
+
+      /* not specified in TOML */
+
+      int   incremental_src_type;
+      int   snapshot_src_type;
+
+      ulong enable_features_cnt;
+      char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
 
     struct {
@@ -307,11 +318,16 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+      ulong heap_mem_max;
     } restart;
 
     struct {
       char funk_file[ PATH_MAX ];
     } exec;
+
+    struct {
+      char funk_file[ PATH_MAX ];
+    } writer;
 
     struct {
       ushort send_to_port;
@@ -356,6 +372,8 @@ typedef struct {
 
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
+      ulong   max_pending_shred_sets;
+      uint    shred_tile_cnt;
     } repair;
 
     struct {
@@ -409,8 +427,9 @@ typedef struct {
     } pktgen;
 
     struct {
-      int  enabled;
-      char archiver_path[ PATH_MAX ];
+      int   enabled;
+      ulong end_slot;
+      char  archiver_path[ PATH_MAX ];
 
       /* Set internally by the archiver tile */
       int archive_fd;
@@ -445,7 +464,6 @@ struct fd_topo {
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
 
-  int            firedancer;
   ulong          agave_affinity_cnt;
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
 
@@ -873,12 +891,6 @@ FD_FN_PURE ulong
 fd_topo_huge_page_cnt( fd_topo_t const * topo,
                        ulong             numa_idx,
                        int               include_anonymous );
-
-/* Check all invariants of the given topology to make sure it is valid.
-   An invalid topology will cause the program to abort with an error
-   message. */
-void
-fd_topo_validate( fd_topo_t const * topo );
 
 /* Prints a message describing the topology to an output stream.  If
    stdout is true, will be written to stdout, otherwise will be written

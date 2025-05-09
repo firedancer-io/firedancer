@@ -5,7 +5,7 @@ ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SSE
 ifdef FD_HAS_SECP256K1
-
+ifdef FD_HAS_ZSTD
 include src/app/firedancer/version.mk
 $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
 
@@ -37,10 +37,12 @@ $(call add-objs,callbacks,fd_firedancer)
 $(call make-lib,firedancer_version)
 $(call add-objs,version,firedancer_version)
 
-$(call make-bin-rust,firedancer,main,fd_firedancer fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util firedancer_version, $(SECP256K1_LIBS))
+$(call make-bin,firedancer,main,fd_firedancer fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util firedancer_version, $(SECP256K1_LIBS))
 
 firedancer: $(OBJDIR)/bin/firedancer
-
+else
+$(warning firedancer build disabled due to lack of zstd)
+endif
 endif
 endif
 endif

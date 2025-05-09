@@ -100,17 +100,15 @@ fd_funk_val_init( fd_funk_rec_t * rec ) { /* Assumed record in caller's address 
 /* fd_funk_val_flush sets a record to the NULL value, discarding the
    current value if any.  Meant for internal use. */
 
-static inline fd_funk_rec_t *                  /* Returns rec */
+static inline fd_funk_rec_t *               /* Returns rec */
 fd_funk_val_flush( fd_funk_rec_t * rec,     /* Assumed live funk record in caller's address space */
-                      fd_alloc_t *       alloc,   /* ==fd_funk_alloc( funk, wksp ) */
-                      fd_wksp_t *        wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
+                   fd_alloc_t *    alloc,   /* ==fd_funk_alloc( funk, wksp ) */
+                   fd_wksp_t *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr = rec->val_gaddr;
   fd_funk_val_init( rec );
   if( val_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, val_gaddr ) );
   return rec;
 }
-
-#ifdef FD_FUNK_HANDHOLDING
 
 /* fd_funk_val_verify verifies the record values.  Returns
    FD_FUNK_SUCCESS if the values appear intact and FD_FUNK_ERR_INVAL if
@@ -120,8 +118,6 @@ fd_funk_val_flush( fd_funk_rec_t * rec,     /* Assumed live funk record in calle
 
 int
 fd_funk_val_verify( fd_funk_t * funk );
-
-#endif
 
 FD_PROTOTYPES_END
 

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 int
 fd_file_util_read_ulong( char const * path,
@@ -177,4 +178,35 @@ fd_file_util_self_exe( char path[ static PATH_MAX ] ) {
 
   path[ count ] = '\0';
   return 0;
+}
+
+char *
+fd_file_util_read_all( char const * path,
+                       ulong *      out_sz ) {
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd ) ) return MAP_FAILED;
+
+  struct stat st;
+  if( FD_UNLIKELY( fstat( fd, &st ) ) ) {
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_WARNING(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return MAP_FAILED;
+  }
+
+  ulong toml_sz = (ulong)st.st_size;
+  if( FD_UNLIKELY( toml_sz==0UL ) ) {
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_WARNING(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    errno = EINVAL;
+    return MAP_FAILED;
+  }
+
+  void * mem = mmap( NULL, toml_sz, PROT_READ, MAP_PRIVATE, fd, 0 );
+  if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_WARNING(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return MAP_FAILED;
+  }
+
+  if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_WARNING(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  *out_sz = toml_sz;
+  return (char *)mem;
 }

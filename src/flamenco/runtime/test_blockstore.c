@@ -141,8 +141,6 @@ main( int argc, char ** argv ) {
           }
         }
 
-
-
         cnt++;
       } else {
         dup_cnt++;
@@ -169,7 +167,7 @@ main( int argc, char ** argv ) {
 
   // fd_shred_key_t key = { slot, idx };
   // fd_buf_shred_map_query_t query;
-  // int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, &query );
+  // int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, &query, 0 );
   // FD_TEST( err != FD_MAP_ERR_INVAL && err != FD_MAP_ERR_CORRUPT && err != FD_MAP_ERR_KEY );
   // err = fd_buf_shred_map_query_test( &query );
   // FD_TEST( err == FD_MAP_SUCCESS );

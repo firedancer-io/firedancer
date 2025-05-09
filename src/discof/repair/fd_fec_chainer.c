@@ -28,7 +28,7 @@ fd_fec_chainer_new( void * shmem, ulong fec_max, ulong seed ) {
   fd_memset( shmem, 0, footprint );
 
   fd_fec_chainer_t * chainer;
-  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) ) + 2; /* +2 for fill ratio <= 0.25 */
+  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   chainer         = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_chainer_align(),  sizeof( fd_fec_chainer_t )               );
@@ -151,11 +151,8 @@ is_last_fec( ulong key ){
   return ( (uint)fd_ulong_extract( key, 0, 31 ) & UINT_MAX ) == UINT_MAX; // lol fix
 }
 
-/* chain performs a BFS using chainer->deque to advance the frontier and
-   connect orphaned FECs to the tree. */
-
 static void
-chain( fd_fec_chainer_t * chainer ) {
+link_orphans( fd_fec_chainer_t * chainer ) {
   while( FD_LIKELY( !fd_fec_queue_empty( chainer->queue ) ) ) {
     ulong          key = fd_fec_queue_pop_head( chainer->queue );
     fd_fec_ele_t * ele = fd_fec_orphaned_ele_query( chainer->orphaned, &key, NULL, chainer->pool );
@@ -171,9 +168,11 @@ chain( fd_fec_chainer_t * chainer ) {
        into ancestry.  Otherwise check for parent in ancestry. */
 
     if( FD_UNLIKELY( is_last_fec( parent_key->parent_key ) ) ) {
-      /* If the parent was the last fec of the previous slot, the parent_key
-         will be UINT_MAX. Need to query for the actual fec_set_idx of the
-         last FEC. This is the double query */
+
+      /* If the parent was the last fec of the previous slot, the
+         parent_key will be UINT_MAX. Need to query for the actual
+         fec_set_idx of the last FEC. This is the double query */
+
       parent_key = fd_fec_parents_query( chainer->parents, parent_key->parent_key, NULL );
       if( !parent_key ) continue; /* still orphaned */
     }
@@ -195,8 +194,10 @@ chain( fd_fec_chainer_t * chainer ) {
 
     /* Verify the chained merkle root. */
 
-    if ( FD_UNLIKELY( memcmp( ele->chained_merkle_root, parent->merkle_root, FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
-      fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .fec_set_idx = ele->fec_set_idx, .err = FD_FEC_CHAINER_ERR_MERKLE } );
+    uchar zeros[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 }; /* FIXME */
+    if ( FD_UNLIKELY( memcmp( ele->chained_merkle_root, parent->merkle_root, FD_SHRED_MERKLE_ROOT_SZ ) ) &&
+                    ( memcmp( ele->chained_merkle_root, zeros,               FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
+      fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_ERR_MERKLE } );
       continue;
     }
 
@@ -204,7 +205,8 @@ chain( fd_fec_chainer_t * chainer ) {
        a new fork) and deliver to `out`. */
 
     fd_fec_frontier_ele_insert( chainer->frontier, ele, chainer->pool );
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .fec_set_idx = ele->fec_set_idx, .err = FD_FEC_CHAINER_SUCCESS } );
+    // FD_LOG_NOTICE(( "pushing tail %lu %u %u %d %d", ele->slot, ele->fec_set_idx, ele->data_cnt, ele->data_complete, ele->slot_complete ));
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
 
     /* Check whether any of ele's children are orphaned and can be
        chained into the frontier. */
@@ -216,8 +218,8 @@ chain( fd_fec_chainer_t * chainer ) {
       fd_fec_children_t * fec_children = fd_fec_children_query( chainer->children, ele->slot, NULL );
       if( FD_UNLIKELY( !fec_children ) ) continue;
       for( ulong off = fd_slot_child_offs_const_iter_init( fec_children->child_offs );
-            !fd_slot_child_offs_const_iter_done( off );
-            off = fd_slot_child_offs_const_iter_next( fec_children->child_offs, off ) ) {
+           !fd_slot_child_offs_const_iter_done( off );
+           off = fd_slot_child_offs_const_iter_next( fec_children->child_offs, off ) ) {
         ulong child_key = (ele->slot + off) << 32; /* always fec_set_idx 0 */
         fd_fec_ele_t * child = fd_fec_orphaned_ele_query( chainer->orphaned, &child_key, NULL, chainer->pool );
         if( FD_LIKELY( child ) ) {
@@ -235,21 +237,24 @@ fd_fec_ele_t *
 fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
                        ulong              slot,
                        uint               fec_set_idx,
-                       uint               data_cnt,
+                       ushort             data_cnt,
                        int                data_complete,
                        int                slot_complete,
                        ushort             parent_off,
                        uchar const        merkle_root[static FD_SHRED_MERKLE_ROOT_SZ],
                        uchar const        chained_merkle_root[static FD_SHRED_MERKLE_ROOT_SZ] ) {
   ulong key = slot << 32 | fec_set_idx;
+  // FD_LOG_NOTICE(( "inserting %lu %u %u %d %d", slot, fec_set_idx, data_cnt, data_complete, slot_complete ));
 
   if( FD_UNLIKELY( fd_fec_chainer_query( chainer, slot, fec_set_idx ) ) ) {
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, fec_set_idx, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, parent_off, fec_set_idx, data_cnt, data_complete, slot_complete, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
     return NULL;
   }
 
 # if FD_FEC_CHAINER_USE_HANDHOLDING
   FD_TEST( fd_fec_pool_free( chainer->pool ) ); /* FIXME lru? */
+  FD_TEST( fd_fec_parents_key_cnt( chainer->parents ) < fd_fec_parents_key_max( chainer->parents ) );
+  FD_TEST( fd_fec_children_key_cnt( chainer->children ) < fd_fec_children_key_max( chainer->children ) );
 # endif
 
   fd_fec_ele_t * ele = fd_fec_pool_ele_acquire( chainer->pool );
@@ -266,7 +271,7 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   /* If it is the first FEC set, derive and insert parent_key->key into
      the parents map and parent_slot->slot into the children map. */
 
-  if ( FD_UNLIKELY( fec_set_idx == 0 ) ) {
+  if( FD_UNLIKELY( fec_set_idx == 0 ) ) {
     ulong parent_slot = slot - parent_off;
 
     fd_fec_parent_t * parent_key = fd_fec_parents_insert( chainer->parents, key );
@@ -297,8 +302,15 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
     /* This is not the last FEC set. */
     /* Key the child to point to ele (child's parent). */
 
-    fd_fec_parent_t * parent = fd_fec_parents_insert( chainer->parents, child_key );
-    parent->parent_key = key;
+    if( !fd_fec_parents_query( chainer->parents, child_key, NULL ) ) {
+      fd_fec_parent_t * parent = fd_fec_parents_insert( chainer->parents, child_key );
+      parent->parent_key = key;
+    } else {
+      fd_fec_parent_t * parent = fd_fec_parents_query( chainer->parents, child_key, NULL );
+      if( parent->parent_key != key ) {
+        FD_LOG_ERR(( "inconsistent keys %lu %u %lu %u", slot, fec_set_idx, parent->parent_key >> 32, (uint)parent->parent_key ));
+      }
+    }
   }
 
   /* Push ele into the BFS deque and the orphaned map for processing. */
@@ -306,7 +318,7 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   fd_fec_queue_push_tail( chainer->queue, key );
   fd_fec_orphaned_ele_insert( chainer->orphaned, ele, chainer->pool );
 
-  chain( chainer );
+  link_orphans( chainer );
 
   return ele;
 }

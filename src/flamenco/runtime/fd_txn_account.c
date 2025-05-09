@@ -178,7 +178,7 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
 int
 fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
                                         fd_pubkey_t const *   pubkey,
-                                        fd_funk_t *           funk,
+                                        fd_funk_t const *     funk,
                                         fd_funk_txn_t const * funk_txn ) {
   fd_txn_account_init( acct );
 
@@ -300,12 +300,12 @@ fd_txn_account_save( fd_txn_account_t * acct,
   acct->private_state.rec = rec;
   ulong reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk, wksp ), wksp, &err ) == NULL ) {
+  if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk ), wksp, &err ) == NULL ) {
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
   err = fd_txn_account_save_internal( acct, funk );
 
-  fd_funk_rec_publish( prepare );
+  fd_funk_rec_publish( funk, prepare );
 
   return err;
 }
@@ -344,7 +344,7 @@ fd_txn_account_mutable_fini( fd_txn_account_t * acct,
   /* Publish the record if the record is not in the current funk transaction
      and there exists a record in preparation in the fd_txn_account_t object */
   if( rec==NULL && acct->prepared_rec.rec!=NULL ) {
-    fd_funk_rec_publish( &acct->prepared_rec );
+    fd_funk_rec_publish( funk, &acct->prepared_rec );
   }
 }
 
@@ -553,7 +553,7 @@ void
 fd_txn_account_set_meta_info_writable( fd_txn_account_t *               acct,
                                        fd_solana_account_meta_t const * info ) {
   if( FD_UNLIKELY( !acct->private_state.meta ) ) FD_LOG_ERR(("account is not mutable" ));
-  fd_memcpy( &acct->private_state.meta->info, info, sizeof(fd_solana_account_meta_t) );
+  acct->private_state.meta->info = *info;
 }
 
 void

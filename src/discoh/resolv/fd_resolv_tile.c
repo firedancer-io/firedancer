@@ -6,6 +6,10 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
+
 #define FD_RESOLV_IN_KIND_FRAGMENT (0)
 #define FD_RESOLV_IN_KIND_BANK     (1)
 

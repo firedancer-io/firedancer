@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-FD_NANOPB_TAG=$(cat ../../../../nanopb/nanopb_tag.txt)
+FD_NANOPB_TAG=$(cat ../../../ballet/nanopb/nanopb_tag.txt)
 
 # Create venv and install packages
 python3.11 -m venv nanopb_venv

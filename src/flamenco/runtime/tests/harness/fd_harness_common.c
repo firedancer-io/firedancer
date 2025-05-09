@@ -8,7 +8,7 @@ fd_runtime_fuzz_runner_align( void ) {
 ulong
 fd_runtime_fuzz_runner_footprint( void ) {
   ulong txn_max = 4+fd_tile_cnt();
-  ulong rec_max = 1024UL;
+  uint rec_max  = 1024;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_runtime_fuzz_runner_align(), sizeof(fd_runtime_fuzz_runner_t) );
@@ -22,32 +22,33 @@ fd_runtime_fuzz_runner_new( void * mem,
                             void * spad_mem,
                             ulong  wksp_tag ) {
   ulong txn_max = 4+fd_tile_cnt();
-  ulong rec_max = 1024UL;
+  uint rec_max  = 1024;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_fuzz_runner_align(), sizeof(fd_runtime_fuzz_runner_t) );
   void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                   fd_funk_footprint( txn_max, rec_max) );
   FD_SCRATCH_ALLOC_FINI( l, fd_runtime_fuzz_runner_align() );
 
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_mem, wksp_tag, (ulong)fd_tickcount(), txn_max, rec_max ) );
+  fd_runtime_fuzz_runner_t * runner = runner_mem;
+
+  fd_funk_t * funk = fd_funk_join( runner->funk, fd_funk_new( funk_mem, wksp_tag, (ulong)fd_tickcount(), txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) {
     FD_LOG_WARNING(( "fd_funk_new() failed" ));
     return NULL;
   }
 
-  fd_runtime_fuzz_runner_t * runner = runner_mem;
-  runner->funk = funk;
-
   /* Create spad */
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
+  runner->wksp = fd_wksp_containing( runner->spad );
   return runner;
 }
 
 void *
 fd_runtime_fuzz_runner_delete( fd_runtime_fuzz_runner_t * runner ) {
   if( FD_UNLIKELY( !runner ) ) return NULL;
-  fd_funk_delete( fd_funk_leave( runner->funk ) );
-  runner->funk = NULL;
+  void * shfunk;
+  fd_funk_leave( runner->funk, &shfunk );
+  fd_funk_delete( shfunk );
   if( FD_UNLIKELY( fd_spad_verify( runner->spad ) ) ) {
     FD_LOG_ERR(( "fd_spad_verify() failed" ));
   }
@@ -80,7 +81,6 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
   }
 
   assert( funk );
-  assert( funk->magic == FD_FUNK_MAGIC );
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
                                                    /* funk        */ funk,

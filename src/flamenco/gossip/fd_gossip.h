@@ -24,8 +24,9 @@
 #define FD_GOSSIP_SOCKET_TAG_TPU_VOTE           (9)
 #define FD_GOSSIP_SOCKET_TAG_TVU                (10)
 #define FD_GOSSIP_SOCKET_TAG_TVU_QUIC           (11)
+#define FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC      (12)
 
-#define FD_GOSSIP_SOCKET_TAG_MAX                (12)
+#define FD_GOSSIP_SOCKET_TAG_MAX                (13)
 
 
 enum fd_gossip_crds_route {
@@ -175,6 +176,10 @@ struct fd_gossip_metrics {
   ulong push_crds_duplicate[FD_METRICS_COUNTER_GOSSIP_PUSH_CRDS_DUPLICATE_MESSAGE_CNT];
   ulong push_crds_drop_reason[FD_METRICS_COUNTER_GOSSIP_PUSH_CRDS_DROP_CNT];
   ulong push_crds_queue_cnt;
+
+  /* Value DS sizes */
+  ulong value_meta_cnt;
+  ulong value_vec_cnt;
 
   /* Active Push Destinations */
   ulong active_push_destinations;

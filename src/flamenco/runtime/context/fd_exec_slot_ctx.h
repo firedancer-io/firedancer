@@ -47,7 +47,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_sysvar_cache_t *         sysvar_cache;
 
   fd_txncache_t *             status_cache;
-  fd_slot_history_t *         slot_history;
+  fd_slot_history_global_t *  slot_history;
 
   int                         enable_exec_recording; /* Enable/disable execution metadata
                                                         recording, e.g. txn logs.  Analogue
@@ -60,6 +60,11 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_wksp_t *                 runtime_wksp; /* TODO: this should hold wksp for runtime_spad. */
   fd_wksp_t *                 funk_wksp; /* TODO: this should hold wksp for funk. */
+
+  /* This serializes updates to the vote account and stake account
+     related data structures in the slot bank and the epoch bank.
+   */
+  fd_rwlock_t                 vote_stake_lock[ 1 ];
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
@@ -83,16 +88,16 @@ fd_exec_slot_ctx_delete( void * mem );
 
 /* fd_exec_slot_ctx_recover re-initializes the current epoch/slot
    context and recovers it from the manifest of a Solana Labs snapshot.
-   Moves ownership of manifest to this function.  Assumes objects in
-   manifest were allocated using a spad which is scoped to the replay tile.
-   Assumes that slot context and epoch context use same allocator.
-   On return, manifest is destroyed.  Returns ctx on success.
+
+   Copies content of manifest to ctx.  The 'manifest' object may be
+   freed after this function returns.  Assumes that slot context and
+   epoch context use same allocator.  Returns ctx on success.
    On failure, logs reason for error and returns NULL. */
 
 fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
-                          fd_solana_manifest_t * manifest,
-                          fd_spad_t *            spad );
+fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         ctx,
+                          fd_solana_manifest_t const * manifest,
+                          fd_spad_t *                  spad );
 
 /* fd_exec_slot_ctx_recover re-initializes the current slot
    context's status cache from the provided solana slot deltas.

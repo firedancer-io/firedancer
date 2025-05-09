@@ -110,6 +110,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_tpool_t *         tpool,
                            fd_spad_t *          runtime_spad );
 
+
 /* fd_hash_account is the method to compute the account
    hash.  It includes the following content:
     - lamports
@@ -154,25 +155,9 @@ fd_accounts_hash( fd_funk_t *             funk,
                   fd_slot_bank_t *        slot_bank,
                   fd_hash_t *             accounts_hash,
                   fd_spad_t *             runtime_spad,
-                  int                     lthash_enabled,
                   fd_features_t *         features,
-                  fd_exec_para_cb_ctx_t * exec_para_ctx );
-
-/* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
-int
-fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
-                  fd_hash_t *             accounts_hash,
-                  uint                    check_hash,
-                  fd_spad_t *             runtime_spad,
-                  fd_exec_para_cb_ctx_t * exec_para_ctx );
-
-/* Generate an incremental hash of the entire account database, conditionally including in the epoch account hash. */
-int
-fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
-                      fd_hash_t *          accounts_hash,
-                      fd_funk_txn_t *      child_txn,
-                      uint                 check_hash,
-                      fd_spad_t *          spad );
+                  fd_exec_para_cb_ctx_t * exec_para_ctx,
+                  fd_lthash_value_t *  lt_hash );
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version
@@ -213,6 +198,22 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
 
 void
 fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx);
+
+int
+fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
+                           fd_hash_t *          accounts_hash,
+                           fd_funk_txn_t *      child_txn,
+                           ulong                do_hash_verify,
+                           fd_spad_t *          spad );
+
+void
+fd_account_hash_task( void * tpool,
+                      ulong t0, ulong t1,
+                      void *args,
+                      void *reduce, ulong stride,
+                      ulong l0 , ulong l1 ,
+                      ulong m0 , ulong m1 ,
+                      ulong n0 , ulong n1  );
 
 FD_PROTOTYPES_END
 

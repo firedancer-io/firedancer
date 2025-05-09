@@ -142,7 +142,10 @@ unmarshal_bank_preimage( cJSON const *            json,
 
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "bank_hash"           ), out->bank_hash          ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "parent_bank_hash"    ), out->prev_bank_hash     ) );
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "accounts_delta_hash" ), out->account_delta_hash ) );
+  if ( !unmarshal_hash( cJSON_GetObjectItem( head, "accounts_delta_hash" ), out->account_delta_hash ) )
+    fd_memset(out->account_delta_hash, 0, sizeof(out->account_delta_hash));
+  if ( !unmarshal_hash( cJSON_GetObjectItem( head, "accounts_lt_hash_checksum" ), out->accounts_lt_hash_checksum ) )
+    fd_memset(out->account_delta_hash, 0, sizeof(out->accounts_lt_hash_checksum));
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "last_blockhash"      ), out->poh_hash           ) );
 
   if ( cJSON_GetObjectItem( head, "signature_count" ) != NULL )

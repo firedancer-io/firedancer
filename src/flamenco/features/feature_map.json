@@ -165,7 +165,7 @@
   {"name":"enable_poseidon_syscall","pubkey": "FL9RsQA6TVUoh5xJQ9d936RHSebA1NLQqe3Zv9sXZRpr","activated_on_all_clusters":1},
   {"name":"timely_vote_credits","old": "2oXpeh141pPZCTCFHBsvCwG2BtaHZZAtrVhwaxSy6brS","pubkey":"tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ","activated_on_all_clusters":1},
   {"name":"remaining_compute_units_syscall_enabled","pubkey": "5TuppMutoyzhUSfuYdhgzD47F92GL1g89KpCZQKqedxP"},
-  {"name":"enable_loader_v4","pubkey": "8Cb77yHjPWe9wuWUfXeh6iszFGCDGNCoFk3tprViYHNm"},
+  {"name":"enable_loader_v4","pubkey": "G8yMNsNUd4p3VB22ycrPEB1qRgepCFeFpAqD2Lr66s36","old": "8Cb77yHjPWe9wuWUfXeh6iszFGCDGNCoFk3tprViYHNm","activated_on_all_clusters":1},
   {"name":"require_rent_exempt_split_destination","pubkey": "D2aip4BBr8NPWtU9vLrwrBvbuaQ8w1zV38zFLxx4pfBV","cleaned_up":[2,0,0],"activated_on_all_clusters":1},
   {"name":"better_error_codes_for_tx_lamport_check","pubkey": "Ffswd3egL3tccB6Rv3XY6oqfdzn913vUcjCSnpvCKpfx","cleaned_up":[2,0,0],"activated_on_all_clusters":1},
   {"name":"enable_alt_bn128_compression_syscall","pubkey": "EJJewYSddEEtSZHiqugnvhQHiWyZKjkFDQASd7oKSagn","activated_on_all_clusters":1},
@@ -231,5 +231,6 @@
   {"name":"drop_unchained_merkle_shreds","pubkey":"3A9WtMU4aHuryD3VN7SFKdfXto8HStLb1Jj6HjkgfnGL"},
   {"name":"verify_retransmitter_signature","pubkey":"BZ5g4hRbu5hLQQBdPyo2z9icGyJ8Khiyj3QS6dhWijTb"},
   {"name":"enable_turbine_extended_fanout_experiments","pubkey":"BZn14Liea52wtBwrXUxTv6vojuTTmfc7XGEDTXrvMD7b"},
-  {"name":"vote_only_retransmitter_signed_fec_sets","pubkey":"RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph"}
+  {"name":"vote_only_retransmitter_signed_fec_sets","pubkey":"RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph"},
+  {"name":"mask_out_rent_epoch_in_vm_serialization","pubkey":"RENtePQcDLrAbxAsP3k8dwVcnNYQ466hi2uKvALjnXx"}
 ]

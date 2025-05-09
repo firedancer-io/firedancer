@@ -100,23 +100,16 @@ calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
 
       if( instr->data_sz==0UL || !fd_memeq( prog_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) continue;
 
-      fd_bincode_decode_ctx_t decode = {
-        .data    = instr_data,
-        .dataend = instr_data + instr->data_sz
-      };
-
-      ulong total_sz   = 0UL;
-      int   decode_err = fd_system_program_instruction_decode_footprint( &decode, &total_sz );
+      int decode_err;
+      fd_system_program_instruction_t * instruction = fd_bincode_decode_spad(
+          system_program_instruction, spad,
+          instr_data,
+          instr->data_sz,
+          &decode_err );
       if( FD_UNLIKELY( decode_err ) ) continue;
 
-      uchar * mem = fd_spad_alloc( spad, fd_system_program_instruction_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for system program instruction" ));
-      }
-
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L330-L346 */
-      fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
-      ulong                             space       = 0UL;
+      ulong space = 0UL;
 
       switch( instruction->discriminant ) {
         case fd_system_program_instruction_enum_create_account: {
@@ -264,7 +257,7 @@ would_fit( fd_cost_tracker_t const *     self,
 
     fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
     fd_account_costs_pair_t_mapnode_t elem;
-    fd_memcpy( &elem.elem.key, writable_acc, sizeof(fd_pubkey_t) );
+    elem.elem.key = *writable_acc;
 
     fd_account_costs_pair_t_mapnode_t * chained_cost = fd_account_costs_pair_t_map_find( pool, root, &elem );
     if( chained_cost ) {
@@ -292,12 +285,12 @@ add_transaction_execution_cost( fd_cost_tracker_t *           self,
 
     fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
     fd_account_costs_pair_t_mapnode_t elem;
-    fd_memcpy( &elem.elem.key, writable_acc, sizeof(fd_pubkey_t) );
+    elem.elem.key = *writable_acc;
 
     fd_account_costs_pair_t_mapnode_t * account_cost = fd_account_costs_pair_t_map_find( pool, *root, &elem );
     if( account_cost==NULL ) {
       account_cost = fd_account_costs_pair_t_map_acquire( pool );
-      fd_memcpy( &account_cost->elem.key, writable_acc, sizeof(fd_pubkey_t) );
+      account_cost->elem.key  = *writable_acc;
       account_cost->elem.cost = adjustment;
       fd_account_costs_pair_t_map_insert( pool, root, account_cost );
     } else {

@@ -1,6 +1,7 @@
 #include "../firedancer/topology.h"
 #include "../firedancer/config.h"
 #include "../shared_dev/boot/fd_dev_boot.h"
+#include "../shared/fd_action.h"
 #include "../shared/commands/configure/configure.h"
 
 char const * FD_APP_NAME    = "Firedancer";
@@ -74,22 +75,30 @@ extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_cswtch;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_plugin;
+extern fd_topo_run_tile_t fd_tile_bencho;
+extern fd_topo_run_tile_t fd_tile_benchg;
+extern fd_topo_run_tile_t fd_tile_benchs;
 
 extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_storei;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
+extern fd_topo_run_tile_t fd_tile_writer;
 extern fd_topo_run_tile_t fd_tile_batch;
 extern fd_topo_run_tile_t fd_tile_pohi;
 extern fd_topo_run_tile_t fd_tile_sender;
 extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_restart;
-extern fd_topo_run_tile_t fd_tile_blackhole;
 extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
+extern fd_topo_run_tile_t fd_tile_archiver_backtest;
+
+extern fd_topo_run_tile_t fd_tile_bencho;
+extern fd_topo_run_tile_t fd_tile_benchg;
+extern fd_topo_run_tile_t fd_tile_benchs;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -105,21 +114,28 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_cswtch,
   &fd_tile_gui,
   &fd_tile_plugin,
+  &fd_tile_bencho,
+  &fd_tile_benchg,
+  &fd_tile_benchs,
   &fd_tile_gossip,
   &fd_tile_repair,
   &fd_tile_storei,
   &fd_tile_replay,
   &fd_tile_execor,
+  &fd_tile_writer,
   &fd_tile_batch,
   &fd_tile_pohi,
   &fd_tile_sender,
   &fd_tile_eqvoc,
   &fd_tile_rpcserv,
   &fd_tile_restart,
-  &fd_tile_blackhole,
   &fd_tile_archiver_feeder,
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
+  &fd_tile_archiver_backtest,
+  &fd_tile_bencho,
+  &fd_tile_benchg,
+  &fd_tile_benchs,
   NULL,
 };
 
@@ -145,6 +161,7 @@ extern action_t fd_action_txn;
 extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
 extern action_t fd_action_sim;
+extern action_t fd_action_backtest;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -169,11 +186,12 @@ action_t * ACTIONS[] = {
   &fd_action_wksp,
   &fd_action_gossip,
   &fd_action_sim,
+  &fd_action_backtest,
   NULL,
 };
 
 int
 main( int     argc,
       char ** argv ) {
-  return fd_dev_main( argc, argv, (char const *)fdctl_default_config, fdctl_default_config_sz, (char const *)firedancer_default_config, firedancer_default_config_sz, fd_topo_initialize );
+  return fd_dev_main( argc, argv, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, fd_topo_initialize );
 }

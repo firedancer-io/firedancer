@@ -46,8 +46,9 @@ struct __attribute__((aligned(FD_FUNK_TXN_ALIGN))) fd_funk_txn_private {
   uint   stack_cidx;        /* Internal use by funk */
   ulong  tag;               /* Internal use by funk */
 
-  ulong  rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
-  ulong  rec_tail_idx;      /* "                       last          " */
+  uint  rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
+  uint  rec_tail_idx;      /* "                       last          " */
+  uchar lock;              /* Internal use by funk for sychronizing modifications to txn object */
 };
 
 typedef struct fd_funk_txn_private fd_funk_txn_t;
@@ -71,7 +72,7 @@ typedef struct fd_funk_txn_private fd_funk_txn_t;
 #define MAP_HASH              map_hash
 #define MAP_MAGIC             (0xf173da2ce7172db0UL) /* Firedancer txn db version 0 */
 #define MAP_IMPL_STYLE        1
-#include "../util/tmpl/fd_map_para.c"
+#include "../util/tmpl/fd_map_chain_para.c"
 #undef  MAP_HASH
 
 FD_PROTOTYPES_BEGIN
@@ -141,10 +142,10 @@ fd_funk_txn_end_write( fd_funk_t * funk );
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_txn_query( fd_funk_txn_xid_t const * xid,
-                   fd_funk_txn_map_t * map ) {
+                   fd_funk_txn_map_t *       map ) {
   do {
     fd_funk_txn_map_query_t query[1];
-    if( FD_UNLIKELY( fd_funk_txn_map_query_try( map, xid, NULL, query ) ) ) return NULL;
+    if( FD_UNLIKELY( fd_funk_txn_map_query_try( map, xid, NULL, query, 0 ) ) ) return NULL;
     fd_funk_txn_t * ele = fd_funk_txn_map_query_ele( query );
     if( FD_LIKELY( !fd_funk_txn_map_query_test( query ) ) ) return ele;
   } while( 1 );
@@ -183,13 +184,13 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_txn_xid( fd_funk_txn
    no siblings, there are no transaction histories competing with txn
    globally. */
 
-#define FD_FUNK_ACCESSOR(field)                     \
-FD_FN_PURE static inline fd_funk_txn_t *            \
-fd_funk_txn_##field( fd_funk_txn_t const * txn,     \
-                     fd_funk_txn_pool_t * pool ) {  \
-  ulong idx = fd_funk_txn_idx( txn->field##_cidx ); \
-  if( idx==FD_FUNK_TXN_IDX_NULL ) return NULL;      \
-  return pool->ele + idx;                           \
+#define FD_FUNK_ACCESSOR(field)                          \
+FD_FN_PURE static inline fd_funk_txn_t *                 \
+fd_funk_txn_##field( fd_funk_txn_t const *      txn,     \
+                     fd_funk_txn_pool_t const * pool ) { \
+  ulong idx = fd_funk_txn_idx( txn->field##_cidx );      \
+  if( idx==FD_FUNK_TXN_IDX_NULL ) return NULL;           \
+  return pool->ele + idx;                                \
 }
 
 FD_FUNK_ACCESSOR( parent       )
@@ -363,12 +364,6 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * xid,
                      int                       verbose );
 
-/* fd_funk_txn_is_full returns true if the transaction map is
-   full. No more in-preparation transactions are allowed. */
-
-int
-fd_funk_txn_is_full( fd_funk_t * funk );
-
 /* fd_funk_txn_cancel cancels in-preparation transaction txn and any of
    its in-preparation descendants.  On success, returns the number of
    transactions cancelled and 0 on failure.  The state of records in the
@@ -453,13 +448,14 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
                                  fd_funk_txn_t * txn,
                                  int             verbose );
 
-/* Iterator which walks all in-preparation transactions. Usage is:
+/* fd_funk_txn_all_iter_t iterators over all funk transaction objects.
+   Usage is:
 
-     fd_funk_txn_all_iter_t txn_iter[1];
-     for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
-       fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
-       ...
-     }
+   fd_funk_txn_all_iter_t txn_iter[1];
+   for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
+     fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
+     ...
+   }
 */
 
 struct fd_funk_txn_all_iter {
@@ -482,8 +478,6 @@ fd_funk_txn_t * fd_funk_txn_all_iter_ele( fd_funk_txn_all_iter_t * iter );
 
 /* Misc */
 
-#ifdef FD_FUNK_HANDHOLDING
-
 /* fd_funk_txn_verify verifies a transaction map.  Returns
    FD_FUNK_SUCCESS if the transaction map appears intact and
    FD_FUNK_ERR_INVAL if not (logs details).  Meant to be called as part
@@ -496,9 +490,7 @@ fd_funk_txn_verify( fd_funk_t * funk );
    a valid in-prep transaction. */
 
 int
-fd_funk_txn_valid( fd_funk_t * funk, fd_funk_txn_t const * txn );
-
-#endif
+fd_funk_txn_valid( fd_funk_t const * funk, fd_funk_txn_t const * txn );
 
 FD_PROTOTYPES_END
 

@@ -1,6 +1,7 @@
 #include "fd_types_custom.h"
 #include "fd_bincode.h"
 #include "fd_types.h"
+#include "fd_types_meta.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -89,9 +90,17 @@ fd_gossip_ip4_addr_walk( void *                       w,
                          char const *                 name,
                          uint                         level ) {
 
-  char buf[ 16 ];
-  sprintf( buf, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *self ) );
-  fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip4_addr", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip4_addr", level++ );
+  uchar * octet = (uchar *)self;
+  for( uchar i = 0; i < 4; ++i ) {
+    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip4_addr", level-- );
+  /* TODO: Add support for optional pretty-printing like serde?
+     Saving this in the meantime */
+  // char buf[ 16 ];
+  // sprintf( buf, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *self ) );
+  // fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip4_addr", level );
 }
 
 void
@@ -100,29 +109,28 @@ fd_gossip_ip6_addr_walk( void *                       w,
                          fd_types_walk_fn_t           fun,
                          char const *                 name,
                          uint                         level ) {
-
-  char buf[ 40 ];
-  sprintf( buf,
-           "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-           FD_LOG_HEX16_FMT_ARGS( self->us ) );
-  fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip6_addr", level++ );
+  uchar * octet = (uchar *)self;
+  for( uchar i = 0; i < 16; ++i ) {
+    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip6_addr", level-- );
+  /* Saving this for when we support configurable pretty-printing mode */
+  // char buf[ 40 ];
+  // sprintf( buf,
+  //          "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+  //          FD_LOG_HEX16_FMT_ARGS( self->us ) );
+  // fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
 }
 
 int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   FD_LOG_ERR(( "todo"));
 }
 
-int fd_tower_sync_encode_global( fd_tower_sync_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  FD_LOG_ERR(( "todo"));
-}
-
-int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_tower_sync_t);
-  void const * start_data = ctx->data;
-  int err = fd_tower_sync_decode_footprint_inner( ctx, total_sz );
-  ctx->data = start_data;
-  return err;
-}
+static void fd_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+static int fd_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+static void fd_lockout_offset_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+static int fd_lockout_offset_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 
 int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   /* This is a modified version of fd_compact_tower_sync_decode_footprint_inner() */
@@ -150,11 +158,8 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
   for( ulong i = 0; i < lockout_offsets_len; ++i ) {
 
     uchar const * start_data = ctx->data;
-    if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
     err = fd_lockout_offset_decode_footprint_inner( ctx, total_sz );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
+    if( FD_UNLIKELY( err ) ) return err;
 
     /* The second modification is that we want to grab the lockout offset from
     the deque to make sure that we can do a checked add successfully. */
@@ -189,16 +194,15 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
   return 0;
 }
 
-void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_tower_sync_t * self = (fd_tower_sync_t *)mem;
-  fd_tower_sync_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_tower_sync_t);
-  void * * alloc_mem = &alloc_region;
-  fd_tower_sync_decode_inner( mem, alloc_mem, ctx );
-  return self;
+int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_tower_sync_t);
+  void const * start_data = ctx->data;
+  int err = fd_tower_sync_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
 }
 
-void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+static void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_tower_sync_t * self = (fd_tower_sync_t *)struct_mem;
   self->has_root = 1;
   fd_bincode_uint64_decode_unsafe( &self->root, ctx );
@@ -237,6 +241,15 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
     }
   }
   fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
+}
+
+void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_tower_sync_t * self = (fd_tower_sync_t *)mem;
+  fd_tower_sync_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_tower_sync_t);
+  void * * alloc_mem = &alloc_region;
+  fd_tower_sync_decode_inner( mem, alloc_mem, ctx );
+  return self;
 }
 
 void fd_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {

@@ -11,12 +11,38 @@
 
    https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/slot_hashes.rs#L19 */
 
-#define FD_SYSVAR_SLOT_HASHES_CAP (512UL)
+#define FD_SYSVAR_SLOT_HASHES_CAP   (512UL)
+#define FD_SYSVAR_SLOT_HASHES_ALIGN (FD_SLOT_HASHES_GLOBAL_ALIGN)
 
 FD_PROTOTYPES_BEGIN
 
-/* Initialize the slot hashes sysvar account (used for tests currently) */
-void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t * slot_hashes );
+
+ulong
+fd_sysvar_slot_hashes_footprint( ulong slot_hashes_cap );
+
+void *
+fd_sysvar_slot_hashes_new( void *   mem,
+                           ulong    slot_hashes_cap );
+
+fd_slot_hashes_global_t *
+fd_sysvar_slot_hashes_join( void *            shmem,
+                            fd_slot_hash_t ** slot_hash );
+
+void *
+fd_sysvar_slot_hashes_leave( fd_slot_hashes_global_t * slot_hashes_global,
+                             fd_slot_hash_t *          slot_hash );
+
+void *
+fd_sysvar_slot_hashes_delete( void * mem );
+
+/* Write a funk entry for the slot hashes sysvar account (exposed for tests) */
+void
+fd_sysvar_slot_hashes_write( fd_exec_slot_ctx_t *      slot_ctx,
+                             fd_slot_hashes_global_t * slot_hashes_global );
+
+void
+fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
+                            fd_spad_t *          runtime_spad );
 
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void
@@ -26,7 +52,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
    accounts manager.  On success, returns 0 and writes deserialized
    value into *result.  On failure, returns the bincode/acc_mgr error
    code. */
-fd_slot_hashes_t *
+fd_slot_hashes_global_t *
 fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t * slot_ctx,
                             fd_spad_t *          runtime_spad );
 

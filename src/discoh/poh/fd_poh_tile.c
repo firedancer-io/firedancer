@@ -545,6 +545,9 @@ typedef struct {
 
   ulong features_activation_avail;
   fd_shred_features_activation_t features_activation[1];
+
+  ulong parent_slot;
+  uchar parent_block_id[ 32 ];
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -599,16 +602,16 @@ struct poh_link {
 
 typedef struct poh_link poh_link_t;
 
-poh_link_t gossip_dedup;
-poh_link_t stake_out;
-poh_link_t crds_shred;
-poh_link_t replay_resolv;
+static poh_link_t gossip_dedup;
+static poh_link_t stake_out;
+static poh_link_t crds_shred;
+static poh_link_t replay_resolv;
 
-poh_link_t replay_plugin;
-poh_link_t gossip_plugin;
-poh_link_t start_progress_plugin;
-poh_link_t vote_listener_plugin;
-poh_link_t validator_info_plugin;
+static poh_link_t replay_plugin;
+static poh_link_t gossip_plugin;
+static poh_link_t start_progress_plugin;
+static poh_link_t vote_listener_plugin;
+static poh_link_t validator_info_plugin;
 
 static void
 poh_link_wait_credit( poh_link_t * link ) {
@@ -1230,7 +1233,6 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
                   ulong         hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
                   uchar const * parent_block_id,     /* The block id of the parent block */
                   ulong const * features_activation  /* The activation slot of shred-tile features */ ) {
-  (void)parent_block_id;
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   ulong slot_before_reset = ctx->slot;
@@ -1262,6 +1264,12 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
 
   memcpy( ctx->reset_hash, reset_blockhash, 32UL );
   memcpy( ctx->hash, reset_blockhash, 32UL );
+  if( FD_LIKELY( parent_block_id!=NULL ) ) {
+    ctx->parent_slot = completed_bank_slot;
+    memcpy( ctx->parent_block_id, parent_block_id, 32UL );
+  } else {
+    FD_LOG_WARNING(( "fd_ext_poh_reset(block_id=null,reset_slot=%lu,parent_slot=%lu) - ignored", completed_bank_slot, ctx->parent_slot ));
+  }
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
   ctx->last_slot    = ctx->slot;
@@ -1394,6 +1402,15 @@ publish_tick( fd_poh_ctx_t *      ctx,
 
   ulong slot = fd_ulong_if( meta->block_complete, ctx->slot-1UL, ctx->slot );
   meta->parent_offset = 1UL+slot-ctx->reset_slot;
+
+  /* From poh_reset we received the block_id for ctx->parent_slot.
+     Now we're telling shred tile to build on parent: (slot-meta->parent_offset).
+     The block_id that we're passing is valid iff the two are the same,
+     i.e. ctx->parent_slot == (slot-meta->parent_offset). */
+  meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
+  if( FD_LIKELY( meta->parent_block_id_valid ) ) {
+    fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  }
 
   FD_TEST( hashcnt>ctx->last_hashcnt );
   ulong hash_delta = hashcnt-ctx->last_hashcnt;
@@ -1886,6 +1903,12 @@ publish_microblock( fd_poh_ctx_t *      ctx,
   meta->reference_tick = (ctx->hashcnt/ctx->hashcnt_per_tick) % ctx->ticks_per_slot;
   meta->block_complete = !ctx->hashcnt;
 
+  /* Refer to publish_tick() for details on meta->parent_block_id_valid. */
+  meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
+  if( FD_LIKELY( meta->parent_block_id_valid ) ) {
+    fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  }
+
   dst += sizeof(fd_entry_batch_meta_t);
   fd_entry_batch_header_t * header = (fd_entry_batch_header_t *)dst;
   header->hashcnt_delta = hashcnt_delta;
@@ -1991,6 +2014,10 @@ after_frag( fd_poh_ctx_t *      ctx,
   ulong executed_txn_cnt = 0UL;
   ulong cus_used         = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
+    /* It's important that we check if a transaction is included in the
+       block with FD_TXN_P_FLAGS_EXECUTE_SUCCESS since
+       actual_consumed_cus may have a nonzero value for excluded
+       transactions used for monitoring purposes */
     if( FD_LIKELY( txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       executed_txn_cnt++;
       cus_used += txns[ i ].bank_cu.actual_consumed_cus;

@@ -38,7 +38,6 @@ print("", file=body)
 
 preambletypes = set()
 postambletypes = set()
-indent = ''
 
 # Map from primitive types to bincode function names
 simpletypes = dict()
@@ -92,8 +91,13 @@ fuzzytypes = {
 }
 
 class TypeNode:
-    def __init__(self, json):
-        self.name = json["name"]
+    def __init__(self, json, **kwargs):
+        if json is not None:
+            self.name = json["name"]
+        elif 'name' in kwargs:
+            self.name = kwargs['name']
+        else:
+            raise ValueError(f"invalid arguments {kwargs} provided to TypeNode!")
 
     def isFixedSize(self):
         return False
@@ -147,7 +151,7 @@ class PrimitiveMember(TypeNode):
             return False
         return self.type in fuzzytypes
 
-    def string_generate(n, varint):
+    def string_generate(n, varint, indent):
         print(f'{indent}  ulong slen = fd_rng_ulong( rng ) % 256;', file=body)
         print(f'{indent}  char *buffer = (char *) *alloc_mem;', file=body)
         print(f'{indent}  *alloc_mem = (uchar *) *alloc_mem + slen;', file=body)
@@ -155,31 +159,31 @@ class PrimitiveMember(TypeNode):
         print(f'{indent}  LLVMFuzzerMutate( (uchar *)self->{n}, slen, slen );', file=body)
         print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
 
-    def ushort_generate(n, varint):
+    def ushort_generate(n, varint, indent):
         print(f'{indent}  self->{n} = fd_rng_ushort( rng );', file=body)
 
-    def ulong_generate(n, varint):
+    def ulong_generate(n, varint, indent):
         print(f'{indent}  self->{n} = fd_rng_ulong( rng );', file=body)
 
     emitGenerateMap = {
-        "char" :      lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
-        "char*" :     lambda n, varint: PrimitiveMember.string_generate(n, varint),
-        "char[32]" :  lambda n, varint: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
-        "double" :    lambda n, varint: print(f'{indent}  self->{n} = fd_rng_double_o( rng );', file=body),
-        "long" :      lambda n, varint: print(f'{indent}  self->{n} = fd_rng_long( rng );', file=body),
-        "uint" :      lambda n, varint: print(f'{indent}  self->{n} = fd_rng_uint( rng );', file=body),
-        "uint128" :   lambda n, varint: print(f'{indent}  self->{n} = fd_rng_uint128( rng );', file=body),
-        "bool" :      lambda n, varint: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
-        "uchar" :     lambda n, varint: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
-        "uchar[32]" : lambda n, varint: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
-        "uchar[128]" :lambda n, varint: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
-        "uchar[2048]":lambda n, varint: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
-        "ulong" :     lambda n, varint: PrimitiveMember.ulong_generate(n, varint),
-        "ushort" :    lambda n, varint: PrimitiveMember.ushort_generate(n, varint),
+        "char" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
+        "char*" :     lambda n, varint, indent: PrimitiveMember.string_generate(n, varint, indent),
+        "char[32]" :  lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
+        "double" :    lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_double_o( rng );', file=body),
+        "long" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_long( rng );', file=body),
+        "uint" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uint( rng );', file=body),
+        "uint128" :   lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uint128( rng );', file=body),
+        "bool" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
+        "uchar" :     lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
+        "uchar[32]" : lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
+        "uchar[128]" :lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
+        "uchar[2048]":lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
+        "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_generate(n, varint, indent),
+        "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_generate(n, varint, indent),
     }
 
-    def emitGenerate(self):
-        PrimitiveMember.emitGenerateMap[self.type](self.name, self.varint)
+    def emitGenerate(self, indent=''):
+        PrimitiveMember.emitGenerateMap[self.type](self.name, self.varint, indent)
 
 # This is a member which IS a struct, NOT a member OF a struct
 class StructMember(TypeNode):
@@ -197,7 +201,7 @@ class StructMember(TypeNode):
     def isFuzzy(self):
         return self.type in fuzzytypes
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         # FIXME: tower sync is the only known case, consider checking for other generators
         for entry in entries:
             if entry['name'] == self.name and 'encoders' in entry and entry['encoders'] is False:
@@ -206,37 +210,63 @@ class StructMember(TypeNode):
 
 
 class VectorMember(TypeNode):
-    def __init__(self, container, json):
-        super().__init__(json)
-        self.element = json["element"]
-        self.compact = ("modifier" in json and json["modifier"] == "compact")
-        self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
+    def __init__(self, container, json, **kwargs):
+        if (json is not None):
+            super().__init__(json)
+            self.element = json["element"]
+            self.compact = ("modifier" in json and json["modifier"] == "compact")
+            self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
+        elif(json is None and 'name' in kwargs):
+            super().__init__(json, name=kwargs['name'])
+            if 'element' in kwargs:
+                self.element = kwargs['element']
+            else:
+                raise ValueError(f"missing element argument in {kwargs}")
+            self.compact = False
+            self.ignore_underflow = False
 
-    def emitGenerate(self):
-        print(f'  self->{self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
-        print(f'  if( self->{self.name}_len ) {{', file=body)
+    def emitGenerate(self, indent=''):
+        print(f'{indent}  self->{self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
+        print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
         el = f'{namespace}_{self.element}'
-        el = el.upper()
 
         if self.element == "uchar":
-            print(f'    self->{self.name} = (uchar *) *alloc_mem;', file=body)
-            print(f'    *alloc_mem = (uchar *) *alloc_mem + self->{self.name}_len;', file=body)
-            print(f'    for( ulong i=0; i < self->{self.name}_len; ++i) {{ self->{self.name}[i] = fd_rng_uchar( rng ) % 0x80; }}', file=body)
+            print(f'{indent}    self->{self.name} = (uchar *) *alloc_mem;', file=body)
+            print(f'{indent}    *alloc_mem = (uchar *) *alloc_mem + self->{self.name}_len;', file=body)
+            print(f'{indent}    for( ulong i=0; i < self->{self.name}_len; ++i) {{ self->{self.name}[i] = fd_rng_uchar( rng ) % 0x80; }}', file=body)
         else:
             if self.element in simpletypes:
-                print(f'    self->{self.name} = ({self.element} *) *alloc_mem;', file=body)
-                print(f'    *alloc_mem = (uchar *) *alloc_mem + sizeof({self.element})*self->{self.name}_len;', file=body)
-                print(f'    LLVMFuzzerMutate( (uchar *) self->{self.name}, sizeof({self.element})*self->{self.name}_len, sizeof({self.element})*self->{self.name}_len );', file=body)
+                print(f'{indent}    self->{self.name} = ({self.element} *) *alloc_mem;', file=body)
+                print(f'{indent}    *alloc_mem = (uchar *) *alloc_mem + sizeof({self.element})*self->{self.name}_len;', file=body)
+                print(f'{indent}    LLVMFuzzerMutate( (uchar *) self->{self.name}, sizeof({self.element})*self->{self.name}_len, sizeof({self.element})*self->{self.name}_len );', file=body)
             else:
                 print(f'    self->{self.name} = ({namespace}_{self.element}_t *) *alloc_mem;', file=body)
-                print(f'    *alloc_mem = (uchar *) *alloc_mem + {el}_FOOTPRINT*self->{self.name}_len;', file=body)
+                print(f'    *alloc_mem = (uchar *) *alloc_mem + sizeof({el}_t)*self->{self.name}_len;', file=body)
                 print(f'    for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
                 print(f'      {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
                 print(f'      {namespace}_{self.element}_generate( self->{self.name} + i, alloc_mem, rng );', file=body)
                 print('    }', file=body)
 
-        print('  } else', file=body)
-        print(f'    self->{self.name} = NULL;', file=body)
+        print(f'{indent}  }} else {{', file=body)
+        print(f'{indent}    self->{self.name} = NULL;', file=body)
+        print(f'{indent}  }}', file=body)
+
+class BitVectorMember(TypeNode):
+    def __init__(self, container, json):
+        super().__init__(json)
+        self.vector_element = json["element"]
+        self.vector_member = VectorMember(container, None, name=f"{self.name}_bitvec", element=self.vector_element)
+
+    def emitGenerate(self, indent=''):
+        print('  {', file=body)
+        print(f'    self->has_{self.name} = fd_rng_uchar( rng ) % 2;', file=body)
+        print(f'    if( self->has_{self.name} ) {{', file=body)
+        self.vector_member.emitGenerate('    ')
+        print(f'      self->{self.name}_len = self->{self.vector_member.name}_len;', file=body)
+        print('    } else {', file=body)
+        print(f'      self->{self.name}_len = 0UL;', file=body)
+        print('    }', file=body)
+        print('  }',file=body)
 
 class StaticVectorMember(TypeNode):
     def __init__(self, container, json):
@@ -248,7 +278,7 @@ class StaticVectorMember(TypeNode):
     def isFixedSize(self):
         return False
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         print(f'  self->{self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
         print(f'  self->{self.name}_size = {self.size};', file=body)
         print(f'  self->{self.name}_offset = 0;', file=body)
@@ -288,7 +318,7 @@ class DequeMember(TypeNode):
     def prefix(self):
         return f'deq_{self.elem_type()}'
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         print(f'  ulong {self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
 
         if self.min:
@@ -321,7 +351,7 @@ class MapMember(TypeNode):
         else:
             return f'{namespace}_{self.element}_t'
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         element_type = self.elem_type()
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
@@ -348,7 +378,7 @@ class PartitionMember(TypeNode):
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.dlist_max = (int(json["dlist_max"]) if "dlist_max" in json else 0)
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         dlist_name = self.dlist_n + "_dlist"
         dlist_t = self.dlist_t
         pool_name = self.dlist_n + "_pool"
@@ -390,7 +420,7 @@ class TreapMember(TypeNode):
         self.upsert = json.get("upsert", False)
         self.min_name = f"{self.name.upper()}_MIN"
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         treap_name = self.name + '_treap'
         treap_t = self.treap_t
         pool_name = self.name + '_pool'
@@ -421,7 +451,7 @@ class OptionMember(TypeNode):
         self.flat = json.get("flat", False)
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         print('  {', file=body)
         if self.flat:
             print(f'    self->has_{self.name} = fd_rng_uchar( rng ) % 2;', file=body)
@@ -442,9 +472,8 @@ class OptionMember(TypeNode):
                 print(f'      LLVMFuzzerMutate( (uchar *)self->{self.name}, sizeof({self.element}), sizeof({self.element}) );', file=body)
             else:
                 el = f'{namespace}_{self.element}'
-                el = el.upper()
                 print(f'      self->{self.name} = ({namespace}_{self.element}_t *) *alloc_mem;', file=body)
-                print(f'      *alloc_mem = (uchar *) *alloc_mem + {el}_FOOTPRINT;', file=body)
+                print(f'      *alloc_mem = (uchar *) *alloc_mem + sizeof({el}_t);', file=body)
                 print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
                 print(f'      {namespace}_{self.element}_generate( self->{self.name}, alloc_mem, rng );', file=body)
             print('    }', file=body)
@@ -460,7 +489,7 @@ class DlistMember(TypeNode):
         self.dlist_n = json["dlist_n"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         dlist_name = self.dlist_n + "_dlist"
         dlist_t = self.dlist_t
         pool_name = self.dlist_n + "_pool"
@@ -492,7 +521,7 @@ class ArrayMember(TypeNode):
     def isFuzzy(self):
         return self.element in fuzzytypes
 
-    def emitGenerate(self):
+    def emitGenerate(self, indent=''):
         length = self.length
 
         if self.element == "uchar":
@@ -516,7 +545,8 @@ memberTypeMap = {
     "map" :       MapMember,
     "treap" :     TreapMember,
     "dlist" :     DlistMember,
-    "partition" : PartitionMember
+    "partition" : PartitionMember,
+    "bitvec":     BitVectorMember,
 }
 
 def parseMember(namespace, json):
@@ -673,25 +703,24 @@ class EnumType:
         return False
 
     def emitImpls(self):
-        global indent
-
         n = self.fullname
         indent = '  '
 
-        print(f'void {n}_inner_generate( {n}_inner_t * self, void **alloc_mem, {self.repr} discriminant, fd_rng_t * rng ) {{', file=body)
-        first = True
-        for i, v in enumerate(self.variants):
-            if not isinstance(v, str):
-                if first:
-                    print('  switch (discriminant) {', file=body)
-                    first = False
-                print(f'  case {i}: {{', file=body)
-                v.emitGenerate()
-                print('    break;', file=body)
+        if not self.isFixedSize():
+            print(f'void {n}_inner_generate( {n}_inner_t * self, void **alloc_mem, {self.repr} discriminant, fd_rng_t * rng ) {{', file=body)
+            first = True
+            for i, v in enumerate(self.variants):
+                if not isinstance(v, str):
+                    if first:
+                        print('  switch (discriminant) {', file=body)
+                        first = False
+                    print(f'  case {i}: {{', file=body)
+                    v.emitGenerate(indent)
+                    print('    break;', file=body)
+                    print('  }', file=body)
+            if not first:
                 print('  }', file=body)
-        if not first:
-            print('  }', file=body)
-        print("}", file=body)
+            print("}", file=body)
 
         print(f'void *{n}_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {{', file=body)
         print(f'  {n}_t *self = ({n}_t *) mem;', file=body)
@@ -704,7 +733,8 @@ class EnumType:
             print(f'  while( self->discriminant == 14 || self->discriminant == 15 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
         if 'gossip_msg' == self.name:
             print(f'  while( self->discriminant == 0 || self->discriminant == 1 || self->discriminant == 2 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
-        print(f'  {n}_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );', file=body)
+        if not self.isFixedSize():
+            print(f'  {n}_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );', file=body)
         print(f'  return mem;', file=body)
         print("}", file=body)
         print("", file=body)

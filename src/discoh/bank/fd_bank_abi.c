@@ -279,6 +279,7 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
   }; /* parts of the SanitizedTransaction */
 };
 
+FD_STATIC_ASSERT( sizeof (struct fd_bank_abi_txn_private)==FD_BANK_ABI_TXN_FOOTPRINT, bank_abi );
 FD_STATIC_ASSERT( sizeof (struct fd_bank_abi_txn_private)==392UL, bank_abi );
 FD_STATIC_ASSERT( alignof(struct fd_bank_abi_txn_private)==8UL,   bank_abi );
 
@@ -390,12 +391,12 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
     for( ulong j=0UL; j<lut->writable_cnt; j++ ) {
       uchar idx = payload[ lut->writable_off+j ];
       if( FD_UNLIKELY( idx>=active_addresses_len ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX;
-      memcpy( &out_lut_accts[ writable_idx++ ], addresses+idx, sizeof(fd_acct_addr_t) );
+      out_lut_accts[ writable_idx++ ] = addresses[ idx ];
     }
     for( ulong j=0UL; j<lut->readonly_cnt; j++ ) {
       uchar idx = payload[ lut->readonly_off+j ];
       if( FD_UNLIKELY( idx>=active_addresses_len ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX;
-      memcpy( &out_lut_accts[ txn->addr_table_adtl_writable_cnt+readable_idx++ ], addresses+idx, sizeof(fd_acct_addr_t) );
+      out_lut_accts[ txn->addr_table_adtl_writable_cnt+readable_idx++ ] = addresses[ idx ];
     }
   }
 

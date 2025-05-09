@@ -5,8 +5,11 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../funk/fd_funk.h"
 #include "fd_txn_account.h"
+
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are account management specific error codes.
    To be stored in an int. */
@@ -27,9 +30,9 @@
    client. This means that it includes the max size of the account (10MiB)
    and the associated metadata. */
 
-#define FD_ACC_TOT_SZ_MAX       (FD_ACC_SZ_MAX + FD_ACCOUNT_META_FOOTPRINT)
+#define FD_ACC_TOT_SZ_MAX       (FD_ACC_SZ_MAX + sizeof(fd_account_meta_t))
 
-#define FD_ACC_NONCE_TOT_SZ_MAX (FD_ACC_NONCE_SZ_MAX + FD_ACCOUNT_META_FOOTPRINT)
+#define FD_ACC_NONCE_TOT_SZ_MAX (FD_ACC_NONCE_SZ_MAX + sizeof(fd_account_meta_t))
 
 FD_PROTOTYPES_BEGIN
 
@@ -79,8 +82,8 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
 FD_FN_PURE static inline fd_funk_rec_key_t
 fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
   fd_funk_rec_key_t key = {0};
-  fd_memcpy( key.c, pubkey, sizeof(fd_pubkey_t) );
-  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
+  memcpy( key.uc, pubkey, sizeof(fd_pubkey_t) );
+  key.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
   return key;
 }
 
@@ -89,15 +92,7 @@ fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
 
 FD_FN_PURE static inline int
 fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
-  return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
-}
-
-/* fd_funk_key_to_acc reinterprets a funk rec key as an account address.
-   Safe assuming fd_funk_key_is_acc( id )==1. */
-
-FD_FN_CONST static inline fd_pubkey_t const *
-fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
-  return (fd_pubkey_t const *)fd_type_pun_const( id->c );
+  return id->uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
 }
 
 /* Account Access from Funk APIs *************************************************/
@@ -148,7 +143,7 @@ fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
    is guaranteed there are no other modifying accesses to the account. */
 
 fd_account_meta_t const *
-fd_funk_get_acc_meta_readonly( fd_funk_t *            funk,
+fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
                                fd_funk_txn_t const *  txn,
                                fd_pubkey_t const *    pubkey,
                                fd_funk_rec_t const ** opt_out_rec,

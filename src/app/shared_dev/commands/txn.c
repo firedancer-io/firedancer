@@ -1,4 +1,5 @@
 #include "../../shared/fd_config.h"
+#include "../../shared/fd_action.h"
 
 #include "../../shared/fd_sys_util.h"
 #include "../../shared/fd_net_util.h"
@@ -145,13 +146,13 @@ txn_cmd_fn( args_t *   args,
   ready_cmd_fn( args, config );
 
   fd_quic_limits_t quic_limits = {
-    .conn_cnt         =  1UL,
-    .handshake_cnt    =  1UL,
-    .conn_id_cnt      =  4UL,
-    .stream_id_cnt    = 64UL,
-    .inflight_pkt_cnt = 64UL,
-    .tx_buf_sz        = fd_ulong_pow2_up( FD_TXN_MTU ),
-    .stream_pool_cnt  = 16UL
+    .conn_cnt           =  1UL,
+    .handshake_cnt      =  1UL,
+    .conn_id_cnt        =  4UL,
+    .stream_id_cnt      =  64UL,
+    .inflight_frame_cnt =  64UL,
+    .tx_buf_sz          =  fd_ulong_pow2_up( FD_TXN_MTU ),
+    .stream_pool_cnt    =  16UL
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
@@ -208,7 +209,7 @@ txn_cmd_fn( args_t *   args,
     }
   }
 
-  uint dst_ip = config->tiles.net.ip_addr;
+  uint dst_ip = config->net.ip_addr;
   if( FD_UNLIKELY( args->txn.dst_ip ) )
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( args->txn.dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 

@@ -149,7 +149,6 @@ static uchar const fd_bmtree_node_prefix[32UL] __attribute__((aligned(32))) = "\
 struct __attribute__((packed)) fd_bmtree_node {
   uchar hash[ 32 ]; /* Last bytes may not be meaningful */
 };
-
 typedef struct fd_bmtree_node fd_bmtree_node_t;
 
 /* bmtree_hash_leaf computes `SHA-256(prefix|data), where prefix is the

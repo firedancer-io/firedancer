@@ -1,6 +1,4 @@
-extern "C" {
-  #include "fd_funk.h"
-}
+#include "fd_funk.h"
 #include <map>
 #include <vector>
 #include <set>
@@ -94,7 +92,7 @@ struct fake_txn {
 
 struct fake_funk {
     fd_wksp_t * _wksp;
-    fd_funk_t * _real;
+    fd_funk_t _real[1];
     std::map<ulong,fake_txn*> _txns;
     ulong _lastxid = 0;
 #ifdef TEST_FUNK_FILE
@@ -104,17 +102,17 @@ struct fake_funk {
     fake_funk(int * argc, char *** argv) {
       fd_boot( argc, argv );
       ulong txn_max = 128;
-      ulong rec_max = 1<<16;
+      uint  rec_max = 1<<16;
 
 #ifdef TEST_FUNK_FILE
-      _real = fd_funk_open_file( "funk_test_file", 1, 1234U, txn_max, rec_max, FD_SHMEM_GIGANTIC_PAGE_SZ, FD_FUNK_OVERWRITE, &close_args );
+      FD_TEST( fd_funk_open_file( _real, "funk_test_file", 1, 1234U, txn_max, rec_max, FD_SHMEM_GIGANTIC_PAGE_SZ, FD_FUNK_OVERWRITE, &close_args ) );
       _wksp = fd_funk_wksp( _real );
 
 #else
       ulong  numa_idx = fd_shmem_numa_idx( 0 );
       _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
       void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );
-      _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
+      FD_TEST( fd_funk_join( _real, fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) ) );
 #endif
 
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
@@ -134,7 +132,7 @@ struct fake_funk {
 #ifdef TEST_FUNK_FILE
     void reopen_file() {
       fd_funk_close_file( &close_args );
-      _real = fd_funk_open_file( "funk_test_file", 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, &close_args );
+      FD_TEST( fd_funk_open_file( _real, "funk_test_file", 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, &close_args ) );
       _wksp = fd_funk_wksp( _real );
     }
 #endif
@@ -151,9 +149,9 @@ struct fake_funk {
     fd_funk_txn_t * get_real_txn(fake_txn * txn) {
       if (txn->_key == ROOT_KEY)
         return NULL;
-      fd_funk_txn_map_t txn_map = fd_funk_txn_map( _real, _wksp );
+      fd_funk_txn_map_t * txn_map = fd_funk_txn_map( _real );
       auto xid = txn->real_id();
-      return fd_funk_txn_query(&xid, &txn_map);
+      return fd_funk_txn_query(&xid, txn_map);
     }
 
     void random_insert() {
@@ -169,9 +167,9 @@ struct fake_funk {
       auto key = rec->real_id();
       fd_funk_rec_prepare_t prepare[1];
       fd_funk_rec_t * rec2 = fd_funk_rec_prepare(_real, txn2, &key, prepare, NULL);
-      void * val = fd_funk_val_truncate(rec2, rec->size(), fd_funk_alloc(_real, _wksp), _wksp, NULL);
+      void * val = fd_funk_val_truncate(rec2, rec->size(), fd_funk_alloc( _real ), _wksp, NULL);
       memcpy(val, rec->data(), rec->size());
-      fd_funk_rec_publish( prepare );
+      fd_funk_rec_publish( _real, prepare );
       assert(fd_funk_val_sz(rec2) == rec->size());
     }
 
@@ -356,8 +354,8 @@ struct fake_funk {
           assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
         }
 
-        fd_funk_txn_map_t txn_map = fd_funk_txn_map( _real, fd_funk_wksp( _real ) );
-        fd_funk_txn_t * txn = fd_funk_txn_query( xid, &txn_map );
+        fd_funk_txn_map_t * txn_map = fd_funk_txn_map( _real );
+        fd_funk_txn_t * txn = fd_funk_txn_query( xid, txn_map );
         fd_funk_rec_query_t query[1];
         auto* rec3 = fd_funk_rec_query_try_global(_real, txn, rec->pair.key, NULL, query);
         if( ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
@@ -403,7 +401,7 @@ struct fake_funk {
         }
       }
 
-      fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( _real, _wksp );
+      fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( _real );
 
       fd_funk_txn_all_iter_t txn_iter[1];
       for( fd_funk_txn_all_iter_new( _real, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
@@ -415,7 +413,7 @@ struct fake_funk {
         assert(!txn2->_touched);
         txn2->_touched = true;
 
-        auto * parent = fd_funk_txn_parent(txn, &txn_pool);
+        auto * parent = fd_funk_txn_parent(txn, txn_pool);
         if (parent == NULL)
           assert(ROOT_KEY == txn2->_parent->_key);
         else

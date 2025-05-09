@@ -29,32 +29,23 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = ctx->instr->data,
-    .dataend = ctx->instr->data + ctx->instr->data_sz
-  };
-
-  ulong total_sz      = 0UL;
-  int   decode_result = fd_config_keys_decode_footprint( &decode, &total_sz );
-  /* Fail if the number of bytes consumed by deserialize exceeds the txn MTU
-     (hardcoded constant by Agave limited_deserialize) */
+  int decode_result;
+  ulong decoded_sz = 0UL;
+  fd_config_keys_t * key_list = fd_bincode_decode1_spad(
+      config_keys, ctx->txn_ctx->spad,
+      ctx->instr->data,
+      ctx->instr->data_sz,
+      &decode_result,
+      &decoded_sz );
   if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ||
-                   (ulong)ctx->instr->data + FD_TXN_MTU < (ulong)decode.data ) ) {
+                   decoded_sz > FD_TXN_MTU ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
-
-  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_config_keys_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for config keys" ));
-  }
-
-  fd_config_keys_t * key_list = fd_config_keys_decode( mem, &decode );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L22-L26 */
 
   int                 is_config_account_signer = 0;
   fd_pubkey_t const * config_account_key       = NULL;
-  fd_config_keys_t *  current_data             = NULL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/config/src/config_processor.rs#L26 */
   fd_guarded_borrowed_account_t config_acc_rec;
@@ -74,24 +65,16 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
-  fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-    .data    = fd_borrowed_account_get_data( &config_acc_rec ),
-    .dataend = (uchar *)fd_borrowed_account_get_data( &config_acc_rec ) + fd_borrowed_account_get_data_len( &config_acc_rec ),
-  };
-  total_sz      = 0UL;
-  decode_result = fd_config_keys_decode_footprint( &config_acc_state_decode_context, &total_sz );
+  fd_config_keys_t * current_data = fd_bincode_decode_spad(
+      config_keys, ctx->txn_ctx->spad,
+      fd_borrowed_account_get_data( &config_acc_rec ),
+      fd_borrowed_account_get_data_len( &config_acc_rec ),
+      &decode_result );
   if( FD_UNLIKELY( decode_result!=FD_BINCODE_SUCCESS ) ) {
     //TODO: full log, including err
     fd_log_collector_msg_literal( ctx, "Unable to deserialize config account" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-
-  mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_config_keys_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for config account" ));
-  }
-
-  current_data = fd_config_keys_decode( mem, &config_acc_state_decode_context );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/config/src/config_processor.rs#L43 */
 

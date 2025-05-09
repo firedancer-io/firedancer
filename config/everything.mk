@@ -158,8 +158,7 @@ add-examples = $(eval $(call _add-examples,$(1)))
 # Usage: $(call add-scripts,scripts)
 # Usage: $(call add-test-scripts,scripts)
 
-# Note: This doesn't mirror the directory hierarchy so can't use use
-# generic rule
+# Note: This doesn't mirror the directory hierarchy so can't use generic rule
 
 define _add-script
 

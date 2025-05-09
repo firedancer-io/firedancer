@@ -7,7 +7,6 @@
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
-#include "../runtime/fd_runtime.h"
 #include "../features/fd_features.h"
 #include "fd_vm_base.h"
 
@@ -48,7 +47,7 @@
 #define FD_VM_ALIGN_RUST_U32                      (4UL)
 #define FD_VM_ALIGN_RUST_I32                      (4UL)
 #define FD_VM_ALIGN_RUST_U64                      (8UL)
-#define FD_VM_ALIGN_RUST_U128                     (16UL)
+#define FD_VM_ALIGN_RUST_U128                    (16UL)
 #define FD_VM_ALIGN_RUST_SLICE_U8_REF             (8UL)
 #define FD_VM_ALIGN_RUST_POD_U8_ARRAY             (1UL)
 #define FD_VM_ALIGN_RUST_PUBKEY                   (1UL)
@@ -57,6 +56,7 @@
 #define FD_VM_ALIGN_RUST_SYSVAR_FEES              (8UL)
 #define FD_VM_ALIGN_RUST_SYSVAR_RENT              (8UL)
 #define FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS    (16UL)
 #define FD_VM_ALIGN_RUST_STABLE_INSTRUCTION       (8UL)
 
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.
@@ -428,12 +428,14 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   ulong region = FD_VADDR_TO_REGION( vaddr );
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
 
-  /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
-    https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
+  /* Stack memory regions have 4kB unmapped "gaps" in-between each frame, which only exist if...
+     - direct mapping is enabled (config.enable_stack_frame_gaps == !direct_mapping)
+     - dynamic stack frames are not enabled (!(SBPF version >= SBPF_V1))
+     https://github.com/anza-xyz/agave/blob/v2.2.12/programs/bpf_loader/src/lib.rs#L344-L351
     */
-  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && !vm->direct_mapping ) ) {
+  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && !vm->direct_mapping && vm->sbpf_version<FD_SBPF_V1 ) ) {
     /* If an access starts in a gap region, that is an access violation */
-    if( !!(vaddr & 0x1000) ) {
+    if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
       return sentinel;
     }
 

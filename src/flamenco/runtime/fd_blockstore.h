@@ -118,8 +118,6 @@ static const fd_shred_key_t     fd_shred_key_null = { 0 };
 #define FD_SHRED_KEY_EQ(k0,k1)  (!(((k0).slot) ^ ((k1).slot))) & !(((k0).idx) ^ (((k1).idx)))
 #define FD_SHRED_KEY_HASH(key)  ((uint)(((key).slot)<<15UL) | (((key).idx))) /* current max shred idx is 32KB = 2 << 15*/
 
-
-
 /* fd_buf_shred is a thin wrapper around fd_shred_t that facilitates
    buffering data shreds before all the shreds for a slot have been
    received. After all shreds are received, these buffered shreds are
@@ -166,7 +164,7 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #define MAP_KEY_EQ(k0,k1)      (FD_SHRED_KEY_EQ(*k0,*k1))
 #define MAP_KEY_EQ_IS_SLOW     1
 #define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key)^seed)
-#include "../../util/tmpl/fd_map_para.c"
+#include "../../util/tmpl/fd_map_chain_para.c"
 
 #define DEQUE_NAME fd_slot_deque
 #define DEQUE_T    ulong
@@ -255,7 +253,7 @@ typedef struct fd_block_rewards fd_block_rewards_t;
    ie. `fd_uchar_set_bit`, `fd_uchar_extract_bit`. */
 
 #define SET_NAME fd_block_set
-#define SET_MAX  FD_SHRED_MAX_PER_SLOT
+#define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
 struct fd_block_info {
@@ -308,7 +306,7 @@ struct fd_block_info {
      corresponds to the shred's index. Note shreds can be received
      out-of-order so higher bits might be set before lower bits. */
 
-  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+  fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)];
 
   /* Helpers for batching tick verification */
 
@@ -332,8 +330,9 @@ typedef struct fd_block_info fd_block_info_t;
 #define MAP_NAME                  fd_block_map
 #define MAP_ELE_T                 fd_block_info_t
 #define MAP_KEY                   slot
-#define MAP_ELE_IS_FREE(ctx, ele) ((ele)->slot == 0)
-#define MAP_ELE_FREE(ctx, ele)    ((ele)->slot = 0)
+#define MAP_ELE_IS_FREE(ctx, ele) ((ele)->slot == ULONG_MAX)
+#define MAP_ELE_FREE(ctx, ele)    ((ele)->slot =  ULONG_MAX)
+#define MAP_ELE_MOVE(ctx,dst,src) do { MAP_ELE_T * _src = (src); (*(dst)) = *_src; _src->MAP_KEY = (MAP_KEY_T)ULONG_MAX; } while(0)
 #define MAP_KEY_HASH(key, seed)   (void)(seed), (*(key))
 #include "../../util/tmpl/fd_map_slot_para.c"
 
@@ -372,6 +371,7 @@ typedef struct fd_block_idx fd_block_idx_t;
 #define MAP_T             fd_block_idx_t
 #define MAP_KEY           slot
 #define MAP_KEY_HASH(key) ((uint)(key)) /* finalized slots are guaranteed to be unique so perfect hashing */
+#define MAP_KEY_INVAL(k)  (k == ULONG_MAX)
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_txn_key {
@@ -530,7 +530,7 @@ fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong 
 }
 
 /* fd_blockstore_new formats a memory region with the appropriate
-   alignment and footprint into a blockstore.  shmem points in the the
+   alignment and footprint into a blockstore.  shmem points in the
    caller's address space of the memory region to format.  Returns shmem
    on success (blockstore has ownership of the memory region) and NULL
    on failure (no changes, logs details).  Caller is not joined on

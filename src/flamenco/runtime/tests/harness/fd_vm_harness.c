@@ -1,7 +1,5 @@
 #include "fd_vm_harness.h"
 
-static fd_exec_test_instr_effects_t const * cpi_exec_effects = NULL;
-
 static int
 fd_runtime_fuzz_vm_syscall_noop( void * _vm,
                                  ulong arg0,
@@ -141,12 +139,13 @@ do{
   }
 
   /* Setup input region */
-  ulong                   input_sz                = 0UL;
-  ulong                   pre_lens[256]           = {0};
-  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt   = 0U;
-  int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  ulong                    input_sz                                = 0UL;
+  ulong                    pre_lens[256]                           = {0};
+  fd_vm_input_region_t     input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t  acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
+  uint                     input_mem_regions_cnt                   = 0U;
+  int                      direct_mapping                          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  int                      mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, mask_out_rent_epoch_in_vm_serialization );
 
   uchar *                  input_ptr      = NULL;
   uchar                    program_id_idx = instr_ctx->instr->program_id;
@@ -163,6 +162,7 @@ do{
                                             &input_mem_regions_cnt,
                                             acc_region_metas,
                                             direct_mapping,
+                                            mask_out_rent_epoch_in_vm_serialization,
                                             is_deprecated,
                                             &input_ptr );
 
@@ -416,9 +416,6 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   if( !input->has_vm_ctx ) {
     goto error;
   }
-  if( input->has_exec_effects ){
-    cpi_exec_effects = &input->exec_effects;
-  }
 
   ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
   uchar * rodata = fd_valloc_malloc( valloc, 8UL, rodata_sz );
@@ -438,12 +435,13 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
 
-  ulong                   input_sz                = 0UL;
-  ulong                   pre_lens[256]           = {0};
-  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt   = 0U;
-  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  ulong                   input_sz                                = 0UL;
+  ulong                   pre_lens[256]                           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt                   = 0U;
+  int                     direct_mapping                          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  int                     mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, mask_out_rent_epoch_in_vm_serialization );
 
   uchar *            input_ptr      = NULL;
   uchar              program_id_idx = ctx->instr->program_id;
@@ -451,16 +449,28 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   uchar              is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
                                       ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
-  /* TODO: Check for an error code. Probably unlikely during fuzzing though */
-  fd_bpf_loader_input_serialize_parameters( ctx,
-                                            &input_sz,
-                                            pre_lens,
-                                            input_mem_regions,
-                                            &input_mem_regions_cnt,
-                                            acc_region_metas,
-                                            direct_mapping,
-                                            is_deprecated,
-                                            &input_ptr );
+  /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
+  int stack_push_err = fd_instr_stack_push( ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
+  if( FD_UNLIKELY( stack_push_err ) ) {
+      FD_LOG_WARNING(( "instr stack push err" ));
+      goto error;
+  }
+
+  /* Serialize accounts into input memory region. */
+  int err = fd_bpf_loader_input_serialize_parameters( ctx,
+                                                      &input_sz,
+                                                      pre_lens,
+                                                      input_mem_regions,
+                                                      &input_mem_regions_cnt,
+                                                      acc_region_metas,
+                                                      direct_mapping,
+                                                      mask_out_rent_epoch_in_vm_serialization,
+                                                      is_deprecated,
+                                                      &input_ptr );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "bpf loader input serialize parameters err" ));
+    goto error;
+  }
 
   fd_vm_init( vm,
               ctx,
@@ -518,12 +528,6 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
     goto error;
   }
 
-  /* Actually invoke the syscall */
-  int stack_push_err = fd_instr_stack_push( ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
-  if( FD_UNLIKELY( stack_push_err ) ) {
-      FD_LOG_WARNING(( "instr stack push err" ));
-      goto error;
-  }
   /* There's an instr ctx struct embedded in the txn ctx instr stack. */
   fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr_stack[ ctx->txn_ctx->instr_stack_sz - 1 ];
   *instr_ctx = (fd_exec_instr_ctx_t) {
@@ -536,6 +540,8 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
     .depth     = 0U,
     .child_cnt = 0U,
   };
+
+  /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
   int stack_pop_err = fd_instr_stack_pop( ctx->txn_ctx, ctx->instr );
   if( FD_UNLIKELY( stack_pop_err ) ) {
@@ -642,83 +648,11 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   /* Return the effects */
   ulong actual_end = tmp_end + input_regions_size;
   fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
-  cpi_exec_effects = NULL;
 
   *output = effects;
   return actual_end - (ulong)output_buf;
 
 error:
   fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
-  cpi_exec_effects = NULL;
   return 0;
-}
-
-/* Stubs fd_execute_instr for binaries compiled with
-   `-Xlinker --wrap=fd_execute_instr` */
-int
-__wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
-                         fd_instr_info_t *   instr_info ) {
-  static const pb_byte_t zero_blk[32] = {0};
-
-  if( cpi_exec_effects == NULL ) {
-    FD_LOG_WARNING(( "fd_execute_instr is disabled" ));
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  }
-
-  // Iterate through instruction accounts
-  for( ushort i = 0; i < instr_info->acct_cnt; ++i ) {
-    ushort        idx_in_txn  = instr_info->accounts[i].index_in_transaction;
-    fd_pubkey_t * acct_pubkey = &txn_ctx->account_keys[ idx_in_txn ];
-
-    fd_txn_account_t * acct = NULL;
-    /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey */
-    for( uint j = 0UL; j < cpi_exec_effects->modified_accounts_count; ++j ) {
-      fd_exec_test_acct_state_t * acct_state = &cpi_exec_effects->modified_accounts[j];
-      if( memcmp( acct_state->address, acct_pubkey, sizeof(fd_pubkey_t) ) != 0 ) continue;
-
-      /* Fetch borrowed account */
-      /* First check if account is read-only.
-          TODO: Once direct mapping is enabled we _technically_ don't need
-                this check */
-
-      if( fd_exec_txn_ctx_get_account_at_index( txn_ctx,
-                                                idx_in_txn,
-                                                &acct,
-                                                fd_txn_account_check_exists ) ) {
-        break;
-      }
-      if( !acct->vt->is_mutable( acct ) ){
-        break;
-      }
-
-      /* Now get account with is_writable check */
-      int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
-                                                      idx_in_txn,
-                                                      /* Do not reallocate if data is not going to be modified */
-                                                      &acct,
-                                                      fd_txn_account_check_is_writable );
-      if( err ) break;
-
-      /* Update account state */
-      acct->vt->set_lamports( acct, acct_state->lamports );
-      acct->vt->set_executable( acct, acct_state->executable );
-      acct->vt->set_rent_epoch( acct, acct_state->rent_epoch );
-
-      if( acct_state->data ){
-        /* resize manually */
-        if( acct_state->data->size > acct->vt->get_data_len( acct ) ) {
-          acct->vt->resize( acct, acct_state->data->size );
-        }
-        acct->vt->set_data( acct, acct_state->data->bytes, acct_state->data->size );
-      }
-
-      /* Follow solfuzz-agave, which skips if pubkey is malformed */
-      if( memcmp( acct_state->owner, zero_blk, sizeof(fd_pubkey_t) ) != 0 ) {
-        acct->vt->set_owner( acct, (fd_pubkey_t const *)acct_state->owner );
-      }
-
-      break;
-    }
-  }
-  return FD_EXECUTOR_INSTR_SUCCESS;
 }

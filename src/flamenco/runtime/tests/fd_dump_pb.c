@@ -1,4 +1,5 @@
 #include "fd_dump_pb.h"
+#include "harness/generated/block.pb.h"
 #include "harness/generated/invoke.pb.h"
 #include "harness/generated/vm.pb.h"
 #include "../fd_system_ids.h"
@@ -147,19 +148,14 @@ dump_executable_account_if_exists( fd_exec_slot_ctx_t const *        slot_ctx,
     return;
   }
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = program_account->data->bytes,
-    .dataend = program_account->data->bytes + program_account->data->size,
-  };
-
-  ulong total_sz = 0UL;
-  int err = fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN, total_sz );
-  fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
+  int err;
+  fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state,
+      spad,
+      program_account->data->bytes,
+      program_account->data->size,
+      &err );
+  if( FD_UNLIKELY( err ) ) return;
 
   if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
     return;
@@ -623,14 +619,17 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
                                                   fd_spad_t *                     spad ) {
   /* BlockContext -> microblocks */
   block_context->microblocks_count = 0U;
-  block_context->microblocks       = fd_spad_alloc( spad, alignof(fd_exec_test_microblock_t), block_info->microblock_cnt * sizeof(fd_exec_test_microblock_t) );
+  block_context->microblocks       = fd_spad_alloc( spad, alignof(fd_exec_test_microblock_t), block_info->microblock_cnt *
+                                                                                              block_info->microblock_batch_cnt *
+                                                                                              sizeof(fd_exec_test_microblock_t) );
+  fd_memset( block_context->microblocks, 0, block_info->microblock_cnt * block_info->microblock_batch_cnt * sizeof(fd_exec_test_microblock_t) );
 
   /* BlockContext -> acct_states
      Allocate additional space for the remaining accounts */
   fd_exec_test_acct_state_t * current_accounts = block_context->acct_states;
   block_context->acct_states                   = fd_spad_alloc( spad,
                                                                 alignof(fd_exec_test_acct_state_t),
-                                                                ( block_info->txn_cnt*1 + (ulong)block_context->acct_states_count ) *
+                                                                ( ( block_info->txn_cnt * 128UL ) + (ulong)block_context->acct_states_count ) *
                                                                 sizeof(fd_exec_test_acct_state_t) );
   fd_memcpy( block_context->acct_states, current_accounts, block_context->acct_states_count * sizeof(fd_exec_test_acct_state_t) );
 
@@ -644,11 +643,14 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
 
     for( ulong j=0UL; j<microblock_batch->microblock_cnt; j++ ) {
       fd_microblock_info_t const * microblock_info = &microblock_batch->microblock_infos[j];
-      fd_exec_test_microblock_t * out_block        = &block_context->microblocks[block_context->microblocks_count++];
-      ulong txn_cnt                                = microblock_info->microblock.hdr->txn_cnt;
+      ulong                        txn_cnt         = microblock_info->microblock.hdr->txn_cnt;
+      if (txn_cnt==0UL) continue;
+
+      fd_exec_test_microblock_t * out_block = &block_context->microblocks[block_context->microblocks_count++];
 
       out_block->txns_count = (pb_size_t)txn_cnt;
       out_block->txns       = fd_spad_alloc( spad, alignof(fd_exec_test_sanitized_transaction_t), txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
+      memset( out_block->txns, 0, txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
 
       /* BlockContext -> microblocks -> txns */
       for( ulong k=0UL; k<txn_cnt; k++ ) {
@@ -1063,7 +1065,7 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
     create_block_context_protobuf_from_block_tx_only( block_context_msg, block_info, slot_ctx, spad );
 
     /* Output to file */
-    ulong out_buf_size = 3UL<<30UL; /* 3 GB */
+    ulong out_buf_size = 5UL<<30UL; /* 5 GB */
     uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
     pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
     if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {

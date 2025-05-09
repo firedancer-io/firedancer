@@ -33,7 +33,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  
+
   ulong numa_cnt = fd_shmem_numa_cnt(); FD_TEST( (1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX) );
   ulong cpu_cnt  = fd_shmem_cpu_cnt (); FD_TEST( (1UL<=cpu_cnt ) & (cpu_cnt <=FD_SHMEM_CPU_MAX ) );
   FD_TEST( numa_cnt<=cpu_cnt );
@@ -76,11 +76,11 @@ main( int     argc,
     ulong expected = len;
     if     ( len< 1UL               ) expected = 0UL; /* too short */
     else if( len>=FD_SHMEM_NAME_MAX ) expected = 0UL; /* too long */
-    else if( !isalnum( name[0] )    ) expected = 0UL; /* invalid first character */
+    else if( !fd_isalnum( name[0] ) ) expected = 0UL; /* invalid first character */
     else
       for( ulong b=1UL; b<len; b++ ) {
         char c = name[b];
-        if( !( isalnum( c ) || (c=='_') || (c=='-') || (c=='.') ) ) { expected = 0UL; break; } /* invalid suffix character */
+        if( !( fd_isalnum( c ) || (c=='_') || (c=='-') || (c=='.') ) ) { expected = 0UL; break; } /* invalid suffix character */
       }
 
     FD_TEST( fd_shmem_name_len( name )==expected );
@@ -435,4 +435,3 @@ main( int     argc,
 }
 
 #endif
-

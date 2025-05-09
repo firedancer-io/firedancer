@@ -24,8 +24,8 @@
 #define OSTREAM_BUFSZ (32768UL)
 
 struct fd_snapshot_dumper {
-  fd_alloc_t *   alloc;
-  fd_funk_t *    funk;
+  fd_alloc_t * alloc;
+  fd_funk_t    funk[1];
 
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
@@ -82,9 +82,10 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
     dumper->epoch_ctx = NULL;
   }
 
-  if( dumper->funk ) {
-    fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( dumper->funk ) ) );
-    dumper->funk = NULL;
+  if( dumper->funk->shmem ) {
+    void * shfunk = NULL;
+    fd_funk_leave( dumper->funk, &shfunk );
+    fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
   }
 
   if( dumper->alloc ) {
@@ -184,7 +185,7 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
     fd_memset( &csv_rec, ' ', sizeof(csv_rec) );
 
     ulong b58sz;
-    fd_base58_encode_32( fd_funk_key_to_acc( rec->pair.key )->uc, &b58sz, csv_rec.acct_addr );
+    fd_base58_encode_32( rec->pair.key->uc, &b58sz, csv_rec.acct_addr );
     csv_rec.line[ offsetof(fd_snapshot_csv_rec_t,acct_addr)+b58sz ] = ' ';
     csv_rec.comma1 = ',';
 
@@ -215,10 +216,10 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
 static int
 fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 
-  fd_funk_txn_t *      funk_txn = d->restore->funk_txn;
-  fd_funk_txn_xid_t    txn_xid  = funk_txn->xid;
-  fd_funk_t *          funk     = d->funk;
-  fd_wksp_t *          wksp     = fd_funk_wksp( funk );
+  fd_funk_txn_t *   funk_txn = d->restore->funk_txn;
+  fd_funk_txn_xid_t txn_xid  = funk_txn->xid;
+  fd_funk_t *       funk     = d->funk;
+  fd_wksp_t *       wksp     = fd_funk_wksp( funk );
 
   /* Dump all the records */
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
@@ -250,7 +251,11 @@ static int
 fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 
   int advance_err = fd_snapshot_loader_advance( dumper->loader );
-  if( FD_UNLIKELY( advance_err<0 ) ) return advance_err;
+  if( FD_UNLIKELY( advance_err ) ) {
+    if( advance_err==MANIFEST_DONE ) return 0;
+    if( advance_err>0 ) FD_LOG_WARNING(( "fd_snapshot_loader_advance() failed (%d)", advance_err ));
+    return advance_err;
+  }
 
   int collect_err = fd_snapshot_dumper_release( dumper );
   if( FD_UNLIKELY( collect_err ) ) return collect_err;
@@ -284,7 +289,8 @@ do_dump( fd_snapshot_dumper_t *    d,
   /* Resolve snapshot source */
 
   fd_snapshot_src_t src[1];
-  if( FD_UNLIKELY( !fd_snapshot_src_parse( src, args->snapshot ) ) )
+  src->snapshot_dir = NULL;
+  if( FD_UNLIKELY( !fd_snapshot_src_parse_type_unknown( src, args->snapshot ) ) )
     return EXIT_FAILURE;
 
   /* Create a heap */
@@ -321,11 +327,11 @@ do_dump( fd_snapshot_dumper_t *    d,
   /* Create a funk database */
 
   ulong const txn_max =   16UL;  /* we really only need 1 */
-  ulong const rec_max = 1024UL;  /* we evict records as we go */
+  uint const rec_max = 1024UL;  /* we evict records as we go */
 
   ulong funk_tag = 42UL;
-  d->funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
-  if( FD_UNLIKELY( !d->funk ) ) { FD_LOG_WARNING(( "Failed to create fd_funk_t" )); return EXIT_FAILURE; }
+  int funk_ok = !!fd_funk_join( d->funk, fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
+  if( FD_UNLIKELY( !funk_ok ) ) { FD_LOG_WARNING(( "Failed to create fd_funk_t" )); return EXIT_FAILURE; }
 
   /* Create a new processing context */
 
@@ -352,7 +358,7 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Set up the snapshot loader */
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src, 0UL, 1 ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src, 0UL, 0 ) ) ) {
     FD_LOG_WARNING(( "fd_snapshot_loader_init failed" ));
     return EXIT_FAILURE;
   }
@@ -408,7 +414,7 @@ cmd_dump( int     argc,
 
   fd_snapshot_dump_args_t args[1] = {{0}};
   args->_page_sz       =         fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL,      "gigantic" );
-  args->page_cnt       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL,             3UL );
+  args->page_cnt       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL,             5UL );
   args->near_cpu       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--near-cpu",       NULL, fd_log_cpu_id() );
   args->zstd_window_sz =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--zstd-window-sz", NULL,      33554432UL );
   args->snapshot       = (char *)fd_env_strip_cmdline_cstr  ( &argc, &argv, "--snapshot",       NULL,            NULL );
@@ -431,9 +437,9 @@ cmd_dump( int     argc,
 
   /* With spad */
 
-  ulong       mem_max           = args->zstd_window_sz + (1<<29); /* manifest plus 512 MiB headroom */
-  uchar *     mem               = fd_wksp_alloc_laddr(  wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( mem_max ), 1UL );
-  fd_spad_t * spad              = fd_spad_join( fd_spad_new( mem, mem_max ) );
+  ulong       mem_max = args->zstd_window_sz + (1UL<<32); /* manifest plus 4 GiB headroom */
+  uchar *     mem     = fd_wksp_alloc_laddr(  wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( mem_max ), 1UL );
+  fd_spad_t * spad    = fd_spad_join( fd_spad_new( mem, mem_max ) );
   if( FD_UNLIKELY( !spad ) ) {
     FD_LOG_ERR(( "Failed to allocate spad" ));
   }

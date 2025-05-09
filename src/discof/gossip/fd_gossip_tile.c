@@ -14,6 +14,7 @@
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"
@@ -37,11 +38,6 @@
 #define MAX_IN_LINKS    (8)
 
 static volatile ulong * fd_shred_version;
-
-FD_FN_PURE static int
-fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
-  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
-}
 
 static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
@@ -320,8 +316,8 @@ gossip_deliver_fun( fd_crds_data_t * data,
 
     fd_gossip_duplicate_shred_t const * duplicate_shred = &data->inner.duplicate_shred;
     uchar * eqvoc_msg = fd_chunk_to_laddr( ctx->eqvoc_out_mem, ctx->eqvoc_out_chunk );
-    memcpy( eqvoc_msg, duplicate_shred, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT );
-    memcpy( eqvoc_msg + FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, duplicate_shred->chunk, duplicate_shred->chunk_len );
+    memcpy( eqvoc_msg, duplicate_shred, sizeof(fd_gossip_duplicate_shred_t) );
+    memcpy( eqvoc_msg + sizeof(fd_gossip_duplicate_shred_t), duplicate_shred->chunk, duplicate_shred->chunk_len );
 
     ulong sig = 1UL;
     fd_mcache_publish( ctx->eqvoc_out_mcache,
@@ -329,12 +325,12 @@ gossip_deliver_fun( fd_crds_data_t * data,
                        ctx->eqvoc_out_seq,
                        sig,
                        ctx->eqvoc_out_chunk,
-                       FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT,
+                       sizeof(fd_gossip_duplicate_shred_t),
                        0UL,
                        0,
                        0 );
     ctx->eqvoc_out_seq   = fd_seq_inc( ctx->eqvoc_out_seq, 1UL );
-    ctx->eqvoc_out_chunk = fd_dcache_compact_next( ctx->eqvoc_out_chunk, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, ctx->eqvoc_out_chunk0, ctx->eqvoc_out_wmark );
+    ctx->eqvoc_out_chunk = fd_dcache_compact_next( ctx->eqvoc_out_chunk, sizeof(fd_gossip_duplicate_shred_t), ctx->eqvoc_out_chunk0, ctx->eqvoc_out_wmark );
   } else if( fd_crds_data_is_restart_last_voted_fork_slots( data ) ) {
     if( FD_UNLIKELY( !ctx->restart_out_mcache ) ) return;
 
@@ -345,8 +341,8 @@ gossip_deliver_fun( fd_crds_data_t * data,
     ulong bitmap_len   = 0;
     uchar * bitmap_dst = last_vote_msg_+sizeof(uint)+struct_len;
     if ( FD_LIKELY( data->inner.restart_last_voted_fork_slots.offsets.discriminant==fd_restart_slots_offsets_enum_raw_offsets ) ) {
-      uchar * bitmap_src = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits;
-      bitmap_len         = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits_len;
+      uchar * bitmap_src = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec;
+      bitmap_len         = data->inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec_len;
       memcpy( bitmap_dst, bitmap_src, bitmap_len );
     } else {
       uchar bitmap_src [ FD_RESTART_RAW_BITMAP_BYTES_MAX ];
@@ -383,7 +379,7 @@ gossip_deliver_fun( fd_crds_data_t * data,
   }
 }
 
-void
+static void
 gossip_signer( void *        signer_ctx,
                uchar         signature[ static 64 ],
                uchar const * buffer,
@@ -723,7 +719,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
                  sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
 
       restart_last_vote_msg.inner.restart_last_voted_fork_slots.shred_version = fd_gossip_get_shred_version( ctx->gossip );
-      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets.bits.bits = ctx->restart_last_vote_msg + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
+      restart_last_vote_msg.inner.restart_last_voted_fork_slots.offsets.inner.raw_offsets.offsets_bitvec = ctx->restart_last_vote_msg + sizeof(fd_gossip_restart_last_voted_fork_slots_t);
 
       /* Convert the raw bitmap into RunLengthEncoding before sending out */
       fd_restart_run_length_encoding_inner_t runlength_encoding[ FD_RESTART_PACKET_BITMAP_BYTES_MAX/sizeof(ushort) ];
@@ -1071,6 +1067,9 @@ fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
   FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS_DUPLICATE_MESSAGE, metrics->push_crds_duplicate );
   FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS_DROP, metrics->push_crds_drop_reason );
   FD_MGAUGE_SET( GOSSIP, PUSH_CRDS_QUEUE_COUNT, metrics->push_crds_queue_cnt );
+
+  FD_MGAUGE_SET( GOSSIP, VALUE_META_SIZE, metrics->value_meta_cnt );
+  FD_MGAUGE_SET( GOSSIP, VALUE_VEC_SIZE, metrics->value_vec_cnt );
 
   FD_MGAUGE_SET( GOSSIP, ACTIVE_PUSH_DESTINATIONS, metrics->active_push_destinations );
   FD_MCNT_SET( GOSSIP, REFRESH_PUSH_STATES_FAIL_COUNT, metrics->refresh_push_states_failcnt );

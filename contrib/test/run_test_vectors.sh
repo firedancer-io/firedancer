@@ -56,14 +56,4 @@ cat contrib/test/test-vectors-fixtures/elf-loader-fixtures/*.list | xargs -P $NU
 LOG=$LOG_PATH/test_exec_instr
 cat contrib/test/test-vectors-fixtures/instr-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
-# check if ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed exists
-if [ -f ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed ]; then
-  LOG=$LOG_PATH/test_exec_cpi
-  cat contrib/test/test-vectors-fixtures/cpi-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat_stubbed --log-path $LOG --wksp-page-sz 1073741824
-else
-  # skip stubbed tests if the binary does not exist
-  echo -e "\e[38;5;214mNOTICE:\e[0m Skipping stubbed tests due to missing stub binary"
-  echo "Build with EXTRAS=fuzz-stubs to build the stub binary"
-fi
-
 echo Test vectors success

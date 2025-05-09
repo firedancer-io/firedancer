@@ -317,7 +317,7 @@ fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
 void
 fd_topo_print_log( int         stdout,
                    fd_topo_t * topo ) {
-  char message[ 16UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
+  char message[ 32UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
 
   char * cur = message;
   ulong remaining = sizeof(message) - 1; /* Leave one character at the end to ensure NUL terminated */
@@ -385,7 +385,7 @@ fd_topo_print_log( int         stdout,
 
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%7s): %12s  page_cnt=%2lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%-10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+    PRINT( "  %2lu (%7s): %12s  page_cnt=%3lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
   }
 
   PRINT( "\nOBJECTS\n" );
@@ -465,15 +465,31 @@ fd_topo_print_log( int         stdout,
       PRINTOUT( "%2lu", tile->out_link_id[ j ] );
     }
 
+    /* Determine tile's NUMA node either based on CPU or wksp affinity */
+    ulong tile_numa = 0UL;
+    if( tile->cpu_idx!=ULONG_MAX ) {
+      tile_numa = fd_shmem_numa_idx( tile->cpu_idx );
+    } else {
+      tile_numa = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].numa_idx;
+    }
+
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  cpu_idx=", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
     if( tile->cpu_idx!=ULONG_MAX ) {
-      PRINT( "%lu", tile->cpu_idx );
+      PRINT( "%3lu", tile->cpu_idx );
     } else {
-      PRINT( "floating" );
+      PRINT( "any" );
     }
-    PRINT( "  in=[%s]  out=[%s]", in, out );
+
+    PRINT( "  numa_idx=%lu  in=[%s]  out=[%s]  objs=[", tile_numa, in, out );
+    for( ulong j=0UL; j<tile->uses_obj_cnt; j++ ) {
+      if( FD_LIKELY( j!=0 ) ) PRINT( " " );
+      int is_rw = tile->uses_obj_mode[ j ] == FD_SHMEM_JOIN_MODE_READ_WRITE;
+      PRINT( "%lu:%s", tile->uses_obj_id[ j ], is_rw?"rw":"ro" );
+    }
+    PRINT( "]" );
+
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 

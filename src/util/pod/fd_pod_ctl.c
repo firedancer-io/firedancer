@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include "../../util/pod/fd_pod.h"
 
 #if FD_HAS_HOSTED
 
@@ -54,7 +55,7 @@ insert_val( uchar *      pod,
 
 static inline int
 issingleprint( int c ) {
-  return isalnum( c ) | ispunct( c ) | (c==' ');
+  return fd_isalnum( c ) | fd_ispunct( c ) | (c==' ');
 }
 
 static void
@@ -141,7 +142,7 @@ printf_val( fd_pod_info_t const * info ) {
 
   case FD_POD_VAL_TYPE_SCHAR:  { int   i = (int) *(schar *)info->val; printf( "%i", i ); break; }
   case FD_POD_VAL_TYPE_SHORT:
-  case FD_POD_VAL_TYPE_INT: 
+  case FD_POD_VAL_TYPE_INT:
   case FD_POD_VAL_TYPE_LONG:   { ulong u; fd_ulong_svw_dec( info->val, &u ); printf( "%li", fd_long_zz_dec( u ) ); break; }
 
 # if FD_HAS_INT128
@@ -179,7 +180,7 @@ main( int     argc,
 
   if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "no arguments" ));
   char const * bin = argv[0];
-  SHIFT(1); 
+  SHIFT(1);
 
   ulong tag = 1UL;
 
@@ -317,7 +318,7 @@ main( int     argc,
       fd_pod_info_t * info;
       ulong info_cnt = fd_pod_cnt_recursive( pod );
       if( FD_UNLIKELY( !info_cnt ) ) info = NULL;
-      else { 
+      else {
         info = (fd_pod_info_t *)aligned_alloc( alignof(fd_pod_info_t), info_cnt*sizeof(fd_pod_info_t) );
         if( FD_UNLIKELY( !info ) ) {
           fd_wksp_unmap( fd_pod_leave( pod ) );
@@ -576,7 +577,6 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s %s %s %s: success", cnt, cmd, cstr, type, path, val ));
       SHIFT(4);
 
-
     } else if( !strcmp( cmd, "compact" ) ) {
 
       if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -729,4 +729,3 @@ main( int     argc,
 }
 
 #endif
-

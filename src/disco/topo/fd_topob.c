@@ -316,20 +316,22 @@ validate( fd_topo_t const * topo ) {
         if( topo->tiles[ j ].out_link_id[ k ]==i ) producer_cnt++;
       }
     }
-    if( FD_UNLIKELY( producer_cnt!=1UL ) )
+    if( FD_UNLIKELY( producer_cnt>1UL || ( producer_cnt==0UL && !topo->links[ i ].permit_no_producers ) ) )
       FD_LOG_ERR(( "link %lu (%s:%lu) has %lu producers", i, topo->links[ i ].name, topo->links[ i ].kind_id, producer_cnt ));
   }
 
   /* Each link has at least one consumer */
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     ulong cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ i ] );
-    if( FD_UNLIKELY( cnt < 1 ) )
+    if( FD_UNLIKELY( cnt < 1UL && !topo->links[ i ].permit_no_consumers ) ) {
       FD_LOG_ERR(( "link %lu (%s:%lu) has 0 consumers", i, topo->links[ i ].name, topo->links[ i ].kind_id ));
+    }
   }
 }
 
 void
-fd_topob_auto_layout( fd_topo_t * topo ) {
+fd_topob_auto_layout( fd_topo_t * topo,
+                      int         reserve_agave_cores ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
@@ -339,7 +341,6 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "metric",
     "cswtch",
     "bencho",
-    "bhole",  /* FIREDANCER only */
     "rstart", /* FIREDANCER only */
   };
 
@@ -367,6 +368,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
     "exec",   /* FIREDANCER only */
+    "writer", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
@@ -473,7 +475,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
-  if( FD_UNLIKELY( !topo->firedancer ) ) {
+  if( FD_UNLIKELY( reserve_agave_cores ) ) {
     for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
       if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
 
@@ -510,7 +512,7 @@ initialize_numa_assignments( fd_topo_t * topo ) {
     if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
 
     int found_strict = 0;
-    int found_lazy   = 1;
+    int found_lazy   = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx!=ULONG_MAX ) ) {
@@ -555,8 +557,6 @@ initialize_numa_assignments( fd_topo_t * topo ) {
 void
 fd_topob_finish( fd_topo_t *                topo,
                  fd_topo_obj_callbacks_t ** callbacks ) {
-  initialize_numa_assignments( topo );
-
   for( ulong z=0UL; z<topo->tile_cnt; z++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ z ];
 
@@ -649,6 +649,8 @@ fd_topob_finish( fd_topo_t *                topo,
     wksp->page_sz = page_sz;
     wksp->page_cnt = wksp_aligned_footprint / page_sz;
   }
+
+  initialize_numa_assignments( topo );
 
   validate( topo );
 }

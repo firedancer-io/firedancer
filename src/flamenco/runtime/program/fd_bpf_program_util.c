@@ -48,7 +48,7 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
   memcpy( id.uc, pubkey, sizeof(fd_pubkey_t) );
   memset( id.uc + sizeof(fd_pubkey_t), 0, sizeof(fd_funk_rec_key_t) - sizeof(fd_pubkey_t) );
 
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
+  id.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
 
   return id;
 }
@@ -86,24 +86,15 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
                                                               fd_spad_t *             runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( programdata_acc );
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = program_acc->vt->get_data( program_acc ),
-    .dataend = program_acc->vt->get_data( program_acc ) + program_acc->vt->get_data_len( program_acc ),
-  };
-
-  ulong total_sz = 0UL;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz ) ) ) {
+  fd_bpf_upgradeable_loader_state_t * program_account_state =
+    fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state, runtime_spad,
+      program_acc->vt->get_data( program_acc ),
+      program_acc->vt->get_data_len( program_acc ),
+      NULL );
+  if( FD_UNLIKELY( !program_account_state ) ) {
     return -1;
   }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_bpf_upgradeable_loader_state_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader state" ));
-  }
-
-  fd_bpf_upgradeable_loader_state_t * program_account_state =
-    fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
-
   if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
     return -1;
   }
@@ -124,7 +115,12 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
     .dataend = programdata_acc->vt->get_data( programdata_acc ) + programdata_acc->vt->get_data_len( programdata_acc ),
   };
 
+  ulong total_sz = 0UL;
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx_programdata, &total_sz ) ) ) {
+    return -1;
+  }
+
+  if( FD_UNLIKELY( programdata_acc->vt->get_data_len( programdata_acc )<PROGRAMDATA_METADATA_SIZE ) ) {
     return -1;
   }
 
@@ -216,14 +212,14 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
-    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk, wksp ), wksp, NULL );;
+    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk ), wksp, NULL );;
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
     fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -244,7 +240,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -290,7 +286,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funk_rec_cancel( prepare );
+      fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
 
@@ -304,10 +300,33 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
 
-    fd_funk_rec_publish( prepare );
+    fd_funk_rec_publish( funk, prepare );
 
     return 0;
   } FD_SPAD_FRAME_END;
+}
+
+static int
+fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
+                                                 fd_pubkey_t const *  pubkey,
+                                                 fd_spad_t *          runtime_spad ) {
+  FD_TXN_ACCOUNT_DECL( exec_rec );
+  if( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) != FD_ACC_MGR_SUCCESS ) {
+    return -1;
+  }
+
+  if( memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
+      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
+    return -1;
+  }
+
+  if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad ) != 0 ) {
+    return -1;
+  }
+
+  return 0;
 }
 
 void
@@ -347,7 +366,7 @@ fd_bpf_scan_task( void * tpool, ulong t0, ulong t1,
   uchar *                 is_bpf_program = (uchar *)args;
   fd_exec_slot_ctx_t *    slot_ctx       = (fd_exec_slot_ctx_t *)reduce;
 
-  for( ulong i=start_idx; i<end_idx; i++ ) {
+  for( ulong i=start_idx; i<=end_idx; i++ ) {
     fd_funk_rec_t const * rec = recs[ i ];
     fd_bpf_is_bpf_program( rec, fd_funk_wksp( slot_ctx->funk ), &is_bpf_program[ i ] );
   }
@@ -399,7 +418,6 @@ bpf_tpool_wrapper( void * para_arg_1,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slot_ctx,
-                                                     fd_funk_txn_t *         funk_txn,
                                                      fd_spad_t *             runtime_spad,
                                                      fd_exec_para_cb_ctx_t * exec_para_ctx ) {
   long        elapsed_ns = -fd_log_wallclock();
@@ -417,7 +435,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
   }
   fd_funk_txn_end_write( funk );
 
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
   fd_funk_txn_start_read( funk );
@@ -432,12 +450,8 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
       for( ; NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
         if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) continue;
         recs[ rec_cnt ] = rec;
-
-        if( rec_cnt==65536UL ) {
-          break;
-        }
-
         rec_cnt++;
+        if( FD_UNLIKELY( rec_cnt==65536UL ) ) break;
       }
 
       /* Pass in args */
@@ -453,7 +467,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
         }
 
         fd_pubkey_t const * pubkey = fd_type_pun_const( recs[i]->pair.key[0].uc );
-        int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, pubkey, runtime_spad );
+        int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, pubkey, runtime_spad );
         if( res==0 ) {
           cached_cnt++;
         }
@@ -469,7 +483,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
   }
   fd_funk_txn_end_write( funk );
 
-  slot_ctx->funk_txn = parent_txn;
+  slot_ctx->funk_txn = funk_txn;
 
   elapsed_ns += fd_log_wallclock();
 
@@ -480,7 +494,6 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn,
                                                 fd_spad_t *          runtime_spad ) {
   fd_funk_t * funk = slot_ctx->funk;
   ulong       cnt  = 0UL;
@@ -496,7 +509,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   }
   fd_funk_txn_end_write( funk );
 
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
   fd_funk_txn_start_read( funk );
@@ -507,12 +520,9 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    fd_pubkey_t const * program_pubkey = fd_type_pun_const( rec->pair.key[0].uc );
+    fd_pubkey_t const * pubkey = fd_type_pun_const( rec->pair.key[0].uc );
 
-    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx,
-                                                               funk_txn,
-                                                               program_pubkey,
-                                                               runtime_spad );
+    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, pubkey, runtime_spad );
 
     if( res==0 ) {
       cnt++;
@@ -529,31 +539,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   }
   fd_funk_txn_end_write( funk );
 
-  slot_ctx->funk_txn = parent_txn;
-  return 0;
-}
-
-int
-fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_funk_txn_t *      funk_txn,
-                                                 fd_pubkey_t const *  pubkey,
-                                                 fd_spad_t *          runtime_spad ) {
-  FD_TXN_ACCOUNT_DECL( exec_rec );
-  if( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, funk_txn ) != FD_ACC_MGR_SUCCESS ) {
-    return -1;
-  }
-
-  if( memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
-    return -1;
-  }
-
-  if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, exec_rec, runtime_spad ) != 0 ) {
-    return -1;
-  }
-
+  slot_ctx->funk_txn = funk_txn;
   return 0;
 }
 

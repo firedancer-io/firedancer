@@ -41,15 +41,6 @@ get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
 
 typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 
-/* fd_executor_lookup_native_program returns the appropriate instruction
-   processor for the given native program ID.  Returns NULL if given ID
-   is not a recognized native program. */
-
-int
-fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
-                                   fd_exec_txn_ctx_t *      txn_ctx,
-                                   fd_exec_instr_fn_t *     native_prog_fn );
-
 fd_exec_instr_fn_t
 fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc );
 
@@ -85,9 +76,6 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
   Makes changes to the Funk accounts DB. */
 int
 fd_execute_txn( fd_execute_txn_task_info_t * task_info );
-
-uint
-fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 
 int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
@@ -149,6 +137,15 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
 int
 fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
                     fd_instr_info_t const *   instr );
+
+void
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
+                                    fd_exec_txn_ctx_t *        ctx,
+                                    fd_wksp_t const *          funk_wksp,
+                                    fd_wksp_t const *          runtime_pub_wksp,
+                                    ulong                      funk_txn_gaddr,
+                                    ulong                      sysvar_cache_gaddr,
+                                    ulong                      funk_gaddr );
 
 FD_PROTOTYPES_END
 

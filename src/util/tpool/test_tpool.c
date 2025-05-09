@@ -228,13 +228,14 @@ static FD_MAP_REDUCE_BEGIN( test_map_reduce_0, 1L, 2UL, 4UL ) {
   FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
   FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==0UL     ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 2UL ) );
 } FD_MAP_END {
   FD_TEST( block_thresh==1L ); FD_TEST( reduce_align==2UL ); FD_TEST( reduce_footprint==4UL );
-  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
-  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_ts) & (tpool_ts< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_is) & (block_is<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==0UL     ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 2UL ) );
+  FD_TEST( _r0!=_r1 ); FD_TEST( fd_ulong_is_aligned( _r1, 2UL ) );
 } FD_REDUCE_END
 
 static FD_MAP_REDUCE_PROTO( test_map_reduce_1 );
@@ -243,13 +244,14 @@ static FD_MAP_REDUCE_BEGIN( test_map_reduce_1, 2L, 4UL, 8UL ) {
   FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
   FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 4UL ) );
 } FD_MAP_END {
   FD_TEST( block_thresh==2L ); FD_TEST( reduce_align==4UL ); FD_TEST( reduce_footprint==8UL );
-  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
-  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_ts) & (tpool_ts< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_is) & (block_is<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 4UL ) );
+  FD_TEST( _r0!=_r1 ); FD_TEST( fd_ulong_is_aligned( _r1, 4UL ) );
 } FD_REDUCE_END
 
 static FD_MAP_REDUCE_PROTO( test_map_reduce_2 );
@@ -258,13 +260,14 @@ static FD_MAP_REDUCE_BEGIN( test_map_reduce_2, 3L, 8UL, 16UL ) {
   FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
   FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==0UL     );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 8UL ) );
 } FD_MAP_END {
   FD_TEST( block_thresh==3L ); FD_TEST( reduce_align==8UL ); FD_TEST( reduce_footprint==16UL );
-  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
-  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_ts) & (tpool_ts< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_is) & (block_is<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==0UL     );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 8UL ) );
+  FD_TEST( _r0!=_r1 ); FD_TEST( fd_ulong_is_aligned( _r1, 8UL ) );
 } FD_REDUCE_END
 
 static FD_MAP_REDUCE_PROTO( test_map_reduce_3 );
@@ -273,13 +276,14 @@ static FD_MAP_REDUCE_BEGIN( test_map_reduce_3, 4L, 16UL, 32UL ) {
   FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
   FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 16UL ) );
 } FD_MAP_END {
   FD_TEST( block_thresh==4L ); FD_TEST( reduce_align==16UL ); FD_TEST( reduce_footprint==32UL );
-  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
-  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_ts) & (tpool_ts< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_is) & (block_is<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 16UL ) );
+  FD_TEST( _r0!=_r1 ); FD_TEST( fd_ulong_is_aligned( _r1, 16UL ) );
 } FD_REDUCE_END
 
 static FD_MAP_REDUCE_PROTO( test_map_reduce_4 );
@@ -288,13 +292,14 @@ static FD_MAP_REDUCE_BEGIN( test_map_reduce_4, 5L, 32UL, 64UL ) {
   FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
   FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 32UL ) );
 } FD_MAP_END {
   FD_TEST( block_thresh==5L ); FD_TEST( reduce_align==32UL ); FD_TEST( reduce_footprint==64UL );
-  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
-  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_ts) & (tpool_ts< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_is) & (block_is<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 32UL ) );
+  FD_TEST( _r0!=_r1 ); FD_TEST( fd_ulong_is_aligned( _r1, 32UL ) );
 } FD_REDUCE_END
 
 static FD_MAP_REDUCE_PROTO( test_map_reduce_5 );
@@ -303,13 +308,14 @@ static FD_MAP_REDUCE_BEGIN( test_map_reduce_5, 6L, 64UL, 128UL ) {
   FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
   FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 64UL ) );
 } FD_MAP_END {
   FD_TEST( block_thresh==6L ); FD_TEST( reduce_align==64UL ); FD_TEST( reduce_footprint==128UL );
-  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
-  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_ts) & (tpool_ts< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_is) & (block_is<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==0UL     );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==0UL     ); FD_TEST( fd_ulong_is_aligned( _r0, 64UL ) );
+  FD_TEST( _r0!=_r1 ); FD_TEST( fd_ulong_is_aligned( _r1, 64UL ) );
 } FD_REDUCE_END
 
 static FD_MAP_REDUCE_PROTO( test_map_reduce_6 );
@@ -318,13 +324,14 @@ static FD_MAP_REDUCE_BEGIN( test_map_reduce_6, 7L, 128UL, 256UL ) {
   FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
   FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 ); FD_TEST( fd_ulong_is_aligned( _r0, 128UL ) );
 } FD_MAP_END {
   FD_TEST( block_thresh==7L ); FD_TEST( reduce_align==128UL ); FD_TEST( reduce_footprint==256UL );
-  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
-  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_ts) & (tpool_ts< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_is) & (block_is<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
   FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
-  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 ); FD_TEST( fd_ulong_is_aligned( _r0, 128UL ) );
+  FD_TEST( _r0!=_r1 ); FD_TEST( fd_ulong_is_aligned( _r1, 128UL ) );
 } FD_REDUCE_END
 
 static FD_FOR_ALL_BEGIN( bench_for_all, 1L ) {} FD_FOR_ALL_END
@@ -657,7 +664,7 @@ main( int     argc,
     test_i0 = (long)fd_rng_int( rng );
     test_i1 = (long)fd_rng_int( rng ); fd_swap_if( test_i1<test_i0, test_i0, test_i1 );
     test_a0 = fd_rng_ulong( rng ); test_a1 = fd_rng_ulong( rng ); test_a2 = fd_rng_ulong( rng ); test_a3 = fd_rng_ulong( rng );
-    test_a4 = fd_rng_ulong( rng ); test_a5 = fd_rng_ulong( rng ); test_a6 = fd_rng_ulong( rng );
+    test_a4 = fd_rng_ulong( rng ); test_a5 = fd_rng_ulong( rng ); test_a6 = fd_rng_ulong( rng ) & ~127UL;
     FD_MAP_REDUCE( test_map_reduce_0, tpool,test_t0,test_t1, test_i0,test_i1,                                                  test_a6 );
     FD_MAP_REDUCE( test_map_reduce_1, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,                                         test_a6 );
     FD_MAP_REDUCE( test_map_reduce_2, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,                                 test_a6 );

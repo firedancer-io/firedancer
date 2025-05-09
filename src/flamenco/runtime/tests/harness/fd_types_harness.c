@@ -1,58 +1,16 @@
 #include "fd_types_harness.h"
-#include "../../../types/fd_type_names.c"
+#include "../../../types/fd_types_yaml.h"
+#include "../../../types/fd_types_reflect.h"
+#include <ctype.h>
 
-static int
-fd_flamenco_type_lookup( char const *       type,
-                         fd_types_funcs_t * t ) {
-  char fp[255];
-
-#pragma GCC diagnostic ignored "-Wpedantic"
-  sprintf( fp, "%s_footprint", type );
-  t->footprint_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_align", type );
-  t->align_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_new", type );
-  t->new_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_decode_footprint", type );
-  t->decode_footprint_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_decode", type );
-  t->decode_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_walk", type );
-  t->walk_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_encode", type );
-  t->encode_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_destroy", type );
-  t->destroy_fun = dlsym( RTLD_DEFAULT, fp );
-
-  sprintf( fp, "%s_size", type );
-  t->size_fun = dlsym( RTLD_DEFAULT, fp );
-
-  if(( t->footprint_fun == NULL ) ||
-     ( t->align_fun == NULL ) ||
-     ( t->new_fun == NULL ) ||
-     ( t->decode_footprint_fun == NULL ) ||
-     ( t->decode_fun == NULL ) ||
-     ( t->walk_fun == NULL ) ||
-     ( t->encode_fun == NULL ) ||
-     ( t->destroy_fun == NULL ) ||
-     ( t->size_fun == NULL ))
-    return -1;
-  return 0;
-}
+#include "generated/type.pb.h"
 
 struct CustomerSerializer {
   void * file;
 };
 typedef struct CustomerSerializer CustomerSerializer;
 
-void
+static void
 custom_serializer_walk( void *       _self,
                         void const * arg,
                         char const * name,
@@ -70,7 +28,11 @@ custom_serializer_walk( void *       _self,
   switch( type ) {
     case FD_FLAMENCO_TYPE_MAP:
     case FD_FLAMENCO_TYPE_MAP_END:
+      break;
     case FD_FLAMENCO_TYPE_ENUM:
+      // print the enum discriminant
+      fprintf( file, "%u,", *(uint const*) arg );
+      break;
     case FD_FLAMENCO_TYPE_ENUM_END:
     case FD_FLAMENCO_TYPE_ARR:
     case FD_FLAMENCO_TYPE_ARR_END:
@@ -167,84 +129,229 @@ custom_serializer_walk( void *       _self,
       break;
     }
     case FD_FLAMENCO_TYPE_CSTR:
-      fprintf( file, "'%s',", (char const *)arg );
-      break;
-    case FD_FLAMENCO_TYPE_ENUM_DISC: {
-      char lowercase_variant[128];
-      memset(lowercase_variant, 0, 128);
-
-      for( ulong i=0; name[i]; ++i ) {
-        lowercase_variant[i] = (char) tolower(name[i]);
+      if( arg==NULL ) {
+        fprintf( file, "," );
+      } else {
+        fprintf( file, "'%s',", (char const *)arg );
       }
-      fprintf( file, "'%s',", lowercase_variant );
       break;
-    }
+    case FD_FLAMENCO_TYPE_ENUM_DISC:
+      break;
     default:
       FD_LOG_CRIT(( "unknown type %#x", (uint)type ));
       break;
-    }
+  }
 }
 
-int
-fd_runtime_fuzz_decode_type_run( fd_spad_t *   spad,
-                                 uchar const * input,
-                                 ulong         input_sz,
-                                 uchar *       output,
-                                 ulong *       output_sz ) {
+static int
+fd_runtime_fuzz_decode_type_run( fd_runtime_fuzz_runner_t * runner,
+                                 uchar const *              input,
+                                 ulong                      input_sz,
+                                 uchar *                    output,
+                                 ulong *                    output_sz ) {
 
-  char const * type_name = fd_type_names[input[0] % FD_TYPE_NAME_COUNT];
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
+    if( input_sz < 1 ) {
+      *output_sz = 0;
+      return 0;
+    }
 
-  fd_types_funcs_t type_meta;
-  if( fd_flamenco_type_lookup( type_name, &type_meta ) != 0 ) {
-    fprintf(stderr,  "Failed to lookup type %s (%d)", type_name, input[0]);
-    FD_LOG_ERR (( "Failed to lookup type %s", type_name ));
+    // First byte is the type ID
+    uchar type_id = input[0];
+    if( type_id >= fd_types_vt_list_cnt ) {
+      FD_LOG_WARNING(( "Invalid type ID: %d", type_id ));
+      *output_sz = 0;
+      return 0;
+    }
+
+    fd_types_vt_t const * type_meta = &fd_types_vt_list[ type_id ];
+
+    // Set up decode context
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = input + 1,
+      .dataend = (void *)( (ulong)input + input_sz ),
+    };
+
+    // Get the size needed for the decoded object
+    ulong total_sz = 0UL;
+    int err = type_meta->decode_footprint( &decode_ctx, &total_sz );
+    if( err != FD_BINCODE_SUCCESS ) {
+      *output_sz = 0;
+      return 0;
+    }
+
+    // Allocate memory for the decoded object
+    void * decoded = fd_spad_alloc( runner->spad, 1UL, total_sz );
+    if( !decoded ) {
+      *output_sz = 0;
+      return 0;
+    }
+
+    // Decode the object
+    void * result = type_meta->decode( decoded, &decode_ctx );
+    if (result == NULL) {
+      *output_sz = 0;
+      return 0;
+    }
+
+    // Output buffer structure:
+    // - serialized_sz (ulong)
+    // - serialized data (bytes)
+    // - yaml data (bytes)
+
+    uchar * output_ptr = output;
+    ulong remaining_sz = *output_sz;
+
+    // Skip serialized_sz for now (we'll write it after serialization)
+    uchar * serialized_sz_ptr = output_ptr;
+    output_ptr += sizeof(ulong);
+    remaining_sz -= sizeof(ulong);
+
+    // Serialize the memory representation
+    uchar * serialized_data_ptr = output_ptr;
+    FILE * file = fmemopen( serialized_data_ptr, remaining_sz, "w" );
+    if( !file ) {
+      *output_sz = 0;
+      return 0;
+    }
+
+    CustomerSerializer serializer = {
+      .file = file,
+    };
+
+    // Walk the decoded object and serialize it
+    type_meta->walk( &serializer, decoded, custom_serializer_walk, type_meta->name, 0 );
+    if( ferror( file ) ) {
+      fclose( file );
+      *output_sz = 0;
+      return 0;
+    }
+    long serialized_sz = ftell( file );
+    fclose( file );
+
+    // Write serialized_sz
+    *(ulong *)serialized_sz_ptr = (ulong)serialized_sz;
+
+    // Update output_ptr and remaining_sz
+    output_ptr += serialized_sz;
+    remaining_sz -= (ulong)serialized_sz;
+
+    // Generate YAML representation
+    uchar * yaml_data_ptr = output_ptr;
+    file = fmemopen( yaml_data_ptr, remaining_sz, "w" );
+    if( !file ) {
+      *output_sz = 0;
+      return 0;
+    }
+
+    void * yaml_mem = fd_spad_alloc( runner->spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
+    fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
+
+    // Walk the decoded object and generate YAML
+    type_meta->walk( yaml, decoded, fd_flamenco_yaml_walk, type_meta->name, 0 );
+    if( ferror( file ) ) {
+      fclose( file );
+      *output_sz = 0;
+      return 0;
+    }
+
+    long yaml_sz = ftell( file );
+    fclose( file );
+
+    // Update output_ptr and remaining_sz
+    output_ptr += yaml_sz;
+    remaining_sz -= (ulong)yaml_sz;
+
+    // Calculate total size
+    *output_sz = (ulong)(output_ptr - output);
+    return 1;
+  } FD_SPAD_FRAME_END;
+
+  *output_sz = 0;
+  return 0;
+}
+
+ulong
+fd_runtime_fuzz_type_run( fd_runtime_fuzz_runner_t * runner,
+                          void const *               input_,
+                          void **                    output_,
+                          void *                     output_buf,
+                          ulong                      output_bufsz ) {
+  fd_exec_test_type_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_type_effects_t **      output = fd_type_pun( output_ );
+
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT(l, output_buf);
+
+  fd_exec_test_type_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_exec_test_type_effects_t),
+                            sizeof(fd_exec_test_type_effects_t));
+  if (FD_UNLIKELY(_l > output_end)) {
+    return 0UL;
   }
 
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = input + 1,
-    .dataend = (void *) ( (ulong) input + input_sz ),
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = type_meta.decode_footprint_fun( &decode_ctx, &total_sz );
-  __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
-
-  if (err != FD_BINCODE_SUCCESS) {
-    return 0;
+  if( input == NULL || input->content == NULL ) {
+    return 0UL;
   }
 
-  void * decoded = fd_spad_alloc( spad, 1UL, total_sz );
-  FD_TEST( total_sz <= fd_spad_alloc_max( spad, 1UL ) );
-  type_meta.decode_fun( decoded, &decode_ctx );
+  if(input->content->size == 0) {
+    return 0UL;
+  }
 
-  // Serialize the memory representation
-  ulong rem_sz = *output_sz - sizeof(ulong);
-  FILE * file = fmemopen( output+sizeof(ulong), rem_sz, "w" );
-  CustomerSerializer serializer = {
-    .file = file,
-  };
+  // Initialize effects
+  effects->result = 0;
+  effects->representation = NULL;
+  effects->yaml = NULL;
 
-  type_meta.walk_fun( &serializer, decoded, custom_serializer_walk, type_name, 0 );
-  FD_TEST( 0==ferror( file ) );
-  long serialized_sz = ftell(  file );
-  FD_TEST( 0==fclose( file ) );
+  // Decode the type
+  ulong   max_content_size = output_bufsz - (_l - (ulong)output_buf);
+  uchar * temp_buffer = (uchar *)_l;
+  if (FD_UNLIKELY(_l > output_end)) {
+    return 0UL;
+  }
 
-  *(ulong *)output = (ulong)serialized_sz;
-  rem_sz -= (ulong) serialized_sz;
+  ulong decoded_sz = max_content_size;
+  int success = fd_runtime_fuzz_decode_type_run( runner,
+                                                 input->content->bytes,
+                                                 input->content->size,
+                                                 temp_buffer,
+                                                 &decoded_sz);
 
-  // YAML for debugging
-  file = fmemopen( output + sizeof(ulong) + serialized_sz, rem_sz, "w" );
+  if (!success || decoded_sz == 0) {
+    effects->result = 1;
+  } else {
+    effects->result = 0;
 
-  void * yaml_mem = fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
-  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
+    // The decoded data contains:
+    // - serialized_sz (ulong)
+    // - serialized data (bytes)
+    // - yaml data (bytes)
 
-  type_meta.walk_fun( yaml, decoded, fd_flamenco_yaml_walk, type_name, 0 );
-  FD_TEST( 0==ferror( file ) );
-  long yaml_sz = ftell(  file );
-  FD_TEST( yaml_sz>0 );
-  FD_TEST( 0==fclose( file ) );
+    // Extract serialized_sz
+    ulong serialized_sz = *(ulong*)temp_buffer;
 
-  *output_sz = sizeof(ulong) + (ulong) serialized_sz + (ulong) yaml_sz;
+    // Allocate and copy the representation (serialized data)
+    _l += decoded_sz;
+    effects->representation = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
+                                                    PB_BYTES_ARRAY_T_ALLOCSIZE(serialized_sz));
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      return 0UL;
+    }
+    effects->representation->size = (pb_size_t)serialized_sz;
+    fd_memcpy(effects->representation->bytes, temp_buffer + sizeof(ulong), serialized_sz);
 
-  return 1;
+    // Allocate and copy the yaml data
+    ulong yaml_sz = decoded_sz - sizeof(ulong) - serialized_sz;
+    effects->yaml = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
+                                          PB_BYTES_ARRAY_T_ALLOCSIZE(yaml_sz));
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      return 0UL;
+    }
+    effects->yaml->size = (pb_size_t)yaml_sz;
+    fd_memcpy(effects->yaml->bytes, temp_buffer + sizeof(ulong) + serialized_sz, yaml_sz);
+  }
+
+  ulong actual_end = FD_SCRATCH_ALLOC_FINI(l, 1UL);
+  *output = effects;
+  return actual_end - (ulong)output_buf;
 }

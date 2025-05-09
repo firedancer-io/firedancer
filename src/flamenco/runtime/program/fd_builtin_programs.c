@@ -64,7 +64,7 @@ static const fd_stateless_builtin_program_t stateless_programs_builtins[] = {
 #define STATELESS_BUILTINS_COUNT (sizeof(stateless_programs_builtins) / sizeof(fd_stateless_builtin_program_t))
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L34-L131 */
-fd_builtin_program_t const builtin_programs[] = {
+static fd_builtin_program_t const builtin_programs[] = {
     SYSTEM_PROGRAM_BUILTIN,
     VOTE_PROGRAM_BUILTIN,
     STAKE_PROGRAM_BUILTIN,
@@ -82,7 +82,7 @@ fd_builtin_program_t const builtin_programs[] = {
 
 /* Used by the compute budget program to determine how many CUs to deduct by default
    https://github.com/anza-xyz/agave/blob/v2.1.13/builtins-default-costs/src/lib.rs#L113-L139 */
-fd_core_bpf_migration_config_t const * migrating_builtins[] = {
+static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
     MIGRATE_BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG,
     MIGRATE_BUILTIN_TO_CORE_BPF_CONFIG_PROGRAM_CONFIG,
     MIGRATE_BUILTIN_TO_CORE_BPF_ADDRESS_LOOKUP_TABLE_PROGRAM_CONFIG,

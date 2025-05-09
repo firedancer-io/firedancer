@@ -71,18 +71,6 @@ typedef struct fd_perf_sample fd_perf_sample_t;
 #define DEQUE_MAX  720UL /* MAX RPC PERF SAMPLES */
 #include "../../util/tmpl/fd_deque.c"
 
-static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    if (key1->ul[i] != key2->ul[i])
-      return 0;
-  return 1;
-}
-
-static void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    keyd->ul[i] = keys->ul[i];
-}
-
 struct fd_rpc_acct_map_elem {
   fd_pubkey_t key;
   ulong next;
@@ -95,7 +83,7 @@ typedef struct fd_rpc_acct_map_elem fd_rpc_acct_map_elem_t;
 #define MAP_KEY_T fd_pubkey_t
 #define MAP_ELE_T fd_rpc_acct_map_elem_t
 #define MAP_KEY_HASH(key,seed) fd_hash( seed, key, sizeof(fd_pubkey_t) )
-#define MAP_KEY_EQ(k0,k1)      fd_hash_eq( k0, k1 )
+#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
 #define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
 #define POOL_NAME fd_rpc_acct_map_pool
@@ -154,8 +142,8 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
 
 static const void *
 read_account_with_xid( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( ctx->global->funk, fd_funk_wksp( ctx->global->funk ) );
-  fd_funk_txn_t *   txn     = fd_funk_txn_query( xid, &txn_map );
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->global->funk );
+  fd_funk_txn_t *     txn     = fd_funk_txn_query( xid, txn_map );
   return fd_funk_rec_query_copy( ctx->global->funk, txn, recid, fd_scratch_virtual(), result_len );
 }
 
@@ -180,7 +168,7 @@ get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx 
   }
 }
 
-fd_epoch_bank_t *
+static fd_epoch_bank_t *
 read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_rpc_global_ctx_t * glob = ctx->global;
 
@@ -192,7 +180,6 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
     }
 
     if( glob->epoch_bank != NULL ) {
-      fd_epoch_bank_destroy( glob->epoch_bank );
       fd_valloc_free( glob->valloc, glob->epoch_bank );
       glob->epoch_bank = NULL;
     }
@@ -208,27 +195,18 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
       return NULL;
     }
     uint magic = *(uint*)val;
-    fd_bincode_decode_ctx_t binctx;
-    binctx.data    = (uchar*)val + sizeof(uint);
-    binctx.dataend = (uchar*)val + vallen;
-
-    fd_epoch_bank_t * epoch_bank = NULL;
-    if( magic == FD_RUNTIME_ENC_BINCODE ) {
-      ulong total_sz = 0UL;
-      if( fd_epoch_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-        return NULL;
-      }
-
-      uchar * mem = fd_scratch_alloc( fd_epoch_bank_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "Unable to allocate memory for epoch bank" ));
-        return NULL;
-      }
-
-      epoch_bank = fd_epoch_bank_decode( mem, &binctx );
-    } else {
+    if( FD_UNLIKELY( magic != FD_RUNTIME_ENC_BINCODE ) ) {
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
+    }
+
+    fd_epoch_bank_t * epoch_bank = fd_bincode_decode_scratch(
+        epoch_bank,
+        val    + sizeof(uint),
+        vallen - sizeof(uint),
+        NULL );
+    if( FD_UNLIKELY( !epoch_bank ) ) {
+      FD_LOG_WARNING(( "failed to decode epoch_bank" ));
+      return NULL;
     }
 
     glob->epoch_bank       = epoch_bank;
@@ -236,7 +214,7 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   } FD_SCRATCH_SCOPE_END;
 }
 
-fd_slot_bank_t *
+static fd_slot_bank_t *
 read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_funk_rec_key_t recid = fd_runtime_slot_bank_key();
   ulong vallen;
@@ -262,27 +240,18 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   }
 
   uint magic = *(uint*)val;
-  fd_bincode_decode_ctx_t binctx;
-  binctx.data = (uchar*)val + sizeof(uint);
-  binctx.dataend = (uchar*)val + vallen;
-
-  fd_slot_bank_t * slot_bank = NULL;
-  if( magic == FD_RUNTIME_ENC_BINCODE ) {
-    ulong total_sz = 0UL;
-    if( fd_slot_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
-      FD_LOG_WARNING(( "failed to decode slot_bank" ));
-      return NULL;
-    }
-
-    uchar * mem = fd_scratch_alloc( fd_slot_bank_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory for slot bank" ));
-      return NULL;
-    }
-
-    slot_bank = fd_slot_bank_decode( mem, &binctx );
-  } else {
+  if( FD_UNLIKELY( magic != FD_RUNTIME_ENC_BINCODE ) ) {
     FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
+  }
+
+  fd_slot_bank_t * slot_bank = fd_bincode_decode_scratch(
+      slot_bank,
+      val    + sizeof(uint),
+      vallen - sizeof(uint),
+      NULL );
+  if( !slot_bank ) {
+    FD_LOG_WARNING(( "failed to decode slot_bank" ));
+    return NULL;
   }
   return slot_bank;
 }
@@ -2516,7 +2485,6 @@ fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
   if (fd_webserver_stop(valloc, &glob->ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
   if( ctx->global->epoch_bank != NULL ) {
-    fd_epoch_bank_destroy( glob->epoch_bank );
     fd_valloc_free( valloc, glob->epoch_bank );
     glob->epoch_bank = NULL;
   }
@@ -2543,7 +2511,7 @@ fd_webserver_ws_closed(ulong conn_id, void * cb_arg) {
   fd_rpc_global_ctx_t * subs = ctx->global;
   for( ulong i = 0; i < subs->sub_cnt; ++i ) {
     if( subs->sub_list[i].conn_id == conn_id ) {
-      fd_memcpy( &subs->sub_list[i], &subs->sub_list[--(subs->sub_cnt)], sizeof(struct fd_ws_subscription) );
+      subs->sub_list[i] = subs->sub_list[--(subs->sub_cnt)];
       --i;
     }
   }
@@ -2613,9 +2581,9 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
       subs->perf_sample_ts = ts;
     }
 
-    fd_memcpy( &subs->last_slot_notify, msg, sizeof(fd_replay_notif_msg_t) );
-    fd_hash_t * h = &subs->recent_blockhash[msg->slot_exec.slot % MAX_RECENT_BLOCKHASHES];
-    fd_hash_copy( h, &msg->slot_exec.block_hash );
+    subs->last_slot_notify = *msg;
+    subs->recent_blockhash[ msg->slot_exec.slot % MAX_RECENT_BLOCKHASHES ]
+      = msg->slot_exec.block_hash;
 
     for( ulong j = 0; j < subs->sub_cnt; ++j ) {
       struct fd_ws_subscription * sub = &subs->sub_list[ j ];

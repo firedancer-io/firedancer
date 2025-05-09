@@ -166,7 +166,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
 
     /* Keep adding to the file unless max file size is exceeded or current slot
        exceeeds the range */
-    while ( metadata.slot < end_slot && lseek( ostream->fd, 0, SEEK_CUR ) < real_max_file_sz  ) {
+    while( metadata.slot < end_slot && lseek( ostream->fd, 0, SEEK_CUR ) < real_max_file_sz ) {
       ulong cur_slot = metadata.slot;
       /* Import shreds for entire slot */
 
@@ -178,7 +178,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
       file_end_slot = metadata.slot;
       ++file_block_count;
 
-      fd_slot_meta_destroy( &metadata );
+      memset( &metadata, 0, sizeof(fd_slot_meta_t) );
 
       /* Get next slot and handle case where end_slot is larger than the last
          slot in the rocksdb */

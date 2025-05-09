@@ -331,8 +331,7 @@ calculate_points_range( fd_epoch_info_pair_t const *      stake_infos,
 
     /* Check that the vote account is present in our cache */
     fd_vote_info_pair_t_mapnode_t query_key;
-    fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
-    fd_memcpy( &query_key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
+    query_key.elem.account = stake->delegation.voter_pubkey;
     fd_vote_info_pair_t_mapnode_t * vote_state_info = fd_vote_info_pair_t_map_find( task_args->vote_states_pool, task_args->vote_states_root, &query_key );
     if( FD_UNLIKELY( vote_state_info==NULL ) ) {
       FD_LOG_DEBUG(( "vote account missing from cache" ));
@@ -389,6 +388,7 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                    slot_ctx->sysvar_cache,
                                                    &slot_ctx->epoch_ctx->features,
+                                                   slot_ctx->runtime_wksp,
                                                    new_warmup_cooldown_rate_epoch,
                                                    _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -459,7 +459,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
     fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
     fd_vote_info_pair_t_mapnode_t key;
-    fd_memcpy( &key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
+    key.elem.account = *voter_acc;
     fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool,
                                                                                       temp_info->vote_states_root,
                                                                                       &key );
@@ -502,7 +502,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
     // Find and update the vote reward node in the local map
     fd_vote_reward_t_mapnode_t vote_map_key[1];
-    fd_memcpy( &vote_map_key->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
+    vote_map_key->elem.pubkey = *voter_acc;
     fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
     if( FD_UNLIKELY( vote_reward_node==NULL ) ) {
       FD_LOG_WARNING(( "vote account is missing from the vote rewards pool" ));
@@ -512,8 +512,8 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
     vote_reward_node = fd_vote_reward_t_map_find( vote_reward_map_pool, vote_reward_map_root, vote_map_key );
 
     if( vote_reward_node==NULL ) {
-      vote_reward_node = fd_vote_reward_t_map_acquire( vote_reward_map_pool );
-      fd_memcpy( &vote_reward_node->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
+      vote_reward_node                    = fd_vote_reward_t_map_acquire( vote_reward_map_pool );
+      vote_reward_node->elem.pubkey       = *voter_acc;
       vote_reward_node->elem.commission   = commission;
       vote_reward_node->elem.vote_rewards = calculated_stake_rewards->voter_rewards;
       vote_reward_node->elem.needs_store  = 1;
@@ -604,7 +604,8 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                    slot_ctx->sysvar_cache,
-                                                    &slot_ctx->epoch_ctx->features,
+                                                   &slot_ctx->epoch_ctx->features,
+                                                   slot_ctx->runtime_wksp,
                                                    new_warmup_cooldown_rate_epoch,
                                                    _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -641,7 +642,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
     fd_pubkey_t const *          voter_pubkey     = &vote_info->elem.account;
     fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
 
-    fd_memcpy( &vote_reward_node->elem.pubkey, voter_pubkey, sizeof(fd_pubkey_t) );
+    vote_reward_node->elem.pubkey       = *voter_pubkey;
     vote_reward_node->elem.vote_rewards = 0UL;
     vote_reward_node->elem.needs_store  = 0;
 
@@ -695,7 +696,8 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              ulong                                     exec_spad_cnt,
                              fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( !stake_history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
@@ -847,7 +849,7 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
   result->foundation_rate              = rewards.foundation_rate;
   result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
   result->capitalization               = slot_bank->capitalization;
-  fd_memcpy( &result->point_value, &validator_result->point_value, FD_POINT_VALUE_FOOTPRINT );
+  result->point_value                  = validator_result->point_value;
 }
 
 /* Calculate rewards from previous epoch and distribute vote rewards
@@ -919,8 +921,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
   slot_ctx->slot_bank.capitalization += result->distributed_rewards;
 
   /* Cheap because this doesn't copy all the rewards, just pointers to the dlist */
-  fd_memcpy( &result->stake_rewards_by_partition, &rewards_calc_result->stake_rewards_by_partition, FD_STAKE_REWARD_CALCULATION_PARTITIONED_FOOTPRINT );
-  fd_memcpy( &result->point_value, &rewards_calc_result->point_value, FD_POINT_VALUE_FOOTPRINT );
+  result->stake_rewards_by_partition = rewards_calc_result->stake_rewards_by_partition;
+  result->point_value                = rewards_calc_result->point_value;
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -994,8 +996,7 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
   FD_LOG_NOTICE(( "Setting epoch reward status as active" ));
   slot_ctx->slot_bank.epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
   slot_ctx->slot_bank.epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
-
-  fd_memcpy( &slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT );
+  slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards          = *partitioned_rewards;
 }
 
 /*  Process reward credits for a partition of rewards.
@@ -1176,11 +1177,8 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t * *        exec_spads,
                                             ulong                exec_spad_cnt,
                                             fd_spad_t *          runtime_spad ) {
-  fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
-                                                 slot_ctx->sysvar_cache,
-                                                 slot_ctx->funk,
-                                                 slot_ctx->funk_txn )==NULL ) ) {
+  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_cache_epoch_rewards( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
+  if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
     FD_LOG_NOTICE(( "failed to read sysvar epoch rewards - the sysvar may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
     return;
@@ -1211,12 +1209,14 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                      slot_ctx->sysvar_cache,
                                                      &slot_ctx->epoch_ctx->features,
-                                                     new_warmup_cooldown_rate_epoch, _err );
+                                                     slot_ctx->runtime_wksp,
+                                                     new_warmup_cooldown_rate_epoch,
+                                                     _err );
     if( FD_UNLIKELY( !is_some ) ) {
       new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
     if( FD_UNLIKELY( !stake_history ) ) {
       FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
     }
@@ -1231,7 +1231,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stakes->stake_delegations_pool, stakes->stake_delegations_root );
     epoch_info.stake_infos_len = 0UL;
-    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegation_sz );
+    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegation_sz );
 
     fd_stake_history_entry_t _accumulator = {
         .effective = 0UL,

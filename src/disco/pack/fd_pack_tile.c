@@ -50,8 +50,8 @@ FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 /* Optionally allow a larger limit for benchmarking */
 #define LARGER_MAX_COST_PER_BLOCK (18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND)
 
-/* 1.5 M cost units, enough for 1 max size transaction */
-const ulong CUS_PER_MICROBLOCK = 1500000UL;
+/* 1.6 M cost units, enough for 1 max size transaction */
+const ulong CUS_PER_MICROBLOCK = 1600000UL;
 
 #define SMALL_MICROBLOCKS 1
 
@@ -132,6 +132,8 @@ typedef struct {
      this so that when we are done we can tell the PoH tile how many
      microblocks to expect in the slot. */
   ulong slot_microblock_cnt;
+
+  ulong pack_txn_cnt; /* total num transactions packed since startup */
 
   /* The maximum number of microblocks that can be packed in this slot.
      Provided by the PoH tile when we become leader.*/
@@ -443,7 +445,6 @@ after_credit( fd_pack_ctx_t *     ctx,
   long now = fd_tickcount();
 
   int pacing_bank_cnt = (int)fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now );
-  if( FD_UNLIKELY( !pacing_bank_cnt ) ) return;
 
   ulong bank_cnt = ctx->bank_cnt;
 
@@ -630,16 +631,24 @@ after_credit( fd_pack_ctx_t *     ctx,
     }
   }
 
-  /* Try to schedule the next microblock.  Do we have any idle bank
-     tiles in the first `pacing_bank_cnt`? */
-  if( FD_LIKELY( ctx->bank_idle_bitset & fd_ulong_mask_lsb( pacing_bank_cnt ) ) ) { /* Optimize for schedule */
+  /* Try to schedule the next microblock. */
+  if( FD_LIKELY( ctx->bank_idle_bitset ) ) { /* Optimize for schedule */
     any_ready = 1;
 
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
+    /* We want to exempt votes from pacing, so we always allow
+       scheduling votes.  It doesn't really make much sense to pace
+       bundles, because they get scheduled in FIFO order.  However, we
+       keep pacing for normal transactions.  For example, if
+       pacing_bank_cnt is 0, then pack won't schedule normal
+       transactions to any bank tile. */
+    int flags = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,              FD_PACK_SCHEDULE_BUNDLE, 0 )
+                                      | fd_int_if( i<pacing_bank_cnt, FD_PACK_SCHEDULE_TXN,    0 );
+
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
-    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, microblock_dst );
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
@@ -653,6 +662,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
+      trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->flags & FD_TXN_P_FLAGS_BUNDLE);
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
@@ -661,6 +671,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->bank_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
       ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
+      ctx->pack_txn_cnt += schedule_cnt;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
@@ -1113,6 +1124,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
   ctx->slot_microblock_cnt           = 0UL;
+  ctx->pack_txn_cnt                  = 0UL;
   ctx->slot_max_microblocks          = 0UL;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;

@@ -16,7 +16,7 @@ struct fd_restart_tile_ctx {
   int                   in_wen_restart;
 
   fd_restart_t *        restart;
-  fd_funk_t *           funk;
+  fd_funk_t             funk[1];
   fd_epoch_bank_t       epoch_bank;
   int                   is_funk_active;
   char                  funk_file[ PATH_MAX ];
@@ -69,13 +69,13 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
 
   /* Do not modify order! This is join-order in unprivileged_init. */
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->restart.heap_mem_max ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -116,7 +116,7 @@ unprivileged_init( fd_topo_t      * topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_restart_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   void * restart_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
+  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->restart.heap_mem_max ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /**********************************************************************/
@@ -139,7 +139,7 @@ unprivileged_init( fd_topo_t      * topo,
   /* spad                                                               */
   /**********************************************************************/
 
-  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem, tile->restart.heap_mem_max ) );
   fd_spad_push( ctx->runtime_spad );
 
   /**********************************************************************/
@@ -274,15 +274,14 @@ after_frag( fd_restart_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
     /* Decode the slot bank for HeaviestForkSlot from funk, referencing fd_runtime_recover_banks() in fd_runtime_init.c */
-    fd_slot_bank_t slot_bank;
-    fd_funk_rec_key_t  id      = fd_runtime_slot_bank_key();
-    fd_funk_txn_map_t  txn_map = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
+    fd_funk_rec_key_t   id      = fd_runtime_slot_bank_key();
+    fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
     fd_funk_txn_start_read( ctx->funk );
-    fd_funk_txn_t *    funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, &txn_map );
+    fd_funk_txn_t *    funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
     if( FD_UNLIKELY( !funk_txn ) ) {
       /* Try again with xid.ul[1] being the slot number instead of the block hash */
       ctx->store_xid_msg.ul[1] = ctx->restart->heaviest_fork_slot;
-      funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, &txn_map );
+      funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
       if( FD_UNLIKELY( !funk_txn ) ) {
         FD_LOG_ERR(( "Wen-restart fails due to NULL funk_txn" ));
       }
@@ -296,44 +295,32 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     }
     uint magic = *(uint*)val;
 
-    fd_bincode_decode_ctx_t slot_bank_decode_ctx = {
-      .data    = (uchar*)val + sizeof(uint),
-      .dataend = (uchar*)val + fd_funk_val_sz( rec ),
-    };
+    if( FD_UNLIKELY( magic!=FD_RUNTIME_ENC_BINCODE ) ) {
+      FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
+    }
 
-    if( magic == FD_RUNTIME_ENC_BINCODE ) {
-      ulong total_sz = 0UL;
-      int   err      = fd_slot_bank_decode_footprint( &slot_bank_decode_ctx, &total_sz );
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "failed to read banks record: invalid decode" ));
-      }
-
-      uchar * mem = fd_spad_alloc( ctx->runtime_spad, fd_slot_bank_align(), total_sz );
-      if( FD_UNLIKELY( !mem ) ) {
-        FD_LOG_ERR(( "failed to read banks record: unable to allocate memory" ));
-      }
-
-      fd_slot_bank_decode( mem, &slot_bank_decode_ctx );
-
-      /* FIXME: see the FIXME in fd_runtime_recover_banks() of fd_runtime_init.c */
-      memcpy( &slot_bank, mem, sizeof(fd_slot_bank_t) );
-
-    } else {
-      FD_LOG_ERR(("failed to read banks record: invalid magic number"));
+    int err;
+    fd_slot_bank_t * slot_bank = fd_bincode_decode_spad(
+        slot_bank, ctx->runtime_spad,
+        (uchar *)val          + sizeof(uint),
+        fd_funk_val_sz( rec ) - sizeof(uint),
+        &err );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "failed to read banks record: invalid decode" ));
     }
 
     FD_TEST( !fd_funk_rec_query_test( query ) );
 
     /* Add a hard fork into the slot bank */
-    ulong old_len           = slot_bank.hard_forks.hard_forks_len;
+    ulong old_len           = slot_bank->hard_forks.hard_forks_len;
     ctx->new_hard_forks_len = old_len + 1;
     ctx->new_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->new_hard_forks_len*sizeof(fd_slot_pair_t) );
-    fd_memcpy( ctx->new_hard_forks, slot_bank.hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
+    fd_memcpy( ctx->new_hard_forks, slot_bank->hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
 
-    ctx->new_hard_forks[ old_len ].slot = ctx->restart->heaviest_fork_slot;
-    ctx->new_hard_forks[ old_len ].val  = 1;
-    slot_bank.hard_forks.hard_forks     = ctx->new_hard_forks;
-    slot_bank.hard_forks.hard_forks_len = ctx->new_hard_forks_len;
+    ctx->new_hard_forks[ old_len ].slot  = ctx->restart->heaviest_fork_slot;
+    ctx->new_hard_forks[ old_len ].val   = 1;
+    slot_bank->hard_forks.hard_forks     = ctx->new_hard_forks;
+    slot_bank->hard_forks.hard_forks_len = ctx->new_hard_forks_len;
 
     /* Write the slot bank back to funk, referencing fd_runtime_save_slot_bank */
     int opt_err = 0;
@@ -347,19 +334,19 @@ after_frag( fd_restart_tile_ctx_t * ctx,
       FD_LOG_ERR(( "Wen-restart fails at inserting a hard fork in slot bank and save it in funk" ));
     }
 
-    ulong sz    = sizeof(uint) + fd_slot_bank_size( &slot_bank );
-    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk, fd_funk_wksp( ctx->funk ) ), fd_funk_wksp( ctx->funk ), &opt_err );
+    ulong sz    = sizeof(uint) + fd_slot_bank_size( slot_bank );
+    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk ), fd_funk_wksp( ctx->funk ), &opt_err );
     *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
     fd_bincode_encode_ctx_t slot_bank_encode_ctx = {
       .data    = buf + sizeof(uint),
       .dataend = buf + sz,
     };
-    if( FD_UNLIKELY( fd_slot_bank_encode( &slot_bank, &slot_bank_encode_ctx ) != FD_BINCODE_SUCCESS ||
+    if( FD_UNLIKELY( fd_slot_bank_encode( slot_bank, &slot_bank_encode_ctx ) != FD_BINCODE_SUCCESS ||
                      slot_bank_encode_ctx.data!=slot_bank_encode_ctx.dataend) ) {
       FD_LOG_ERR(( "Wen-restart fails at inserting a hard fork in slot bank and save it in funk" ));
     }
 
-    fd_funk_rec_publish( prepare );
+    fd_funk_rec_publish( ctx->funk, prepare );
 
     /* Publish the txn in funk */
     fd_funk_txn_start_write( ctx->funk );
@@ -369,7 +356,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     fd_funk_txn_end_write( ctx->funk );
 
     /* Copy the bank hash of HeaviestForkSlot to fd_restart_t */
-    fd_memcpy( &ctx->restart->heaviest_fork_bank_hash, &slot_bank.banks_hash, sizeof(fd_hash_t) );
+    ctx->restart->heaviest_fork_bank_hash = slot_bank->banks_hash;
     ctx->restart->heaviest_fork_ready = 1;
   }
 }
@@ -385,23 +372,18 @@ after_credit( fd_restart_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
-    ctx->funk = fd_funk_open_file( ctx->funk_file,
-                                   1UL,
-                                       0UL,
-                                    0UL,
-                                    0UL,
-                                   0UL,
-                                       FD_FUNK_READ_WRITE,
-                             NULL );
-    if( FD_UNLIKELY( !ctx->funk ) ) {
-      FD_LOG_ERR(( "failed to join a funky" ));
+    fd_funk_t * funk = fd_funk_open_file(
+        ctx->funk, ctx->funk_file,
+        1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READ_WRITE, NULL );
+    if( FD_UNLIKELY( !funk ) ) {
+      FD_LOG_ERR(( "fd_funk_open_file failed" ));
     } else {
       FD_LOG_NOTICE(("Restart tile joins funk successfully"));
     }
     ctx->is_funk_active = 1;
 
     /* Decode the slot bank from funk, referencing fd_runtime_recover_banks() in fd_runtime_init.c */
-    fd_slot_bank_t slot_bank;
+    fd_slot_bank_t * slot_bank = NULL;
     {
       fd_funk_rec_key_t     id  = fd_runtime_slot_bank_key();
       fd_funk_rec_query_t   query[1];
@@ -411,32 +393,18 @@ after_credit( fd_restart_tile_ctx_t * ctx,
         FD_LOG_ERR(( "failed to read banks record: empty record" ));
       }
       uint magic = *(uint*)val;
+      if( FD_UNLIKELY( magic!=FD_RUNTIME_ENC_BINCODE ) ) {
+        FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
+      }
 
-      fd_bincode_decode_ctx_t slot_bank_decode_ctx = {
-        .data    = (uchar*)val + sizeof(uint),
-        .dataend = (uchar*)val + fd_funk_val_sz( rec ),
-      };
-
-      if( magic == FD_RUNTIME_ENC_BINCODE ) {
-
-        ulong total_sz = 0UL;
-        int   err      = fd_slot_bank_decode_footprint( &slot_bank_decode_ctx, &total_sz );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_ERR(( "failed to read banks record: invalid decode" ));
-        }
-
-        uchar * mem = fd_spad_alloc( ctx->runtime_spad, fd_slot_bank_align(), total_sz );
-        if( FD_UNLIKELY( !mem ) ) {
-          FD_LOG_ERR(( "failed to read banks record: unable to allocate memory" ));
-        }
-
-        fd_slot_bank_decode( mem, &slot_bank_decode_ctx );
-
-        /* FIXME: see the FIXME in fd_runtime_recover_banks() of fd_runtime_init.c */
-        memcpy( &slot_bank, mem, sizeof(fd_slot_bank_t) );
-
-      } else {
-        FD_LOG_ERR(("failed to read banks record: invalid magic number"));
+      int err;
+      slot_bank = fd_bincode_decode_spad(
+          slot_bank, ctx->runtime_spad,
+          (uchar *)val          + sizeof(uint),
+          fd_funk_val_sz( rec ) - sizeof(uint),
+          &err );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_ERR(( "failed to read banks record: invalid decode" ));
       }
 
       FD_TEST( !fd_funk_rec_query_test( query ) );
@@ -452,36 +420,27 @@ after_credit( fd_restart_tile_ctx_t * ctx,
         FD_LOG_ERR(("failed to read banks record: empty record"));
       }
       uint magic = *(uint*)val;
-
-      fd_bincode_decode_ctx_t epoch_bank_decode_ctx = {
-        .data    = (uchar*)val + sizeof(uint),
-        .dataend = (uchar*)val + fd_funk_val_sz( rec ),
-      };
-      if( magic==FD_RUNTIME_ENC_BINCODE ) {
-
-        ulong total_sz = 0UL;
-        int   err      = fd_epoch_bank_decode_footprint( &epoch_bank_decode_ctx, &total_sz );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_ERR(( "failed to read banks record: invalid decode" ));
-        }
-
-        uchar * mem = fd_spad_alloc( ctx->runtime_spad, fd_epoch_bank_align(), total_sz );
-        if( FD_UNLIKELY( !mem ) ) {
-          FD_LOG_ERR(( "failed to read banks record: unable to allocate memory" ));
-        }
-
-        fd_epoch_bank_decode( mem, &epoch_bank_decode_ctx );
-
-        ctx->epoch_bank = *(fd_epoch_bank_t *)mem;
-      } else {
-        FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
+      if( FD_UNLIKELY( magic!=FD_RUNTIME_ENC_BINCODE ) ) {
+          FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
       }
+
+      int err;
+      fd_epoch_bank_t * epoch_bank = fd_bincode_decode_spad(
+          epoch_bank, ctx->runtime_spad,
+          (uchar *)val          + sizeof(uint),
+          fd_funk_val_sz( rec ) - sizeof(uint),
+          &err );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_ERR(( "failed to read banks record: invalid decode" ));
+      }
+
+      ctx->epoch_bank = *epoch_bank;
 
       FD_TEST( !fd_funk_rec_query_test( query ) );
     }
 
     /* Decode the slot history sysvar, referencing fd_sysvar_slot_history_read in fd_sysvar_slot_history.c */
-    fd_slot_history_t * slot_history;
+    fd_slot_history_t * slot_history = NULL;
     {
       fd_pubkey_t const * program = &fd_sysvar_slot_history_id;
       FD_TXN_ACCOUNT_DECL( rec );
@@ -489,22 +448,14 @@ after_credit( fd_restart_tile_ctx_t * ctx,
       if (err)
         FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
-      fd_bincode_decode_ctx_t sysvar_decode_ctx = {
-        .data    = rec->vt->get_data( rec ),
-        .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec ),
-      };
-      ulong total_sz = 0UL;
-      err = fd_slot_history_decode_footprint( &sysvar_decode_ctx, &total_sz );
-      if( err ) {
+      slot_history = fd_bincode_decode_spad(
+          slot_history, ctx->runtime_spad,
+          rec->vt->get_data( rec ),
+          rec->vt->get_data_len( rec ),
+          &err );
+      if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
       }
-
-      uchar * mem = fd_spad_alloc( ctx->runtime_spad, fd_slot_history_align(), total_sz );
-      if( !mem ) {
-        FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
-      }
-
-      slot_history = fd_slot_history_decode( mem, &sysvar_decode_ctx );
     }
 
     fd_vote_accounts_t const * epoch_stakes[ FD_RESTART_EPOCHS_MAX ] = { &ctx->epoch_bank.stakes.vote_accounts,
@@ -514,8 +465,8 @@ after_credit( fd_restart_tile_ctx_t * ctx,
     uchar * buf   = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
 
     fd_restart_init( ctx->restart,
-                     slot_bank.slot,
-                     &slot_bank.banks_hash,
+                     slot_bank->slot,
+                     &slot_bank->banks_hash,
                      epoch_stakes,
                      &ctx->epoch_bank.epoch_schedule,
                      ctx->tower_checkpt_fileno,

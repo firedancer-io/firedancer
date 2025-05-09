@@ -24,6 +24,7 @@ typedef struct {
 
   void const * _bank;
   ulong _microblock_idx;
+  ulong _txn_idx;
   int _is_bundle;
 
   ulong * busy_fseq;
@@ -104,8 +105,8 @@ before_frag( fd_bank_ctx_t * ctx,
 }
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
-extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus );
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus );
+extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
@@ -130,6 +131,7 @@ during_frag( fd_bank_ctx_t * ctx,
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
   ctx->_bank = trailer->bank;
   ctx->_microblock_idx = trailer->microblock_idx;
+  ctx->_txn_idx = trailer->pack_txn_idx;
   ctx->_is_bundle = trailer->is_bundle;
 }
 
@@ -159,6 +161,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    ulong               seq,
                    ulong               sig,
                    ulong               sz,
+                   ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
@@ -196,10 +199,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
   /* Just because a transaction was executed doesn't mean it succeeded,
      but all executed transactions get committed. */
-  int  processing_results    [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
-  int  transaction_err       [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
-  uint consumed_exec_cus     [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  uint consumed_acct_data_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  int  processing_results    [   MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  int  transaction_err       [   MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  uint consumed_exec_cus     [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint consumed_acct_data_cus[   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  ulong out_timestamps       [ 3*MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  ulong out_tips             [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
   void * pre_balance_info = fd_ext_bank_pre_balance_info( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt );
 
@@ -209,7 +214,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       processing_results,
                                                                       transaction_err,
                                                                       consumed_exec_cus,
-                                                                      consumed_acct_data_cus );
+                                                                      consumed_acct_data_cus,
+                                                                      out_timestamps,
+                                                                      out_tips );
 
   ulong sanitized_idx = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -220,23 +227,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     /* Assume failure, set below if success.  If it doesn't land cin the
        block, rebate the non-execution CUs too. */
+    txn->bank_cu.actual_consumed_cus = 0U;
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
     sanitized_idx++;
 
-    int is_simple_vote = 0;
-    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
-      /* Simple votes are charged fixed amounts of compute regardless of
-      the real cost they incur.  fd_ext_bank_load_and_execute_txns
-      returns the real cost, however, so we override it here. */
-      consumed_exec_cus[ sanitized_idx-1UL ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-      consumed_acct_data_cus[ sanitized_idx-1UL ] = 0;
-    }
-
-    /* Stash the result in the flags value so that pack can inspect it.
-     */
+    /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)transaction_err[ sanitized_idx-1UL ]<<24);
 
     ctx->metrics.transaction_result[ transaction_err   [ sanitized_idx-1UL ] ]++;
@@ -249,11 +247,21 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
     uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
+    int is_simple_vote = 0;
+    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
+      /* Simple votes are charged fixed amounts of compute regardless of
+      the real cost they incur.  fd_ext_bank_load_and_execute_txns
+      returns the real cost, however, so we override it here. */
+      actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+      actual_acct_data_cus = 0U;
+    }
+
     /* FeesOnly transactions are transactions that failed to load
        before they even reach the VM stage. They have zero execution
-       cost but do charge for the account data they are able to load. */
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+       cost but do charge for the account data they are able to load.
+       FeesOnly votes are charged the fixed voe cost. */
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
+    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
@@ -268,8 +276,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     /* The VM will stop executing and fail an instruction immediately if
        it exceeds its requested CUs.  A transaction which requests less
        account data than it actually consumes will fail in the account
-       loading stage. ... todo ... enforce this check after SIMD-170
-       is released. */
+       loading stage. */
     if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
@@ -277,9 +284,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
                    transaction_err[ sanitized_idx-1UL ] ));
     }
-
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
   }
 
   /* Commit must succeed so no failure path.  This function takes
@@ -304,7 +308,20 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      it shards / scales horizontally here, while PoH does not. */
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
-  trailer->is_last_in_bundle = 1;
+  trailer->pack_txn_idx = ctx->_txn_idx;
+  trailer->tips = 0UL;
+
+  long tickcount                 = fd_tickcount();
+  long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
+  long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+
+  long tx_start_ticks     = (long)out_timestamps[ 0 ];
+  long tx_load_end_ticks  = (long)out_timestamps[ 1 ];
+  long tx_end_ticks       = (long)out_timestamps[ 2 ];
+
+  trailer->txn_start_pct    = (uchar)(((double)(tx_start_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+  trailer->txn_load_end_pct = (uchar)(((double)(tx_load_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+  trailer->txn_end_pct      = (uchar)(((double)(tx_end_ticks      - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -322,9 +339,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
      it has seen. */
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
+  fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -333,6 +349,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               seq,
                ulong               sig,
                ulong               sz,
+               ulong               begin_tspub,
                fd_stem_context_t * stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
@@ -376,11 +393,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   int  transaction_err     [ MAX_TXN_PER_MICROBLOCK ];
   for( ulong i=0UL; i<txn_cnt; i++ ) transaction_err[ i ] = FD_METRICS_ENUM_TRANSACTION_ERROR_V_BUNDLE_PEER_IDX;
 
-  uint actual_execution_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  uint actual_acct_data_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  uint consumed_cus        [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint actual_execution_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint actual_acct_data_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint consumed_cus         [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  ulong out_timestamps      [ 3*MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  ulong tips                [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   if( FD_LIKELY( execution_success ) ) {
-    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus );
+    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus, out_timestamps, tips );
   }
 
   if( FD_LIKELY( execution_success ) ) {
@@ -389,22 +408,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
       txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
-      if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
-          /* Although bundles dont typically contain simple votes, we want
-            to charge them correctly anyways. */
-        consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-      } else {
-        consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
-      }
     }
   } else {
     /* If any transaction fails in a bundle ... they all fail */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = txns+i;
-
-      /* If the budle failed, we want to set actual cus = requested
-        so that the entire bundle is rebated. */
-      consumed_cus[ i ] = txn->pack_cu.requested_exec_plus_acct_data_cus;
 
       /* Don't double count metrics for transactions that failed to
          sanitize. */
@@ -426,11 +434,30 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
+
+    if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
+      /* Although bundles dont typically contain simple votes, we want
+        to charge them correctly anyways. */
+      consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+    } else {
+      /* Note that some transactions will have 0 consumed cus because
+         they were never actually executed, due to an earlier
+         transaction failing. */
+      consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
+    }
+
     /* Assume failure, set below if success.  If it doesn't land in the
        block, rebate the non-execution CUs too. */
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
 
-    if( FD_LIKELY( (txn->flags & (FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS))==(FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
+    /* We want to include consumed CUs for failed bundles for
+       monitoring, even though they aren't included in the block.  This
+       is safe because the poh tile first checks if a txn is included in
+       the block before counting its "actual_consumed_cus" towards the
+       block tally. */
+    txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+
+    if( FD_LIKELY( execution_success ) ) {
       if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
         FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
         FD_LOG_ERR(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
@@ -448,7 +475,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
      all the data around. */
   fd_txn_p_t bundle_txn_temp[ 5UL ];
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_memcpy( bundle_txn_temp+i, txns+i, sizeof(fd_txn_p_t) );
+    bundle_txn_temp[ i ] = txns[ i ];
   }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -457,13 +484,25 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
-    trailer->is_last_in_bundle = (i==txn_cnt-1UL);
+    trailer->pack_txn_idx = ctx->_txn_idx + i;
+    trailer->tips = tips[ i ];
 
     ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx+i );
 
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    long tickcount                 = fd_tickcount();
+    long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
+    long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+
+    long tx_start_ticks     = (long)out_timestamps[ 3*i + 0 ];
+    long tx_load_end_ticks  = (long)out_timestamps[ 3*i + 1 ];
+    long tx_end_ticks       = (long)out_timestamps[ 3*i + 2 ];
+
+    trailer->txn_start_pct    = (uchar)(((double)(tx_start_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+    trailer->txn_load_end_pct = (uchar)(((double)(tx_load_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+    trailer->txn_end_pct      = (uchar)(((double)(tx_end_ticks      - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-    fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
+    fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 
@@ -480,7 +519,6 @@ after_frag( fd_bank_ctx_t *     ctx,
             ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx;
-  (void)tspub;
 
   ulong slot = fd_disco_poh_sig_slot( sig );
   if( FD_UNLIKELY( slot!=ctx->rebates_for_slot ) ) {
@@ -490,8 +528,8 @@ after_frag( fd_bank_ctx_t *     ctx,
     ctx->rebates_for_slot = slot;
   }
 
-  if( FD_UNLIKELY( ctx->_is_bundle ) ) handle_bundle( ctx, seq, sig, sz, stem );
-  else                                 handle_microblock( ctx, seq, sig, sz, stem );
+  if( FD_UNLIKELY( ctx->_is_bundle ) ) handle_bundle( ctx, seq, sig, sz, tspub, stem );
+  else                                 handle_microblock( ctx, seq, sig, sz, tspub, stem );
 
   /* TODO: Use fancier logic to coalesce rebates e.g. and move this to
      after_credit */

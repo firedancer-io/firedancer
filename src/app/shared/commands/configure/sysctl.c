@@ -22,6 +22,7 @@ typedef struct {
   char const * path;
   ulong        value;
   int          mode;
+  int          allow_missing;
 } sysctl_param_t;
 
 static const sysctl_param_t params[] = {
@@ -29,21 +30,25 @@ static const sysctl_param_t params[] = {
     "/proc/sys/vm/max_map_count", /* int */
     1000000,
     ENFORCE_MINIMUM,
+    0,
   },
   {
     "/proc/sys/fs/file-max", /* ulong */
     CONFIGURE_NR_OPEN_FILES,
     ENFORCE_MINIMUM,
+    0,
   },
   {
     "/proc/sys/fs/nr_open", /* uint */
     CONFIGURE_NR_OPEN_FILES,
     ENFORCE_MINIMUM,
+    0,
   },
   {
     "/proc/sys/kernel/numa_balancing", /* int? */
     0,
     WARN_EXACT,
+    1,
   },
   {0}
 };
@@ -53,16 +58,19 @@ static const sysctl_param_t xdp_params[] = {
     "/proc/sys/net/ipv4/conf/lo/rp_filter",
     2,
     ENFORCE_MINIMUM,
+    0,
   },
   {
     "/proc/sys/net/ipv4/conf/lo/accept_local",
     1,
     ENFORCE_MINIMUM,
+    0,
   },
   {
     "/proc/sys/net/core/bpf_jit_enable",
     1,
     WARN_MINIMUM,
+    0,
   },
   {0}
 };
@@ -71,12 +79,14 @@ static sysctl_param_t sock_params[] = {
   {
     "/proc/sys/net/core/rmem_max",
     0,
-    ENFORCE_MINIMUM
+    ENFORCE_MINIMUM,
+    0,
   },
   {
     "/proc/sys/net/core/wmem_max",
     0,
-    ENFORCE_MINIMUM
+    ENFORCE_MINIMUM,
+    0,
   },
   {0}
 };
@@ -89,8 +99,13 @@ static void
 init_param_list( sysctl_param_t const * list ) {
   for( sysctl_param_t const * p=list; p->path; p++ ) {
     ulong param;
-    if( FD_UNLIKELY( -1==fd_file_util_read_ulong( p->path, &param ) ) )
+    if( FD_UNLIKELY( -1==fd_file_util_read_ulong( p->path, &param ) ) ) {
+      /* If the syctl file does not exist in /proc/sys it's likely it
+         doesn't e*/
+      if( FD_UNLIKELY( p->allow_missing && errno==ENOENT ) ) continue;
+
       FD_LOG_ERR(( "could not read kernel parameter `%s`, system might not support configuring sysctl (%i-%s)", p->path, errno, fd_io_strerror( errno ) ));
+    }
     switch( p->mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<(p->value) ) ) {
@@ -108,11 +123,11 @@ init_param_list( sysctl_param_t const * list ) {
 static void
 init( config_t const * config ) {
   init_param_list( params );
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
     init_param_list( xdp_params );
-  } else if( 0==strcmp( config->development.net.provider, "socket" ) ) {
-    sock_params[ 0 ].value = config->development.net.sock_receive_buffer_size;
-    sock_params[ 1 ].value = config->development.net.sock_send_buffer_size;
+  } else if( 0==strcmp( config->net.provider, "socket" ) ) {
+    sock_params[ 0 ].value = config->net.socket.receive_buffer_size;
+    sock_params[ 1 ].value = config->net.socket.send_buffer_size;
     init_param_list( sock_params );
   }
 }
@@ -153,14 +168,14 @@ check( config_t const * config ) {
   r = check_param_list( params );
   if( r.result!=CONFIGURE_OK ) return r;
 
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
     r = check_param_list( xdp_params );
-  } else if( 0==strcmp( config->development.net.provider, "socket" ) ) {
-    sock_params[ 0 ].value = config->development.net.sock_receive_buffer_size;
-    sock_params[ 1 ].value = config->development.net.sock_send_buffer_size;
+  } else if( 0==strcmp( config->net.provider, "socket" ) ) {
+    sock_params[ 0 ].value = config->net.socket.receive_buffer_size;
+    sock_params[ 1 ].value = config->net.socket.send_buffer_size;
     r = check_param_list( sock_params );
   } else {
-    FD_LOG_ERR(( "unknown net provider: %s", config->development.net.provider ));
+    FD_LOG_ERR(( "unknown net provider: %s", config->net.provider ));
   }
   if( r.result!=CONFIGURE_OK ) return r;
 

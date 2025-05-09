@@ -981,7 +981,8 @@ initially replay one but the cluster votes on the other one.
 | transactions         | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
 | vote_transactions    | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
 | failed_transactions  | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transactions which do not pay fees and are not included in the block |
-| compute_units        | `number\|null` | Total number of compute units used by the slot |
+| max_compute_units    | `number\|null`    | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
+| compute_units        | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verfication programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
 | transaction_fee      | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee         | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                 | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
@@ -1014,7 +1015,7 @@ new validator identity.
 **`SlotUpdate`**
 | Field               | Type                      | Description |
 |---------------------|---------------------------|-------------|
-| publish             | `SlotPublish`             | General information about the slot |
+| publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 
@@ -1054,6 +1055,7 @@ new validator identity.
             "transactions": 6821,
             "vote_transactions": 6746,
             "failed_transactions": 3703,
+            "max_compute_units": 48000000,
             "compute_units": 0
         }
     }
@@ -1098,6 +1100,7 @@ new validator identity.
             "transactions": 6821,
             "vote_transactions": 6746,
             "failed_transactions": 3703,
+            "max_compute_units": 48000000,
             "compute_units": 0
         },
         "waterfall": {
@@ -1192,14 +1195,62 @@ new validator identity.
             },
             // ... many more ...
         ],
-        "compute_units": {
+    }
+}
+```
+
+#### `slot.query_transactions`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `SlotTransactionsResponse` | below   |
+
+| param | type     | description |
+|-------|----------|-------------|
+| slot  | `number` | The slot to query for information about |
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query_transactions",
+    "id": 32,
+    "params": {
+        "slot": 289245044
+    }
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query_transactions",
+    "id": 32,
+    "value": {
+        "publish": {
+            "slot": 289245044,
+            "mine": true,
+            "skipped": false,
+            "level": "rooted",
+            "transactions": 6821,
+            "vote_transactions": 6746,
+            "failed_transactions": 3703,
             "max_compute_units": 48000000,
+            "compute_units": 0
+        },
+        "transactions": {
             "start_timestamp_nanos": "1739657041688346791",
             "target_end_timestamp_nanos": "1739657042088346880",
-            "compute_unit_timestamps_nanos": ["1739657041706960598", "1739657041707477011"],
-            "compute_units_deltas": [3428, 0],
-            "bank_count_timestamps_nanos": ["1739657041706960598", "1739657041707477011"],
-            "active_bank_count": [1, 0]
+            "txn_start_timestamps_nanos": ["1739657041706960598"],
+            "txn_stop_timestamps_nanos": ["1739657041707477011"],
+            "txn_compute_units_requested": [0],
+            "txn_compute_units_estimated": [3428],
+            "txn_compute_units_rebated": [0],
+            "txn_micro_lamports_per_cu": ["0"],
+            "txn_error_code": [0],
+            "txn_from_bundle": [false],
+            "txn_is_simple_vote": [true],
+            "txn_bank_idx": [0]
         }
     }
 }
@@ -1210,11 +1261,16 @@ new validator identity.
 **`SlotResponse`**
 | Field               | Type                      | Description |
 |---------------------|---------------------------|-------------|
-| publish             | `SlotPublish`             | General information about the slot |
+| publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
-| compute_units       | `ComputeUnits\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a listing of the timestamps when the compute units watermark of the slot changed, and how many banks were active |
+
+**`SlotTransactionsResponse`**
+| Field               | Type                      | Description |
+|---------------------|---------------------------|-------------|
+| publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
+| transactions        | `Transactions\|null`      | If the slot is not `mine`, will be `null`. Otherwise, metrics for the transactions in this slot. Arrays have a seperate entry for each scheduled transaction that was packed in this slot, and are ordered in the same order the transactions appear in the block. Note that not all scheduled transactions will land in the produced block (e.g. failed bundles are ignored), but these arrays nonetheless include metrics for excluded transactions |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
@@ -1225,7 +1281,7 @@ new validator identity.
 **`TxnWaterfallIn`**
 | Field           | Type     | Description |
 |-----------------|----------|-------------|
-| pack_cranked    | `number` | Transactions were created by pack as part of an initializer bundle. Initializer bundles are special bundles created by pack that manage block engine state on the chain. They contain crank transactions, which create and update tip distribution accounts. There is typically one crank transaction per leader rotation. |
+| pack_cranked    | `number` | Transactions were created as part of an initializer bundle. Initializer bundles are special bundles created by pack that manage block engine state on the chain. They contain crank transactions, which create and update tip distribution accounts. There is typically one crank transaction per leader rotation |
 | pack_retained   | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed because they weren't a high enough priority, and were retained inside the validator to potentially be included in a later slot |
 | resolv_retained | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed because we did not know the blockhash they referenced. They were instead kept in a holding area in case we learn the blockhash later |
 | quic            | `number` | A QUIC transaction was received. The stream does not have to successfully complete |
@@ -1238,10 +1294,10 @@ new validator identity.
 |-------------------|----------|-------------|
 | net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
 | quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
-| quic_frag_drop    | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space. |
-| quic_abandoned    | `number` | Transactions were dropped because a connection closed before all bytes were received. |
+| quic_frag_drop    | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space |
+| quic_abandoned    | `number` | Transactions were dropped because a connection closed before all bytes were received |
 | tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per invalid packet |
-| tpu_udp_invalid   | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid. |
+| tpu_udp_invalid   | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid |
 | verify_overrun    | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
 | verify_parse      | `number` | Transactions were dropped because they were malformed and failed to parse |
 | verify_failed     | `number` | Transactions were dropped because signature verification failed |
@@ -1267,12 +1323,68 @@ new validator identity.
 | timestamp_nanos   | `string`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
 | tile_timers       | `TileTimer[]` | A list of all tile timing information at the given sample timestamp |
 
-**`ComputeUnits`**
-| Field                         | Type          | Description |
-|-------------------------------|---------------|-------------|
-| max_compute_units             | `number`      | The maximum number of compute units that can be packed into the slot |
-| start_timestamp_nanos         | `string`      | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
-| target_end_timestamp_nanos    | `string`      | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
-| compute_unit_timestamps_nanos | `string[]`    | An array of UNIX timestamps, in nanoseconds. Each timestamp represents the time of when we started executing a microblock, or stopped executing a transaction and rebated it. Timestamps are sorted, and will never decrease |
-| compute_unit_deltas           | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many compute units were scheduled for execution at that time. In some cases, the delta will be negative, meaning a microblock completed execution and took less compute units than we thought, so they are rebated back to the available capacity |
-| active_bank_count             | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many banks were active at that timestamp |
+**`Transactions`**
+| Field                             | Type        | Description |
+|-----------------------------------|-------------|-------------|
+| start_timestamp_nanos             | `string`    | A UNIX timestamp in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
+| target_end_timestamp_nanos        | `string`    | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
+| txn_mb_start_timestamps_nanos        | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
+| txn_mb_end_timestamps_nanos         | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
+| txn_compute_units_requested       | `number[]`  | `txn_compute_units_requested[i]` is the requested (or protocol-defined default if no computeBudget instruction is provided) execute compute units for the `i`-th transaction in the slot. This amount does not include other transaction-derived costs, such as signature costs, account data costs, or trasaction data costs |
+| txn_max_compute_units             | `number[]`  | `txn_compute_units_estimated[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time. |
+| txn_compute_units_consumed        | `number[]`  | `txn_compute_units_consumed[i]` is the actual post-execution cost of `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed. |
+| txn_priority_fee                  | `string[]`  | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a seperate computeBudget instruction) |
+| txn_tips                          | `string[]`  | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
+| txn_error_code                    | `number[]`  | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
+| txn_from_bundle                   | `boolean[]` | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
+| txn_is_simple_vote                | `boolean[]` | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
+| txn_bank_idx                      | `number[]`  | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
+| txn_start_timstamps_nanos         | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_start_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading |
+| txn_load_end_timstamps_nanos      | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
+| txn_end_timstamps_nanos           | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
+| txn_microblock_id                 | `string[]`  | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
+
+These are the possible error codes that might be included in `txn_error_code` and their meanings.
+
+| Code Name                             | Code | Description |
+|---------------------------------------|------|-------------|
+| Success                               | 0    | The transaction successfully executed |
+| AccountInUse                          | 1    | Includes a writable account that was already in use at the time this transaction was executed |
+| AccountLoadedTwice                    | 2    | Lists at least one account pubkey more than once |
+| AccountNotFound                       | 3    | Lists at least one account pubkey that was not found in the accounts database |
+| ProgramAccountNotFound                | 4    | Could not find or parse a listed program account |
+| InsufficientFundsForFee               | 5    | Lists a fee payer that does not have enough SOL to fund this transaction |
+| InvalidAccountForFee                  | 6    | Lists a fee payer that may not be used to pay transaction fees |
+| AlreadyProcessed                      | 7    | This transaction has been processed before (e.g. the transaction was sent twice) |
+| BlockhashNotFound                     | 8    | Provides a block hash of a `recent` block in the chain, `b`, that this validator has not seen yet, or that is so old it has been discarded |
+| InstructionError                      | 9    | Includes an instruction that failed to process |
+| CallChainTooDeep                      | 10   | Includes a cross program invocation (CPI) chain that exceeds the maximum depth allowed |
+| MissingSignatureForFee                | 11   | Requires a fee but has no signature present |
+| InvalidAccountIndex                   | 12   | Contains an invalid account reference in one of its instructions |
+| SignatureFailure                      | 13   | Includes a signature that did not pass verification |
+| InvalidProgramForExecution            | 14   | Includes a program that may not be used for executing transactions |
+| SanitizeFailure                       | 15   | Failed to parse a portion of the transaction payload |
+| ClusterMaintenance                    | 16   | Cluster is undergoing an active maintenance window |
+| AccountBorrowOutstanding              | 17   | Transaction processing left an account with an outstanding borrowed reference |
+| WouldExceedMaxBlockCostLimit          | 18   | Exceeded the maximum compute unit cost allowed for this slot |
+| UnsupportedVersion                    | 19   | Includes a transaction version that is not supported by this validator |
+| InvalidWritableAccount                | 20   | Includes an account marked as writable that is not in fact writable |
+| WouldExceedMaxAccountCostLimit        | 21   | Exceeded the maximum per-account compute unit cost allowed for this slot |
+| WouldExceedAccountDataBlockLimit      | 22   | Retreived accounts data size exceeds the limit imposed for this slot |
+| TooManyAccountLocks                   | 23   | Locked too many accounts |
+| AddressLookupTableNotFound            | 24   | Loads an address table account that doesn't exist |
+| InvalidAddressLookupTableOwner        | 25   | Loads an address table account with an invalid owner |
+| InvalidAddressLookupTableData         | 26   | Loads an address table account with invalid data |
+| InvalidAddressLookupTableIndex        | 27   | Address table lookup uses an invalid index |
+| InvalidRentPayingAccount              | 28   | Deprecated |
+| WouldExceedMaxVoteCostLimit           | 29   | Exceeded the maximum vote compute unit cost allowed for this slot |
+| WouldExceedAccountDataTotalLimit      | 30   | Deprecated |
+| DuplicateInstruction                  | 31   | Contains duplicate instructions |
+| InsufficientFundsForRent              | 32   | Deprecated |
+| MaxLoadedAccountsDataSizeExceeded     | 33   | Retreived accounts data size exceeds the limit imposed for this transaction |
+| InvalidLoadedAccountsDataSizeLimit    | 34   | Requested an invalid data size (i.e. 0) |
+| ResanitizationNeeded                  | 35   | Sanitized transaction differed before/after feature activiation. Needs to be resanitized |
+| ProgramExecutionTemporarilyRestricted | 36   | Execution of a program referenced by this transaciton is restricted |
+| UnbalancedTransaction                 | 37   | The total accounts balance before the transaction does not equal the total balance after |
+| ProgramCacheHitMaxLimit               | 38   | The program cache allocated for transaction batch for this transaction hit its load limit |
+| CommitCancelled                       | 39   | This transaction was part of a bundle that failed |

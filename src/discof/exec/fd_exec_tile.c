@@ -14,6 +14,15 @@
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_filemap.h"
 
+struct fd_exec_tile_out_ctx {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk;
+  ulong       chunk0;
+  ulong       wmark;
+};
+typedef struct fd_exec_tile_out_ctx fd_exec_tile_out_ctx_t;
+
 struct fd_exec_tile_ctx {
 
   /* link-related data structures. */
@@ -24,6 +33,9 @@ struct fd_exec_tile_ctx {
   fd_wksp_t *           replay_in_mem;
   ulong                 replay_in_chunk0;
   ulong                 replay_in_wmark;
+
+  fd_exec_tile_out_ctx_t exec_writer_out[ 1 ];
+  uchar                  boot_msg_sent;
 
   /* Runtime public and local joins of its members. */
   fd_wksp_t *           runtime_public_wksp;
@@ -107,7 +119,7 @@ struct fd_exec_tile_ctx {
   int                   pending_epoch_pop;
 
   /* Funk-specific setup.  */
-  fd_funk_t *           funk;
+  fd_funk_t             funk[1];
   fd_wksp_t *           funk_wksp;
 
   /* Data structures related to managing and executing the transaction.
@@ -184,19 +196,10 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
     FD_LOG_ERR(( "Could not get laddr for encoded stakes" ));
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = stakes_enc,
-    .dataend = stakes_enc + epoch_msg->stakes_encoded_sz
-  };
-  ulong total_sz = 0UL;
-  int   err      = fd_stakes_decode_footprint( &decode, &total_sz );
+  // FIXME account for this in exec spad footprint
+  int err;
+  fd_stakes_t * stakes = fd_bincode_decode_spad( stakes, ctx->exec_spad, stakes_enc, epoch_msg->stakes_encoded_sz, &err );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Could not decode stakes footprint" ));
-  }
-
-  uchar *       stakes_mem = fd_spad_alloc( ctx->exec_spad, fd_stakes_align(), total_sz );
-  fd_stakes_t * stakes     = fd_stakes_decode( stakes_mem, &decode );
-  if( FD_UNLIKELY( !stakes ) ) {
     FD_LOG_ERR(( "Could not decode stakes" ));
   }
   ctx->txn_ctx->stakes = *stakes;
@@ -228,13 +231,13 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   fd_spad_push( ctx->exec_spad );
   ctx->pending_slot_pop = 1;
 
-  fd_funk_txn_map_t txn_map = fd_funk_txn_map( ctx->funk, ctx->funk_wksp );
-  if( FD_UNLIKELY( !txn_map.map ) ) {
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  if( FD_UNLIKELY( !txn_map->map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
   fd_funk_txn_xid_t xid = { .ul = { slot_msg->slot, slot_msg->slot } };
   fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, &txn_map );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
@@ -244,6 +247,7 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   ctx->txn_ctx->slot                        = slot_msg->slot;
   ctx->txn_ctx->prev_lamports_per_signature = slot_msg->prev_lamports_per_signature;
   ctx->txn_ctx->fee_rate_governor           = slot_msg->fee_rate_governor;
+  ctx->txn_ctx->enable_exec_recording       = slot_msg->enable_exec_recording;
 
   ctx->txn_ctx->sysvar_cache = fd_wksp_laddr_fast( ctx->runtime_public_wksp, slot_msg->sysvar_cache_gaddr );
   if( FD_UNLIKELY( !ctx->txn_ctx->sysvar_cache ) ) {
@@ -255,21 +259,14 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not get laddr for encoded block hash queue" ));
   }
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = block_hash_queue_enc,
-    .dataend = block_hash_queue_enc + slot_msg->block_hash_queue_encoded_sz
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = fd_block_hash_queue_decode_footprint( &decode, &total_sz );
+  // FIXME account for this in exec spad footprint
+  int err;
+  fd_block_hash_queue_t * block_hash_queue = fd_bincode_decode_spad(
+      block_hash_queue, ctx->exec_spad,
+      block_hash_queue_enc, slot_msg->block_hash_queue_encoded_sz,
+      &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Could not decode block hash queue footprint" ));
-  }
-
-  uchar *                 block_hash_queue_mem = fd_spad_alloc( ctx->exec_spad, fd_block_hash_queue_align(), total_sz );
-  fd_block_hash_queue_t * block_hash_queue     = fd_block_hash_queue_decode( block_hash_queue_mem, &decode );
-  if( FD_UNLIKELY( !block_hash_queue ) ) {
-    FD_LOG_ERR(( "Could not decode block hash queue" ));
   }
 
   ctx->txn_ctx->block_hash_queue = *block_hash_queue;
@@ -328,6 +325,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   }
 }
 
+//TODO hashing can be moved into the writer tile
 static void
 hash_accounts( fd_exec_tile_ctx_t *                ctx,
                fd_runtime_public_hash_bank_msg_t * msg ) {
@@ -417,7 +415,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                sz,
              ulong                ctl FD_PARAM_UNUSED ) {
 
-  if( FD_UNLIKELY( in_idx == ctx->replay_exec_in_idx ) ) {
+  if( FD_LIKELY( in_idx == ctx->replay_exec_in_idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in_chunk0 || chunk > ctx->replay_in_wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
                     chunk,
@@ -428,22 +426,22 @@ during_frag( fd_exec_tile_ctx_t * ctx,
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
       fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      fd_memcpy( &ctx->txn, &txn->txn, sizeof(fd_txn_p_t) );
+      ctx->txn = txn->txn;
       execute_txn( ctx );
       return;
     } else if( sig==EXEC_NEW_SLOT_SIG ) {
       fd_runtime_public_slot_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "new slot=%lu msg recvd", msg->slot ));
+      FD_LOG_DEBUG(( "new slot=%lu msg recvd", msg->slot ));
       prepare_new_slot_execution( ctx, msg );
       return;
     } else if( sig==EXEC_NEW_EPOCH_SIG ) {
       fd_runtime_public_epoch_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "new epoch=%lu msg recvd", msg->epoch_schedule.slots_per_epoch ));
+      FD_LOG_DEBUG(( "new epoch=%lu msg recvd", msg->epoch_schedule.slots_per_epoch ));
       prepare_new_epoch_execution( ctx, msg );
       return;
     } else if( sig==EXEC_HASH_ACCS_SIG ) {
       fd_runtime_public_hash_bank_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
+      FD_LOG_DEBUG(( "hash accs=%lu msg recvd", msg->end_idx - msg->start_idx ));
       hash_accounts( ctx, msg );
       return;
     } else if( sig==EXEC_BPF_SCAN_SIG ) {
@@ -452,16 +450,15 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       bpf_scan_accounts( ctx, msg );
       return;
     } else if( sig==EXEC_SNAP_HASH_ACCS_CNT_SIG ) {
-      FD_LOG_NOTICE(( "snap hash count msg recvd" ));
+      FD_LOG_DEBUG(( "snap hash count msg recvd" ));
       snap_hash_count( ctx );
     } else if( sig==EXEC_SNAP_HASH_ACCS_GATHER_SIG ) {
       fd_runtime_public_snap_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      FD_LOG_NOTICE(( "snap hash gather msg recvd" ));
+      FD_LOG_DEBUG(( "snap hash gather msg recvd" ));
       snap_hash_gather( ctx, msg );
     } else {
       FD_LOG_ERR(( "Unknown signature" ));
     }
-
   }
 }
 
@@ -471,9 +468,9 @@ after_frag( fd_exec_tile_ctx_t * ctx,
             ulong                seq    FD_PARAM_UNUSED,
             ulong                sig,
             ulong                sz     FD_PARAM_UNUSED,
-            ulong                tsorig FD_PARAM_UNUSED,
-            ulong                tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t *  stem   FD_PARAM_UNUSED ) {
+            ulong                tsorig,
+            ulong                tspub,
+            fd_stem_context_t *  stem ) {
 
   if( sig==EXEC_NEW_SLOT_SIG ) {
     FD_LOG_DEBUG(( "Sending ack for new slot msg" ));
@@ -485,13 +482,30 @@ after_frag( fd_exec_tile_ctx_t * ctx,
   } else if( sig==EXEC_NEW_TXN_SIG ) {
     FD_LOG_DEBUG(( "Sending ack for new txn msg" ));
     /* At this point we can assume that the transaction is done
-       executing. The replay tile will be repsonsible for commiting
+       executing. A writer tile will be repsonsible for commiting
        the transaction back to funk. */
     ctx->txn_ctx->exec_err = ctx->exec_res;
     ctx->txn_ctx->flags    = ctx->txn.flags;
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_txn_done( ctx->txn_id++ ) );
+
+    fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
+
+    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+    msg->exec_tile_id = (uchar)ctx->tile_idx;
+    msg->txn_id       = ctx->txn_id;
+
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     FD_WRITER_TXN_SIG,
+                     exec_out->chunk,
+                     sizeof(*msg),
+                     0UL,
+                     tsorig,
+                     tspub );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
+
     /* Make sure that the txn/bpf id can never be equal to the sentinel
        value (this means that this is unintialized. )*/
+    ctx->txn_id++;
     if( FD_UNLIKELY( ctx->txn_id==FD_EXEC_ID_SENTINEL ) ) {
       ctx->txn_id = 0U;
     }
@@ -562,6 +576,22 @@ unprivileged_init( fd_topo_t *      topo,
                                                    replay_exec_in_link->dcache,
                                                    replay_exec_in_link->mtu );
 
+  /* Setup out link. */
+  ulong idx = fd_topo_find_tile_out_link( topo, tile, "exec_writer", ctx->tile_idx );
+  fd_topo_link_t * exec_out_link = &topo->links[ tile->out_link_id[ idx ] ];
+
+  if( strcmp( exec_out_link->name, "exec_writer" ) ) {
+    FD_LOG_CRIT(("exec_writer link has unexpected name %s", exec_out_link->name ));
+  }
+
+  fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
+  exec_out->idx                     = idx;
+  exec_out->mem                     = topo->workspaces[ topo->objs[ exec_out_link->dcache_obj_id ].wksp_id ].wksp;
+  exec_out->chunk0                  = fd_dcache_compact_chunk0( exec_out->mem, exec_out_link->dcache );
+  exec_out->wmark                   = fd_dcache_compact_wmark( exec_out->mem, exec_out_link->dcache, exec_out_link->mtu );
+  exec_out->chunk                   = exec_out->chunk0;
+  ctx->boot_msg_sent                = 0U;
+
   /********************************************************************/
   /* runtime public                                                   */
   /********************************************************************/
@@ -581,7 +611,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join runtime public" ));
   }
 
-  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Failed to get and join runtime spad" ));
   }
@@ -616,32 +646,30 @@ unprivileged_init( fd_topo_t *      topo,
      the funk that was setup in the replay tile. */
   FD_LOG_NOTICE(( "Trying to join funk at file=%s", tile->exec.funk_file ));
   fd_funk_txn_start_write( NULL );
-  ctx->funk = fd_funk_open_file( tile->exec.funk_file,
-                                  1UL,
-                                  0UL,
-                                  0UL,
-                                  0UL,
-                                  0UL,
-                                  FD_FUNK_READONLY,
-                                  NULL );
+  if( FD_UNLIKELY( !fd_funk_open_file(
+      ctx->funk, tile->exec.funk_file,
+      1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL ) ) ) {
+    FD_LOG_ERR(( "fd_funk_open_file(%s) failed", tile->exec.funk_file ));
+  }
   fd_funk_txn_end_write( NULL );
   ctx->funk_wksp = fd_funk_wksp( ctx->funk );
-  if( FD_UNLIKELY( !ctx->funk ) ) {
-    FD_LOG_ERR(( "failed to join a funk" ));
-  }
 
   FD_LOG_NOTICE(( "Just joined funk at file=%s", tile->exec.funk_file ));
+
+  //FIXME
+  /********************************************************************/
+  /* setup txncache                                                   */
+  /********************************************************************/
 
   /********************************************************************/
   /* setup txn ctx                                                    */
   /********************************************************************/
 
   fd_spad_push( ctx->exec_spad );
-  ctx->pending_txn_pop  = 0;
-  ctx->pending_slot_pop = 0;
+  // FIXME account for this in exec spad footprint
   uchar * txn_ctx_mem   = fd_spad_alloc( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  ctx->txn_ctx->funk    = ctx->funk;
+  *ctx->txn_ctx->funk   = *ctx->funk;
 
   ctx->txn_ctx->runtime_pub_wksp = ctx->runtime_public_wksp;
   if( FD_UNLIKELY( !ctx->txn_ctx->runtime_pub_wksp ) ) {
@@ -659,24 +687,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
   fd_fseq_update( ctx->exec_fseq, FD_EXEC_STATE_NOT_BOOTED );
 
-
-  ulong txn_ctx_gaddr = fd_wksp_gaddr( ctx->exec_spad_wksp, ctx->txn_ctx );
-  if( FD_UNLIKELY( !txn_ctx_gaddr ) ) {
-    FD_LOG_ERR(( "Could not get gaddr for txn_ctx" ));
-  }
-
-  ulong exec_spad_gaddr = fd_wksp_gaddr( ctx->exec_spad_wksp, ctx->exec_spad );
-  if( FD_UNLIKELY( !exec_spad_gaddr ) ) {
-    FD_LOG_ERR(( "Could not get gaddr for exec_spad" ));
-  }
-
-  if( FD_UNLIKELY( txn_ctx_gaddr-exec_spad_gaddr>UINT_MAX ) ) {
-    FD_LOG_ERR(( "Txn ctx offset from exec spad is too large" ));
-  }
-
-  uint txn_ctx_offset = (uint)(txn_ctx_gaddr-exec_spad_gaddr);
-  fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_booted( txn_ctx_offset ) );
-
   /* Initialize sequence numbers to be 0. */
   ctx->txn_id = 0U;
   ctx->bpf_id = 0U;
@@ -686,10 +696,57 @@ unprivileged_init( fd_topo_t *      topo,
 
 static void
 after_credit( fd_exec_tile_ctx_t * ctx,
-              fd_stem_context_t *  stem        FD_PARAM_UNUSED,
-              int *                opt_poll_in FD_PARAM_UNUSED,
-              int *                charge_busy FD_PARAM_UNUSED ) {
-  (void)ctx;
+              fd_stem_context_t *  stem,
+              int *                opt_poll_in,
+              int *                charge_busy ) {
+
+  (void)opt_poll_in;
+  (void)charge_busy;
+
+  if( FD_UNLIKELY( !ctx->boot_msg_sent ) ) {
+    ctx->boot_msg_sent = 1U;
+
+    ulong txn_ctx_gaddr = fd_wksp_gaddr( ctx->exec_spad_wksp, ctx->txn_ctx );
+    if( FD_UNLIKELY( !txn_ctx_gaddr ) ) {
+      FD_LOG_CRIT(( "Could not get gaddr for txn_ctx" ));
+    }
+
+    ulong exec_spad_gaddr = fd_wksp_gaddr( ctx->exec_spad_wksp, ctx->exec_spad );
+    if( FD_UNLIKELY( !exec_spad_gaddr ) ) {
+      FD_LOG_CRIT(( "Could not get gaddr for exec_spad" ));
+    }
+
+    if( FD_UNLIKELY( txn_ctx_gaddr-exec_spad_gaddr>UINT_MAX ) ) {
+      FD_LOG_CRIT(( "txn_ctx offset from exec spad is too large" ));
+    }
+
+    uint txn_ctx_offset = (uint)(txn_ctx_gaddr-exec_spad_gaddr);
+
+    /* Notify writer tiles. */
+
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
+
+    fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+
+    msg->txn_ctx_offset = txn_ctx_offset;
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     FD_WRITER_BOOT_SIG,
+                     exec_out->chunk,
+                     sizeof(*msg),
+                     0UL,
+                     tsorig,
+                     tspub );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
+
+    /* Notify replay tile. */
+
+    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_booted( txn_ctx_offset ) );
+  }
 }
 
 static ulong
@@ -728,10 +785,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_exec_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_exec_tile_ctx_t)
 
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
 #define STEM_CALLBACK_DURING_FRAG  during_frag
 #define STEM_CALLBACK_AFTER_FRAG   after_frag
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-
 
 #include "../../disco/stem/fd_stem.c"
 

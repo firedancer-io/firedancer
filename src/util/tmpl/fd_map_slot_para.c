@@ -66,9 +66,9 @@
    concurrency, high algorithmic and implementation performance for
    normal usage and friendly cache / file system streaming access
    patterns for heavily loaded / heavily concurrent usage are
-   prioritized.  In particular, unlike fd_map_para, this takes ownership
-   of the underlying element store for the lifetime of the map in order
-   to speed up operations and increase concurrency.
+   prioritized.  In particular, unlike fd_map_chain_para, this takes
+   ownership of the underlying element store for the lifetime of the map
+   in order to speed up operations and increase concurrency.
 
    Typical usage:
 
@@ -264,14 +264,16 @@
      // info about the hint.  Retains no interest in key.  On return,
      // the query memo will be initialized.
      //
-     // flags is a bit-or of FD_MAP_FLAG flags.  If
-     // FD_MAP_FLAG_PREFETCH_META / FD_MAP_FLAG_PREFETCH_DATA is set,
-     // this will issue a prefetch for key's mymap metadata (i.e. lock
-     // version) / the element at the start of key's probe sequence
-     // (i.e. the location of key or contiguously shortly before it)
-     // FD_MAP_FLAG_PREFETCH combines both for convenience.  This can be
-     // used to overlap key access latency with unrelated operations.
-     // All other flags are ignored.
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_USE_HINT
+     // is set, this will assume that query's memo is already
+     // initialized for key (e.g. mostly useful for hashless
+     // prefetching).  If FD_MAP_FLAG_PREFETCH_META /
+     // FD_MAP_FLAG_PREFETCH_DATA is set, this will issue a prefetch for
+     // key's mymap metadata (i.e. lock version) / the element at the
+     // start of key's probe sequence (i.e. the location of key or
+     // contiguously shortly before it) FD_MAP_FLAG_PREFETCH combines
+     // both for convenience.  This can be used to overlap key access
+     // latency with unrelated operations.  All other flags are ignored.
 
      void
      mymap_hint( MAP_(t) const *   join
@@ -297,12 +299,12 @@
      // to provide a local seed for random backoffs but this is up to
      // the application and rarely matters in practice).
      //
-     // On success, the caller is in a prepare for key and query is
-     // initialized with info about prepare.  ele=mymap_query_ele(query)
-     // gives the location in the caller's address space to an element
-     // store element for the prepare that will be stable for the
-     // duration of the prepare and memo=mymap_query_memo(query) gives
-     // the key hash.
+     // On success, the caller is in a prepare for key, query is
+     // initialized with info about prepare (including query's memo
+     // initialized for key).  ele=mymap_query_ele(query) gives the
+     // location in the caller's address space to an element store
+     // element for the prepare that will be stable for the duration of
+     // the prepare and memo=mymap_query_memo(query) gives the key hash.
      //
      // If the element is marked as free, key is not in the map and ele
      // is where key could be inserted.  If the caller is inserting key,
@@ -325,7 +327,7 @@
      // modifications were only temporary.
      //
      // On failure, the caller is not in a prepare for key, query
-     // ele==sentinel and query memo will still be the key hash.
+     // ele==sentinel and query memo will be initialized for key.
      /  Reasons for failure:
      //
      // - FD_MAP_ERR_AGAIN: A potentially conflicting operation was in
@@ -341,9 +343,10 @@
      // mymap_publish ends the prepare described by query, updating the
      // map version to reflect changes made during the prepare.  Assumes
      // query is valid and describes an active prepare.  Cannot fail and
-     // will not be in the prepare will finished on return.  This is a
-     // generally safe way to end a prepare even if the caller did not
-     // modify the map during the prepare.
+     // will not be in the prepare will finished on return (query's memo
+     // will still be intialized for key).  This is a generally safe way
+     // to end a prepare even if the caller did not modify the map
+     // during the prepare.
      //
      // mymap_cancel ends the prepare described by query, reverting the
      // map version to reflect that the caller did not change the map
@@ -352,8 +355,9 @@
      // modifications to the map during the prepare (note that temporary
      // changes during the prepare can be considered modifications as
      // per the above).  Cannot fail and will not be in the prepare will
-     // finished on return.  This is a safe way to end a prepare only if
-     // the caller did not modify the map during the prepare.
+     // finished on return (query's memo will still be initialized
+     // for key).  This is a safe way to end a prepare only if the
+     // caller did not modify the map during the prepare.
      //
      // IMPORTANT SAFETY TIP!  Do not nest or interleave prepares,
      // remove or queries for the same map on the same thread.
@@ -403,14 +407,14 @@
      int mymap_remove( mymap_t * join, ulong const * key, mymap_query_t const * query, int flags );
 
      // mymap_query_try tries to speculatively query a mymap for key.
-     // On return, query will hold information about the try.  sentinel
-     // gives the query element pointer value (arbitrary) to pass
-     // through when it is not safe to try the query.  Assumes join is a
-     // current local join and key is valid for the duration of the
-     // call.  Does not modify the mymap and retains no interest in key,
-     // sentinel or query.  This is a non-blocking fast O(1)
-     // (O(probe_max) worst case) and supports highly concurrent
-     // operation.
+     // On return, query will hold information about the try (including
+     // query's memo initialized for key).  sentinel gives the query
+     // element pointer value (arbitrary) to pass through when it is not
+     // safe to try the query.  Assumes join is a current local join and
+     // key is valid for the duration of the call.  Does not modify the
+     // mymap and retains no interest in key, sentinel or query.  This
+     // is a non-blocking fast O(1) (O(probe_max) worst case) and
+     // supports highly concurrent operation.
      //
      // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING
      // is set / clear in flags, this is allowed / not allowed to block
@@ -735,7 +739,7 @@
        ... will be to an element compatible memory region that will
        ... continue to exist regardless and we shouldn't be trusting any
        ... query reads yet (the query test will detect if these can be
-       ... trusted).  See rant in fd_map_para.c for more details.
+       ... trusted).  See rant in fd_map_chain_para.c for more details.
 
        ... At this point, we are done with speculative processing (or we
        ... don't want to do any more speculative processing if the try
@@ -1595,7 +1599,7 @@ MAP_(hint)( MAP_(t) const *   join,
   ulong                 seed       = join->seed;
   int                   lock_shift = join->lock_shift;
 
-  ulong memo     = MAP_(key_hash)( key, seed );
+  ulong memo     = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
   ulong ele_idx  = memo & (ele_max-1UL);
   ulong lock_idx = ele_idx >> lock_shift;
 

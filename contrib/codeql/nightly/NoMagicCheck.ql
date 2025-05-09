@@ -1,6 +1,6 @@
 /**
- * As defence in depth for memory corrputions, we should always check and reset the magic field
- * in a _detroy function. This query finds all functions that have a magic field and do not have
+ * As defence in depth for memory corruptions, we should always check and reset the magic field
+ * in a _destroy function. This query finds all functions that *have* a magic field and *do not have*
  * a check for the magic field or a reset of the magic field.
  * @id asymmetric-research/no-magic-delete
  * @kind problem
@@ -42,7 +42,7 @@ class CheckFunction extends Function {
   }
 
   predicate setsMagicNull() {
-    exists(MagicNulling n | n.getBasicBlock().getEnclosingFunction() = this) 
+    exists(MagicNulling n | n.getBasicBlock().getEnclosingFunction() = this)
   }
 
   string getParentType() {
@@ -50,7 +50,7 @@ class CheckFunction extends Function {
   }
 
   predicate valid() {
-    this.hasMagicCmp() and 
+    this.hasMagicCmp() and
     (this.setsMagicNull() or not this.getName().matches("%_delete"))
   }
 }

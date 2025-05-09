@@ -5,6 +5,8 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -100,14 +102,14 @@ parse_advance( test_parser_t * p,
 
 static void
 parse_assign_sep( test_parser_t * p ) {
-  while( p->cur != p->end && isspace( p->cur[0] ) ) {
+  while( p->cur != p->end && fd_isspace( p->cur[0] ) ) {
     parse_advance( p, 1UL );
   }
   if( p->cur == p->end || p->cur[0] != '=' ) {
     FD_LOG_ERR(( "Expected '=' at %s(%lu)", p->path, p->line ));
   }
   parse_advance( p, 1UL );
-  while( p->cur != p->end && isspace( p->cur[0] ) ) {
+  while( p->cur != p->end && fd_isspace( p->cur[0] ) ) {
     parse_advance( p, 1UL );
   }
 }
@@ -127,7 +129,7 @@ parse_hex_buf( test_parser_t * p,
   while( peek + 1 < p->end ) {
     int c0 = peek[0];
     int c1 = peek[1];
-    if( !isxdigit( c0 ) || !isxdigit( c1 ) ) break;
+    if( !fd_isxdigit( c0 ) || !fd_isxdigit( c1 ) ) break;
     peek += 2;
     sz   += 1;
   }
@@ -141,9 +143,9 @@ parse_hex_buf( test_parser_t * p,
   while( p->cur + 1 < p->end ) {
     int c0 = p->cur[0];
     int c1 = p->cur[1];
-    if( !isxdigit( c0 ) || !isxdigit( c1 ) ) break;
-    int hi = isdigit( c0 ) ? c0 - '0' : tolower( c0 ) - 'a' + 10;
-    int lo = isdigit( c1 ) ? c1 - '0' : tolower( c1 ) - 'a' + 10;
+    if( !fd_isxdigit( c0 ) || !fd_isxdigit( c1 ) ) break;
+    int hi = fd_isdigit( c0 ) ? c0 - '0' : tolower( c0 ) - 'a' + 10;
+    int lo = fd_isdigit( c1 ) ? c1 - '0' : tolower( c1 ) - 'a' + 10;
     *(cur++) = (uchar)( ( hi << 4 ) | lo );
     parse_advance( p, 2UL );
   }
@@ -160,8 +162,8 @@ parse_hex_int( test_parser_t * p ) {
   int   empty = 1;
   while( p->cur != p->end ) {
     int c = p->cur[0];
-    if( !isxdigit( c ) ) break;
-    int digit = isdigit( c ) ? c - '0' : tolower( c ) - 'a' + 10;
+    if( !fd_isxdigit( c ) ) break;
+    int digit = fd_isdigit( c ) ? c - '0' : tolower( c ) - 'a' + 10;
     val <<= 4;
     val  |= (ulong)digit;
     empty = 0;
@@ -187,7 +189,7 @@ static test_fixture_t *
 parse_token( test_parser_t *  p,
              test_fixture_t * out ) {
 
-  while( p->cur != p->end && isspace( p->cur[0] ) ) {
+  while( p->cur != p->end && fd_isspace( p->cur[0] ) ) {
     parse_advance( p, 1UL );
   }
 
@@ -250,7 +252,7 @@ parse_token( test_parser_t *  p,
   char const * word = p->cur;
   while( p->cur != p->end ) {
     int c = p->cur[0];
-    if( isalnum( c ) || c == '_' ) {
+    if( fd_isalnum( c ) || c == '_' ) {
       parse_advance( p, 1UL );
     } else {
       break;
@@ -321,7 +323,7 @@ parse_token( test_parser_t *  p,
     p->effects.status = STATUS_VERIFY_FAIL;
     p->effects.force_exec = 0;
 
-  } else if( word_len >= 2 && word[0] == 'r' && isdigit( word[1] ) ) {
+  } else if( word_len >= 2 && word[0] == 'r' && fd_isdigit( word[1] ) ) {
 
     ulong reg = fd_cstr_to_uchar( word+1 );
     assert( reg < REG_CNT );

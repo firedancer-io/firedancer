@@ -1,4 +1,4 @@
-#include "fd_config_parse.h"
+#include "fd_config_private.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../util/fd_util.h"
 
@@ -27,6 +27,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   (void)fd_toml_parse( data, size, pod, scratch, sizeof(scratch), NULL );
 
   static config_t config = {0};
-  fdctl_pod_to_cfg( &config, pod );
+  fd_config_extract_pod( pod, &config );
   return 0;
 }

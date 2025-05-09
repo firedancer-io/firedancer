@@ -24,7 +24,7 @@
 | tile_&#8203;status | `gauge` | The current status of the tile. 0 is booting, 1 is running. |
 | tile_&#8203;heartbeat | `gauge` | The last UNIX timestamp in nanoseconds that the tile heartbeated. |
 | tile_&#8203;in_&#8203;backpressure | `gauge` | Whether the tile is currently backpressured or not, either 1 or 0. |
-| tile_&#8203;backpressure_&#8203;count | `counter` | Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing. |
+| tile_&#8203;backpressure_&#8203;count | `counter` | Number of times the tile has had to wait for one of more consumers to catch up to resume publishing. |
 | tile_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;caught_&#8203;up_&#8203;housekeeping | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Caught up + Housekeeping) |
 | tile_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;processing_&#8203;housekeeping | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Processing + Housekeeping) |
 | tile_&#8203;regime_&#8203;duration_&#8203;nanos_&#8203;backpressure_&#8203;housekeeping | `counter` | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Backpressure + Housekeeping) |
@@ -141,6 +141,7 @@
 | quic_&#8203;pkt_&#8203;oversz | `counter` | Number of QUIC packets dropped due to being too large. |
 | quic_&#8203;pkt_&#8203;verneg | `counter` | Number of QUIC version negotiation packets received. |
 | quic_&#8203;retry_&#8203;sent | `counter` | Number of QUIC Retry packets sent. |
+| quic_&#8203;pkt_&#8203;retransmissions | `counter` | Number of QUIC packets that retransmitted. |
 
 ## Bundle Tile
 | Metric | Type | Description |
@@ -330,6 +331,7 @@
 |--------|------|-------------|
 | shred_&#8203;cluster_&#8203;contact_&#8203;info_&#8203;cnt | `histogram` | Number of contact infos in the cluster contact info message |
 | shred_&#8203;microblocks_&#8203;abandoned | `counter` | The number of microblocks that were abandoned because we switched slots without finishing the current slot |
+| shred_&#8203;invalid_&#8203;block_&#8203;id | `counter` | The number of times a block was created with unknown parent block_id |
 | shred_&#8203;batch_&#8203;sz | `histogram` | The size (in bytes) of each microblock batch that is shredded |
 | shred_&#8203;batch_&#8203;microblock_&#8203;cnt | `histogram` | The number of microblocks in each microblock batch that is shredded |
 | shred_&#8203;shredding_&#8203;duration_&#8203;seconds | `histogram` | Duration of producing one FEC set from the shredder |
@@ -343,6 +345,9 @@
 | shred_&#8203;fec_&#8203;set_&#8203;spilled | `counter` | The number of FEC sets that were spilled because they didn't complete in time and we needed space |
 | shred_&#8203;shred_&#8203;rejected_&#8203;initial | `counter` | The number shreds that were rejected before any resources were allocated for the FEC set |
 | shred_&#8203;fec_&#8203;rejected_&#8203;fatal | `counter` | The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid |
+| shred_&#8203;force_&#8203;complete_&#8203;request | `counter` | The number of times we recieved a FEC force complete message |
+| shred_&#8203;force_&#8203;complete_&#8203;failure | `counter` | The number of times we failed to force complete a FEC set on request |
+| shred_&#8203;force_&#8203;complete_&#8203;success | `counter` | The number of times we successfully forced completed a FEC set on request |
 
 ## Store Tile
 | Metric | Type | Description |
@@ -376,6 +381,8 @@
 | gossip_&#8203;peer_&#8203;counts_&#8203;repair | `gauge` | Number of peers of each type (Repair) |
 | gossip_&#8203;peer_&#8203;counts_&#8203;voter | `gauge` | Number of peers of each type (Voter) |
 | gossip_&#8203;shred_&#8203;version_&#8203;zero | `counter` | Shred version zero |
+| gossip_&#8203;value_&#8203;meta_&#8203;size | `gauge` | Current size of the CRDS value metas map |
+| gossip_&#8203;value_&#8203;vec_&#8203;size | `gauge` | Current size of the CRDS value vector |
 | gossip_&#8203;received_&#8203;packets | `counter` | Number of all gossip packets received |
 | gossip_&#8203;corrupted_&#8203;messages | `counter` | Number of corrupted gossip messages received |
 | gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;pull_&#8203;request | `counter` | Number of gossip messages received (Pull Request) |
@@ -557,6 +564,7 @@
 | sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |
 | sock_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
 | sock_&#8203;rx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes received (including Ethernet header). |
+| sock_&#8203;tx_&#8203;permission_&#8203;error_&#8203;cnt | `counter` | Number of send attempts that failed with EPERM (e.g. due to nftables) |
 
 ## Repair Tile
 | Metric | Type | Description |

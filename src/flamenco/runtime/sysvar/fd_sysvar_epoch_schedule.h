@@ -64,10 +64,9 @@ fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
    schedule sysvar into result. */
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t *     result,
-                               fd_sysvar_cache_t const * sysvar_cache,
-                               fd_funk_t *               funk,
-                               fd_funk_txn_t *           funk_txn );
+fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
+                               fd_funk_txn_t * funk_txn,
+                               fd_spad_t *     spad );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the
    given parameters.  New epoch schedule configurations should only be

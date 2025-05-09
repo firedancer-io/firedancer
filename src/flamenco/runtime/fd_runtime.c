@@ -99,7 +99,7 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_pubkey_t const  * pubkey ) {
 
   /* Insert the new account into the partition */
-ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->part_width, slot_ctx->slots_per_epoch );
+  ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->part_width, slot_ctx->slots_per_epoch );
   fd_rent_fresh_accounts_t * rent_fresh_accounts = &slot_ctx->slot_bank.rent_fresh_accounts;
 
   /* See if there is an unused fresh account we can re-use */
@@ -116,8 +116,8 @@ ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->part_width, slot_c
 
   /* Add the account to the rent fresh account list */
   rent_fresh_account->partition = partition;
-  fd_memcpy( &rent_fresh_account->pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
-  rent_fresh_account->present = 1UL;
+  rent_fresh_account->pubkey    = *pubkey;
+  rent_fresh_account->present   = 1UL;
 
   rent_fresh_accounts->total_count++;
 }
@@ -273,7 +273,8 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
      We already know that the post deposit balance is >0 because we are paying a >0 amount.
      So TLDR we just check if the account is rent exempt.
    */
-  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->vt->get_data_len( collector ) );
+  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp ),
+                                                 collector->vt->get_data_len( collector ) );
   if( FD_UNLIKELY( collector->vt->get_lamports( collector ) + fee < minbal ) ) {
     FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
     FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
@@ -435,11 +436,11 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  ulong slot0 = slot_ctx->slot_bank.prev_slot;
+  ulong slot0 = (slot_ctx->slot_bank.prev_slot == 0) ? 0 :
+    slot_ctx->slot_bank.prev_slot + 1;   /* Accomodate skipped slots */
   ulong slot1 = slot_ctx->slot_bank.slot;
 
-  /* Accomodate skipped slots */
-  for( ulong s = slot0 + 1; s <= slot1; ++s ) {
+  for( ulong s = slot0; s <= slot1; ++s ) {
 
     ulong partition = fd_runtime_get_rent_partition( slot_ctx, s );
 
@@ -467,7 +468,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar) )
-    fd_sysvar_fees_update(slot_ctx);
+    fd_sysvar_fees_update( slot_ctx, runtime_spad );
 
   ulong fees = 0UL;
   ulong burn = 0UL;
@@ -511,12 +512,12 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       /* TODO: is it ok to not check the overflow error here? */
       rec->vt->checked_add_lamports( rec, fees );
       rec->vt->set_slot( rec, slot_ctx->slot_bank.slot );
+      slot_ctx->block_rewards.post_balance = rec->vt->get_lamports( rec );
 
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
       slot_ctx->block_rewards.collected_fees = fees;
-      slot_ctx->block_rewards.post_balance = rec->vt->get_lamports( rec );
-      memcpy( slot_ctx->block_rewards.leader.uc, leader->uc, sizeof(fd_hash_t) );
+      slot_ctx->block_rewards.leader         = *leader;
     } while(0);
 
     ulong old = slot_ctx->slot_bank.capitalization;
@@ -531,6 +532,9 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   FD_LOG_DEBUG(( "fd_runtime_freeze: capitalization %lu ", slot_ctx->slot_bank.capitalization));
   slot_ctx->slot_bank.collected_rent = 0;
+
+  /* At this point we want to invalidate the sysvar cache entries. */
+  fd_sysvar_cache_invalidate( slot_ctx->sysvar_cache );
 }
 
 #define FD_RENT_EXEMPT (-1L)
@@ -905,7 +909,7 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
    transaction logs, ...  All this info is not part of consensus but can be retrieved,
    for instance, via RPC getTransaction.  Firedancer stores txn meta in the blockstore,
    in the same binary format as Agave, protobuf TransactionStatusMeta. */
-static void
+FD_FN_UNUSED static void
 fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         slot_ctx,
                                                  fd_execute_txn_task_info_t * task_info,
                                                  ulong                        txn_cnt ) {
@@ -990,13 +994,13 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   double clock_update_time_ms = (double)clock_update_time * 1e-6;
   FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, clock_update_time_ms ));
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ) ) {
-    fd_sysvar_fees_update(slot_ctx);
+    fd_sysvar_fees_update( slot_ctx, runtime_spad );
   }
   // It has to go into the current txn previous info but is not in slot 0
   if( slot_ctx->slot_bank.slot != 0 ) {
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
   }
-  fd_sysvar_last_restart_slot_update( slot_ctx );
+  fd_sysvar_last_restart_slot_update( slot_ctx, runtime_spad );
 
   return 0;
 }
@@ -1097,7 +1101,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
     an error.
    */
   ulong slot_complete_idx = FD_SHRED_IDX_NULL;
-  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+  fd_block_set_t data_complete_idxs[FD_SHRED_BLK_MAX / sizeof(ulong)];
   int err = FD_MAP_ERR_AGAIN;
   while( err == FD_MAP_ERR_AGAIN ) {
     fd_block_map_query_t quer[1] = {0};
@@ -1524,7 +1528,7 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
-  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn, runtime_spad );
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
     FD_LOG_WARNING(( "update bpf program cache failed" ));
     return;
@@ -1582,33 +1586,6 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
 
 }
 
-static void
-fd_account_hash_task( void * tpool,
-                      ulong t0, ulong t1,
-                      void *args,
-                      void *reduce, ulong stride FD_PARAM_UNUSED,
-                      ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
-                      ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
-                      ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
-
-  fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)tpool;
-  ulong                          start_idx  = t0;
-  ulong                          stop_idx   = t1;
-
-  fd_lthash_value_t * lthash = (fd_lthash_value_t*)args;
-
-  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)reduce;
-  for( ulong i=start_idx; i<=stop_idx; i++ ) {
-    fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
-    fd_account_hash( slot_ctx->funk,
-                     slot_ctx->funk_txn,
-                     task_info,
-                     lthash,
-                     slot_ctx->slot_bank.slot,
-                     &slot_ctx->epoch_ctx->features );
-  }
-}
-
 void
 block_finalize_tpool_wrapper( void * para_arg_1,
                               void * para_arg_2 FD_PARAM_UNUSED,
@@ -1621,11 +1598,16 @@ block_finalize_tpool_wrapper( void * para_arg_1,
   ulong                          worker_cnt = (ulong)arg_2;
   fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
 
-  ulong cnt_per_worker = task_data->info_sz / (worker_cnt-1UL);
+  ulong cnt_per_worker = (task_data->info_sz / (worker_cnt-1UL)) + 1UL;
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
-    ulong end_idx   = worker_idx!=worker_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                             fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    if( start_idx >= task_data->info_sz ) {
+      worker_cnt = worker_idx;
+      break;
+    }
+    ulong end_idx = fd_ulong_sat_sub((worker_idx) * cnt_per_worker, 1UL);
+    if( end_idx >= task_data->info_sz )
+      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );;
     fd_tpool_exec( tpool, worker_idx, fd_account_hash_task,
                    task_data, start_idx, end_idx,
                    &task_data->lthash_values[worker_idx], slot_ctx, 0UL,
@@ -1714,8 +1696,6 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
   }
 
   fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
-  fd_funk_txn_t *  parent_txn = txn_ctx->funk_txn;
-  txn_ctx->funk_txn           = parent_txn;
   fd_executor_setup_accounts_for_txn( txn_ctx );
 
   /* Dump transaction to protobuf */
@@ -1749,6 +1729,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
                               general transaction execution
 
   */
+
   if( !FD_FEATURE_ACTIVE_( txn_ctx->slot, txn_ctx->features, move_precompile_verification_to_svm ) ) {
     err = fd_executor_verify_precompiles( txn_ctx );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1839,17 +1820,15 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
    executor to finalize borrowed account changes back into funk. It also
    handles txncache insertion and updates to the vote/stake cache. */
 
-int
+void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
-                         fd_execute_txn_task_info_t * task_info ) {
-
-  /* TODO: Allocations should probably not be made out of the exec_spad in this
-     function. If they are, the size of the data needs to be accounted for in
-     the calculation of the bound of the spad as defined in fd_runtime.h. */
+                         fd_execute_txn_task_info_t * task_info,
+                         fd_spad_t *                  finalize_spad,
+                         fd_wksp_t *                  finalize_spad_wksp ) {
 
   /* Store transaction info including logs */
-  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
+  // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );
@@ -1894,19 +1873,24 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       fd_txn_account_save( &txn_ctx->rollback_nonce_account[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
     }
 
-    fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
+    FD_SPAD_FRAME_BEGIN( finalize_spad ) {
+      fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
 
-    fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], txn_ctx->funk, txn_ctx->funk_txn );
-    memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
+      fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], slot_ctx->funk, slot_ctx->funk_txn );
+      memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
 
-    void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-    fd_txn_account_make_mutable( acct, acct_data, txn_ctx->spad_wksp );
-    int err = acct->vt->checked_sub_lamports( acct, (txn_ctx->execution_fee + txn_ctx->priority_fee) );
-    if( FD_UNLIKELY ( err ) ) {
-      return err;
-    }
+      void * acct_data = fd_spad_alloc( finalize_spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      fd_txn_account_make_mutable( acct, acct_data, finalize_spad_wksp );
+      int err = acct->vt->checked_sub_lamports( acct, (txn_ctx->execution_fee + txn_ctx->priority_fee) );
+      if( FD_UNLIKELY ( err ) ) {
+        uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+        FD_BASE58_ENCODE_64_BYTES( sig, sig_str );
+        FD_BASE58_ENCODE_32_BYTES( acct->pubkey->key, key_str );
+        FD_LOG_CRIT(( "failed to deduct fees (%lu+%lu) from account %s in txn %s slot %lu", txn_ctx->execution_fee, txn_ctx->priority_fee, key_str, sig_str, txn_ctx->slot ));
+      }
 
-    fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
+      fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, finalize_spad_wksp );
+    } FD_SPAD_FRAME_END;
   } else {
 
     int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
@@ -1922,28 +1906,18 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
       if( dirty_vote_acc && 0==memcmp( acc_rec->vt->get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-        /* lock for inserting/modifying vote accounts in slot ctx. */
         fd_vote_store_account( slot_ctx, acc_rec );
-        FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
-          fd_bincode_decode_ctx_t decode_vsv = {
-            .data    = acc_rec->vt->get_data( acc_rec ),
-            .dataend = acc_rec->vt->get_data( acc_rec ) + acc_rec->vt->get_data_len( acc_rec ),
-          };
-
-          ulong total_sz = 0UL;
-          int err = fd_vote_state_versioned_decode_footprint( &decode_vsv, &total_sz );
+        FD_SPAD_FRAME_BEGIN( finalize_spad ) {
+          int err;
+          fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
+              vote_state_versioned, finalize_spad,
+              acc_rec->vt->get_data( acc_rec ),
+              acc_rec->vt->get_data_len( acc_rec ),
+              &err );
           if( FD_UNLIKELY( err ) ) {
             FD_LOG_WARNING(( "failed to decode vote state versioned" ));
             continue;
           }
-
-          uchar * mem = fd_spad_alloc( txn_ctx->spad, 8UL, total_sz );
-          if( FD_UNLIKELY( !mem ) ) {
-            FD_LOG_ERR(( "Unable to allocate memory for vote state versioned" ));
-          }
-
-          fd_vote_state_versioned_decode( mem, &decode_vsv );
-          fd_vote_state_versioned_t * vsv = (fd_vote_state_versioned_t *)mem;
 
           fd_vote_block_timestamp_t const * ts = NULL;
           switch( vsv->discriminant ) {
@@ -1976,13 +1950,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       int fresh_account = acc_rec->vt->is_mutable( acc_rec ) &&
          acc_rec->vt->get_lamports( acc_rec ) && acc_rec->vt->get_rent_epoch( acc_rec ) != FD_RENT_EXEMPT_RENT_EPOCH;
       if( FD_UNLIKELY( fresh_account ) ) {
+        fd_rwlock_write( slot_ctx->vote_stake_lock );
         fd_runtime_register_new_fresh_account( slot_ctx, txn_ctx->accounts[0].pubkey );
+        fd_rwlock_unwrite( slot_ctx->vote_stake_lock );
       }
     }
   }
 
-  int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor,
-                                                 txn_ctx->_txn_raw->raw );
+  int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
   if( !is_vote ){
     FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, 1 );
     if( FD_UNLIKELY( exec_txn_err ) ){
@@ -1995,7 +1970,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->total_compute_units_used, txn_ctx->compute_unit_limit - txn_ctx->compute_meter );
 
-  return 0;
 }
 
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint into the executor
@@ -2083,7 +2057,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
     return;
   }
 
-  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
+  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad, task_info->txn_ctx->spad_wksp );
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
@@ -2241,12 +2215,12 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
   for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
     fd_delegation_pair_t_mapnode_t key;
-    fd_memcpy( &key.elem.account, &temp_info->stake_infos[idx].account, sizeof(fd_pubkey_t) );
+    key.elem.account = temp_info->stake_infos[idx].account;
     fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key );
     if( FD_LIKELY( entry==NULL ) ) {
       entry = fd_delegation_pair_t_map_acquire( stakes->stake_delegations_pool );
-      fd_memcpy( &entry->elem.account, &temp_info->stake_infos[idx].account, sizeof(fd_pubkey_t) );
-      fd_memcpy( &entry->elem.delegation, &temp_info->stake_infos[idx].stake.delegation, sizeof(fd_delegation_t) );
+      entry->elem.account    = temp_info->stake_infos[idx].account;
+      entry->elem.delegation = temp_info->stake_infos[idx].stake.delegation;
       fd_delegation_pair_t_map_insert( stakes->stake_delegations_pool, &stakes->stake_delegations_root, entry );
     }
   }
@@ -2283,7 +2257,7 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
       FD_LOG_ERR(( "slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool full" ));
     }
 
-    fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    elem->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
                                         &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
                                         elem );
@@ -2309,7 +2283,7 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
         n;
         n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
     fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
-    fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    elem->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
   }
 }
@@ -2340,7 +2314,7 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L89-L90 */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2381,24 +2355,13 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L113-L116 */
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = buffer_acc_rec->vt->get_data( buffer_acc_rec ),
-    .dataend = buffer_acc_rec->vt->get_data( buffer_acc_rec ) + buffer_acc_rec->vt->get_data_len( buffer_acc_rec ),
-  };
-
-  ulong total_sz = 0UL;
-  int   err      = 0;
-  err = fd_bpf_upgradeable_loader_state_decode_footprint( &decode_ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
-  }
-  uchar * mem = fd_spad_alloc( runtime_spad, alignof(fd_bpf_upgradeable_loader_state_t), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for bpf loader state" ));
-  }
-
-  fd_bpf_upgradeable_loader_state_decode( mem, &decode_ctx );
-  fd_bpf_upgradeable_loader_state_t * state = (fd_bpf_upgradeable_loader_state_t *)mem;
+  int err;
+  fd_bpf_upgradeable_loader_state_t * state = fd_bincode_decode_spad(
+      bpf_upgradeable_loader_state, runtime_spad,
+      buffer_acc_rec->vt->get_data( buffer_acc_rec ),
+      buffer_acc_rec->vt->get_data_len( buffer_acc_rec ),
+      &err );
+  if( FD_UNLIKELY( err ) ) return err;
 
   if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_buffer( state ) ) ) {
     return -1;
@@ -2413,7 +2376,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L127-L132 */
-  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2731,25 +2694,16 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  fd_bincode_decode_ctx_t ctx = {
-      .data    = acct_rec->vt->get_data( acct_rec ),
-      .dataend = acct_rec->vt->get_data( acct_rec ) + acct_rec->vt->get_data_len( acct_rec ),
-  };
-
-  ulong total_sz   = 0UL;
-  int   decode_err = 0;
-  decode_err = fd_feature_decode_footprint( &ctx, &total_sz );
+  int decode_err = 0;
+  fd_feature_t * feature = fd_bincode_decode_spad(
+      feature, runtime_spad,
+      acct_rec->vt->get_data( acct_rec ),
+      acct_rec->vt->get_data_len( acct_rec ),
+      &decode_err );
   if( FD_UNLIKELY( decode_err ) ) {
     FD_LOG_WARNING(( "Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
     return;
   }
-
-  uchar * mem = fd_spad_alloc( runtime_spad, alignof(fd_feature_t), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for feature" ));
-  }
-
-  fd_feature_t * feature = fd_feature_decode( mem, &ctx );
 
   if( feature->has_activated_at ) {
     FD_LOG_INFO(( "feature already activated - acc: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
@@ -2858,6 +2812,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   int     is_some                       = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                                              slot_ctx->sysvar_cache,
                                                                              &slot_ctx->epoch_ctx->features,
+                                                                             slot_ctx->runtime_wksp,
                                                                              new_rate_activation_epoch,
                                                                              _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -2890,7 +2845,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
   if( FD_UNLIKELY( !history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
@@ -3381,6 +3336,7 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
   fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_clock_init( slot_ctx );
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
+  fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_epoch_schedule_init( slot_ctx );
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ) ) {
     fd_sysvar_fees_init( slot_ctx );
@@ -3394,10 +3350,10 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static void
-fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
-                                   fd_genesis_solana_t * genesis_block,
-                                   fd_hash_t const *     genesis_hash,
-                                   fd_spad_t *           runtime_spad ) {
+fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
+                                   fd_genesis_solana_t const * genesis_block,
+                                   fd_hash_t const *           genesis_hash,
+                                   fd_spad_t *                 runtime_spad ) {
   slot_ctx->slot_bank.slot = 0UL;
 
   memcpy( &slot_ctx->slot_bank.poh, genesis_hash->hash, FD_SHA256_HASH_SZ );
@@ -3407,9 +3363,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   slot_ctx->slot_bank.lamports_per_signature = 0UL;
   slot_ctx->prev_lamports_per_signature      = 0UL;
 
-  fd_poh_config_t *     poh        = &genesis_block->poh_config;
-  fd_exec_epoch_ctx_t * epoch_ctx  = slot_ctx->epoch_ctx;
-  fd_epoch_bank_t *     epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+  fd_poh_config_t const * poh        = &genesis_block->poh_config;
+  fd_exec_epoch_ctx_t *   epoch_ctx  = slot_ctx->epoch_ctx;
+  fd_epoch_bank_t *       epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   if( poh->has_hashes_per_tick ) {
     epoch_bank->hashes_per_tick = poh->hashes_per_tick;
   } else {
@@ -3454,6 +3410,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   fd_delegation_pair_t_mapnode_t * sacc_root = NULL;
 
   fd_acc_lamports_t capitalization = 0UL;
+
+  FD_FEATURE_SET_ACTIVE(slot_ctx->epoch_ctx->features, disable_partitioned_rent_collection, 0);
+  FD_FEATURE_SET_ACTIVE(slot_ctx->epoch_ctx->features, accounts_lt_hash, 0);
+  FD_FEATURE_SET_ACTIVE(slot_ctx->epoch_ctx->features, remove_accounts_delta_hash, 0);
 
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
@@ -3535,11 +3495,11 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       if( !node ) {
         node = fd_delegation_pair_t_map_acquire( sacc_pool );
         fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+        node->elem.delegation = stake_state.inner.stake.stake.delegation;
         fd_delegation_pair_t_map_insert( sacc_pool, &sacc_root, node );
       } else {
         fd_memcpy( &node->elem.account, acc->key.key, sizeof(fd_pubkey_t) );
-        fd_memcpy( &node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t) );
+        node->elem.delegation = stake_state.inner.stake.stake.delegation;
       }
     } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* Feature Account */
@@ -3558,22 +3518,13 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       if( found ) {
         /* Load feature activation */
         FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-          fd_bincode_decode_ctx_t decode = {
-            .data    = acc->account.data,
-            .dataend = acc->account.data + acc->account.data_len,
-          };
-
-          ulong total_sz = 0UL;
-          int   err      = fd_feature_decode_footprint( &decode, &total_sz );
+          int err;
+          fd_feature_t * feature = fd_bincode_decode_spad(
+              feature, runtime_spad,
+              acc->account.data,
+              acc->account.data_len,
+              &err );
           FD_TEST( err==FD_BINCODE_SUCCESS );
-
-          uchar * mem = fd_spad_alloc( runtime_spad, FD_FEATURE_ALIGN, total_sz );
-          if( FD_UNLIKELY ( !mem ) ) {
-            FD_LOG_ERR(( "fd_spad_alloc failed" ));
-            return;
-          }
-
-          fd_feature_t * feature = fd_feature_decode( mem, &decode );
 
           if( feature->has_activated_at ) {
             FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ), feature->activated_at ));
@@ -3599,20 +3550,19 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
        n;
        n = fd_vote_accounts_pair_t_map_successor( vacc_pool, n )) {
     fd_vote_accounts_pair_t_mapnode_t * e = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
-    fd_memcpy( &e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+    e->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool, &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root, e );
 
     fd_vote_accounts_pair_t_mapnode_t * next_e = fd_vote_accounts_pair_t_map_acquire( next_pool );
-    fd_memcpy( &next_e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t) );
+    next_e->elem = n->elem;
     fd_vote_accounts_pair_t_map_insert( next_pool, &next_root, next_e );
   }
 
   for( fd_delegation_pair_t_mapnode_t *n = fd_delegation_pair_t_map_minimum( sacc_pool, sacc_root );
        n;
        n = fd_delegation_pair_t_map_successor( sacc_pool, n )) {
-    fd_vote_accounts_pair_t_mapnode_t query_voter  = {0};
-    fd_pubkey_t *                     voter_pubkey = &n->elem.delegation.voter_pubkey;
-    fd_memcpy( &query_voter.elem.key, voter_pubkey, sizeof(fd_pubkey_t) );
+    fd_vote_accounts_pair_t_mapnode_t query_voter = {0};
+    query_voter.elem.key = n->elem.delegation.voter_pubkey;
 
     fd_vote_accounts_pair_t_mapnode_t * voter = fd_vote_accounts_pair_t_map_find( vacc_pool, vacc_root, &query_voter );
 
@@ -3651,7 +3601,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 static int
 fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_capture_ctx_t *   capture_ctx,
-                                  fd_tpool_t *         tpool,
                                   fd_spad_t *          runtime_spad ) {
   ulong hashcnt_per_slot = slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
   while( hashcnt_per_slot-- ) {
@@ -3670,10 +3619,35 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
+  fd_runtime_update_leaders( slot_ctx, 0, runtime_spad );
+
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_partitioned_rent_collection ) ) {
+    fd_funk_t *     funk = slot_ctx->funk;
+    fd_funk_txn_t * txn  = slot_ctx->funk_txn;
+
+    /* Add all the genesis accounts into the rent fresh list */
+    for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+         NULL != rec;
+         rec = fd_funk_txn_next_rec( funk, rec ) ) {
+
+      if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
+        continue;
+      }
+
+      fd_funk_rec_key_t const * pubkey = rec->pair.key;
+      fd_runtime_register_new_fresh_account( slot_ctx, (fd_pubkey_t * const ) fd_type_pun_const(&pubkey->uc[0]) );
+    }
+  }
+
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
   /* sort and update bank hash */
-  int result = fd_update_hash_bank_tpool( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt, tpool,runtime_spad );
+  int result = fd_update_hash_bank_tpool( slot_ctx,
+                                          capture_ctx,
+                                          &slot_ctx->slot_bank.banks_hash,
+                                          slot_ctx->signature_cnt,
+                                          NULL,
+                                          runtime_spad );
   if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
     FD_LOG_ERR(( "Failed to update bank hash with error=%d", result ));
   }
@@ -3690,7 +3664,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const *         genesis_filepath,
                          uchar                is_snapshot,
                          fd_capture_ctx_t *   capture_ctx,
-                         fd_tpool_t *         tpool,
                          fd_spad_t *          runtime_spad ) {
 
   if( strlen( genesis_filepath ) == 0 ) {
@@ -3706,53 +3679,62 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
   }
 
-  fd_genesis_solana_t genesis_block = {0};
-  fd_hash_t           genesis_hash;
-
   fd_epoch_bank_t *   epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
-    ssize_t n   = read( fd, buf, (ulong)sbuf.st_size );
-    close( fd );
+  fd_genesis_solana_t * genesis_block;
+  fd_hash_t             genesis_hash;
 
-    /* FIXME: This needs to be patched to support new decoder properly */
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = buf,
-      .dataend = buf + n,
-    };
+  /* NOTE: These genesis decode spad allocs persist through the lifetime of fd_runtime,
+     even though they aren't used outside of this function. This is because
+     fd_runtime_init_bank_from_genesis, which depends on the genesis_block, initializes
+     a bunch of structures on spad that need to persist throughout fd_runtime. Using a bump
+     allocator does not let us free memory lower in the stack without freeing everything
+     above it (in a meaningful way).
 
-    fd_genesis_solana_decode( &genesis_block, &decode_ctx );
+     FIXME: Use spad frames here once the fd_runtime structures initialized here are no
+     longer spad-backed. */
 
-    // The hash is generated from the raw data... don't mess with this..
-    fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+  uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
+  ulong sz    = 0UL;
+  int res     = fd_io_read( fd, buf, (ulong)sbuf.st_size, (ulong)sbuf.st_size, &sz );
+  FD_TEST( res==0 );
+  FD_TEST( sz==(ulong)sbuf.st_size );
+  close( fd );
 
-  } FD_SPAD_FRAME_END;
+    int err;
+    genesis_block = fd_bincode_decode_spad(
+        genesis_solana, runtime_spad, buf, sz, &err );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_ERR(( "fd_genesis_solana_decode_footprint failed (%d)", err ));
+    }
+
+  // The hash is generated from the raw data... don't mess with this..
+  fd_sha256_hash( buf, sz, genesis_hash.uc );
 
   fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
-  epoch_bank->cluster_type = genesis_block.cluster_type;
+  epoch_bank->cluster_type = genesis_block->cluster_type;
 
   if( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx,
-                                       &genesis_block,
-                                       &genesis_hash,
-                                       runtime_spad );
+                                        genesis_block,
+                                        &genesis_hash,
+                                        runtime_spad );
 
     fd_runtime_init_program( slot_ctx, runtime_spad );
 
-    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len ));
+    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
 
-    for( ulong i=0; i<genesis_block.accounts_len; i++ ) {
-      fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
+    for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
+      fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
 
       FD_TXN_ACCOUNT_DECL( rec );
 
       int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                       &a->key,
-                                                       slot_ctx->funk,
-                                                       slot_ctx->funk_txn,
-                                                       1, /* do_create */
-                                                       a->account.data_len );
+                                                      &a->key,
+                                                      slot_ctx->funk,
+                                                      slot_ctx->funk_txn,
+                                                      1, /* do_create */
+                                                      a->account.data_len );
 
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
@@ -3769,10 +3751,10 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
     FD_LOG_DEBUG(( "end genesis accounts" ));
 
-    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block.native_instruction_processors_len ));
+    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block->native_instruction_processors_len ));
 
-    for( ulong i=0UL; i < genesis_block.native_instruction_processors_len; i++ ) {
-      fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
+    for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
+      fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
       fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
     }
 
@@ -3780,7 +3762,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
     slot_ctx->slot_bank.slot = 0UL;
 
-    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, tpool, runtime_spad );
+    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx, runtime_spad );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
     }
@@ -3794,7 +3776,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
   slot_ctx->slot_bank.vote_account_keys.account_keys_pool   = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
 
-  fd_genesis_solana_destroy( &genesis_block );
 }
 
 /******************************************************************************/
@@ -3992,9 +3973,9 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_spad_t *          runtime_spad ) {
   /* Publish any transaction older than 31 slots */
   fd_funk_txn_start_write( slot_ctx->funk );
-  fd_funk_t *        funk      = slot_ctx->funk;
-  fd_funk_txn_pool_t txnpool   = fd_funk_txn_pool( funk, fd_funk_wksp( funk ) );
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_funk_t *          funk       = slot_ctx->funk;
+  fd_funk_txn_pool_t * txnpool    = fd_funk_txn_pool( funk );
+  fd_epoch_bank_t *    epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
   if( capture_ctx != NULL ) {
     fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot_bank.slot );
@@ -4003,7 +3984,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   int do_eah = 0;
 
   uint depth = 0;
-  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, &txnpool) ) {
+  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnpool) ) {
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
@@ -4014,7 +3995,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       if( slot_ctx->epoch_ctx->constipate_root ) {
-        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, &txnpool );
+        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, txnpool );
         if( parent != NULL ) {
           slot_ctx->root_slot = txn->xid.ul[0];
 
@@ -4063,9 +4044,8 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                       &slot_ctx->slot_bank,
                       &slot_ctx->slot_bank.epoch_account_hash,
                       runtime_spad,
-                      0,
                       &slot_ctx->epoch_ctx->features,
-                      &exec_para_ctx );
+                      &exec_para_ctx, NULL );
   }
 
   return 0;
@@ -4097,7 +4077,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
   /* Initialize the cost tracker when the feature is active */
-  fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, FD_COST_TRACKER_FOOTPRINT );
+  fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, sizeof(fd_cost_tracker_t) );
   if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, apply_cost_tracker_during_replay ) ) {
     fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
   }
@@ -4189,8 +4169,8 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                     exec_spads,
                                     exec_spad_cnt,
                                     runtime_spad );
+      *is_epoch_boundary = 1;
     }
-    *is_epoch_boundary = 1;
   } else {
     *is_epoch_boundary = 0;
   }
@@ -4275,7 +4255,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     /* Dump the remainder of the block after preparation, POH verification, etc */
-    if( dump_block ) {
+    if( FD_UNLIKELY( dump_block ) ) {
       fd_dump_block_to_protobuf_tx_only( &block_info, slot_ctx, capture_ctx, runtime_spad, block_ctx );
     }
 

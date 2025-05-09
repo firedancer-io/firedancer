@@ -1070,9 +1070,10 @@ op( void * _tpool,                                                              
     ulong tpool_cnt = tpool_t1 - tpool_t0;                                                         \
     /**/  block_cnt = block_i1 - block_i0;                                                         \
     if( FD_LIKELY( (tpool_cnt<=1UL) | (block_cnt<=block_thresh) ) ) break;                         \
-    ulong tpool_cs = fd_tpool_private_split( tpool_cnt );                                          \
-    ulong tpool_ts = tpool_t0 + tpool_cs;                                                          \
-    long  block_is = block_i0 + (long)((tpool_cs*(ulong)block_cnt) / tpool_cnt); /* No overflow */ \
+    ulong tpool_left  = fd_tpool_private_split( tpool_cnt );                                       \
+    ulong tpool_right = tpool_cnt - tpool_left;                                                    \
+    ulong tpool_ts    = tpool_t0 + tpool_left;                                                     \
+    long  block_is    = block_i1 - (long)((tpool_right*(ulong)block_cnt)/tpool_cnt); /* No ovfl */ \
     fd_tpool_exec( tpool,tpool_ts, op, tpool,tpool_ts,tpool_t1, (void *)block_is,(void *)block_i1, \
                    _a0,_a1,_a2,_a3,_a4,_a5,_a6 );                                                  \
     _reduce_stack[ _reduce_cnt++ ] = (ushort)tpool_ts;                                             \
@@ -1099,8 +1100,7 @@ op( void * _tpool,                                                              
 #define FD_FOR_ALL(...) FD_EXPAND_THEN_CONCAT2(FD_FOR_ALL_PRIVATE_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,7,6,5,4,3,2,1,0,F,F,F,F,F))(__VA_ARGS__)
 
 /* FD_MAP_REDUCE extends to FD_FOR_ALL to reduce results back to thread
-   tpool_t0.  IMPORTANT SAFETY TIP!  Adequate scratch memory must be
-   configured for threads used by a MAP_REDUCE.
+   tpool_t0.
 
    Example usage:
 
@@ -1108,7 +1108,7 @@ op( void * _tpool,                                                              
 
        // my_hist_op uses tpool threads [tpool_t0,tpool_t1) to compute:
        //
-       //   long h[4] __attribute__((aligned(128)));
+       //   long h[4];
        //   for( long j=0L; j<4L; j++ ) h[j] = 0L;
        //   for( long i=i0; i<i1; i++ ) {
        //     long j = my_map_op( x[i] );
@@ -1117,19 +1117,19 @@ op( void * _tpool,                                                              
        //
        // where x is a pointer to a my_ele_t array.  The caller is
        // assumed to be thread tpool_t0 and threads (tpool_t0,tpool_t1)
-       // are assumed to be idle.  Requires thread local scratch space
-       // per tpool thread of ~4 ceil lg (tpool_t1-tpool_t0) ulong.
+       // are assumed to be idle.  Required stack
+       // is ~ O(1) + (8+REDUCE_FOOTPRINT) ceil lg (tpool_t1-tpool_t0)
 
        FD_MAP_REDUCE_PROTO( my_hist_op );
 
      In the source file that uses my_hist_op:
 
-       long h[4] __attribute__((aligned(128)));
-       FD_MAP_REDUCE( my_hist_op, tpool, t0,t1, i0,i1, x, h );
+       long h[4];
+       FD_MAP_REDUCE( my_hist_op, tpool,t0,t1, i0,i1, x, h );
 
      In the source file that implements my_hist_op:
 
-       FD_MAP_REDUCE_BEGIN( my_hist_op, 1L, 128UL, 4UL*sizeof(long) ) {
+       FD_MAP_REDUCE_BEGIN( my_hist_op, 1L, alignof(long), 4UL*sizeof(long) ) {
 
          ... At this point:
 
@@ -1144,11 +1144,9 @@ op( void * _tpool,                                                              
 
              - ulong reduce_align and reduce_footprint give the alignment
                and footprint of this region.  In this example, these are
-               given by the 128UL and 4UL*sizeof(long) above.  Like
-               block_thresh, these can be run-time evaluated
-               expressions.  This assumes that the region passed by the
-               caller for the final results has a compatible alignment
-               and footprint.
+               alignof(long) and 4UL*sizeof(long).  This assumes that
+               the region passed by the caller for the final results has
+               a compatible alignment and footprint.
 
              IMPORTANT SAFETY TIP!  DO NOT RETURN FROM THIS BLOCK.  (IF
              ENDING A BLOCK EARLY, USE BREAK.)
@@ -1157,6 +1155,7 @@ op( void * _tpool,                                                              
          long           * restrict h = (long           *)_r0;
 
          for( long j=0L; j<4L; j++ ) h[j] = 0UL;
+
          for( long i=block_i0; i<block_i1; i++ ) {
            long j = my_map_op( x[i] );
            h[j]++;
@@ -1164,30 +1163,33 @@ op( void * _tpool,                                                              
 
        } FD_MAP_END {
 
-         ... At this point, the environment is as described above with the
-             following differences:
+         ... At this point, the environment is as described above with
+             the following differences:
 
-             - There are at least two threads in [tpool_t0,tpool_t1).
+             - There is at least one thread in [tpool_t0,tpool_ts) and
+               one thread in [tpool_ts,tpool_t1).
 
-             - On entry, ulongs _r0 and _r1 point the partials to reduce
-               (cast to ulongs).  These will have an alignment and
-               footprint compatible with the above.
+             - On entry, _r0 points to the partial reduction (cast to a
+               ulong) of [block_i0,block_is).  This was computed by
+               threads [tpool_t0,tpool_ts).  Similarly, _r1 points to
+               the partial reduction (cast to a ulong) of
+               [block_is,block_i1).  This was computed by threads
+               [tpool_ts,tpool_t1).  These regions have the alignment
+               and footprint specified for the FD_MAP_REDUCE.
 
-             - On exit, _r1 has been reduced into _r0.  It is okay if
-               _r1 is clobbered in this process.
-
-             - [block_i0,block_i1) give the range of elements covered by
-               the output of this reduction (though this is not typically
-               used).
+             - On exit, _r1 has been reduced into _r0 such that _r0
+               points to the partial reduction of [block_i0,block_i1).
+               Threads [tpool_t0,tpool_t1) are available to compute this
+               reduction.  It is okay if _r1 is clobbered in this
+               process as _r1 will be discarded after this block exits.
 
              IMPORTANT SAFETY TIP!  While this reduction is often
              theoretically parallelizable and threads
-             [tpool_t0,tpool_t1) are available here for such,
-             parallelization of this can often be counterproductive
-             (especially if the amount to reduce is small, the reduction
-             operation is cheap and the arrays to reduce have poor
-             spatial locality for reduction here due to the mapping
-             phase above).
+             [tpool_t0,tpool_t1) are available here for this,
+             parallelization of this can often be counterproductive when
+             the amount to reduce is small, the reduction operation is
+             cheap and/or the arrays to reduce have poor spatial
+             locality due to the mapping phase above.
 
              IMPORTANT SAFETY TIP!  DO NOT RETURN FROM THIS BLOCK.  (IF
              ENDING A BLOCK EARLY, USE BREAK.)
@@ -1222,8 +1224,8 @@ op( void * _tpool,                                                              
     ulong  _r0 ) {                                                                                  \
   FD_COMPILER_MFENCE(); /* guarantees memory fence even if tpool_cnt==1 */                          \
   long            block_thresh     = (BLOCK_THRESH);                                                \
-  ulong           reduce_align     = (REDUCE_ALIGN);                                                \
-  ulong           reduce_footprint = (REDUCE_FOOTPRINT);                                            \
+  ulong           reduce_align     = (REDUCE_ALIGN);     (void)reduce_align;                        \
+  ulong           reduce_footprint = (REDUCE_FOOTPRINT); (void)reduce_footprint;                    \
   fd_tpool_t *    tpool            = (fd_tpool_t *)_tpool;                                          \
   long            block_i0         = (long)_block_i0;                                               \
   long            block_i1         = (long)_block_i1;                                               \
@@ -1232,46 +1234,44 @@ op( void * _tpool,                                                              
   struct {                                                                                          \
     uint  ts; /* ts is thread that needs to complete before reduction can proceed */                \
     uint  t1; /* [t0,t1) is range of threads available for reduction */                             \
-    ulong r1; /* r1 is the scratch memory used for the reduction */                                 \
     long  i1; /* [i0,i1) is range the reduction output covers */                                    \
+    uchar r1[ (REDUCE_FOOTPRINT) ] __attribute__((aligned((REDUCE_ALIGN))));                        \
   } _reduce_stack[ 16 ]; /* Assumes TILE_MAX<65536 (yes strictly less) */                           \
-  fd_scratch_push();                                                                                \
   for(;;) {                                                                                         \
     ulong tpool_cnt = tpool_t1 - tpool_t0;                                                          \
     /**/  block_cnt = block_i1 - block_i0;                                                          \
     if( FD_LIKELY( (tpool_cnt<=1UL) | (block_cnt<=block_thresh) ) ) break;                          \
-    ulong tpool_cs = fd_tpool_private_split( tpool_cnt );                                           \
-    ulong tpool_ts = tpool_t0 + tpool_cs;                                                           \
-    long  block_is = block_i0 + (long)((tpool_cs*(ulong)block_cnt) / tpool_cnt); /* No overflow */  \
-    ulong _r1 = (ulong)fd_scratch_alloc( reduce_align, reduce_footprint );                          \
+    ulong tpool_left  = fd_tpool_private_split( tpool_cnt );                                        \
+    ulong tpool_right = tpool_cnt - tpool_left;                                                     \
+    ulong tpool_ts    = tpool_t0 + tpool_left;                                                      \
+    long  block_is    = block_i1 - (long)((tpool_right*(ulong)block_cnt)/tpool_cnt); /* No ovfl */  \
     fd_tpool_exec( tpool, tpool_ts, op, tpool,tpool_ts,tpool_t1, (void *)block_is,(void *)block_i1, \
-                   _a0,_a1,_a2,_a3,_a4,_a5,_r1 );                                                   \
+                   _a0,_a1,_a2,_a3,_a4,_a5, (ulong)_reduce_stack[ _reduce_cnt ].r1 );               \
     _reduce_stack[ _reduce_cnt ].ts = (uint)tpool_ts;                                               \
     _reduce_stack[ _reduce_cnt ].t1 = (uint)tpool_t1;                                               \
     _reduce_stack[ _reduce_cnt ].i1 = block_i1;                                                     \
-    _reduce_stack[ _reduce_cnt ].r1 = _r1;                                                          \
     _reduce_cnt++;                                                                                  \
     tpool_t1 = tpool_ts;                                                                            \
     block_i1 = block_is;                                                                            \
   }                                                                                                 \
   do
 
-#define FD_MAP_END                                                  \
-  while(0);                                                         \
-  while( _reduce_cnt ) {                                            \
-    --_reduce_cnt;                                                  \
-    ulong _r1 =        _reduce_stack[ _reduce_cnt ].r1;             \
-    block_i1  =        _reduce_stack[ _reduce_cnt ].i1;             \
-    tpool_t1  = (ulong)_reduce_stack[ _reduce_cnt ].t1;             \
-    block_cnt = block_i1 - block_i0;                                \
-    fd_tpool_wait( tpool, (ulong)_reduce_stack[ _reduce_cnt ].ts ); \
-    (void)_r0; (void)_r1;                                           \
+#define FD_MAP_END                                                                  \
+  while(0);                                                                         \
+  while( _reduce_cnt ) {                                                            \
+    long  block_is  = block_i1;                               (void)block_is;       \
+    --_reduce_cnt;                                                                  \
+    ulong tpool_ts  = (ulong)_reduce_stack[ _reduce_cnt ].ts;                       \
+    /**/  tpool_t1  = (ulong)_reduce_stack[ _reduce_cnt ].t1;                       \
+    /**/  block_i1  =        _reduce_stack[ _reduce_cnt ].i1;                       \
+    ulong _r1       = (ulong)_reduce_stack[ _reduce_cnt ].r1; (void)_r0; (void)_r1; \
+    /**/  block_cnt = block_i1 - block_i0;                                          \
+    fd_tpool_wait( tpool, tpool_ts );                                               \
     do
 
 #define FD_REDUCE_END \
     while(0);         \
   }                   \
-  fd_scratch_pop();   \
 }
 
 #define FD_MAP_REDUCE_PRIVATE_F(...)                                        too_few_arguments_passed_to_FD_MAP_REDUCE

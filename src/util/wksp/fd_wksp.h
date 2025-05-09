@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_util_wksp_fd_wksp_h
 #define HEADER_fd_src_util_wksp_fd_wksp_h
 
-#include "../pod/fd_pod.h"
 #include "../tpool/fd_tpool.h"
 #include "../checkpt/fd_checkpt.h"
 #include "../sanitize/fd_sanitize.h"

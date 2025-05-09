@@ -16,7 +16,7 @@ from RelationalOperation e, BinaryBitwiseOperation lhs
 where
   // `lhs > 0` (or `0 < lhs`)
   // (note that `lhs < 0`, `lhs >= 0` or `lhs <= 0` all imply that the signedness of
-  //  `lhs` is understood, so should not be flagged).
+  // `lhs` is understood, so should not be flagged).
   (e instanceof GTExpr or e instanceof LTExpr) and
   e.getGreaterOperand() = lhs and
   e.getLesserOperand().getValue() = "0" and

@@ -8,7 +8,16 @@
 
 #include "../../ballet/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
+
+#ifdef __has_include
+#if __has_include("../../app/fdctl/version.h")
 #include "../../app/fdctl/version.h"
+#endif
+#endif
+
+#ifndef FDCTL_COMMIT_REF_CSTR
+#define FDCTL_COMMIT_REF_CSTR "0000000000000000000000000000000000000000"
+#endif
 
 static void
 jsonp_strip_trailing_comma( fd_gui_t * gui ) {
@@ -196,11 +205,7 @@ fd_gui_printf_cluster( fd_gui_t * gui ) {
 void
 fd_gui_printf_commit_hash( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "commit_hash" );
-#ifdef FDCTL_COMMIT_REF_CSTR
-    jsonp_string( gui, "value", FD_EXPAND_THEN_STRINGIFY(FDCTL_COMMIT_REF_CSTR) );
-#else
-    jsonp_string( gui, "value", "0000000000000000000000000000000000000000" );
-#endif
+    jsonp_string( gui, "value", FDCTL_COMMIT_REF_CSTR );
   jsonp_close_envelope( gui );
 }
 
@@ -1048,6 +1053,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
         else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
         if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
         else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
+        else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                               jsonp_ulong( gui, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
@@ -1068,58 +1075,6 @@ fd_gui_printf_summary_ping( fd_gui_t * gui,
     jsonp_ulong( gui, "id", id );
     jsonp_null( gui, "value" );
   jsonp_close_envelope( gui );
-}
-
-static void
-cus_scan_init( fd_gui_slot_t const * slot,
-               int *                 has_offset,
-               uint *                bank_offset ) {
-  for( ulong i=0UL; i<65UL; i++ ) {
-    has_offset[ i ] = slot->cus.has_offset[ i ];
-    bank_offset[ i ] = slot->cus.start_offset[ i ];
-  }
-}
-
-static ulong
-cus_scan_next( fd_gui_t const *      gui,
-               fd_gui_slot_t const * slot,
-               int *                 has_offset,
-               uint *                bank_offset ) {
-  ulong min_idx = ULONG_MAX;
-  long min_timestamp = LONG_MAX;
-  for( ulong i=0UL; i<65UL; i++ ) {
-    int in_bounds = has_offset[ i ] && ((int)(bank_offset[ i ]-slot->cus.end_offset[ i ]))<0;
-    if( FD_UNLIKELY( in_bounds ) ) {
-      long timestamp = fd_gui_cu_history_decompress_timestamp( slot->cus.reference_nanos, gui->cus.history[ bank_offset[ i ]%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] );
-      if( FD_UNLIKELY( min_idx==ULONG_MAX || timestamp<min_timestamp ) ) {
-        min_timestamp = timestamp;
-        min_idx = i;
-      }
-    }
-  }
-
-  if( FD_UNLIKELY( min_idx==ULONG_MAX ) ) return ULONG_MAX;
-  ulong offset = bank_offset[ min_idx ];
-
-  uint diff = (uint)(int)(slot->cus.end_offset[ min_idx ]-bank_offset[ min_idx ] );
-  for( uint i=1U; i<diff; i++) {
-    uint next_offset = bank_offset[ min_idx ] + i;
-    int is_begin = fd_gui_cu_history_decompress_type( gui->cus.history[ next_offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] )==0UL;
-    ulong bank_idx = fd_gui_cu_history_decompress_bank( gui->cus.history[ next_offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] );
-
-    if( FD_LIKELY( is_begin && min_idx==64UL ) ) {
-      bank_offset[ min_idx ] = next_offset;
-      return offset;
-    }
-    else if( FD_LIKELY( !is_begin && bank_idx==min_idx ) ) {
-      bank_offset[ min_idx ] = next_offset;
-      return offset;
-    }
-  }
-
-  bank_offset[ min_idx ] = UINT_MAX;
-  has_offset[ min_idx ] = 0;
-  return offset;
 }
 
 void
@@ -1165,6 +1120,8 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
         if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
         else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
+        else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                               jsonp_ulong( gui, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
@@ -1174,6 +1131,149 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui, "tips" );
         else                                       jsonp_ulong( gui, "tips", slot->tips );
       jsonp_close_object( gui );
+
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
+                                         ulong      _slot,
+                                         ulong      id ) {
+  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+
+  char const * level;
+  switch( slot->level ) {
+    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
+    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
+    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
+    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
+    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
+    default:                                         level = "unknown"; break;
+  }
+
+  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
+  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+
+  long duration_nanos = LONG_MAX;
+  if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
+    duration_nanos = slot->completed_time - parent_slot->completed_time;
+  }
+
+  jsonp_open_envelope( gui, "slot", "query" );
+    jsonp_ulong( gui, "id", id );
+    jsonp_open_object( gui, "value" );
+
+      jsonp_open_object( gui, "publish" );
+        jsonp_ulong( gui, "slot", _slot );
+        jsonp_bool( gui, "mine", slot->mine );
+        jsonp_bool( gui, "skipped", slot->skipped );
+        jsonp_string( gui, "level", level );
+        if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui, "duration_nanos" );
+        else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
+        if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
+        else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
+        if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "transactions" );
+        else                                               jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "vote_transactions" );
+        else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
+        else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
+        else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
+        if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
+        else                                               jsonp_ulong( gui, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
+        else                                                  jsonp_ulong( gui, "transaction_fee", slot->transaction_fee );
+        if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui, "priority_fee" );
+        else                                               jsonp_ulong( gui, "priority_fee", slot->priority_fee );
+        if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui, "tips" );
+        else                                       jsonp_ulong( gui, "tips", slot->tips );
+      jsonp_close_object( gui );
+
+      int overwritten               = (gui->pack_txn_idx - slot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
+      int processed_all_microblocks = slot->slot!=ULONG_MAX &&
+                                      slot->txs.microblocks_upper_bound!=USHORT_MAX &&
+                                      slot->txs.begin_microblocks==slot->txs.end_microblocks &&
+                                      slot->txs.begin_microblocks==slot->txs.microblocks_upper_bound;
+
+      if( FD_LIKELY( !overwritten && processed_all_microblocks ) ) {
+        ulong txn_cnt = slot->txs.end_offset-slot->txs.start_offset;
+
+        jsonp_open_object( gui, "transactions" );
+          jsonp_long_as_str( gui, "start_timestamp_nanos", slot->txs.leader_start_time );
+          jsonp_long_as_str( gui, "target_end_timestamp_nanos", slot->txs.leader_end_time );
+          jsonp_open_array( gui, "txn_mb_start_timestamps_nanos" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_mb_end_timestamps_nanos" );
+            /* clamp end_ts to start_ts + 1 */
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + fd_long_max( (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_end_nanos,
+                                                                                     (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos + 1L ) );
+            }
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_max_compute_units" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->compute_units_estimated );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_compute_units_requested" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->compute_units_requested );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_compute_units_consumed" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->actual_consumed_cus );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_priority_fee" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->priority_fee );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_error_code" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->error_code );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_from_bundle" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_FROM_BUNDLE );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_is_simple_vote" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_bank_idx" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->bank_idx );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_start_timestamps_nanos" );
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
+              long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
+              long timestamp_delta_load_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_start_pct * (double)microblock_duration / (double)UCHAR_MAX);
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + timestamp_delta_load_end );
+            }
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_load_end_timestamps_nanos" );
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
+              long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
+              long timestamp_delta_load_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_load_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + timestamp_delta_load_end );
+            }
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_end_timestamps_nanos" );
+            for( ulong i=0UL; i<txn_cnt; i++) {
+              fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
+              long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
+              long timestamp_delta_load_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
+              jsonp_long_as_str( gui, NULL, slot->txs.reference_nanos + timestamp_delta_load_end );
+            }
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_tips" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->tips );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_microblock_id" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->microblock_idx );
+          jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_landed" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK );
+          jsonp_close_array( gui );
+        jsonp_close_object( gui );
+      } else {
+        jsonp_null( gui, "compute_units" );
+      }
 
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
@@ -1222,6 +1322,8 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         else                                              jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
         if( FD_UNLIKELY( slot->failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "failed_transactions" );
         else                                                jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui, "max_compute_units" );
+        else                                                       jsonp_ulong( gui, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                               jsonp_ulong( gui, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
@@ -1254,73 +1356,6 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         jsonp_null( gui, "waterfall" );
         jsonp_null( gui, "tile_timers" );
         jsonp_null( gui, "tile_primary_metric" );
-      }
-
-      int overwritten = 0;
-      for( ulong i=0UL; i<65UL; i++) {
-        if( FD_UNLIKELY( slot->cus.has_offset[ i ] && slot->cus.start_offset[ i ]+FD_GUI_COMPUTE_UNITS_HISTORY_SZ<gui->cus.offset ) ) {
-          overwritten = 1;
-          break;
-        }
-      }
-
-      int processed_all_microblocks = slot->cus.microblocks_upper_bound!=USHORT_MAX && (slot->cus.begin_microblocks==slot->cus.end_microblocks) && (slot->cus.begin_microblocks==slot->cus.microblocks_upper_bound);
-      if( FD_LIKELY( !overwritten && processed_all_microblocks ) ) {
-        jsonp_open_object( gui, "compute_units" );
-          jsonp_ulong( gui, "max_compute_units", slot->cus.max_compute_units );
-          jsonp_long_as_str( gui, "start_timestamp_nanos", slot->cus.leader_start_time );
-          jsonp_long_as_str( gui, "target_end_timestamp_nanos", slot->cus.leader_end_time );
-          jsonp_open_array( gui, "compute_unit_timestamps_nanos" );
-            uint bank_offset[ 65 ];
-            int has_offset[ 65 ];
-            cus_scan_init( slot, has_offset, bank_offset );
-
-            ulong offset;
-            while( (offset=cus_scan_next( gui, slot, has_offset, bank_offset ))!=ULONG_MAX ) {
-              long timestamp = fd_gui_cu_history_decompress_timestamp( slot->cus.reference_nanos, gui->cus.history[ offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] );
-              jsonp_long_as_str( gui, NULL, timestamp );
-            }
-          jsonp_close_array( gui );
-          jsonp_open_array( gui, "compute_units_deltas" );
-            cus_scan_init( slot, has_offset, bank_offset );
-
-            while( (offset=cus_scan_next( gui, slot, has_offset, bank_offset ))!=ULONG_MAX ) {
-              int is_begin = fd_gui_cu_history_decompress_type( gui->cus.history[ offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] )==FD_GUI_EXECUTION_TYPE_BEGIN;
-              ulong compute_units = fd_gui_cu_history_decompress_compute_units( gui->cus.history[ offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] );
-
-              if( FD_LIKELY( is_begin ) ) {
-                jsonp_ulong( gui, NULL, compute_units );
-              } else {
-                jsonp_long( gui, NULL, -(long)compute_units );
-              }
-            }
-          jsonp_close_array( gui );
-          jsonp_open_array( gui, "active_bank_count" );
-            cus_scan_init( slot, has_offset, bank_offset );
-
-            ulong active_bank_cnt = 0UL;
-            ulong bank_active_cnt[ 64 ] = {0UL};
-            while( (offset=cus_scan_next( gui, slot, has_offset, bank_offset ))!=ULONG_MAX ) {
-              int is_begin = fd_gui_cu_history_decompress_type( gui->cus.history[ offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] )==FD_GUI_EXECUTION_TYPE_BEGIN;
-              int active_bank_change = fd_gui_cu_history_decompress_active_bank_change( gui->cus.history[ offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] );
-              ulong bank_idx = fd_gui_cu_history_decompress_bank( gui->cus.history[ offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] );
-
-              if( FD_LIKELY( active_bank_change ) ) {
-                if( FD_LIKELY( is_begin ) ) {
-                  if( FD_LIKELY( !bank_active_cnt[ bank_idx ] ) ) active_bank_cnt++;
-                  bank_active_cnt[ bank_idx ]++;
-                } else {
-                  if( FD_LIKELY( bank_active_cnt[ bank_idx ]==1UL ) ) active_bank_cnt--;
-                  bank_active_cnt[ bank_idx ]--;
-                }
-              }
-
-              jsonp_ulong( gui, NULL, active_bank_cnt );
-            }
-          jsonp_close_array( gui );
-        jsonp_close_object( gui );
-      } else {
-        jsonp_null( gui, "compute_units" );
       }
 
     jsonp_close_object( gui );

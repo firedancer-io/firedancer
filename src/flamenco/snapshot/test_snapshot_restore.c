@@ -60,18 +60,19 @@ main( int     argc,
   /* Setup slot context */
 
   ulong const txn_max =  16UL;
-  ulong const rec_max = 512UL;
+  uint const rec_max = 512UL;
 
   ulong const funk_seed = 0xeffb398d4552afbcUL;
   ulong const funk_tag  = 42UL;
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
+  void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag );
+  fd_funk_t funk_[1];
+  fd_funk_t * funk = fd_funk_join( funk_, fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
   FD_TEST( funk );
 
   void * restore_mem = fd_wksp_alloc_laddr( wksp, fd_snapshot_restore_align(), fd_snapshot_restore_footprint(), static_tag );
 
   fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 4194304UL ), static_tag ), 4194304UL );
   fd_spad_push( _spad );
-  FD_LOG_WARNING(("SPAD %lu", _spad->mem_max));
 
   fd_funk_txn_xid_t xid[1] = {{ .ul = {4} }};
   ulong             restore_slot = 999UL;
@@ -216,17 +217,17 @@ main( int     argc,
     /* Create basic slot delta */
     fd_bank_slot_deltas_t cache[1];
     cache->slot_deltas_len = 1;
-    cache->slot_deltas = fd_spad_alloc( _spad, fd_slot_delta_align(), fd_slot_delta_footprint() );
+    cache->slot_deltas = fd_spad_alloc( _spad, alignof(fd_slot_delta_t), 1UL*sizeof(fd_slot_delta_t) );
     cache->slot_deltas->is_root = 0;
     cache->slot_deltas->slot = 10;
     cache->slot_deltas->slot_delta_vec_len = 1;
-    cache->slot_deltas->slot_delta_vec = fd_spad_alloc( _spad, fd_status_pair_align(), fd_status_pair_footprint() );
+    cache->slot_deltas->slot_delta_vec = fd_spad_alloc( _spad, alignof(fd_status_pair_t), 1UL*sizeof(fd_status_pair_t) );
 
     fd_status_pair_t * pair = cache->slot_deltas->slot_delta_vec;
     fd_memset( pair->hash.uc, 1UL, sizeof(fd_hash_t) );
     pair->value.txn_idx = 2;
     pair->value.statuses_len = 1;
-    pair->value.statuses = fd_spad_alloc( _spad, fd_cache_status_align(), fd_cache_status_footprint() );
+    pair->value.statuses = fd_spad_alloc( _spad, alignof(fd_cache_status_t), 1UL*sizeof(fd_cache_status_t) );
 
     fd_cache_status_t * status = pair->value.statuses;
     status->result.discriminant = 0;
@@ -434,13 +435,13 @@ main( int     argc,
       fd_funk_rec_prepare_t prepare[1];
       int err;
       fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, restore->funk_txn, &id, prepare, &err );
-      fd_account_meta_t * meta = fd_funk_val_truncate( rec, sizeof(fd_account_meta_t), fd_funk_alloc( funk, wksp ), wksp, &err );
+      fd_account_meta_t * meta = fd_funk_val_truncate( rec, sizeof(fd_account_meta_t), fd_funk_alloc( funk ), wksp, &err );
       FD_TEST( meta );
       fd_account_meta_init( meta );
       meta->dlen          = 0UL;
       meta->info.lamports = 0UL;
       meta->slot          = 9UL;
-      fd_funk_rec_publish( prepare );
+      fd_funk_rec_publish( funk, prepare );
       FD_TEST( !fd_account_meta_exists( meta ) );
     } while(0);
 
@@ -488,13 +489,13 @@ main( int     argc,
       fd_funk_rec_prepare_t prepare[1];
       int err;
       fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, restore->funk_txn, &id, prepare, &err );
-      fd_account_meta_t * meta = fd_funk_val_truncate( rec, sizeof(fd_account_meta_t)+4, fd_funk_alloc( funk, wksp ), wksp, &err );
+      fd_account_meta_t * meta = fd_funk_val_truncate( rec, sizeof(fd_account_meta_t)+4, fd_funk_alloc( funk ), wksp, &err );
       FD_TEST( meta );
       fd_account_meta_init( meta );
       meta->dlen          =  4UL;
       meta->info.lamports = 90UL;
       meta->slot          =  9UL;
-      fd_funk_rec_publish( prepare );
+      fd_funk_rec_publish( funk, prepare );
       FD_TEST( fd_account_meta_exists( meta ) );
       memcpy( (uchar *)meta + meta->hlen, "ABCD", 4UL );
     } while(0);
@@ -672,7 +673,8 @@ main( int     argc,
 
   fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( _spad ) ) );
   fd_wksp_free_laddr( restore_mem );
-  fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
+  fd_funk_leave( funk, NULL );
+  fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

@@ -1,4 +1,5 @@
 #include "../fd_tango.h"
+#include "../../util/math/fd_stat.h"
 
 #if FD_HAS_DOUBLE
 
@@ -24,10 +25,10 @@ fd_tempo_wallclock_model( double * opt_tau ) {
        jitter. */
 
     ulong iter = 0UL;
-    for(;;) { 
+    for(;;) {
 #     define TRIAL_CNT 512UL
 #     define TRIM_CNT  64UL
-      double trial[ TRIAL_CNT ]; 
+      double trial[ TRIAL_CNT ];
       for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
         FD_COMPILER_MFENCE();
         long tic = fd_log_wallclock();
@@ -67,10 +68,10 @@ fd_tempo_tickcount_model( double * opt_tau ) {
     /* Same as the above but for fd_tickcount(). */
 
     ulong iter = 0UL;
-    for(;;) { 
+    for(;;) {
 #     define TRIAL_CNT 512UL
 #     define TRIM_CNT  64UL
-      double trial[ TRIAL_CNT ]; 
+      double trial[ TRIAL_CNT ];
       for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
         FD_COMPILER_MFENCE();
         long tic = fd_tickcount();
@@ -131,10 +132,10 @@ fd_tempo_tick_per_ns( double * opt_sigma ) {
          well modeled as normal. */
 
       ulong iter = 0UL;
-      for(;;) { 
+      for(;;) {
   #     define TRIAL_CNT 32UL
   #     define TRIM_CNT   4UL
-        double trial[ TRIAL_CNT ]; 
+        double trial[ TRIAL_CNT ];
         for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
           long then; long toc; fd_tempo_observe_pair( &then, &toc );
           fd_log_sleep( 16777216L ); /* ~16.8 ms */
@@ -199,7 +200,7 @@ fd_tempo_observe_pair( long * opt_now,
        tickcount because that is typically the lower overhead, more
        deterministic one and less likely to get jerked around behind our
        back.
-       
+
        Theoretically, this exploits how the minimum of a shifted
        exponential random variable converges.  Since the time to read
        the various clocks is expected to be reasonably modeled as a

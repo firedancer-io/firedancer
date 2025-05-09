@@ -71,11 +71,12 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Set up slot context */
-  slot_ctx->funk_txn              = funk_txn;
-  slot_ctx->funk                  = funk;
-  slot_ctx->enable_exec_recording = 0;
-  slot_ctx->epoch_ctx             = epoch_ctx;
-  slot_ctx->runtime_wksp          = fd_wksp_containing( slot_ctx );
+  slot_ctx->funk_txn                    = funk_txn;
+  slot_ctx->funk                        = funk;
+  slot_ctx->enable_exec_recording       = 0;
+  slot_ctx->epoch_ctx                   = epoch_ctx;
+  slot_ctx->runtime_wksp                = fd_wksp_containing( slot_ctx );
+  slot_ctx->prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
   fd_memcpy( &slot_ctx->slot_bank.banks_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof( fd_hash_t ) );
 
   /* Set up slot bank */
@@ -83,17 +84,18 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
-  slot_bank->slot                  = slot;
-  slot_bank->block_height          = test_ctx->slot_ctx.block_height;
-  slot_bank->prev_slot             = test_ctx->slot_ctx.prev_slot;
-  slot_bank->fee_rate_governor     = (fd_fee_rate_governor_t) {
-    .target_lamports_per_signature = 10000UL,
-    .target_signatures_per_slot    = 20000UL,
-    .min_lamports_per_signature    = 5000UL,
-    .max_lamports_per_signature    = 100000UL,
-    .burn_percent                  = 50,
+  slot_bank->slot                   = slot;
+  slot_bank->block_height           = test_ctx->slot_ctx.block_height;
+  slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
+  slot_bank->fee_rate_governor      = (fd_fee_rate_governor_t) {
+    .target_lamports_per_signature  = 10000UL,
+    .target_signatures_per_slot     = 20000UL,
+    .min_lamports_per_signature     = 5000UL,
+    .max_lamports_per_signature     = 100000UL,
+    .burn_percent                   = 50,
   };
-  slot_bank->capitalization        = test_ctx->slot_ctx.prev_epoch_capitalization;
+  slot_bank->capitalization         = test_ctx->slot_ctx.prev_epoch_capitalization;
+  slot_bank->lamports_per_signature = 5000UL;
 
   /* Set up epoch context and epoch bank */
   /* TODO: Do we need any more of these? */
@@ -102,6 +104,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
   epoch_bank->hashes_per_tick       = test_ctx->epoch_ctx.hashes_per_tick;
   epoch_bank->ticks_per_slot        = test_ctx->epoch_ctx.ticks_per_slot;
+  epoch_bank->ns_per_slot           = (uint128)64000000; // TODO: restore from input or smth
+  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
   epoch_bank->slots_per_year        = test_ctx->epoch_ctx.slots_per_year;
   epoch_bank->inflation             = (fd_inflation_t) {
     .initial         = test_ctx->epoch_ctx.inflation.initial,
@@ -110,7 +114,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     .foundation      = test_ctx->epoch_ctx.inflation.foundation,
     .foundation_term = test_ctx->epoch_ctx.inflation.foundation_term
   };
-  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
 
   /* Load in all accounts with > 0 lamports provided in the context */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
@@ -122,9 +125,11 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_runtime_sysvar_cache_load( slot_ctx, runner->spad );
 
   /* Finish init epoch bank sysvars */
-  fd_memcpy( &epoch_bank->epoch_schedule, slot_ctx->sysvar_cache->val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  fd_memcpy( &epoch_bank->rent_epoch_schedule, slot_ctx->sysvar_cache->val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
-  fd_memcpy( &epoch_bank->rent, slot_ctx->sysvar_cache->val_rent, sizeof(fd_rent_t) );
+  uchar * val_epoch_schedule = fd_wksp_laddr_fast( runner->wksp, slot_ctx->sysvar_cache->gaddr_epoch_schedule );
+  fd_memcpy( &epoch_bank->epoch_schedule, val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  fd_memcpy( &epoch_bank->rent_epoch_schedule, val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  uchar * val_rent = fd_wksp_laddr_fast( runner->wksp, slot_ctx->sysvar_cache->gaddr_rent );
+  fd_memcpy( &epoch_bank->rent, val_rent, sizeof(fd_rent_t) );
   epoch_bank->stakes.epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->prev_slot, NULL );
 
   /* Update stake cache for epoch T */
@@ -240,19 +245,19 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
   slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
     runner->spad,
-    FD_RENT_FRESH_ACCOUNT_ALIGN,
-    FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, FD_RENT_FRESH_ACCOUNT_FOOTPRINT * FD_RENT_FRESH_ACCOUNTS_MAX );
+    alignof(fd_rent_fresh_account_t),
+    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );
   fd_memset( slot_bank->block_hash_queue.last_hash, 0, sizeof(fd_hash_t) );
 
   // Use the latest lamports per signature
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
-    rbh->hashes = deq_fd_block_block_hash_entry_t_join( fd_wksp_laddr_fast( fd_wksp_containing( runner->spad ), rbh_global->hashes_gaddr ) );
+    rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
   }
 
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {

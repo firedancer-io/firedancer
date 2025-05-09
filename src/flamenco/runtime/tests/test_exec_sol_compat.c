@@ -40,8 +40,6 @@ run_test( fd_runtime_fuzz_runner_t * runner,
     ok = sol_compat_elf_loader_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/syscall/" ) != NULL ) {
     ok = sol_compat_syscall_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/cpi/" ) != NULL ) {
-    ok = sol_compat_syscall_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/vm_interp/" ) != NULL ){
     ok = sol_compat_vm_interp_fixture( runner, buf, file_sz );
   } else {

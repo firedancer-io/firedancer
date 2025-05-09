@@ -1,5 +1,5 @@
 /**
- * @name Null no shortcicruit
+ * @name Null no short-circuit
  * @description A potential null pointer is checked than accessed without short-circuiting.
  * @kind problem
  * @problem.severity warning

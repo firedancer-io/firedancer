@@ -591,14 +591,6 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   fd_sandbox_private_explicit_clear_environment_variables();
   fd_sandbox_private_check_exact_file_descriptors( allowed_file_descriptor_cnt, allowed_file_descriptor );
 
-  /* Dropping groups can increase privileges to resources that deny
-     certain groups so don't do that, just check that we have no
-     supplementary group IDs. */
-  int getgroups_cnt = getgroups( 0UL, NULL );
-  if( -1==getgroups_cnt )                                            FD_LOG_ERR(( "getgroups() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( getgroups_cnt>1 )                                              FD_LOG_WARNING(( "getgroups() returned multiple supplementary groups (%d), run `id` to see them. "
-                                                                                      "Continuing, but it is suggested to run Firedancer with a sandbox user that has as few permissions as possible.", getgroups_cnt ));
-
   /* Replace the session keyring in the process with a new
      anonymous one, in case the systemd or other launcher
      provided us with something by mistake. */
@@ -620,6 +612,14 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
     if( -1==prctl( PR_SET_KEEPCAPS, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   fd_sandbox_private_switch_uid_gid( desired_uid, desired_gid );
+
+  /* Dropping groups can increase privileges to resources that deny
+     certain groups so don't do that, just check that we have no
+     supplementary group IDs. */
+  int getgroups_cnt = getgroups( 0UL, NULL );
+  if( -1==getgroups_cnt )                                            FD_LOG_ERR(( "getgroups() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( getgroups_cnt>1 )                                              FD_LOG_WARNING(( "getgroups() returned multiple supplementary groups (%d), run `id` to see them. "
+                                                                                      "Continuing, but it is suggested to run Firedancer with a sandbox user that has as few permissions as possible.", getgroups_cnt ));
 
   /* Now raise CAP_SYS_ADMIN again after we switched UID/GID, if it's
      required to create the user namespace. */

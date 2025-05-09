@@ -76,4 +76,14 @@ fd_file_util_rmtree( char const * path,
 int
 fd_file_util_self_exe( char path[ PATH_MAX ] );
 
+/* fd_file_util_read_all() reads all the file contents from the provided
+   path into a newly `mmap(2)`ed region.  Returns MAP_FAILED on failure.
+   The caller is responsible for unmapping the region when done.
+   On success, out_sz will be set to the file size.  Otherwise, the
+   value of out_sz is undefined. */
+
+char *
+fd_file_util_read_all( char const * path,
+                       ulong *      out_sz );
+
 #endif /* HEADER_fd_src_app_shared_fd_file_util_h */

@@ -215,9 +215,9 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #endif
     *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
     fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS );
-    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0                             );
-    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0                             );
-    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, 0                             );
+    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0                                  );
+    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0                                  );
+    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, 0                                  );
     return FD_PACK_SIMPLE_VOTE_COST;
   }
 

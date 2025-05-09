@@ -188,18 +188,18 @@ privileged_init( fd_topo_t *      topo,
   static char const * udp_port_links[] = {
     "net_quic",   /* legacy_transaction_listen_port */
     "net_quic",   /* quic_transaction_listen_port */
-    "net_shred",  /* shred_listen_port */
+    "net_shred",  /* shred_listen_port (turbine) */
     "net_gossip", /* gossip_listen_port */
-    "net_repair", /* repair_intake_listen_port */
-    "net_repair"  /* repair_intake_listen_port */
+    "net_shred",  /* shred_listen_port (repair) */
+    "net_repair"  /* repair_serve_listen_port */
   };
   static uchar const udp_port_protos[] = {
     DST_PROTO_TPU_UDP,  /* legacy_transaction_listen_port */
     DST_PROTO_TPU_QUIC, /* quic_transaction_listen_port */
-    DST_PROTO_SHRED,    /* shred_listen_port */
+    DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
-    DST_PROTO_REPAIR,   /* repair_intake_listen_port */
-    DST_PROTO_REPAIR    /* repair_intake_listen_port */
+    DST_PROTO_SHRED,    /* shred_listen_port (repair) */
+    DST_PROTO_REPAIR    /* repair_serve_listen_port */
   };
   for( uint candidate_idx=0U; candidate_idx<6; candidate_idx++ ) {
     if( !udp_port_candidates[ candidate_idx ] ) continue;
@@ -306,7 +306,6 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
   ulong        chunk_next = link->chunk;
   uchar *      cmsg_next  = ctx->batch_cmsg;
 
-  ctx->tx_ptr = ctx->tx_scratch0;
   for( ulong j=0UL; j<STEM_BURST; j++ ) {
     ctx->batch_iov[ j ].iov_base = (uchar *)fd_chunk_to_laddr( base, chunk_next ) + hdr_sz;
     ctx->batch_iov[ j ].iov_len  = payload_max;
@@ -323,9 +322,6 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
        At function exit, chunks into which a packet was received are
        committed, all others are freed. */
     chunk_next = fd_dcache_compact_next( chunk_next, FD_NET_MTU, chunk0, wmark );
-  }
-  if( FD_UNLIKELY( ctx->tx_ptr > ctx->tx_scratch1 ) ) {
-    FD_LOG_ERR(( "Out of bounds batch" ));
   }
 
   int msg_cnt = recvmmsg( sock_fd, ctx->batch_msg, STEM_BURST, MSG_DONTWAIT, NULL );
@@ -439,20 +435,50 @@ poll_rx( fd_sock_tile_t *    ctx,
 static void
 flush_tx_batch( fd_sock_tile_t * ctx ) {
   ulong batch_cnt = ctx->batch_cnt;
-  int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg, (uint)batch_cnt, MSG_DONTWAIT );
-  if( FD_UNLIKELY( send_cnt<(long)batch_cnt ) ) {
-    if( FD_UNLIKELY( send_cnt<0 ) ) {
-      if( FD_LIKELY( (errno==EAGAIN) | (errno==ENOBUFS) ) ) {
-        ctx->metrics.tx_drop_cnt += batch_cnt;
-        goto done;
+  for( int j = 0; j < (int)batch_cnt; /* incremented in loop */ ) {
+    ctx->metrics.sys_sendmmsg_cnt++;
+
+    int remain   = (int)batch_cnt - j;
+    int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg + j, (uint)remain, MSG_DONTWAIT );
+    if( FD_UNLIKELY( send_cnt < remain ) ) {
+      if( FD_UNLIKELY( send_cnt < 0 ) ) {
+        switch( errno ) {
+          case EAGAIN:
+          case ENOBUFS:
+            ctx->metrics.tx_drop_cnt++;
+            break;
+
+          case EPERM:
+            ctx->metrics.tx_permission_error_cnt++;
+            break;
+
+          default:
+            FD_LOG_ERR(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
+        /* first message failed, so skip failing message and continue */
+        j++;
+      } else {
+        /* sent at least one, and error on ctx->batch_msg[send_cnt] is lost
+           so assume recoverable and continue */
+        ctx->metrics.tx_drop_cnt++;
+
+        /* send_cnt succeeded, so skip those and also the failing message */
+        j += send_cnt + 1;
+
+        /* add the successful count */
+        ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
       }
-      FD_LOG_ERR(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+      continue;
     }
-    ctx->metrics.tx_drop_cnt += batch_cnt-(ulong)send_cnt;
+
+    /* send_cnt == batch_cnt, so we sent everything */
+    ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
+    break;
   }
-  ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
-done:
-  ctx->metrics.sys_sendmmsg_cnt++;
+
+  ctx->tx_ptr = ctx->tx_scratch0;
   ctx->batch_cnt = 0;
 }
 
@@ -597,13 +623,14 @@ after_credit( fd_sock_tile_t *    ctx,
 
 static void
 metrics_write( fd_sock_tile_t * ctx ) {
-  FD_MCNT_SET( SOCK, SYSCALLS_RECVMMSG, ctx->metrics.sys_recvmmsg_cnt );
-  FD_MCNT_SET( SOCK, SYSCALLS_SENDMMSG, ctx->metrics.sys_sendmmsg_cnt );
-  FD_MCNT_SET( SOCK, RX_PKT_CNT,        ctx->metrics.rx_pkt_cnt       );
-  FD_MCNT_SET( SOCK, TX_PKT_CNT,        ctx->metrics.tx_pkt_cnt       );
-  FD_MCNT_SET( SOCK, TX_DROP_CNT,       ctx->metrics.tx_drop_cnt      );
-  FD_MCNT_SET( SOCK, TX_BYTES_TOTAL,    ctx->metrics.tx_bytes_total   );
-  FD_MCNT_SET( SOCK, RX_BYTES_TOTAL,    ctx->metrics.rx_bytes_total   );
+  FD_MCNT_SET( SOCK, SYSCALLS_RECVMMSG,       ctx->metrics.sys_recvmmsg_cnt     );
+  FD_MCNT_SET( SOCK, SYSCALLS_SENDMMSG,       ctx->metrics.sys_sendmmsg_cnt     );
+  FD_MCNT_SET( SOCK, RX_PKT_CNT,              ctx->metrics.rx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, TX_PKT_CNT,              ctx->metrics.tx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, TX_DROP_CNT,             ctx->metrics.tx_drop_cnt          );
+  FD_MCNT_SET( SOCK, TX_BYTES_TOTAL,          ctx->metrics.tx_bytes_total       );
+  FD_MCNT_SET( SOCK, RX_BYTES_TOTAL,          ctx->metrics.rx_bytes_total       );
+  FD_MCNT_SET( SOCK, TX_PERMISSION_ERROR_CNT, ctx->metrics.tx_permission_error_cnt );
 }
 
 static ulong

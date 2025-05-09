@@ -480,4 +480,76 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
   return FD_BINCODE_SUCCESS;
 }
 
+/* Convenience API for deserializing with common allocators */
+
+/* fd_bincode_decode_spad decodes a bincode type.  The result is
+   allocated into a spad on success.  On failure, no spad allocations
+   are made.
+
+   fd_bincode_decode1_spad optionally outputs the number of bytes read
+   to *psz. */
+
+#define fd_bincode_decode1_spad( type, spad, buf, buf_sz, perr, psz )  \
+  __extension__({                                                      \
+    fd_spad_t *  const spad_   = (spad);                               \
+    void const * const buf_    = (buf);                                \
+    ulong        const buf_sz_ = (buf_sz);                             \
+    int *              perr_   = (perr);                               \
+    ulong *            psz_    = (psz);                                \
+    fd_bincode_decode_ctx_t ctx = {0};                                 \
+    if( perr_ ) *perr_ = -1;                                           \
+    ctx.data    = (void const *)( buf_ );                              \
+    ctx.dataend = (void const *)( (ulong)ctx.data + buf_sz_ );         \
+    ulong total_sz = 0UL;                                              \
+    int err = fd_##type##_decode_footprint( &ctx, &total_sz );         \
+    fd_##type##_t * out = NULL;                                        \
+    if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
+      ulong align = fd_##type##_align();                               \
+      void * mem = fd_spad_alloc( spad_, align, total_sz );            \
+      if( FD_UNLIKELY( !mem ) ) {                                      \
+        FD_LOG_ERR(( "fd_bincode_" #type "_decode failed: out of memory (decode requires %lu+%lu bytes, but only %lu bytes free in spad)", align-1UL, total_sz, fd_spad_mem_free( spad_ ) )); \
+      }                                                                \
+      out = fd_##type##_decode( mem, &ctx );                           \
+      if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                \
+    }                                                                  \
+    if( perr_ ) *perr_ = err;                                          \
+    out;                                                               \
+  })
+
+#define fd_bincode_decode_spad( type, spad, buf, buf_sz, perr ) \
+  fd_bincode_decode1_spad( type, spad, buf, buf_sz, perr, NULL )
+
+/* fd_bincode_decode_scratch decodes a bincode type.  The result is
+   allocated into the thread's scratch region on success.  On failure,
+   no allocations are made. */
+
+#define fd_bincode_decode1_scratch( type, buf, buf_sz, perr, psz )     \
+  __extension__({                                                      \
+    void const * const buf_    = (buf);                                \
+    ulong        const buf_sz_ = (buf_sz);                             \
+    int *              perr_   = (perr);                               \
+    ulong *            psz_    = (psz);                                \
+    fd_bincode_decode_ctx_t ctx = {0};                                 \
+    if( perr_ ) *perr_ = -1;                                           \
+    ctx.data    = (void const *)( buf_ );                              \
+    ctx.dataend = (void const *)( (ulong)ctx.data + buf_sz_ );         \
+    ulong total_sz = 0UL;                                              \
+    int err = fd_##type##_decode_footprint( &ctx, &total_sz );         \
+    fd_##type##_t * out = NULL;                                        \
+    if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
+      ulong align = fd_##type##_align();                               \
+      if( FD_UNLIKELY( !fd_scratch_alloc_is_safe( align, total_sz ) ) ) { \
+        FD_LOG_ERR(( "fd_bincode_" #type "_decode failed: out of memory (decode requires %lu+%lu bytes, but only %lu bytes free in scratch region)", align-1UL, total_sz, fd_scratch_free() )); \
+      }                                                                \
+      void * mem = fd_scratch_alloc( align, total_sz );                \
+      out = fd_##type##_decode( mem, &ctx );                           \
+      if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                \
+    }                                                                  \
+    if( perr_ ) *perr_ = err;                                          \
+    out;                                                               \
+  })
+
+#define fd_bincode_decode_scratch( type, buf, buf_sz, perr ) \
+  fd_bincode_decode1_scratch( type, buf, buf_sz, perr, NULL )
+
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
