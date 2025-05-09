@@ -153,6 +153,7 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
     if( sz <= last_copy_sz ) {
       copy = last_copy;
     } else {
+      if( last_copy ) fd_valloc_free( valloc, last_copy );
       copy = last_copy = fd_valloc_malloc( valloc, 1, sz );
       last_copy_sz = sz;
     }
