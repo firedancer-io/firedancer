@@ -251,7 +251,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_UNLIKELY( !strcmp( link->name, "gossip_dedup" ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "voter_dedup" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "sender_spray" ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_VOTER;
     } else if( FD_UNLIKELY( !strcmp( link->name, "verify_dedup" ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_VERIFY;

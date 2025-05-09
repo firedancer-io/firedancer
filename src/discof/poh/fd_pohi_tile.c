@@ -209,7 +209,7 @@ fd_pohi_after_credit( fd_poh_ctx_t *      ctx,
     *charge_busy = 1;
   }
 
-  fd_fseq_update( ctx->current_slot, ctx->poh_tile_ctx->slot );
+  fd_fseq_update( ctx->current_slot, ctx->poh_tile_ctx->slot ); /* update seq num */
 }
 
 static inline void
@@ -435,7 +435,7 @@ fd_pohi_unprivileged_init( fd_topo_t *      topo,
 }
 
 /* One tick, one microblock, and one leader update. */
-#define STEM_BURST (3UL)
+#define STEM_BURST (4UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

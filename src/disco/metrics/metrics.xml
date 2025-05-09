@@ -210,6 +210,20 @@ metric introduced.
     <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
+<tile name="sender">
+    <counter name="TxnsSigned" summary="Total count of transactions signed" />
+    <counter name="TxnsSentToLeader" summary="Total count of transactions sent to leader" />
+    <counter name="TxnsSprayed" summary="Total count of transactions sprayed to gossip and dedup" />
+    <counter name="TxnsRcvd" summary="Total count of transactions received from replay" />
+    <counter name="ContactUpdates" summary="Total count of contact info updates" />
+    <counter name="ContactUpdateIndivCnt" summary="Total count of individual processed contacts (with duplication)" />
+    <counter name="StakeUpdateInit" summary="Total count of stake updates started" />
+    <counter name="StakeUpdateFini" summary="Total count of stake updates finished" />
+    <counter name="LeaderSchedNotFound" summary="Total count of times leader schedule not found" />
+    <counter name="LeaderNotFound" summary="Total count of times leader not found for given slot" />
+    <counter name="LeaderContactNotFound" summary="Total count of times leader contact info not found" />
+</tile>
+
 <tile name="bundle">
     <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
     <counter name="PacketReceived" summary="Total count of packets received" />

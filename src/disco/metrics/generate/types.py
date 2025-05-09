@@ -25,7 +25,8 @@ class Tile(Enum):
     GOSSIP = 19
     NETLNK = 20
     SOCK = 21,
-    REPAIR = 22
+    REPAIR = 22,
+    SENDER = 23
 
 class MetricType(Enum):
     COUNTER = 0
