@@ -181,17 +181,18 @@ echo "
  [paths]
      identity_key = \"$DUMP_DIR/identity.json\"
      vote_account = \"$DUMP_DIR/vote.json\"
-" > $DUMP_DIR/rocksdb.toml
+" > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [ ! -f $DUMP_DIR/identity.json ]; then
-$OBJDIR/bin/firedancer-dev keys new identity --config $DUMP_DIR/rocksdb.toml
+$OBJDIR/bin/firedancer-dev keys new identity --config ${DUMP_DIR}/${LEDGER}_backtest.toml
 fi
 if [ ! -f $DUMP_DIR/vote.json ]; then
-$OBJDIR/bin/firedancer-dev keys new vote --config $DUMP_DIR/rocksdb.toml
+$OBJDIR/bin/firedancer-dev keys new vote --config ${DUMP_DIR}/${LEDGER}_backtest.toml
 fi
 
-# run the `backtest` command
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP_DIR/rocksdb.toml
+echo "Running backtest for $LEDGER"
+set -x
+  $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
 
 { set +x; } &> /dev/null
 echo_notice "Finished on-demand ingest and replay\n"
@@ -200,8 +201,8 @@ echo "Log for ledger $LEDGER at $LOG"
 
 if grep -q "Rocksdb playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
 then
-  echo "rocksdb test passes"
-#   rm $LOG
+  :
+  #   rm $LOG
 else
   if [ -n "$TRASH_HASH" ]; then
     echo "inverted test passed"
@@ -210,6 +211,6 @@ else
   fi
 
   tail -40 $LOG
-  echo_error "ledger test failed: $*"
+  echo_error "backtest test failed: $*"
   echo $LOG
 fi

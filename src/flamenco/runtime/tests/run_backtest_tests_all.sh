@@ -80,4 +80,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-330219081 -s snapsh
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-372721907 -s snapshot-372721906-FtUjok2JfLPwJCRVcioV12M8FWbbJaC91XEJzm4eZy53.tar.zst -p 60 -y 16 -m 2000000 -e 372721910 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-331691646 -s snapshot-331691639-3NmZ4rd7nHfn6tuS4E5gUfAwWMoBAQ6K1yntNkyhPbrb.tar.zst -p 60 -y 20 -m 2000000 -e 331691650  -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-378683870 -s snapshot-378683869-7iuK12gAgSaB97WbmiTb4QPVbnqfFWCtq9F6CvfSgBj5.tar.zst -p 60 -y 16 -m 5000000 -e 378683872 -c 2.1.14
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l slashing-ledger -s snapshot-1-3pPnJsADcbDoFaCJr8Fcvb6UHf2jDUdAtbJ3G2JtevDK.tar.zst -p 80 -y 16 -m 5000000 -e 75 -c 2.3.0
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l slashing-ledger -s snapshot-1-3pPnJsADcbDoFaCJr8Fcvb6UHf2jDUdAtbJ3G2JtevDK.tar.zst -p 60 -y 16 -m 5000000 -e 44 -c 2.3.0
