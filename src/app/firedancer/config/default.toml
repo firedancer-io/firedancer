@@ -67,10 +67,10 @@ user = ""
     #  +-- vote-account.json
     #  +-- genesis.bin
     #
-    # Two substitutions will be performed on this string.  If "{user}" is
-    # present it will be replaced with the user running Firedancer, as
-    # above, and "{name}" will be replaced with the name of the Firedancer
-    # instance.
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
     base = "/home/{user}/.firedancer/{name}"
 
     # Absolute directory path to place the ledger.  If no ledger path is
@@ -774,21 +774,22 @@ user = ""
     # Firedancer.  Possible values for the option are:
     #
     #  "xdp" (default)
-    #   Use Linux express data path APIs for high performance networking.
-    #   These APIs map memory from the network device directly into
-    #   Firedancer to bypass parts of the kernel when reading and writing
-    #   data.
+    #   Use Linux express data path APIs for high performance
+    #   networking. These APIs map memory from the network device
+    #   directly into Firedancer to bypass parts of the kernel when
+    #   reading and writing data.
     #
     #  "socket"
     #   Use UDP sockets and system calls like `send(2)` for networking.
-    #   Sockets are slower and socket support is provided on a best-effort
-    #   basis.  The socket option is provided as a fallback for hosts which
-    #   do not support XDP, and to support experimental features that are
-    #   not yet implemented in the XDP stack.  Currently, DoubleZero is only
-    #   supported by the socket provider.
+    #   Sockets are slower and socket support is provided on a
+    #   best-effort basis.  The socket option is provided as a fallback
+    #   for hosts which do not support XDP, and to support experimental
+    #   features that are not yet implemented in the XDP stack.
+    #   Currently, DoubleZero is only supported by the socket provider.
     #
-    # Using the XDP networking stack is strongly preferred where possible,
-    # as it is faster and better tested by the development team.
+    # Using the XDP networking stack is strongly preferred where
+    # possible, as it is faster and better tested by the development
+    # team.
     provider = "xdp"
 
     # Which interface to bind to for network traffic.  Currently,
@@ -868,10 +869,10 @@ user = ""
         xdp_rx_queue_size = 32768
         xdp_tx_queue_size = 32768
 
-        # When the oldest packet in a batch has been queued for more than
-        # the specified duration, flushes the batch out to the network
-        # device.  Smaller values improve latency, larger values may
-        # improve throughput.
+        # When the oldest packet in a batch has been queued for more
+        # than the specified duration, flushes the batch out to the
+        # network device.  Smaller values improve latency, larger values
+        # may improve throughput.
         flush_timeout_micros = 20
 
     [net.socket]
@@ -888,17 +889,17 @@ user = ""
 # which CPU core to create a functioning system, below is the individual
 # settings that can change behavior of the tiles.
 [tiles]
-    # The netlink tile forwards Linux network configuration to net tiles.
-    # This config section contains advanced options that typically do not
-    # need to be changed.
-    # For further info, see https://docs.firedancer.io/guide/netlink.html
+    # The netlink tile forwards Linux network configuration to net
+    # tiles.  This config section contains advanced options that
+    # typically do not need to be changed.  For further info, see
+    # https://docs.firedancer.io/guide/netlink.html
     [tiles.netlink]
         # The maximum number of routes per route table.
         #
         # The netlink tile imports two route tables from Linux, namely
-        # `local` and `main`.  You can view them by running
-        # `ip route show table main`.  Decreasing this option can result
-        # in connectivity issues.  Increasing this option can drastically
+        # `local` and `main`.  You can view them by running `ip route
+        # show table main`.  Decreasing this option can result in
+        # connectivity issues.  Increasing this option can drastically
         # decrease performance.
         #
         # For virtually all cloud and bare-metal server providers, the
@@ -914,10 +915,20 @@ user = ""
 
         # The maximum number of Ethernet neighbors.
         #
-        # This should be roughly as large as the size your Ethernet subnet.
-        # E.g. if your IP address is 198.51.100.3/24, then your subnet has
-        # up to 256 neighbors (2^(32-24)).
+        # This should be roughly as large as the size your Ethernet
+        # subnet.  E.g. if your IP address is 198.51.100.3/24, then your
+        # subnet has up to 256 neighbors (2^(32-24)).
         max_neighbors = 4096
+
+    [tiles.gossip]
+        # The maximum number of entries that can be stored in the gossip
+        # table before entries from low stake validators are evicted.
+        #
+        # The gossip protocol periodically expires old entries from the
+        # table, and this number should be set so that the table never
+        # gets full, and all entries expire before they would need to be
+        # evicted.
+        max_entries = 2_097_152
 
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
@@ -1243,6 +1254,72 @@ user = ""
         slot_max = 4096
 
     [tiles.replay]
+        # Where to obtain the full snapshot.
+        #
+        # If you have a full snapshot pre-downloaded somewhere,
+        # say by a script, you may specify the path to that file in
+        # "snapshot".
+        #
+        # FIXME These should not be in the "snapshot" config option. Two
+        # special values are recognized here.  One is "funk", and the
+        # other is "wksp:".  Setting either will cause Firedancer to
+        # pick up its state from Funk, rather than going through the
+        # full snapshot deserialization process.
+        #
+        # If you have an alternative URL for downloading a full
+        # snapshot, you may specify that in "snapshot_url".
+        #
+        # At most one of "snapshot" and "snapshot_url" may be
+        # specified at once.
+        #
+        # Only the HTTP protocol is supported at the moment for snapshot
+        # download.  So URLs in "snapshot_url" should be of the format
+        # "http://..."
+        snapshot = ""
+        snapshot_url = ""
+
+        # Where to obtain the incremental snapshot.
+        #
+        # If you have an incremental snapshot pre-downloaded somewhere,
+        # say by a script, you may specify the path to that file in
+        # "incremental".
+        #
+        # If you have an alternative URL for downloading an incremental
+        # snapshot, you may specify that in "incremental_url".
+        #
+        # At most one of "incremental" and "incremental_url" may be
+        # specified at once.
+        #
+        # When a URL is specified, the validator will attempt to
+        # download the incremental snapshot as late as possible during
+        # boot, to attempt to obtain the most up to date incremental.
+        # There's a small chance that by the time the validator
+        # downloads the latest incremental snapshot, it no longer
+        # matches the full snapshot.  In such cases, the validator will
+        # terminate boot so the full snapshot may be re-downloaded.
+        #
+        # Only the HTTP protocol is supported at the moment for snapshot
+        # download.  So URLs in "incremental_url" should be of the format
+        # "http://..."
+        incremental = ""
+        incremental_url = ""
+
+        # Absolute path to the directory to store downloaded snapshots.
+        #
+        # If not specified, the validator will download snapshots into
+        # memory buffers.  When the validator shuts down, there will be
+        # no snapshot files on disk.
+        #
+        # If specified, the validator will download snapshots into the
+        # specified directory.  Moreover, on subsequent validator
+        # restarts, the validator will check for snapshot files in the
+        # specified directory first, before attempting to download over
+        # the network.
+        #
+        # Therefore, it is recommended to specify this if large full
+        # snapshots and frequent validator restarts are expected.
+        snapshot_dir = ""
+
         cluster_version =  "1.18.0"
 
         # Maximum number of exec slices that can be buffered in the deque.
@@ -1453,12 +1530,12 @@ user = ""
         # one that is used by the bootstrap validator.
         vote_account_stake_lamports = 500000000
 
-        # Setting warmup epochs to true will allow shorter epochs towards
-        # the beginning of the cluster.  This allows for faster stake
-        # activation.  The first epoch will be 32 slots long and the
-        # duration of each subsequent epoch will be double that of the
-        # one before it until it reaches the desired epoch duration of the
-        # cluster.
+        # Setting warmup epochs to true will allow shorter epochs
+        # towards the beginning of the cluster.  This allows for faster
+        # stake activation.  The first epoch will be 32 slots long and
+        # the duration of each subsequent epoch will be double that of
+        # the one before it until it reaches the desired epoch duration
+        # of the cluster.
         warmup_epochs = false
 
     [development.bench]
@@ -1552,20 +1629,21 @@ user = ""
         # This setting overrides [layout.affinity] above.
         affinity = "auto"
 
-        # fake_dst_ip should be set to the IP address of a neighbor on the
-        # Ethernet network.  (For example the router the system is directly
-        # connected to.)
+        # fake_dst_ip should be set to the IP address of a neighbor on
+        # the Ethernet network.  (For example the router the system is
+        # directly connected to.)
         #
-        # The net tile queries the route and neighbor tables as part of the
-        # benchmark.  In short, these resolve the dst MAC address of the
-        # outgoing Ethernet packets.  Since pktgen does not produce IPv4
-        # packets, no traffic actually gets sent to this IP.
+        # The net tile queries the route and neighbor tables as part of
+        # the benchmark.  In short, these resolve the dst MAC address of
+        # the outgoing Ethernet packets.  Since pktgen does not produce
+        # IPv4 packets, no traffic actually gets sent to this IP.
         #
         # The IP address should fulfill these requirements:
         # - 'ip route get <IP>' resolves to the XDP interface
         #   (see [net.interface])
         # - 'ip neigh get <NEXTHOP> dev <INTERFACE>' returns REACHABLE
-        # If these requirements are not met, no packets will be sent out.
+        # If these requirements are not met, no packets will be sent
+        # out.
         fake_dst_ip = ""  # e.g. "192.0.2.64"
 
     # The following options relate to the 'fddev udpecho' tool only.

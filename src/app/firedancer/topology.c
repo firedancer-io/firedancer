@@ -168,13 +168,11 @@ resolve_gossip_entrypoint( char const *    host_port,
 static void
 resolve_gossip_entrypoints( config_t * config ) {
   ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
-  ulong resolved_entrypoints = 0UL;
-  for( ulong j=0UL; j<entrypoint_cnt; j++ ) {
-    if( resolve_gossip_entrypoint( config->gossip.entrypoints[j], &config->gossip.resolved_entrypoints[resolved_entrypoints] ) ) {
-      resolved_entrypoints++;
+  for( ulong i=0UL; i<entrypoint_cnt; i++ ) {
+    if( FD_UNLIKELY( resolve_gossip_entrypoint( config->gossip.entrypoints[ i ], &config->gossip.resolved_entrypoints[ i ] ) ) ) {
+      FD_LOG_ERR(( "failed to resolve address of [gossip.entrypoints] entry \"%s\"", config->gossip.entrypoints[ i ] ));
     }
   }
-  config->gossip.resolved_entrypoints_cnt = resolved_entrypoints;
 }
 
 static void
@@ -876,16 +874,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         tile->gossip.ip_addr = config->net.ip_addr;
       }
       strncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
-      tile->gossip.gossip_listen_port =  config->gossip.port;
-      tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
-      if( FD_UNLIKELY( tile->gossip.tvu_port>(ushort)(USHORT_MAX-6) ) )
-        FD_LOG_ERR(( "shred_listen_port in the config must not be greater than %hu", (ushort)(USHORT_MAX-6) ));
       tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
-      tile->gossip.tpu_port             = config->tiles.quic.regular_transaction_listen_port;
-      tile->gossip.tpu_quic_port        = config->tiles.quic.quic_transaction_listen_port;
-      tile->gossip.tpu_vote_port        = config->tiles.quic.regular_transaction_listen_port; /* TODO: support separate port for tpu vote */
-      tile->gossip.repair_serve_port    = config->tiles.repair.repair_serve_listen_port;
-      tile->gossip.entrypoints_cnt      = fd_ulong_min( config->gossip.resolved_entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
+
+      tile->gossip.ip_addr = config->net.ip_addr;
+
+      tile->gossip.ports.gossip           = config->gossip.port;
+      tile->gossip.ports.tvu              = config->tiles.shred.shred_listen_port;
+      tile->gossip.ports.tpu              = config->tiles.quic.regular_transaction_listen_port;
+      tile->gossip.ports.vote             = config->tiles.quic.regular_transaction_listen_port;
+      tile->gossip.ports.tpu_quic         = config->tiles.quic.quic_transaction_listen_port;
+      tile->gossip.ports.repair           = config->tiles.repair.repair_intake_listen_port;
+
+      tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
       fd_memcpy( tile->gossip.entrypoints, config->gossip.resolved_entrypoints, tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {

@@ -140,8 +140,8 @@ struct fd_repair_tile_ctx {
 
   ulong repair_seed;
 
-  fd_repair_peer_addr_t repair_intake_addr;
-  fd_repair_peer_addr_t repair_serve_addr;
+  fd_ip4_port_t repair_intake_addr;
+  fd_ip4_port_t repair_serve_addr;
 
   ushort                repair_intake_listen_port;
   ushort                repair_serve_listen_port;
@@ -332,7 +332,7 @@ ulong
 fd_repair_handle_ping( fd_repair_tile_ctx_t *        repair_tile_ctx,
                        fd_repair_t *                 glob,
                        fd_gossip_ping_t const *      ping,
-                       fd_gossip_peer_addr_t const * peer_addr FD_PARAM_UNUSED,
+                       fd_ip4_port_t const *         peer_addr FD_PARAM_UNUSED,
                        uint                          self_ip4_addr FD_PARAM_UNUSED,
                        uchar *                       msg_buf,
                        ulong                         msg_buf_sz ) {
@@ -363,13 +363,13 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *        repair_tile_ctx,
 
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
 static int
-fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
-                            fd_stem_context_t *           stem,
-                            fd_repair_t *                 glob,
-                            uchar const *                 msg,
-                            ulong                         msglen,
-                            fd_repair_peer_addr_t const * src_addr,
-                            uint                          dst_ip4_addr ) {
+fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *repair_tile_ctx,
+                            fd_stem_context_t *   stem,
+                            fd_repair_t *         glob,
+                            uchar const *         msg,
+                            ulong                 msglen,
+                            fd_ip4_port_t const * src_addr,
+                            uint                  dst_ip4_addr ) {
   glob->metrics.recv_clnt_pkt++;
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -418,7 +418,7 @@ fd_repair_recv_clnt_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
 static ulong
 fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
                          fd_repair_protocol_t *  protocol,
-                         fd_gossip_peer_addr_t * addr FD_PARAM_UNUSED,
+                         fd_ip4_port_t *         addr FD_PARAM_UNUSED,
                          uchar                 * buf,
                          ulong                   buflen,
                          int                     is_async,
@@ -593,7 +593,7 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
      consider an eviction policy. */
   for( ulong i=0UL; i<dest_cnt; i++ ) {
    if( FD_UNLIKELY( ctx->repair->peer_cnt >= FD_ACTIVE_KEY_MAX ) ) break;// FIXME: aiming to move all peer tracking out of lib into tile, leaving like this for now
-    fd_repair_peer_addr_t repair_peer = {
+    fd_ip4_port_t repair_peer = {
       .addr = in_dests[i].ip4_addr,
       .port = fd_ushort_bswap( in_dests[i].udp_port ),
     };
@@ -949,7 +949,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   ulong data_sz = udp_sz-sizeof(fd_udp_hdr_t);
   if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
 
-  fd_gossip_peer_addr_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
+  fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
   ushort dport = udp->net_dport;
   if( ctx->repair_intake_addr.port == dport ) {
     fd_repair_recv_clnt_packet( ctx, stem, ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
