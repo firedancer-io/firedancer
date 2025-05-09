@@ -6693,6 +6693,7 @@ void fd_compact_vote_state_update_new(fd_compact_vote_state_update_t * self) {
 void fd_compact_vote_state_update_walk( void * w, fd_compact_vote_state_update_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_compact_vote_state_update", level++ );
   fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->lockouts_len, "lockouts_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   if( self->lockouts_len ) {
     fun( w, NULL, "lockouts", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->lockouts_len; i++ )
@@ -8123,6 +8124,7 @@ void fd_stake_config_new(fd_stake_config_t * self) {
 }
 void fd_stake_config_walk( void * w, fd_stake_config_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_config", level++ );
+  fun( w, &self->config_keys_len, "config_keys_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   if( self->config_keys_len ) {
     fun( w, NULL, "config_keys", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->config_keys_len; i++ )
@@ -14627,6 +14629,7 @@ void fd_config_keys_new(fd_config_keys_t * self) {
 }
 void fd_config_keys_walk( void * w, fd_config_keys_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_config_keys", level++ );
+  fun( w, &self->keys_len, "keys_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   if( self->keys_len ) {
     fun( w, NULL, "keys", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->keys_len; i++ )
@@ -18982,18 +18985,21 @@ void fd_gossip_contact_info_v2_walk( void * w, fd_gossip_contact_info_v2_t const
   fun( w, &self->outset, "outset", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->shred_version, "shred_version", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   fd_gossip_version_v3_walk( w, &self->version, fun, "version", level );
+  fun( w, &self->addrs_len, "addrs_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   if( self->addrs_len ) {
     fun( w, NULL, "addrs", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->addrs_len; i++ )
       fd_gossip_ip_addr_walk(w, self->addrs + i, fun, "gossip_ip_addr", level );
     fun( w, NULL, "addrs", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
+  fun( w, &self->sockets_len, "sockets_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   if( self->sockets_len ) {
     fun( w, NULL, "sockets", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->sockets_len; i++ )
       fd_gossip_socket_entry_walk(w, self->sockets + i, fun, "gossip_socket_entry", level );
     fun( w, NULL, "sockets", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
+  fun( w, &self->extensions_len, "extensions_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );
   if( self->extensions_len ) {
     fun( w, NULL, "extensions", FD_FLAMENCO_TYPE_ARR, "array", level++ );
     for( ulong i=0; i < self->extensions_len; i++ )
