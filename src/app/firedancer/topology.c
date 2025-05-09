@@ -838,6 +838,7 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
       tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
+      tile->replay.max_vote_accounts = config->firedancer.runtime.limits.max_vote_accounts;
 
       /* specified by [tiles.replay] */
 

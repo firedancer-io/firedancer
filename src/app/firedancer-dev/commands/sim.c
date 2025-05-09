@@ -148,6 +148,7 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", replay_cpu_idx, 0, 0 );
   replay_tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
+  replay_tile->replay.max_vote_accounts = config->firedancer.runtime.limits.max_vote_accounts;
 
   /* specified by [tiles.replay] */
   strncpy( replay_tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(replay_tile->replay.blockstore_file) );

@@ -70,8 +70,6 @@
 #define EXEC_TXN_BUSY   (5UL)
 #define EXEC_TXN_READY  (6UL)
 
-#define VOTE_ACC_MAX   (2000000UL)
-
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
 struct fd_replay_out_ctx {
@@ -3016,7 +3014,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * epoch_ctx_mem = fd_spad_alloc( ctx->runtime_spad,
                                         fd_exec_epoch_ctx_align(),
-                                        MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
+                                        MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( tile->replay.max_vote_accounts ) );
 
 
   fd_epoch_forks_new( ctx->epoch_forks, epoch_ctx_mem );
@@ -3027,7 +3025,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
-  ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
+  ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, tile->replay.max_vote_accounts ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {
     FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
