@@ -26,6 +26,14 @@ union fd_stream_frag_meta {
 
 typedef union fd_stream_frag_meta fd_stream_frag_meta_t;
 
+struct fd_stream_frag_meta_ctx {
+  uchar const * in_buf;
+  ulong         goff_translate;
+  ulong         loff_translate;
+  ulong         in_skip;
+};
+typedef struct fd_stream_frag_meta_ctx fd_stream_frag_meta_ctx_t;
+
 FD_STATIC_ASSERT( alignof(fd_stream_frag_meta_t)==32, abi );
 FD_STATIC_ASSERT( sizeof (fd_stream_frag_meta_t)==32, abi );
 

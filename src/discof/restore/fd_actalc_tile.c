@@ -80,7 +80,7 @@ on_stream_frag( fd_actalc_tile_t *            ctx,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       read_sz ) {
   (void)ctx; (void)in; (void)frag; (void)read_sz;
-  FD_LOG_NOTICE(( "frag" ));
+  // FD_LOG_NOTICE(( "frag" ));
   return 1;
 }
 

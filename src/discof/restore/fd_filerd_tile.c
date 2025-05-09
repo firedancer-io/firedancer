@@ -99,7 +99,6 @@ after_credit( fd_filerd_tile_t *      ctx,
               ulong * restrict        cr_byte_avail,
               int * restrict          charge_busy_after ) {
   /* Assumes *cr_frag_avail>=2 */
-
   int fd = ctx->fd;
   if( FD_UNLIKELY( fd<0 ) ) return;
 
