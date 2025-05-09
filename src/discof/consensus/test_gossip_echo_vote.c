@@ -75,7 +75,7 @@
 // }
 
 // static int
-// to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src ) {
+// to_sockaddr( uchar * dst, fd_ip4_port_t const * src ) {
 //   fd_memset( dst, 0, sizeof( struct sockaddr_in ) );
 //   struct sockaddr_in * t = (struct sockaddr_in *)dst;
 //   t->sin_family          = AF_INET;
@@ -86,8 +86,8 @@
 
 // /* Convert my style of address from UNIX style */
 // static int
-// from_sockaddr( fd_gossip_peer_addr_t * dst, uchar const * src ) {
-//   FD_STATIC_ASSERT( sizeof( fd_gossip_peer_addr_t ) == sizeof( ulong ), "messed up size" );
+// from_sockaddr( fd_ip4_port_t * dst, uchar const * src ) {
+//   FD_STATIC_ASSERT( sizeof( fd_ip4_port_t ) == sizeof( ulong ), "messed up size" );
 //   dst->l                        = 0;
 //   const struct sockaddr_in * sa = (const struct sockaddr_in *)src;
 //   dst->addr                     = sa->sin_addr.s_addr;
@@ -96,7 +96,7 @@
 // }
 
 // static int
-// create_socket( fd_gossip_peer_addr_t * addr ) {
+// create_socket( fd_ip4_port_t * addr ) {
 //   int fd;
 //   if( ( fd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 ) {
 //     FD_LOG_ERR(( "socket failed: %s", strerror( errno ) ));
@@ -134,7 +134,7 @@
 // static void
 // gossip_send_fun( uchar const *                 data,
 //                  size_t                        sz,
-//                  fd_gossip_peer_addr_t const * gossip_peer_addr,
+//                  fd_ip4_port_t const *         gossip_peer_addr,
 //                  void *                        arg ) {
 //   uchar saddr[sizeof( struct sockaddr_in )];
 //   int   saddrlen           = to_sockaddr( saddr, gossip_peer_addr );
@@ -459,7 +459,7 @@
 //     }
 
 //     for( uint i = 0; i < (uint)gossip_rc; ++i ) {
-//       fd_gossip_peer_addr_t from;
+//       fd_ip4_port_t from;
 //       from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
 //       fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
 //     }
@@ -579,7 +579,7 @@
 //   FD_TEST( !fd_gossip_set_config( gossip, &gossip_config ) );
 
 //   uint entrypoints[16];
-//   fd_gossip_peer_addr_t _gossip_peer_addr;
+//   fd_ip4_port_t _gossip_peer_addr;
 //   resolve_hostport( gossip_peer_addr, &_gossip_peer_addr );
 //   entrypoints[0] = _gossip_peer_addr.addr;
 //   ushort port = fd_ushort_bswap(_gossip_peer_addr.port);

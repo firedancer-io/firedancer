@@ -48,18 +48,17 @@ gossip_topo( config_t * config ) {
   fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 0 );
 
   strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
-  gossip_tile->gossip.gossip_listen_port     = config->gossip.port;
-  gossip_tile->gossip.ip_addr                = config->net.ip_addr;
-  gossip_tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
-  gossip_tile->gossip.entrypoints_cnt = fd_ulong_min( config->gossip.resolved_entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
-  fd_memcpy( gossip_tile->gossip.entrypoints, config->gossip.resolved_entrypoints, gossip_tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
+  gossip_tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
+  for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
+    gossip_tile->gossip.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
+  }
 
-  if( FD_UNLIKELY( !gossip_tile->gossip.entrypoints_cnt ) ) {
-    FD_LOG_ERR(( "Missing [tiles.gossip.entrypoints]" ));
-  }
-  if( FD_UNLIKELY( !gossip_tile->gossip.expected_shred_version ) ) {
-    FD_LOG_ERR(( "Missing [consensus.expected_shred_version]" ));
-  }
+  gossip_tile->gossip.ip_addr                    = config->net.ip_addr;
+  gossip_tile->gossip.has_expected_shred_version = !!config->consensus.expected_shred_version;
+  gossip_tile->gossip.expected_shred_version     = config->consensus.expected_shred_version;
+
+  gossip_tile->gossip.max_entries                = config->tiles.gossip.max_entries;
+  gossip_tile->gossip.ports.gossip               = config->gossip.port;
 
   fd_topob_wksp( topo, "sign" );
   fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", 0UL, 0, 1 );
@@ -118,6 +117,13 @@ gossip_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
+
+  ulong gossip_tile_idx = fd_topo_find_tile( topo, "gossip", 0UL );
+  FD_TEST( gossip_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t * gossip_tile = &topo->tiles[ gossip_tile_idx ];
+
+  ulong * metrics = gossip_tile->metrics;
+  (void)metrics;
 
   for(;;) pause();
 }
