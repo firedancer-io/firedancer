@@ -47,7 +47,7 @@ struct fd_sender_tile_ctx {
 
   uchar txn_buf[ sizeof(fd_txn_p_t) ] __attribute__((aligned(alignof(fd_txn_p_t))));
 
-  fd_gossip_peer_addr_t tpu_serve_addr;
+  fd_ip4_port_t         tpu_serve_addr;
   fd_ip4_udp_hdrs_t     packet_hdr[1];
   ushort                net_id;
 

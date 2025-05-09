@@ -35,7 +35,6 @@
 /* Number of peers to send requests to. */
 #define FD_REPAIR_NUM_NEEDED_PEERS (4)
 
-typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 /* Test if two hash values are equal */
 FD_FN_PURE static inline int
 fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
@@ -60,22 +59,22 @@ fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
 
 /* Test if two addresses are equal */
 FD_FN_PURE static inline int
-fd_repair_peer_addr_eq( const fd_repair_peer_addr_t * key1, const fd_repair_peer_addr_t * key2 ) {
-  FD_STATIC_ASSERT(sizeof(fd_repair_peer_addr_t) == sizeof(ulong),"messed up size");
+fd_repair_peer_addr_eq( const fd_ip4_port_t * key1, const fd_ip4_port_t * key2 ) {
+  FD_STATIC_ASSERT(sizeof(fd_ip4_port_t) == sizeof(ulong),"messed up size");
   return key1->l == key2->l;
 }
 
 /* Hash an address */
 FD_FN_PURE static inline ulong
-fd_repair_peer_addr_hash( const fd_repair_peer_addr_t * key, ulong seed ) {
-  FD_STATIC_ASSERT(sizeof(fd_repair_peer_addr_t) == sizeof(ulong),"messed up size");
+fd_repair_peer_addr_hash( const fd_ip4_port_t * key, ulong seed ) {
+  FD_STATIC_ASSERT(sizeof(fd_ip4_port_t) == sizeof(ulong),"messed up size");
   return (key->l + seed + 7242237688154252699UL)*9540121337UL;
 }
 
 /* Efficiently copy an address */
 static inline void
-fd_repair_peer_addr_copy( fd_repair_peer_addr_t * keyd, const fd_repair_peer_addr_t * keys ) {
-  FD_STATIC_ASSERT(sizeof(fd_repair_peer_addr_t) == sizeof(ulong),"messed up size");
+fd_repair_peer_addr_copy( fd_ip4_port_t * keyd, const fd_ip4_port_t * keys ) {
+  FD_STATIC_ASSERT(sizeof(fd_ip4_port_t) == sizeof(ulong),"messed up size");
   keyd->l = keys->l;
 }
 
@@ -87,7 +86,7 @@ struct fd_active_elem {
     fd_pubkey_t key;  /* Public identifier and map key */
     ulong next; /* used internally by fd_map_giant */
 
-    fd_repair_peer_addr_t addr;
+    fd_ip4_port_t addr;
     ulong avg_reqs; /* Moving average of the number of requests */
     ulong avg_reps; /* Moving average of the number of requests */
     long  avg_lat;  /* Moving average of response latency */
@@ -181,7 +180,7 @@ typedef struct fd_needed_elem fd_needed_elem_t;
 #include "../../util/tmpl/fd_map_giant.c"
 
 struct fd_pinged_elem {
-  fd_repair_peer_addr_t key;
+  fd_ip4_port_t key;
   ulong next;
   fd_pubkey_t id;
   fd_hash_t token;
@@ -189,7 +188,7 @@ struct fd_pinged_elem {
 };
 typedef struct fd_pinged_elem fd_pinged_elem_t;
 #define MAP_NAME     fd_pinged_table
-#define MAP_KEY_T    fd_repair_peer_addr_t
+#define MAP_KEY_T    fd_ip4_port_t
 #define MAP_KEY_EQ   fd_repair_peer_addr_eq
 #define MAP_KEY_HASH fd_repair_peer_addr_hash
 #define MAP_KEY_COPY fd_repair_peer_addr_copy
@@ -220,8 +219,8 @@ struct fd_repair {
     fd_pubkey_t * public_key;
     uchar * private_key;
     /* My repair addresses */
-    fd_repair_peer_addr_t service_addr;
-    fd_repair_peer_addr_t intake_addr;
+    fd_ip4_port_t service_addr;
+    fd_ip4_port_t intake_addr;
     /* Function used to send raw packets on the network */
     void * fun_arg;
     /* Table of validators that we are actively pinging, keyed by repair address */
@@ -286,8 +285,8 @@ FD_FN_CONST ulong         fd_repair_footprint( void );
 struct fd_repair_config {
     fd_pubkey_t * public_key;
     uchar * private_key;
-    fd_repair_peer_addr_t service_addr;
-    fd_repair_peer_addr_t intake_addr;
+    fd_ip4_port_t service_addr;
+    fd_ip4_port_t intake_addr;
     int good_peer_cache_file_fd;
 };
 typedef struct fd_repair_config fd_repair_config_t;
@@ -296,10 +295,10 @@ typedef struct fd_repair_config fd_repair_config_t;
 int fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config );
 
 /* Update the binding addr */
-int fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * intake_addr, const fd_repair_peer_addr_t * service_addr );
+int fd_repair_update_addr( fd_repair_t * glob, const fd_ip4_port_t * intake_addr, const fd_ip4_port_t * service_addr );
 
 /* Add a peer to talk to */
-int fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id );
+int fd_repair_add_active_peer( fd_repair_t * glob, fd_ip4_port_t const * addr, fd_pubkey_t const * id );
 
 /* Set the current protocol time inf nanosecs. Call this as often as feasible. */
 void fd_repair_settime( fd_repair_t * glob, long ts );
