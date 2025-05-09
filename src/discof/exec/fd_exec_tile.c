@@ -670,8 +670,8 @@ unprivileged_init( fd_topo_t *      topo,
   /********************************************************************/
 
   fd_spad_push( ctx->exec_spad );
-  // FIXME: account for this in exec spad footprint
-  uchar * txn_ctx_mem   = fd_spad_alloc( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  // FIXME account for this in exec spad footprint
+  uchar * txn_ctx_mem   = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
   *ctx->txn_ctx->funk   = *ctx->funk;
 

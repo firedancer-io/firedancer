@@ -640,7 +640,9 @@ block_finalize_tiles_cb( void * para_arg_1,
   fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
   fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
-  ulong cnt_per_worker   = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL;
+  ulong cnt_per_worker;
+  if( ctx->exec_cnt>1 ) cnt_per_worker = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL; /* ??? */
+  else                  cnt_per_worker = task_data->info_sz;
   ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
 
   uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
@@ -1962,7 +1964,7 @@ read_snapshot( void *              _ctx,
     /* TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
-      uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+      uchar * tmp_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
 
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
@@ -2216,7 +2218,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                fd_stem_context_t *    stem ) {
   /* Init slot_ctx */
 
-  uchar * slot_ctx_mem        = fd_spad_alloc( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, ctx->runtime_spad ) );
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->blockstore   = ctx->blockstore;
@@ -3051,11 +3053,8 @@ unprivileged_init( fd_topo_t *      topo,
     if (status_cache_mem == NULL) {
       FD_LOG_ERR(( "failed to allocate status cache" ));
     }
-    ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                                           FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT,
-                                                           FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+    ctx->status_cache = fd_txncache_join( status_cache_mem );
     if (ctx->status_cache == NULL) {
-      fd_wksp_free_laddr( status_cache_mem );
       FD_LOG_ERR(( "failed to join + new status cache" ));
     }
   }
@@ -3104,7 +3103,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* joins                                                              */
   /**********************************************************************/
 
-  uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
+  uchar * bank_hash_cmp_shmem = fd_spad_alloc_check( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
   ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
 
@@ -3362,7 +3361,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->runtime_public!=NULL );
 
-  uchar * deque_mem = fd_spad_alloc( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
+  uchar * deque_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
   ctx->exec_slice_deque = fd_exec_slice_join( fd_exec_slice_new( deque_mem ) );
   if( FD_UNLIKELY( !ctx->exec_slice_deque ) ) {
     FD_LOG_ERR(( "failed to join and create exec slice deque" ));

@@ -108,6 +108,13 @@ struct fd_configf {
 
   struct {
     ulong heap_size_gib;
+
+    struct {
+      ulong max_rooted_slots;
+      ulong max_live_slots;
+      ulong max_transactions_per_slot;
+      ulong snapshot_grace_period_seconds;
+    } limits;
   } runtime;
 
   struct {

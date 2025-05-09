@@ -286,6 +286,12 @@ user = ""
     # default is chosen below.
     heap_size_gib = 50
 
+    [runtime.limits]
+        max_rooted_slots = 300
+        max_live_slots = 2048
+        max_transactions_per_slot = 65536
+        snapshot_grace_period_seconds = 409
+
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this
