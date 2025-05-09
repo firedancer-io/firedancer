@@ -107,6 +107,16 @@ struct fd_configf {
   } blockstore;
 
   struct {
+    ulong max_account_records;
+    ulong heap_size_gb;
+    ulong max_database_transactions;
+    struct {
+      int  enabled;
+      char path[ PATH_MAX ];
+    } filemap;
+  } funk;
+
+  struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
   } layout;
@@ -274,6 +284,10 @@ struct fd_config {
       char affinity[ AFFINITY_SZ ];
       char fake_dst_ip[ 16 ];
     } pktgen;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } snapshot_load;
   } development;
 
   struct {
