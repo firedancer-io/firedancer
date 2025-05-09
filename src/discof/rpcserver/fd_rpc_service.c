@@ -32,7 +32,7 @@
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 
-#define MAX_RECENT_BLOCKHASHES 300
+#define MAX_RECENT_BLOCKHASHES (1U<<16)
 
 static const uint PATH_COMMITMENT[4] = { ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_PARAMS,
                                          ( JSON_TOKEN_LBRACKET << 16 ) | 1,
@@ -102,10 +102,11 @@ struct fd_rpc_global_ctx {
   ulong last_subsc_id;
   fd_epoch_bank_t * epoch_bank;
   ulong epoch_bank_epoch;
-  fd_replay_notif_msg_t last_slot_notify;
+  ulong first_slot;
+  ulong last_slot;
+  fd_replay_notif_msg_t slot_info[MAX_RECENT_BLOCKHASHES];
   int tpu_socket;
   struct sockaddr_in tpu_addr;
-  fd_hash_t recent_blockhash[MAX_RECENT_BLOCKHASHES];
   fd_perf_sample_t * perf_samples;
   fd_perf_sample_t perf_sample_snapshot;
   long perf_sample_ts;
@@ -264,6 +265,12 @@ block_flags_to_confirmation_status( uchar flags ) {
   return "null";
 }
 
+static fd_replay_notif_msg_t * current_slot_info(fd_rpc_ctx_t * ctx) {
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  if( glob->last_slot == ULONG_MAX ) return NULL;
+  return &glob->slot_info[ glob->last_slot & (MAX_RECENT_BLOCKHASHES-1) ];
+}
+
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
 
@@ -313,12 +320,18 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
+    fd_replay_notif_msg_t * curr = current_slot_info( ctx );
+    if( curr == NULL ) {
+      fd_method_error(ctx, -1, "no slots known");
+      return 0;
+    }
+
     ulong val_sz;
     fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
-                           ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
+                           curr->slot_exec.slot, ctx->call_id);
       return 0;
     }
 
@@ -344,7 +357,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     long len = (len_ptr ? *(long *)len_ptr : FD_LONG_UNSET);
 
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
-                         ctx->global->last_slot_notify.slot_exec.slot);
+                         curr->slot_exec.slot );
     const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, off, len );
     if( err ) {
       fd_method_error(ctx, -1, "%s", err);
@@ -381,17 +394,22 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error(ctx, -1, "invalid base58 encoding");
       return 0;
     }
+    fd_replay_notif_msg_t * curr = current_slot_info( ctx );
+    if( curr == NULL ) {
+      fd_method_error(ctx, -1, "no slots known");
+      return 0;
+    }
     ulong val_sz;
     fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
-                         ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
+                           curr->slot_exec.slot, ctx->call_id);
       return 0;
     }
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
-                         ctx->global->last_slot_notify.slot_exec.slot, metadata->info.lamports, ctx->call_id);
+                         curr->slot_exec.slot, metadata->info.lamports, ctx->call_id);
   } FD_SCRATCH_SCOPE_END;
   return 0;
 }
@@ -424,12 +442,14 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_TRANSACTIONDETAILS,
     (JSON_TOKEN_STRING<<16)
   };
+  /*
   static const uint PATH_REWARDS[4] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
     (JSON_TOKEN_LBRACKET<<16) | 1,
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_REWARDS,
     (JSON_TOKEN_BOOL<<16)
   };
+  */
 
   fd_webserver_t * ws = &ctx->global->ws;
   ulong slot_sz = 0;
@@ -475,16 +495,23 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
     return 0;
   }
 
-  ulong rewards_sz = 0;
-  const void* rewards_flag = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  if( slotn < glob->first_slot || slotn > glob->last_slot ) {
+    fd_method_error(ctx, -1, "unable to find slot info");
+    return 0;
+  }
+  fd_replay_notif_msg_t * info = &glob->slot_info[ slotn & (MAX_RECENT_BLOCKHASHES-1) ];
+  fd_replay_notif_msg_t * parent_info = NULL;
+  if( !( info->slot_exec.parent < glob->first_slot || info->slot_exec.parent > glob->last_slot ) ) {
+    parent_info = &glob->slot_info[ info->slot_exec.parent & (MAX_RECENT_BLOCKHASHES-1) ];
+  }
 
-  ulong blk_sz;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  fd_block_info_t meta[1];
-  fd_block_rewards_t rewards[1];
-  fd_hash_t parent_hash;
-  uchar * blk_data;
-  if( fd_blockstore_block_data_query_volatile( blockstore, ctx->global->blockstore_fd, slotn, fd_scratch_virtual(), &parent_hash, meta, rewards, &blk_data, &blk_sz ) ) {
+
+  ulong blk_max = info->slot_exec.shred_cnt * FD_SHRED_MAX_SZ;
+  uchar * blk_data = fd_scratch_alloc( 1, blk_max );
+  ulong blk_sz;
+  if( fd_blockstore_slice_query( blockstore, slotn, 0, (uint)(info->slot_exec.shred_cnt-1), blk_max, blk_data, &blk_sz) ) {
     fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
   }
@@ -495,12 +522,12 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
                                       ctx->call_id,
                                       blk_data,
                                       blk_sz,
-                                      meta,
-                                      &parent_hash,
+                                      info,
+                                      parent_info,
                                       enc,
                                       (maxvers == NULL ? 0 : *(const long*)maxvers),
                                       det,
-                                      ((rewards_flag == NULL || *(const int*)rewards_flag) == 0 ? NULL : rewards));
+                                      NULL);
   if( err ) {
     fd_method_error(ctx, -1, "%s", err);
     return 0;
@@ -523,10 +550,10 @@ method_getBlockCommitment(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getBlockHeight(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
-  fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       glob->last_slot_notify.slot_exec.height, ctx->call_id);
+                       info->slot_exec.height, ctx->call_id);
   return 0;
 }
 
@@ -597,8 +624,9 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
     }
 
+    fd_replay_notif_msg_t * info = current_slot_info(ctx);
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"byIdentity\":{",
-                         ctx->global->last_slot_notify.slot_exec.slot);
+                         info->slot_exec.slot);
     int first=1;
     for ( product_rb_node_t* nd = product_rb_minimum(pool, root); nd; nd = product_rb_successor(pool, nd) ) {
       char str[50];
@@ -777,15 +805,19 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     ulong slot_index;
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
-    fd_block_info_t meta[1];
-    int ret = fd_blockstore_block_map_query_volatile(ctx->global->blockstore, ctx->global->blockstore_fd, slot, meta);
+    fd_rpc_global_ctx_t * glob = ctx->global;
+    if( slot < glob->first_slot || slot > glob->last_slot ) {
+      fd_method_error(ctx, -1, "unable to find slot info");
+      return 0;
+    }
+    fd_replay_notif_msg_t * info = &glob->slot_info[ slot & (MAX_RECENT_BLOCKHASHES-1) ];
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
-                         (!ret ? meta->block_height : 0UL),
+                         info->slot_exec.height,
                          epoch,
                          slot_index,
                          fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch ),
-                         ctx->global->last_slot_notify.slot_exec.transaction_count,
+                         info->slot_exec.transaction_count,
                          ctx->call_id);
   } FD_SCRATCH_SCOPE_END;
   return 0;
@@ -845,8 +877,9 @@ method_getFeeForMessage(struct json_values* values, fd_rpc_ctx_t * ctx) {
   // TODO: implement this
   (void)data;
   (void)data_sz;
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%s}" CRLF,
-                       ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
+                       info->slot_exec.slot, ctx->call_id);
   return 0;
 }
 
@@ -909,10 +942,10 @@ method_getHighestSnapshotSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getIdentity(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
-  fd_web_reply_encode_base58(ws, &glob->last_slot_notify.slot_exec.identity, sizeof(fd_pubkey_t));
+  fd_web_reply_encode_base58(ws, &info->slot_exec.identity, sizeof(fd_pubkey_t));
   fd_web_reply_sprintf(ws, "\"},\"id\":%s}" CRLF, ctx->call_id);
   return 0;
 }
@@ -977,13 +1010,13 @@ method_getLargestAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getLatestBlockhash(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
-  fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
-                       glob->last_slot_notify.slot_exec.slot);
-  fd_web_reply_encode_base58(ws, &glob->last_slot_notify.slot_exec.block_hash, sizeof(fd_hash_t));
+                       info->slot_exec.slot);
+  fd_web_reply_encode_base58(ws, &info->slot_exec.block_hash, sizeof(fd_hash_t));
   fd_web_reply_sprintf(ws, "\",\"lastValidBlockHeight\":%lu}},\"id\":%s}" CRLF,
-                       glob->last_slot_notify.slot_exec.height, ctx->call_id);
+                       info->slot_exec.height, ctx->call_id);
   return 0;
 }
 
@@ -1150,8 +1183,9 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
+    fd_replay_notif_msg_t * info = current_slot_info(ctx);
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
-                         ctx->global->last_slot_notify.slot_exec.slot);
+                         info->slot_exec.slot);
 
     // Iterate through account ids
     for ( ulong i = 0; ; ++i ) {
@@ -1323,8 +1357,9 @@ static int
 method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
-                       ctx->global->last_slot_notify.slot_exec.slot);
+                       info->slot_exec.slot);
 
   // Iterate through account ids
   for ( ulong i = 0; ; ++i ) {
@@ -1370,10 +1405,10 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
-  fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       glob->last_slot_notify.slot_exec.slot, ctx->call_id);
+                       info->slot_exec.slot, ctx->call_id);
   return 0;
 }
 
@@ -1481,8 +1516,9 @@ method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_webserver_t * ws = &ctx->global->ws;
+    fd_replay_notif_msg_t * info = current_slot_info(ctx);
     fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
-                          ctx->global->last_slot_notify.slot_exec.slot, slot_bank->capitalization, 0UL, slot_bank->capitalization, ctx->call_id);
+                          info->slot_exec.slot, slot_bank->capitalization, 0UL, slot_bank->capitalization, ctx->call_id);
   } FD_SCRATCH_SCOPE_END;
   return 0;
 }
@@ -1623,8 +1659,9 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
   void const * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), elem.meta_gaddr );
 
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
-                       ctx->global->last_slot_notify.slot_exec.slot, blk_ts/(long)1e9, elem.slot);
+                       info->slot_exec.slot, blk_ts/(long)1e9, elem.slot);
 
   /* Emit meta, including the case for `meta:null` */
   const char * err = fd_txn_meta_to_json( ws, meta, elem.meta_sz );
@@ -1788,14 +1825,15 @@ method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
 
   int res = 0;
-  for( ulong i = 0; i < MAX_RECENT_BLOCKHASHES; ++i ) {
-    if( fd_hash_eq( &glob->recent_blockhash[i], &h ) ) {
+  for( ulong i = glob->first_slot; i <= glob->last_slot; ++i ) {
+    if( fd_hash_eq( &glob->slot_info[i].slot_exec.block_hash, &h ) ) {
       res = 1;
       break;
     }
   }
+  fd_replay_notif_msg_t * info = current_slot_info(ctx);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%s},\"id\":%s}" CRLF,
-                       ctx->global->last_slot_notify.slot_exec.slot, (res ? "true" : "false"), ctx->call_id);
+                       info->slot_exec.slot, (res ? "true" : "false"), ctx->call_id);
 
   return 0;
 }
@@ -2288,15 +2326,16 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
   FD_SCRATCH_SCOPE_BEGIN {
     ulong val_sz;
     fd_funk_rec_key_t recid = fd_funk_acc_key(&sub->acct_subscribe.acct);
-    const void * val = read_account_with_xid(ctx, &recid, &msg->accts.funk_xid, &val_sz);
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = xid.ul[1] = msg->slot_exec.slot;
+    const void * val = read_account_with_xid(ctx, &recid, &xid, &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"subscription\":%lu}" CRLF,
-                           msg->accts.funk_xid.ul[0], sub->subsc_id);
-      return 1;
+      /* Account not in tranaction */
+      return 0;
     }
 
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
-                         msg->accts.funk_xid.ul[0]);
+                         msg->slot_exec.slot);
     const char * err = fd_account_to_json( ws, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len );
     if( err ) {
       FD_LOG_WARNING(( "error converting account to json: %s", err ));
@@ -2470,11 +2509,7 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
   gctx->funk = args->funk;
   memcpy( gctx->blockstore, args->blockstore, sizeof(fd_blockstore_t) );
   gctx->blockstore_fd = args->blockstore_fd;
-
-  fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
-  msg->type = FD_REPLAY_SLOT_TYPE;
-  msg->slot_exec.slot = args->blockstore->shmem->wmk;
-  msg->slot_exec.root = args->blockstore->shmem->wmk;
+  gctx->first_slot = gctx->last_slot = ULONG_MAX;
 }
 
 void
@@ -2513,27 +2548,6 @@ fd_webserver_ws_closed(ulong conn_id, void * cb_arg) {
     if( subs->sub_list[i].conn_id == conn_id ) {
       subs->sub_list[i] = subs->sub_list[--(subs->sub_cnt)];
       --i;
-    }
-  }
-}
-
-static void
-fd_rpc_acct_map_purge( fd_rpc_global_ctx_t * glob ) {
-  fd_rpc_acct_map_private_t * map = fd_rpc_acct_map_private( glob->acct_map );
-  fd_rpc_acct_map_elem_t * pool = glob->acct_pool;
-  ulong thresh = glob->acct_age - FD_RPC_ACCT_MAP_POOL_SIZE/3U;
-  ulong * chain = fd_rpc_acct_map_private_chain( map );
-  for( ulong i = 0; i < map->chain_cnt; ++i ) {
-    ulong * idx_ptr = &chain[i];
-    ulong idx;
-    while( !fd_rpc_acct_map_private_idx_is_null( idx = *idx_ptr ) ) {
-      fd_rpc_acct_map_elem_t * ele = pool + idx;
-      if( ele->age < thresh ) {
-        *idx_ptr = ele->next;
-        fd_rpc_acct_map_pool_ele_release( pool, ele );
-      } else {
-        idx_ptr = &ele->next;
-      }
     }
   }
 }
@@ -2581,9 +2595,14 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
       subs->perf_sample_ts = ts;
     }
 
-    subs->last_slot_notify = *msg;
-    subs->recent_blockhash[ msg->slot_exec.slot % MAX_RECENT_BLOCKHASHES ]
-      = msg->slot_exec.block_hash;
+    if( subs->first_slot == ULONG_MAX )
+      subs->first_slot = subs->last_slot = msg->slot_exec.slot;
+    else {
+      subs->last_slot = msg->slot_exec.slot;
+      if( subs->first_slot < subs->last_slot - MAX_RECENT_BLOCKHASHES )
+        subs->first_slot = subs->last_slot - MAX_RECENT_BLOCKHASHES; /* Truncate oldest entry */
+    }
+    subs->slot_info[msg->slot_exec.slot & (MAX_RECENT_BLOCKHASHES-1)] = *msg;
 
     for( ulong j = 0; j < subs->sub_cnt; ++j ) {
       struct fd_ws_subscription * sub = &subs->sub_list[ j ];
@@ -2591,32 +2610,9 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
         if( ws_method_slotSubscribe_update( ctx, msg, sub ) )
           fd_web_ws_send( &subs->ws, sub->conn_id );
       }
-    }
-
-  } else if( msg->type == FD_REPLAY_ACCTS_TYPE ) {
-    /* TODO: replace with a hash table lookup? */
-    for( uint i = 0; i < msg->accts.accts_cnt; ++i ) {
-      fd_pubkey_t id;
-      memcpy( &id, &msg->accts.accts[i].id, sizeof(id) );
-      if( FD_UNLIKELY( fd_rpc_acct_map_pool_free( subs->acct_pool ) == 0 ) ) {
-        fd_rpc_acct_map_purge( subs );
-      }
-      fd_rpc_acct_map_elem_t * ele = fd_rpc_acct_map_pool_ele_acquire( subs->acct_pool );
-      fd_memcpy( &ele->key, &id, sizeof( ele->key ) );
-      ele->slot = msg->accts.funk_xid.ul[0];
-      ele->age = subs->acct_age++;
-      fd_memcpy( ele->sig, msg->accts.sig, sizeof( ele->sig ) );
-      fd_rpc_acct_map_ele_insert( subs->acct_map, ele, subs->acct_pool );
-
-      if( ( msg->accts.accts[i].flags & FD_REPLAY_NOTIF_ACCT_WRITTEN ) ) {
-        for( ulong j = 0; j < subs->sub_cnt; ++j ) {
-          struct fd_ws_subscription * sub = &subs->sub_list[ j ];
-          if( sub->meth_id == KEYW_WS_METHOD_ACCOUNTSUBSCRIBE &&
-              !memcmp( &id, &sub->acct_subscribe.acct, sizeof(fd_pubkey_t) ) ) {
-            if( ws_method_accountSubscribe_update( ctx, msg, sub ) )
-              fd_web_ws_send( &subs->ws, sub->conn_id );
-          }
-        }
+      if( sub->meth_id == KEYW_WS_METHOD_ACCOUNTSUBSCRIBE ) {
+        if( ws_method_accountSubscribe_update( ctx, msg, sub ) )
+          fd_web_ws_send( &subs->ws, sub->conn_id );
       }
     }
   }
