@@ -86,9 +86,9 @@ fd_groove_join( void * shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_groove_t *          groove             = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_groove_t), sizeof(fd_groove_t) );
+  fd_groove_t *          groove             = FD_SCRATCH_ALLOC_APPEND( l, fd_groove_align(), sizeof(fd_groove_t) );
   void *                 meta_map_ele_shmem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_groove_meta_t), fd_ulong_sat_mul( meta_map_ele_max, sizeof(fd_groove_meta_t) ) );
-  void *                 meta_map           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_groove_meta_map_t), fd_groove_meta_map_footprint(
+  void *                 meta_map           = FD_SCRATCH_ALLOC_APPEND( l, fd_groove_meta_map_align(), fd_groove_meta_map_footprint(
         meta_map_ele_max,
         fd_groove_meta_map_lock_cnt_est( meta_map_ele_max ),
         fd_groove_meta_map_probe_max_est( meta_map_ele_max ) ) );
@@ -107,7 +107,7 @@ fd_groove_join( void * shmem,
     return NULL;
   }
 
-  /* Join the metadata map */
+  /* Join the metadata map */ /* meta_map is unaligned */
   if( FD_UNLIKELY( !fd_groove_meta_map_join( groove->meta_map, meta_map, meta_map_ele_shmem ) ) ) {
     FD_LOG_WARNING(( "fd_groove_meta_map_join failed" ));
     return NULL;

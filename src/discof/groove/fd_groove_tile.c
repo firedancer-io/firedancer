@@ -28,7 +28,8 @@
 #include "generated/fd_groove_tile_seccomp.h"
 
 /* FIXME: adjust these constants */
-#define FD_GROOVE_META_MAP_ELE_MAX (1UL << 10)
+#define FD_GROOVE_SPAD_ELE_MAX     (100 * 33554432UL) // ZSTD_WINDOW_SZ
+#define FD_GROOVE_META_MAP_ELE_MAX (2 << 20)
 #define FD_GROOVE_META_MAP_SEED    (0xDEADBEEF)
 #define FD_GROOVE_VOLUME_MAX       (6000UL)
 
@@ -42,7 +43,7 @@ struct fd_groove_tile_ctx {
   ulong * groove_replay_fseq;
 
   /* Local join of Funk.  R/W. */
-  fd_funk_t *         funk;
+  fd_funk_t           funk[1];
   fd_funk_txn_map_t * txn_map;
 
   /* Local join of Groove.  R/W. */
@@ -61,12 +62,15 @@ struct fd_groove_tile_ctx {
   /* Prefetch inputs */
   fd_pubkey_t       cur_pubkey;
   fd_funk_txn_xid_t cur_funk_txn_xid;
+
+  /* Spad memory for snapshot load */
+  fd_spad_t * spad;
 };
 typedef struct fd_groove_tile_ctx fd_groove_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 4096UL;
+  return fd_groove_align();
 }
 
 static ulong
@@ -99,6 +103,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_groove_tile_ctx_t), sizeof(fd_groove_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_groove_align(), fd_groove_footprint( FD_GROOVE_META_MAP_ELE_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_GROOVE_SPAD_ELE_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -134,7 +139,14 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_groove_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_groove_tile_ctx_t), sizeof(fd_groove_tile_ctx_t) );
   uchar * groove_shmem       = FD_SCRATCH_ALLOC_APPEND( l, fd_groove_align(), fd_groove_footprint( FD_GROOVE_META_MAP_ELE_MAX ) );
+  uchar * spad_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_GROOVE_SPAD_ELE_MAX ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+
+  /* Set up the spad */
+  ctx->spad = fd_spad_join( fd_spad_new( spad_mem, FD_GROOVE_SPAD_ELE_MAX ) );
+  if( FD_UNLIKELY( !ctx->spad ) ) {
+    FD_LOG_ERR(( "Failed to create spad" ));
+  }
 
   /* Set up the in-link */
   fd_topo_link_t * in_link = &topo->links[tile->in_link_id[0]];
@@ -146,6 +158,22 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_wmark = fd_dcache_compact_wmark( ctx->in_mem,
                                            in_link->dcache,
                                            in_link->mtu );
+
+  /* Join Funk */
+  fd_funk_txn_start_write( NULL );
+  FD_LOG_WARNING(( "Trying to join funk at file=%s", tile->groove.funk_file ));
+  fd_funk_open_file( ctx->funk,
+                                 tile->groove.funk_file,
+                                 1UL,
+                                 0UL,
+                                 0UL,
+                                 0UL,
+                                 0UL,
+                                 FD_FUNK_READ_WRITE,
+                                 NULL );
+  FD_LOG_WARNING(( "Just joined funk at file=%s", tile->groove.funk_file ));
+  fd_funk_txn_end_write( NULL );
+  ctx->txn_map = fd_funk_txn_map( ctx->funk );
 
   /* Memory map the first volume */
   ctx->volume_0_shmem = mmap( NULL, 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ, PROT_READ | PROT_WRITE, MAP_SHARED, ctx->volume_0_fd, 0 );
@@ -159,20 +187,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !initialized_groove ) ) {
     FD_LOG_ERR(("Failed to initialize groove"));
   }
-
-  /* Join Funk */
-  fd_funk_txn_start_write( NULL );
-  ctx->funk = fd_funk_open_file( ctx->funk,
-                                 tile->groove.funk_file,
-                                 1UL,
-                                 0UL,
-                                 0UL,
-                                 0UL,
-                                 0UL,
-                                 FD_FUNK_READ_WRITE,
-                                 NULL );
-  fd_funk_txn_end_write( NULL );
-  ctx->txn_map = fd_funk_txn_map( ctx->funk );
 
   /* Join Groove */
   ctx->groove = fd_groove_join(
@@ -204,6 +218,8 @@ uchar *
 fd_snapshot_new_account_groove_cb( void *   _ctx,
                                    ulong    accv_slot,
                                    fd_solana_account_hdr_t const * hdr ) {
+  FD_LOG_WARNING(( "inserting account into Groove" ));
+
   fd_snapshot_new_account_groove_cb_ctx_t * ctx = fd_type_pun( _ctx );
   fd_groove_t * groove                          = ctx->groove;
   fd_pubkey_t const * pubkey                    = fd_type_pun_const( hdr->meta.pubkey );
@@ -221,6 +237,8 @@ load_full_snapshot( fd_groove_tile_ctx_t * ctx,
                     char const *           snapshot_path,
                     char const *           snapshot_dir,
                     int                    snapshot_src_type ) {
+  FD_LOG_WARNING(( "loading full snapshot into Groove" ));
+
   uchar mem[fd_snapshot_load_ctx_footprint()];
   fd_snapshot_load_ctx_t * snapshot_load_ctx = fd_snapshot_load_new( mem,
                                                                      snapshot_path,
@@ -232,20 +250,33 @@ load_full_snapshot( fd_groove_tile_ctx_t * ctx,
 
   fd_snapshot_load_init( snapshot_load_ctx );
 
-  fd_spad_t * spad = fd_spad_new( NULL, 45 ); /* FIXME */
   ulong base_slot   = 0UL; /* FIXME */
+
+  fd_snapshot_new_account_groove_cb_ctx_t new_account_groove_cb_ctx = {
+    .groove = ctx->groove
+  };
+
+  FD_LOG_WARNING(( "loading manifest and status cache into Groove" ));
 
   fd_snapshot_load_manifest_and_status_cache(
     snapshot_load_ctx,
-    spad,
+    ctx->spad,
     NULL,
     base_slot,
-    FD_SNAPSHOT_RESTORE_NONE );
+    FD_SNAPSHOT_RESTORE_NONE,
+    &new_account_groove_cb_ctx,
+    fd_snapshot_new_account_groove_cb );
+
+  FD_LOG_WARNING(( "loading full snapshot accounts into Groove" ));
 
   fd_snapshot_load_accounts( snapshot_load_ctx );
 
+  FD_LOG_WARNING(( "loaded full snapshot accounts into Groove" ));
+
   /* Update the FSeq */
   fd_fseq_update( ctx->groove_replay_fseq, FD_MSG_GROOVE_REPLAY_FSEQ_LOAD_SNAPSHOT_DONE );
+
+  FD_LOG_WARNING(( "notified replay tile" ));
 }
 
 /* Determines if a Funk record is evictable */
@@ -440,9 +471,8 @@ during_frag( fd_groove_tile_ctx_t * ctx,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( in_idx != 0UL ) ) {
-    FD_LOG_ERR(( "invalid in_idx: %lu", in_idx ));
-  }
+
+  FD_LOG_WARNING(( "during_frag" ));
 
   if( FD_UNLIKELY( chunk < ctx->in_chunk0 || chunk > ctx->in_wmark ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
@@ -454,6 +484,8 @@ during_frag( fd_groove_tile_ctx_t * ctx,
 
   /* Load snapshot message */
   if( FD_UNLIKELY( sig==FD_GROOVE_TILE_LOAD_SNAPSHOT_SIGNATURE ) ) {
+    FD_LOG_WARNING(( "load snapshot message" ));
+
     if( FD_UNLIKELY( sz != sizeof(fd_msg_groove_replay_load_snapshot_req_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
     }
@@ -468,6 +500,8 @@ during_frag( fd_groove_tile_ctx_t * ctx,
 
   /* Prefetch account message */
   if( FD_LIKELY( sig==FD_GROOVE_TILE_PREFETCH_SIGNATURE ) ) {
+    FD_LOG_WARNING(( "prefetch account message" ));
+
     if( FD_UNLIKELY( sz != sizeof(fd_msg_groove_prefetch_account_req_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
     }

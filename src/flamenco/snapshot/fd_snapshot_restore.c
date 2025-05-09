@@ -67,7 +67,9 @@ fd_snapshot_restore_new( void *                                         mem,
                          void *                                         cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache,
-                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account ) {
+                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account,
+                         void *                                         cb_new_account_ctx,
+                         fd_snapshot_restore_cb_new_account_fn_t        cb_new_account ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -100,6 +102,9 @@ fd_snapshot_restore_new( void *                                         mem,
 
   self->cb_rent_fresh_account     = cb_rent_fresh_account;
   self->cb_rent_fresh_account_ctx = cb_manifest_ctx;
+
+  self->cb_new_account            = cb_new_account;
+  self->cb_new_account_ctx        = cb_new_account_ctx;
 
   void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
@@ -143,12 +148,6 @@ fd_snapshot_expect_account_hdr( fd_snapshot_restore_t * restore ) {
   restore->buf_sz   = sizeof(fd_solana_account_hdr_t);
   return 0;
 }
-
-struct fd_snapshot_new_account_funk_cb_ctx {
-  fd_funk_t * funk;
-  fd_funk_txn_t * funk_txn;
-};
-typedef struct fd_snapshot_new_account_funk_cb_ctx fd_snapshot_new_account_funk_cb_ctx_t;
 
 uchar *
 fd_snapshot_new_account_funk_cb( void *   _ctx,

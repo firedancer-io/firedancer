@@ -355,13 +355,21 @@ do_dump( fd_snapshot_dumper_t *    d,
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
 
+  fd_snapshot_new_account_funk_cb_ctx_t * new_account_funk_cb_ctx = fd_spad_alloc(
+    spad, alignof(fd_snapshot_new_account_funk_cb_ctx_t), sizeof(fd_snapshot_new_account_funk_cb_ctx_t) );
+  if( FD_UNLIKELY( !new_account_funk_cb_ctx ) ) FD_LOG_ERR(( "Failed to allocate new account funk callback context" ));
+  new_account_funk_cb_ctx->funk     = d->funk;
+  new_account_funk_cb_ctx->funk_txn = funk_txn;
+
   d->restore = fd_snapshot_restore_new(
     restore_mem,
     spad,
     d,
     fd_snapshot_dumper_on_manifest,
     NULL,
-    NULL );
+    NULL,
+    new_account_funk_cb_ctx,
+    fd_snapshot_new_account_funk_cb );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
   /* Set up the snapshot loader */

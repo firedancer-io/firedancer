@@ -79,11 +79,13 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
 
 /* restore_manifest_flags controls if the manifest and status cache objects are initialized or not. */
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
-                                            fd_spad_t *              spad,
-                                            void *                   cb_manifest_ctx,
-                                            ulong                    base_slot,
-                                            int                      restore_manifest_flags );
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t *                ctx,
+                                            fd_spad_t *                             spad,
+                                            void *                                  cb_manifest_ctx,
+                                            ulong                                   base_slot,
+                                            int                                     restore_manifest_flags,
+                                            void *                                  cb_new_account_ctx,
+                                            fd_snapshot_restore_cb_new_account_fn_t cb_new_account );
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx );

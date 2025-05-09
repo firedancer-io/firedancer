@@ -29,6 +29,7 @@
 #include "../../choreo/fd_choreo.h"
 #include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
+#include "../../flamenco/snapshot/fd_snapshot_restore.h"
 #include "../../disco/plugin/fd_plugin.h"
 //#include "fd_replay.h"
 
@@ -177,12 +178,8 @@ struct fd_replay_tile_ctx {
   ulong       replay_plugin_out_wmark;
   ulong       replay_plugin_out_chunk;
 
-  // Outputs to Groove
-  ulong            groove_out_idx;
-  fd_wksp_t *      groove_out_mem;
-  ulong            groove_out_chunk0;
-  ulong            groove_out_wmark;
-  ulong            groove_out_chunk;
+  // Output to Groove
+  fd_replay_out_ctx_t groove_out;
 
   ulong       votes_plug_out_idx;
   fd_wksp_t * votes_plugin_out_mem;
@@ -1645,13 +1642,13 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
 
 static void
 prefetch_pubkey( fd_replay_tile_ctx_t * ctx, fd_pubkey_t * pubkey, fd_funk_txn_t * funk_txn, fd_stem_context_t * stem ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->groove_out_mem, ctx->groove_out_chunk );
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->groove_out.mem, ctx->groove_out.chunk );
   fd_memcpy( dst, pubkey, sizeof(fd_pubkey_t) );
   fd_memcpy( dst + sizeof(fd_pubkey_t), &funk_txn->xid, sizeof(fd_funk_txn_xid_t) );
 
   ulong sz = sizeof(fd_pubkey_t) + sizeof(fd_funk_txn_xid_t);
-  fd_stem_publish( stem, ctx->groove_out_idx, 0UL, ctx->groove_out_chunk, sz, 0UL, 0UL, 0UL);
-  ctx->groove_out_chunk = fd_dcache_compact_next( ctx->groove_out_chunk, sz, ctx->groove_out_chunk0, ctx->groove_out_wmark );
+  fd_stem_publish( stem, ctx->groove_out.idx, 0UL, ctx->groove_out.chunk, sz, 0UL, 0UL, 0UL);
+  ctx->groove_out.chunk = fd_dcache_compact_next( ctx->groove_out.chunk, sz, ctx->groove_out.chunk0, ctx->groove_out.wmark );
 }
 
 static void
@@ -1985,6 +1982,10 @@ read_snapshot( void *              _ctx,
      We pull this out of the full snapshot to use when verifying the incremental snapshot. */
   ulong        base_slot = 0UL; /* FIXME: receive base slot from Groove */
 
+  fd_snapshot_new_account_funk_cb_ctx_t new_account_funk_cb_ctx;
+  new_account_funk_cb_ctx.funk     = ctx->funk;
+  new_account_funk_cb_ctx.funk_txn = ctx->slot_ctx->funk_txn;
+
   /* If we have an incremental snapshot try to prefetch the snapshot slot
      and manifest as soon as possible. In order to kick off repair effectively
      we need the snapshot slot and the stake weights. These are both available
@@ -1992,7 +1993,6 @@ read_snapshot( void *              _ctx,
      snapshot that is availble, then setup the blockstore and publish the
      stake weights. After this, repair will kick off concurrently with loading
      the rest of the snapshots. */
-
   /* TODO: Verify account hashes for all 3 snapshot loads. */
   /* TODO: If prefetching the manifest is enabled it leads to
      incorrect snapshot loads. This needs to be looked into. */
@@ -2010,76 +2010,77 @@ read_snapshot( void *              _ctx,
        so that we can use these to kick off repair. */
     fd_snapshot_load_prefetch_manifest( tmp_snap_ctx, ctx->slot_ctx, ctx->runtime_spad );
     kickoff_repair_orphans( ctx, stem );
-
-    fd_exec_epoch_ctx_bank_mem_clear( ctx->slot_ctx->epoch_ctx );
-    fd_snapshot_load_manifest_and_status_cache( tmp_snap_ctx, ctx->runtime_spad, NULL, ctx->slot_ctx->slot_bank.slot, FD_SNAPSHOT_RESTORE_NONE );
-  } else {
-    uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-
-    fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
-                                                                  snapshot,
-                                                                  ctx->snapshot_src_type,
-                                                                  snapshot_dir,
-                                                                  false,
-                                                                  false,
-                                                                  FD_SNAPSHOT_TYPE_FULL );
-
-    fd_exec_epoch_ctx_bank_mem_clear( ctx->slot_ctx->epoch_ctx );
-    fd_snapshot_load_manifest_and_status_cache( tmp_snap_ctx, ctx->runtime_spad, ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot, FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
-
-    kickoff_repair_orphans( ctx, stem );
   }
 
-    /************************************ LOAD FULL SNAPSHOT ****************************************/
+  uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+  fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
+                                                            snapshot,
+                                                            ctx->snapshot_src_type,
+                                                            snapshot_dir,
+                                                            false,
+                                                            false,
+                                                            FD_SNAPSHOT_TYPE_FULL );
 
-    /* Send a message to Groove instructing it to load the full snapshot */
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_msg_groove_replay_load_snapshot_req_t * req = (fd_msg_groove_replay_load_snapshot_req_t *)fd_chunk_to_laddr( ctx->groove_out_mem, ctx->groove_out_chunk );
-    fd_memcpy( req->snapshot_path, snapshot, PATH_MAX );
-    fd_memcpy( req->snapshot_dir, snapshot_dir, PATH_MAX );
-    req->snapshot_src_type = ctx->snapshot_src_type;
-    fd_stem_publish( stem, ctx->groove_out_idx, FD_GROOVE_TILE_LOAD_SNAPSHOT_SIGNATURE, ctx->groove_out_chunk, sizeof(fd_msg_groove_replay_load_snapshot_req_t), 0UL, 0UL, tspub );
-    ctx->groove_out_chunk = fd_dcache_compact_next(
-        ctx->groove_out_chunk, sizeof(fd_msg_groove_replay_load_snapshot_req_t), ctx->groove_out_chunk0, ctx->groove_out_wmark );
+  fd_snapshot_load_init( snap_ctx );
 
-    /* FIXME: Lattice hash needs to be verified */
+  /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize
+        the objects because we don't have these from the incremental snapshot. */
+  if( strlen( incremental )<=0UL ) {
+    fd_snapshot_load_manifest_and_status_cache( snap_ctx, ctx->runtime_spad, NULL, ctx->slot_ctx->slot_bank.slot,
+      FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE, &new_account_funk_cb_ctx, fd_snapshot_new_account_funk_cb );
 
-    /* This will cause load_full_snapshot inside Groove to be invoked */
+    kickoff_repair_orphans( ctx, stem );
+    /* If we don't have an incremental snapshot, we can still kick off
+        sending the stake weights and snapshot slot to repair. */
+  } else {
+    /* If we have an incremental snapshot, load the manifest and the status cache,
+        and don't initialize the objects because we did this above from the incremental snapshot. */
+    fd_snapshot_load_manifest_and_status_cache( snap_ctx, ctx->runtime_spad, NULL, ctx->slot_ctx->slot_bank.slot,
+      FD_SNAPSHOT_RESTORE_NONE, &new_account_funk_cb_ctx, fd_snapshot_new_account_funk_cb );
+  }
 
-    // uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-    // fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
-    //                                                           snapshot,
-    //                                                           ctx->snapshot_src_type,
-    //                                                           false,
-    //                                                           false,
-    //                                                           FD_SNAPSHOT_TYPE_FULL );
+  /************************************ LOAD FULL SNAPSHOT ACCOUNTS ****************************************/
 
-    // fd_snapshot_load_init( snap_ctx, ctx->slot_ctx->funk_txn );
+  FD_LOG_WARNING(( "sending message to Groove to load full snapshot" ));
 
-  // base_slot = fd_snapshot_get_slot( snap_ctx );
+  /* Send a message to Groove instructing it to load the full snapshot */
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_msg_groove_replay_load_snapshot_req_t * req = (fd_msg_groove_replay_load_snapshot_req_t *)fd_chunk_to_laddr(
+    ctx->groove_out.mem, ctx->groove_out.chunk );
+  fd_memcpy( req->snapshot_path, snapshot, PATH_MAX );
+  fd_memcpy( req->snapshot_dir, snapshot_dir, PATH_MAX );
+  req->snapshot_src_type = ctx->snapshot_src_type;
+  fd_stem_publish( stem,
+                   ctx->groove_out.idx,
+                   FD_GROOVE_TILE_LOAD_SNAPSHOT_SIGNATURE,
+                   ctx->groove_out.chunk,
+                   sizeof(fd_msg_groove_replay_load_snapshot_req_t),
+                   0UL,
+                   0UL,
+                   tspub );
+  ctx->groove_out.chunk = fd_dcache_compact_next(
+        ctx->groove_out.chunk,
+        sizeof(fd_msg_groove_replay_load_snapshot_req_t),
+        ctx->groove_out.chunk0,
+        ctx->groove_out.wmark );
 
-  // fd_snapshot_load_accounts( snap_ctx );
-
-  /* FIXME: receive message from Groove, to let replay know that snapshot has been loaded. Include snapshot hash and base slot. */
-
-  // fd_snapshot_load_fini( snap_ctx,
-  //                        0,
-  //                        0,
-  //                        &fd_snapshot_loader_get_name( snap_ctx->loader )->fhash,
-  //                        NULL,
-  //                        NULL,
-  //                        ctx->slot_ctx, ctx->runtime_spad, &exec_para_ctx_snap );
+  FD_LOG_WARNING(( "notified Groove to load full snapshot" ));
 
   /* Spin and wait for the fseq to be updated by Groove */
   for(;;) {
     ulong fseq = fd_fseq_query( ctx->published_wmark );
     if( FD_UNLIKELY( fseq == FD_MSG_GROOVE_REPLAY_FSEQ_LOAD_SNAPSHOT_DONE ) ) {
+      /* FIXME: include snapshot hash and base slot in message to Groove */
       break;
     }
     FD_SPIN_PAUSE();
   }
 
+  FD_LOG_WARNING(( "groove loading snapshot done" ));
+
   if( strlen( incremental ) > 0 ) {
+
+    FD_LOG_WARNING(( "loading incremental snapshot" ));
 
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
@@ -2094,6 +2095,8 @@ read_snapshot( void *              _ctx,
                           FD_SNAPSHOT_TYPE_INCREMENTAL,
                           ctx->runtime_spad );
   }
+
+  FD_LOG_WARNING(( "loading snapshot done" ));
 
   fd_runtime_update_leaders( ctx->slot_ctx,
                              ctx->slot_ctx->slot_bank.slot,
@@ -3346,13 +3349,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_out_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_out_mem, stake_weights_out->dcache, stake_weights_out->mtu );
   ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
 
-  /* Set up Groove tile output */
-  ulong groove_out_idx        = fd_topo_find_tile_out_link( topo, tile, "replay_grv", 0 );
-  fd_topo_link_t * groove_out = &topo->links[ tile->out_link_id[ groove_out_idx ] ];
-  ctx->groove_out_mem         = topo->workspaces[ topo->objs[ groove_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->groove_out_chunk0      = fd_dcache_compact_chunk0( ctx->groove_out_mem, groove_out->dcache );
-  ctx->groove_out_wmark       = fd_dcache_compact_wmark ( ctx->groove_out_mem, groove_out->dcache, groove_out->mtu );
-  ctx->groove_out_chunk       = ctx->groove_out_chunk0;
+  /* Set up Groove tile output link*/
+  ctx->groove_out.idx    = fd_topo_find_tile_out_link( topo, tile, "replay_grv", 0 );
+  fd_topo_link_t * groove_out_link = &topo->links[ tile->out_link_id[ ctx->groove_out.idx ] ];
+  ctx->groove_out.mem    = topo->workspaces[ topo->objs[ groove_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->groove_out.chunk0 = fd_dcache_compact_chunk0( ctx->groove_out.mem, groove_out_link->dcache );
+  ctx->groove_out.wmark  = fd_dcache_compact_wmark (
+    ctx->groove_out.mem,
+    groove_out_link->dcache,
+    groove_out_link->mtu );
+  ctx->groove_out.mcache = groove_out_link->mcache;
+  ctx->groove_out.chunk  = ctx->groove_out.chunk0;
+  ctx->groove_out.sync   = fd_mcache_seq_laddr( ctx->groove_out.mcache );
+  ctx->groove_out.depth  = fd_mcache_depth( ctx->groove_out.mcache );
+  ctx->groove_out.seq    = fd_mcache_seq_query( ctx->groove_out.sync );
 
   if( FD_LIKELY( tile->replay.plugins_enabled ) ) {
     ctx->replay_plug_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_plugi", 0 );

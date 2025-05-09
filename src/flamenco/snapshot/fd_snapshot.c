@@ -129,18 +129,20 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
       break;
   }
 
-  fd_snapshot_name_t const * name  = fd_snapshot_loader_get_name( ctx->loader );
-  if( name->type != ctx->snapshot_type ) {
-    FD_LOG_ERR(( "snapshot %s is wrong type", ctx->snapshot_src ));
-  }
+  // fd_snapshot_name_t const * name  = fd_snapshot_loader_get_name( ctx->loader );
+  // if( name->type != ctx->snapshot_type ) {
+  //   FD_LOG_ERR(( "snapshot %s is wrong type", ctx->snapshot_src ));
+  // }
 }
 
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
-                                            fd_spad_t *              spad,
-                                            void *                   cb_manifest_ctx,
-                                            ulong                    base_slot,
-                                            int                      restore_manifest_flags ) {
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t *                ctx,
+                                            fd_spad_t *                             spad,
+                                            void *                                  cb_manifest_ctx,
+                                            ulong                                   base_slot,
+                                            int                                     restore_manifest_flags,
+                                            void *                                  cb_new_account_ctx,
+                                            fd_snapshot_restore_cb_new_account_fn_t cb_new_account ) {
 
   size_t slen = strlen( ctx->snapshot_src );
   char * snapshot_cstr = fd_spad_alloc( spad, 8UL, slen + 1 );
@@ -160,7 +162,9 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                           cb_manifest_ctx,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL,
-                                          restore_rent_fresh_account );
+                                          restore_rent_fresh_account,
+                                          cb_new_account_ctx,
+                                          cb_new_account );
   if( FD_UNLIKELY( !ctx->restore ) ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_restore_new" ));
   }
@@ -380,13 +384,21 @@ fd_snapshot_load_all( const char *         source_cstr,
     slot_ctx->funk_txn = child_txn;
   }
 
+  fd_snapshot_new_account_funk_cb_ctx_t * new_account_funk_cb_ctx = fd_spad_alloc(
+    runtime_spad, alignof(fd_snapshot_new_account_funk_cb_ctx_t), sizeof(fd_snapshot_new_account_funk_cb_ctx_t) );
+  if( FD_UNLIKELY( !new_account_funk_cb_ctx ) ) FD_LOG_ERR(( "Failed to allocate new account funk callback context" ));
+  new_account_funk_cb_ctx->funk     = slot_ctx->funk;
+  new_account_funk_cb_ctx->funk_txn = slot_ctx->funk_txn;
+
   fd_runtime_update_slots_per_epoch( slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH );
   fd_exec_epoch_ctx_bank_mem_clear( slot_ctx->epoch_ctx );
   fd_snapshot_load_manifest_and_status_cache( ctx,
                                               runtime_spad,
                                               slot_ctx,
                                               base_slot_override ? *base_slot_override : slot_ctx->slot_bank.slot,
-                                              FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
+                                              FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST,
+                                              new_account_funk_cb_ctx,
+                                              fd_snapshot_new_account_funk_cb );
   fd_snapshot_load_accounts( ctx );
   fd_snapshot_load_fini( snapshot_type,
                          verify_hash,
@@ -418,13 +430,21 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx,
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_spad_alloc( spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
+  fd_snapshot_new_account_funk_cb_ctx_t * new_account_funk_cb_ctx = fd_spad_alloc(
+    spad, alignof(fd_snapshot_new_account_funk_cb_ctx_t), sizeof(fd_snapshot_new_account_funk_cb_ctx_t) );
+  if( FD_UNLIKELY( !new_account_funk_cb_ctx ) ) FD_LOG_ERR(( "Failed to allocate new account funk callback context" ));
+  new_account_funk_cb_ctx->funk     = slot_ctx->funk;
+  new_account_funk_cb_ctx->funk_txn = slot_ctx->funk_txn;
+
   ctx->restore = fd_snapshot_restore_new(
     restore_mem,
     spad,
     slot_ctx,
     restore_manifest,
     restore_status_cache,
-    restore_rent_fresh_account );
+    restore_rent_fresh_account,
+    new_account_funk_cb_ctx,
+    fd_snapshot_new_account_funk_cb );
   if( FD_UNLIKELY( !ctx->restore ) ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_restore_new" ));
   }
