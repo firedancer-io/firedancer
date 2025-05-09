@@ -576,8 +576,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Join stream input */
 
-  ctx->in_base = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->in_skip = 0UL;
+  uchar const * out_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) );
+  ctx->in_base             = out_dcache;
+  ctx->in_skip             = 0UL;
 
   /* Join frame buffer */
 
@@ -745,6 +746,7 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
     return 0;
   }
 
+  (void)in;
   uchar const * const chunk0 = ctx->in_base + frag->loff;
   uchar const * const chunk1 = chunk0 + frag->sz;
   uchar const * const start  = chunk0 + ctx->in_skip;
@@ -801,15 +803,15 @@ fd_snapin_in_update( fd_snapin_in_t * in ) {
   accum[3] = 0U;       accum[4] = 0U;       accum[5] = 0U;
 }
 
-__attribute__((noreturn)) static void
-fd_snapin_shutdown( void ) {
-  FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  /* FIXME set final sequence number */
-  FD_COMPILER_MFENCE();
-  FD_LOG_INFO(( "Finished parsing snapshot" ));
+// __attribute__((noreturn)) static void
+// fd_snapin_shutdown( void ) {
+//   FD_MGAUGE_SET( TILE, STATUS, 2UL );
+//   /* FIXME set final sequence number */
+//   FD_COMPILER_MFENCE();
+//   FD_LOG_INFO(( "Finished parsing snapshot" ));
 
-  for(;;) pause();
-}
+//   for(;;) pause();
+// }
 
 __attribute__((noinline)) static void
 fd_snapin_run1(
@@ -861,7 +863,7 @@ fd_snapin_run1(
   }
 
   FD_TEST( in_cnt==1 );
-  ulong const volatile * restrict shutdown_signal = fd_mcache_seq_laddr_const( in[0].mcache->f ) + 3;
+  // ulong const volatile * restrict shutdown_signal = fd_mcache_seq_laddr_const( in[0].mcache->f ) + 3;
 
   /* out frag stream init */
 
@@ -934,10 +936,11 @@ fd_snapin_run1(
         fd_snapin_in_update( &in[ in_idx ] );
 
         /* Input tile finished? */
-        ulong const in_seq_max = FD_VOLATILE_CONST( *shutdown_signal );
-        if( FD_UNLIKELY( in_seq_max == in[ 0 ].seq ) ) {
-          fd_snapin_shutdown();
-        }
+        // ulong const in_seq_max = FD_VOLATILE_CONST( *shutdown_signal );
+        // FD_LOG_WARNING(("snapin: in_seq_max is %lu", in_seq_max));
+        // if( FD_UNLIKELY( in_seq_max == in[ 0 ].seq ) ) {
+        //   fd_snapin_shutdown();
+        // }
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 

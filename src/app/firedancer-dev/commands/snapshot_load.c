@@ -42,22 +42,35 @@ snapshot_load_topo( config_t *     config,
   FD_STATIC_ASSERT( sizeof(filerd_tile->filerd.file_path)==sizeof(args->snapshot_load.snapshot_path), abi );
   FD_STATIC_ASSERT( sizeof(filerd_tile->filerd.file_path)==PATH_MAX,                                  abi );
 
+  fd_topob_wksp( topo, "Unzstd" );
+  fd_topo_tile_t * unzstd_tile = fd_topob_tile( topo, "Unzstd", "Unzstd", "Unzstd", tile_to_cpu[2], 0, 0 );
+  (void)unzstd_tile;
+
   fd_topob_wksp( topo, "SnapIn" );
-  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "SnapIn", "SnapIn", "SnapIn", tile_to_cpu[2], 0, 0 );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "SnapIn", "SnapIn", "SnapIn", tile_to_cpu[3], 0, 0 );
   snapin_tile->snapin.scratch_sz = (3UL<<30);
 
   fd_topob_wksp( topo, "ActAlc" );
-  fd_topo_tile_t * actalc_tile = fd_topob_tile( topo, "ActAlc", "ActAlc", "ActAlc", tile_to_cpu[3], 0, 0 );
+  fd_topo_tile_t * actalc_tile = fd_topob_tile( topo, "ActAlc", "ActAlc", "ActAlc", tile_to_cpu[4], 0, 0 );
   (void)actalc_tile;
 
+  fd_topob_wksp( topo, "snap_unzstd" );
   fd_topob_wksp( topo, "snap_stream" );
+  fd_topo_link_t * unzstd_link   = fd_topob_link( topo, "snap_unzstd", "snap_unzstd", 512UL, 0UL, 0UL );
   fd_topo_link_t * snapin_link   = fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, 0UL, 0UL );
   fd_topo_obj_t *  snapin_dcache = fd_topob_obj( topo, "dcache", "snap_stream" );
+  fd_topo_obj_t *  unzstd_dcache = fd_topob_obj( topo, "dcache", "snap_unzstd");
+  unzstd_link->dcache_obj_id = unzstd_dcache->id;
   snapin_link->dcache_obj_id = snapin_dcache->id;
   FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", snapin_dcache->id ) );
-  fd_topob_tile_out ( topo, "FileRd", 0UL, "snap_stream", 0UL );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", unzstd_dcache->id ) );
+  fd_topob_tile_out ( topo, "FileRd", 0UL, "snap_unzstd", 0UL );
+  fd_topob_tile_in  (topo, "Unzstd", 0UL, "metric_in", "snap_unzstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED);
+  fd_topob_tile_out( topo, "Unzstd", 0UL, "snap_stream", 0UL );
   fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
-  fd_topob_tile_uses( topo, filerd_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, filerd_tile, unzstd_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, unzstd_tile, unzstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, unzstd_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   fd_topob_tile_uses( topo, actalc_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
@@ -123,11 +136,13 @@ snapshot_load_cmd_fn( args_t *   args,
 
   fd_topo_tile_t * file_rd_tile = &topo->tiles[ fd_topo_find_tile( topo, "FileRd", 0UL ) ];
   fd_topo_tile_t * snap_in_tile = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
+  fd_topo_tile_t * unzstd_tile = &topo->tiles[ fd_topo_find_tile( topo, "Unzstd", 0UL ) ];
 
   ulong *          snap_in_fseq    = snap_in_tile->in_link_fseq[ 0 ];
   ulong *          snap_accs_sync  = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_frags", 0UL ) ].mcache );
   ulong volatile * file_rd_metrics = fd_metrics_tile( file_rd_tile->metrics );
   ulong volatile * snap_in_metrics = fd_metrics_tile( snap_in_tile->metrics );
+  ulong volatile * unzstd_in_metrics = fd_metrics_tile( unzstd_tile->metrics );
 
   ulong goff_old          = 0UL;
   ulong file_rd_backp_old = 0UL;
@@ -139,7 +154,8 @@ snapshot_load_cmd_fn( args_t *   args,
 
     ulong filerd_status = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-    if( FD_UNLIKELY( filerd_status==2UL || snapin_status==2UL ) ) {
+    ulong unzstd_status = FD_VOLATILE_CONST( unzstd_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+    if( FD_UNLIKELY( filerd_status==2UL || snapin_status==2UL || unzstd_status==2UL ) ) {
       FD_LOG_NOTICE(( "Done" ));
       break;
     }
