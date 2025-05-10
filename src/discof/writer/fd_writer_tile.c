@@ -9,7 +9,6 @@
 #include "../../flamenco/runtime/fd_executor.h"
 
 #include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_filemap.h"
 
 struct fd_writer_tile_in_ctx {
   fd_wksp_t * mem;
@@ -31,7 +30,6 @@ struct fd_writer_tile_ctx {
 
   /* Local join of Funk.  R/W. */
   fd_funk_t                   funk[1];
-  fd_wksp_t *                 funk_wksp;
 
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
@@ -339,23 +337,9 @@ unprivileged_init( fd_topo_t *      topo,
   /* Funk                                                             */
   /********************************************************************/
 
-  FD_LOG_DEBUG(( "Trying to join funk at file=%s", tile->writer.funk_file ));
-  fd_funk_txn_start_write( NULL );
-  int funk_join_ok = !!fd_funk_open_file( ctx->funk,
-      tile->writer.funk_file,
-      1UL,
-      0UL,
-      0UL,
-      0UL,
-      0UL,
-      FD_FUNK_READ_WRITE,
-      NULL );
-  fd_funk_txn_end_write( NULL );
-  ctx->funk_wksp = fd_funk_wksp( ctx->funk );
-  if( FD_UNLIKELY( !funk_join_ok ) ) {
-    FD_LOG_CRIT(( "Failed to join funk" ));
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->writer.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
   }
-  FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->writer.funk_file ));
 
   /********************************************************************/
   /* Setup fseq                                                       */
