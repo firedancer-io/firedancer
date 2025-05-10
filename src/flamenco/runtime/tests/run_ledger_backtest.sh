@@ -157,9 +157,6 @@ echo "
          archiver_path = \"$DUMP/$LEDGER/rocksdb\"
      [tiles.replay]
          snapshot = \"$SNAPSHOT\"
-         funk_sz_gb = $FUNK_PAGES
-         funk_txn_max = 1024
-         funk_rec_max = $INDEX_MAX
          cluster_version = \"$CLUSTER_VERSION\"
          enable_features = [ \"$ONE_OFFS\" ]
      [tiles.gui]
@@ -169,6 +166,10 @@ echo "
      block_max = 8192
      txn_max = 1048576
      alloc_max = 10737418240
+ [funk]
+     heap_size_gib = $FUNK_PAGES
+     max_account_records = $INDEX_MAX
+     max_database_transactions = 1024
  [consensus]
      vote = false
  [development]

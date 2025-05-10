@@ -21,6 +21,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub;
 extern fd_topo_obj_callbacks_t fd_obj_cb_blockstore;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_exec_spad;
+extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -38,6 +39,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_blockstore,
   &fd_obj_cb_txncache,
   &fd_obj_cb_exec_spad,
+  &fd_obj_cb_funk,
   NULL,
 };
 

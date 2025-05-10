@@ -47,12 +47,8 @@ echo "
         repair_serve_listen_port = 9056
     [tiles.replay]
         snapshot = \"funk\"
-        funk_sz_gb = 32
-        funk_rec_max = 10000000
-        funk_txn_max = 1024
         cluster_version = \"$CLUSTER_VERSION\"
         tower_checkpt = \"$TOWER_CHECKPT_FILE\"
-        funk_file = \"$FUNK_FILE\"
     [tiles.restart]
         in_wen_restart = true
         wen_restart_coordinator = \"$RESTART_COORDINATOR\"
@@ -74,6 +70,10 @@ echo "
     idx_max = 512
     alloc_max = 10737418240
     file = \"$BLOCK_FILE\"
+[funk]
+    max_account_records = 10000000
+    heap_size_gib = 32
+    max_database_transactions = 1024
 " > wen_restart.toml
 
 sudo gdb --args build/native/gcc/bin/firedancer-dev dev --config wen_restart.toml

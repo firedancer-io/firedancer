@@ -272,12 +272,9 @@ typedef struct {
       ulong max_vote_accounts;
 
       int   tx_metadata_storage;
+      ulong funk_obj_id;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
-      uint  funk_rec_max;
-      ulong funk_sz_gb;
-      ulong funk_txn_max;
-      char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
@@ -310,7 +307,7 @@ typedef struct {
     struct {
       int   in_wen_restart;
       int   tower_checkpt_fileno;
-      char  funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
       char  tower_checkpt[ PATH_MAX ];
       char  identity_key_path[ PATH_MAX ];
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -319,11 +316,11 @@ typedef struct {
     } restart;
 
     struct {
-      char funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
     } exec;
 
     struct {
-      char funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
     } writer;
 
     struct {
@@ -402,6 +399,7 @@ typedef struct {
     } eqvoc;
 
     struct {
+      ulong   funk_obj_id;
       ushort  rpc_port;
       ushort  tpu_port;
       uint    tpu_ip_addr;
@@ -409,6 +407,7 @@ typedef struct {
     } rpcserv;
 
     struct {
+      ulong funk_obj_id;
       ulong full_interval;
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
