@@ -169,11 +169,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acc = &accts[i];
-    if ( memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
-         memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
-         memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
-         memcmp( acc->vt->get_owner( acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
-    ) {
+    if ( !fd_executor_pubkey_is_bpf_loader( acc->vt->get_owner( acc ) ) ) {
       continue;
     }
 
@@ -211,11 +207,11 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     }
   }
 
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
-
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, runtime_wksp );
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
