@@ -1,3 +1,5 @@
+#ifndef HEADER_fd_src_disco_archiver_fd_archiver_h
+#define HEADER_fd_src_disco_archiver_fd_archiver_h
 
 #include "../tiles.h"
 
@@ -35,3 +37,5 @@ struct __attribute__((aligned(1UL))) fd_archiver_frag_header {
 typedef struct fd_archiver_frag_header fd_archiver_frag_header_t;
 #define FD_ARCHIVER_FRAG_HEADER_FOOTPRINT (48UL)
 #define FD_ARCHIVER_FRAG_HEADER_ALIGN     (1UL)
+
+#endif /* HEADER_fd_src_disco_archiver_fd_archiver_h */
