@@ -157,10 +157,6 @@ sim_topo( config_t * config ) {
   replay_tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
   strncpy( replay_tile->replay.capture, config->tiles.replay.capture, sizeof(replay_tile->replay.capture) );
   strncpy( replay_tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(replay_tile->replay.funk_checkpt) );
-  replay_tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
-  replay_tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
-  replay_tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
-  strncpy( replay_tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(replay_tile->replay.funk_file) );
   replay_tile->replay.plugins_enabled = 0;
 
   if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )

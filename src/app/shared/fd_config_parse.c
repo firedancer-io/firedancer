@@ -446,10 +446,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   tiles.replay.capture                             );
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
-  CFG_POP      ( uint,   tiles.replay.funk_rec_max                        );
-  CFG_POP      ( ulong,  tiles.replay.funk_sz_gb                          );
-  CFG_POP      ( ulong,  tiles.replay.funk_txn_max                        );
-  CFG_POP      ( cstr,   tiles.replay.funk_file                           );
   CFG_POP      ( cstr,   tiles.replay.genesis                             );
   CFG_POP      ( cstr,   tiles.replay.incremental                         );
   CFG_POP      ( cstr,   tiles.replay.incremental_url                     );

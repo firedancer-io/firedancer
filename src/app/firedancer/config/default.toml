@@ -1057,9 +1057,6 @@ user = ""
         # snapshots and frequent validator restarts are expected.
         snapshot_dir = ""
 
-        funk_sz_gb = 32
-        funk_rec_max = 10000000
-        funk_txn_max = 1024
         cluster_version =  "1.18.0"
 
     # The metric tile receives metrics updates published from the rest

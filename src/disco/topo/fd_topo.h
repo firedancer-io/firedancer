@@ -275,10 +275,6 @@ typedef struct {
       ulong funk_obj_id;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
-      uint  funk_rec_max;
-      ulong funk_sz_gb;
-      ulong funk_txn_max;
-      char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
@@ -314,7 +310,6 @@ typedef struct {
     struct {
       int   in_wen_restart;
       int   tower_checkpt_fileno;
-      char  funk_file[ PATH_MAX ];
       ulong funk_obj_id;
       char  tower_checkpt[ PATH_MAX ];
       char  identity_key_path[ PATH_MAX ];
@@ -324,12 +319,10 @@ typedef struct {
     } restart;
 
     struct {
-      char funk_file[ PATH_MAX ];
       ulong funk_obj_id;
     } exec;
 
     struct {
-      char funk_file[ PATH_MAX ];
       ulong funk_obj_id;
     } writer;
 
