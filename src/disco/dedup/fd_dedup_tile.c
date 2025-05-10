@@ -249,11 +249,11 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
     ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
 
-    if( FD_UNLIKELY( !strcmp( link->name, "gossip_dedup" ) ) ) {
+    if( !strcmp( link->name, "gossip_dedup" ) ) {
       ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "voter_dedup" ) ) ) {
+    } else if( !strcmp( link->name, "voter_dedup" ) ) {
       ctx->in_kind[ i ] = IN_KIND_VOTER;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "verify_dedup" ) ) ) {
+    } else if( !strcmp( link->name, "verify_dedup" ) ) {
       ctx->in_kind[ i ] = IN_KIND_VERIFY;
     } else {
       FD_LOG_ERR(( "unexpected link name %s", link->name ));

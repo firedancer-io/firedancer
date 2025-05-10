@@ -159,15 +159,15 @@ unprivileged_init( fd_topo_t *      topo,
 
     FD_TEST( link->mtu<=topo->links[ tile->out_link_id[ 0 ] ].mtu );
 
-    if( FD_UNLIKELY( !strcmp( link->name, "replay_plugi" ) ) )      ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_UNLIKELY( !strcmp( link->name, "gossip_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    else if( FD_UNLIKELY( !strcmp( link->name, "stake_out" ) ) )    ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( FD_UNLIKELY( !strcmp( link->name, "poh_plugin" ) ) )   ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_UNLIKELY( !strcmp( link->name, "votes_plugin" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTE;
-    else if( FD_UNLIKELY( !strcmp( link->name, "startp_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_STARTP;
-    else if( FD_UNLIKELY( !strcmp( link->name, "votel_plugin" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTEL;
-    else if( FD_UNLIKELY( !strcmp( link->name, "bundle_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
-    else if( FD_UNLIKELY( !strcmp( link->name, "valcfg_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_VALCFG;
+    if(      !strcmp( link->name, "replay_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "gossip_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+    else if( !strcmp( link->name, "stake_out"    ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( !strcmp( link->name, "poh_plugin"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( !strcmp( link->name, "votes_plugin" ) ) ctx->in_kind[ i ] = IN_KIND_VOTE;
+    else if( !strcmp( link->name, "startp_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_STARTP;
+    else if( !strcmp( link->name, "votel_plugin" ) ) ctx->in_kind[ i ] = IN_KIND_VOTEL;
+    else if( !strcmp( link->name, "bundle_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    else if( !strcmp( link->name, "valcfg_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_VALCFG;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
