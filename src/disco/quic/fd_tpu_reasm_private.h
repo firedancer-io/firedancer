@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_disco_quic_fd_tpu_reasm_private_h
+#define HEADER_fd_src_disco_quic_fd_tpu_reasm_private_h
+
 #include "fd_tpu.h"
 
 #include <assert.h>
@@ -209,3 +212,5 @@ smap_remove( fd_tpu_reasm_t *      reasm,
       fd_tpu_reasm_slots_laddr( reasm )
   );
 }
+
+#endif /* HEADER_fd_src_disco_quic_fd_tpu_reasm_private_h */

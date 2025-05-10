@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_fec_repair_fd_fec_repair_h
-#define HEADER_fd_src_discof_fec_repair_fd_fec_repair_h
+#ifndef HEADER_fd_src_discof_repair_fd_fec_repair_h
+#define HEADER_fd_src_discof_repair_fd_fec_repair_h
 
 /* This provides APIs for orchestrating repair of FEC sets as they are
    received from the cluster.
@@ -363,4 +363,4 @@ check_set_blind_fec_completed( fd_fec_repair_t * fec_repair,
 // }
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_fec_repair_fd_fec_repair_h */
+#endif /* HEADER_fd_src_discof_repair_fd_fec_repair_h */

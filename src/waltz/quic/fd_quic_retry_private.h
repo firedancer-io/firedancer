@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_waltz_quic_fd_quic_retry_private_h
+#define HEADER_fd_src_waltz_quic_fd_quic_retry_private_h
+
 #include "fd_quic_retry.h"
 
 #include "fd_quic_proto.h"
@@ -32,3 +35,5 @@ fd_quic_retry_pseudo(
     void const *              retry_pkt,
     ulong                     retry_pkt_sz,
     fd_quic_conn_id_t const * orig_dst_conn_id );
+
+#endif /* HEADER_fd_src_waltz_quic_fd_quic_retry_private_h */

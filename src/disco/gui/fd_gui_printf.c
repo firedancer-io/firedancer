@@ -1,6 +1,3 @@
-#ifndef HEADER_fd_src_disco_gui_fd_gui_printf_h
-#define HEADER_fd_src_disco_gui_fd_gui_printf_h
-
 #include <ctype.h>
 #include <stdio.h>
 
@@ -1361,5 +1358,3 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
-
-#endif /* HEADER_fd_src_disco_gui_fd_gui_printf_h */

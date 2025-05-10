@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_waltz_neigh_fd_neigh4_netlink_h
+#define HEADER_fd_src_waltz_neigh_fd_neigh4_netlink_h
+
 /* fd_neigh4_netlink.h provides APIs for importing IPv4 neighbors from
    Linux netlink.  Assumes link-layer addresses are 6 bytes long. */
 
@@ -37,3 +40,5 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
 FD_PROTOTYPES_END
 
 #endif /* defined(__linux__) */
+
+#endif /* HEADER_fd_src_waltz_neigh_fd_neigh4_netlink_h */

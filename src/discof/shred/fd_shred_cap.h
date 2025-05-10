@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_shred_fd_shredcap_h
-#define HEADER_fd_src_disco_shred_fd_shredcap_h
+#ifndef HEADER_fd_src_discof_shred_fd_shredcap_h
+#define HEADER_fd_src_discof_shred_fd_shredcap_h
 
 #include "../store/fd_store.h"
 #include "../../util/fd_util_base.h"
@@ -46,4 +46,5 @@ fd_shred_cap_archive( fd_shred_cap_ctx_t * ctx,
 int
 fd_shred_cap_replay( const char *      shred_cap_fpath,
                      fd_store_t *      store );
-#endif
+
+#endif /* HEADER_fd_src_discof_shred_fd_shredcap_h */

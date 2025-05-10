@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_discof_rpcserver_fd_block_to_json_h
+#define HEADER_fd_src_discof_rpcserver_fd_block_to_json_h
+
 #include "../../util/fd_util.h"
 
 #include "../../ballet/txn/fd_txn.h"
@@ -45,3 +48,5 @@ const char* fd_account_to_json( fd_webserver_t * ws,
                                 ulong val_sz,
                                 long off,
                                 long len );
+
+#endif /* HEADER_fd_src_discof_rpcserver_fd_block_to_json_h */

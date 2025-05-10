@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_discof_rpcserver_fd_stub_to_json_h
+#define HEADER_fd_src_discof_rpcserver_fd_stub_to_json_h
+
 #include "fd_webserver.h"
 #include "../../flamenco/types/fd_types_meta.h"
 
@@ -35,3 +38,5 @@ fd_rpc_json_walk( void *       self,
                   uint         level );
 
 FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_discof_rpcserver_fd_stub_to_json_h */

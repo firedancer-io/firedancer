@@ -1,5 +1,5 @@
-#ifndef HEADER_src_ballet_tls_fd_tls_h
-#define HEADER_src_ballet_tls_fd_tls_h
+#ifndef HEADER_fd_src_waltz_tls_fd_tls_h
+#define HEADER_fd_src_waltz_tls_fd_tls_h
 
 #include "fd_tls_estate.h"
 
@@ -440,4 +440,4 @@ fd_tls_hkdf_expand_label( uchar *       out,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_src_ballet_tls_fd_tls_h */
+#endif /* HEADER_fd_src_waltz_tls_fd_tls_h */
