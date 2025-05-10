@@ -167,7 +167,7 @@ struct fake_funk {
       auto key = rec->real_id();
       fd_funk_rec_prepare_t prepare[1];
       fd_funk_rec_t * rec2 = fd_funk_rec_prepare(_real, txn2, &key, prepare, NULL);
-      void * val = fd_funk_val_truncate(rec2, rec->size(), fd_funk_alloc( _real ), _wksp, NULL);
+      void * val = fd_funk_val_truncate(rec2, rec->size(), fd_funk_alloc( _real ), _wksp, fd_funk_val_min_align(), NULL);
       memcpy(val, rec->data(), rec->size());
       fd_funk_rec_publish( _real, prepare );
       assert(fd_funk_val_sz(rec2) == rec->size());

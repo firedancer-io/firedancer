@@ -435,7 +435,12 @@ main( int     argc,
       fd_funk_rec_prepare_t prepare[1];
       int err;
       fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, restore->funk_txn, &id, prepare, &err );
-      fd_account_meta_t * meta = fd_funk_val_truncate( rec, sizeof(fd_account_meta_t), fd_funk_alloc( funk ), wksp, &err );
+      fd_account_meta_t * meta = fd_funk_val_truncate( rec,
+                                                       sizeof(fd_account_meta_t),
+                                                       fd_funk_alloc( funk ),
+                                                       wksp,
+                                                       fd_funk_val_min_align(),
+                                                       &err );
       FD_TEST( meta );
       fd_account_meta_init( meta );
       meta->dlen          = 0UL;
@@ -489,7 +494,12 @@ main( int     argc,
       fd_funk_rec_prepare_t prepare[1];
       int err;
       fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, restore->funk_txn, &id, prepare, &err );
-      fd_account_meta_t * meta = fd_funk_val_truncate( rec, sizeof(fd_account_meta_t)+4, fd_funk_alloc( funk ), wksp, &err );
+      fd_account_meta_t * meta = fd_funk_val_truncate( rec,
+                                                       sizeof(fd_account_meta_t)+4,
+                                                       fd_funk_alloc( funk ),
+                                                       wksp,
+                                                       fd_funk_val_min_align(),
+                                                       &err );
       FD_TEST( meta );
       fd_account_meta_init( meta );
       meta->dlen          =  4UL;

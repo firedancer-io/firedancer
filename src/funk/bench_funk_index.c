@@ -16,7 +16,12 @@ run_benchmark( fd_funk_t * funk,
     fd_funk_rec_prepare_t prepare[1];
     fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, NULL, &key, prepare, NULL );
     FD_TEST( rec );
-    fd_funk_val_truncate( rec, 104, fd_funk_alloc( funk ), funk_wksp, NULL );
+    fd_funk_val_truncate( rec,
+                          104,
+                          fd_funk_alloc( funk ),
+                          funk_wksp,
+                          fd_funk_val_min_align(),
+                          NULL );
     fd_funk_rec_publish( funk, prepare );
   }
 }
