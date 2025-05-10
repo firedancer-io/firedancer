@@ -202,9 +202,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
     ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
 
-    if( FD_UNLIKELY( !strcmp( link->name, "quic_verify" ) ) )       ctx->in_kind[ i ] = IN_KIND_QUIC;
-    else if( FD_UNLIKELY( !strcmp( link->name, "bundle_verif" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
-    else if( FD_UNLIKELY( !strcmp( link->name, "gossip_verif" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+    if(      !strcmp( link->name, "quic_verify"  ) ) ctx->in_kind[ i ] = IN_KIND_QUIC;
+    else if( !strcmp( link->name, "bundle_verif" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    else if( !strcmp( link->name, "gossip_verif" ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

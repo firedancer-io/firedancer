@@ -2320,11 +2320,11 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
 
-    if( FD_UNLIKELY( !strcmp( link->name, "stake_out" ) ) ) {
+    if(        !strcmp( link->name, "stake_out" ) ) {
       ctx->in_kind[ i ] = IN_KIND_STAKE;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "pack_bank" ) ) ) {
+    } else if( !strcmp( link->name, "pack_bank" ) ) {
       ctx->in_kind[ i ] = IN_KIND_PACK;
-    } else if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
+    } else if( !strcmp( link->name, "bank_poh"  ) ) {
       ctx->in_kind[ i ] = IN_KIND_BANK;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
