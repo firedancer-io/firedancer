@@ -119,6 +119,12 @@ struct fd_configf {
   } runtime;
 
   struct {
+    ulong max_account_records;
+    ulong heap_size_gib;
+    ulong max_database_transactions;
+  } funk;
+
+  struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
   } layout;

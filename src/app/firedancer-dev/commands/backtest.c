@@ -192,9 +192,15 @@ backtest_topo( config_t * config ) {
 
   /* specified by [tiles.replay] */
 
+  fd_topob_wksp( topo, "funk" );
+  fd_topo_obj_t * funk_obj = fd_topob_obj( topo, "funk", "funk" );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, config->firedancer.funk.max_account_records,       "obj.%lu.rec_max", funk_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, config->firedancer.funk.max_database_transactions, "obj.%lu.txn_max", funk_obj->id ) );
+
   strncpy( replay_tile->replay.blockstore_file,    config->firedancer.blockstore.file,    sizeof(replay_tile->replay.blockstore_file) );
   strncpy( replay_tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(replay_tile->replay.blockstore_checkpt) );
 
+  fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   replay_tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
   strncpy( replay_tile->replay.capture, config->tiles.replay.capture, sizeof(replay_tile->replay.capture) );
   strncpy( replay_tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(replay_tile->replay.funk_checkpt) );
@@ -202,6 +208,7 @@ backtest_topo( config_t * config ) {
   replay_tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
   replay_tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
   strncpy( replay_tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(replay_tile->replay.funk_file) );
+  replay_tile->replay.funk_obj_id = funk_obj->id;
   replay_tile->replay.plugins_enabled = config->tiles.gui.enabled;
 
   if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
