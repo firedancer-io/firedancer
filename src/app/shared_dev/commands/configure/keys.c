@@ -64,28 +64,13 @@ init( config_t const * config ) {
 
   char faucet[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
-  generate_keypair( faucet, config->uid, config->gid, 0 );
+  if( FD_UNLIKELY( stat( faucet, &st ) && errno==ENOENT ) )
+    generate_keypair( faucet, config->uid, config->gid, 0 );
 
   char stake[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( stake, PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
-  generate_keypair( stake, config->uid, config->gid, 0 );
-}
-
-static void
-fini( config_t const * config,
-      int              pre_init FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( unlink( config->paths.identity_key ) && errno!=ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( unlink( config->paths.vote_account ) && errno!=ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", config->paths.vote_account, errno, fd_io_strerror( errno ) ));
-
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
-  if( FD_UNLIKELY( unlink( path ) && errno!=ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
-  if( FD_UNLIKELY( unlink( path ) && errno!=ENOENT ) )
-    FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( stat( stake, &st ) && errno==ENOENT ) )
+    generate_keypair( stake, config->uid, config->gid, 0 );
 }
 
 static configure_result_t
@@ -95,36 +80,27 @@ check( config_t const * config ) {
   FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
   FD_TEST( fd_cstr_printf_check( stake,  PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
 
+  char const * paths[] = {
+    config->paths.identity_key,
+    config->paths.vote_account,
+    faucet,
+    stake,
+  };
+
   struct stat st;
-  if( FD_UNLIKELY( stat( config->paths.identity_key, &st ) && errno==ENOENT &&
-                   stat( config->paths.vote_account, &st ) && errno==ENOENT &&
-                   stat( faucet, &st ) && errno==ENOENT &&
-                   stat( stake,  &st ) && errno==ENOENT ) )
-    NOT_CONFIGURED( "none of identity.json, vote-account.json, faucet.json, or stake-account.json exist" );
 
-  // char parent[ PATH_MAX ];
-  // if( FD_LIKELY( strrchr( config->paths.identity_key, '/' ) ) ) {
-  //   if( FD_UNLIKELY( -1==path_parent( config->paths.identity_key, parent, sizeof(parent) ) ) )
-  //     FD_LOG_ERR(( "failed to get parent directory of `%s`", config->paths.identity_key ));
-  //   CHECK( check_dir( parent, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
-  // }
-  //
-  // if( FD_LIKELY( strcmp( "", config->paths.vote_account ) && strrchr( config->paths.vote_account, '/') ) ) {
-  //   if( FD_UNLIKELY( -1==path_parent( config->paths.vote_account, parent, sizeof(parent) ) ) )
-  //     FD_LOG_ERR(( "failed to get parent directory of `%s`", config->paths.vote_account ));
-  //   CHECK( check_dir( parent, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
-  // }
+  int all_exist = 1;
+  for( ulong i=0UL; i<4UL; i++ ) {
+    if( FD_UNLIKELY( !strcmp( "", paths[ i ] ) ) ) continue;
+    if( FD_UNLIKELY( stat( paths[ i ], &st ) && errno==ENOENT ) ) {
+      all_exist = 0;
+      continue;
+    }
+    CHECK( check_file( paths[ i ], config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
+  }
 
-  CHECK( check_dir( config->paths.base, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
-  CHECK( check_dir( config->paths.base, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
-
-  CHECK( check_file( config->paths.identity_key, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
-  if( FD_LIKELY( strcmp( "", config->paths.vote_account ) ) )
-    CHECK( check_file( config->paths.vote_account, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
-  CHECK( check_file( faucet, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
-  CHECK( check_file( stake,  config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
-
-  CONFIGURE_OK();
+  if( FD_UNLIKELY( !all_exist ) ) NOT_CONFIGURED( " identity.json, vote-account.json, faucet.json, or stake-account.json does not exist" );
+  else                         CONFIGURE_OK();
 }
 
 configure_stage_t fd_cfg_stage_keys = {
@@ -134,7 +110,7 @@ configure_stage_t fd_cfg_stage_keys = {
   .init_perm       = NULL,
   .fini_perm       = NULL,
   .init            = init,
-  .fini            = fini,
+  .fini            = NULL,
   .check           = check,
 };
 
