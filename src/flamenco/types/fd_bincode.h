@@ -2,7 +2,6 @@
 #define HEADER_fd_src_util_encoders_fd_bincode_h
 
 #include "../../util/fd_util.h"
-#include "../../util/valloc/fd_valloc.h"
 
 typedef void
 (* fd_types_walk_fn_t)( void *       self,
@@ -551,5 +550,59 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
 
 #define fd_bincode_decode_scratch( type, buf, buf_sz, perr ) \
   fd_bincode_decode1_scratch( type, buf, buf_sz, perr, NULL )
+
+/* fd_bincode_decode_flat decodes a bincode type without dynamic
+   allocations. */
+
+#define fd_bincode_decode_flat( outp, type, buf, buf_sz, perr )        \
+  __extension__({                                                      \
+    __typeof__(*outp) * const outp_   = (outp);                        \
+    __typeof__(*outp_) *      out     = NULL;                          \
+    void const *        const buf_    = (buf);                         \
+    ulong               const buf_sz_ = (buf_sz);                      \
+    int *                     perr_   = (perr);                        \
+    fd_bincode_decode_ctx_t ctx = {0};                                 \
+    if( perr_ ) *perr_ = -1;                                           \
+    ctx.data    = (void const *)( buf_ );                              \
+    ctx.dataend = (void const *)( (ulong)ctx.data + buf_sz_ );         \
+    ulong total_sz = 0UL;                                              \
+    int err = fd_##type##_decode_footprint( &ctx, &total_sz );         \
+    if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
+      if( FD_UNLIKELY( sizeof(*out)!=total_sz ) ) {                    \
+        FD_LOG_ERR(( "fd_bincode_" #type "_decode failed: decode requires %lu bytes, but out var is only %lu bytes", sizeof(*out), total_sz )); \
+      }                                                                \
+      out = fd_##type##_decode( outp_, &ctx );                         \
+    }                                                                  \
+    if( perr_ ) *perr_ = err;                                          \
+    out;                                                               \
+  })
+
+#define fd_bincode_decode_scratch( type, buf, buf_sz, perr ) \
+  fd_bincode_decode1_scratch( type, buf, buf_sz, perr, NULL )
+
+/* Helpers for dealing with option types */
+
+/* fd_types_option_flat_from_nullable populates a flat option from a
+   pointer.  Sets target.has_name = 0 if pointer is NULL, otherwise sets
+   target.has_name = 1, and sets target.name = *pointer */
+
+#define fd_types_option_flat_from_nullable( target, name, pointer )    \
+  {                                                                    \
+    __typeof__ (pointer) ptr = (pointer);                              \
+    (target . has_##name) = !!ptr;                                     \
+    if( ptr ) (target . name) = *ptr;                                  \
+  }
+
+/* fd_types_option_flat_to_nullable creates a nullable pointer to a flat
+   option.  Returns NULL if target.has_name == 0, otherwise returns
+   &target.name */
+
+#define fd_types_option_flat_to_nullable( target, name )               \
+  __extension__({                                                      \
+    __typeof__( &( (target . name) ) ) ptr;                            \
+    if( (target . has_##name) ) ptr = &(target . name);                \
+    else                        ptr = NULL;                            \
+    ptr;                                                               \
+  })
 
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
