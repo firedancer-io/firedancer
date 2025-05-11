@@ -2365,8 +2365,8 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
   if( config_upgrade_authority_address!=NULL ) {
-    if( FD_UNLIKELY( state->inner.buffer.authority_address==NULL ||
-                     memcmp( config_upgrade_authority_address, state->inner.buffer.authority_address, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( !state->inner.buffer.has_authority_address ||
+                     !fd_pubkey_eq( config_upgrade_authority_address, &state->inner.buffer.authority_address ) ) ) {
       return -1;
     }
   }
@@ -2386,11 +2386,13 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
     .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
     .inner = {
       .program_data = {
-        .slot = slot_ctx->slot_bank.slot,
-        .upgrade_authority_address = config_upgrade_authority_address
+        .slot = slot_ctx->slot_bank.slot
       }
     }
   };
+  fd_types_option_flat_from_nullable(
+      programdata_metadata.inner.program_data, upgrade_authority_address,
+      config_upgrade_authority_address );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L139-L144 */
   new_target_program_data_account->vt->set_lamports( new_target_program_data_account, lamports );
