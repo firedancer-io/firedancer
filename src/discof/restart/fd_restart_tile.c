@@ -298,20 +298,18 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     slot_bank->hard_forks.hard_forks_len = ctx->new_hard_forks_len;
 
     /* Write the slot bank back to funk, referencing fd_runtime_save_slot_bank */
-    int opt_err = 0;
+    int funk_err = 0;
     fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t * new_rec = fd_funk_rec_prepare( ctx->funk,
-                                                         funk_txn,
-                                                         &id,
-                                                         prepare,
-                                                         &opt_err );
+    fd_funk_rec_t * new_rec = fd_funk_rec_prepare(
+        ctx->funk, funk_txn, &id, prepare, &funk_err );
     if( FD_UNLIKELY( !new_rec ) ) {
-      FD_LOG_ERR(( "Wen-restart fails at inserting a hard fork in slot bank and save it in funk" ));
+      FD_LOG_ERR(( "fd_funk_rec_prepare() failed (%i-%s)", funk_err, fd_funk_strerror( funk_err ) ));
     }
 
-    ulong sz    = sizeof(uint) + fd_slot_bank_size( slot_bank );
-    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk ), fd_funk_wksp( ctx->funk ), &opt_err );
-    *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
+    ulong   sz  = sizeof(uint) + fd_slot_bank_size( slot_bank );
+    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk ), fd_funk_wksp( ctx->funk ), &funk_err );
+    if( FD_UNLIKELY( !buf ) ) FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) failed (%i-%s)", sz, funk_err, fd_funk_strerror( funk_err ) ));
+    FD_STORE( uint, buf, FD_RUNTIME_ENC_BINCODE );
     fd_bincode_encode_ctx_t slot_bank_encode_ctx = {
       .data    = buf + sizeof(uint),
       .dataend = buf + sz,
