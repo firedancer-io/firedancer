@@ -51,13 +51,8 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   /* FIXME: Do not hardcode the number of vote accounts */
 
-  slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
-
-  slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
-
   slot_ctx->slot_bank.vote_account_keys.account_keys_root = NULL;
-  pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
+  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
   slot_ctx->slot_bank.vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
 
   fd_bank_mgr_t   bank_mgr_obj = {0};

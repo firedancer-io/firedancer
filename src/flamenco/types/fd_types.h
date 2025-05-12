@@ -384,6 +384,19 @@ struct fd_account_keys {
 typedef struct fd_account_keys fd_account_keys_t;
 #define FD_ACCOUNT_KEYS_ALIGN alignof(fd_account_keys_t)
 
+struct fd_account_keys_global {
+  ulong account_keys_pool_offset;
+  ulong account_keys_root_offset;
+};
+typedef struct fd_account_keys_global fd_account_keys_global_t;
+#define FD_ACCOUNT_KEYS_GLOBAL_ALIGN alignof(fd_account_keys_global_t)
+
+static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_keys_pool_join( void const * struct_mem, ulong offset ) { // deque
+  return (fd_account_keys_pair_t_mapnode_t *)fd_account_keys_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+}
+static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_keys_root_join( void const * struct_mem, ulong offset ) { // deque
+  return !!offset ? (fd_account_keys_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
+}
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
 struct fd_stake_weight {
@@ -1693,7 +1706,6 @@ struct fd_slot_bank {
   fd_hash_t banks_hash;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
-  fd_account_keys_t stake_account_keys;
   fd_account_keys_t vote_account_keys;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
@@ -3457,6 +3469,8 @@ ulong fd_account_keys_size( fd_account_keys_t const * self );
 static inline ulong fd_account_keys_align( void ) { return FD_ACCOUNT_KEYS_ALIGN; }
 int fd_account_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_account_keys_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_account_keys_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_encode_global( fd_account_keys_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 static inline void fd_stake_weight_new( fd_stake_weight_t * self ) { fd_memset( self, 0, sizeof(fd_stake_weight_t) ); }
 int fd_stake_weight_encode( fd_stake_weight_t const * self, fd_bincode_encode_ctx_t * ctx );

@@ -424,8 +424,15 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
-  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-                                                                 slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+  fd_bank_mgr_t                  bank_mgr_obj;
+  fd_bank_mgr_t *                bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_account_keys_global_t *         stake_account_keys      = fd_bank_mgr_stake_account_keys_query( bank_mgr );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+
+
+  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( stake_account_keys_pool, stake_account_keys_root );
   ulong stake_account_cnt     = fd_delegation_pair_t_map_size( epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
                                                                epoch_ctx->epoch_bank.stakes.stake_delegations_root );
 
@@ -465,8 +472,6 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                               PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   block_context->blockhash_queue = output_blockhash_queue;
 
-  fd_bank_mgr_t                  bank_mgr_obj;
-  fd_bank_mgr_t *                bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
   fd_block_hash_queue_global_t * bhq      = fd_bank_mgr_block_hash_queue_query( bank_mgr );
   dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
 
@@ -511,10 +516,10 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                                      new_stake_account_cnt * sizeof(pb_bytes_array_t *) );
 
   for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-          slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+          stake_account_keys_pool,
+          stake_account_keys_root );
        curr;
-       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, curr ) ) {
+       curr = fd_account_keys_pair_t_map_successor_const( stake_account_keys_pool, curr ) ) {
 
     // Verify the stake state before dumping
     FD_TXN_ACCOUNT_DECL( account );

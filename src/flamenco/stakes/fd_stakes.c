@@ -589,11 +589,17 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   }
   temp_info->stake_infos_new_keys_start_idx = temp_info->stake_infos_len;
 
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_account_keys_global_t *         stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
 
   /* The number of account keys aggregated across the epoch is usually small, so there aren't much performance gains from tpooling here. */
-  for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+  for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( account_keys_pool, account_keys_root );
        n;
-       n = fd_account_keys_pair_t_map_successor( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, n ) ) {
+       n = fd_account_keys_pair_t_map_successor( account_keys_pool, n ) ) {
     FD_TXN_ACCOUNT_DECL( acc );
     int rc = fd_txn_account_init_from_funk_readonly(acc, &n->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
     if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->vt->get_lamports( acc )==0UL ) ) {
@@ -638,6 +644,13 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
+
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
@@ -654,8 +667,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
     stakes->stake_delegations_pool, stakes->stake_delegations_root );
+
   stake_delegations_size += fd_account_keys_pair_t_map_size(
-    slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+    account_keys_pool, account_keys_root );
+
   temp_info->stake_infos_len = 0UL;
   temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
   fd_memset( temp_info->stake_infos, 0, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );

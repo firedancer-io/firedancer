@@ -2267,7 +2267,6 @@ static void
 fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
                              fd_epoch_info_t *    temp_info ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
   /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
@@ -2285,8 +2284,19 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  fd_account_keys_pair_t_map_release_tree( slot_bank->stake_account_keys.account_keys_pool, slot_bank->stake_account_keys.account_keys_root );
-  slot_bank->stake_account_keys.account_keys_root = NULL;
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+
+  fd_account_keys_pair_t_map_release_tree( account_keys_pool, account_keys_root );
+  account_keys_root = NULL;
+
+  stake_account_keys->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( account_keys_pool ) - (ulong)stake_account_keys;
+  stake_account_keys->account_keys_root_offset = 0UL;
+  fd_bank_mgr_stake_account_keys_save( bank_mgr );
 }
 
 /* Replace the stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) by the stakes at T-1 (epoch_bank->next_epoch_stakes) */
@@ -3903,9 +3913,16 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
-  slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_account_keys_global_t *         stake_account_keys      = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
+  uchar *                            pool_mem                = (uchar *)fd_ulong_align_up( (ulong)stake_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
+
+  stake_account_keys->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( stake_account_keys_pool ) - (ulong)stake_account_keys;
+  stake_account_keys->account_keys_root_offset = 0UL;
+  fd_bank_mgr_stake_account_keys_save( bank_mgr );
 
   slot_ctx->slot_bank.vote_account_keys.account_keys_root   = NULL;
   pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );

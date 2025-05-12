@@ -1634,6 +1634,25 @@ int fd_account_keys_encode( fd_account_keys_t const * self, fd_bincode_encode_ct
   }
   return FD_BINCODE_SUCCESS;
 }
+int fd_account_keys_encode_global( fd_account_keys_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  fd_account_keys_pair_t_mapnode_t * account_keys_root = fd_account_keys_pair_t_map_join( (uchar *)self + self->account_keys_root_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_pair_t_map_join( (uchar *)self + self->account_keys_pool_offset );
+  if( account_keys_root ) {
+    ulong account_keys_len = fd_account_keys_pair_t_map_size( account_keys_pool, account_keys_root );
+    err = fd_bincode_uint64_encode( account_keys_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( account_keys_pool, account_keys_root ); n; n = fd_account_keys_pair_t_map_successor( account_keys_pool, n ) ) {
+      err = fd_account_keys_pair_encode( &n->elem, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  } else {
+    ulong account_keys_len = 0;
+    err = fd_bincode_uint64_encode( account_keys_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
 static int fd_account_keys_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
@@ -1675,6 +1694,30 @@ void * fd_account_keys_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   void * alloc_region = (uchar *)mem + sizeof(fd_account_keys_t);
   void * * alloc_mem = &alloc_region;
   fd_account_keys_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+static void fd_account_keys_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_keys_global_t * self = (fd_account_keys_global_t *)struct_mem;
+  ulong account_keys_len;
+  fd_bincode_uint64_decode_unsafe( &account_keys_len, ctx );
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_account_keys_pair_t_map_align() );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_pair_t_map_join_new( alloc_mem, fd_ulong_max( account_keys_len, 100000 ) );
+  fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
+  for( ulong i=0; i < account_keys_len; i++ ) {
+    fd_account_keys_pair_t_mapnode_t * node = fd_account_keys_pair_t_map_acquire( account_keys_pool );
+    fd_account_keys_pair_new( (fd_account_keys_pair_t *)fd_type_pun(&node->elem) );
+    fd_account_keys_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_account_keys_pair_t_map_insert( account_keys_pool, &account_keys_root, node );
+  }
+  self->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( account_keys_pool ) - (ulong)struct_mem;
+  self->account_keys_root_offset = (ulong)fd_account_keys_pair_t_map_leave( account_keys_root ) - (ulong)struct_mem;
+}
+void * fd_account_keys_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_keys_global_t * self = (fd_account_keys_global_t *)mem;
+  fd_account_keys_new( (fd_account_keys_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_account_keys_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_account_keys_decode_inner_global( mem, alloc_mem, ctx );
   return self;
 }
 void fd_account_keys_new(fd_account_keys_t * self) {
@@ -9895,8 +9938,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_sol_sysvar_last_restart_slot_encode( &self->last_restart_slot, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_account_keys_encode( &self->stake_account_keys, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_account_keys_encode( &self->vote_account_keys, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_encode( &self->lthash, ctx );
@@ -9927,8 +9968,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_sol_sysvar_last_restart_slot_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_account_keys_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_account_keys_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9966,7 +10005,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
   fd_vote_accounts_decode_inner( &self->epoch_stakes, alloc_mem, ctx );
   fd_sol_sysvar_last_restart_slot_decode_inner( &self->last_restart_slot, alloc_mem, ctx );
-  fd_account_keys_decode_inner( &self->stake_account_keys, alloc_mem, ctx );
   fd_account_keys_decode_inner( &self->vote_account_keys, alloc_mem, ctx );
   fd_slot_lthash_decode_inner( &self->lthash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->prev_banks_hash, alloc_mem, ctx );
@@ -9995,7 +10033,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_hash_new( &self->banks_hash );
   fd_vote_accounts_new( &self->epoch_stakes );
   fd_sol_sysvar_last_restart_slot_new( &self->last_restart_slot );
-  fd_account_keys_new( &self->stake_account_keys );
   fd_account_keys_new( &self->vote_account_keys );
   fd_slot_lthash_new( &self->lthash );
   fd_hash_new( &self->prev_banks_hash );
@@ -10009,7 +10046,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fd_hash_walk( w, &self->banks_hash, fun, "banks_hash", level );
   fd_vote_accounts_walk( w, &self->epoch_stakes, fun, "epoch_stakes", level );
   fd_sol_sysvar_last_restart_slot_walk( w, &self->last_restart_slot, fun, "last_restart_slot", level );
-  fd_account_keys_walk( w, &self->stake_account_keys, fun, "stake_account_keys", level );
   fd_account_keys_walk( w, &self->vote_account_keys, fun, "vote_account_keys", level );
   fd_slot_lthash_walk( w, &self->lthash, fun, "lthash", level );
   fd_hash_walk( w, &self->prev_banks_hash, fun, "prev_banks_hash", level );
@@ -10029,7 +10065,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += fd_hash_size( &self->banks_hash );
   size += fd_vote_accounts_size( &self->epoch_stakes );
   size += fd_sol_sysvar_last_restart_slot_size( &self->last_restart_slot );
-  size += fd_account_keys_size( &self->stake_account_keys );
   size += fd_account_keys_size( &self->vote_account_keys );
   size += fd_slot_lthash_size( &self->lthash );
   size += fd_hash_size( &self->prev_banks_hash );

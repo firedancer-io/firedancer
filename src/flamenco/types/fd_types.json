@@ -270,6 +270,7 @@
     {
       "name": "account_keys",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "account_keys", "type": "map", "element": "account_keys_pair", "key": "key", "minalloc":100000 }
       ]
@@ -1226,7 +1227,6 @@
         { "name": "banks_hash",                  "type": "hash" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "last_restart_slot",           "type": "sol_sysvar_last_restart_slot" },
-        { "name": "stake_account_keys",          "type": "account_keys"},
         { "name": "vote_account_keys",           "type": "account_keys" },
         { "name": "lthash",                      "type": "slot_lthash" },
         { "name": "prev_banks_hash",             "type": "hash" },

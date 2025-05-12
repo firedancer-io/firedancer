@@ -139,6 +139,14 @@
 #define FD_BANK_MGR_SIGNATURE_CNT_FOOTPRINT (8UL)
 #define FD_BANK_MGR_SIGNATURE_CNT_ALIGN     (8UL)
 
+#define FD_BANK_MGR_STAKE_ACC_KEYS_ID        (26)
+#define FD_BANK_MGR_STAKE_ACC_KEYS_FOOTPRINT (5000000UL * 32UL)
+#define FD_BANK_MGR_STAKE_ACC_KEYS_ALIGN     (1024UL)
+
+#define FD_BANK_MGR_VOTE_ACC_KEYS_ID        (27)
+#define FD_BANK_MGR_VOTE_ACC_KEYS_FOOTPRINT (100000UL * 32UL)
+#define FD_BANK_MGR_VOTE_ACC_KEYS_ALIGN     (1024UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -201,6 +209,7 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                             execution_fees,              EXECUTION_FEES)              \
   X(ulong,                             priority_fees,               PRIORITY_FEES)               \
   X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       CLOCK_TIMESTAMP_VOTES)       \
-  X(ulong,                             signature_cnt,               SIGNATURE_CNT)
+  X(ulong,                             signature_cnt,               SIGNATURE_CNT)               \
+  X(fd_account_keys_global_t,          stake_account_keys,          STAKE_ACC_KEYS)              \
 
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)
