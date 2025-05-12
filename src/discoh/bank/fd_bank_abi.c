@@ -391,12 +391,12 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
     for( ulong j=0UL; j<lut->writable_cnt; j++ ) {
       uchar idx = payload[ lut->writable_off+j ];
       if( FD_UNLIKELY( idx>=active_addresses_len ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX;
-      memcpy( &out_lut_accts[ writable_idx++ ], addresses+idx, sizeof(fd_acct_addr_t) );
+      out_lut_accts[ writable_idx++ ] = addresses[ idx ];
     }
     for( ulong j=0UL; j<lut->readonly_cnt; j++ ) {
       uchar idx = payload[ lut->readonly_off+j ];
       if( FD_UNLIKELY( idx>=active_addresses_len ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX;
-      memcpy( &out_lut_accts[ txn->addr_table_adtl_writable_cnt+readable_idx++ ], addresses+idx, sizeof(fd_acct_addr_t) );
+      out_lut_accts[ txn->addr_table_adtl_writable_cnt+readable_idx++ ] = addresses[ idx ];
     }
   }
 

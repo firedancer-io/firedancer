@@ -33,7 +33,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
   for( ushort j=0U; j<acct_metas_len; j++ ) {
     fd_vm_rust_account_meta_t const * acct_meta     = &acct_metas[j];
     fd_pubkey_t const *               acct_key      = fd_type_pun_const( acct_meta->pubkey );
-    memcpy( &instr_acct_keys[j], acct_key, sizeof(fd_pubkey_t) );
+    instr_acct_keys[j] = *acct_key;
 
     int idx_in_txn    = fd_exec_txn_ctx_find_index_of_account( ctx->txn_ctx, acct_key );
     int idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( ctx, acct_key );

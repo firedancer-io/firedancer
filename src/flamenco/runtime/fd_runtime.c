@@ -173,10 +173,7 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
   fd_runtime_update_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ) );
 
   ulong               vote_acc_cnt  = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
-  fd_stake_weight_t * epoch_weights = fd_spad_alloc( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
-  if( FD_UNLIKELY( !epoch_weights ) ) {
-    FD_LOG_ERR(( "fd_spad_alloc() failed" ));
-  }
+  fd_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
 
   ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights, runtime_spad );
 
@@ -436,11 +433,11 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  ulong slot0 = slot_ctx->slot_bank.prev_slot;
+  ulong slot0 = (slot_ctx->slot_bank.prev_slot == 0) ? 0 :
+    slot_ctx->slot_bank.prev_slot + 1;   /* Accomodate skipped slots */
   ulong slot1 = slot_ctx->slot_bank.slot;
 
-  /* Accomodate skipped slots */
-  for( ulong s = slot0 + 1; s <= slot1; ++s ) {
+  for( ulong s = slot0; s <= slot1; ++s ) {
 
     ulong partition = fd_runtime_get_rent_partition( slot_ctx, s );
 
@@ -1538,9 +1535,8 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   *task_data = fd_spad_alloc( runtime_spad,
                               alignof(fd_accounts_hash_task_data_t),
                               sizeof(fd_accounts_hash_task_data_t) );
-  (*task_data)->lthash_values = fd_spad_alloc( runtime_spad,
-                                               alignof(fd_lthash_value_t),
-                                               lt_hash_cnt * sizeof(fd_lthash_value_t) );
+  (*task_data)->lthash_values = fd_spad_alloc_check(
+      runtime_spad, alignof(fd_lthash_value_t), lt_hash_cnt * sizeof(fd_lthash_value_t) );
 
   for( ulong i=0UL; i<lt_hash_cnt; i++ ) {
     fd_lthash_zero( &((*task_data)->lthash_values)[i] );
@@ -1598,7 +1594,7 @@ block_finalize_tpool_wrapper( void * para_arg_1,
   ulong                          worker_cnt = (ulong)arg_2;
   fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
 
-  ulong cnt_per_worker = (task_data->info_sz / (worker_cnt-1UL)) + 1UL;
+  ulong cnt_per_worker = (worker_cnt>1) ? (task_data->info_sz / (worker_cnt-1UL)) + 1UL : task_data->info_sz;
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
     if( start_idx >= task_data->info_sz ) {
@@ -3411,6 +3407,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   fd_acc_lamports_t capitalization = 0UL;
 
+  FD_FEATURE_SET_ACTIVE(slot_ctx->epoch_ctx->features, disable_partitioned_rent_collection, 0);
+  FD_FEATURE_SET_ACTIVE(slot_ctx->epoch_ctx->features, accounts_lt_hash, 0);
+  FD_FEATURE_SET_ACTIVE(slot_ctx->epoch_ctx->features, remove_accounts_delta_hash, 0);
+
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
@@ -3617,20 +3617,22 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_update_leaders( slot_ctx, 0, runtime_spad );
 
-  fd_funk_t *     funk = slot_ctx->funk;
-  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_partitioned_rent_collection ) ) {
+    fd_funk_t *     funk = slot_ctx->funk;
+    fd_funk_txn_t * txn  = slot_ctx->funk_txn;
 
-  /* Add all the genesis accounts into the rent fresh list */
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
-       NULL != rec;
-       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+    /* Add all the genesis accounts into the rent fresh list */
+    for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+         NULL != rec;
+         rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
-    if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
-      continue;
+      if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
+        continue;
+      }
+
+      fd_funk_rec_key_t const * pubkey = rec->pair.key;
+      fd_runtime_register_new_fresh_account( slot_ctx, (fd_pubkey_t * const ) fd_type_pun_const(&pubkey->uc[0]) );
     }
-
-    fd_funk_rec_key_t const * pubkey = rec->pair.key;
-    fd_runtime_register_new_fresh_account( slot_ctx, (fd_pubkey_t * const ) fd_type_pun_const(&pubkey->uc[0]) );
   }
 
   fd_runtime_freeze( slot_ctx, runtime_spad );
@@ -3674,17 +3676,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_epoch_bank_t *   epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-
-  /* Allocate all the memory for the rent fresh accounts lists */
-  fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
-  fd_rent_fresh_accounts_new( &slot_bank->rent_fresh_accounts );
-  slot_bank->rent_fresh_accounts.total_count        = 0UL;
-  slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
-  slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
-    runtime_spad,
-    FD_RENT_FRESH_ACCOUNT_ALIGN,
-    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
 
   fd_genesis_solana_t * genesis_block;
   fd_hash_t             genesis_hash;

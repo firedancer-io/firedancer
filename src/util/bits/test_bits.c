@@ -1151,6 +1151,54 @@ main( int     argc,
     }
   }
 
+  if( 1 ) {
+    FD_LOG_NOTICE(( "Testing integer math" ));
+
+    ulong iter_cnt = (ulong)1e8;
+    for( ulong iter_idx=0UL; iter_idx<iter_cnt; iter_idx++ ) {
+      ulong x;
+
+      if(      FD_LIKELY( iter_idx>=(1UL<<25) ) ) x = fd_rng_ulong( rng ) >> (int)(fd_rng_uint( rng ) & 63U);
+      else if( FD_LIKELY( iter_idx>=(1UL<<24) ) ) x = ULONG_MAX - (iter_idx-(1UL<<24));
+      else if( FD_LIKELY( iter_idx>=192UL     ) ) x = (iter_idx-192UL);
+      else if( FD_LIKELY( iter_idx>=128UL     ) ) x = (1UL << (iter_idx-128UL))+1UL;
+      else if( FD_LIKELY( iter_idx>=64UL      ) ) x = (1UL << (iter_idx-64UL ))-1UL;
+      else                                        x =  1UL <<  iter_idx;
+
+      ulong yr = fd_ulong_round_sqrt ( x );
+      ulong yf = fd_ulong_floor_sqrt ( x );
+      ulong yc = fd_ulong_ceil_sqrt  ( x );
+      ulong ya = fd_ulong_approx_sqrt( x );
+
+      ulong zr = fd_ulong_round_cbrt ( x );
+      ulong zf = fd_ulong_floor_cbrt ( x );
+      ulong zc = fd_ulong_ceil_cbrt  ( x );
+      ulong za = fd_ulong_approx_cbrt( x );
+
+      if( FD_UNLIKELY( !x ) ) {
+        FD_TEST( !yr );
+        FD_TEST( !yf );
+        FD_TEST( !yc );
+        FD_TEST( !ya );
+
+        FD_TEST( !zr );
+        FD_TEST( !zf );
+        FD_TEST( !zc );
+        FD_TEST( !za );
+      } else {
+        long rr = (long)((x-yr*yr) + yr - 1UL); FD_TEST( (0L<=rr) & (rr<(long)(2UL*yr    )) );
+        long rf = (long)(x-yf*yf);              FD_TEST( (0L<=rf) & (rf<(long)(2UL*yf+1UL)) );
+        long rc = (long)(yc*yc-x);              FD_TEST( (0L<=rc) & (rc<(long)(2UL*yc-1UL)) );
+        FD_TEST( ((yf-(yc>>8))<=ya) & (ya<=(yc+(yc>>8))) );
+
+        ulong zr2 = zr*zr; rr = (long)(4UL*(x-zr*zr2) + 6UL*zr2 - 3UL*zr); FD_TEST( (0L<=rr) & (rr<(long)(12UL*zr2     + 1UL)) );
+        ulong zf2 = zf*zf; rf = (long)(x-zf*zf2);                          FD_TEST( (0L<=rf) & (rf<(long)(3UL*(zf2+zf) + 1UL)) );
+        ulong zc2 = zc*zc; rc = (long)(zc*zc2-x);                          FD_TEST( (0L<=rc) & (rc<(long)(3UL*(zc2-zc) + 1UL)) );
+        FD_TEST( ((zf-(zc>>7))<=za) & (za<=(zc+(zc>>7))) );
+      }
+    }
+  }
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));

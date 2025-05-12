@@ -1,7 +1,6 @@
 #include "../shared/fd_config.h"
 #include "../../disco/topo/fd_pod_format.h"
 
-#include "../../funk/fd_funk.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -13,9 +12,10 @@
   __x; }))
 
 static ulong
-runtime_pub_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                      fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_runtime_public_footprint();
+runtime_pub_footprint( fd_topo_t const *     topo,
+                       fd_topo_obj_t const * obj ) {
+  (void)topo;
+  return fd_runtime_public_footprint( VAL("mem_max") );
 }
 
 static ulong
@@ -26,8 +26,8 @@ runtime_pub_align( fd_topo_t const *     topo FD_FN_UNUSED,
 
 static void
 runtime_pub_new( fd_topo_t const *     topo,
-                fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_runtime_public_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+                 fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_runtime_public_new( fd_topo_obj_laddr( topo, obj->id ), VAL("mem_max") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub = {
@@ -65,7 +65,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_blockstore = {
 static ulong
 txncache_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
-  return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+  return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), VAL("max_constipated_slots") );
 }
 
 static ulong
@@ -77,7 +77,7 @@ txncache_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 txncache_new( fd_topo_t const *     topo,
               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_txncache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  FD_TEST( fd_txncache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), VAL("max_constipated_slots") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_txncache = {

@@ -137,8 +137,8 @@ fetch () {
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "efa579c"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.6.0"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.7.4"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
   fi
@@ -351,9 +351,13 @@ install_libcxx () {
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR="lib" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
+    -DLLVM_DIR=".." \
+    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
     -DLLVM_USE_SANITIZER=Memory \
-    -DLLVM_ENABLE_PIC=ON
+    -DLLVM_ENABLE_PIC=ON \
+    -DLLVM_INCLUDE_TESTS=OFF \
+    -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
+    -DLIBCXXABI_USE_LLVM_UNWINDER=OFF
 
   echo "[+] Building libcxx"
   "${MAKE[@]}" cxx cxxabi
@@ -410,6 +414,8 @@ install_secp256k1 () {
     -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
     -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
     -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
+    -DSECP256K1_ENABLE_MODULE_MUSIG=OFF \
+    -DSECP256K1_ENABLE_MODULE_ELLSWIFT=OFF \
     -DCMAKE_C_FLAGS_RELEASE="-O3" \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_C_FLAGS="$EXTRA_CFLAGS" \
@@ -570,8 +576,8 @@ install () {
   ( install_lz4       )
   ( install_s2n       )
   #( install_openssl   )
+  ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_secp256k1 )
     ( install_snappy    )
     ( install_rocksdb   )
   fi

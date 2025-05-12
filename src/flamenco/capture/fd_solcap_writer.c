@@ -422,7 +422,7 @@ fd_solcap_write_account2( fd_solcap_writer_t *             writer,
 
   if( writer->account_idx < FD_SOLCAP_ACC_TBL_CNT ) {
     fd_solcap_account_tbl_t * account = &writer->accounts[ writer->account_idx ];
-    memcpy( account, tbl, sizeof(fd_solcap_account_tbl_t) );
+    *account = *tbl;
 
     /* Since we don't yet know the final position of the account table,
        we temporarily store a global offset.  This will later get

@@ -65,7 +65,11 @@ fd_epoch_forks_publish( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost, ulon
    or returns the existing entry associated with the fork crossing the epoch boundary.
    Crashes with CRIT if we have exceeded max forks. */
 uint
-fd_epoch_forks_prepare( fd_epoch_forks_t * epoch_forks, ulong parent_slot, ulong new_epoch, fd_epoch_fork_elem_t ** out_fork );
+fd_epoch_forks_prepare( fd_epoch_forks_t *      epoch_forks,
+                        ulong                   parent_slot,
+                        ulong                   new_epoch,
+                        fd_epoch_fork_elem_t ** out_fork,
+                        ulong                   vote_accounts_max );
 
 /* epoch_forks_get_epoch_ctx returns the correct entry index for the current epoch, or
    in the case of a new epoch fork, the correct entry index related to the fork. */

@@ -317,7 +317,7 @@ fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
 void
 fd_topo_print_log( int         stdout,
                    fd_topo_t * topo ) {
-  char message[ 16UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
+  char message[ 32UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
 
   char * cur = message;
   ulong remaining = sizeof(message) - 1; /* Leave one character at the end to ensure NUL terminated */
@@ -486,7 +486,7 @@ fd_topo_print_log( int         stdout,
     for( ulong j=0UL; j<tile->uses_obj_cnt; j++ ) {
       if( FD_LIKELY( j!=0 ) ) PRINT( " " );
       int is_rw = tile->uses_obj_mode[ j ] == FD_SHMEM_JOIN_MODE_READ_WRITE;
-      PRINT( "%lu:%.*s", tile->uses_obj_id[ j ], is_rw?2:1, is_rw?"rw":"ro" );
+      PRINT( "%lu:%s", tile->uses_obj_id[ j ], is_rw?"rw":"ro" );
     }
     PRINT( "]" );
 

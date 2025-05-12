@@ -22,6 +22,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub;
 extern fd_topo_obj_callbacks_t fd_obj_cb_blockstore;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_exec_spad;
+extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -39,6 +40,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_blockstore,
   &fd_obj_cb_txncache,
   &fd_obj_cb_exec_spad,
+  &fd_obj_cb_funk,
   NULL,
 };
 
@@ -94,6 +96,7 @@ extern fd_topo_run_tile_t fd_tile_restart;
 extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
+extern fd_topo_run_tile_t fd_tile_archiver_backtest;
 
 extern fd_topo_run_tile_t fd_tile_snapshot_restore_FileRd;
 extern fd_topo_run_tile_t fd_tile_snapshot_restore_SnapIn;
@@ -132,6 +135,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_feeder,
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
+  &fd_tile_archiver_backtest,
   &fd_tile_snapshot_restore_FileRd,
   &fd_tile_snapshot_restore_SnapIn,
   &fd_tile_snapshot_restore_ActAlc,
@@ -162,6 +166,7 @@ extern action_t fd_action_txn;
 extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
 extern action_t fd_action_sim;
+extern action_t fd_action_backtest;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -187,6 +192,7 @@ action_t * ACTIONS[] = {
   &fd_action_wksp,
   &fd_action_gossip,
   &fd_action_sim,
+  &fd_action_backtest,
   NULL,
 };
 

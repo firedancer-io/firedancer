@@ -125,17 +125,20 @@ create_genesis( config_t const * config,
   uchar const * identity_pubkey_ = fd_keyload_load( config->paths.identity_key, 1 );
   if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
   memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
+  fd_keyload_unload( identity_pubkey_, 1 );
 
   char file_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
   uchar const * faucet_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !faucet_pubkey_ ) ) FD_LOG_ERR(( "Failed to load faucet key" ));
   memcpy( options->faucet_pubkey.key, faucet_pubkey_, 32 );
+  fd_keyload_unload( faucet_pubkey_, 1 );
 
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
   uchar const * stake_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !stake_pubkey_ ) ) FD_LOG_ERR(( "Failed to load stake account key" ));
   memcpy( options->stake_pubkey.key, stake_pubkey_, 32 );
+  fd_keyload_unload( stake_pubkey_, 1 );
 
   if( !strcmp( config->paths.vote_account, "" ) ) {
     FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->paths.base ) );
@@ -146,7 +149,7 @@ create_genesis( config_t const * config,
   uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !vote_pubkey_ ) ) FD_LOG_ERR(( "Failed to load vote account key" ));
   memcpy( options->vote_pubkey.key, vote_pubkey_, 32 );
-
+  fd_keyload_unload( vote_pubkey_, 1 );
 
   options->creation_time      = (ulong)fd_log_wallclock() / (ulong)1e9;
   options->faucet_balance     = 500000000000000000UL;
@@ -208,11 +211,6 @@ create_genesis( config_t const * config,
   if( FD_UNLIKELY( !blob_sz ) ) FD_LOG_ERR(( "Failed to create genesis blob" ));
 
   fd_scratch_detach( NULL );
-
-  fd_keyload_unload( identity_pubkey_, 1 );
-  fd_keyload_unload( faucet_pubkey_, 1 );
-  fd_keyload_unload( stake_pubkey_, 1 );
-  fd_keyload_unload( vote_pubkey_, 1 );
 
   return blob_sz;
 }

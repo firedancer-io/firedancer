@@ -101,10 +101,9 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   if( FD_UNLIKELY( !slot_hashes_global ) ) {
     /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
     void * mem = fd_spad_alloc( runtime_spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
-    slot_hashes_global = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP ), &hashes );
-  } else {
-    hashes = deq_fd_slot_hash_t_join( (uchar*)slot_hashes_global + slot_hashes_global->hashes_offset );
+    slot_hashes_global = fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP );
   }
+  slot_hashes_global = fd_sysvar_slot_hashes_join( slot_hashes_global, &hashes );
 
   uchar found = 0;
   for( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
@@ -112,7 +111,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
        iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
     if( ele->slot == slot_ctx->slot_bank.slot ) {
-      memcpy( &ele->hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
+      ele->hash = slot_ctx->slot_bank.banks_hash;
       found = 1;
     }
   }

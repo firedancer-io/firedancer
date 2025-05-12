@@ -108,7 +108,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
 
     struct ifinfomsg * msg    = NLMSG_DATA( nlh );
     struct rtattr *    rat    = (void *)( (ulong)msg + NLMSG_ALIGN( sizeof(struct ifinfomsg) ) );
-    long               rat_sz = (long)nlh->nlmsg_len - (long)NLMSG_ALIGN( sizeof(struct ifinfomsg) );
+    long               rat_sz = (long)NLMSG_PAYLOAD( nlh, sizeof(struct ifinfomsg) );
 
     fd_netdev_t netdev[1];
     fd_netdev_init( netdev );

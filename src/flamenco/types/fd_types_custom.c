@@ -1,6 +1,7 @@
 #include "fd_types_custom.h"
 #include "fd_bincode.h"
 #include "fd_types.h"
+#include "fd_types_meta.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -89,9 +90,17 @@ fd_gossip_ip4_addr_walk( void *                       w,
                          char const *                 name,
                          uint                         level ) {
 
-  char buf[ 16 ];
-  sprintf( buf, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *self ) );
-  fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip4_addr", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip4_addr", level++ );
+  uchar * octet = (uchar *)self;
+  for( uchar i = 0; i < 4; ++i ) {
+    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip4_addr", level-- );
+  /* TODO: Add support for optional pretty-printing like serde?
+     Saving this in the meantime */
+  // char buf[ 16 ];
+  // sprintf( buf, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *self ) );
+  // fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip4_addr", level );
 }
 
 void
@@ -100,19 +109,21 @@ fd_gossip_ip6_addr_walk( void *                       w,
                          fd_types_walk_fn_t           fun,
                          char const *                 name,
                          uint                         level ) {
-
-  char buf[ 40 ];
-  sprintf( buf,
-           "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-           FD_LOG_HEX16_FMT_ARGS( self->us ) );
-  fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip6_addr", level++ );
+  uchar * octet = (uchar *)self;
+  for( uchar i = 0; i < 16; ++i ) {
+    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip6_addr", level-- );
+  /* Saving this for when we support configurable pretty-printing mode */
+  // char buf[ 40 ];
+  // sprintf( buf,
+  //          "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+  //          FD_LOG_HEX16_FMT_ARGS( self->us ) );
+  // fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
 }
 
 int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  FD_LOG_ERR(( "todo"));
-}
-
-int fd_tower_sync_encode_global( fd_tower_sync_global_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   FD_LOG_ERR(( "todo"));
 }
 

@@ -266,6 +266,33 @@ user = ""
     # entrypoint validator is using.
     expected_shred_version = 0
 
+[runtime]
+    # Specifies the size in gigibytes of the runtime heap allocator.
+    #
+    # Persistent usages of the runtime heap include:
+    # - Epoch state (scales with number of vote and stake accounts)
+    # - Slot state (scale with number of vote accounts)
+    # - Sysvar cache (tiny)
+    #
+    # Notable temporary usages of the runtime heap include:
+    # - Computing a full/snapshot account hash (scales with number of
+    #   funk records / accounts)
+    # - Snapshot deserialize scratch space (~8 GiB)
+    # - Computing bank hashes
+    # - Distributing stake rewards
+    #
+    # Full Firedancer still lacks an ability to robustly scale above
+    # runtime heap allocations dynamically.  Thus, a conservative
+    # default is chosen below.
+    heap_size_gib = 50
+
+    [runtime.limits]
+        max_rooted_slots = 300
+        max_live_slots = 2048
+        max_transactions_per_slot = 65536
+        snapshot_grace_period_seconds = 409
+        max_vote_accounts = 2000000
+
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
 # accounts will be offloaded to the "groove" database.
@@ -276,9 +303,9 @@ user = ""
     # consensus (typically takes 13 seconds).
     max_account_records = 10_000_000
 
-    # The size of the funk heap in gigabytes.  This value must be large
+    # The size of the funk heap in gibibytes.  This value must be large
     # enough to store all Solana accounts uncompressed.
-    heap_size_gb = 32
+    heap_size_gib = 32
 
     # The max amount of concurrent database transactions.  These are
     # used to track conflicting versions of accounts until such
@@ -288,27 +315,6 @@ user = ""
     # that is not yet finalized.  It is not recommended to change this
     # setting.
     max_database_transactions = 1024
-
-    # If this option is set to 'false', `firedancer configure` may
-    # destroy a funk database and all its data (e.g. because config
-    # parameters changed, or `configure fini` requested).
-    # If set to 'true', running the `firedancer` command will never
-    # delete the funk database.
-    delete_protection = true
-
-    # Optionally, a funk database can be memory-mapped from a regular
-    # file.  This feature reducees performance significantly.  It allows
-    # a validator to operate even when account set size exceeds the
-    # amount of available DRAM.  This feature will be eventually
-    # replaced by the "groove" database, see below.
-    [funk.filemap]
-        # If set to "true", uses a regular file to store the funk
-        # database.  Otherwise, uses shared memory via hugetlbfs/tmpfs.
-        enable = false
-
-        # The absolute path to the funk file.  Ignored if filemap is not
-        # enabled.
-        path = "/tmp/funk.bin"
 
 # This section configures the "groove" persistent account database.
 # [groove]
@@ -1035,6 +1041,22 @@ user = ""
         incremental = ""
         incremental_url = ""
 
+        # Absolute path to the directory to store downloaded snapshots.
+        #
+        # If not specified, the validator will download snapshots into
+        # memory buffers.  When the validator shuts down, there will be
+        # no snapshot files on disk.
+        #
+        # If specified, the validator will download snapshots into the
+        # specified directory.  Moreover, on subsequent validator
+        # restarts, the validator will check for snapshot files in the
+        # specified directory first, before attempting to download over
+        # the network.
+        #
+        # Therefore, it is recommended to specify this if large full
+        # snapshots and frequent validator restarts are expected.
+        snapshot_dir = ""
+
         cluster_version =  "1.18.0"
 
     # The metric tile receives metrics updates published from the rest
@@ -1098,7 +1120,7 @@ user = ""
         send_buffer_size_mb = 5120
 
     [tiles.restart]
-        in_wen_restart = false
+        enabled = false
 
     [tiles.archiver]
         enabled = false

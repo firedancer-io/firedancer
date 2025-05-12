@@ -89,7 +89,7 @@ signal_leader_change( void * _arg FD_PARAM_UNUSED ) {
 }
 
 static void *
-get_mircoblock_buffer( void * _arg ) {
+get_microblock_buffer( void * _arg ) {
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_arg;
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
   return dst;
@@ -172,24 +172,23 @@ fd_poh_initialize( fd_poh_ctx_t * ctx,
    be ticking on top of the block it produced. */
 
 FD_FN_CONST static inline ulong
-scratch_align( void ) {
+fd_pohi_scratch_align( void ) {
   return 128UL;
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
+fd_pohi_scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_poh_tile_align(), fd_poh_tile_footprint() );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  return FD_LAYOUT_FINI( l, fd_pohi_scratch_align() );
 }
 
 static inline void
-after_credit( fd_poh_ctx_t *      ctx,
-              fd_stem_context_t * stem,
-              int *               opt_poll_in,
-              int *               charge_busy ) {
+fd_pohi_after_credit( fd_poh_ctx_t *      ctx,
+                      fd_stem_context_t * stem,
+                      int *               opt_poll_in,
+                      int *               charge_busy ) {
   ctx->stem = stem;
 
   if( FD_UNLIKELY( !ctx->is_initialized ) ) return;
@@ -214,18 +213,18 @@ after_credit( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-during_housekeeping( fd_poh_ctx_t * ctx ) {
+fd_pohi_during_housekeeping( fd_poh_ctx_t * ctx ) {
   fd_poh_tile_during_housekeeping( ctx->poh_tile_ctx );
 }
 
 static inline void
-during_frag( fd_poh_ctx_t * ctx,
-             ulong         in_idx,
-             ulong         seq FD_PARAM_UNUSED,
-             ulong         sig,
-             ulong         chunk,
-             ulong         sz,
-             ulong         ctl FD_PARAM_UNUSED ) {
+fd_pohi_during_frag( fd_poh_ctx_t * ctx,
+                      ulong         in_idx,
+                      ulong         seq FD_PARAM_UNUSED,
+                      ulong         sig,
+                      ulong         chunk,
+                      ulong         sz,
+                      ulong         ctl FD_PARAM_UNUSED ) {
 
   ctx->filter_frag = 0;
 
@@ -302,18 +301,14 @@ during_frag( fd_poh_ctx_t * ctx,
 }
 
 static inline void
-after_frag( fd_poh_ctx_t *      ctx,
-            ulong               in_idx,
-            ulong               seq,
-            ulong               sig,
-            ulong               sz,
-            ulong               tsorig,
-            ulong               tspub,
-            fd_stem_context_t * stem ) {
-  (void)seq;
-  (void)tsorig;
-  (void)tspub;
-  (void)stem;
+fd_pohi_after_frag( fd_poh_ctx_t *      ctx,
+                    ulong               in_idx,
+                    ulong               seq FD_PARAM_UNUSED,
+                    ulong               sig,
+                    ulong               sz,
+                    ulong               tsorig FD_PARAM_UNUSED,
+                    ulong               tspub FD_PARAM_UNUSED,
+                    fd_stem_context_t * stem FD_PARAM_UNUSED) {
 
   if( FD_UNLIKELY( ctx->filter_frag ) ) return;
 
@@ -350,7 +345,7 @@ after_frag( fd_poh_ctx_t *      ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
+fd_pohi_privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
@@ -366,8 +361,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+fd_pohi_unprivileged_init( fd_topo_t *      topo,
+                           fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -379,7 +374,7 @@ unprivileged_init( fd_topo_t *      topo,
       __x; }))
 
   // TODO: scratch alloc needs fixing!
-  fd_poh_tile_new( ctx->poh_tile_ctx, ctx, get_mircoblock_buffer, publish_microblock, get_pack_buffer, publish_pack, register_tick, signal_leader_change );
+  fd_poh_tile_new( ctx->poh_tile_ctx, ctx, get_microblock_buffer, publish_microblock, get_pack_buffer, publish_pack, register_tick, signal_leader_change );
 
   ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
   FD_TEST( poh_slot_obj_id!=ULONG_MAX );
@@ -435,8 +430,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_out_chunk  = ctx->pack_out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + fd_pohi_scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - fd_pohi_scratch_footprint( tile ), scratch_top, (ulong)scratch + fd_pohi_scratch_footprint( tile ) ));
 }
 
 /* One tick, one microblock, and one leader update. */
@@ -448,10 +443,10 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_AFTER_CREDIT        after_credit
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING fd_pohi_during_housekeeping
+#define STEM_CALLBACK_AFTER_CREDIT        fd_pohi_after_credit
+#define STEM_CALLBACK_DURING_FRAG         fd_pohi_during_frag
+#define STEM_CALLBACK_AFTER_FRAG          fd_pohi_after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
@@ -459,9 +454,9 @@ fd_topo_run_tile_t fd_tile_pohi = {
   .name                     = "pohi",
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
-  .scratch_align            = scratch_align,
-  .scratch_footprint        = scratch_footprint,
-  .privileged_init          = privileged_init,
-  .unprivileged_init        = unprivileged_init,
+  .scratch_align            = fd_pohi_scratch_align,
+  .scratch_footprint        = fd_pohi_scratch_footprint,
+  .privileged_init          = fd_pohi_privileged_init,
+  .unprivileged_init        = fd_pohi_unprivileged_init,
   .run                      = stem_run,
 };

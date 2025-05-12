@@ -70,11 +70,8 @@ echo "
     file = \"/tmp/localnet.blockstore\"
 [funk]
     max_account_records = 10000000
-    heap_size_gb = 32
+    heap_size_gib = 32
     max_database_transactions = 1024
-    [funk.filemap]
-        enabled = true
-        path = \"/tmp/localnet.funk\"
 [log]
     path = \"firedancer-dev.log\"
     level_stderr = \"INFO\"

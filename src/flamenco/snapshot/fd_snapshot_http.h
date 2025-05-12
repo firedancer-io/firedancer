@@ -15,6 +15,7 @@
 #define FD_SNAPSHOT_HTTP_STATE_RESP  (2) /* receiving response headers */
 #define FD_SNAPSHOT_HTTP_STATE_DL    (3) /* downloading response body */
 #define FD_SNAPSHOT_HTTP_STATE_DONE  (4) /* downloading done */
+#define FD_SNAPSHOT_HTTP_STATE_READ  (5) /* reading snapshot file */
 #define FD_SNAPSHOT_HTTP_STATE_FAIL (-1) /* fatal error */
 
 /* Request size limits */
@@ -23,6 +24,7 @@
 #define FD_SNAPSHOT_HTTP_REQ_PATH_MAX   (508UL)
 #define FD_SNAPSHOT_HTTP_RESP_HDR_CNT    (32UL)
 #define FD_SNAPSHOT_HTTP_RESP_BUF_MAX (1UL<<20)
+#define FD_SNAPSHOT_HTTP_FILE_PATH_MAX (4096UL)
 
 /* FD_SNAPSHOT_HTTP_DEFAULT_HOPS is the number of directs to follow
    by default. */
@@ -84,6 +86,14 @@ struct fd_snapshot_http {
   /* Total written out so far */
 
   ulong write_total;
+
+  /* Snapshot file */
+
+  char  snapshot_path[ FD_SNAPSHOT_HTTP_FILE_PATH_MAX ];
+  ulong snapshot_filename_off;
+  ulong snapshot_filename_max;
+  int   snapshot_fd;
+  uchar save_snapshot;
 };
 
 typedef struct fd_snapshot_http fd_snapshot_http_t;
@@ -93,6 +103,7 @@ fd_snapshot_http_new( void *               mem,
                       const char *         dst_str,
                       uint                 dst_ipv4,
                       ushort               dst_port,
+                      const char *         snapshot_dir,
                       fd_snapshot_name_t * name_out );
 
 void *
@@ -109,7 +120,7 @@ fd_snapshot_http_set_timeout( fd_snapshot_http_t * this,
 /* fd_snapshot_http_set_path sets the path of the next request.  Should
    start with '/'. */
 
-int
+void
 fd_snapshot_http_set_path( fd_snapshot_http_t * this,
                            char const *         path,
                            ulong                path_len,

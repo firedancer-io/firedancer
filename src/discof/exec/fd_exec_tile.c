@@ -1,5 +1,3 @@
-#include <stdlib.h>
-#define _GNU_SOURCE
 #include "../../disco/tiles.h"
 #include "generated/fd_exec_tile_seccomp.h"
 
@@ -12,7 +10,6 @@
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 
 #include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_filemap.h"
 
 struct fd_exec_tile_out_ctx {
   ulong       idx;
@@ -118,9 +115,7 @@ struct fd_exec_tile_ctx {
   int                   pending_slot_pop;
   int                   pending_epoch_pop;
 
-  /* Funk-specific setup.  */
   fd_funk_t             funk[1];
-  fd_wksp_t *           funk_wksp;
 
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
@@ -426,7 +421,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
       fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      fd_memcpy( &ctx->txn, &txn->txn, sizeof(fd_txn_p_t) );
+      ctx->txn = txn->txn;
       execute_txn( ctx );
       return;
     } else if( sig==EXEC_NEW_SLOT_SIG ) {
@@ -611,7 +606,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join runtime public" ));
   }
 
-  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Failed to get and join runtime spad" ));
   }
@@ -642,19 +637,9 @@ unprivileged_init( fd_topo_t *      topo,
   /* funk-specific setup                                              */
   /********************************************************************/
 
-  /* Setting these parameters are not required because we are joining
-     the funk that was setup in the replay tile. */
-  FD_LOG_NOTICE(( "Trying to join funk at file=%s", tile->exec.funk_file ));
-  fd_funk_txn_start_write( NULL );
-  if( FD_UNLIKELY( !fd_funk_open_file(
-      ctx->funk, tile->exec.funk_file,
-      1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL ) ) ) {
-    FD_LOG_ERR(( "fd_funk_open_file(%s) failed", tile->exec.funk_file ));
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
   }
-  fd_funk_txn_end_write( NULL );
-  ctx->funk_wksp = fd_funk_wksp( ctx->funk );
-
-  FD_LOG_NOTICE(( "Just joined funk at file=%s", tile->exec.funk_file ));
 
   //FIXME
   /********************************************************************/
@@ -667,7 +652,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_spad_push( ctx->exec_spad );
   // FIXME account for this in exec spad footprint
-  uchar * txn_ctx_mem   = fd_spad_alloc( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  uchar * txn_ctx_mem   = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
   *ctx->txn_ctx->funk   = *ctx->funk;
 

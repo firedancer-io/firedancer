@@ -107,13 +107,21 @@ struct fd_configf {
   } blockstore;
 
   struct {
-    ulong max_account_records;
-    ulong heap_size_gb;
-    ulong max_database_transactions;
+    ulong heap_size_gib;
+
     struct {
-      int  enabled;
-      char path[ PATH_MAX ];
-    } filemap;
+      ulong max_rooted_slots;
+      ulong max_live_slots;
+      ulong max_transactions_per_slot;
+      ulong snapshot_grace_period_seconds;
+      ulong max_vote_accounts;
+    } limits;
+  } runtime;
+
+  struct {
+    ulong max_account_records;
+    ulong heap_size_gib;
+    ulong max_database_transactions;
   } funk;
 
   struct {
@@ -373,9 +381,12 @@ struct fd_config {
       char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  snapshot_url[ PATH_MAX ];
+      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
+      ulong enable_features_cnt;
+      char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
 
     struct {
@@ -392,13 +403,14 @@ struct fd_config {
     } batch;
 
     struct {
-      int   in_wen_restart;
+      int   enabled;
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } restart;
 
     struct {
       int   enabled;
+      ulong end_slot;
       char  archiver_path[ PATH_MAX ];
     } archiver;
 

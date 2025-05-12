@@ -106,7 +106,7 @@ before_frag( fd_bank_ctx_t * ctx,
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
 extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps );
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
@@ -204,6 +204,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uint consumed_exec_cus     [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   uint consumed_acct_data_cus[   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps       [ 3*MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  ulong out_tips             [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
   void * pre_balance_info = fd_ext_bank_pre_balance_info( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt );
 
@@ -214,7 +215,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       transaction_err,
                                                                       consumed_exec_cus,
                                                                       consumed_acct_data_cus,
-                                                                      out_timestamps );
+                                                                      out_timestamps,
+                                                                      out_tips );
 
   ulong sanitized_idx = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -473,7 +475,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
      all the data around. */
   fd_txn_p_t bundle_txn_temp[ 5UL ];
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_memcpy( bundle_txn_temp+i, txns+i, sizeof(fd_txn_p_t) );
+    bundle_txn_temp[ i ] = txns[ i ];
   }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -491,9 +493,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
     long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
 
-    long tx_start_ticks     = (long)out_timestamps[ 0 ];
-    long tx_load_end_ticks  = (long)out_timestamps[ 1 ];
-    long tx_end_ticks       = (long)out_timestamps[ 2 ];
+    long tx_start_ticks     = (long)out_timestamps[ 3*i + 0 ];
+    long tx_load_end_ticks  = (long)out_timestamps[ 3*i + 1 ];
+    long tx_end_ticks       = (long)out_timestamps[ 3*i + 2 ];
 
     trailer->txn_start_pct    = (uchar)(((double)(tx_start_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
     trailer->txn_load_end_pct = (uchar)(((double)(tx_load_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);

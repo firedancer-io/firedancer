@@ -28,8 +28,11 @@ union __attribute__((packed)) fd_hash {
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
 
-static const fd_pubkey_t pubkey_null = { 0 };
-static const fd_hash_t   hash_null   = { 0 };
+FD_FN_PURE static inline int
+fd_hash_eq( fd_hash_t const * a,
+            fd_hash_t const * b ) {
+  return 0==memcmp( a, b, sizeof(fd_hash_t) );
+}
 
 union fd_signature {
   uchar uc[ 64 ];
@@ -37,7 +40,6 @@ union fd_signature {
 };
 
 typedef union fd_signature fd_signature_t;
-typedef union fd_signature fd_signature_global_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -55,9 +57,7 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode_footprint        fd_hash_decode_footprint
 #define fd_pubkey_decode_footprint_inner  fd_hash_decode_footprint_inner
 #define fd_pubkey_decode                  fd_hash_decode
-#define fd_pubkey_decode_global           fd_hash_decode_global
-#define fd_pubkey_decode_inner_global     fd_hash_decode_inner_global
-#define fd_pubkey_convert_global_to_local fd_hash_convert_global_to_local
+#define fd_pubkey_eq                      fd_hash_eq
 
 struct __attribute__((aligned(8UL))) fd_option_slot {
   uchar is_some;
@@ -88,14 +88,6 @@ union fd_gossip_ip6_addr {
 
 typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
 #define FD_GOSSIP_IP6_ADDR_ALIGN alignof(fd_gossip_ip6_addr_t)
-
-union fd_gossip_ip6_addr_global {
-  uchar  uc[ 16 ];
-  ushort us[  8 ];
-  uint   ul[  4 ];
-};
-
-typedef union fd_gossip_ip6_addr_global fd_gossip_ip6_addr_global_t;
 
 int
 fd_solana_vote_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );

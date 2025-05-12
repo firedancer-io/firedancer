@@ -93,7 +93,7 @@ fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   slot_ctx->slot_bank.lamports_per_signature = lamports_per_signature;
-  fd_memcpy(&slot_ctx->slot_bank.fee_rate_governor, &me, sizeof(fd_fee_rate_governor_t));
+  slot_ctx->slot_bank.fee_rate_governor      = me;
 }
 
 void

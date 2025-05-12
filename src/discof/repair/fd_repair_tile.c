@@ -332,7 +332,7 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
   fd_gossip_ping_t * pong = &protocol.inner.pong;
 
-  fd_hash_copy( &pong->from, glob->public_key );
+  pong->from = *glob->public_key;
 
   /* Generate response hash token */
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
@@ -501,8 +501,8 @@ fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * g
         glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
         fd_repair_window_index_t * wi = &protocol.inner.window_index;
-        fd_hash_copy(&wi->header.sender, glob->public_key);
-        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.sender = *glob->public_key;
+        wi->header.recipient = active->key;
         wi->header.timestamp = (ulong)glob->now/1000000L;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
@@ -515,8 +515,8 @@ fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * g
         glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
         fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
-        fd_hash_copy(&wi->header.sender, glob->public_key);
-        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.sender = *glob->public_key;
+        wi->header.recipient = active->key;
         wi->header.timestamp = (ulong)glob->now/1000000L;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
@@ -529,8 +529,8 @@ fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * g
         glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
         fd_repair_orphan_t * wi = &protocol.inner.orphan;
-        fd_hash_copy(&wi->header.sender, glob->public_key);
-        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.sender = *glob->public_key;
+        wi->header.recipient = active->key;
         wi->header.timestamp = (ulong)glob->now/1000000L;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
@@ -630,7 +630,7 @@ fd_repair_send_ping( fd_repair_tile_ctx_t        * repair_tile_ctx,
   fd_repair_response_t gmsg;
   fd_repair_response_new_disc( &gmsg, fd_repair_response_enum_ping );
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
-  fd_hash_copy( &ping->from, glob->public_key );
+  ping->from = *glob->public_key;
 
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
   memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
@@ -651,7 +651,7 @@ fd_repair_send_ping( fd_repair_tile_ctx_t        * repair_tile_ctx,
 static void
 fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip_peer_addr_t const * from) {
   fd_pinged_elem_t * val = fd_pinged_table_query(glob->pinged, from, NULL);
-  if( val == NULL || !fd_hash_eq( &val->id, &pong->from ) )
+  if( val == NULL || !fd_pubkey_eq( &val->id, &pong->from ) )
     return;
 
   /* Verify response hash token */
@@ -786,7 +786,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
       }
     }
 
-    if( FD_UNLIKELY( !fd_hash_eq( &header->recipient, glob->public_key ) ) ) {
+    if( FD_UNLIKELY( !fd_pubkey_eq( &header->recipient, glob->public_key ) ) ) {
       FD_LOG_WARNING(( "received repair request with wrong recipient, %s instead of %s", FD_BASE58_ENC_32_ALLOCA( header->recipient.uc ), FD_BASE58_ENC_32_ALLOCA( glob->public_key ) ));
       return 0;
     }
@@ -807,7 +807,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
     }
 
     fd_pinged_elem_t * val = fd_pinged_table_query( glob->pinged, peer_addr, NULL) ;
-    if( val == NULL || !val->good || !fd_hash_eq( &val->id, &header->sender ) ) {
+    if( val == NULL || !val->good || !fd_pubkey_eq( &val->id, &header->sender ) ) {
       /* Need to ping this client */
       if( val == NULL ) {
         if( fd_pinged_table_is_full( glob->pinged ) ) {
@@ -820,7 +820,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
         for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
           val->token.ul[i] = fd_rng_ulong(glob->rng);
       }
-      fd_hash_copy( &val->id, &header->sender );
+      val->id = header->sender;
       val->good = 0;
       uchar buf[1024];
       ulong buflen = fd_repair_send_ping( repair_tile_ctx, glob, val, buf, sizeof(buf) );
@@ -1339,7 +1339,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
   if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing gossip_sign link" ));
   ctx->shred_tile_cnt = shred_tile_idx;
-  FD_TEST( ctx->shred_tile_cnt == tile->repair.shred_tile_cnt );
+  FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
 
   /* Scratch mem setup */
 

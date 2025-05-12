@@ -289,6 +289,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   /* Resolve snapshot source */
 
   fd_snapshot_src_t src[1];
+  src->snapshot_dir = NULL;
   if( FD_UNLIKELY( !fd_snapshot_src_parse_type_unknown( src, args->snapshot ) ) )
     return EXIT_FAILURE;
 

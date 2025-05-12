@@ -1086,7 +1086,7 @@ ingest( fd_ledger_args_t * args ) {
   fd_funk_t * funk = args->funk;
 
   args->valloc = allocator_setup( args->wksp );
-  uchar * epoch_ctx_mem = fd_spad_alloc( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
+  uchar * epoch_ctx_mem = fd_spad_alloc_check( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
@@ -1099,7 +1099,7 @@ ingest( fd_ledger_args_t * args ) {
   slot_ctx->blockstore = args->blockstore;
 
   if( args->status_cache_wksp ) {
-    void * status_cache_mem = fd_spad_alloc( spad,
+    void * status_cache_mem = fd_spad_alloc_check( spad,
                                                    fd_txncache_align(),
                                                    fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                                               FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
@@ -1118,6 +1118,7 @@ ingest( fd_ledger_args_t * args ) {
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
                           FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           slot_ctx,
                           NULL,
                           args->tpool,
@@ -1132,6 +1133,7 @@ ingest( fd_ledger_args_t * args ) {
   if( args->incremental ) {
     fd_snapshot_load_all( args->incremental,
                           FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           slot_ctx,
                           NULL,
                           args->tpool,
@@ -1242,13 +1244,12 @@ replay( fd_ledger_args_t * args ) {
 
   void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp,
     fd_runtime_public_align(),
-    fd_runtime_public_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
+    fd_runtime_public_footprint( args->runtime_mem_bound ), FD_EXEC_EPOCH_CTX_MAGIC );
   if( FD_UNLIKELY( !runtime_public_mem ) ) {
     FD_LOG_ERR(( "Unable to allocate runtime_public mem" ));
   }
-  fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint() );
 
-  fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_runtime_public_new( runtime_public_mem ) );
+  fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_runtime_public_new( runtime_public_mem, args->runtime_mem_bound ) );
   args->runtime_spad = fd_spad_join( fd_wksp_laddr( args->wksp, runtime_public->runtime_spad_gaddr ) );
   if( FD_UNLIKELY( !args->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join runtime spad" ));
@@ -1262,7 +1263,7 @@ replay( fd_ledger_args_t * args ) {
   /* Setup slot_ctx */
   fd_funk_t * funk = args->funk;
 
-  void * epoch_ctx_mem = fd_spad_alloc( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
+  void * epoch_ctx_mem = fd_spad_alloc_check( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
@@ -1280,18 +1281,18 @@ replay( fd_ledger_args_t * args ) {
   // activate them
   fd_memcpy( &args->epoch_ctx->runtime_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
-  void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  void * slot_ctx_mem        = fd_spad_alloc_check( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
   args->slot_ctx->epoch_ctx  = args->epoch_ctx;
   args->slot_ctx->funk       = funk;
   args->slot_ctx->blockstore = args->blockstore;
 
-  void * status_cache_mem = fd_spad_alloc( spad,
-                                           FD_TXNCACHE_ALIGN,
-                                           fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-                                                                 MAX_CACHE_TXNS_PER_SLOT,
-                                                                 FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS) );
+  void * status_cache_mem = fd_spad_alloc_check( spad,
+      FD_TXNCACHE_ALIGN,
+      fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                             FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                             MAX_CACHE_TXNS_PER_SLOT,
+                             FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS) );
   args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem,
                                                                     FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                                     FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
@@ -1308,6 +1309,7 @@ replay( fd_ledger_args_t * args ) {
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
                           FD_SNAPSHOT_SRC_FILE,
+                          NULL,
                           args->slot_ctx,
                           NULL,
                           args->tpool,
@@ -1321,6 +1323,7 @@ replay( fd_ledger_args_t * args ) {
     if( args->incremental ) {
       fd_snapshot_load_all( args->incremental,
                             FD_SNAPSHOT_SRC_FILE,
+                            NULL,
                             args->slot_ctx,
                             NULL,
                             args->tpool,
@@ -1425,7 +1428,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   double       allowed_mem_delta     = fd_env_strip_cmdline_double( &argc, &argv, "--allowed-mem-delta",     NULL, 0.1                                                );
   int          snapshot_mismatch     = fd_env_strip_cmdline_int   ( &argc, &argv, "--snapshot-mismatch",     NULL, 0                                                  );
   ulong        thread_mem_bound      = fd_env_strip_cmdline_ulong ( &argc, &argv, "--thread-mem-bound",      NULL, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-  ulong        runtime_mem_bound     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--runtime-mem-bound",     NULL, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               );
+  ulong        runtime_mem_bound     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--runtime-mem-bound",     NULL, (ulong)50e9                                        );
 
   if( FD_UNLIKELY( !verify_acc_hash ) ) {
     /* We've got full snapshots that contain all 0s for the account

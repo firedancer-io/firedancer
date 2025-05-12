@@ -309,7 +309,7 @@ fd_unzstd_run1(
     if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
 
     /* Check if this in has any new fragments to mux */
-    
+
     fd_frag_reader_consume_ctx_t consume_ctx;
     long diff = fd_stream_reader_poll_frag( this_in, in_seq, &consume_ctx );
     if( FD_UNLIKELY( diff ) ) {

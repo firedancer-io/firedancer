@@ -329,6 +329,7 @@
     {
       "name": "stakes",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
         { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
@@ -893,6 +894,7 @@
     {
       "name": "slot_history",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "bits", "type": "bitvec", "element": "ulong" },
           { "name": "next_slot", "type": "ulong" }
@@ -910,6 +912,7 @@
     {
       "name": "slot_hashes",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "hashes", "type": "deque", "element": "slot_hash", "min": 512 }
       ],
@@ -926,6 +929,7 @@
     {
       "name": "recent_block_hashes",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "min": 151 }
       ]

@@ -44,16 +44,6 @@
 
 #define FD_RUNTIME_NUM_ROOT_BLOCKS (32UL)
 
-#define FD_FEATURE_ACTIVE_(_slot, _features, _feature_name)               (_slot >= (_features). _feature_name)
-#define FD_FEATURE_JUST_ACTIVATED_(_slot, _features, _feature_name)       (_slot == (_features). _feature_name)
-#define FD_FEATURE_ACTIVE_OFFSET_(_slot, _features, _offset)              (_slot >= (_features).f[_offset>>3])
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET_(_slot, _features, _offset)      (_slot == (_features).f[_offset>>3] )
-
-#define FD_FEATURE_ACTIVE(_slot,_features,_feature_name)                  FD_FEATURE_ACTIVE_( _slot,_features,_feature_name )
-#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _feature_name )
-#define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _offset )
-
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)
 
@@ -249,9 +239,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 /* Footprint here is dominated by vote account decode.  See above for
    why 72/40. */
 #define FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT      (FD_ACC_SZ_MAX*72UL/40UL)
-
-/* TODO: Update this value once the bound is calculated correctly. */
-#define FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               (50000000000UL)
 
 /* The below macros aren't used anywhere, but since the spads are used for PoH tick verification,
    we ensure that the default spad size is large enough for the wbmtree and leaves */

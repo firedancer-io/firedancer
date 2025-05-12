@@ -24,7 +24,6 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../choreo/fd_choreo.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../disco/plugin/fd_plugin.h"
 //#include "fd_replay.h"
@@ -70,8 +69,6 @@
 #define EXEC_TXN_BUSY   (5UL)
 #define EXEC_TXN_READY  (6UL)
 
-#define VOTE_ACC_MAX   (2000000UL)
-
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
 struct fd_replay_out_ctx {
@@ -111,7 +108,6 @@ typedef struct fd_slice_exec_ctx fd_slice_exec_ctx_t;
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
-  fd_wksp_t * funk_wksp;
   fd_wksp_t * status_cache_wksp;
 
   fd_wksp_t  * runtime_public_wksp;
@@ -185,6 +181,7 @@ struct fd_replay_tile_ctx {
   char const * genesis;
   char const * incremental;
   char const * snapshot;
+  char const * snapshot_dir;
   int          incremental_src_type;
   int          snapshot_src_type;
 
@@ -632,9 +629,12 @@ block_finalize_tiles_cb( void * para_arg_1,
   fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
   fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
-  ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
+  ulong cnt_per_worker;
+  if( ctx->exec_cnt>1 ) cnt_per_worker = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL; /* ??? */
+  else                  cnt_per_worker = task_data->info_sz;
   ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
 
+  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
 
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -646,8 +646,15 @@ block_finalize_tiles_cb( void * para_arg_1,
     }
 
     ulong start_idx = worker_idx * cnt_per_worker;
-    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                                      fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    if( start_idx >= task_data->info_sz ) {
+      /* If we do not any work for this worker to do, skip it. */
+      hash_done[ worker_idx ] = 1;
+      continue;
+    }
+    ulong end_idx   = fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL );
+    if( end_idx >= task_data->info_sz ) {
+      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    }
 
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
 
@@ -670,7 +677,6 @@ block_finalize_tiles_cb( void * para_arg_1,
   }
 
   /* Spins and blocks until all exec tiles are done hashing. */
-  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ;; ) {
     uchar wait_cnt = 0;
     for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
@@ -737,7 +743,7 @@ checkpt( fd_replay_tile_ctx_t * ctx ) {
       FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
     }
   }
-  int rc = fd_wksp_checkpt( ctx->funk_wksp, ctx->funk_checkpt, 0666, 0, NULL );
+  int rc = fd_wksp_checkpt( ctx->funk->wksp, ctx->funk_checkpt, 0666, 0, NULL );
   if( rc ) {
     FD_LOG_ERR( ( "funk checkpt failed: error %d", rc ) );
   }
@@ -1553,7 +1559,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   return fork;
 }
 
-FD_FN_UNUSED static void
+static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ 0UL ];
@@ -1882,8 +1888,9 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 static void
 read_snapshot( void *              _ctx,
                fd_stem_context_t * stem,
-               char const *        snapshotfile,
-               char const *        incremental ) {
+               char const *        snapshot,
+               char const *        incremental,
+               char const *        snapshot_dir ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
   fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
@@ -1898,7 +1905,6 @@ read_snapshot( void *              _ctx,
 
      We pull this out of the full snapshot to use when verifying the incremental snapshot. */
   ulong        base_slot = 0UL;
-  const char * snapshot  = snapshotfile;
   if( strcmp( snapshot, "funk" )==0 || strncmp( snapshot, "wksp:", 5 )==0 ) {
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
@@ -1918,11 +1924,12 @@ read_snapshot( void *              _ctx,
     /* TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
-      uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+      uchar * tmp_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
 
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
                                                                     ctx->incremental_src_type,
+                                                                    NULL,
                                                                     ctx->slot_ctx,
                                                                     false,
                                                                     false,
@@ -1938,11 +1945,11 @@ read_snapshot( void *              _ctx,
 
     }
 
-
     uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->snapshot_src_type,
+                                                              snapshot_dir,
                                                               ctx->slot_ctx,
                                                               false,
                                                               false,
@@ -1980,6 +1987,7 @@ read_snapshot( void *              _ctx,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
     fd_snapshot_load_all( incremental,
                           ctx->incremental_src_type,
+                          NULL,
                           ctx->slot_ctx,
                           &base_slot,
                           NULL,
@@ -2156,7 +2164,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                fd_stem_context_t *    stem ) {
   /* Init slot_ctx */
 
-  uchar * slot_ctx_mem        = fd_spad_alloc( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, ctx->runtime_spad ) );
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->blockstore   = ctx->blockstore;
@@ -2166,7 +2174,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   uchar is_snapshot = strlen( ctx->snapshot ) > 0;
   if( is_snapshot ) {
-    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental );
+    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental, ctx->snapshot_dir );
   }
 
   if( ctx->replay_plugin_out_mem ) {
@@ -2229,6 +2237,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
        (using the above for loop), but blockstore/fork setup on genesis is
        broken for now. */
     block_entry_height = 1UL;
+    init_poh( ctx );
   }
 
   publish_slot_notifications( ctx, stem, fork, block_entry_height, curr_slot );
@@ -2634,9 +2643,10 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
           /* Mismatch */
 
-          funk_cancel( ctx, cmp_slot );
-          checkpt( ctx );
-          FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+          //funk_cancel( ctx, cmp_slot );
+          //checkpt( ctx );
+          (void)checkpt;
+          FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
           break;
 
@@ -2745,40 +2755,6 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->runtime_public ) ) {
     FD_LOG_ERR(( "no runtime_public" ));
   }
-
-
-  /* Open Funk */
-  fd_funk_txn_start_write( NULL );
-  fd_funk_t * funk;
-  const char * snapshot = tile->replay.snapshot;
-  if( strcmp( snapshot, "funk" ) == 0 ) {
-    /* Funk database already exists. The parameters are actually mostly ignored. */
-    funk = fd_funk_open_file(
-        ctx->funk,
-        tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
-        tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
-        FD_FUNK_READ_WRITE, NULL );
-  } else if( strncmp( snapshot, "wksp:", 5 ) == 0) {
-    /* Recover funk database from a checkpoint. */
-    funk = fd_funk_recover_checkpoint( ctx->funk, tile->replay.funk_file, 1, snapshot+5, NULL );
-  } else {
-    FD_LOG_NOTICE(( "Trying to create new funk at file=%s", tile->replay.funk_file ));
-    /* Create new funk database */
-    funk = fd_funk_open_file(
-        ctx->funk,
-        tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
-        tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
-        FD_FUNK_OVERWRITE, NULL );
-    FD_LOG_NOTICE(( "Opened funk file at %s", tile->replay.funk_file ));
-  }
-  if( FD_UNLIKELY( !funk ) ) {
-    FD_LOG_ERR(( "Failed to join funk database" ));
-  }
-  fd_funk_txn_end_write( NULL );
-  ctx->funk_wksp = fd_funk_wksp( funk );
-  if( FD_UNLIKELY( ctx->funk_wksp == NULL ) ) {
-    FD_LOG_ERR(( "no funk wksp" ));
-  }
 }
 
 static void
@@ -2862,8 +2838,9 @@ unprivileged_init( fd_topo_t *      topo,
   /* funk                                                               */
   /**********************************************************************/
 
-  /* TODO: This below code needs to be shared as a topology object. This
-     will involve adding support to create a funk-based file here. */
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
 
   ctx->is_caught_up = 0;
 
@@ -2917,6 +2894,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->genesis             = tile->replay.genesis;
   ctx->incremental         = tile->replay.incremental;
   ctx->snapshot            = tile->replay.snapshot;
+  ctx->snapshot_dir        = tile->replay.snapshot_dir;
 
   ctx->incremental_src_type = tile->replay.incremental_src_type;
   ctx->snapshot_src_type    = tile->replay.snapshot_src_type;
@@ -2962,11 +2940,8 @@ unprivileged_init( fd_topo_t *      topo,
     if (status_cache_mem == NULL) {
       FD_LOG_ERR(( "failed to allocate status cache" ));
     }
-    ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                                           FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT,
-                                                           FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+    ctx->status_cache = fd_txncache_join( status_cache_mem );
     if (ctx->status_cache == NULL) {
-      fd_wksp_free_laddr( status_cache_mem );
       FD_LOG_ERR(( "failed to join + new status cache" ));
     }
   }
@@ -2976,7 +2951,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   /* Join each of the exec spads. */
-  ctx->exec_cnt = tile->replay.exec_tile_count;
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong       exec_spad_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_spad.%lu", i );
     fd_spad_t * spad         = fd_spad_join( fd_topo_obj_laddr( topo, exec_spad_id ) );
@@ -2994,7 +2969,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Now join the spad that was setup in the runtime public topo obj. */
 
-  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join the runtime_spad" ));
   }
@@ -3006,7 +2981,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * epoch_ctx_mem = fd_spad_alloc( ctx->runtime_spad,
                                         fd_exec_epoch_ctx_align(),
-                                        MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
+                                        MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( tile->replay.max_vote_accounts ) );
 
 
   fd_epoch_forks_new( ctx->epoch_forks, epoch_ctx_mem );
@@ -3015,14 +2990,20 @@ unprivileged_init( fd_topo_t *      topo,
   /* joins                                                              */
   /**********************************************************************/
 
-  uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
+  uchar * bank_hash_cmp_shmem = fd_spad_alloc_check( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
-  ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
+  ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, tile->replay.max_vote_accounts ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {
     FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
   }
   fd_features_enable_cleaned_up( &ctx->epoch_ctx->features, ctx->epoch_ctx->epoch_bank.cluster_version );
+
+  char const * one_off_features[16];
+  for (ulong i = 0; i < tile->replay.enable_features_cnt; i++) {
+    one_off_features[i] = tile->replay.enable_features[i];
+  }
+  fd_features_enable_one_offs(&ctx->epoch_ctx->features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL);
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
@@ -3067,8 +3048,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* bank                                                               */
   /**********************************************************************/
 
-  ctx->bank_cnt         = tile->replay.bank_tile_count;
-  for( ulong i=0UL; i<tile->replay.bank_tile_count; i++ ) {
+  ctx->bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
+  for( ulong i=0UL; i<(ctx->bank_cnt); i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
     ctx->bank_busy[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
@@ -3093,7 +3074,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* exec                                                               */
   /**********************************************************************/
-  ctx->exec_cnt = tile->replay.exec_tile_count;
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
   if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
   }
@@ -3137,7 +3118,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* writer                                                             */
   /**********************************************************************/
-  ctx->writer_cnt = tile->replay.writer_tile_cuont;
+  ctx->writer_cnt = fd_topo_tile_name_cnt( topo, "writer" );
   if( FD_UNLIKELY( ctx->writer_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_CRIT(( "replay tile has too many writer tiles %lu", ctx->writer_cnt ));
   }
@@ -3267,7 +3248,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->runtime_public!=NULL );
 
-  uchar * deque_mem = fd_spad_alloc( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
+  uchar * deque_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
   ctx->exec_slice_deque = fd_exec_slice_join( fd_exec_slice_new( deque_mem ) );
   if( FD_UNLIKELY( !ctx->exec_slice_deque ) ) {
     FD_LOG_ERR(( "failed to join and create exec slice deque" ));

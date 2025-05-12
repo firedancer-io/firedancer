@@ -331,8 +331,7 @@ calculate_points_range( fd_epoch_info_pair_t const *      stake_infos,
 
     /* Check that the vote account is present in our cache */
     fd_vote_info_pair_t_mapnode_t query_key;
-    fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
-    fd_memcpy( &query_key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
+    query_key.elem.account = stake->delegation.voter_pubkey;
     fd_vote_info_pair_t_mapnode_t * vote_state_info = fd_vote_info_pair_t_map_find( task_args->vote_states_pool, task_args->vote_states_root, &query_key );
     if( FD_UNLIKELY( vote_state_info==NULL ) ) {
       FD_LOG_DEBUG(( "vote account missing from cache" ));
@@ -460,7 +459,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
     fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
     fd_vote_info_pair_t_mapnode_t key;
-    fd_memcpy( &key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
+    key.elem.account = *voter_acc;
     fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool,
                                                                                       temp_info->vote_states_root,
                                                                                       &key );
@@ -503,7 +502,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
     // Find and update the vote reward node in the local map
     fd_vote_reward_t_mapnode_t vote_map_key[1];
-    fd_memcpy( &vote_map_key->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
+    vote_map_key->elem.pubkey = *voter_acc;
     fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
     if( FD_UNLIKELY( vote_reward_node==NULL ) ) {
       FD_LOG_WARNING(( "vote account is missing from the vote rewards pool" ));
@@ -513,8 +512,8 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
     vote_reward_node = fd_vote_reward_t_map_find( vote_reward_map_pool, vote_reward_map_root, vote_map_key );
 
     if( vote_reward_node==NULL ) {
-      vote_reward_node = fd_vote_reward_t_map_acquire( vote_reward_map_pool );
-      fd_memcpy( &vote_reward_node->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
+      vote_reward_node                    = fd_vote_reward_t_map_acquire( vote_reward_map_pool );
+      vote_reward_node->elem.pubkey       = *voter_acc;
       vote_reward_node->elem.commission   = commission;
       vote_reward_node->elem.vote_rewards = calculated_stake_rewards->voter_rewards;
       vote_reward_node->elem.needs_store  = 1;
@@ -643,7 +642,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
     fd_pubkey_t const *          voter_pubkey     = &vote_info->elem.account;
     fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
 
-    fd_memcpy( &vote_reward_node->elem.pubkey, voter_pubkey, sizeof(fd_pubkey_t) );
+    vote_reward_node->elem.pubkey       = *voter_pubkey;
     vote_reward_node->elem.vote_rewards = 0UL;
     vote_reward_node->elem.needs_store  = 0;
 
@@ -850,7 +849,7 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
   result->foundation_rate              = rewards.foundation_rate;
   result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
   result->capitalization               = slot_bank->capitalization;
-  fd_memcpy( &result->point_value, &validator_result->point_value, sizeof(fd_point_value_t) );
+  result->point_value                  = validator_result->point_value;
 }
 
 /* Calculate rewards from previous epoch and distribute vote rewards
@@ -922,8 +921,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
   slot_ctx->slot_bank.capitalization += result->distributed_rewards;
 
   /* Cheap because this doesn't copy all the rewards, just pointers to the dlist */
-  fd_memcpy( &result->stake_rewards_by_partition, &rewards_calc_result->stake_rewards_by_partition, sizeof(fd_stake_reward_calculation_partitioned_t) );
-  fd_memcpy( &result->point_value, &rewards_calc_result->point_value, sizeof(fd_point_value_t) );
+  result->stake_rewards_by_partition = rewards_calc_result->stake_rewards_by_partition;
+  result->point_value                = rewards_calc_result->point_value;
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -997,8 +996,7 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
   FD_LOG_NOTICE(( "Setting epoch reward status as active" ));
   slot_ctx->slot_bank.epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
   slot_ctx->slot_bank.epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
-
-  fd_memcpy( &slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, sizeof(fd_partitioned_stake_rewards_t) );
+  slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards          = *partitioned_rewards;
 }
 
 /*  Process reward credits for a partition of rewards.

@@ -92,11 +92,8 @@ echo "
     file = \"$DATA_DIR/shredcap_testnet.blockstore\"
 [funk]
     max_account_records = 150000000
-    heap_size_gb = 100
+    heap_size_gib = 100
     max_database_transactions = 2000
-    [funk.filemap]
-        enabled = true
-        path = \"$DATA_DIR/shredcap_testnet.funk\"
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384

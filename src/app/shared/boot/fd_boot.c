@@ -107,7 +107,7 @@ fd_main_init( int *        pargc,
     ulong user_config_sz = 0UL;
     if( FD_LIKELY( user_config_path ) ) {
       user_config = fd_file_util_read_all( user_config_path, &user_config_sz );
-      if( FD_UNLIKELY( !user_config ) ) FD_LOG_ERR(( "failed to read user config file `%s` (%d-%s)", user_config_path, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( user_config==MAP_FAILED ) ) FD_LOG_ERR(( "failed to read user config file `%s` (%d-%s)", user_config_path, errno, fd_io_strerror( errno ) ));
     }
 
     int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );

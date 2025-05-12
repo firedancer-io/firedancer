@@ -148,23 +148,9 @@ fd_active_new_value(fd_active_elem_t * val) {
   fd_memset(val->pingtoken.uc, 0, 32U);
 }
 
-/* Test if two hash values are equal */
-int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    if (key1->ul[i] != key2->ul[i])
-      return 0;
-  return 1;
-}
-
 /* Hash a hash value */
 ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
   return key->ul[0] ^ seed;
-}
-
-/* Copy a hash value */
-void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
-  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
-    keyd->ul[i] = keys->ul[i];
 }
 
 /************ Gossip Value Table Structures **************/
@@ -305,9 +291,8 @@ typedef struct fd_value_meta fd_value_meta_t;
    value vec, if available. */
 #define MAP_NAME     fd_value_meta_map
 #define MAP_KEY_T    fd_hash_t
-#define MAP_KEY_EQ   fd_hash_eq
+#define MAP_KEY_EQ(a,b) (0==memcmp( (a),(b),sizeof(fd_hash_t) ))
 #define MAP_KEY_HASH fd_hash_hash
-#define MAP_KEY_COPY fd_hash_copy
 #define MAP_T        fd_value_meta_t
 #include "../../util/tmpl/fd_map_giant.c"
 
@@ -333,7 +318,6 @@ typedef struct fd_weights_elem fd_weights_elem_t;
 #define MAP_KEY_T    fd_hash_t
 #define MAP_KEY_EQ   fd_hash_eq
 #define MAP_KEY_HASH fd_hash_hash
-#define MAP_KEY_COPY fd_hash_copy
 #define MAP_T        fd_weights_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
@@ -765,7 +749,7 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
 
   fd_gossip_init_node_contact( &glob->my_contact );
 
-  fd_hash_copy(&glob->my_contact.ci->from, config->public_key);
+  glob->my_contact.ci->from = *config->public_key;
   glob->public_key = &glob->my_contact.ci->from;
 
   fd_gossip_peer_addr_copy( &glob->my_node_addrs.gossip, &config->my_addr );
@@ -1058,7 +1042,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
-  fd_hash_copy( &ping->from, public_key );
+  ping->from = *public_key;
 
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
   fd_memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
@@ -1093,9 +1077,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
 
-  fd_pubkey_t * public_key = glob->public_key;
-
-  fd_hash_copy( &pong->from, public_key );
+  pong->from = *glob->public_key;
 
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
   fd_memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
@@ -1176,8 +1158,7 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   default:
     return;
   }
-  fd_pubkey_t * public_key = glob->public_key;
-  fd_hash_copy(pubkey, public_key);
+  *pubkey = *glob->public_key;
   *wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
 
   /* Sign it */
@@ -1451,7 +1432,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   }
 
   val->pongtime = glob->now;
-  fd_hash_copy(&val->id, &pong->from);
+  val->id = pong->from;
 
   /* Remember that this is a good peer */
   fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, from, NULL);
@@ -1466,7 +1447,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     peerval->stake = 0;
   }
   peerval->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
-  fd_hash_copy(&peerval->id, &pong->from);
+  peerval->id = pong->from;
 
   fd_weights_elem_t const * val2 = fd_weights_table_query_const( glob->weights, &val->id, NULL );
   val->weight = ( val2 == NULL ? 1UL : val2->weight );
@@ -1547,7 +1528,7 @@ fd_crds_dup_check( fd_gossip_t * glob, fd_hash_t * key, const fd_gossip_peer_add
         }
         if( val->dups_cnt<MAX_DUP_ORIGINS ) {
           ulong i = val->dups_cnt++;
-          fd_hash_copy( &val->dups[i].origin, origin );
+          val->dups[i].origin = *origin;
           val->dups[i].cnt = 1;
         }
         found_origin: ;
@@ -1713,7 +1694,7 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
           if( peer!=NULL ) {
             peer->wallclock = val->wallclock;
             peer->stake = 0;
-            fd_hash_copy( &peer->id, &info->from );
+            peer->id = info->from;
           } else {
             INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
           }
@@ -1896,7 +1877,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_resp);
   fd_gossip_pull_resp_t * pull_resp = &gmsg.inner.pull_resp;
-  fd_hash_copy( &pull_resp->pubkey, glob->public_key );
+  pull_resp->pubkey = *glob->public_key;
 
   uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
@@ -2095,7 +2076,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     fd_push_state_t * s = fd_push_states_pool_ele_acquire(glob->push_states_pool);
     fd_memset(s, 0, sizeof(fd_push_state_t));
     fd_gossip_peer_addr_copy(&s->addr, &a->key);
-    fd_hash_copy(&s->id, &a->id);
+    s->id = a->id;
     for (ulong j = 0; j < FD_PRUNE_NUM_KEYS; ++j)
       s->prune_keys[j] = fd_rng_ulong(glob->rng);
 
@@ -2103,7 +2084,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     fd_gossip_msg_t gmsg[1] = {0};
     fd_gossip_msg_new_disc(gmsg, fd_gossip_msg_enum_push_msg);
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
-    fd_hash_copy( &push_msg->pubkey, glob->public_key );
+    push_msg->pubkey = *glob->public_key;
     fd_bincode_encode_ctx_t ctx;
     ctx.data = s->packet;
     ctx.dataend = s->packet + PACKET_DATA_SIZE;
@@ -2232,8 +2213,7 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
     return -1;
   }
 
-  if( key_opt!=NULL )
-    fd_hash_copy( key_opt, &val->key );
+  if( key_opt!=NULL ) *key_opt = val->key;
 
   /* Store the value for later pushing/duplicate detection */
   fd_value_meta_t * ele = fd_value_meta_map_query( glob->value_metas, &val->key, NULL );
@@ -2293,7 +2273,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     ulong origins_cnt = 0;
     for (ulong i = 0; i < ele->dups_cnt; ++i) {
       if (ele->dups[i].cnt >= 20U) {
-        fd_hash_copy(&origins[origins_cnt++], &ele->dups[i].origin);
+        origins[origins_cnt++] = ele->dups[i].origin;
         glob->metrics.make_prune_high_duplicates += 1UL;
       }
     }
@@ -2315,17 +2295,17 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_gossip_msg_t gmsg;
     fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_prune_msg);
     fd_gossip_prune_msg_t * prune_msg = &gmsg.inner.prune_msg;
-    fd_hash_copy(&prune_msg->data.pubkey, glob->public_key);
+    prune_msg->data.pubkey = *glob->public_key;
     prune_msg->data.prunes_len = origins_cnt;
-    prune_msg->data.prunes = origins;;
-    fd_hash_copy(&prune_msg->data.destination, &peerval->id);
+    prune_msg->data.prunes = origins;
+    prune_msg->data.destination = peerval->id;
     ulong wc = prune_msg->data.wallclock = FD_NANOSEC_TO_MILLI(glob->now);
 
     fd_gossip_prune_sign_data_t signdata;
-    fd_hash_copy(&signdata.pubkey, glob->public_key);
+    signdata.pubkey = *glob->public_key;
     signdata.prunes_len = origins_cnt;
     signdata.prunes = origins;
-    fd_hash_copy(&signdata.destination, &peerval->id);
+    signdata.destination = peerval->id;
     signdata.wallclock = wc;
 
     uchar buf[PACKET_DATA_SIZE];
@@ -2356,6 +2336,14 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     FD_LOG_WARNING(("received no gossip packets!!"));
   else
     FD_LOG_INFO(("received %lu packets", glob->recv_pkt_cnt));
+
+  /* TODO: Come up with a better way to detect bad shred version */
+  if( fd_peer_table_key_cnt( glob->peers )!=0 &&
+      ( glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]==0 ||
+        glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]==0 ) ) {
+    FD_LOG_WARNING(( "received no CRDS traffic! Likely bad shred version (current: %u)", glob->my_contact.ci->shred_version ));
+  }
+
   glob->recv_pkt_cnt = 0;
   FD_LOG_INFO(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
@@ -2464,7 +2452,7 @@ fd_gossip_compact_values( fd_gossip_t * glob ) {
   glob->need_push_head -= fd_ulong_if( push_head_snapshot != ULONG_MAX, push_head_snapshot, num_deleted );
   fd_value_vec_contract( glob->values, num_deleted );
   glob->metrics.value_vec_cnt = fd_value_vec_cnt( glob->values );
-  FD_LOG_NOTICE(( "GOSSIP compacted %lu values", num_deleted ));
+  FD_LOG_INFO(( "GOSSIP compacted %lu values", num_deleted ));
   return num_deleted;
 }
 

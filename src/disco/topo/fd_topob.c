@@ -318,14 +318,14 @@ validate( fd_topo_t const * topo ) {
         if( topo->tiles[ j ].out_link_id[ k ]==i ) producer_cnt++;
       }
     }
-    if( FD_UNLIKELY( producer_cnt!=1UL ) )
+    if( FD_UNLIKELY( producer_cnt>1UL || ( producer_cnt==0UL && !topo->links[ i ].permit_no_producers ) ) )
       FD_LOG_ERR(( "link %lu (%s:%lu) has %lu producers", i, topo->links[ i ].name, topo->links[ i ].kind_id, producer_cnt ));
   }
 
   /* Each link has at least one consumer */
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     ulong cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ i ] );
-    if( FD_UNLIKELY( cnt < 1 && !topo->links[ i ].permit_unused ) ) {
+    if( FD_UNLIKELY( cnt < 1UL && !topo->links[ i ].permit_no_consumers ) ) {
       FD_LOG_ERR(( "link %lu (%s:%lu) has 0 consumers", i, topo->links[ i ].name, topo->links[ i ].kind_id ));
     }
   }
@@ -606,7 +606,9 @@ fd_topob_finish( fd_topo_t *                topo,
       if( FD_UNLIKELY( cb->loose ) ) loose_sz += cb->loose( topo, obj );
     }
 
-    ulong part_max = 3UL + (loose_sz / (64UL << 10)); /* 3 for initial alignment + actual alloc + residual padding */
+    ulong part_max = wksp->part_max;
+    if( !part_max ) part_max = (loose_sz / (64UL << 10)); /* alloc + residual padding */
+    part_max += 3; /* for initial alignment */
     ulong offset = fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() );
 
     for( ulong j=0UL; j<topo->obj_cnt; j++ ) {

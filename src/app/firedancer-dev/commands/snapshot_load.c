@@ -80,7 +80,7 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_in ( topo, "ActAlc", 0UL, "metric_in", "snap_frags", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   fd_topob_wksp( topo, "snap_descs" );
-  fd_topob_link( topo, "snap_descs", "snap_descs", 512UL, 0UL, 0UL )->permit_unused = 1;
+  fd_topob_link( topo, "snap_descs", "snap_descs", 512UL, 0UL, 0UL )->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "ActAlc", 0UL, "snap_descs", 0UL );
 
   if( !args->tile_cpus[0] ) {
