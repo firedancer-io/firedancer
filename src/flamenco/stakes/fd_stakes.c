@@ -593,8 +593,12 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_account_keys_global_t *         stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-  fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
+  fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
+  if( stake_account_keys ) {
+    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
+    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+  }
 
   /* The number of account keys aggregated across the epoch is usually small, so there aren't much performance gains from tpooling here. */
   for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( account_keys_pool, account_keys_root );
@@ -646,10 +650,16 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_TEST( bank_mgr );
   fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
 
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-  fd_account_keys_pair_t_mapnode_t * account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
+  fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
+
+  if( stake_account_keys ) {
+    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
+    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+  }
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
@@ -668,8 +678,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
     stakes->stake_delegations_pool, stakes->stake_delegations_root );
 
-  stake_delegations_size += fd_account_keys_pair_t_map_size(
-    account_keys_pool, account_keys_root );
+  stake_delegations_size += !!account_keys_pool ? fd_account_keys_pair_t_map_size(
+    account_keys_pool, account_keys_root ) : 0UL;
 
   temp_info->stake_infos_len = 0UL;
   temp_info->stake_infos     = (fd_epoch_info_pair_t *)fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegations_size );
