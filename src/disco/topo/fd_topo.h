@@ -272,12 +272,9 @@ typedef struct {
       ulong max_vote_accounts;
 
       int   tx_metadata_storage;
+      ulong funk_obj_id;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
-      uint  funk_rec_max;
-      ulong funk_sz_gb;
-      ulong funk_txn_max;
-      char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
@@ -292,9 +289,6 @@ typedef struct {
       uint  ip_addr;
       int   vote;
       char  vote_account_path[ PATH_MAX ];
-      ulong bank_tile_count;
-      ulong exec_tile_count;
-      ulong writer_tile_cuont;
       ulong full_interval;
       ulong incremental_interval;
 
@@ -313,7 +307,7 @@ typedef struct {
     struct {
       int   in_wen_restart;
       int   tower_checkpt_fileno;
-      char  funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
       char  tower_checkpt[ PATH_MAX ];
       char  identity_key_path[ PATH_MAX ];
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -322,11 +316,11 @@ typedef struct {
     } restart;
 
     struct {
-      char funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
     } exec;
 
     struct {
-      char funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
     } writer;
 
     struct {
@@ -373,7 +367,6 @@ typedef struct {
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
-      uint    shred_tile_cnt;
     } repair;
 
     struct {
@@ -406,6 +399,7 @@ typedef struct {
     } eqvoc;
 
     struct {
+      ulong   funk_obj_id;
       ushort  rpc_port;
       ushort  tpu_port;
       uint    tpu_ip_addr;
@@ -413,6 +407,7 @@ typedef struct {
     } rpcserv;
 
     struct {
+      ulong funk_obj_id;
       ulong full_interval;
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
@@ -427,7 +422,6 @@ typedef struct {
     } pktgen;
 
     struct {
-      int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
 
@@ -515,10 +509,13 @@ fd_topo_workspace_align( void ) {
   return 4096UL;
 }
 
-FD_FN_PURE static inline void *
+static inline void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
                    ulong             obj_id ) {
   fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
+  FD_TEST( obj->id == obj_id );
+  FD_TEST( obj->offset );
   return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
 }
 
