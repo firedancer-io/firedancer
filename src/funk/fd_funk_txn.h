@@ -114,10 +114,10 @@ fd_funk_txn_xid_t fd_funk_generate_xid(void);
    infrequently so not sure how much of a gain this would be.
    */
 void
-fd_funk_txn_start_read( fd_funk_t const * funk );
+fd_funk_txn_start_read( fd_funk_t * funk );
 
 void
-fd_funk_txn_end_read( fd_funk_t const * funk );
+fd_funk_txn_end_read( fd_funk_t * funk );
 
 void
 fd_funk_txn_start_write( fd_funk_t * funk );

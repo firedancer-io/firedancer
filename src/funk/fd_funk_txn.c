@@ -26,12 +26,12 @@
 static fd_rwlock_t funk_txn_lock[ 1 ] = {0};
 
 void
-fd_funk_txn_start_read( fd_funk_t const * funk FD_PARAM_UNUSED ) {
+fd_funk_txn_start_read( fd_funk_t * funk FD_PARAM_UNUSED ) {
   fd_rwlock_read( funk_txn_lock );
 }
 
 void
-fd_funk_txn_end_read( fd_funk_t const * funk FD_PARAM_UNUSED ) {
+fd_funk_txn_end_read( fd_funk_t * funk FD_PARAM_UNUSED ) {
   fd_rwlock_unread( funk_txn_lock );
 }
 

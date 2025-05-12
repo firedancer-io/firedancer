@@ -265,7 +265,6 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_txn_t *           txn,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
-                   fd_funk_txn_t const **    txn_out,
                    int *                     opt_err );
 
 /* fd_funk_rec_remove removes the live record with the
@@ -298,50 +297,6 @@ fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_rec_t **          rec_out,
                     ulong                     erase_data );
 
-/* fd_funk_rec_modify_try queries the in-prep transaction pointed to
-   by txn for the record whose key matches the key pointed to by the
-   key. If the query is successful, then we will acquire a lock on the
-   corresponding hash chain. Any updates made to the record can be
-   published into the funk transaction with a call to
-   fd_funk_rec_modify_test. */
-
-fd_funk_rec_t *
-fd_funk_rec_modify_try( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_funk_rec_query_t *     query );
-
-/* fd_funk_rec_modify_try_global is the same as fd_funk_rec_modify_try but will
-   query txn's ancestors for key from youngest to oldest if key is not
-   part of txn.  As such, the txn of the returned record may not match
-   txn but will be the txn of most recent ancestor with the key
-   otherwise. *txn_out is set to the transaction where the record was
-   found.
-
-   This code is mostly similar to fd_funk_rec_query_try_global but also
-   acquires a write lock on the hash chain. If the returned record is non-NULL,
-   it is the responsibility of the caller to release the lock with
-   fd_funk_rec_modify_test afterwards.
-
-   This is reasonably fast O(in_prep_ancestor_cnt).
-
-   Important safety tip!  This function can encounter records
-   that have the ERASE flag set (i.e. are tombstones of erased
-   records). fd_funk_rec_modify_try_global will return a NULL in this case
-   but still set *txn_out to the relevant transaction. This behavior
-   differs from fd_funk_rec_modify_try. */
-
-fd_funk_rec_t *
-fd_funk_rec_modify_try_global( fd_funk_t *               funk,
-                               fd_funk_txn_t *           txn,
-                               fd_funk_rec_key_t const * key,
-                               fd_funk_txn_t const **    txn_out,
-                               fd_funk_rec_query_t *     query );
-
-/* Releases the lock on the hash chain. */
-void
-fd_funk_rec_modify_test( fd_funk_rec_query_t * query );
-
 /*
   fd_funk_rec_hard_remove completely removes the record from Funk,
   and leaves no tombstone behind.
@@ -353,7 +308,6 @@ fd_funk_rec_modify_test( fd_funk_rec_query_t * query );
 
   Always succeeds.
 */
-
 void
 fd_funk_rec_hard_remove( fd_funk_t *               funk,
                          fd_funk_txn_t *           txn,
