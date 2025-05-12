@@ -3247,8 +3247,8 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_account_keys_global_t *         stake_account_keys = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-  fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
+  fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys );
 
   fd_account_keys_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
@@ -3295,8 +3295,8 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
     account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
     account_keys_root = NULL;
   } else {
-    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
+    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
   }
 
   fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key);

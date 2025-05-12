@@ -348,8 +348,8 @@ dump_blockhash_queue( fd_block_hash_queue_global_t const * queue,
   pb_size_t cnt = 0;
   fd_hash_hash_age_pair_t_mapnode_t * nn;
 
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( (void*)queue, queue->ages_pool_offset );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( (void*)queue, queue->ages_root_offset );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( queue );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( queue );
 
   // Iterate over all block hashes in the queue and save them in the output
   for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( ages_pool, ages_root ); n; n = nn ) {
@@ -428,8 +428,8 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   fd_bank_mgr_t *                bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_account_keys_global_t *         stake_account_keys      = fd_bank_mgr_stake_account_keys_query( bank_mgr );
-  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
 
 
   ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( stake_account_keys_pool, stake_account_keys_root );

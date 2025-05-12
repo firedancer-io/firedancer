@@ -596,8 +596,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
   fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
   if( stake_account_keys ) {
-    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
+    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
   }
 
   /* The number of account keys aggregated across the epoch is usually small, so there aren't much performance gains from tpooling here. */
@@ -657,8 +657,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
 
   if( stake_account_keys ) {
-    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
+    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
   }
 
   /* Current stake delegations: list of all current delegations in stake_delegations

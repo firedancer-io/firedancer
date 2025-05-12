@@ -1173,8 +1173,8 @@ class DequeMember(TypeNode):
 
         prefix = self.prefix() if self.element in flattypes else self.prefix_global()
 
-        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( void const * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
+        print(f'static FD_FN_UNUSED {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t * type ) {{ // deque', file=header)
+        print(f'  return ({ret_type} *){prefix}_join( fd_type_pun( (uchar *)type + type->{self.name}_offset ) );', file=header)
         print(f'}}', file=header)
 
     def emitNew(self, indent=''):
@@ -1544,12 +1544,22 @@ class MapMember(TypeNode):
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( void const * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return ({nodename} *){mapname}_join( fd_type_pun( (uchar *)struct_mem + offset ) );', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_pool_join( {type_name}_global_t const * type ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( !type ) ) return NULL;', file=header)
+        print(f'  return !!type->{self.name}_pool_offset ? ({nodename} *){mapname}_join( fd_type_pun( (uchar *)type + type->{self.name}_pool_offset ) ) : NULL;', file=header)
         print(f'}}', file=header)
 
-        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( void const * struct_mem, ulong offset ) {{ // deque', file=header)
-        print(f'  return !!offset ? ({nodename} *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;', file=header)
+        print(f'static FD_FN_UNUSED {nodename} * {type_name}_{self.name}_root_join( {type_name}_global_t const * type ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( !type ) ) return NULL;', file=header)
+        print(f'  return !!type->{self.name}_root_offset ? ({nodename} *)fd_type_pun( (uchar *)type + type->{self.name}_root_offset ) : NULL;', file=header)
+        print(f'}}', file=header)
+
+        print(f'static FD_FN_UNUSED void {type_name}_{self.name}_pool_update( {type_name}_global_t * type, {nodename} * pool ) {{', file=header)
+        print(f'  type->{self.name}_pool_offset = (ulong){mapname}_leave( pool ) - (ulong)type;', file=header)
+        print(f'}}', file=header)
+
+        print(f'static FD_FN_UNUSED void {type_name}_{self.name}_root_update( {type_name}_global_t * type, {nodename} * root ) {{', file=header)
+        print(f'  type->{self.name}_root_offset = (ulong)root - (ulong)type;', file=header)
         print(f'}}', file=header)
 
     def emitNew(self, indent=''):

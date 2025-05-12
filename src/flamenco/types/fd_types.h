@@ -96,11 +96,19 @@ typedef struct fd_block_hash_queue_global fd_block_hash_queue_global_t;
 FD_FN_UNUSED static fd_hash_t * fd_block_hash_queue_last_hash_join( fd_block_hash_queue_global_t const * struct_mem ) {
   return (fd_hash_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->last_hash_offset );
 }
-static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_pool_join( void const * struct_mem, ulong offset ) { // deque
-  return (fd_hash_hash_age_pair_t_mapnode_t *)fd_hash_hash_age_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_pool_join( fd_block_hash_queue_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->ages_pool_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_hash_hash_age_pair_t_map_join( fd_type_pun( (uchar *)type + type->ages_pool_offset ) ) : NULL;
 }
-static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_root_join( void const * struct_mem, ulong offset ) { // deque
-  return !!offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
+static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages_root_join( fd_block_hash_queue_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->ages_root_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_type_pun( (uchar *)type + type->ages_root_offset ) : NULL;
+}
+static FD_FN_UNUSED void fd_block_hash_queue_ages_pool_update( fd_block_hash_queue_global_t * type, fd_hash_hash_age_pair_t_mapnode_t * pool ) {
+  type->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( pool ) - (ulong)type;
+}
+static FD_FN_UNUSED void fd_block_hash_queue_ages_root_update( fd_block_hash_queue_global_t * type, fd_hash_hash_age_pair_t_mapnode_t * root ) {
+  type->ages_root_offset = (ulong)root - (ulong)type;
 }
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_fee_rate_governor {
@@ -342,11 +350,19 @@ struct fd_vote_accounts_global {
 typedef struct fd_vote_accounts_global fd_vote_accounts_global_t;
 #define FD_VOTE_ACCOUNTS_GLOBAL_ALIGN alignof(fd_vote_accounts_global_t)
 
-static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_pool_join( void const * struct_mem, ulong offset ) { // deque
-  return (fd_vote_accounts_pair_global_t_mapnode_t *)fd_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_pool_join( fd_vote_accounts_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->vote_accounts_pool_offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_vote_accounts_pair_global_t_map_join( fd_type_pun( (uchar *)type + type->vote_accounts_pool_offset ) ) : NULL;
 }
-static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_root_join( void const * struct_mem, ulong offset ) { // deque
-  return !!offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
+static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_vote_accounts_root_join( fd_vote_accounts_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->vote_accounts_root_offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)type + type->vote_accounts_root_offset ) : NULL;
+}
+static FD_FN_UNUSED void fd_vote_accounts_vote_accounts_pool_update( fd_vote_accounts_global_t * type, fd_vote_accounts_pair_global_t_mapnode_t * pool ) {
+  type->vote_accounts_pool_offset = (ulong)fd_vote_accounts_pair_global_t_map_leave( pool ) - (ulong)type;
+}
+static FD_FN_UNUSED void fd_vote_accounts_vote_accounts_root_update( fd_vote_accounts_global_t * type, fd_vote_accounts_pair_global_t_mapnode_t * root ) {
+  type->vote_accounts_root_offset = (ulong)root - (ulong)type;
 }
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_account_keys_pair {
@@ -391,11 +407,19 @@ struct fd_account_keys_global {
 typedef struct fd_account_keys_global fd_account_keys_global_t;
 #define FD_ACCOUNT_KEYS_GLOBAL_ALIGN alignof(fd_account_keys_global_t)
 
-static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_keys_pool_join( void const * struct_mem, ulong offset ) { // deque
-  return (fd_account_keys_pair_t_mapnode_t *)fd_account_keys_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_keys_pool_join( fd_account_keys_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->account_keys_pool_offset ? (fd_account_keys_pair_t_mapnode_t *)fd_account_keys_pair_t_map_join( fd_type_pun( (uchar *)type + type->account_keys_pool_offset ) ) : NULL;
 }
-static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_keys_root_join( void const * struct_mem, ulong offset ) { // deque
-  return !!offset ? (fd_account_keys_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
+static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_keys_root_join( fd_account_keys_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->account_keys_root_offset ? (fd_account_keys_pair_t_mapnode_t *)fd_type_pun( (uchar *)type + type->account_keys_root_offset ) : NULL;
+}
+static FD_FN_UNUSED void fd_account_keys_account_keys_pool_update( fd_account_keys_global_t * type, fd_account_keys_pair_t_mapnode_t * pool ) {
+  type->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( pool ) - (ulong)type;
+}
+static FD_FN_UNUSED void fd_account_keys_account_keys_root_update( fd_account_keys_global_t * type, fd_account_keys_pair_t_mapnode_t * root ) {
+  type->account_keys_root_offset = (ulong)root - (ulong)type;
 }
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
@@ -515,11 +539,19 @@ struct fd_stakes_global {
 typedef struct fd_stakes_global fd_stakes_global_t;
 #define FD_STAKES_GLOBAL_ALIGN alignof(fd_stakes_global_t)
 
-static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_pool_join( void const * struct_mem, ulong offset ) { // deque
-  return (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_pool_join( fd_stakes_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->stake_delegations_pool_offset ? (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)type + type->stake_delegations_pool_offset ) ) : NULL;
 }
-static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_root_join( void const * struct_mem, ulong offset ) { // deque
-  return !!offset ? (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_root_join( fd_stakes_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->stake_delegations_root_offset ? (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)type + type->stake_delegations_root_offset ) : NULL;
+}
+static FD_FN_UNUSED void fd_stakes_stake_delegations_pool_update( fd_stakes_global_t * type, fd_delegation_pair_t_mapnode_t * pool ) {
+  type->stake_delegations_pool_offset = (ulong)fd_delegation_pair_t_map_leave( pool ) - (ulong)type;
+}
+static FD_FN_UNUSED void fd_stakes_stake_delegations_root_update( fd_stakes_global_t * type, fd_delegation_pair_t_mapnode_t * root ) {
+  type->stake_delegations_root_offset = (ulong)root - (ulong)type;
 }
 typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_T fd_stake_pair_t_mapnode_t
@@ -1267,8 +1299,8 @@ struct fd_slot_hashes_global {
 typedef struct fd_slot_hashes_global fd_slot_hashes_global_t;
 #define FD_SLOT_HASHES_GLOBAL_ALIGN alignof(fd_slot_hashes_global_t)
 
-static FD_FN_UNUSED fd_slot_hash_t * fd_slot_hashes_hashes_join( void const * struct_mem, ulong offset ) { // deque
-  return (fd_slot_hash_t *)deq_fd_slot_hash_t_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+static FD_FN_UNUSED fd_slot_hash_t * fd_slot_hashes_hashes_join( fd_slot_hashes_global_t * type ) { // deque
+  return (fd_slot_hash_t *)deq_fd_slot_hash_t_join( fd_type_pun( (uchar *)type + type->hashes_offset ) );
 }
 /* Encoded Size: Fixed (40 bytes) */
 struct fd_block_block_hash_entry {
@@ -1306,8 +1338,8 @@ struct fd_recent_block_hashes_global {
 typedef struct fd_recent_block_hashes_global fd_recent_block_hashes_global_t;
 #define FD_RECENT_BLOCK_HASHES_GLOBAL_ALIGN alignof(fd_recent_block_hashes_global_t)
 
-static FD_FN_UNUSED fd_block_block_hash_entry_t * fd_recent_block_hashes_hashes_join( void const * struct_mem, ulong offset ) { // deque
-  return (fd_block_block_hash_entry_t *)deq_fd_block_block_hash_entry_t_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+static FD_FN_UNUSED fd_block_block_hash_entry_t * fd_recent_block_hashes_hashes_join( fd_recent_block_hashes_global_t * type ) { // deque
+  return (fd_block_block_hash_entry_t *)deq_fd_block_block_hash_entry_t_join( fd_type_pun( (uchar *)type + type->hashes_offset ) );
 }
 /* Encoded Size: Dynamic */
 struct fd_slot_meta {
@@ -1372,11 +1404,19 @@ struct fd_clock_timestamp_votes_global {
 typedef struct fd_clock_timestamp_votes_global fd_clock_timestamp_votes_global_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_GLOBAL_ALIGN alignof(fd_clock_timestamp_votes_global_t)
 
-static FD_FN_UNUSED fd_clock_timestamp_vote_t_mapnode_t * fd_clock_timestamp_votes_votes_pool_join( void const * struct_mem, ulong offset ) { // deque
-  return (fd_clock_timestamp_vote_t_mapnode_t *)fd_clock_timestamp_vote_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
+static FD_FN_UNUSED fd_clock_timestamp_vote_t_mapnode_t * fd_clock_timestamp_votes_votes_pool_join( fd_clock_timestamp_votes_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->votes_pool_offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_clock_timestamp_vote_t_map_join( fd_type_pun( (uchar *)type + type->votes_pool_offset ) ) : NULL;
 }
-static FD_FN_UNUSED fd_clock_timestamp_vote_t_mapnode_t * fd_clock_timestamp_votes_votes_root_join( void const * struct_mem, ulong offset ) { // deque
-  return !!offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset ) : NULL;
+static FD_FN_UNUSED fd_clock_timestamp_vote_t_mapnode_t * fd_clock_timestamp_votes_votes_root_join( fd_clock_timestamp_votes_global_t const * type ) {
+  if( FD_UNLIKELY( !type ) ) return NULL;
+  return !!type->votes_root_offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_type_pun( (uchar *)type + type->votes_root_offset ) : NULL;
+}
+static FD_FN_UNUSED void fd_clock_timestamp_votes_votes_pool_update( fd_clock_timestamp_votes_global_t * type, fd_clock_timestamp_vote_t_mapnode_t * pool ) {
+  type->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( pool ) - (ulong)type;
+}
+static FD_FN_UNUSED void fd_clock_timestamp_votes_votes_root_update( fd_clock_timestamp_votes_global_t * type, fd_clock_timestamp_vote_t_mapnode_t * root ) {
+  type->votes_root_offset = (ulong)root - (ulong)type;
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21 */
 /* Encoded Size: Fixed (8 bytes) */

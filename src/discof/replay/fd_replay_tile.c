@@ -2367,8 +2367,8 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, fork->slot_ctx->funk_txn );
 
     fd_clock_timestamp_votes_global_t *   clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( bank_mgr );
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root  = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes, clock_timestamp_votes->votes_root_offset );
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool  = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes, clock_timestamp_votes->votes_pool_offset );
+    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root  = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
+    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool  = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
 
     fd_clock_timestamp_vote_t_mapnode_t * res = fd_clock_timestamp_vote_t_map_find( timestamp_votes_pool, timestamp_votes_root, &query );
 

@@ -1189,8 +1189,8 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * blo
   fd_hash_hash_age_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
 
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( (void*)block_hash_queue, block_hash_queue->ages_pool_offset );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( (void*)block_hash_queue, block_hash_queue->ages_root_offset );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( block_hash_queue );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( block_hash_queue );
 
   fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( ages_pool, ages_root, &key );
   if( hash_age==NULL ) {

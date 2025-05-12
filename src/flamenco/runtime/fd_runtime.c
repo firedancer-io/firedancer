@@ -2294,8 +2294,8 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
 
   stake_account_keys = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
 
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys, stake_account_keys->account_keys_pool_offset );
-  fd_account_keys_pair_t_mapnode_t * account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys, stake_account_keys->account_keys_root_offset );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
+  fd_account_keys_pair_t_mapnode_t * account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
 
   fd_account_keys_pair_t_map_release_tree( account_keys_pool, account_keys_root );
   account_keys_root = NULL;

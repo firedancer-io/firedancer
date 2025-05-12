@@ -30,8 +30,8 @@ encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
   fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( bank_mgr );
 
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq, bhq->ages_pool_offset );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq, bhq->ages_root_offset );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq );
 
   ulong queue_sz   = fd_hash_hash_age_pair_t_map_size( ages_pool, ages_root );
   ulong hashes_len = fd_ulong_min( queue_sz, FD_RECENT_BLOCKHASHES_MAX_ENTRIES );
@@ -86,8 +86,8 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
 
   fd_block_hash_queue_global_t *      bhq       = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq, bhq->ages_pool_offset );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq, bhq->ages_root_offset );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq );
   bhq->last_hash_index++;
   if( fd_hash_hash_age_pair_t_map_size( ages_pool, ages_root ) >= bhq->max_age ) {
     fd_hash_hash_age_pair_t_mapnode_t * nn;
