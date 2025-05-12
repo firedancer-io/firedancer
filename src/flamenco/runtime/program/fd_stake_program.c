@@ -3263,8 +3263,8 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
     // TODO: do we need a release here?
   }
 
-  stake_account_keys->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( account_keys_pool ) - (ulong)stake_account_keys;
-  stake_account_keys->account_keys_root_offset = (ulong)account_keys_root - (ulong)stake_account_keys;
+  fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
+  fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
   fd_bank_mgr_stake_account_keys_save( bank_mgr );
 }
 
@@ -3323,12 +3323,9 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
     }
   }
 
-  stake_account_keys->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( account_keys_pool ) - (ulong)stake_account_keys;
-  stake_account_keys->account_keys_root_offset = account_keys_root ? (ulong)account_keys_root - (ulong)stake_account_keys : 0UL;
-  FD_LOG_WARNING(("OFFSETS AFTER %lu %lu %p %p", stake_account_keys->account_keys_pool_offset,
-                                                      stake_account_keys->account_keys_root_offset,
-                                                      (void *)stake_account_keys,
-                                                      (void *)account_keys_root));
+  fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
+  fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
+
   fd_bank_mgr_stake_account_keys_save( bank_mgr );
 }
 

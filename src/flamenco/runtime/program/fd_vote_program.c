@@ -2184,8 +2184,8 @@ fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
     fd_clock_timestamp_vote_t_map_insert( pool, &root, node );
   }
 
-  clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( pool ) - (ulong)clock_timestamp_votes;
-  clock_timestamp_votes->votes_root_offset = (ulong)root - (ulong)clock_timestamp_votes;
+  fd_clock_timestamp_votes_votes_pool_update( clock_timestamp_votes, pool );
+  fd_clock_timestamp_votes_votes_root_update( clock_timestamp_votes, root );
   fd_bank_mgr_clock_timestamp_votes_save( bank_mgr );
 
   fd_rwlock_unwrite( slot_ctx->vote_stake_lock );

@@ -1555,11 +1555,11 @@ class MapMember(TypeNode):
         print(f'}}', file=header)
 
         print(f'static FD_FN_UNUSED void {type_name}_{self.name}_pool_update( {type_name}_global_t * type, {nodename} * pool ) {{', file=header)
-        print(f'  type->{self.name}_pool_offset = (ulong){mapname}_leave( pool ) - (ulong)type;', file=header)
+        print(f'  type->{self.name}_pool_offset = !!pool ? (ulong){mapname}_leave( pool ) - (ulong)type : 0UL;', file=header)
         print(f'}}', file=header)
 
         print(f'static FD_FN_UNUSED void {type_name}_{self.name}_root_update( {type_name}_global_t * type, {nodename} * root ) {{', file=header)
-        print(f'  type->{self.name}_root_offset = (ulong)root - (ulong)type;', file=header)
+        print(f'  type->{self.name}_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;', file=header)
         print(f'}}', file=header)
 
     def emitNew(self, indent=''):

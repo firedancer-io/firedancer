@@ -593,12 +593,8 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_account_keys_global_t *         stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
-  fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
-  fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
-  if( stake_account_keys ) {
-    account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
-    account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
-  }
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
+  fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys );
 
   /* The number of account keys aggregated across the epoch is usually small, so there aren't much performance gains from tpooling here. */
   for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( account_keys_pool, account_keys_root );
