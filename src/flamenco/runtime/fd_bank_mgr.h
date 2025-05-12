@@ -211,5 +211,5 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       CLOCK_TIMESTAMP_VOTES)       \
   X(ulong,                             signature_cnt,               SIGNATURE_CNT)               \
   X(fd_account_keys_global_t,          stake_account_keys,          STAKE_ACC_KEYS)              \
-
+  X(fd_account_keys_global_t,          vote_account_keys,           VOTE_ACC_KEYS)
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

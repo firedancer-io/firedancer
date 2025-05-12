@@ -1227,7 +1227,6 @@
         { "name": "banks_hash",                  "type": "hash" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "last_restart_slot",           "type": "sol_sysvar_last_restart_slot" },
-        { "name": "vote_account_keys",           "type": "account_keys" },
         { "name": "lthash",                      "type": "slot_lthash" },
         { "name": "prev_banks_hash",             "type": "hash" },
         { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." },

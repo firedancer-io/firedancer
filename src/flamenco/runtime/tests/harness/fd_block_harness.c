@@ -213,11 +213,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
     fd_store_stake_delegation( slot_ctx, acc );
   }
 
-  pool_mem                                       = fd_spad_alloc( runner->spad,
-                                                                  fd_account_keys_pair_t_map_align(),
-                                                                  fd_account_keys_pair_t_map_footprint( vote_acct_max ) );
-  slot_bank->vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, vote_acct_max ) );
-  slot_bank->vote_account_keys.account_keys_root = NULL;
   for( uint i=0U; i<test_ctx->epoch_ctx.new_vote_accounts_count; i++ ) {
     FD_TXN_ACCOUNT_DECL( acc );
 

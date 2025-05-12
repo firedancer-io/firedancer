@@ -3926,15 +3926,20 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   fd_account_keys_global_t *         stake_account_keys      = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
   uchar *                            pool_mem                = (uchar *)fd_ulong_align_up( (ulong)stake_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
   fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = NULL;
 
-  stake_account_keys->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( stake_account_keys_pool ) - (ulong)stake_account_keys;
-  stake_account_keys->account_keys_root_offset = 0UL;
+  fd_account_keys_account_keys_pool_update( stake_account_keys, stake_account_keys_pool );
+  fd_account_keys_account_keys_root_update( stake_account_keys, stake_account_keys_root );
   fd_bank_mgr_stake_account_keys_save( bank_mgr );
 
-  slot_ctx->slot_bank.vote_account_keys.account_keys_root   = NULL;
-  pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
-  slot_ctx->slot_bank.vote_account_keys.account_keys_pool   = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
+  fd_account_keys_global_t *         vote_account_keys      = fd_bank_mgr_vote_account_keys_modify( bank_mgr );
+                                     pool_mem               = (uchar *)fd_ulong_align_up( (ulong)vote_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
+  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
+  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = NULL;
 
+  fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
+  fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
+  fd_bank_mgr_stake_account_keys_save( bank_mgr );
 }
 
 /******************************************************************************/

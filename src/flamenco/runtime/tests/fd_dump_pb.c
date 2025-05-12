@@ -570,18 +570,24 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   /* Dumping vote accounts */
 
   // BlockContext -> EpochContext -> new_vote_accounts (vote accounts for the current running epoch)
-  ulong new_vote_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
-                                                                slot_ctx->slot_bank.vote_account_keys.account_keys_root );
+
+  fd_account_keys_global_t * vote_account_keys = fd_bank_mgr_vote_account_keys_query( bank_mgr );
+  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
+  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
+
+  /* FIXME: if the map doesn't exist this will crash */
+
+  ulong new_vote_account_cnt = fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root );
   block_context->epoch_ctx.new_vote_accounts_count = 0UL;
   block_context->epoch_ctx.new_vote_accounts       = fd_spad_alloc( spad,
                                                                    alignof(fd_exec_test_vote_account_t),
                                                                    new_vote_account_cnt * sizeof(fd_exec_test_vote_account_t) );
 
   for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
-          slot_ctx->slot_bank.vote_account_keys.account_keys_root );
+          vote_account_keys_pool,
+          vote_account_keys_root );
        curr;
-       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, curr ) ) {
+       curr = fd_account_keys_pair_t_map_successor_const( vote_account_keys_pool, curr ) ) {
 
     // Verify the vote account before dumping
     FD_TXN_ACCOUNT_DECL( account );

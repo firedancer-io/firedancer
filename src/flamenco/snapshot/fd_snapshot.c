@@ -41,19 +41,13 @@ struct fd_snapshot_load_ctx {
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 static void
-fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TXN_ACCOUNT_DECL( block_hashes_rec );
   int err = fd_txn_account_init_from_funk_readonly( block_hashes_rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
 
   if( err != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_ERR(( "missing recent block hashes account" ));
   }
-
-  /* FIXME: Do not hardcode the number of vote accounts */
-
-  slot_ctx->slot_bank.vote_account_keys.account_keys_root = NULL;
-  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
-  slot_ctx->slot_bank.vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
 
   fd_bank_mgr_t   bank_mgr_obj = {0};
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
@@ -360,7 +354,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
     ctx->slot_ctx->funk_txn = ctx->par_txn;
   }
 
-  fd_hashes_load( ctx->slot_ctx, ctx->runtime_spad );
+  fd_hashes_load( ctx->slot_ctx );
 
   /* We don't need to free any of the loader memory since it is allocated
      from a spad. */
