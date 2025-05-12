@@ -37,6 +37,12 @@ fd_stream_ctx_init( fd_stream_ctx_t * ctx,
   fd_stream_ticks_init( ctx->ticks, ctx->event_map->event_cnt, 1e3L );
   fd_stream_metrics_init( ctx->metrics );
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, 0, 0UL ) ) );
+
+  /* init metrics link for cons_slow */
+  cons_idx = 0UL;
+  for( ; cons_idx<ctx->cons_cnt; cons_idx++ ) {
+    ctx->cons_slow[ cons_idx ] = (ulong *)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
+  }
 }
 
 fd_stream_ctx_t *
