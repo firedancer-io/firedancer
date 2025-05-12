@@ -1,9 +1,7 @@
+#if FD_HAS_ROCKSDB
+
 #define _GNU_SOURCE  /* Enable GNU and POSIX extensions */
-
-#include "../tiles.h"
-
 #include "fd_archiver.h"
-#include <errno.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -63,6 +61,7 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
   do {
     if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &ctx->rocksdb_root_iter, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) break;
     if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) break;
+    if( FD_UNLIKELY( ctx->rocksdb_slot_meta.slot>ctx->playback_end_slot ) ) break;
     ulong slot = ctx->rocksdb_slot_meta.slot;
     ulong start_idx = 0;
     ulong end_idx = ctx->rocksdb_slot_meta.received;
@@ -198,6 +197,7 @@ after_credit( fd_archiver_backtest_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->playback_started ) ) {
     ulong wmark = fd_fseq_query( ctx->published_wmark );
     if( wmark==ULONG_MAX ) return;
+    if( wmark!=ctx->replay_notification.slot_exec.slot ) return;
 
     ctx->playback_started=1;
     fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
@@ -290,3 +290,22 @@ fd_topo_run_tile_t fd_tile_archiver_backtest = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+
+#else /* RocksDB not supported */
+
+#include "../topo/fd_topo.h"
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+  (void)topo; (void)tile;
+  FD_LOG_ERR(( "backtest functionality is unavailable: Build does not include RocksDB support.\n"
+               "To fix, run ./deps.sh +dev and do a clean rebuild." ));
+}
+
+fd_topo_run_tile_t fd_tile_archiver_backtest = {
+  .name              = "arch_b",
+  .unprivileged_init = unprivileged_init,
+};
+
+#endif /* FD_HAS_ROCKSDB */

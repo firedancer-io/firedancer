@@ -210,7 +210,8 @@ fd_topo_initialize( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
-  int enable_rpc = ( config->rpc.port != 0 );
+  int enable_rpc    = ( config->rpc.port != 0 );
+  int enable_rstart = !!config->tiles.restart.enabled;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -270,10 +271,12 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "voter_dedup"  );
   fd_topob_wksp( topo, "batch_replay" );
 
-  fd_topob_wksp( topo, "rstart_gossi" );
-  fd_topob_wksp( topo, "gossi_rstart" );
-  fd_topob_wksp( topo, "rstart_store" );
-  fd_topob_wksp( topo, "store_rstart" );
+  if( enable_rstart ) {
+    fd_topob_wksp( topo, "rstart_gossi" );
+    fd_topob_wksp( topo, "gossi_rstart" );
+    fd_topob_wksp( topo, "rstart_store" );
+    fd_topob_wksp( topo, "store_rstart" );
+  }
 
   fd_topob_wksp( topo, "quic"        );
   fd_topob_wksp( topo, "verify"      );
@@ -298,7 +301,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "eqvoc"       );
   fd_topob_wksp( topo, "batch"       );
   fd_topob_wksp( topo, "constipate"  );
-  fd_topob_wksp( topo, "restart"     );
+  if(enable_rstart) fd_topob_wksp( topo, "restart" );
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topob_wksp( topo, "writer_fseq" );
@@ -373,11 +376,14 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "voter_sign",   "voter_sign",   128UL,                                    FD_TXN_MTU,                    1UL   );
   /**/                 fd_topob_link( topo, "sign_voter",   "sign_voter",   128UL,                                    64UL,                          1UL   );
 
-  /**/                 fd_topob_link( topo, "batch_replay", "batch_replay", 128UL,                                    32UL,                          1UL   );
-  /**/                 fd_topob_link( topo, "rstart_gossi", "rstart_gossi", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
-  /**/                 fd_topob_link( topo, "gossi_rstart", "gossi_rstart", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
-  /**/                 fd_topob_link( topo, "rstart_store", "rstart_store", 128UL,                                    sizeof(ulong) * 2,             1UL );
-  /**/                 fd_topob_link( topo, "store_rstart", "store_rstart", 128UL,                                    sizeof(fd_funk_txn_xid_t),     1UL );
+  /**/                 fd_topob_link( topo, "batch_replay", "batch_replay", 128UL,                                    32UL,                          1UL );
+
+  if( enable_rstart ) {
+    /**/               fd_topob_link( topo, "rstart_gossi", "rstart_gossi", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
+    /**/               fd_topob_link( topo, "gossi_rstart", "gossi_rstart", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
+    /**/               fd_topob_link( topo, "rstart_store", "rstart_store", 128UL,                                    sizeof(ulong) * 2,             1UL );
+    /**/               fd_topob_link( topo, "store_rstart", "store_rstart", 128UL,                                    sizeof(fd_funk_txn_xid_t),     1UL );
+  }
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -396,7 +402,7 @@ fd_topo_initialize( config_t * config ) {
   ulong affinity_tile_cnt = 0UL;
   if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
 
-  ulong tile_to_cpu[ FD_TILE_MAX ];
+  ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
       FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] specifies a CPU index of %hu, but the system "
@@ -418,32 +424,25 @@ fd_topo_initialize( config_t * config ) {
   FOR(verify_tile_cnt)             fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(shred_tile_cnt)              fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
-  /**/                             fd_topob_tile( topo, "storei",  "storei",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  fd_topo_tile_t * store_tile =    fd_topob_tile( topo, "storei",  "storei",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   /**/                             fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /**/                             fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  fd_topo_tile_t * pack_tile =     fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "pohi",    "pohi",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "gossip",  "gossip",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /**/                             fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "sender",  "voter",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "eqvoc",   "eqvoc",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
-  /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  fd_topo_tile_t * replay_tile =   fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(exec_tile_cnt)               fd_topob_tile( topo, "exec",    "exec",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(writer_tile_cnt)             fd_topob_tile( topo, "writer",  "writer",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /**/                             fd_topob_tile( topo, "batch",   "batch",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /* TODO: not launching the restart tile if in_wen_restart is false */
-  //if( FD_UNLIKELY( config->tiles.restart.in_wen_restart ) ) {
-  /**/                             fd_topob_tile( topo, "rstart",  "restart", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  //}
+  fd_topo_tile_t * batch_tile =    fd_topob_tile( topo, "batch",   "batch",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
-  if( enable_rpc )                 fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  if( enable_rstart ) /*        */ fd_topob_tile( topo, "rstart",  "restart", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
-  fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "storei", 0UL ) ];
-  fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
-  fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
-  fd_topo_tile_t * batch_tile  = &topo->tiles[ fd_topo_find_tile( topo, "batch" , 0UL ) ];
-  fd_topo_tile_t * pack_tile   = &topo->tiles[ fd_topo_find_tile( topo, "pack"  , 0UL ) ];
+  fd_topo_tile_t * rpcserv_tile = NULL;
+  if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   /* Create a shared blockstore to be used by store and replay. */
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
@@ -457,7 +456,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   if( enable_rpc ) {
-    fd_topo_tile_t * rpcserv_tile = &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ];
     fd_topob_tile_uses( topo, rpcserv_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
 
@@ -599,7 +597,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",     0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",  0UL,          FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "rstart_store",  0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
+  if( enable_rstart )  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "rstart_store",  0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "shred_storei",  i,            FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out( topo, "storei",  0UL,                       "store_replay",  0UL                                                  );
 
@@ -628,7 +626,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "gossip_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "voter_gossip", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "rstart_gossi", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  if(enable_rstart) {
+    /**/               fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "rstart_gossi", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  }
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "sign_gossip",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_gossip",  0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_voter", 0UL                                                  );
@@ -692,13 +692,15 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_out( topo, "batch",   0UL,                         "batch_replay",   0UL                                                 );
 
-  /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossi_rstart", 0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "storei",   0UL,                       "store_rstart", 0UL                                                  );
-  /**/                 fd_topob_tile_in(  topo, "rstart",   0UL,          "metric_in", "gossi_rstart", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_in(  topo, "rstart",   0UL,          "metric_in", "store_rstart", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  if( enable_rstart ) {
+    /**/               fd_topob_tile_out( topo, "gossip",   0UL,                       "gossi_rstart", 0UL                                                  );
+    /**/               fd_topob_tile_out( topo, "storei",   0UL,                       "store_rstart", 0UL                                                  );
+    /**/               fd_topob_tile_in(  topo, "rstart",   0UL,          "metric_in", "gossi_rstart", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_in(  topo, "rstart",   0UL,          "metric_in", "store_rstart", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
-  /**/                 fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_gossi", 0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_store", 0UL                                                  );
+    /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_gossi", 0UL                                                  );
+    /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_store", 0UL                                                  );
+  }
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );
@@ -838,6 +840,7 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
       tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
+      tile->replay.max_vote_accounts = config->firedancer.runtime.limits.max_vote_accounts;
 
       /* specified by [tiles.replay] */
 
@@ -936,7 +939,6 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       strncpy( tile->writer.funk_file, config->tiles.replay.funk_file, sizeof(tile->writer.funk_file) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rstart" ) ) ) {
-      tile->restart.in_wen_restart = config->tiles.restart.in_wen_restart;
       strncpy( tile->restart.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
       strncpy( tile->restart.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
       strncpy( tile->restart.identity_key_path, config->paths.identity_key, sizeof(tile->restart.identity_key_path) );

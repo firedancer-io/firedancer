@@ -64,6 +64,7 @@ has_capability( uint capability ) {
   };
 
   if( FD_UNLIKELY( syscall( SYS_capget, &capheader, capdata ) ) ) FD_LOG_ERR(( "capget syscall failed (%i-%s)", errno, fd_io_strerror( errno ) ) );
+  fd_msan_unpoison( capdata, sizeof(capdata) );
   return !!(capdata[ 0 ].effective & (1U << capability));
 }
 

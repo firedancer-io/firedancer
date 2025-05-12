@@ -269,7 +269,7 @@ typedef struct {
 
     struct {
       ulong fec_max;
-      ulong slice_max;
+      ulong max_vote_accounts;
 
       int   tx_metadata_storage;
       char  capture[ PATH_MAX ];

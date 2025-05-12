@@ -603,6 +603,13 @@ initialize_workspaces( config_t * config ) {
 
 void
 initialize_stacks( config_t const * config ) {
+# if FD_HAS_MSAN
+  /* MSan calls an external symbolizer using fork() on crashes, which is
+     incompatible with Firedancer's MAP_SHARED stacks. */
+  (void)config;
+  return;
+# endif
+
   /* Switch to non-root uid/gid for workspace creation.  Permissions
      checks are still done as the current user. */
   uint gid = getgid();

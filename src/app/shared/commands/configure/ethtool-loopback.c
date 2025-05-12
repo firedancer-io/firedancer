@@ -72,6 +72,7 @@ find_feature_index( int          sock,
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSSET_INFO) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
   }
+  fd_msan_unpoison( set_info.r.data, sizeof(uint) );
   uint const feature_cnt = fd_uint_min( set_info.r.data[0], MAX_FEATURES );
 
   static union {
@@ -87,6 +88,7 @@ find_feature_index( int          sock,
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSTRINGS) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
   }
+  fd_msan_unpoison( get_strings.r.data, ETH_GSTRING_LEN*feature_cnt );
 
   for( uint j=0UL; j<feature_cnt; j++ ) {
     uchar const * str = get_strings.r.data + (j*ETH_GSTRING_LEN);
@@ -115,6 +117,7 @@ get_feature_state( int sock,
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GFEATURES) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
   }
+  fd_msan_unpoison( get_features.r.features, get_features.r.size*sizeof(struct ethtool_get_features_block) );
 
   uint bucket = (uint)index / 32u;
   uint offset = (uint)index % 32u;

@@ -20,7 +20,7 @@
 
     Dispatch and merge of sigverify-split-0 jobs to processors.
 
-    Dispatch serializes the three inputs of each invokation
+    Dispatch serializes the three inputs of each invocation
     into the same processor.  Job distribution logic is a 
     simple round-robin policy.  Pointer moves when a job
     is completely taken by a processor.

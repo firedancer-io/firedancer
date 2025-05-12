@@ -84,6 +84,14 @@ main( int     argc,
     for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
     FD_TEST( mysort_stable_para( tpool,t0,t1, tst, cnt, tmp )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
 
+#   if FD_HAS_ALLOCA
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
+    FD_TEST( mysort_fast_para( tpool,t0,t1, tst, cnt, tmp, iter_idx, 0 )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
+    FD_TEST( mysort_fast_para( tpool,t0,t1, tst, cnt, tmp, iter_idx, 1 )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+#   endif
+
     /* Monotonically decreasing unique */
 
     for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
@@ -96,8 +104,33 @@ main( int     argc,
     for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
     FD_TEST( mysort_stable_para( tpool,t0,t1, tst, cnt, tmp )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
 
+#   if FD_HAS_ALLOCA
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
+    FD_TEST( mysort_fast_para( tpool,t0,t1, tst, cnt, tmp, iter_idx, 0 )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+
+    for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)(cnt-i-1UL);
+    FD_TEST( mysort_fast_para( tpool,t0,t1, tst, cnt, tmp, iter_idx, 1 )==tst && !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+#   endif
+
     /* Unique shuffled */
 
+#   if FD_HAS_ALLOCA
+#   define TEST_ALL_PARA_SORTS                                                                             \
+    FD_TEST( mysort_inplace_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt )==tst &&                \
+             !memcmp( tst, ref, cnt*sizeof(TYPE) ) );                                                      \
+                                                                                                           \
+    out = mysort_stable_fast_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt, tmp );                 \
+    FD_TEST( (out==tst || out==tmp) && !memcmp( out, ref, cnt*sizeof(TYPE) ) );                            \
+                                                                                                           \
+    FD_TEST( mysort_stable_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt, tmp )==tst &&            \
+             !memcmp( tst, ref, cnt*sizeof(TYPE) ) );                                                      \
+                                                                                                           \
+    FD_TEST( mysort_fast_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt, tmp, iter_idx, 0 )==tst && \
+             !memcmp( tst, ref, cnt*sizeof(TYPE) ) );                                                      \
+                                                                                                           \
+    FD_TEST( mysort_fast_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt, tmp, iter_idx, 1 )==tst && \
+             !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+#   else
 #   define TEST_ALL_PARA_SORTS                                                                  \
     FD_TEST( mysort_inplace_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt )==tst &&     \
              !memcmp( tst, ref, cnt*sizeof(TYPE) ) );                                           \
@@ -107,6 +140,7 @@ main( int     argc,
                                                                                                 \
     FD_TEST( mysort_stable_para( tpool,t0,t1, shuffle( rng, tst, ref, cnt ), cnt, tmp )==tst && \
              !memcmp( tst, ref, cnt*sizeof(TYPE) ) );
+#   endif
 
     TEST_ALL_PARA_SORTS
 

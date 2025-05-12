@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_discof_rpcserver_json_lex_h
+#define HEADER_fd_src_discof_rpcserver_json_lex_h
+
 /*****
       Header file for a json lexical scanner
 *****/
@@ -64,3 +67,5 @@ double json_lex_as_float(json_lex_state_t* lex);
 // Replaces the string with the result of a formatted printf.
 void json_lex_sprintf(json_lex_state_t* lex, const char* format, ...)
   __attribute__ ((format (printf, 2, 3)));
+
+#endif /* HEADER_fd_src_discof_rpcserver_json_lex_h */

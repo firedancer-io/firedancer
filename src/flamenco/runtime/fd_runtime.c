@@ -1644,7 +1644,7 @@ block_finalize_tpool_wrapper( void * para_arg_1,
   ulong                          worker_cnt = (ulong)arg_2;
   fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
 
-  ulong cnt_per_worker = (task_data->info_sz / (worker_cnt-1UL)) + 1UL;
+  ulong cnt_per_worker = (worker_cnt>1) ? (task_data->info_sz / (worker_cnt-1UL)) + 1UL : task_data->info_sz;
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
     if( start_idx >= task_data->info_sz ) {

@@ -683,7 +683,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   if( FD_LIKELY( tpool ) ) {
-    ulong cnt_per_worker = (task_data->info_sz / (wcnt-1UL)) + 1UL;
+    ulong cnt_per_worker = (wcnt>1) ? (task_data->info_sz / (wcnt-1UL)) + 1UL : task_data->info_sz;
     for( ulong worker_idx=1UL; worker_idx<wcnt; worker_idx++ ) {
       ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
       if( start_idx >= task_data->info_sz ) {
