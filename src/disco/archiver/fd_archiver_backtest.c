@@ -61,6 +61,7 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx,
   do {
     if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &ctx->rocksdb_root_iter, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) break;
     if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) break;
+    if( FD_UNLIKELY( ctx->rocksdb_slot_meta.slot>ctx->playback_end_slot ) ) break;
     ulong slot = ctx->rocksdb_slot_meta.slot;
     ulong start_idx = 0;
     ulong end_idx = ctx->rocksdb_slot_meta.received;
@@ -196,6 +197,7 @@ after_credit( fd_archiver_backtest_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->playback_started ) ) {
     ulong wmark = fd_fseq_query( ctx->published_wmark );
     if( wmark==ULONG_MAX ) return;
+    if( wmark!=ctx->replay_notification.slot_exec.slot ) return;
 
     ctx->playback_started=1;
     fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
