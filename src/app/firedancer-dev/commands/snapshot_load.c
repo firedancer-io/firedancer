@@ -1,4 +1,4 @@
-#include "../../shared/fd_config.h"
+#include "../../firedancer/topology.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../../disco/metrics/fd_metrics.h"
@@ -23,6 +23,11 @@ snapshot_load_topo( config_t *     config,
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
+  fd_topob_wksp( topo, "funk" );
+  fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
+      config->firedancer.funk.max_account_records,
+      config->firedancer.funk.max_database_transactions );
+
   static ushort tile_to_cpu[ FD_TILE_MAX ] = {0};
   if( args->tile_cpus[0] ) {
     ulong cpu_cnt = fd_tile_private_cpus_parse( args->tile_cpus, tile_to_cpu );
@@ -31,10 +36,7 @@ snapshot_load_topo( config_t *     config,
 
   fd_topob_wksp( topo, "metric_in" );
   fd_topob_wksp( topo, "metric" );
-  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
-    FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
-  metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
 
   fd_topob_wksp( topo, "FileRd" );
   fd_topo_tile_t * filerd_tile = fd_topob_tile( topo, "FileRd", "FileRd", "FileRd", tile_to_cpu[1], 0, 0 );
@@ -52,7 +54,8 @@ snapshot_load_topo( config_t *     config,
 
   fd_topob_wksp( topo, "ActAlc" );
   fd_topo_tile_t * actalc_tile = fd_topob_tile( topo, "ActAlc", "ActAlc", "ActAlc", tile_to_cpu[4], 0, 0 );
-  (void)actalc_tile;
+  fd_topob_tile_uses( topo, actalc_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  actalc_tile->actalc.funk_obj_id = funk_obj->id;
 
   fd_topob_wksp( topo, "snap_unzstd" );
   fd_topob_wksp( topo, "snap_stream" );
@@ -82,6 +85,11 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "snap_descs" );
   fd_topob_link( topo, "snap_descs", "snap_descs", 512UL, 0UL, 0UL )->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "ActAlc", 0UL, "snap_descs", 0UL );
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_configure_tile( tile, config );
+  }
 
   if( !args->tile_cpus[0] ) {
     fd_topob_auto_layout( topo, 0 );

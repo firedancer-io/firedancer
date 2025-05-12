@@ -437,6 +437,10 @@ typedef struct {
       ulong scratch_sz;
     } snapin;
 
+    struct {
+      ulong funk_obj_id;
+    } actalc;
+
   };
 } fd_topo_tile_t;
 
