@@ -402,7 +402,7 @@ fd_topo_initialize( config_t * config ) {
   ulong affinity_tile_cnt = 0UL;
   if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
 
-  ulong tile_to_cpu[ FD_TILE_MAX ];
+  ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
       FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] specifies a CPU index of %hu, but the system "
