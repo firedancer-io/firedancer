@@ -8,6 +8,7 @@
 #include <sys/resource.h>
 #include <linux/capability.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #define NAME "snapshot-load"
 
@@ -16,9 +17,33 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
+/* _is_zstd returns 1 if given file handle points to the beginning of a
+    zstd stream, otherwise zero. */
+
+static int
+_is_zstd( char const * path ) {
+  FILE * file = fopen( path, "r" );
+  FD_TEST( file );
+  uint magic;
+  ulong n = fread( &magic, 1UL, 4UL, file );
+  if( FD_UNLIKELY( feof( file ) ) ) {
+    clearerr( file );
+    fseek( file, -(long)n, SEEK_CUR );
+    fclose( file );
+    return 0;
+  }
+  int err = ferror( file );
+  if( FD_UNLIKELY( err ) )
+    FD_LOG_ERR(( "fread() failed (%d-%s)", err, strerror( err ) ));
+  fseek( file, -4L, SEEK_CUR );
+  fclose( file );
+  return ( magic==0xFD2FB528UL );
+}
 static void
 snapshot_load_topo( config_t *     config,
                     args_t const * args ) {
+  int is_zstd = _is_zstd( args->snapshot_load.snapshot_path );
+
   fd_topo_t * topo = &config->topo;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -38,15 +63,53 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "metric" );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
 
+  /* read() tile */
   fd_topob_wksp( topo, "FileRd" );
   fd_topo_tile_t * filerd_tile = fd_topob_tile( topo, "FileRd", "FileRd", "FileRd", tile_to_cpu[1], 0, 0 );
   fd_memcpy( filerd_tile->filerd.file_path, args->snapshot_load.snapshot_path, PATH_MAX );
   FD_STATIC_ASSERT( sizeof(filerd_tile->filerd.file_path)==sizeof(args->snapshot_load.snapshot_path), abi );
   FD_STATIC_ASSERT( sizeof(filerd_tile->filerd.file_path)==PATH_MAX,                                  abi );
 
-  fd_topob_wksp( topo, "Unzstd" );
-  fd_topo_tile_t * unzstd_tile = fd_topob_tile( topo, "Unzstd", "Unzstd", "Unzstd", tile_to_cpu[2], 0, 0 );
-  (void)unzstd_tile;
+  /* Uncompressed data stream */
+  fd_topob_wksp( topo, "snap_stream" );
+  fd_topo_link_t * snapin_link   = fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, 0UL, 0UL );
+  fd_topo_obj_t *  snapin_dcache = fd_topob_obj( topo, "dcache", "snap_stream" );
+  snapin_link->dcache_obj_id = snapin_dcache->id;
+  FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", snapin_dcache->id ) );
+
+  if( is_zstd ) {  /* .tar.zst file */
+
+    /* "unzstd": Zstandard decompress tile */
+    fd_topob_wksp( topo, "Unzstd" );
+    fd_topo_tile_t * unzstd_tile = fd_topob_tile( topo, "Unzstd", "Unzstd", "Unzstd", tile_to_cpu[2], 0, 0 );
+    (void)unzstd_tile;
+
+    /* Compressed data stream */
+    fd_topob_wksp( topo, "snap_zstd" );
+    fd_topo_link_t * zstd_link   = fd_topob_link( topo, "snap_zstd", "snap_zstd", 512UL, 0UL, 0UL );
+    fd_topo_obj_t *  zstd_dcache = fd_topob_obj( topo, "dcache", "snap_zstd");
+    zstd_link->dcache_obj_id = zstd_dcache->id;
+    FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", zstd_dcache->id ) );
+
+    /* filerd tile -> compressed stream */
+    fd_topob_tile_out( topo, "FileRd", 0UL, "snap_zstd", 0UL );
+    fd_topob_tile_uses( topo, filerd_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+    /* compressed stream -> unzstd tile */
+    fd_topob_tile_in( topo, "Unzstd", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_uses( topo, unzstd_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+
+    /* unzstd tile -> uncompressed stream */
+    fd_topob_tile_out( topo, "Unzstd", 0UL, "snap_stream", 0UL );
+    fd_topob_tile_uses( topo, unzstd_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  } else {  /* .tar file */
+
+    /* filerd tile -> uncompressed stream */
+    fd_topob_tile_out( topo, "FileRd", 0UL, "snap_stream", 0UL );
+    fd_topob_tile_uses( topo, filerd_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  }
 
   fd_topob_wksp( topo, "SnapIn" );
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "SnapIn", "SnapIn", "SnapIn", tile_to_cpu[3], 0, 0 );
@@ -57,23 +120,7 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_uses( topo, actalc_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   actalc_tile->actalc.funk_obj_id = funk_obj->id;
 
-  fd_topob_wksp( topo, "snap_unzstd" );
-  fd_topob_wksp( topo, "snap_stream" );
-  fd_topo_link_t * unzstd_link   = fd_topob_link( topo, "snap_unzstd", "snap_unzstd", 512UL, 0UL, 0UL );
-  fd_topo_link_t * snapin_link   = fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, 0UL, 0UL );
-  fd_topo_obj_t *  snapin_dcache = fd_topob_obj( topo, "dcache", "snap_stream" );
-  fd_topo_obj_t *  unzstd_dcache = fd_topob_obj( topo, "dcache", "snap_unzstd");
-  unzstd_link->dcache_obj_id = unzstd_dcache->id;
-  snapin_link->dcache_obj_id = snapin_dcache->id;
-  FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", snapin_dcache->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", unzstd_dcache->id ) );
-  fd_topob_tile_out ( topo, "FileRd", 0UL, "snap_unzstd", 0UL );
-  fd_topob_tile_in  (topo, "Unzstd", 0UL, "metric_in", "snap_unzstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED);
-  fd_topob_tile_out( topo, "Unzstd", 0UL, "snap_stream", 0UL );
   fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
-  fd_topob_tile_uses( topo, filerd_tile, unzstd_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, unzstd_tile, unzstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, unzstd_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   fd_topob_tile_uses( topo, actalc_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
