@@ -647,6 +647,42 @@ fd_topo_link_reliable_consumer_cnt( fd_topo_t const *      topo,
   return cnt;
 }
 
+FD_FN_PURE static inline ulong
+fd_topo_tile_consumer_cnt( fd_topo_t const *      topo, 
+                           fd_topo_tile_t const * tile ) {
+  (void)topo;
+  return tile->out_cnt;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_tile_reliable_consumer_cnt( fd_topo_t const *      topo, 
+                                    fd_topo_tile_t const * tile ) {
+  ulong reliable_cons_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ i ];
+    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+      for( ulong k=0UL; k<tile->out_cnt; k++ ) {
+        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
+          reliable_cons_cnt++;
+        }
+      }
+    }
+  }
+  return reliable_cons_cnt;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_tile_producer_cnt( fd_topo_t const *     topo,
+                           fd_topo_tile_t const * tile ) {
+  (void)topo;
+  ulong in_cnt = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+    in_cnt++;
+  }
+  return in_cnt;
+}
+
 /* Join (map into the process) all shared memory (huge/gigantic pages)
    needed by the tile, in the given topology.  All memory associated
    with the tile (aka. used by links that the tile either produces to or

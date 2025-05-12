@@ -1,9 +1,9 @@
-#ifndef HEADER_fd_src_discof_restore_fd_stream_writer_h
-#define HEADER_fd_src_discof_restore_fd_stream_writer_h
+#ifndef HEADER_fd_src_discof_restore_stream_fd_stream_writer_h
+#define HEADER_fd_src_discof_restore_stream_fd_stream_writer_h
 
-#include "../../util/fd_util_base.h"
-#include "fd_restore_base.h"
-#include "../../disco/topo/fd_topo.h"
+#include "../../../util/fd_util_base.h"
+#include "../../../disco/topo/fd_topo.h"
+#include "fd_stream_reader.h"
 
 /* A shared stream has a single producer and multiple consumers.
    fd_stream_writer implements the producer APIs of the shared stream */
@@ -18,6 +18,7 @@ struct fd_stream_writer {
   ulong                   goff;          /* global offset into byte stream */
   ulong                   read_max;      /* max chunk size */
   ulong                   stream_off;    /* start of published stream */
+  ulong                   goff_start;    /* start of goff in stream */
   ulong                   out_seq;       /* current sequence number */
 
   /* flow control */
@@ -120,7 +121,7 @@ fd_stream_writer_publish( fd_stream_writer_t * writer,
   fd_mcache_publish_stream( writer->out_mcache,
                             fd_mcache_depth( writer->out_mcache->f ),
                             writer->out_seq,
-                            writer->goff,
+                            writer->goff_start,
                             loff,
                             frag_sz,
                             0 );
@@ -132,7 +133,10 @@ fd_stream_writer_publish( fd_stream_writer_t * writer,
     writer->buf_off = 0UL;
   }
 
+  /* update stream_off and goff_start to current values
+     of buf_off and goff */
   writer->stream_off = writer->buf_off;
+  writer->goff_start = writer->goff;
 }
 
 static inline void
@@ -143,8 +147,17 @@ fd_stream_writer_advance( fd_stream_writer_t * writer,
   writer->cr_byte_avail -= sz;
 }
 
-/* TODO: destroy / free */
+static inline int
+fd_stream_writer_is_backpressured( fd_stream_writer_t * writer ) {
+  return writer->cr_byte_avail<writer->burst_byte || writer->cr_frag_avail<writer->burst_frag;
+}
+
+static inline void *
+fd_stream_writer_destroy( fd_stream_writer_t * writer ) {
+  fd_memset( writer, 0, sizeof(fd_stream_writer_t) );
+  return (void *)writer;
+}
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_restore_fd_stream_writer_h */
+#endif /* HEADER_fd_src_discof_restore_stream_fd_stream_writer_h */
