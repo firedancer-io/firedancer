@@ -253,11 +253,7 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
   }
 
-  fd_exec_instr_ctx_t dummy_instr_ctx = {0};
-  fd_exec_txn_ctx_t   dummy_txn_ctx   = {0};
-  dummy_txn_ctx.slot      = slot_ctx->slot_bank.slot;
-  dummy_txn_ctx.features  = slot_ctx->epoch_ctx->features;
-  dummy_instr_ctx.txn_ctx = &dummy_txn_ctx;
+  fd_exec_instr_ctx_t dummy_instr_ctx; /* UNUSED in fd_vm_validate() */
   vm = fd_vm_init( vm,
                    &dummy_instr_ctx,
                    0UL,
