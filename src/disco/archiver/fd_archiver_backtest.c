@@ -1,9 +1,7 @@
+#if FD_HAS_ROCKSDB
+
 #define _GNU_SOURCE  /* Enable GNU and POSIX extensions */
-
-#include "../tiles.h"
-
 #include "fd_archiver.h"
-#include <errno.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -290,3 +288,22 @@ fd_topo_run_tile_t fd_tile_archiver_backtest = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+
+#else /* RocksDB not supported */
+
+#include "../topo/fd_topo.h"
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+  (void)topo; (void)tile;
+  FD_LOG_ERR(( "backtest functionality is unavailable: Build does not include RocksDB support.\n"
+               "To fix, run ./deps.sh +dev and do a clean rebuild." ));
+}
+
+fd_topo_run_tile_t fd_tile_archiver_backtest = {
+  .name              = "arch_b",
+  .unprivileged_init = unprivileged_init,
+};
+
+#endif /* FD_HAS_ROCKSDB */
