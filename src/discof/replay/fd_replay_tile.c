@@ -2986,7 +2986,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   /* Join each of the exec spads. */
-  ctx->exec_cnt = tile->replay.exec_tile_count;
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong       exec_spad_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_spad.%lu", i );
     fd_spad_t * spad         = fd_spad_join( fd_topo_obj_laddr( topo, exec_spad_id ) );
@@ -3083,8 +3083,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* bank                                                               */
   /**********************************************************************/
 
-  ctx->bank_cnt         = tile->replay.bank_tile_count;
-  for( ulong i=0UL; i<tile->replay.bank_tile_count; i++ ) {
+  ctx->bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
+  for( ulong i=0UL; i<(ctx->bank_cnt); i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
     ctx->bank_busy[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
@@ -3109,7 +3109,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* exec                                                               */
   /**********************************************************************/
-  ctx->exec_cnt = tile->replay.exec_tile_count;
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
   if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
   }
@@ -3153,7 +3153,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* writer                                                             */
   /**********************************************************************/
-  ctx->writer_cnt = tile->replay.writer_tile_cuont;
+  ctx->writer_cnt = fd_topo_tile_name_cnt( topo, "writer" );
   if( FD_UNLIKELY( ctx->writer_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_CRIT(( "replay tile has too many writer tiles %lu", ctx->writer_cnt ));
   }

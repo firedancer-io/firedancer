@@ -292,9 +292,6 @@ typedef struct {
       uint  ip_addr;
       int   vote;
       char  vote_account_path[ PATH_MAX ];
-      ulong bank_tile_count;
-      ulong exec_tile_count;
-      ulong writer_tile_cuont;
       ulong full_interval;
       ulong incremental_interval;
 
@@ -373,7 +370,6 @@ typedef struct {
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
-      uint    shred_tile_cnt;
     } repair;
 
     struct {
@@ -427,7 +423,6 @@ typedef struct {
     } pktgen;
 
     struct {
-      int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
 
@@ -515,10 +510,13 @@ fd_topo_workspace_align( void ) {
   return 4096UL;
 }
 
-FD_FN_PURE static inline void *
+static inline void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
                    ulong             obj_id ) {
   fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
+  FD_TEST( obj->id == obj_id );
+  FD_TEST( obj->offset );
   return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
 }
 
