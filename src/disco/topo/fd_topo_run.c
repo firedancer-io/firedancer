@@ -147,6 +147,8 @@ typedef struct {
   uint               gid;
   int *              done_futex;
   volatile int       copied;
+  void *             stack_lo;
+  void *             stack_hi;
 } fd_topo_run_thread_args_t;
 
 static void *
@@ -154,6 +156,11 @@ run_tile_thread_main( void * _args ) {
   fd_topo_run_thread_args_t args = *(fd_topo_run_thread_args_t *)_args;
   FD_COMPILER_MFENCE();
   ((fd_topo_run_thread_args_t *)_args)->copied = 1;
+
+  /* Prevent fork() from smashing the stack */
+  if( FD_UNLIKELY( madvise( args.stack_lo, (ulong)args.stack_hi - (ulong)args.stack_lo, MADV_DONTFORK ) ) ) {
+    FD_LOG_ERR(( "madvise(stack,MADV_DONTFORK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
   if( FD_UNLIKELY( args.done_futex ) ) {
@@ -282,6 +289,8 @@ run_tile_thread( fd_topo_t *         topo,
     .gid        = gid,
     .done_futex = done_futex,
     .copied     = 0,
+    .stack_lo   = stack,
+    .stack_hi   = (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ
   };
 
   pthread_t pthread;
