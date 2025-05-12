@@ -479,14 +479,19 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
 
+    /* Re-join the bank manager at this point to reflect the new slot. */
+    bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn );
+    fd_hash_t * poh_calc = fd_bank_mgr_poh_query( bank_mgr );
+    FD_LOG_WARNING(("poh hash PRE %s", FD_BASE58_ENC_32_ALLOCA( poh_calc->hash )));
+
     fd_hash_t expected;
     int err = fd_blockstore_block_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
-    else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
+    else if( FD_UNLIKELY( 0 != memcmp( fd_bank_mgr_poh_query( bank_mgr )->hash, expected.hash, 32UL ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( expected_hash, expected.hash );
       char poh_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( poh_hash, ledger_args->slot_ctx->slot_bank.poh.hash );
+      fd_acct_addr_cstr( poh_hash, fd_bank_mgr_poh_query( bank_mgr )->hash );
       FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
                         expected_hash,

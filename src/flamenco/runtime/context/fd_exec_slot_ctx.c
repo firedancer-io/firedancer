@@ -240,9 +240,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
   /* Copy over fields */
 
-  if( oldbank->blockhash_queue.last_hash ) {
-    slot_bank->poh = *oldbank->blockhash_queue.last_hash;
-  }
   slot_bank->prev_slot = oldbank->parent_slot;
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_ctx->slot_bank.prev_banks_hash, &oldbank->parent_hash, sizeof(oldbank->parent_hash));
@@ -411,6 +408,14 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
   *priority_fees = 0UL;
   fd_bank_mgr_priority_fees_save( bank_mgr );
+
+  /* PoH */
+
+  if( oldbank->blockhash_queue.last_hash ) {
+    fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+    *poh = *oldbank->blockhash_queue.last_hash;
+    fd_bank_mgr_poh_save( bank_mgr );
+  }
 
   /* FIXME: Remove the magic number here. */
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( bank_mgr );

@@ -264,7 +264,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_block_block_hash_entry_t blockhash_entry;
       memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
-      slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
+      fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+      fd_memcpy( poh->hash, &blockhash_entry.blockhash, sizeof(fd_hash_t) );
+      fd_bank_mgr_poh_save( bank_mgr );
       fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
     }
   } else {
@@ -273,7 +275,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
     memcpy( &epoch_bank->genesis_hash, empty_bytes, sizeof(fd_hash_t) );
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
-    slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
+    fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+    fd_memcpy( poh->hash, &blockhash_entry.blockhash, sizeof(fd_hash_t) );
+    fd_bank_mgr_poh_save( bank_mgr );
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
   fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );

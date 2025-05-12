@@ -317,12 +317,16 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   for( ushort i=0; i<test_ctx->blockhash_queue_count; ++i ) {
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
-    slot_bank->poh = blockhash_entry.blockhash;
+    fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+    fd_memcpy( poh->hash, &blockhash_entry.blockhash, sizeof(fd_hash_t) );
+    fd_bank_mgr_poh_save( bank_mgr );
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
 
   // Set the current poh from the input (we skip POH verification in this fuzzing target)
-  fd_memcpy( slot_ctx->slot_bank.poh.uc, test_ctx->slot_ctx.poh, FD_HASH_FOOTPRINT );
+  fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+  fd_memcpy( poh->hash, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
+  fd_bank_mgr_poh_save( bank_mgr );
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid[1] = {0};

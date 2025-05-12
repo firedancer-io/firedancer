@@ -657,7 +657,10 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
 
   /* BlockContext -> slot_ctx -> poh
      This currently needs to be done because POH verification is done after epoch boundary processing. That should probably be changed */
-  fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) );
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_hash_t * poh = fd_bank_mgr_poh_query( bank_mgr );
+  fd_memcpy( block_context->slot_ctx.poh, poh->hash, sizeof(fd_pubkey_t) );
 
   /* When iterating over microblocks batches and microblocks, we flatten the batches for the output block context (essentially just one big batch with several microblocks) */
   for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {

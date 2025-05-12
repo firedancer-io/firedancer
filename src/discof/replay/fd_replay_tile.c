@@ -1466,7 +1466,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fd_block_info_t * curr_block_info = fd_block_map_query_ele( query );
   if( FD_UNLIKELY( err == FD_MAP_ERR_FULL ) ) FD_LOG_ERR(("Block map prepare failed, likely corrupt."));
   if( FD_UNLIKELY( curr_slot != curr_block_info->slot ) ) FD_LOG_ERR(("Block map prepare failed, likely corrupt."));
-  curr_block_info->in_poh_hash = fork->slot_ctx->slot_bank.poh;
+  // curr_block_info->in_poh_hash = fork->slot_ctx->slot_bank.poh;
   fd_block_map_publish( query );
 
   fork->slot_ctx->slot_bank.prev_slot   = fork->slot_ctx->slot;
@@ -1782,38 +1782,42 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
 
     FD_LOG_DEBUG(( "[%s] BLOCK EXECUTION COMPLETE", __func__ ));
 
-     /* At this point, the entire block has been executed. */
-     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
-                                                    &slot,
-                                                    NULL,
-                                                    ctx->forks->pool );
-     if( FD_UNLIKELY( !fork ) ) {
-       FD_LOG_ERR(( "Unable to select a fork" ));
-     }
+    /* At this point, the entire block has been executed. */
+    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
+                                                  &slot,
+                                                  NULL,
+                                                  ctx->forks->pool );
+    if( FD_UNLIKELY( !fork ) ) {
+      FD_LOG_ERR(( "Unable to select a fork" ));
+    }
 
-     fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t*)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.last_mblk_off );
+    fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t*)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.last_mblk_off );
 
-     // Copy block hash to slot_bank poh for updating the sysvars
-     fd_block_map_query_t query[1] = { 0 };
-     fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-     fd_block_info_t * block_info = fd_block_map_query_ele( query );
+    // Copy block hash to slot_bank poh for updating the sysvars
+    fd_block_map_query_t query[1] = { 0 };
+    fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
 
-     memcpy( fork->slot_ctx->slot_bank.poh.uc, hdr->hash, sizeof(fd_hash_t) );
-     block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_PROCESSED );
-     FD_COMPILER_MFENCE();
-     block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
-     memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
-     memcpy( &block_info->bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
+    fd_bank_mgr_t bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
+    fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+    memcpy( poh->hash, hdr->hash, sizeof(fd_hash_t) );
+    fd_bank_mgr_poh_save( bank_mgr );
+    block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_PROCESSED );
+    FD_COMPILER_MFENCE();
+    block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
+    memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
+    memcpy( &block_info->bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
 
-     fd_block_map_publish( query );
-     ctx->flags = EXEC_FLAG_FINISHED_SLOT;
+    fd_block_map_publish( query );
+    ctx->flags = EXEC_FLAG_FINISHED_SLOT;
 
-     ctx->slice_exec_ctx.last_batch = 0;
-     ctx->slice_exec_ctx.txns_rem = 0;
-     ctx->slice_exec_ctx.mblks_rem = 0;
-     ctx->slice_exec_ctx.sz = 0;
-     ctx->slice_exec_ctx.wmark = 0;
-     ctx->slice_exec_ctx.last_mblk_off = 0;
+    ctx->slice_exec_ctx.last_batch = 0;
+    ctx->slice_exec_ctx.txns_rem = 0;
+    ctx->slice_exec_ctx.mblks_rem = 0;
+    ctx->slice_exec_ctx.sz = 0;
+    ctx->slice_exec_ctx.wmark = 0;
+    ctx->slice_exec_ctx.last_mblk_off = 0;
   }
 
 }
@@ -2091,9 +2095,12 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
 
     ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr )) * *(fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
+    fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+    fd_hash_t poh_hash = *poh;
     while(hashcnt_per_slot--) {
-      fd_sha256_hash( ctx->slot_ctx->slot_bank.poh.uc, 32UL, ctx->slot_ctx->slot_bank.poh.uc );
+      fd_sha256_hash( poh->hash, 32UL, &poh_hash );
     }
+    fd_bank_mgr_poh_save( bank_mgr );
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_runtime_block_info_t info = { .signature_cnt = 0 };

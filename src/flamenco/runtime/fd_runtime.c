@@ -3457,7 +3457,13 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
                                    fd_spad_t *                 runtime_spad ) {
   slot_ctx->slot = 0UL;
 
-  memcpy( &slot_ctx->slot_bank.poh, genesis_hash->hash, FD_SHA256_HASH_SZ );
+  fd_bank_mgr_t   bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_hash_t * poh_bm = fd_bank_mgr_poh_modify( bank_mgr );
+  fd_memcpy( poh_bm->hash, genesis_hash->hash, FD_SHA256_HASH_SZ );
+  fd_bank_mgr_poh_save( bank_mgr );
+
   memset( slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
 
   fd_poh_config_t const * poh        = &genesis_block->poh_config;
@@ -3467,9 +3473,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   epoch_bank->epoch_schedule          = genesis_block->epoch_schedule;
   epoch_bank->rent                    = genesis_block->rent;
-
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
   *block_height = 0UL;
@@ -3748,11 +3751,14 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_mgr_t bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_hash_t poh_old = *fd_bank_mgr_poh_query( bank_mgr );
 
+  fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
   ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr )) * *(fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
   while( hashcnt_per_slot-- ) {
-    fd_sha256_hash( slot_ctx->slot_bank.poh.uc, sizeof(fd_hash_t), slot_ctx->slot_bank.poh.uc );
+    fd_sha256_hash( poh->hash, sizeof(fd_hash_t), &poh_old );
   }
+  fd_bank_mgr_poh_save( bank_mgr );
 
   ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
   *execution_fees = 0UL;
@@ -4445,9 +4451,17 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
     *txn_cnt = block_info.txn_cnt;
 
-    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    fd_bank_mgr_t bank_mgr_obj;
+    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, slot_ctx->funk_txn );
+    fd_hash_t poh_out = {0};
+    fd_hash_t poh_in = *fd_bank_mgr_poh_query( bank_mgr );
+    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
+    FD_LOG_WARNING(("poh hash %s", FD_BASE58_ENC_32_ALLOCA( poh_out.hash )));
+    fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+    fd_memcpy( poh->hash, poh_out.hash, sizeof(fd_hash_t) );
+    fd_bank_mgr_poh_save( bank_mgr );
 
     /* Dump the remainder of the block after preparation, POH verification, etc */
     if( FD_UNLIKELY( dump_block ) ) {
@@ -4457,6 +4471,10 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool( slot_ctx, capture_ctx, &block_info, tpool, exec_spads, exec_spad_cnt, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
+
+    poh = fd_bank_mgr_poh_query( bank_mgr );
+    FD_LOG_WARNING(("poh hash POST %s", FD_BASE58_ENC_32_ALLOCA( poh->hash )));
+
 
     } FD_SPAD_FRAME_END;
 

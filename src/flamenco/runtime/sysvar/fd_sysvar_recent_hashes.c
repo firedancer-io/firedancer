@@ -130,7 +130,10 @@ void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Update the blockhash queue */
-  register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_hash_t * poh = fd_bank_mgr_poh_query( bank_mgr );
+  register_blockhash( slot_ctx, poh );
 
   /* Derive the new sysvar recent blockhashes from the blockhash queue */
   ulong   sz        = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
