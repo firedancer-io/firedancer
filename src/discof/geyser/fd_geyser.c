@@ -1,7 +1,11 @@
 
 #include "fd_geyser.h"
 
+#include "../../funk/fd_funk_filemap.h"
+#include "../../tango/mcache/fd_mcache.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
+#include "../../util/wksp/fd_wksp_private.h"
+#include "../../disco/topo/fd_topo.h"
 
 #include <stdio.h>
 #include <stdlib.h>
