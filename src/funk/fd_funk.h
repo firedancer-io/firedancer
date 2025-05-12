@@ -327,8 +327,8 @@ fd_funk_new( void * shmem,
    (joins are local to a thread group). */
 
 fd_funk_t *
-fd_funk_join( fd_funk_t * ljoin,
-              void *      shfunk );
+fd_funk_join( void * ljoin,
+              void * shfunk );
 
 /* fd_funk_leave leaves a funk join.  Returns the memory region used for
    join on success (caller has ownership on return and the caller is no
