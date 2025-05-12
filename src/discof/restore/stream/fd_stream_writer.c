@@ -1,7 +1,6 @@
 #include "fd_stream_writer.h"
-#include "../../util/log/fd_log.h"
-#include "../../util/wksp/fd_wksp.h"
-#include "../../tango/dcache/fd_dcache.h"
+#include "../../../util/log/fd_log.h"
+#include "../../../tango/dcache/fd_dcache.h"
 
 fd_stream_writer_t *
 fd_stream_writer_new( void *                  mem,
@@ -36,7 +35,8 @@ fd_stream_writer_new( void *                  mem,
   self->goff          = 0UL;
   self->read_max      = read_max;
   self->stream_off    = 0UL;
-  self->out_seq      = 0UL;
+  self->goff_start    = 0UL;
+  self->out_seq       = 0UL;
 
   /* Set up flow control state */
   self->cr_byte_avail = 0UL;

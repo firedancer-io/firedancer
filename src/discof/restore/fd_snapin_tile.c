@@ -74,6 +74,7 @@ struct fd_snapin_tile {
   ulong   buf_ctr;  /* number of bytes allocated in buffer */
   ulong   buf_sz;   /* target buffer size (buf_ctr<buf_sz implies incomplete read) */
   ulong   buf_max;  /* byte capacity of buffer */
+  ulong   pad_sz;
 
   /* Tar parser */
 
@@ -657,11 +658,12 @@ tar_read_hdr( fd_snapin_tile_t * reader,
   uchar const * end = cur+bufsz;
 
   /* Skip padding */
-  if( reader->buf_ctr==0UL ) {
+  if( reader->pad_sz==0UL ) {
     ulong  goff   = (ulong)cur - reader->goff_translate;
-    ulong  pad_sz = fd_ulong_align_up( goff, 512UL ) - goff;
-           pad_sz = fd_ulong_min( pad_sz, (ulong)( end-cur ) );
-    cur += pad_sz;
+    reader->pad_sz = fd_ulong_align_up( goff, 512UL ) - goff;
+    ulong pad_sz_cur = fd_ulong_min( reader->pad_sz, (ulong)( end-cur ) );
+    reader->pad_sz  -= pad_sz_cur;
+    cur += pad_sz_cur;
   }
 
   /* Determine number of bytes to read */
