@@ -1,8 +1,33 @@
-#ifndef HEADER_fd_src_discof_restore_fd_stream_reader_h
-#define HEADER_fd_src_discof_restore_fd_stream_reader_h
+#ifndef HEADER_fd_src_discof_restore_stream_fd_stream_reader_h
+#define HEADER_fd_src_discof_restore_stream_fd_stream_reader_h
 
-#include "fd_restore_base.h"
 #include "fd_frag_reader.h"
+
+/* fd_stream_frag_meta_t is a variation of fd_frag_meta_t optimized for
+   stream I/O. */
+
+union fd_stream_frag_meta {
+
+struct {
+
+  ulong  seq;     /* frag sequence number */
+  ulong  goff;    /* stream offset */
+
+  uint   sz;
+  ushort unused;
+  ushort ctl;
+  ulong  loff;    /* dcache offset */
+
+};
+
+fd_frag_meta_t f[1];
+
+};
+
+typedef union fd_stream_frag_meta fd_stream_frag_meta_t;
+
+FD_STATIC_ASSERT( alignof(fd_stream_frag_meta_t)==32, abi );
+FD_STATIC_ASSERT( sizeof (fd_stream_frag_meta_t)==32, abi );
 
 struct fd_stream_reader {
   union {
@@ -23,6 +48,27 @@ struct fd_stream_reader {
 typedef struct fd_stream_reader fd_stream_reader_t;
 
 FD_PROTOTYPES_BEGIN
+
+static inline void
+fd_mcache_publish_stream( fd_stream_frag_meta_t * mcache,
+                          ulong                   depth,
+                          ulong                   seq,
+                          ulong                   goff,
+                          ulong                   loff,
+                          ulong                   sz,
+                          ulong                   ctl ) {
+  fd_stream_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  FD_COMPILER_MFENCE();
+  meta->seq   = fd_seq_dec( seq, 1UL );
+  FD_COMPILER_MFENCE();
+  meta->goff  = goff;
+  meta->sz    = (uint)sz;
+  meta->ctl   = (ushort)ctl;
+  meta->loff  = loff;
+  FD_COMPILER_MFENCE();
+  meta->seq   = seq;
+  FD_COMPILER_MFENCE();
+}
 
 FD_FN_CONST static inline ulong
 fd_stream_reader_align( void ) {
@@ -75,26 +121,30 @@ fd_stream_reader_poll_frag( fd_stream_reader_t *             reader,
 
 static inline void
 fd_stream_reader_process_overrun( fd_stream_reader_t *             reader,
-                                  fd_frag_reader_consume_ctx_t * ctx,
-                                 long                             seq_diff ) {
+                                  fd_frag_reader_consume_ctx_t *   ctx,
+                                 long                              seq_diff ) {
   fd_frag_reader_process_overrun( reader->base.r, ctx, seq_diff );
 }
 
 static inline void
+fd_stream_reader_consume_bytes( fd_stream_reader_t * reader,
+                                ulong                bytes ) {
+  reader->goff += bytes;
+  reader->base.accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)bytes;
+}
+
+static inline void
 fd_stream_reader_consume_frag( fd_stream_reader_t *             reader,
-                               fd_frag_reader_consume_ctx_t * ctx,
-                               ulong                            frag_sz ) {
-  reader->goff += frag_sz;
-  fd_frag_reader_consume_frag( reader->base.r, ctx, frag_sz );
+                               fd_frag_reader_consume_ctx_t *   ctx ) {
+  fd_frag_reader_consume_frag( reader->base.r, ctx );
 }
 
 static inline void *
-fd_stream_reader_destroy( fd_stream_reader_t * reader ) {
-  fd_frag_reader_destroy( reader->base.r );
-  reader->goff = 0UL;
+fd_stream_reader_delete( fd_stream_reader_t * reader ) {
+  fd_frag_reader_delete( reader->base.r );
   return (void *)reader;
 }
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_restore_fd_stream_reader_h */
+#endif /* HEADER_fd_src_discof_restore_stream_fd_stream_reader_h */

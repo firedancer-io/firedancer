@@ -1,8 +1,8 @@
-#ifndef HEADER_fd_src_discof_restore_fd_frag_reader_h
-#define HEADER_fd_src_discof_restore_fd_frag_reader_h
+#ifndef HEADER_fd_src_discof_restore_stream_fd_frag_reader_h
+#define HEADER_fd_src_discof_restore_stream_fd_frag_reader_h
 
-#include "../../disco/stem/fd_stem.h"
-#include "../../disco/metrics/fd_metrics.h"
+#include "../../../disco/stem/fd_stem.h"
+#include "../../../disco/metrics/fd_metrics.h"
 
 struct __attribute__((aligned(64))) fd_frag_reader {
   fd_frag_meta_t const * mcache;   /* local join to this in's mcache */
@@ -99,10 +99,7 @@ fd_frag_reader_process_overrun( fd_frag_reader_t *             reader,
 
 static inline void
 fd_frag_reader_consume_frag( fd_frag_reader_t *             reader,
-                             fd_frag_reader_consume_ctx_t * ctx,
-                             ulong                          frag_sz ) {
-  reader->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)frag_sz;
-
+                             fd_frag_reader_consume_ctx_t * ctx ) {
   /* check for overrun: when sequence number has changed */
   ulong seq_test = fd_frag_meta_seq_query( ctx->mline );
   if( FD_UNLIKELY( fd_seq_ne( seq_test, ctx->seq_found ) ) ) {
@@ -117,11 +114,11 @@ fd_frag_reader_consume_frag( fd_frag_reader_t *             reader,
 }
 
 static inline void *
-fd_frag_reader_destroy( fd_frag_reader_t * reader ) {
+fd_frag_reader_delete( fd_frag_reader_t * reader ) {
   fd_memset( reader, 0, sizeof(fd_frag_reader_t) );
   return (void *)reader;
 }
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_restore_fd_frag_reader_h */
+#endif /* HEADER_fd_src_discof_restore_stream_fd_frag_reader_h */
