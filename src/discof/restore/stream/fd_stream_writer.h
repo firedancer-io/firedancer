@@ -11,6 +11,7 @@ struct fd_stream_writer {
   fd_stream_frag_meta_t * out_mcache;    /* frag producer mcache */
 
   uchar *                 buf;           /* laddr of shared dcache buffer */
+  ulong                   buf_base;      /* offset to the dcache buffer from wksp */
 
   /* dcache buffer state */
   ulong                   buf_off;       /* local write offset into dcache buffer */
@@ -117,7 +118,7 @@ fd_stream_writer_get_avail_bytes( fd_stream_writer_t * writer ) {
 static inline void
 fd_stream_writer_publish( fd_stream_writer_t * writer,
                           ulong                frag_sz ) {
-  ulong loff = writer->stream_off;
+  ulong loff = writer->buf_base + writer->stream_off;
   fd_mcache_publish_stream( writer->out_mcache,
                             fd_mcache_depth( writer->out_mcache->f ),
                             writer->out_seq,

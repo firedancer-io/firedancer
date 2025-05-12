@@ -577,16 +577,15 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Join stream input */
 
-  uchar const * out_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) );
-  ctx->in_base             = out_dcache;
-  ctx->in_skip             = 0UL;
+  ctx->in_base = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;;
+  ctx->in_skip = 0UL;
 
   /* Join frame buffer */
 
-  ctx->buf           = scratch_mem;
-  ctx->buf_sz        = 0UL;
-  ctx->buf_ctr       = 0UL;
-  ctx->buf_max       = tile->snapin.scratch_sz;
+  ctx->buf     = scratch_mem;
+  ctx->buf_sz  = 0UL;
+  ctx->buf_ctr = 0UL;
+  ctx->buf_max = tile->snapin.scratch_sz;
 
   /* Join snapshot file parser */
 

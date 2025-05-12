@@ -30,6 +30,7 @@ fd_stream_writer_new( void *                  mem,
 
   self->out_mcache = out_mcache;
   self->buf           = dcache;
+  self->buf_base      = (ulong)dcache - (ulong)fd_wksp_containing( dcache );
   self->buf_off       = 0UL;
   self->buf_sz        = fd_dcache_data_sz( dcache );
   self->goff          = 0UL;
