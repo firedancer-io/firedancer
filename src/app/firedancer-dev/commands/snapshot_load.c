@@ -191,13 +191,14 @@ snapshot_load_cmd_fn( args_t *   args,
 
   fd_topo_tile_t * file_rd_tile = &topo->tiles[ fd_topo_find_tile( topo, "FileRd", 0UL ) ];
   fd_topo_tile_t * snap_in_tile = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
-  fd_topo_tile_t * unzstd_tile = &topo->tiles[ fd_topo_find_tile( topo, "Unzstd", 0UL ) ];
+  ulong            zstd_tile_idx =              fd_topo_find_tile( topo, "Unzstd", 0UL );
+  fd_topo_tile_t * unzstd_tile = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
 
   ulong *          snap_in_fseq    = snap_in_tile->in_link_fseq[ 0 ];
   ulong *          snap_accs_sync  = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_frags", 0UL ) ].mcache );
   ulong volatile * file_rd_metrics = fd_metrics_tile( file_rd_tile->metrics );
   ulong volatile * snap_in_metrics = fd_metrics_tile( snap_in_tile->metrics );
-  ulong volatile * unzstd_in_metrics = fd_metrics_tile( unzstd_tile->metrics );
+  ulong volatile * unzstd_in_metrics = unzstd_tile ? fd_metrics_tile( unzstd_tile->metrics ) : NULL;
 
   ulong goff_old          = 0UL;
   ulong file_rd_backp_old = 0UL;
@@ -209,8 +210,8 @@ snapshot_load_cmd_fn( args_t *   args,
 
     ulong filerd_status = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-    ulong unzstd_status = FD_VOLATILE_CONST( unzstd_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-    if( FD_UNLIKELY( filerd_status==2UL || snapin_status==2UL || unzstd_status==2UL ) ) {
+    ulong unzstd_status = unzstd_in_metrics ? FD_VOLATILE_CONST( unzstd_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
+    if( FD_UNLIKELY( filerd_status==2UL && snapin_status==2UL && unzstd_status==2UL ) ) {
       FD_LOG_NOTICE(( "Done" ));
       break;
     }
