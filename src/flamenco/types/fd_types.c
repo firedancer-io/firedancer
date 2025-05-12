@@ -9934,8 +9934,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_accounts_encode( &self->epoch_stakes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_sol_sysvar_last_restart_slot_encode( &self->last_restart_slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_encode( &self->lthash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->prev_banks_hash, ctx );
@@ -9954,8 +9952,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_sol_sysvar_last_restart_slot_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9980,7 +9976,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_bincode_uint64_decode_unsafe( &self->prev_slot, ctx );
   fd_hash_decode_inner( &self->banks_hash, alloc_mem, ctx );
   fd_vote_accounts_decode_inner( &self->epoch_stakes, alloc_mem, ctx );
-  fd_sol_sysvar_last_restart_slot_decode_inner( &self->last_restart_slot, alloc_mem, ctx );
   fd_slot_lthash_decode_inner( &self->lthash, alloc_mem, ctx );
   fd_hash_decode_inner( &self->prev_banks_hash, alloc_mem, ctx );
   fd_rent_fresh_accounts_decode_inner( &self->rent_fresh_accounts, alloc_mem, ctx );
@@ -9998,7 +9993,6 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_bank_t) );
   fd_hash_new( &self->banks_hash );
   fd_vote_accounts_new( &self->epoch_stakes );
-  fd_sol_sysvar_last_restart_slot_new( &self->last_restart_slot );
   fd_slot_lthash_new( &self->lthash );
   fd_hash_new( &self->prev_banks_hash );
   fd_rent_fresh_accounts_new( &self->rent_fresh_accounts );
@@ -10009,7 +10003,6 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fun( w, &self->prev_slot, "prev_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_hash_walk( w, &self->banks_hash, fun, "banks_hash", level );
   fd_vote_accounts_walk( w, &self->epoch_stakes, fun, "epoch_stakes", level );
-  fd_sol_sysvar_last_restart_slot_walk( w, &self->last_restart_slot, fun, "last_restart_slot", level );
   fd_slot_lthash_walk( w, &self->lthash, fun, "lthash", level );
   fd_hash_walk( w, &self->prev_banks_hash, fun, "prev_banks_hash", level );
   fd_rent_fresh_accounts_walk( w, &self->rent_fresh_accounts, fun, "rent_fresh_accounts", level );
@@ -10021,7 +10014,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += sizeof(ulong);
   size += fd_hash_size( &self->banks_hash );
   size += fd_vote_accounts_size( &self->epoch_stakes );
-  size += fd_sol_sysvar_last_restart_slot_size( &self->last_restart_slot );
   size += fd_slot_lthash_size( &self->lthash );
   size += fd_hash_size( &self->prev_banks_hash );
   size += fd_rent_fresh_accounts_size( &self->rent_fresh_accounts );

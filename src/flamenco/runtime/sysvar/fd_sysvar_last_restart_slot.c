@@ -3,7 +3,7 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
-
+#include "../fd_bank_mgr.h"
 void
 fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
@@ -12,7 +12,10 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_sol_sysvar_last_restart_slot_t const * sysvar = &slot_ctx->slot_bank.last_restart_slot;
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_sol_sysvar_last_restart_slot_t const * sysvar = fd_bank_mgr_last_restart_slot_query( bank_mgr );
 
   ulong sz = fd_sol_sysvar_last_restart_slot_size( sysvar );
   uchar enc[ sz ];
@@ -70,7 +73,9 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * r
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2108-L2120 */
   /* FIXME: Query hard forks list */
-  ulong last_restart_slot = slot_ctx->slot_bank.last_restart_slot.slot;
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  ulong last_restart_slot = fd_bank_mgr_last_restart_slot_query( bank_mgr )->slot;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
   if( !has_current_last_restart_slot || current_last_restart_slot != last_restart_slot ) {

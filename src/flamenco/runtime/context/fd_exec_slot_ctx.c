@@ -417,6 +417,35 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
     fd_bank_mgr_poh_save( bank_mgr );
   }
 
+  /* Last Restart Slot */
+
+  /* Update last restart slot
+     https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
+
+     oldbank->hard_forks is sorted ascending by slot number.
+     To find the last restart slot, take the highest hard fork slot
+     number that is less or equal than the current slot number.
+     (There might be some hard forks in the future, ignore these) */
+  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_mgr_last_restart_slot_modify( bank_mgr );
+  do {
+    last_restart_slot->slot = 0UL;
+    if( FD_UNLIKELY( oldbank->hard_forks.hard_forks_len == 0 ) ) {
+      /* SIMD-0047: The first restart slot should be `0` */
+      break;
+    }
+
+    fd_slot_pair_t const * head = oldbank->hard_forks.hard_forks;
+    fd_slot_pair_t const * tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
+
+    for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
+      if( pair->slot <= slot_ctx->slot ) {
+        last_restart_slot->slot = pair->slot;
+        break;
+      }
+    }
+  } while (0);
+  fd_bank_mgr_last_restart_slot_save( bank_mgr );
+
   /* FIXME: Remove the magic number here. */
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( bank_mgr );
   uchar * clock_pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
@@ -441,30 +470,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   // memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks,
           // oldbank->hard_forks.hard_forks_len * sizeof(fd_slot_pair_t) );
 
-  /* Update last restart slot
-     https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
-
-     oldbank->hard_forks is sorted ascending by slot number.
-     To find the last restart slot, take the highest hard fork slot
-     number that is less or equal than the current slot number.
-     (There might be some hard forks in the future, ignore these) */
-  do {
-    slot_bank->last_restart_slot.slot = 0UL;
-    if( FD_UNLIKELY( oldbank->hard_forks.hard_forks_len == 0 ) ) {
-      /* SIMD-0047: The first restart slot should be `0` */
-      break;
-    }
-
-    fd_slot_pair_t const * head = oldbank->hard_forks.hard_forks;
-    fd_slot_pair_t const * tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
-
-    for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-      if( pair->slot <= slot_ctx->slot ) {
-        slot_bank->last_restart_slot.slot = pair->slot;
-        break;
-      }
-    }
-  } while (0);
 
   /* Move EpochStakes */
   do {

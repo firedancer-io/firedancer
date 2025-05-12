@@ -1744,7 +1744,6 @@ struct fd_slot_bank {
   ulong prev_slot;
   fd_hash_t banks_hash;
   fd_vote_accounts_t epoch_stakes;
-  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
   fd_rent_fresh_accounts_t rent_fresh_accounts;
