@@ -3323,8 +3323,10 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
     }
   }
 
+  FD_LOG_WARNING(("ROOT %p", (void *)account_keys_root));
   fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
   fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
+  FD_LOG_WARNING(("OFFSETS AFTER %lu %lu", stake_account_keys->account_keys_pool_offset, stake_account_keys->account_keys_root_offset));
 
   fd_bank_mgr_stake_account_keys_save( bank_mgr );
 }

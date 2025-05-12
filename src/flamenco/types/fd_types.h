@@ -105,10 +105,10 @@ static FD_FN_UNUSED fd_hash_hash_age_pair_t_mapnode_t * fd_block_hash_queue_ages
   return !!type->ages_root_offset ? (fd_hash_hash_age_pair_t_mapnode_t *)fd_type_pun( (uchar *)type + type->ages_root_offset ) : NULL;
 }
 static FD_FN_UNUSED void fd_block_hash_queue_ages_pool_update( fd_block_hash_queue_global_t * type, fd_hash_hash_age_pair_t_mapnode_t * pool ) {
-  type->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( pool ) - (ulong)type;
+  type->ages_pool_offset = !!pool ? (ulong)fd_hash_hash_age_pair_t_map_leave( pool ) - (ulong)type : 0UL;
 }
 static FD_FN_UNUSED void fd_block_hash_queue_ages_root_update( fd_block_hash_queue_global_t * type, fd_hash_hash_age_pair_t_mapnode_t * root ) {
-  type->ages_root_offset = (ulong)root - (ulong)type;
+  type->ages_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;
 }
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_fee_rate_governor {
@@ -359,10 +359,10 @@ static FD_FN_UNUSED fd_vote_accounts_pair_global_t_mapnode_t * fd_vote_accounts_
   return !!type->vote_accounts_root_offset ? (fd_vote_accounts_pair_global_t_mapnode_t *)fd_type_pun( (uchar *)type + type->vote_accounts_root_offset ) : NULL;
 }
 static FD_FN_UNUSED void fd_vote_accounts_vote_accounts_pool_update( fd_vote_accounts_global_t * type, fd_vote_accounts_pair_global_t_mapnode_t * pool ) {
-  type->vote_accounts_pool_offset = (ulong)fd_vote_accounts_pair_global_t_map_leave( pool ) - (ulong)type;
+  type->vote_accounts_pool_offset = !!pool ? (ulong)fd_vote_accounts_pair_global_t_map_leave( pool ) - (ulong)type : 0UL;
 }
 static FD_FN_UNUSED void fd_vote_accounts_vote_accounts_root_update( fd_vote_accounts_global_t * type, fd_vote_accounts_pair_global_t_mapnode_t * root ) {
-  type->vote_accounts_root_offset = (ulong)root - (ulong)type;
+  type->vote_accounts_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;
 }
 /* Encoded Size: Fixed (33 bytes) */
 struct fd_account_keys_pair {
@@ -416,10 +416,10 @@ static FD_FN_UNUSED fd_account_keys_pair_t_mapnode_t * fd_account_keys_account_k
   return !!type->account_keys_root_offset ? (fd_account_keys_pair_t_mapnode_t *)fd_type_pun( (uchar *)type + type->account_keys_root_offset ) : NULL;
 }
 static FD_FN_UNUSED void fd_account_keys_account_keys_pool_update( fd_account_keys_global_t * type, fd_account_keys_pair_t_mapnode_t * pool ) {
-  type->account_keys_pool_offset = (ulong)fd_account_keys_pair_t_map_leave( pool ) - (ulong)type;
+  type->account_keys_pool_offset = !!pool ? (ulong)fd_account_keys_pair_t_map_leave( pool ) - (ulong)type : 0UL;
 }
 static FD_FN_UNUSED void fd_account_keys_account_keys_root_update( fd_account_keys_global_t * type, fd_account_keys_pair_t_mapnode_t * root ) {
-  type->account_keys_root_offset = (ulong)root - (ulong)type;
+  type->account_keys_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;
 }
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
@@ -548,10 +548,10 @@ static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations
   return !!type->stake_delegations_root_offset ? (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)type + type->stake_delegations_root_offset ) : NULL;
 }
 static FD_FN_UNUSED void fd_stakes_stake_delegations_pool_update( fd_stakes_global_t * type, fd_delegation_pair_t_mapnode_t * pool ) {
-  type->stake_delegations_pool_offset = (ulong)fd_delegation_pair_t_map_leave( pool ) - (ulong)type;
+  type->stake_delegations_pool_offset = !!pool ? (ulong)fd_delegation_pair_t_map_leave( pool ) - (ulong)type : 0UL;
 }
 static FD_FN_UNUSED void fd_stakes_stake_delegations_root_update( fd_stakes_global_t * type, fd_delegation_pair_t_mapnode_t * root ) {
-  type->stake_delegations_root_offset = (ulong)root - (ulong)type;
+  type->stake_delegations_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;
 }
 typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
 #define REDBLK_T fd_stake_pair_t_mapnode_t
@@ -1413,10 +1413,10 @@ static FD_FN_UNUSED fd_clock_timestamp_vote_t_mapnode_t * fd_clock_timestamp_vot
   return !!type->votes_root_offset ? (fd_clock_timestamp_vote_t_mapnode_t *)fd_type_pun( (uchar *)type + type->votes_root_offset ) : NULL;
 }
 static FD_FN_UNUSED void fd_clock_timestamp_votes_votes_pool_update( fd_clock_timestamp_votes_global_t * type, fd_clock_timestamp_vote_t_mapnode_t * pool ) {
-  type->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( pool ) - (ulong)type;
+  type->votes_pool_offset = !!pool ? (ulong)fd_clock_timestamp_vote_t_map_leave( pool ) - (ulong)type : 0UL;
 }
 static FD_FN_UNUSED void fd_clock_timestamp_votes_votes_root_update( fd_clock_timestamp_votes_global_t * type, fd_clock_timestamp_vote_t_mapnode_t * root ) {
-  type->votes_root_offset = (ulong)root - (ulong)type;
+  type->votes_root_offset = !!root ? (ulong)root - (ulong)type : 0UL;
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21 */
 /* Encoded Size: Fixed (8 bytes) */
