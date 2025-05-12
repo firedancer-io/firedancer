@@ -162,6 +162,10 @@
 #define FD_BANK_MGR_LAST_RESTART_SLOT_FOOTPRINT (8UL)
 #define FD_BANK_MGR_LAST_RESTART_SLOT_ALIGN     (8UL)
 
+#define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_ID        (31)
+#define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_FOOTPRINT (50000UL)
+#define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -229,5 +233,6 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(fd_account_keys_global_t,          vote_account_keys,           VOTE_ACC_KEYS)               \
   X(ulong,                             use_prev_epoch_stake,        USE_PREV_EPOCH_STAKE)        \
   X(fd_hash_t,                         poh,                         POH)                         \
-  X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           LAST_RESTART_SLOT)
+  X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           LAST_RESTART_SLOT)           \
+  X(fd_rent_fresh_accounts_t,          rent_fresh_accounts,         RENT_FRESH_ACCOUNTS)
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

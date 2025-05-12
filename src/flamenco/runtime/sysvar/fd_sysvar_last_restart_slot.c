@@ -17,6 +17,9 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_sol_sysvar_last_restart_slot_t const * sysvar = fd_bank_mgr_last_restart_slot_query( bank_mgr );
 
+  fd_sol_sysvar_last_restart_slot_t sysvar_default = {0};
+  sysvar = !!sysvar ? sysvar : &sysvar_default;
+
   ulong sz = fd_sol_sysvar_last_restart_slot_size( sysvar );
   uchar enc[ sz ];
   fd_memset( enc, 0, sz );
