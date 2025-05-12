@@ -1824,12 +1824,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_sol_sysvar_last_restart_slot_generate( &self->last_restart_slot, alloc_mem, rng );
   fd_slot_lthash_generate( &self->lthash, alloc_mem, rng );
   fd_hash_generate( &self->prev_banks_hash, alloc_mem, rng );
-  {
-    self->has_use_preceeding_epoch_stakes = fd_rng_uchar( rng ) % 2;
-    if( self->has_use_preceeding_epoch_stakes ) {
-      LLVMFuzzerMutate( (uchar *)&(self->use_preceeding_epoch_stakes), sizeof(ulong), sizeof(ulong) );
-    }
-  }
   fd_rent_fresh_accounts_generate( &self->rent_fresh_accounts, alloc_mem, rng );
   fd_epoch_reward_status_generate( &self->epoch_reward_status, alloc_mem, rng );
   return mem;

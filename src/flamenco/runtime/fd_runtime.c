@@ -2921,7 +2921,9 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
       This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
       See the comment in fd_exec_slot_ctx_recover_. */
-  if( slot_ctx->slot_bank.has_use_preceeding_epoch_stakes && slot_ctx->slot_bank.use_preceeding_epoch_stakes == epoch ) {
+
+  ulong * use_prev_stakes = fd_bank_mgr_use_prev_epoch_stake_query( bank_mgr );
+  if( use_prev_stakes && *use_prev_stakes == epoch ) {
     fd_update_epoch_stakes( slot_ctx );
   }
 

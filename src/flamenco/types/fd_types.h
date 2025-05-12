@@ -1748,8 +1748,6 @@ struct fd_slot_bank {
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
-  ulong use_preceeding_epoch_stakes;
-  uchar has_use_preceeding_epoch_stakes;
   fd_rent_fresh_accounts_t rent_fresh_accounts;
   fd_epoch_reward_status_t epoch_reward_status;
 };

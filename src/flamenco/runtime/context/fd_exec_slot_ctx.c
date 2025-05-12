@@ -495,9 +495,9 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
          If the snapshot does not, we should use the stakes at the end of the E-1 epoch, instead of E-2 as we do for
          all other epochs. */
 
-      if( manifest->bank.epoch_stakes[i].key==epoch+2UL ) {
-        slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
-      }
+      // if( manifest->bank.epoch_stakes[i].key==epoch+2UL ) {
+      //   slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
+      // }
     }
 
     for( ulong i=0UL; i<manifest->versioned_epoch_stakes_len; i++ ) {
@@ -520,13 +520,16 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
         manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root = NULL;
       }
 
-      if( manifest->versioned_epoch_stakes[i].epoch==epoch+2UL ) {
-        slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
-      }
+      // if( manifest->versioned_epoch_stakes[i].epoch==epoch+2UL ) {
+      //   slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
+      // }
     }
 
-    slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 1;
-    slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
+    ulong * use_prev_stakes = fd_bank_mgr_use_prev_epoch_stake_modify( bank_mgr );
+    *use_prev_stakes = epoch + 2UL;
+    fd_bank_mgr_use_prev_epoch_stake_save( bank_mgr );
+
+    // slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
 
     if( FD_UNLIKELY( (!curr_stakes.vote_accounts_root) | (!next_stakes.vote_accounts_root) ) ) {
       FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));

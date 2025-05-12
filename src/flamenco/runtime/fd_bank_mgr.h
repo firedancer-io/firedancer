@@ -147,6 +147,13 @@
 #define FD_BANK_MGR_VOTE_ACC_KEYS_FOOTPRINT (100000UL * 32UL)
 #define FD_BANK_MGR_VOTE_ACC_KEYS_ALIGN     (1024UL)
 
+/* The epoch for which to use the immediately preceeding epoch's stakes
+   for leader schedule calculation. This is necessary due to how Agave's
+   stake caches interact when loading from snapshots. */
+#define FD_BANK_MGR_USE_PREV_EPOCH_STAKE_ID        (28)
+#define FD_BANK_MGR_USE_PREV_EPOCH_STAKE_FOOTPRINT (8UL)
+#define FD_BANK_MGR_USE_PREV_EPOCH_STAKE_ALIGN     (8UL)
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -211,5 +218,6 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(fd_clock_timestamp_votes_global_t, clock_timestamp_votes,       CLOCK_TIMESTAMP_VOTES)       \
   X(ulong,                             signature_cnt,               SIGNATURE_CNT)               \
   X(fd_account_keys_global_t,          stake_account_keys,          STAKE_ACC_KEYS)              \
-  X(fd_account_keys_global_t,          vote_account_keys,           VOTE_ACC_KEYS)
+  X(fd_account_keys_global_t,          vote_account_keys,           VOTE_ACC_KEYS)               \
+  X(ulong,                             use_prev_epoch_stake,        USE_PREV_EPOCH_STAKE)
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)
