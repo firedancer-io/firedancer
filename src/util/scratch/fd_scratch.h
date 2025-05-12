@@ -9,7 +9,6 @@
    It is meant for use in situations that have very complex and large
    temporary memory usage. */
 
-#include "../sanitize/fd_sanitize.h"
 #include "../tile/fd_tile.h"
 #include "../valloc/fd_valloc.h"
 

@@ -45,11 +45,11 @@ main( int     argc,
 
   static uchar _tpool[ FD_TPOOL_FOOTPRINT( FD_TILE_MAX ) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
 
-  fd_tpool_t * tpool = fd_tpool_init( _tpool, thread_cnt ); /* logs details */
+  fd_tpool_t * tpool = fd_tpool_init( _tpool, thread_cnt, 0UL ); /* logs details */
   if( FD_UNLIKELY( !tpool ) ) FD_LOG_ERR(( "fd_tpool_init failed" ));
 
   for( ulong thread_idx=1UL; thread_idx<thread_cnt; thread_idx++ )
-    if( FD_UNLIKELY( !fd_tpool_worker_push( tpool, thread_idx, NULL, 0UL ) ) ) FD_LOG_ERR(( "fd_tpool_worker_push failed" ));
+    if( FD_UNLIKELY( !fd_tpool_worker_push( tpool, thread_idx ) ) ) FD_LOG_ERR(( "fd_tpool_worker_push failed" ));
 
   FD_LOG_NOTICE(( "Running (--iter-max %lu --diag-int %lu)", iter_max, diag_int ));
 

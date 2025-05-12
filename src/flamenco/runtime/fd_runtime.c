@@ -281,7 +281,6 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
   return 0UL;
 }
 
-
 static int
 fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TXN_ACCOUNT_DECL( rec );
@@ -657,7 +656,6 @@ fd_runtime_collect_from_existing_account( ulong                       slot,
   #undef EXEMPT
   #undef COLLECT_RENT
 }
-
 
 /* fd_runtime_collect_rent_from_account performs rent collection duties.
    Although the Solana runtime prevents the creation of new accounts
@@ -1664,7 +1662,6 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-
     task_info[txn_idx].txn_ctx->spad      = runtime_spad;
     task_info[txn_idx].txn_ctx->spad_wksp = fd_wksp_containing( runtime_spad );
     int err = fd_execute_txn_prepare_start( slot_ctx,
@@ -2115,8 +2112,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
       if( curr_exec_idx>=txn_cnt ) {
         break;
       }
-      int state = fd_tpool_worker_state( tpool, worker_idx );
-      if( state!=FD_TPOOL_WORKER_STATE_IDLE ) {
+      if( !fd_tpool_worker_idle( tpool, worker_idx ) ) {
         continue;
       }
 

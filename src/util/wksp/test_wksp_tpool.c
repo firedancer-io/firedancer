@@ -8,12 +8,12 @@
 static FD_TL fd_rng_t rng_mem[1];
 
 static FD_FOR_ALL_BEGIN( rng_init, 1L ) {
-  fd_rng_t ** _rng = (fd_rng_t **)_a0;
+  fd_rng_t ** _rng = (fd_rng_t **)arg[0];
   _rng[ tpool_t0 ] = fd_rng_join( fd_rng_new( rng_mem, (uint)tpool_t0, 0UL ) );
 } FD_FOR_ALL_END
 
 static FD_FOR_ALL_BEGIN( rng_fini, 1L ) {
-  fd_rng_t ** _rng = (fd_rng_t **)_a0;
+  fd_rng_t ** _rng = (fd_rng_t **)arg[0];
   fd_rng_delete( fd_rng_leave( _rng[ tpool_t0 ] ) );
 } FD_FOR_ALL_END
 
@@ -23,8 +23,8 @@ typedef struct {
 } alloc_info_t;
 
 static FD_FOR_ALL_BEGIN( alloc_init, 1L ) {
-  fd_wksp_t *          wksp = (fd_wksp_t *)         _a0;
-  alloc_info_t const * info = (alloc_info_t const *)_a1;
+  fd_wksp_t *          wksp = (fd_wksp_t *)         arg[0];
+  alloc_info_t const * info = (alloc_info_t const *)arg[1];
 
   for( long idx=block_i0; idx<block_i1; idx++ ) {
     ulong gaddr0 = info[ idx ].gaddr0;   /* !=0 */
@@ -37,8 +37,8 @@ static FD_FOR_ALL_BEGIN( alloc_init, 1L ) {
 } FD_FOR_ALL_END
 
 static FD_FOR_ALL_BEGIN( alloc_zero, 1L ) {
-  fd_wksp_t *          wksp = (fd_wksp_t *)         _a0;
-  alloc_info_t const * info = (alloc_info_t const *)_a1;
+  fd_wksp_t *          wksp = (fd_wksp_t *)         arg[0];
+  alloc_info_t const * info = (alloc_info_t const *)arg[1];
 
   for( long idx=block_i0; idx<block_i1; idx++ ) {
     ulong gaddr0 = info[ idx ].gaddr0; /* !=0 */
@@ -49,10 +49,10 @@ static FD_FOR_ALL_BEGIN( alloc_zero, 1L ) {
 } FD_FOR_ALL_END
 
 static FD_FOR_ALL_BEGIN( alloc_test, 1L ) {
-  fd_wksp_t *          wksp = (fd_wksp_t *)         _a0;
-  alloc_info_t const * info = (alloc_info_t const *)_a1;
+  fd_wksp_t *          wksp = (fd_wksp_t *)         arg[0];
+  alloc_info_t const * info = (alloc_info_t const *)arg[1];
 
-  fd_rng_t * rng  = ((fd_rng_t **)_a2)[ tpool_t0 ];
+  fd_rng_t * rng  = ((fd_rng_t **)arg[2])[ tpool_t0 ];
 
   for( long idx=block_i0; idx<block_i1; idx++ ) {
     ulong gaddr0 = info[ idx ].gaddr0;   /* !=0 */
@@ -99,13 +99,13 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Creating thread pool (--worker-cnt %lu)", worker_cnt ));
   static uchar _tpool[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
-  fd_tpool_t * tpool = fd_tpool_init( _tpool, worker_cnt ); /* logs details */
+  fd_tpool_t * tpool = fd_tpool_init( _tpool, worker_cnt, 0UL ); /* logs details */
   if( FD_UNLIKELY( !tpool ) ) FD_LOG_ERR(( "fd_tpool_init failed" ));
 
   FD_LOG_NOTICE(( "Adding tiles as workers to thread pool" ));
 
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ )
-    if( FD_UNLIKELY( !fd_tpool_worker_push( tpool, worker_idx, NULL, 0UL ) ) ) FD_LOG_ERR(( "fd_tpool_worker_push failed" ));
+    if( FD_UNLIKELY( !fd_tpool_worker_push( tpool, worker_idx ) ) ) FD_LOG_ERR(( "fd_tpool_worker_push failed" ));
 
   FD_LOG_NOTICE(( "Creating random number generators" ));
 

@@ -364,7 +364,7 @@ SORT_(stable_fast_para)( fd_tpool_t * tpool,
   t1 = t0 + t_cnt;
 
   SORT_KEY_T * out[1];
-  FD_MAP_REDUCE( SORT_(private_merge_para), tpool,t0,t1, 0L,(long)cnt, key, scratch, out );
+  FD_MAP_REDUCE( SORT_(private_merge_para), tpool,t0,t1, 0L,(long)cnt, out, key, scratch );
   return out[0];
 }
 
@@ -387,7 +387,7 @@ SORT_(stable_para)( fd_tpool_t * tpool,
   t1 = t0 + t_cnt;
 
   SORT_KEY_T * out[1];
-  FD_MAP_REDUCE( SORT_(private_merge_para), tpool,t0,t1, 0L,(long)cnt, key, scratch, out );
+  FD_MAP_REDUCE( SORT_(private_merge_para), tpool,t0,t1, 0L,(long)cnt, out, key, scratch );
   if( out[0]!=key ) FD_FOR_ALL( SORT_(private_memcpy_para), tpool,t0,t1, 0L,(long)cnt, key, scratch ); /* 50/50 branch prob */
   return key;
 }
@@ -991,20 +991,20 @@ SORT_(private_quick_node)( void * _tpool,
   while( wait_stack_cnt ) fd_tpool_wait( tpool, wait_stack[ --wait_stack_cnt ] );
 }
 
-FD_MAP_REDUCE_BEGIN( SORT_(private_merge_para), 1L, alignof(SORT_KEY_T *), sizeof(SORT_KEY_T *) ) {
+FD_MAP_REDUCE_BEGIN( SORT_(private_merge_para), 1L, 0UL, sizeof(SORT_KEY_T *), 1L ) {
 
-  SORT_KEY_T *  key = (SORT_KEY_T * )_a0;
-  SORT_KEY_T *  tmp = (SORT_KEY_T * )_a1;
-  SORT_KEY_T ** out = (SORT_KEY_T **)_r0;
+  SORT_KEY_T ** out = (SORT_KEY_T **)arg[0];
+  SORT_KEY_T *  key = (SORT_KEY_T * )arg[1];
+  SORT_KEY_T *  tmp = (SORT_KEY_T * )arg[2];
 
   *out = SORT_(stable_fast)( key + block_i0, (SORT_IDX_T)block_cnt, tmp + block_i0 );
 
 } FD_MAP_END {
 
-  SORT_KEY_T *  key   = (SORT_KEY_T * )_a0;
-  SORT_KEY_T *  tmp   = (SORT_KEY_T * )_a1;
-  SORT_KEY_T ** _in_l = (SORT_KEY_T **)_r0; SORT_KEY_T * in_l = *_in_l; long cnt_l = block_is - block_i0;
-  SORT_KEY_T ** _in_r = (SORT_KEY_T **)_r1; SORT_KEY_T * in_r = *_in_r; long cnt_r = block_i1 - block_is;
+  SORT_KEY_T *  key   = (SORT_KEY_T * )arg[1];
+  SORT_KEY_T *  tmp   = (SORT_KEY_T * )arg[2];
+  SORT_KEY_T ** _in_l = (SORT_KEY_T **)arg[0]; SORT_KEY_T * in_l = *_in_l; long cnt_l = block_is - block_i0;
+  SORT_KEY_T ** _in_r = (SORT_KEY_T **)_r1;    SORT_KEY_T * in_r = *_in_r; long cnt_r = block_i1 - block_is;
 
   /* Merge in_l / in_r (see private_merge above for details) */
 
@@ -1018,8 +1018,8 @@ FD_MAP_REDUCE_BEGIN( SORT_(private_merge_para), 1L, alignof(SORT_KEY_T *), sizeo
 
 FD_FOR_ALL_BEGIN( SORT_(private_memcpy_para), 1L ) {
 
-  SORT_KEY_T       * dst = (SORT_KEY_T       *)_a0;
-  SORT_KEY_T const * src = (SORT_KEY_T const *)_a1;
+  SORT_KEY_T       * dst = (SORT_KEY_T       *)arg[0];
+  SORT_KEY_T const * src = (SORT_KEY_T const *)arg[1];
 
   if( FD_LIKELY( block_cnt ) ) memcpy( dst + block_i0, src + block_i0, sizeof(SORT_KEY_T)*(ulong)block_cnt );
 
@@ -1028,12 +1028,12 @@ FD_FOR_ALL_BEGIN( SORT_(private_memcpy_para), 1L ) {
 #if FD_HAS_ALLOCA
 
 static FD_FOR_ALL_BEGIN( SORT_(private_cntcpy_para), 1L ) {
-  ulong              tpool_base = (ulong             )_a0;
-  ulong              t_cnt      = (ulong             )_a1;
-  ulong            * _key_cnt   = (ulong            *)_a2;
-  SORT_KEY_T const * key        = (SORT_KEY_T const *)_a3;
-  SORT_KEY_T       * tmp        = (SORT_KEY_T       *)_a4;
-  SORT_KEY_T const * pivot      = (SORT_KEY_T const *)_a5;
+  ulong              tpool_base = (ulong             )arg[0];
+  ulong              t_cnt      = (ulong             )arg[1];
+  ulong            * _key_cnt   = (ulong            *)arg[2];
+  SORT_KEY_T const * key        = (SORT_KEY_T const *)arg[3];
+  SORT_KEY_T       * tmp        = (SORT_KEY_T       *)arg[4];
+  SORT_KEY_T const * pivot      = (SORT_KEY_T const *)arg[5];
 
   /* Note keys in [ pivot[t-1], pivot[t] ) for t in [0,t_cnt) are keys
      assigned to thread t for sorting.  pivot[-1] / pivot[t_cnt-1] are
@@ -1086,12 +1086,12 @@ static FD_FOR_ALL_BEGIN( SORT_(private_cntcpy_para), 1L ) {
 } FD_FOR_ALL_END
 
 static FD_FOR_ALL_BEGIN( SORT_(private_scatter_para), 1L ) {
-  ulong              tpool_base = (ulong             )_a0;
-  ulong              t_cnt      = (ulong             )_a1;
-  ulong      const * _part      = (ulong      const *)_a2;
-  SORT_KEY_T       * key        = (SORT_KEY_T       *)_a3;
-  SORT_KEY_T const * tmp        = (SORT_KEY_T const *)_a4;
-  SORT_KEY_T const * pivot      = (SORT_KEY_T const *)_a5;
+  ulong              tpool_base = (ulong             )arg[0];
+  ulong              t_cnt      = (ulong             )arg[1];
+  ulong      const * _part      = (ulong      const *)arg[2];
+  SORT_KEY_T       * key        = (SORT_KEY_T       *)arg[3];
+  SORT_KEY_T const * tmp        = (SORT_KEY_T const *)arg[4];
+  SORT_KEY_T const * pivot      = (SORT_KEY_T const *)arg[5];
 
   /* Receive the key array partitioning from the main thread.  Like the
      above, we don't operate on the part array directly to avoid false
@@ -1128,10 +1128,10 @@ static FD_FOR_ALL_BEGIN( SORT_(private_scatter_para), 1L ) {
 } FD_FOR_ALL_END
 
 static FD_FOR_ALL_BEGIN( SORT_(private_subsort_para), 1L ) {
-  ulong const * part   = (ulong const *)_a0;
-  SORT_KEY_T  * key    = (SORT_KEY_T  *)_a1;
-  SORT_KEY_T  * tmp    = (SORT_KEY_T  *)_a2;
-  int           stable = (int          )_a3;
+  ulong const * part   = (ulong const *)arg[0];
+  SORT_KEY_T  * key    = (SORT_KEY_T  *)arg[1];
+  SORT_KEY_T  * tmp    = (SORT_KEY_T  *)arg[2];
+  int           stable = (int          )arg[3];
 
   ulong j0 = part[ block_i0 ];
   ulong j1 = part[ block_i1 ];
