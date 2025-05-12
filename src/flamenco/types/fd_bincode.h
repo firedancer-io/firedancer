@@ -186,11 +186,13 @@ static inline int
 fd_bincode_bytes_encode( uchar const *             self,
                          ulong                     len,
                          fd_bincode_encode_ctx_t * ctx ) {
-  uchar *ptr = (uchar *) ctx->data;
-  if ( FD_UNLIKELY((void *) (ptr + len) > ctx->dataend ) )
+  fd_msan_check( self, len );
+
+  uchar * ptr = (uchar *)ctx->data;
+  if( FD_UNLIKELY( (void *)( ptr+len ) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
-  fd_memcpy(ptr, self, len);
+  fd_memcpy( ptr, self, len );
   ctx->data = ptr + len;
 
   return FD_BINCODE_SUCCESS;
