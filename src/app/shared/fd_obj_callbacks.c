@@ -278,6 +278,13 @@ fd_topo_obj_callbacks_t fd_obj_cb_keyswitch = {
 };
 
 static ulong
+funk_align( fd_topo_t const *     topo,
+            fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_funk_align();
+}
+
+static ulong
 funk_footprint( fd_topo_t const *     topo,
                 fd_topo_obj_t const * obj ) {
   (void)topo;
@@ -285,10 +292,10 @@ funk_footprint( fd_topo_t const *     topo,
 }
 
 static ulong
-funk_align( fd_topo_t const *     topo,
+funk_loose( fd_topo_t const *     topo,
             fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_funk_align();
+  (void)topo;
+  return VAL("heap_max");
 }
 
 static void
@@ -303,6 +310,7 @@ funk_new( fd_topo_t const *     topo,
 fd_topo_obj_callbacks_t fd_obj_cb_funk = {
   .name      = "funk",
   .footprint = funk_footprint,
+  .loose     = funk_loose,
   .align     = funk_align,
   .new       = funk_new,
 };

@@ -39,7 +39,8 @@ fd_topo_obj_t *
 setup_topo_funk( fd_topo_t *  topo,
                  char const * wksp_name,
                  ulong        max_account_records,
-                 ulong        max_database_transactions );
+                 ulong        max_database_transactions,
+                 ulong        heap_size_gib );
 
 int
 fd_topo_configure_tile( fd_topo_tile_t * tile,

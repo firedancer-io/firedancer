@@ -79,11 +79,13 @@ fd_topo_obj_t *
 setup_topo_funk( fd_topo_t *  topo,
                  char const * wksp_name,
                  ulong        max_account_records,
-                 ulong        max_database_transactions ) {
+                 ulong        max_database_transactions,
+                 ulong        heap_size_gib ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "funk", wksp_name );
   FD_TEST( fd_pod_insert_ulong(  topo->props, "funk", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_records,       "obj.%lu.rec_max", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_records,       "obj.%lu.rec_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, heap_size_gib<<30,         "obj.%lu.heap_max", obj->id ) );
   ulong funk_footprint = fd_funk_footprint( max_database_transactions, max_account_records );
   if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [funk] parameters" ));
 
@@ -91,8 +93,8 @@ setup_topo_funk( fd_topo_t *  topo,
   ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
-  ulong part_max = fd_wksp_part_max_est( funk_footprint, 1U<<18U );
-  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,256KiB) failed", funk_footprint ));
+  ulong part_max = fd_wksp_part_max_est( funk_footprint, 1U<<14U );
+  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", funk_footprint ));
   wksp->part_max += part_max;
 
   return obj;
@@ -471,7 +473,8 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
-      config->firedancer.funk.max_database_transactions );
+      config->firedancer.funk.max_database_transactions,
+      config->firedancer.funk.heap_size_gib );
 
   /*                */ fd_topob_tile_uses( topo, batch_tile,   funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
