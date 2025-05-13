@@ -3,7 +3,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "fd_features_generated.h"
-
+#include "../types/fd_types.h"
 /* Macro FEATURE_ID_CNT expands to the number of features in
    fd_features_t. */
 
@@ -84,7 +84,7 @@ fd_features_enable_all( fd_features_t * );
    of the Firedancer software and can't be disabled. */
 
 void
-fd_features_enable_cleaned_up( fd_features_t *, uint[3] );
+fd_features_enable_cleaned_up( fd_features_t *, fd_cluster_version_t const * );
 
 /* fd_features_enable_one_offs enables all manually passed in features. */
 

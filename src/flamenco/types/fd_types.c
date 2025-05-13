@@ -8862,6 +8862,50 @@ ulong fd_rent_fresh_accounts_size( fd_rent_fresh_accounts_t const * self ) {
   return size;
 }
 
+int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->major, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->minor, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->patch, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+static inline int fd_cluster_version_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = (void *)( (ulong)ctx->data + 12UL );
+  return 0;
+}
+static void fd_cluster_version_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cluster_version_t * self = (fd_cluster_version_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->major, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->minor, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->patch, ctx );
+}
+void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cluster_version_t * self = (fd_cluster_version_t *)mem;
+  fd_cluster_version_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_cluster_version_t);
+  void * * alloc_mem = &alloc_region;
+  fd_cluster_version_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cluster_version", level++ );
+  fun( w, &self->major, "major", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cluster_version", level-- );
+}
+ulong fd_cluster_version_size( fd_cluster_version_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  size += sizeof(uint);
+  size += sizeof(uint);
+  return size;
+}
+
 int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_stakes_encode( &self->stakes, ctx );
@@ -8872,10 +8916,6 @@ int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->genesis_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  for( ulong i=0; i<3; i++ ) {
-    err = fd_bincode_uint32_encode( self->cluster_version[i], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
   err = fd_vote_accounts_encode( &self->next_epoch_stakes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_schedule_encode( &self->rent_epoch_schedule, ctx );
@@ -8893,10 +8933,6 @@ static int fd_epoch_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
-  for( ulong i=0; i<3; i++ ) {
-    err = fd_bincode_uint32_decode_footprint( ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  }
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_schedule_decode_footprint_inner( ctx, total_sz );
@@ -8917,9 +8953,6 @@ static void fd_epoch_bank_decode_inner( void * struct_mem, void * * alloc_mem, f
   fd_epoch_schedule_decode_inner( &self->epoch_schedule, alloc_mem, ctx );
   fd_rent_decode_inner( &self->rent, alloc_mem, ctx );
   fd_hash_decode_inner( &self->genesis_hash, alloc_mem, ctx );
-  for( ulong i=0; i<3; i++ ) {
-    fd_bincode_uint32_decode_unsafe( self->cluster_version + i, ctx );
-  }
   fd_vote_accounts_decode_inner( &self->next_epoch_stakes, alloc_mem, ctx );
   fd_epoch_schedule_decode_inner( &self->rent_epoch_schedule, alloc_mem, ctx );
 }
@@ -8946,10 +8979,6 @@ void fd_epoch_bank_walk( void * w, fd_epoch_bank_t const * self, fd_types_walk_f
   fd_epoch_schedule_walk( w, &self->epoch_schedule, fun, "epoch_schedule", level );
   fd_rent_walk( w, &self->rent, fun, "rent", level );
   fd_hash_walk( w, &self->genesis_hash, fun, "genesis_hash", level );
-  fun( w, NULL, "cluster_version", FD_FLAMENCO_TYPE_ARR, "uint[]", level++ );
-  for( ulong i=0; i<3; i++ )
-    fun( w, self->cluster_version + i, "cluster_version", FD_FLAMENCO_TYPE_UINT,    "uint",    level );
-  fun( w, NULL, "cluster_version", FD_FLAMENCO_TYPE_ARR_END, "uint[]", level-- );
   fd_vote_accounts_walk( w, &self->next_epoch_stakes, fun, "next_epoch_stakes", level );
   fd_epoch_schedule_walk( w, &self->rent_epoch_schedule, fun, "rent_epoch_schedule", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_bank", level-- );
@@ -8960,7 +8989,6 @@ ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
   size += fd_epoch_schedule_size( &self->epoch_schedule );
   size += fd_rent_size( &self->rent );
   size += fd_hash_size( &self->genesis_hash );
-  size += 3 * sizeof(uint);
   size += fd_vote_accounts_size( &self->next_epoch_stakes );
   size += fd_epoch_schedule_size( &self->rent_epoch_schedule );
   return size;
@@ -25011,50 +25039,6 @@ ulong fd_cost_tracker_size( fd_cost_tracker_t const * self ) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
-  return size;
-}
-
-int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint32_encode( self->major, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->minor, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->patch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_cluster_version_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 12UL );
-  return 0;
-}
-static void fd_cluster_version_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_cluster_version_t * self = (fd_cluster_version_t *)struct_mem;
-  fd_bincode_uint32_decode_unsafe( &self->major, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->minor, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->patch, ctx );
-}
-void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_cluster_version_t * self = (fd_cluster_version_t *)mem;
-  fd_cluster_version_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_cluster_version_t);
-  void * * alloc_mem = &alloc_region;
-  fd_cluster_version_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cluster_version", level++ );
-  fun( w, &self->major, "major", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cluster_version", level-- );
-}
-ulong fd_cluster_version_size( fd_cluster_version_t const * self ) {
-  ulong size = 0;
-  size += sizeof(uint);
-  size += sizeof(uint);
-  size += sizeof(uint);
   return size;
 }
 

@@ -1078,6 +1078,16 @@
       ]
     },
     {
+      "name": "cluster_version",
+      "type": "struct",
+      "global": true,
+      "fields": [
+        { "name": "major", "type": "uint" },
+        { "name": "minor", "type": "uint" },
+        { "name": "patch", "type": "uint" }
+      ]
+    },
+    {
       "name": "epoch_bank",
       "type": "struct",
       "archival": "true",
@@ -1086,7 +1096,6 @@
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
         { "name": "genesis_hash",          "type": "hash" },
-        { "name": "cluster_version",       "type": "array", "element": "uint", "length": 3 },
         { "name": "next_epoch_stakes",     "type": "vote_accounts"},
         { "name": "rent_epoch_schedule",   "type": "epoch_schedule" }
       ]
@@ -2834,15 +2843,6 @@
         { "name": "secp256r1_instruction_signature_count", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79"
-    },
-    {
-      "name": "cluster_version",
-      "type": "struct",
-      "fields": [
-        { "name": "major", "type": "uint" },
-        { "name": "minor", "type": "uint" },
-        { "name": "patch", "type": "uint" }
-      ]
     }
   ]
 }

@@ -1285,13 +1285,19 @@ replay( fd_ledger_args_t * args ) {
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
 
   /* TODO: This is very hacky, needs to be cleaned up */
-  args->epoch_ctx->epoch_bank.cluster_version[0] = args->cluster_version[0];
-  args->epoch_ctx->epoch_bank.cluster_version[1] = args->cluster_version[1];
-  args->epoch_ctx->epoch_bank.cluster_version[2] = args->cluster_version[2];
+
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, NULL );
+  fd_cluster_version_t * cluster_version = fd_bank_mgr_cluster_version_modify( bank_mgr );
+
+  cluster_version->major = args->cluster_version[0];
+  cluster_version->minor = args->cluster_version[1];
+  cluster_version->patch = args->cluster_version[2];
+  fd_bank_mgr_cluster_version_save( bank_mgr );
 
   args->epoch_ctx->runtime_public = runtime_public;
 
-  fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
+  fd_features_enable_cleaned_up( &args->epoch_ctx->features, cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
   // activate them

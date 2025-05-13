@@ -166,6 +166,10 @@
 #define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_FOOTPRINT (50000UL)
 #define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_ALIGN     (8UL)
 
+#define FD_BANK_MGR_CLUSTER_VERSION_ID        (32)
+#define FD_BANK_MGR_CLUSTER_VERSION_FOOTPRINT (12UL)
+#define FD_BANK_MGR_CLUSTER_VERSION_ALIGN     (4UL)
+
 // /* TODO: THe names for these two epoch stakes fields are not very
 //    clear and should probably be renamed.
 
@@ -250,5 +254,6 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                             use_prev_epoch_stake,        USE_PREV_EPOCH_STAKE)        \
   X(fd_hash_t,                         poh,                         POH)                         \
   X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           LAST_RESTART_SLOT)           \
-  X(fd_rent_fresh_accounts_global_t,   rent_fresh_accounts,         RENT_FRESH_ACCOUNTS)
+  X(fd_rent_fresh_accounts_global_t,   rent_fresh_accounts,         RENT_FRESH_ACCOUNTS)         \
+  X(fd_cluster_version_t,              cluster_version,             CLUSTER_VERSION)
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

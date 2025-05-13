@@ -1538,13 +1538,21 @@ FD_FN_UNUSED static fd_rent_fresh_account_t * fd_rent_fresh_accounts_fresh_accou
 FD_FN_UNUSED static void fd_rent_fresh_accounts_fresh_accounts_update( fd_rent_fresh_accounts_global_t * struct_mem, fd_rent_fresh_account_t * vec ) {
   struct_mem->fresh_accounts_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
+/* Encoded Size: Fixed (12 bytes) */
+struct fd_cluster_version {
+  uint major;
+  uint minor;
+  uint patch;
+};
+typedef struct fd_cluster_version fd_cluster_version_t;
+#define FD_CLUSTER_VERSION_ALIGN alignof(fd_cluster_version_t)
+
 /* Encoded Size: Dynamic */
 struct fd_epoch_bank {
   fd_stakes_t stakes;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
   fd_hash_t genesis_hash;
-  uint cluster_version[3];
   fd_vote_accounts_t next_epoch_stakes;
   fd_epoch_schedule_t rent_epoch_schedule;
 };
@@ -3260,15 +3268,6 @@ struct fd_cost_tracker {
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 #define FD_COST_TRACKER_ALIGN alignof(fd_cost_tracker_t)
 
-/* Encoded Size: Fixed (12 bytes) */
-struct fd_cluster_version {
-  uint major;
-  uint minor;
-  uint patch;
-};
-typedef struct fd_cluster_version fd_cluster_version_t;
-#define FD_CLUSTER_VERSION_ALIGN alignof(fd_cluster_version_t)
-
 
 FD_PROTOTYPES_BEGIN
 
@@ -4285,6 +4284,18 @@ int fd_rent_fresh_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
 void * fd_rent_fresh_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_rent_fresh_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_rent_fresh_accounts_encode_global( fd_rent_fresh_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+
+static inline void fd_cluster_version_new( fd_cluster_version_t * self ) { fd_memset( self, 0, sizeof(fd_cluster_version_t) ); }
+int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_cluster_version_size( fd_cluster_version_t const * self );
+static inline ulong fd_cluster_version_align( void ) { return FD_CLUSTER_VERSION_ALIGN; }
+static inline int fd_cluster_version_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_cluster_version_t);
+  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return 0;
+}
+void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_epoch_bank_new( fd_epoch_bank_t * self );
 int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -6165,18 +6176,6 @@ ulong fd_cost_tracker_size( fd_cost_tracker_t const * self );
 static inline ulong fd_cost_tracker_align( void ) { return FD_COST_TRACKER_ALIGN; }
 int fd_cost_tracker_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_cluster_version_new( fd_cluster_version_t * self ) { fd_memset( self, 0, sizeof(fd_cluster_version_t) ); }
-int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_cluster_version_size( fd_cluster_version_t const * self );
-static inline ulong fd_cluster_version_align( void ) { return FD_CLUSTER_VERSION_ALIGN; }
-static inline int fd_cluster_version_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_cluster_version_t);
-  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 
