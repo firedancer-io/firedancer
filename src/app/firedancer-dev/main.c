@@ -69,6 +69,7 @@ extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
 extern fd_topo_run_tile_t fd_tile_dedup;
 extern fd_topo_run_tile_t fd_tile_pack;
+extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
@@ -86,7 +87,7 @@ extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
 extern fd_topo_run_tile_t fd_tile_writer;
 extern fd_topo_run_tile_t fd_tile_batch;
-extern fd_topo_run_tile_t fd_tile_pohi;
+extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_sender;
 extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
@@ -108,6 +109,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_verify,
   &fd_tile_dedup,
   &fd_tile_pack,
+  &fd_tile_resolv,
   &fd_tile_shred,
   &fd_tile_sign,
   &fd_tile_metric,
@@ -124,7 +126,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_execor,
   &fd_tile_writer,
   &fd_tile_batch,
-  &fd_tile_pohi,
+  &fd_tile_poh,
   &fd_tile_sender,
   &fd_tile_eqvoc,
   &fd_tile_rpcserv,
