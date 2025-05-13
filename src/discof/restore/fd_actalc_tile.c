@@ -9,25 +9,27 @@
 #define BURST       1UL
 
 struct fd_actalc_tile {
-  fd_solana_account_stored_meta_t acc_meta;
-
   /* Stream input */
 
   uchar const * in_base;
-  uchar         in_buf[ 16 ];
-  ulong         in_skip;
+  union {
+    fd_solana_account_hdr_t acc_meta;
+    uchar in_buf[ 136 ];
+  };
+  ulong in_skip;
+  ulong acc_seq0;
 
   /* Funk database */
 
   fd_funk_t    funk[1];
   fd_alloc_t * alloc;
+  ulong        funk_seed;
   uint         db_full : 1;
 
   /* Account output */
 
-  fd_stream_frag_meta_t * out_mcache;
+  fd_account_frag_meta_t * out_mcache;
 
-  ulong out_seq_max;
   ulong out_seq;
   ulong out_cnt;
   ulong out_depth;
@@ -89,12 +91,12 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->actalc.funk_obj_id ) ) ) ) {
     FD_LOG_ERR(( "Failed to join database cache" ));
   }
-  ctx->alloc = fd_funk_alloc( ctx->funk );
+  ctx->alloc     = fd_funk_alloc( ctx->funk );
+  ctx->funk_seed = fd_funk_seed( ctx->funk );
 
   /* Join account output */
 
   ctx->out_mcache  = fd_type_pun( topo->links[ tile->out_link_id[ 0 ] ].mcache );
-  ctx->out_seq_max = 0UL;
   ctx->out_seq     = 0UL;
   ctx->out_depth   = fd_mcache_depth( ctx->out_mcache->f );
 }
@@ -110,17 +112,19 @@ metrics_write( fd_actalc_tile_t * ctx ) {
 }
 
 static void
-allocate_account( fd_actalc_tile_t * ctx,
-                  ulong              seq,
-                  ulong              acc_data_sz ) {
-  (void)seq;
+allocate_account( fd_actalc_tile_t *              ctx,
+                  ulong                           acc_seq0,
+                  fd_solana_account_hdr_t const * hdr ) {
+  ulong const acc_data_sz = hdr->meta.data_len;
+
   if( FD_UNLIKELY( acc_data_sz > FD_ACC_SZ_MAX ) ) {
     FD_LOG_ERR(( "account data size (%lu) exceeds max (%lu) (possible memory corruption?)", acc_data_sz, FD_ACC_SZ_MAX ));
   }
 
-  ulong rec_sz = sizeof(fd_account_meta_t)+acc_data_sz;
+  /* Allocate account */
 
-  void * buf = fd_alloc_malloc( ctx->alloc, 1UL, rec_sz );
+  ulong  rec_sz = sizeof(fd_account_meta_t)+acc_data_sz;
+  void * buf    = fd_alloc_malloc( ctx->alloc, 1UL, rec_sz );
   if( FD_UNLIKELY( !buf ) ) {
     FD_LOG_WARNING(( "Database full after inserting %lu records totalling %.3f GiB: fd_alloc_malloc(align=1,sz=%lu) failed",
                      ctx->metrics.alloc_cnt, (double)ctx->metrics.cum_alloc_sz/(double)(1UL<<30), rec_sz ));
@@ -129,9 +133,40 @@ allocate_account( fd_actalc_tile_t * ctx,
   }
   ctx->metrics.alloc_cnt++;
   ctx->metrics.cum_alloc_sz += rec_sz;
-}
 
-#include <unistd.h>
+  /* Calculate funk hash */
+
+  ulong const funk_hash = fd_funk_rec_key_hash1( hdr->meta.pubkey, FD_FUNK_KEY_TYPE_ACC, ctx->funk_seed );
+
+  /* Copy account metadata */
+
+  fd_account_meta_t * meta = buf;
+  *meta = (fd_account_meta_t) {
+    .magic = FD_ACCOUNT_META_MAGIC,
+    .hlen  = sizeof(fd_account_meta_t),
+    .dlen  = acc_data_sz,
+    .slot  = hdr->meta.write_version_obsolete, /* ??? */
+    .info = {
+      .lamports   = hdr->info.lamports,
+      .rent_epoch = hdr->info.rent_epoch,
+      .executable = hdr->info.executable
+    }
+  };
+  memcpy( meta->info.owner, hdr->info.owner, sizeof(fd_pubkey_t) );
+
+  /* Publish account descriptor */
+
+  ulong const rec_gaddr = (ulong)buf - (ulong)ctx->funk->shmem;
+  fd_mcache_publish_account(
+    ctx->out_mcache,
+    ctx->out_depth,
+    ctx->out_seq,
+    funk_hash,
+    rec_gaddr,
+    acc_seq0
+  );
+  ctx->out_seq = fd_seq_inc( ctx->out_seq, 1UL );
+}
 
 static void
 on_stream_frag( fd_actalc_tile_t *            ctx,
@@ -146,17 +181,17 @@ on_stream_frag( fd_actalc_tile_t *            ctx,
   if( FD_UNLIKELY( !som && !ctx->in_skip ) ) return;
 
   /* Read bytes 8-16 of each account header (data_len) */
-  ulong const   want_sz = 16UL;
+  ulong const   want_sz = sizeof(fd_solana_account_hdr_t);
   uchar const * frag    = ctx->in_base + loff;
 
   /* Unfragmented fast path */
   if( FD_LIKELY( som && sz>=want_sz ) ) {
-    ulong const acc_data_sz = FD_LOAD( ulong, frag+8 );
-    allocate_account( ctx, seq, acc_data_sz );
+    allocate_account( ctx, seq, (fd_solana_account_hdr_t const *)frag );
     return;
   }
 
   /* Slow path: Recover from fragmentation */
+  if( som ) ctx->acc_seq0 = seq;
   if( FD_UNLIKELY( ctx->in_skip >= want_sz ) ) FD_LOG_CRIT(( "invariant violation: in_skip (%lu) > want_sz (%lu)", ctx->in_skip, want_sz ));
   ulong const chunk0  = ctx->in_skip;
   ulong const rem_sz  = want_sz-chunk0;
@@ -165,8 +200,7 @@ on_stream_frag( fd_actalc_tile_t *            ctx,
   fd_memcpy( ctx->in_buf+chunk0, frag, read_sz );
   ctx->in_skip += read_sz;
   if( FD_LIKELY( ctx->in_skip == want_sz ) ) {
-    ulong const acc_data_sz = FD_LOAD( ulong, ctx->in_buf+8 );
-    allocate_account( ctx, seq, acc_data_sz );
+    allocate_account( ctx, ctx->acc_seq0, &ctx->acc_meta );
     ctx->in_skip = 0UL;
   }
 }
@@ -271,7 +305,7 @@ fd_actalc_run1(
   /* housekeeping init */
 
   // if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
-  lazy = 1e3L;
+  lazy = 10e3L;
   FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
   /* Initial event sequence */
@@ -340,7 +374,6 @@ fd_actalc_run1(
             slowest_cons = fd_ulong_if( cons_cr_avail<cr_avail, cons_idx, slowest_cons );
             cr_avail     = fd_ulong_min( cons_cr_avail, cr_avail );
           }
-          ctx->out_seq_max = ctx->out_seq + cr_avail;
 
           if( FD_LIKELY( slowest_cons!=ULONG_MAX ) ) {
             FD_COMPILER_MFENCE();

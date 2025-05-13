@@ -133,10 +133,11 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_uses( topo, actalc_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   actalc_tile->actalc.funk_obj_id = funk_obj->id;
 
-  /* account frags -> "ActAlc" tile */
+  /* account frags -> actalc tile */
   fd_topob_tile_in( topo, "ActAlc", 0UL, "metric_in", "snap_frags", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_uses( topo, actalc_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
+  /* actalc tile -> record pointers */
   fd_topob_wksp( topo, "snap_descs" );
   fd_topob_link( topo, "snap_descs", "snap_descs", 512UL, 0UL, 0UL )->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "ActAlc", 0UL, "snap_descs", 0UL );
@@ -215,6 +216,7 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong file_rd_wait_old  = 0UL;
   ulong snap_in_backp_old = 0UL;
   ulong snap_in_wait_old  = 0UL;
+  ulong actalc_backp_old  = 0UL;
   ulong actalc_wait_old   = 0UL;
   ulong acc_cnt_old       = 0UL;
   sleep( 1 );
@@ -225,7 +227,7 @@ snapshot_load_cmd_fn( args_t *   args,
   puts( "- stall: Waiting on upstream tile"         );
   puts( "- acc:   Number of accounts"               );
   puts( "" );
-  puts( "-------------backp=(file,snap) busy=(file,snap,alc )---------------" );
+  puts( "-------------backp=(file,snap,alc ) busy=(file,snap,alc )---------------" );
   for(;;) {
     ulong filerd_status = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
@@ -244,13 +246,16 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong snap_in_wait  = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
                           FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
                           snap_in_backp;
+    ulong actalc_backp  = FD_VOLATILE_CONST( actalc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
     ulong actalc_wait   = FD_VOLATILE_CONST( actalc_metrics [ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
-                          FD_VOLATILE_CONST( actalc_metrics [ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] );
+                          FD_VOLATILE_CONST( actalc_metrics [ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
+                          actalc_backp;
     ulong acc_cnt       = FD_VOLATILE_CONST( snap_accs_sync[1] );
-    printf( "bw=%4.2g GB/s backp=(%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%8.3g/s\n",
+    printf( "bw=%4.2g GB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%8.3g/s\n",
             (double)( goff-goff_old )/1e9,
             ( (double)( file_rd_backp-file_rd_backp_old )*ns_per_tick )/1e7,
             ( (double)( snap_in_backp-snap_in_backp_old )*ns_per_tick )/1e7,
+            ( (double)( actalc_backp -actalc_backp_old  )*ns_per_tick )/1e7,
             100-( ( (double)( file_rd_wait -file_rd_wait_old  )*ns_per_tick )/1e7 ),
             100-( ( (double)( snap_in_wait -snap_in_wait_old  )*ns_per_tick )/1e7 ),
             100-( ( (double)( actalc_wait  -actalc_wait_old   )*ns_per_tick )/1e7 ),
@@ -261,6 +266,7 @@ snapshot_load_cmd_fn( args_t *   args,
     file_rd_wait_old  = file_rd_wait;
     snap_in_backp_old = snap_in_backp;
     snap_in_wait_old  = snap_in_wait;
+    actalc_backp_old  = actalc_backp;
     actalc_wait_old   = actalc_wait;
     acc_cnt_old       = acc_cnt;
     sleep( 1 );

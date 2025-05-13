@@ -11,11 +11,11 @@ union fd_stream_frag_meta {
 struct {
 
   ulong  seq;     /* frag sequence number */
-  ulong  goff;    /* stream offset */
-
   uint   sz;
   ushort unused;
   ushort ctl;
+
+  ulong  goff;    /* stream offset */
   ulong  loff;    /* dcache offset */
 
 };
