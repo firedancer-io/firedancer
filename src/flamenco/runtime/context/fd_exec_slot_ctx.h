@@ -20,6 +20,10 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_funk_txn_t *             funk_txn;
 
+  /* Kind of a gross hack. */
+  uchar                       bank_mgr_mem[48]__attribute__((aligned(8UL)));
+  fd_bank_mgr_t *             bank_mgr;
+
   /* External joins, pointers to be set by caller */
 
   fd_funk_t *                 funk;

@@ -155,8 +155,7 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, &slot_idx );
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, accounts_lt_hash) ) {
     ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
@@ -229,8 +228,7 @@ fd_should_include_epoch_accounts_hash( fd_exec_slot_ctx_t * slot_ctx ) {
     return 0;
   }
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong calculation_stop = *fd_bank_mgr_eah_stop_slot_query( bank_mgr );
   return slot_ctx->slot_bank.prev_slot < calculation_stop && (slot_ctx->slot >= calculation_stop);
@@ -245,8 +243,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
               ulong                   dirty_key_cnt ) {
   slot_ctx->slot_bank.prev_banks_hash = slot_ctx->slot_bank.banks_hash;
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong * signature_cnt_bm     = fd_bank_mgr_signature_cnt_query( bank_mgr );
   ulong   signature_cnt        = !!signature_cnt_bm ? *signature_cnt_bm : 0UL;
@@ -617,8 +614,8 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
 
     /* Sort and hash "dirty keys" to the accounts delta hash. */
 
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+    FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+
     ulong * signature_cnt_bm = fd_bank_mgr_signature_cnt_modify( bank_mgr );
     *signature_cnt_bm = signature_cnt;
     fd_bank_mgr_signature_cnt_save( bank_mgr );

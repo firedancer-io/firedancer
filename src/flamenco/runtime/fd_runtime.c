@@ -99,10 +99,7 @@ void
 fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_pubkey_t const  * pubkey ) {
 
-
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( bank_mgr );
+  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( slot_ctx->bank_mgr );
   fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
 
   /* Insert the new account into the partition */
@@ -127,15 +124,13 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
 
   rent_fresh_accounts->total_count++;
 
-  fd_bank_mgr_rent_fresh_accounts_save( bank_mgr );
+  fd_bank_mgr_rent_fresh_accounts_save( slot_ctx->bank_mgr );
 }
 
 void
 fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx ) {
   /* Update the partition in each rent fresh account */
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( bank_mgr );
+  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( slot_ctx->bank_mgr );
   fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
 
   for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
@@ -147,7 +142,7 @@ fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx )
     }
   }
 
-  fd_bank_mgr_rent_fresh_accounts_save( bank_mgr );
+  fd_bank_mgr_rent_fresh_accounts_save( slot_ctx->bank_mgr );
 }
 
 void
@@ -311,11 +306,9 @@ fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
     return -1;
   }
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( slot_ctx->bank_mgr );
   *capitalization = fd_ulong_sat_sub( *capitalization, rec->vt->get_lamports( rec ) );
-  fd_bank_mgr_capitalization_save( bank_mgr );
+  fd_bank_mgr_capitalization_save( slot_ctx->bank_mgr );
 
   rec->vt->set_lamports( rec, 0UL );
   fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
@@ -334,9 +327,7 @@ fd_runtime_slot_count_in_two_day( ulong ticks_per_slot ) {
 static int
 fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( slot_ctx->bank_mgr );
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
@@ -356,9 +347,7 @@ fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulon
 FD_FN_UNUSED static ulong
 fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( slot_ctx->bank_mgr );
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
@@ -383,9 +372,7 @@ fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot 
 static ulong
 fd_runtime_get_rent_partition( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( slot_ctx->bank_mgr );
 
   int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
 
@@ -459,14 +446,12 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( bank_mgr );
+  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( slot_ctx->bank_mgr );
   fd_rent_fresh_account_t *         fresh_accounts      = fd_rent_fresh_accounts_fresh_accounts_join( rent_fresh_accounts );
 
   /* Common case: do nothing if we have no rent fresh accounts */
   if( FD_LIKELY( rent_fresh_accounts->total_count == 0UL ) ) {
-    fd_bank_mgr_rent_fresh_accounts_save( bank_mgr );
+    fd_bank_mgr_rent_fresh_accounts_save( slot_ctx->bank_mgr );
     return;
   }
 
@@ -492,7 +477,7 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
       }
     }
   }
-  fd_bank_mgr_rent_fresh_accounts_save( bank_mgr );
+  fd_bank_mgr_rent_fresh_accounts_save( slot_ctx->bank_mgr );
 }
 
 static void
@@ -506,8 +491,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
     fd_sysvar_fees_update( slot_ctx, runtime_spad );
 
 
-  fd_bank_mgr_t bank_mgr_obj = {0};
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong fees = 0UL;
   ulong burn = 0UL;
@@ -1035,9 +1019,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong *         parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_query( bank_mgr );
+  ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_query( slot_ctx->bank_mgr );
 
   fd_sysvar_fees_new_derived( slot_ctx, *parent_signature_cnt );
 
@@ -1540,8 +1522,7 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   if( slot_ctx->blockstore && slot_ctx->slot != 0UL ) {
     fd_blockstore_block_height_update( slot_ctx->blockstore,
@@ -1899,8 +1880,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
   /* Collect fees */
 
-  fd_bank_mgr_t bank_mgr_obj = {0};
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
   *execution_fee += task_info->txn_ctx->execution_fee;
@@ -4431,11 +4411,11 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
     fd_funk_txn_end_write( funk );
 
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, slot_ctx->funk_txn );
-    ulong * slot_ptr = fd_bank_mgr_slot_modify( bank_mgr );
+    slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( &slot_ctx->bank_mgr_mem ), funk, slot_ctx->funk_txn );
+
+    ulong * slot_ptr = fd_bank_mgr_slot_modify( slot_ctx->bank_mgr );
     *slot_ptr = slot;
-    fd_bank_mgr_slot_save( bank_mgr );
+    fd_bank_mgr_slot_save( slot_ctx->bank_mgr );
     slot_ctx->slot = slot;
 
     /* Capturing block-agnostic state in preparation for the epoch boundary */
@@ -4475,7 +4455,6 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
-    FD_LOG_WARNING(("poh hash %s", FD_BASE58_ENC_32_ALLOCA( poh_out.hash )));
     fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
     fd_memcpy( poh->hash, poh_out.hash, sizeof(fd_hash_t) );
     fd_bank_mgr_poh_save( bank_mgr );
@@ -4490,8 +4469,6 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     poh = fd_bank_mgr_poh_query( bank_mgr );
-    FD_LOG_WARNING(("poh hash POST %s", FD_BASE58_ENC_32_ALLOCA( poh->hash )));
-
 
     } FD_SPAD_FRAME_END;
 

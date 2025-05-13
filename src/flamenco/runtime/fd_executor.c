@@ -1233,8 +1233,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
   ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( bank_mgr );
   ulong * slot = fd_bank_mgr_slot_query( bank_mgr );
   ctx->slot = !!slot ? *slot : 0UL;

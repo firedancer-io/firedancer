@@ -86,11 +86,11 @@ fd_bank_mgr_##name##_save_cleanup( fd_bank_mgr_t ** bank_mgr ) { \
 
 /* These are some convenience wrapper macros for the bank manager. */
 
-#define FD_BANK_MGR_DECL(bank_mgr, funk, funk_txn)                                                 \
-fd_bank_mgr_t   bank_mgr##_obj;                                                                    \
-fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( &bank_mgr##_obj ), funk, funk_txn ); \
-if( FD_UNLIKELY( !bank_mgr ) ) {                                                                   \
-  FD_LOG_CRIT(( "Failed to join bank manager" ));                                                  \
+#define FD_BANK_MGR_DECL(bank_mgr, funk, funk_txn)                                                    \
+fd_bank_mgr_t   _##bank_mgr##_obj;                                                                    \
+fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( &_##bank_mgr##_obj ), funk, funk_txn ); \
+if( FD_UNLIKELY( !bank_mgr ) ) {                                                                      \
+  FD_LOG_CRIT(( "Failed to join bank manager" ));                                                     \
 }
 
 #define FD_BANK_MGR_MODIFY_BEGIN(bank_mgr, type_name, ptr) do {                                            \
@@ -107,7 +107,7 @@ if( FD_UNLIKELY( !bank_mgr ) ) {                                                
 /* FIXME: Size out all data structures to their max bounded size. */
 /* FIXME: Flip order for footprind and align. */
 /* Add new members to the bank manager here. */
-/*  Type,                              name,                        id,   footprint,   align*/
+/*  Type,                              name,                        id,   footprint,   align */
 #define FD_BANK_MGR_ITER(X)                                                                    \
   X(fd_block_hash_queue_global_t,      block_hash_queue,            0UL,  50000UL,     1024UL) \
   X(ulong,                             slot,                        1UL,  8UL,         8UL   ) \

@@ -405,20 +405,18 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       continue;
     }
 
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn );
-    ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( bank_mgr );
-    ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( bank_mgr );
-    ulong * tick_height = fd_bank_mgr_tick_height_modify( bank_mgr );
+    ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( ledger_args->slot_ctx->bank_mgr );
+    ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( ledger_args->slot_ctx->bank_mgr );
+    ulong * tick_height = fd_bank_mgr_tick_height_modify( ledger_args->slot_ctx->bank_mgr );
     *tick_height = *max_tick_height;
-    fd_bank_mgr_tick_height_save( bank_mgr );
+    fd_bank_mgr_tick_height_save( ledger_args->slot_ctx->bank_mgr );
 
-    max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
+    max_tick_height = fd_bank_mgr_max_tick_height_modify( ledger_args->slot_ctx->bank_mgr );
 
     if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( *ticks_per_slot, slot, max_tick_height ) ) ) {
       FD_LOG_ERR(( "couldn't compute max tick height slot %lu ticks_per_slot %lu", slot, *ticks_per_slot ));
     }
-    fd_bank_mgr_max_tick_height_save( bank_mgr );
+    fd_bank_mgr_max_tick_height_save( ledger_args->slot_ctx->bank_mgr );
 
     if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
 
@@ -479,19 +477,14 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
 
-    /* Re-join the bank manager at this point to reflect the new slot. */
-    bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ledger_args->slot_ctx->funk, ledger_args->slot_ctx->funk_txn );
-    fd_hash_t * poh_calc = fd_bank_mgr_poh_query( bank_mgr );
-    FD_LOG_WARNING(("poh hash PRE %s", FD_BASE58_ENC_32_ALLOCA( poh_calc->hash )));
-
     fd_hash_t expected;
     int err = fd_blockstore_block_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
-    else if( FD_UNLIKELY( 0 != memcmp( fd_bank_mgr_poh_query( bank_mgr )->hash, expected.hash, 32UL ) ) ) {
+    else if( FD_UNLIKELY( 0 != memcmp( fd_bank_mgr_poh_query( ledger_args->slot_ctx->bank_mgr )->hash, expected.hash, sizeof(fd_hash_t) ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( expected_hash, expected.hash );
       char poh_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( poh_hash, fd_bank_mgr_poh_query( bank_mgr )->hash );
+      fd_acct_addr_cstr( poh_hash, fd_bank_mgr_poh_query( ledger_args->slot_ctx->bank_mgr )->hash );
       FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
                         expected_hash,
@@ -1286,14 +1279,21 @@ replay( fd_ledger_args_t * args ) {
 
   /* TODO: This is very hacky, needs to be cleaned up */
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, NULL );
-  fd_cluster_version_t * cluster_version = fd_bank_mgr_cluster_version_modify( bank_mgr );
+  void * slot_ctx_mem        = fd_spad_alloc_check( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
+  args->slot_ctx->epoch_ctx  = args->epoch_ctx;
+  args->slot_ctx->funk       = funk;
+  args->slot_ctx->blockstore = args->blockstore;
+
+  FD_TEST( args->slot_ctx->bank_mgr_mem );
+  args->slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( args->slot_ctx->bank_mgr_mem ), funk, NULL );
+
+  fd_cluster_version_t * cluster_version = fd_bank_mgr_cluster_version_modify( args->slot_ctx->bank_mgr );
 
   cluster_version->major = args->cluster_version[0];
   cluster_version->minor = args->cluster_version[1];
   cluster_version->patch = args->cluster_version[2];
-  fd_bank_mgr_cluster_version_save( bank_mgr );
+  fd_bank_mgr_cluster_version_save( args->slot_ctx->bank_mgr );
 
   args->epoch_ctx->runtime_public = runtime_public;
 
@@ -1302,12 +1302,6 @@ replay( fd_ledger_args_t * args ) {
 
   // activate them
   fd_memcpy( &args->epoch_ctx->runtime_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
-
-  void * slot_ctx_mem        = fd_spad_alloc_check( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
-  args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
-  args->slot_ctx->epoch_ctx  = args->epoch_ctx;
-  args->slot_ctx->funk       = funk;
-  args->slot_ctx->blockstore = args->blockstore;
 
   void * status_cache_mem = fd_spad_alloc_check( spad,
       FD_TXNCACHE_ALIGN,

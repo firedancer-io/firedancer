@@ -3287,7 +3287,6 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
   fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
 
-  FD_LOG_WARNING(("OFFSETS BEFORE %lu %lu", stake_account_keys->account_keys_pool_offset, stake_account_keys->account_keys_root_offset));
   fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
   fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
   if( stake_account_keys->account_keys_pool_offset==0 ) {
@@ -3323,10 +3322,8 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
     }
   }
 
-  FD_LOG_WARNING(("ROOT %p", (void *)account_keys_root));
   fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
   fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
-  FD_LOG_WARNING(("OFFSETS AFTER %lu %lu", stake_account_keys->account_keys_pool_offset, stake_account_keys->account_keys_root_offset));
 
   fd_bank_mgr_stake_account_keys_save( bank_mgr );
 }

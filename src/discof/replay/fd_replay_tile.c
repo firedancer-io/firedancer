@@ -893,8 +893,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
   fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, to_root_txn );
+  FD_BANK_MGR_DECL( bank_mgr, ctx->funk, to_root_txn );
   ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
 
   /* Try to publish into Funk */
@@ -1240,9 +1239,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
       .parent_slot = ctx->parent_slot,
     };
     */
-
-    fd_bank_mgr_t bank_mgr_obj = {0};
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
+    FD_BANK_MGR_DECL( bank_mgr, ctx->funk, ctx->slot_ctx->funk_txn );
 
     ulong * execution_fees = fd_bank_mgr_execution_fees_query( bank_mgr );
     ulong * priority_fees  = fd_bank_mgr_priority_fees_query( bank_mgr );
@@ -1472,8 +1469,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx->slot_bank.prev_slot   = fork->slot_ctx->slot;
   fork->slot_ctx->slot        = curr_slot;
 
-  fd_bank_mgr_t bank_mgr_obj_prev;
-  fd_bank_mgr_t * bank_mgr_prev = fd_bank_mgr_join( &bank_mgr_obj_prev, fork->slot_ctx->funk, fork->slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr_prev, fork->slot_ctx->funk, fork->slot_ctx->funk_txn );
 
   ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( bank_mgr_prev );
   ulong * ticks_per_slot  = fd_bank_mgr_ticks_per_slot_query( bank_mgr_prev );
@@ -1526,8 +1522,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_start_write( ctx->funk );
   fork->slot_ctx->funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx->funk_txn, &xid, 1);
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, fork->slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, ctx->funk, fork->slot_ctx->funk_txn );
   ulong * slot_ptr = fd_bank_mgr_slot_modify( bank_mgr );
   *slot_ptr = fork->slot_ctx->slot;
   fd_bank_mgr_slot_save( bank_mgr );
@@ -1798,8 +1793,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
     fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
     fd_block_info_t * block_info = fd_block_map_query_ele( query );
 
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
+    FD_BANK_MGR_DECL( bank_mgr, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
     fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
     memcpy( poh->hash, hdr->hash, sizeof(fd_hash_t) );
     fd_bank_mgr_poh_save( bank_mgr );
@@ -2091,8 +2085,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot      = 1UL;
 
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
+    FD_BANK_MGR_DECL( bank_mgr, ctx->slot_ctx->funk, ctx->slot_ctx->funk_txn );
 
     ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr )) * *(fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
     fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
@@ -2150,8 +2143,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   fd_fork_t * snapshot_fork = fd_forks_init( ctx->forks, ctx->slot_ctx );
   FD_TEST( snapshot_fork );
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, snapshot_fork->slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, ctx->funk, snapshot_fork->slot_ctx->funk_txn );
   ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
   ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_query( bank_mgr );
 
@@ -2370,9 +2362,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 
     fd_clock_timestamp_vote_t_mapnode_t query;
     memcpy( query.elem.pubkey.uc, n->elem.key.uc, 32UL );
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, fork->slot_ctx->funk_txn );
-
+    FD_BANK_MGR_DECL( bank_mgr, ctx->funk, fork->slot_ctx->funk_txn );
     fd_clock_timestamp_votes_global_t *   clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( bank_mgr );
     fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root  = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
     fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool  = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
@@ -2556,8 +2546,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /**************************************************************************************************/
 
     fd_runtime_block_info_t runtime_block_info[1];
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, fork->slot_ctx->funk_txn );
+    FD_BANK_MGR_DECL( bank_mgr, ctx->funk, fork->slot_ctx->funk_txn );
     ulong * signature_cnt = fd_bank_mgr_signature_cnt_query( bank_mgr );
     runtime_block_info->signature_cnt = *signature_cnt;
 
@@ -2685,10 +2674,10 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     ulong prev_slot = child->slot_ctx->slot;
     child->slot_ctx->slot                     = curr_slot;
 
-    bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, ctx->slot_ctx->funk_txn );
-    ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+    FD_BANK_MGR_DECL( bank_mgr_post, ctx->funk, ctx->slot_ctx->funk_txn );
+    ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr_post );
     *execution_fees = 0UL;
-    fd_bank_mgr_execution_fees_save( bank_mgr );
+    fd_bank_mgr_execution_fees_save( bank_mgr_post );
 
     ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
     *priority_fees = 0UL;
@@ -3112,8 +3101,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
   ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, tile->replay.max_vote_accounts ) );
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, ctx->funk, NULL );
+  FD_BANK_MGR_DECL( bank_mgr, ctx->funk, NULL );
   fd_cluster_version_t * cluster_version = fd_bank_mgr_cluster_version_modify( bank_mgr );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &cluster_version->major, &cluster_version->minor, &cluster_version->patch )!=3 ) ) {

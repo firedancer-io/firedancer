@@ -197,8 +197,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                     FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ) ));
 
-    fd_bank_mgr_t bank_mgr_obj = {0};
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+    FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
     ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
     *execution_fees = 0;
