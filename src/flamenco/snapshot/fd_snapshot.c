@@ -5,11 +5,11 @@
 #include "../runtime/fd_hashes.h"
 #include "../runtime/fd_runtime_init.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_bank_mgr.h"
+#include "../runtime/fd_runtime.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
-#include "../runtime/fd_bank_mgr.h"
 #include "../rewards/fd_rewards.h"
-#include "../runtime/fd_runtime.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -49,11 +49,10 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
     FD_LOG_ERR(( "missing recent block hashes account" ));
   }
 
-  fd_bank_mgr_t   bank_mgr_obj = {0};
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
-  *execution_fees = 0UL;
+  FD_STORE( ulong, execution_fees, 0UL );
   fd_bank_mgr_execution_fees_save( bank_mgr );
 
   fd_runtime_save_slot_bank( slot_ctx );
@@ -455,8 +454,7 @@ fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
     return 0;
   }
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
   ulong * eah_end_slot   = fd_bank_mgr_eah_stop_slot_query( bank_mgr );
@@ -485,8 +483,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t *    slot_ctx,
                   fd_lthash_value_t *     lt_hash ) {
   (void)check_hash;
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
   fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( bank_mgr );
 
   if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {

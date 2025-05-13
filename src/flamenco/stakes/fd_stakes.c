@@ -295,8 +295,6 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           ulong                      exec_spad_cnt,
                           fd_spad_t *                runtime_spad ) {
 
-  FD_LOG_NOTICE(("Refreshing vote accounts" ));
-
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
@@ -306,7 +304,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
 
-  ulong vote_account_keys_map_sz    = vote_account_keys_pool ? fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root ) : 0UL;
+  ulong vote_account_keys_map_sz    = !!vote_account_keys_pool ? fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root ) : 0UL;
   ulong vote_accounts_stakes_map_sz = fd_vote_accounts_pair_t_map_size( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root );
 
   // Initialize a temporary vote states cache
@@ -431,7 +429,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
   ulong * total_epoch_stake_bm = NULL;
   FD_BANK_MGR_MODIFY_BEGIN( bank_mgr, total_epoch_stake, total_epoch_stake_bm ) {
-  *total_epoch_stake_bm = total_epoch_stake;
+  FD_STORE( ulong, total_epoch_stake_bm, total_epoch_stake );
   } FD_BANK_MGR_MODIFY_END;
 
   FD_BANK_MGR_MODIFY_BEGIN( bank_mgr, vote_account_keys, vote_account_keys ) {
@@ -601,8 +599,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   }
   temp_info->stake_infos_new_keys_start_idx = temp_info->stake_infos_len;
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_account_keys_global_t *         stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
   fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
@@ -656,9 +653,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  FD_TEST( bank_mgr );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+
   fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
 
   fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
