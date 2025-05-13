@@ -184,8 +184,12 @@ fd_topo_tile_stack_join_anon( void ) {
   int   prot  = PROT_READ|PROT_WRITE;
   int   flags = MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK;
 
-  uchar * stack = mmap( NULL, sz, prot, flags|MAP_HUGETLB, -1, 0 );
-  if( FD_UNLIKELY( stack==MAP_FAILED ) ) {
+  uchar * stack = MAP_FAILED;
+#if !FD_HAS_ASAN && !FD_HAS_MSAN
+  stack = mmap( NULL, sz, prot, flags|MAP_HUGETLB, -1, 0 );
+#endif
+
+  if( stack==MAP_FAILED ) {
     stack = mmap( NULL, sz, prot, flags, -1, 0 );
     if( FD_UNLIKELY( stack==MAP_FAILED ) ) {
       FD_LOG_ERR(( "mmap() for stack failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -196,12 +200,12 @@ fd_topo_tile_stack_join_anon( void ) {
   void * guard_lo = (void *)( stack - FD_SHMEM_NORMAL_PAGE_SZ );
   if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
-    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "mmap(%p) failed (%i-%s)", guard_lo, errno, fd_io_strerror( errno ) ));
 
   void * guard_hi = (void *)( stack + FD_TILE_PRIVATE_STACK_SZ );
   if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
-    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "mmap(%p) failed (%i-%s)", guard_hi, errno, fd_io_strerror( errno ) ));
 
   return stack;
 }
