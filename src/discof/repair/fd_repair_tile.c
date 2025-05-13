@@ -177,6 +177,9 @@ struct fd_repair_tile_ctx {
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
+
+  ulong * first_turbine_slot; /* first slot we see over turbine
+                                 used to approximate init poh_slot */
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -922,6 +925,11 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
+    /* FIXME: This is a hack to initialize the poh_slot fseq. This
+       should be removed when we use msg passing instead of fseq. */
+    if( fd_fseq_query( ctx->first_turbine_slot ) == ULONG_MAX ) {
+      fd_fseq_update( ctx->first_turbine_slot, shred->slot );
+    }
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) return; /* shred too old */
 
     // FD_LOG_NOTICE(( "shred %lu %u", shred->slot, shred->idx ));
@@ -1439,6 +1447,18 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_repair_update_addr( ctx->repair, &ctx->repair_intake_addr, &ctx->repair_serve_addr );
+
+  /* TODO: this is a hack to set the first turbine slot so that replay
+     knows when we have caught up to a slot >= where we last voted. It
+    is assumed turbine has proceeded past the slot from which validator
+    stopped replaying and therefore also stopped voting (crashed,
+    shutdown, etc.). This is important for voting, because you need have
+    "read-back" your latest landed tower before you can vote. Using an
+    fseq is a temporary hack, and this will be replaced with the standard
+    frag-signaling pattern across tiles with a separate consensus tile. */
+  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
+  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
+  ctx->first_turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_start( ctx->repair );
