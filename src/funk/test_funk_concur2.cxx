@@ -113,6 +113,12 @@ int main( int argc, char ** argv ) {
     FD_TEST( txn );
     parent_txn = txn;
 
+    /* Skip adding a record into the txn once in a while. This lets us
+       test whether the global querying logic is working as expected. */
+    if( !((uint)lrand48() % 20U) ) {
+      continue;
+    }
+
     test_funk_txn_pair_t pair = { funk, txn };
 
     pthread_t thread[NUM_THREADS];
