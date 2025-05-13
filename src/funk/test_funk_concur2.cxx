@@ -124,7 +124,9 @@ int main( int argc, char ** argv ) {
       pthread_join( thread[i], NULL );
     }
 
-    /* Now query and compare the values. */
+    /* Now query and compare the values. If this value didn't match,
+       this would imply that there was a race condition that caused
+       the record to get cloned non-atomically. */
     for( uint i=0U; i<NUM_KEYS; i++ ) {
       fd_funk_rec_key_t key = {};
       key.ul[0] = i;
