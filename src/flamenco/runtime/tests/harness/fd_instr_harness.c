@@ -179,10 +179,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
     fd_account_meta_t const * meta = acc->vt->get_meta( acc );
     if (meta == NULL) {
-      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
-      acc->vt->set_meta_readonly( acc, &sentinel );
-      accts[i].starting_lamports = 0UL;
-      accts[i].starting_dlen     = 0UL;
+      fd_txn_account_setup_sentinel_meta_readonly( acc, txn_ctx->spad, txn_ctx->spad_wksp );
       continue;
     }
 

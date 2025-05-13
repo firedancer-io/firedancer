@@ -43,6 +43,7 @@ fd_txn_account_setup_common( fd_txn_account_t * acct ) {
   fd_account_meta_t const * meta = acct->private_state.const_meta ?
                                    acct->private_state.const_meta : acct->private_state.meta;
 
+  /* TODO: Why ULONG_MAX check here? */
   if( ULONG_MAX == acct->starting_dlen ) {
     acct->starting_dlen = meta->dlen;
   }
@@ -81,12 +82,12 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
   fd_account_meta_t * sentinel = fd_spad_alloc( spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) );
   fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
 
-  sentinel->magic                 = FD_ACCOUNT_META_MAGIC;
-  sentinel->info.rent_epoch       = ULONG_MAX;
+  sentinel->magic                = FD_ACCOUNT_META_MAGIC;
+  sentinel->info.rent_epoch      = ULONG_MAX;
   acct->private_state.const_meta = sentinel;
-  acct->starting_lamports         = 0UL;
-  acct->starting_dlen             = 0UL;
-  acct->private_state.meta_gaddr  = fd_wksp_gaddr( spad_wksp, sentinel );
+  acct->starting_lamports        = 0UL;
+  acct->starting_dlen            = 0UL;
+  acct->private_state.meta_gaddr = fd_wksp_gaddr( spad_wksp, sentinel );
 }
 
 void
