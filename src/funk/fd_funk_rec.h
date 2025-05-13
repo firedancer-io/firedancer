@@ -170,10 +170,10 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==
    violates funk's invariants. */
 
 fd_funk_rec_t *
-fd_funk_rec_modify_try( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_funk_rec_query_t *     query );
+fd_funk_rec_modify( fd_funk_t *               funk,
+                    fd_funk_txn_t const *     txn,
+                    fd_funk_rec_key_t const * key,
+                    fd_funk_rec_query_t *     query );
 
 /* fd_funk_rec_modify_publish commits any modifications to the record
    done by fd_funk_rec_modify_try. All notes from fd_funk_rec_modify_try
@@ -309,12 +309,15 @@ void
 fd_funk_rec_cancel( fd_funk_t *             funk,
                     fd_funk_rec_prepare_t * prepare );
 
-/* fd_funk_rec_clone copies a record from an ancestor transaction
+/* fd_funk_` copies a record from an ancestor transaction
    to create a new record in the given transaction. The record can be
    modified afterward and must then be published.
 
    NOTE: fd_funk_rec_clone is NOT thread safe and should not be used
-   concurrently with other funk read/write operations. */
+   concurrently with other funk read/write operations.
+
+   FIXME: This function should be removed in favor of
+   fd_funk_rec_try_clone_safe. */
 
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,

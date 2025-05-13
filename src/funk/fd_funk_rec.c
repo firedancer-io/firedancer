@@ -64,10 +64,10 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 
 
 fd_funk_rec_t *
-fd_funk_rec_modify_try( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_funk_rec_query_t *     query ) {
+fd_funk_rec_modify( fd_funk_t *               funk,
+                    fd_funk_txn_t const *     txn,
+                    fd_funk_rec_key_t const * key,
+                    fd_funk_rec_query_t *     query ) {
   fd_funk_rec_map_t *    rec_map = fd_funk_rec_map( funk );
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_rec_key_set_pair( pair, txn, key );
