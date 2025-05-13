@@ -456,6 +456,7 @@ after_credit( fd_pack_ctx_t *     ctx,
   long now = fd_tickcount();
 
   int pacing_bank_cnt = (int)fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now );
+  pacing_bank_cnt = 64;
 
   ulong bank_cnt = ctx->bank_cnt;
 
