@@ -112,23 +112,30 @@ snapshot_load_topo( config_t *     config,
 
   }
 
+  /* "SnapIn": Snapshot parser tile */
   fd_topob_wksp( topo, "SnapIn" );
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "SnapIn", "SnapIn", "SnapIn", tile_to_cpu[3], 0, 0 );
   snapin_tile->snapin.scratch_sz = (3UL<<30);
 
+  /* uncompressed stream -> snapin tile */
+  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
+  fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+
+  /* snapin tile -> account frags */
+  fd_topob_wksp( topo, "snap_frags" );
+  fd_topo_link_t * snap_frags_link = fd_topob_link( topo, "snap_frags", "snap_frags", 512UL, 0UL, 0UL );
+  snap_frags_link->dcache_obj_id = snapin_dcache->id;
+  fd_topob_tile_out( topo, "SnapIn", 0UL, "snap_frags", 0UL );
+
+  /* "ActAlc": Account allocator tile */
   fd_topob_wksp( topo, "ActAlc" );
   fd_topo_tile_t * actalc_tile = fd_topob_tile( topo, "ActAlc", "ActAlc", "ActAlc", tile_to_cpu[4], 0, 0 );
   fd_topob_tile_uses( topo, actalc_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   actalc_tile->actalc.funk_obj_id = funk_obj->id;
 
-  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
-  fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  /* account frags -> "ActAlc" tile */
+  fd_topob_tile_in( topo, "ActAlc", 0UL, "metric_in", "snap_frags", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_uses( topo, actalc_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
-
-  fd_topob_wksp( topo, "snap_frags" );
-  fd_topob_link( topo, "snap_frags", "snap_frags", 65536UL, 0UL, 0UL );
-  fd_topob_tile_out( topo, "SnapIn", 0UL, "snap_frags", 0UL );
-  fd_topob_tile_in ( topo, "ActAlc", 0UL, "metric_in", "snap_frags", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   fd_topob_wksp( topo, "snap_descs" );
   fd_topob_link( topo, "snap_descs", "snap_descs", 512UL, 0UL, 0UL )->permit_no_consumers = 1;

@@ -1,13 +1,27 @@
 #include "fd_restore_base.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
 #include "../../flamenco/types/fd_types.h"
+#include "../../funk/fd_funk.h"
 
-#define LINK_IN_MAX 2UL
+#define LINK_IN_MAX 1UL
 #define BURST       1UL
 
 struct fd_actalc_tile {
   fd_solana_account_stored_meta_t acc_meta;
+
+  /* Stream input */
+
+  uchar const * in_base;
+  uchar         in_buf[ 16 ];
+  ulong         in_skip;
+
+  /* Funk database */
+
+  fd_funk_t    funk[1];
+  fd_alloc_t * alloc;
+  uint         db_full : 1;
 
   /* Account output */
 
@@ -17,6 +31,13 @@ struct fd_actalc_tile {
   ulong out_seq;
   ulong out_cnt;
   ulong out_depth;
+
+  /* Metrics */
+
+  struct {
+    ulong alloc_cnt;
+    ulong cum_alloc_sz;
+  } metrics;
 };
 
 typedef struct fd_actalc_tile fd_actalc_tile_t;
@@ -57,6 +78,19 @@ unprivileged_init( fd_topo_t *      topo,
   fd_actalc_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_actalc_tile_t) );
 
+  /* Join stream input */
+
+  FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
+  ctx->in_base = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->in_skip = 0UL;
+
+  /* Join funk database */
+
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->actalc.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
+  ctx->alloc = fd_funk_alloc( ctx->funk );
+
   /* Join account output */
 
   ctx->out_mcache  = fd_type_pun( topo->links[ tile->out_link_id[ 0 ] ].mcache );
@@ -75,14 +109,66 @@ metrics_write( fd_actalc_tile_t * ctx ) {
   (void)ctx;
 }
 
-static int
+static void
+allocate_account( fd_actalc_tile_t * ctx,
+                  ulong              seq,
+                  ulong              acc_data_sz ) {
+  (void)seq;
+  if( FD_UNLIKELY( acc_data_sz > FD_ACC_SZ_MAX ) ) {
+    FD_LOG_ERR(( "account data size (%lu) exceeds max (%lu) (possible memory corruption?)", acc_data_sz, FD_ACC_SZ_MAX ));
+  }
+
+  ulong rec_sz = sizeof(fd_account_meta_t)+acc_data_sz;
+
+  void * buf = fd_alloc_malloc( ctx->alloc, 1UL, rec_sz );
+  if( FD_UNLIKELY( !buf ) ) {
+    FD_LOG_WARNING(( "Database full after inserting %lu records totalling %.3f GiB: fd_alloc_malloc(align=1,sz=%lu) failed",
+                     ctx->metrics.alloc_cnt, (double)ctx->metrics.cum_alloc_sz/(double)(1UL<<30), rec_sz ));
+    ctx->db_full = 1;
+    return;
+  }
+  ctx->metrics.alloc_cnt++;
+  ctx->metrics.cum_alloc_sz += rec_sz;
+}
+
+#include <unistd.h>
+
+static void
 on_stream_frag( fd_actalc_tile_t *            ctx,
-                fd_actalc_in_t *              in,
-                fd_stream_frag_meta_t const * frag,
-                ulong *                       read_sz ) {
-  (void)ctx; (void)in; (void)frag; (void)read_sz;
-  // FD_LOG_NOTICE(( "frag" ));
-  return 1;
+                fd_stream_frag_meta_t const * meta ) {
+  ulong const seq  = meta->seq;
+  ulong const loff = meta->loff;
+  ulong const sz   = meta->sz;
+  ulong const ctl  = meta->ctl;
+  int   const som  = fd_frag_meta_ctl_som( ctl ); /* first frag of account? */
+
+  /* Are we already done with this account? */
+  if( FD_UNLIKELY( !som && !ctx->in_skip ) ) return;
+
+  /* Read bytes 8-16 of each account header (data_len) */
+  ulong const   want_sz = 16UL;
+  uchar const * frag    = ctx->in_base + loff;
+
+  /* Unfragmented fast path */
+  if( FD_LIKELY( som && sz>=want_sz ) ) {
+    ulong const acc_data_sz = FD_LOAD( ulong, frag+8 );
+    allocate_account( ctx, seq, acc_data_sz );
+    return;
+  }
+
+  /* Slow path: Recover from fragmentation */
+  if( FD_UNLIKELY( ctx->in_skip >= want_sz ) ) FD_LOG_CRIT(( "invariant violation: in_skip (%lu) > want_sz (%lu)", ctx->in_skip, want_sz ));
+  ulong const chunk0  = ctx->in_skip;
+  ulong const rem_sz  = want_sz-chunk0;
+  ulong const read_sz = fd_ulong_min( rem_sz, sz );
+  if( FD_UNLIKELY( !read_sz ) ) return;
+  fd_memcpy( ctx->in_buf+chunk0, frag, read_sz );
+  ctx->in_skip += read_sz;
+  if( FD_LIKELY( ctx->in_skip == want_sz ) ) {
+    ulong const acc_data_sz = FD_LOAD( ulong, ctx->in_buf+8 );
+    allocate_account( ctx, seq, acc_data_sz );
+    ctx->in_skip = 0UL;
+  }
 }
 
 /* fd_actalc_in_update gets called periodically synchronize flow control
@@ -297,7 +383,7 @@ fd_actalc_run1(
 
     /* Check if we are backpressured. */
 
-    if( FD_UNLIKELY( cr_avail<burst ) ) {
+    if( FD_UNLIKELY( ctx->db_full || cr_avail<burst ) ) {
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -357,28 +443,23 @@ fd_actalc_run1(
 
     FD_COMPILER_MFENCE();
     fd_stream_frag_meta_t meta = FD_VOLATILE_CONST( *this_in_mline );
-    ulong sz = 0U;
-    int consumed_frag = on_stream_frag( ctx, this_in, &meta, &sz );
+    on_stream_frag( ctx, &meta );
 
-    this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
+    this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)meta.sz;
 
-    if( FD_LIKELY( consumed_frag ) ) {
-
-      ulong seq_test = fd_frag_meta_seq_query( this_in_mline->f );
-      if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) {
-        FD_LOG_ERR(( "Overrun while reading from input %lu", in_seq ));
-      }
-
-      /* Windup for the next in poll and accumulate diagnostics */
-
-      this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
-      this_in->seq   = this_in_seq;
-      this_in->goff  = meta.goff + meta.sz;
-      this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
-
-      this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
-
+    ulong seq_test = fd_frag_meta_seq_query( this_in_mline->f );
+    if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) {
+      FD_LOG_ERR(( "Overrun while reading from input %lu: seq_found=%lu seq_test=%lu", in_seq, seq_found, seq_test ));
     }
+
+    /* Windup for the next in poll and accumulate diagnostics */
+
+    this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
+    this_in->seq   = this_in_seq;
+    this_in->goff  = meta.goff + meta.sz;
+    this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
+
+    this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
 
     metric_regime_ticks[1] += housekeeping_ticks;
     metric_regime_ticks[4] += prefrag_ticks;
