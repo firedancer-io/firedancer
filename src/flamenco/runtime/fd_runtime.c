@@ -688,7 +688,7 @@ fd_runtime_collect_rent_from_account( ulong                       slot,
                                               slots_per_year,
                                               acc,
                                               epoch )==FD_RENT_EXEMPT ) ) {
-      acc->vt->set_rent_epoch( acc, ULONG_MAX );
+      acc->vt->set_rent_epoch( acc, FD_RENT_EXEMPT_RENT_EPOCH );
     }
   }
   return 0UL;
@@ -1780,17 +1780,19 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
 
          Because the cost tracker uses the loaded account data size in block cost calculations, we need to
          make sure our calculated loaded accounts data size is conformant with Agave's.
-         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116 */
-      task_info->txn_ctx->loaded_accounts_data_size = 0UL;
+         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
 
-      /* This branch checks for case 3 - if the nonce account is present in the transaction and is not the fee
-         payer, then we add the dlen of the nonce account. */
-      if( task_info->txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX &&
-          task_info->txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-        task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->rollback_nonce_account->vt->get_data_len( task_info->txn_ctx->rollback_nonce_account );
+         In any case, we should always add the dlen of the fee payer. */
+      task_info->txn_ctx->loaded_accounts_data_size = task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX].vt->get_data_len( &task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
+
+      /* Special case handling for if a nonce account is present in the transaction. */
+      if( task_info->txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
+        /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
+           be double counting the dlen of the fee payer. */
+        if( task_info->txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+          task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->rollback_nonce_account->vt->get_data_len( task_info->txn_ctx->rollback_nonce_account );
+        }
       }
-      /* We should always add the dlen of the fee payer right after, since that is guaranteed to not have been added by the above branch. */
-      task_info->txn_ctx->loaded_accounts_data_size += task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX].vt->get_data_len( &task_info->txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
     } else {
       task_info->txn->flags = 0U;
       task_info->exec_res   = err;
@@ -1820,8 +1822,7 @@ void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad,
-                         fd_wksp_t *                  finalize_spad_wksp ) {
+                         fd_spad_t *                  finalize_spad ) {
 
   /* Store transaction info including logs */
   // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
@@ -1864,29 +1865,20 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
        However, most of the time the account data is not changed, and only
        the lamport balance has to change. */
 
-    /* Rollback the nonce account first, as it could be the feepayer account, which will be updated next. */
-    if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
-      fd_txn_account_save( &txn_ctx->rollback_nonce_account[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
+    /* With nonce account rollbacks, there are three cases:
+       1. No nonce account in the transaction
+       2. Nonce account is the fee payer
+       3. Nonce account is not the fee payer
+
+       We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
+    if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
+      fd_txn_account_save( txn_ctx->rollback_nonce_account, slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
     }
 
-    FD_SPAD_FRAME_BEGIN( finalize_spad ) {
-      fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
-
-      fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], slot_ctx->funk, slot_ctx->funk_txn );
-      memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
-
-      void * acct_data = fd_spad_alloc( finalize_spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-      fd_txn_account_make_mutable( acct, acct_data, finalize_spad_wksp );
-      int err = acct->vt->checked_sub_lamports( acct, (txn_ctx->execution_fee + txn_ctx->priority_fee) );
-      if( FD_UNLIKELY ( err ) ) {
-        uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
-        FD_BASE58_ENCODE_64_BYTES( sig, sig_str );
-        FD_BASE58_ENCODE_32_BYTES( acct->pubkey->key, key_str );
-        FD_LOG_CRIT(( "failed to deduct fees (%lu+%lu) from account %s in txn %s slot %lu", txn_ctx->execution_fee, txn_ctx->priority_fee, key_str, sig_str, txn_ctx->slot ));
-      }
-
-      fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, finalize_spad_wksp );
-    } FD_SPAD_FRAME_END;
+    /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
+    if( FD_LIKELY( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+      fd_txn_account_save( txn_ctx->rollback_fee_payer_account, slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
+    }
   } else {
 
     int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
@@ -2053,7 +2045,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
     return;
   }
 
-  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad, task_info->txn_ctx->spad_wksp );
+  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad );
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
