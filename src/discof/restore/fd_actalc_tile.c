@@ -552,14 +552,12 @@ fd_actalc_run( fd_topo_t *      topo,
   FD_TEST( out_mcache );
 
   ulong   reliable_cons_cnt = 0UL;
-  ulong   cons_out[ FD_TOPO_MAX_LINKS ];
   ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
     for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
       for( ulong k=0UL; k<tile->out_cnt; k++ ) {
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
-          cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
           reliable_cons_cnt++;

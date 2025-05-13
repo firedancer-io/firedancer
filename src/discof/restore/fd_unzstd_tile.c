@@ -15,8 +15,8 @@ struct fd_unzstd_tile {
   fd_stream_frag_meta_ctx_t in_state; /* input mcache context */
   fd_zstd_dstream_t *       dstream;  /* zstd decompress reader */
   fd_stream_writer_t *      writer;   /* stream writer object */
+  ulong const volatile *    shutdown_signal;
 };
-
 typedef struct fd_unzstd_tile fd_unzstd_tile_t;
 
 FD_FN_PURE static ulong
@@ -30,8 +30,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_unzstd_tile_t), sizeof(fd_unzstd_tile_t)         );
   l = FD_LAYOUT_APPEND( l, fd_zstd_dstream_align(),   fd_zstd_dstream_footprint( ZSTD_WINDOW_SZ ) );
-  l = FD_LAYOUT_APPEND( l, fd_stream_writer_align(), fd_stream_writer_footprint() );
-  return l;
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
@@ -40,7 +39,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_unzstd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_unzstd_tile_t), sizeof(fd_unzstd_tile_t) );
   void * zstd_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_zstd_dstream_align(), fd_zstd_dstream_footprint( ZSTD_WINDOW_SZ ) );
-  void * writer_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stream_writer_align(), fd_stream_writer_footprint() );
 
   void * out_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ) );
   FD_TEST( out_dcache );
@@ -49,14 +47,46 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->in_state.in_buf = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->dstream         = fd_zstd_dstream_new( zstd_mem, ZSTD_WINDOW_SZ );
-  ctx->writer          = fd_stream_writer_new( writer_mem, topo, tile, 0, ZSTD_WINDOW_SZ, 512UL, 2UL );
 
   fd_zstd_dstream_reset( ctx->dstream );
 }
 
 static void
-during_housekeeping( fd_unzstd_tile_t * ctx ) {
-  (void)ctx;
+fd_unzstd_init_from_stream_ctx( void * _ctx,
+                                fd_stream_ctx_t * stream_ctx ) {
+  fd_unzstd_tile_t * ctx = fd_type_pun(_ctx);
+
+  /* There's only one writer */
+  ctx->writer = &stream_ctx->writers[0];
+  fd_stream_writer_set_read_max( ctx->writer, ZSTD_FRAME_SZ );
+  ctx->shutdown_signal = fd_mcache_seq_laddr_const( stream_ctx->in[0].base.mcache->f ) + 2;
+}
+
+__attribute__((noreturn)) static void
+fd_unzstd_shutdown( fd_unzstd_tile_t * ctx ) {
+  FD_MGAUGE_SET( TILE, STATUS, 2UL );
+  fd_stream_writer_notify_shutdown( ctx->writer );
+  FD_COMPILER_MFENCE();
+
+  for(;;) pause();
+}
+
+static void
+fd_unzstd_poll_shutdown( fd_stream_ctx_t *      stream_ctx,
+                         fd_unzstd_tile_t *     ctx ) {
+  ulong const in_seq_max = FD_VOLATILE_CONST( *ctx->shutdown_signal );
+  if( FD_UNLIKELY( in_seq_max == stream_ctx->in[ 0 ].base.seq && in_seq_max != 0) ) {
+    FD_LOG_WARNING(( "zstd shutting down! in_seq_max is %lu in[0].base.seq is %lu",
+                     in_seq_max, stream_ctx->in[0].base.seq));
+    fd_unzstd_shutdown( ctx );
+  }
+}
+
+static void
+during_housekeeping( void * _ctx,
+                     fd_stream_ctx_t * stream_ctx ) {
+  fd_unzstd_tile_t * ctx = fd_type_pun(_ctx);
+  fd_unzstd_poll_shutdown( stream_ctx, ctx );
 }
 
 static int
@@ -65,6 +95,12 @@ on_stream_frag( void *                        _ctx,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       sz ) {
   fd_unzstd_tile_t * ctx = fd_type_pun(_ctx);
+
+  /* Don't do anything if backpressured */
+  if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
+    return 0;
+  }
+
   uchar const * chunk0             = ctx->in_state.in_buf + frag->loff;
   uchar const * chunk_start        = chunk0 + ctx->in_state.in_skip;
   uchar const * chunk_end          = chunk0 + frag->sz;
@@ -94,7 +130,6 @@ on_stream_frag( void *                        _ctx,
       fd_stream_writer_publish( ctx->writer, total_decompressed );
       break;
     }
-
 
     /* fd_zstd_dstream_read updates chunk_start and out */
     int zstd_err = fd_zstd_dstream_read( ctx->dstream, &cur, chunk_end, &out, out_end, NULL );
@@ -138,27 +173,6 @@ fd_unzstd_in_update( fd_stream_reader_t * in ) {
   accum[3] = 0U;       accum[4] = 0U;       accum[5] = 0U;
 }
 
-__attribute__((noreturn)) static void
-fd_unzstd_shutdown( fd_unzstd_tile_t * ctx ) {
-  FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  fd_stream_writer_notify_shutdown( ctx->writer );
-  FD_COMPILER_MFENCE();
-
-  for(;;) pause();
-}
-
-static void
-fd_unzstd_poll_shutdown( fd_stream_ctx_t *      stream_ctx,
-                         fd_unzstd_tile_t *     ctx,
-                         ulong const volatile * shutdown_signal ) {
-  ulong const in_seq_max = FD_VOLATILE_CONST( *shutdown_signal );
-  if( FD_UNLIKELY( in_seq_max == stream_ctx->in[ 0 ].base.seq && in_seq_max != 0) ) {
-    FD_LOG_WARNING(( "zstd shutting down! in_seq_max is %lu in[0].base.seq is %lu",
-                     in_seq_max, stream_ctx->in[0].base.seq));
-    fd_unzstd_shutdown( ctx );
-  }
-}
-
 __attribute__((noinline)) static void
 fd_unzstd_run1(
   fd_unzstd_tile_t *         ctx,
@@ -166,52 +180,14 @@ fd_unzstd_run1(
 
   FD_LOG_INFO(( "Running unzstd tile" ));
 
-  /* run loop init */
-  ulong const volatile * restrict shutdown_signal = fd_mcache_seq_laddr_const( stream_ctx->in[0].base.mcache->f ) + 2;
-  fd_stream_writer_init_flow_control_credits( ctx->writer );
-  fd_stream_ctx_init_run_loop( stream_ctx );
-
-  for(;;) {
-    if( FD_UNLIKELY( fd_stream_ticks_is_housekeeping_time( stream_ctx->ticks ) ) ) {
-      ulong event_idx = fd_event_map_get_event( stream_ctx->event_map );
-
-      if( FD_LIKELY( event_idx<stream_ctx->cons_cnt ) ) { /* receive credits */
-        ulong cons_idx = event_idx;
-
-        /* Receive flow control credits from this out. */
-        fd_stream_writer_receive_flow_control_credits( ctx->writer, cons_idx );
-
-        fd_unzstd_poll_shutdown( stream_ctx, ctx, shutdown_signal );
-
-      } else if( event_idx>stream_ctx->cons_cnt) { /* send credits */
-        ulong in_idx = event_idx - stream_ctx->cons_cnt - 1UL;
-        fd_unzstd_in_update( &stream_ctx->in[ in_idx ] );
-      }
-      else { /* event_idx==cons_cnt, housekeeping event */
-
-        /* Update metrics counters to external viewers */
-        fd_stream_metrics_update_external( stream_ctx->metrics,
-                                           stream_ctx->ticks->now,
-                                           NULL,
-                                           ctx );
-        /* Recalculate flow control credits */
-        ulong slowest_cons = ULONG_MAX;
-        fd_stream_writer_update_flow_control_credits( ctx->writer,
-                                                      &slowest_cons );
-        fd_stream_ctx_update_cons_slow( stream_ctx,
-                                        slowest_cons );
-        during_housekeeping( ctx );
-      }
-      fd_stream_ctx_housekeeping_advance( stream_ctx );
-    }
-
-    /* Check if we are backpressured, otherwise poll */
-    if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
-      fd_stream_ctx_process_backpressure( stream_ctx );
-    } else {
-      fd_stream_ctx_poll( stream_ctx, ctx, on_stream_frag );
-    }
-  }
+  fd_stream_ctx_run( stream_ctx,
+                     ctx,
+                     fd_unzstd_init_from_stream_ctx,
+                     fd_unzstd_in_update,
+                     during_housekeeping,
+                     NULL,
+                     NULL,
+                     on_stream_frag );
 }
 
 static void
@@ -219,10 +195,10 @@ fd_unzstd_run( fd_topo_t * topo,
                fd_topo_tile_t * tile ) {
   fd_unzstd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
-  ulong cons_cnt         = fd_topo_tile_reliable_consumer_cnt( topo, tile );
+  ulong out_cnt          = tile->out_cnt;
 
-  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, cons_cnt ) );
-  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, cons_cnt );
+  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, out_cnt ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, out_cnt );
   fd_unzstd_run1( ctx,
                   stream_ctx );
 }
@@ -236,3 +212,5 @@ fd_topo_run_tile_t fd_tile_snapshot_restore_Unzstd = {
   .run               = fd_unzstd_run,
 };
 #endif
+
+#undef NAME

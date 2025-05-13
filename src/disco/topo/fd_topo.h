@@ -434,6 +434,15 @@ typedef struct {
     } filerd;
 
     struct {
+      char         dest[128];
+      uint         ip4;
+      ushort       port;
+      char         path[ PATH_MAX ];
+      ulong        path_len;
+      char         snapshot_dir[ PATH_MAX ];
+    } httpdl;
+
+    struct {
       ulong scratch_sz;
     } snapin;
 

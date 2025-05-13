@@ -2,32 +2,7 @@
 #define HEADER_fd_src_discof_restore_stream_fd_stream_reader_h
 
 #include "fd_frag_reader.h"
-
-/* fd_stream_frag_meta_t is a variation of fd_frag_meta_t optimized for
-   stream I/O. */
-
-union fd_stream_frag_meta {
-
-struct {
-
-  ulong  seq;     /* frag sequence number */
-  uint   sz;
-  ushort unused;
-  ushort ctl;
-
-  ulong  goff;    /* stream offset */
-  ulong  loff;    /* dcache offset */
-
-};
-
-fd_frag_meta_t f[1];
-
-};
-
-typedef union fd_stream_frag_meta fd_stream_frag_meta_t;
-
-FD_STATIC_ASSERT( alignof(fd_stream_frag_meta_t)==32, abi );
-FD_STATIC_ASSERT( sizeof (fd_stream_frag_meta_t)==32, abi );
+#include "../../restore/fd_restore_base.h"
 
 struct fd_stream_reader {
   union {
@@ -48,27 +23,6 @@ struct fd_stream_reader {
 typedef struct fd_stream_reader fd_stream_reader_t;
 
 FD_PROTOTYPES_BEGIN
-
-static inline void
-fd_mcache_publish_stream( fd_stream_frag_meta_t * mcache,
-                          ulong                   depth,
-                          ulong                   seq,
-                          ulong                   goff,
-                          ulong                   loff,
-                          ulong                   sz,
-                          ulong                   ctl ) {
-  fd_stream_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
-  FD_COMPILER_MFENCE();
-  meta->seq   = fd_seq_dec( seq, 1UL );
-  FD_COMPILER_MFENCE();
-  meta->goff  = goff;
-  meta->sz    = (uint)sz;
-  meta->ctl   = (ushort)ctl;
-  meta->loff  = loff;
-  FD_COMPILER_MFENCE();
-  meta->seq   = seq;
-  FD_COMPILER_MFENCE();
-}
 
 FD_FN_CONST static inline ulong
 fd_stream_reader_align( void ) {

@@ -46,10 +46,4 @@ fd_stream_ticks_reload_housekeeping( fd_stream_ticks_t * ticks, fd_rng_t * rng )
   ticks->now = next;
 }
 
-static inline void
-fd_stream_ticks_reload_backpressure( fd_stream_ticks_t * ticks ) {
-  long next = fd_tickcount();
-  ticks->now = next;
-}
-
 #endif /* HEADER_fd_src_discof_restore_stream_fd_stream_ticks_h */

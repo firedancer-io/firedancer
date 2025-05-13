@@ -1,6 +1,7 @@
 #include "fd_restore_base.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../funk/fd_funk.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 #define NAME        "ActIdx"
 #define LINK_IN_MAX 1UL
