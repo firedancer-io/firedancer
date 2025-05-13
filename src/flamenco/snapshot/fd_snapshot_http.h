@@ -98,6 +98,20 @@ struct fd_snapshot_http {
 
 typedef struct fd_snapshot_http fd_snapshot_http_t;
 
+FD_FN_PURE static inline ulong
+fd_snapshot_http_align( void ) {
+  return fd_ulong_max( alignof(fd_snapshot_http_t), alignof(fd_snapshot_name_t) );
+}
+
+FD_FN_PURE static inline ulong
+fd_snapshot_http_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_http_t), sizeof(fd_snapshot_http_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_name_t), sizeof(fd_snapshot_name_t) );
+  return FD_LAYOUT_FINI( l, fd_snapshot_http_align() );
+  
+}
+
 fd_snapshot_http_t *
 fd_snapshot_http_new( void *               mem,
                       const char *         dst_str,
@@ -105,6 +119,9 @@ fd_snapshot_http_new( void *               mem,
                       ushort               dst_port,
                       const char *         snapshot_dir,
                       fd_snapshot_name_t * name_out );
+
+void
+fd_snapshot_http_privileged_init( fd_snapshot_http_t * this );
 
 void *
 fd_snapshot_http_delete( fd_snapshot_http_t * this );
@@ -141,6 +158,9 @@ fd_io_istream_snapshot_http_virtual( fd_snapshot_http_t * this ) {
     .vt   = &fd_io_istream_snapshot_http_vt
   };
 }
+
+void
+fd_snapshot_http_cleanup_fds( fd_snapshot_http_t * this );
 
 FD_PROTOTYPES_END
 

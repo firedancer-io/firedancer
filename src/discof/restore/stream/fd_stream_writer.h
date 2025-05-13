@@ -57,10 +57,9 @@ fd_stream_writer_get_write_ptr( fd_stream_writer_t * writer ) {
 
 fd_stream_writer_t *
 fd_stream_writer_new( void *                  mem,
-                      fd_topo_t *             topo,
-                      fd_topo_tile_t *        tile,
-                      ulong                   link_id,
-                      ulong                   read_max,
+                      fd_stream_frag_meta_t * mcache,
+                      uchar *                 dcache,
+                      ulong                   cons_cnt,
                       ulong                   burst_byte,
                       ulong                   burst_frag );
 
@@ -70,6 +69,19 @@ fd_stream_writer_init_flow_control_credits( fd_stream_writer_t * writer ) {
     writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx   ] = FD_VOLATILE_CONST( writer->cons_fseq[ cons_idx ][0] );
     writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx+1 ] = FD_VOLATILE_CONST( writer->cons_fseq[ cons_idx ][1] );
   }
+}
+
+static inline void
+fd_stream_writer_set_cons_fseq( fd_stream_writer_t * writer,
+                                ulong                cons_idx,
+                                ulong *              cons_fseq ) {
+  writer->cons_fseq[ cons_idx ] = cons_fseq;
+}
+
+static inline void
+fd_stream_writer_set_read_max( fd_stream_writer_t * writer,
+                               ulong                read_max ) {
+  writer->read_max = read_max;
 }
 
 static inline void
