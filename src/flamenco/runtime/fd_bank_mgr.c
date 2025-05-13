@@ -36,22 +36,19 @@ fd_bank_mgr_join( void * mem, fd_funk_t * funk, fd_funk_txn_t * funk_txn ) {
 
   fd_bank_mgr_t * bank_mgr = (fd_bank_mgr_t * )mem;
 
-  bank_mgr->funk      = funk;
-  bank_mgr->funk_txn  = funk_txn;
-  bank_mgr->is_modify = 0;
-  bank_mgr->is_new    = 0;
-  memset( &bank_mgr->prepare, 0, sizeof(fd_funk_rec_prepare_t) );
+  bank_mgr->funk     = funk;
+  bank_mgr->funk_txn = funk_txn;
   memset( &bank_mgr->query, 0, sizeof(fd_funk_rec_query_t) );
 
   return bank_mgr;
 }
 
-#define BANK_MGR_FUNCTION_IMPL(type, name, uppername)                                              \
+#define BANK_MGR_FUNCTION_IMPL(type, name, id, footprint, align)                                   \
 type *                                                                                             \
 fd_bank_mgr_##name##_query( fd_bank_mgr_t * bank_mgr ) {                                           \
-  for ( ; ; ) {                                                                                    \
+  for(;;) {                                                                                        \
     fd_funk_rec_query_t   query = {0};                                                             \
-    fd_funk_rec_key_t     key   = fd_bank_mgr_cache_key( FD_BANK_MGR_##uppername##_ID );           \
+    fd_funk_rec_key_t     key   = fd_bank_mgr_cache_key( fd_bank_mgr_##name##_id );                \
     fd_funk_rec_t const * rec   = fd_funk_rec_query_try_global( bank_mgr->funk,                    \
                                                                 bank_mgr->funk_txn,                \
                                                                 &key,                              \
@@ -63,18 +60,18 @@ fd_bank_mgr_##name##_query( fd_bank_mgr_t * bank_mgr ) {                        
                                                                                                    \
     if( FD_LIKELY( fd_funk_rec_query_test( &query )==FD_FUNK_SUCCESS ) )                           \
       return (type *)fd_ulong_align_up( (ulong)fd_funk_val( rec, fd_funk_wksp( bank_mgr->funk ) ), \
-                                        FD_BANK_MGR_##uppername##_ALIGN );                         \
+                                        fd_bank_mgr_##name##_align );                              \
     }                                                                                              \
 }                                                                                                  \
                                                                                                    \
 type *                                                                                             \
 fd_bank_mgr_##name##_modify( fd_bank_mgr_t * bank_mgr ) {                                          \
-  fd_funk_rec_key_t     key   = fd_bank_mgr_cache_key( FD_BANK_MGR_##uppername##_ID );             \
+  fd_funk_rec_key_t     key   = fd_bank_mgr_cache_key( fd_bank_mgr_##name##_id );                  \
   fd_funk_rec_try_clone_safe( bank_mgr->funk,                                                      \
                               bank_mgr->funk_txn,                                                  \
                               &key,                                                                \
-                              FD_BANK_MGR_##uppername##_FOOTPRINT,                                 \
-                              FD_BANK_MGR_##uppername##_ALIGN );                                   \
+                              fd_bank_mgr_##name##_footprint,                                      \
+                              fd_bank_mgr_##name##_align );                                        \
   fd_funk_rec_t * mod_rec = fd_funk_rec_modify_try( bank_mgr->funk,                                \
                                                     bank_mgr->funk_txn,                            \
                                                     &key,                                          \

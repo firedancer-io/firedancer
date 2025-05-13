@@ -300,8 +300,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   fd_account_keys_global_t *         vote_account_keys      = fd_bank_mgr_vote_account_keys_query( bank_mgr );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
@@ -430,18 +429,19 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
   }
 
-  ulong * total_epoch_stake_bm = fd_bank_mgr_total_epoch_stake_modify( bank_mgr );
-  *total_epoch_stake_bm = total_epoch_stake;
-  fd_bank_mgr_total_epoch_stake_save( bank_mgr );
+  ulong * total_epoch_stake_bm = NULL;
+  FD_BANK_MGR_MODIFY_BEGIN( bank_mgr, total_epoch_stake, total_epoch_stake_bm ) {
+  FD_STORE( ulong, *total_epoch_stake_bm, total_epoch_stake );
+  } FD_BANK_MGR_MODIFY_END;
 
-  vote_account_keys      = fd_bank_mgr_vote_account_keys_modify( bank_mgr );
+  FD_BANK_MGR_MODIFY_BEGIN( bank_mgr, vote_account_keys, vote_account_keys ) {
   vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
   vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
   fd_account_keys_pair_t_map_release_tree( vote_account_keys_pool, vote_account_keys_root );
   vote_account_keys_root = NULL;
   fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
   fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
-  fd_bank_mgr_vote_account_keys_save( bank_mgr );
+  } FD_BANK_MGR_MODIFY_END;
 }
 
 static void
