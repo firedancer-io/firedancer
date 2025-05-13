@@ -138,6 +138,6 @@ int main( int argc, char ** argv ) {
     }
   }
 
-  FD_LOG_NOTICE(("test passed!"));
+  FD_LOG_NOTICE(( "test passed!" ));
 
 }
