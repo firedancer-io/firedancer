@@ -108,6 +108,14 @@ struct fd_configf {
 
   struct {
     ulong heap_size_gib;
+
+    struct {
+      ulong max_rooted_slots;
+      ulong max_live_slots;
+      ulong max_transactions_per_slot;
+      ulong snapshot_grace_period_seconds;
+      ulong max_vote_accounts;
+    } limits;
   } runtime;
 
   struct {
@@ -389,7 +397,7 @@ struct fd_config {
     } batch;
 
     struct {
-      int   in_wen_restart;
+      int   enabled;
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } restart;

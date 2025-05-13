@@ -81,11 +81,11 @@
                                      ulong          cnt,
                                      double         query );
 
-     // sort_double_descend_{stable_fast,stable,inplace} is the same as
-     // above is adaptively parallelized over the caller (typically
-     // tpool thread t0) and tpool threads (t0,t1).  Assumes tpool is
-     // valid, tpool threads (t0,t1) are idle (or soon to be idle).
-     // These are only available if SORT_PARALLEL was requested.
+     // sort_double_descend_{stable_fast,stable,inplace}_para is the
+     // same as // above is adaptively parallelized over the caller
+     // (typically tpool thread t0) and tpool threads (t0,t1).  Assumes
+     // tpool is valid, tpool threads (t0,t1) are idle (or soon to be
+     // idle).  These are only available if SORT_PARALLEL was requested.
 
      double *
      sort_double_descend_stable_fast_para( fd_tpool_t * tpool, ulong t0, ulong t1,
@@ -103,6 +103,25 @@
      sort_double_descend_inplace_para( fd_tpool_t * tpool, ulong t0, ulong t1,
                                        double * key,
                                        ulong    cnt );
+
+     // sort_double_descend_fast_para has better asymptotically
+     // parallelization on average (~(N lg N)/T + lg T) but requires
+     // more stack space on the caller (T^2).  seed gives a random seed
+     // to use (e.g. fd_tickcount()).  If stable is non-zero, a stable
+     // method will be used (and the resulting order will always be
+     // deterministic).  Otherwise a faster unstable method will be used
+     // (the order in which equal keys end up in the array will depend
+     // on seed).  Assumes tpool is valid and  tpool threads (t0,t1) are
+     // idle (or soon to be idle).  Only available if SORT_PARALLEL was
+     // requested and the target has FD_HAS_ALLOCA.
+
+     double *
+     sort_double_descend_fast_para( fd_tpool_t * tpool, ulong t0, ulong t1,
+                                    double * key,
+                                    ulong    cnt,
+                                    void *   scratch,
+                                    ulong    seed,
+                                    int      stable );
 
    It is fine to include this template multiple times in a compilation
    unit.  Just provide the specification before each inclusion.  Various
@@ -169,6 +188,14 @@
 
 #ifndef SORT_PARALLEL
 #define SORT_PARALLEL 0
+#endif
+
+/* SORT_OVERSAMPLE_RATIO indicates the amount of oversampling fast
+   parallel sorts should use to fine pivots.  Only relevant if
+   SORT_PARALLEL is true and FD_HAS_ALLOCA. */
+
+#ifndef SORT_OVERSAMPLE_RATIO
+#define SORT_OVERSAMPLE_RATIO 5
 #endif
 
 /* SORT_IDX_IF(c,t,f) returns sort_idx t if c is non-zero and sort_idx f o.w. */
@@ -287,8 +314,8 @@ SORT_(search_geq)( SORT_KEY_T const * sorted,
 
 #if SORT_PARALLEL
 
-SORT_STATIC FD_MAP_REDUCE_PROTO( SORT_(private_merge_para)  );
-SORT_STATIC FD_FOR_ALL_PROTO   ( SORT_(private_memcpy_para) );
+SORT_STATIC FD_MAP_REDUCE_PROTO( SORT_(private_merge_para)   );
+SORT_STATIC FD_FOR_ALL_PROTO   ( SORT_(private_memcpy_para)  );
 
 static inline SORT_KEY_T *
 SORT_(stable_fast_para)( fd_tpool_t * tpool,
@@ -385,7 +412,19 @@ SORT_(inplace_para)( fd_tpool_t * tpool,
   return key;
 }
 
-#endif
+#if FD_HAS_ALLOCA
+
+SORT_STATIC SORT_KEY_T *
+SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
+                  SORT_KEY_T * key,
+                  SORT_IDX_T   cnt,
+                  void *       scratch,
+                  ulong        seed,
+                  int          stable );
+
+#endif /* FD_HAS_ALLOCA */
+
+#endif /* SORT_PARALLEL */
 
 FD_PROTOTYPES_END
 
@@ -986,15 +1025,274 @@ FD_FOR_ALL_BEGIN( SORT_(private_memcpy_para), 1L ) {
 
 } FD_FOR_ALL_END
 
-#endif
+#if FD_HAS_ALLOCA
 
-#endif
+static FD_FOR_ALL_BEGIN( SORT_(private_cntcpy_para), 1L ) {
+  ulong              tpool_base = (ulong             )_a0;
+  ulong              t_cnt      = (ulong             )_a1;
+  ulong            * _key_cnt   = (ulong            *)_a2;
+  SORT_KEY_T const * key        = (SORT_KEY_T const *)_a3;
+  SORT_KEY_T       * tmp        = (SORT_KEY_T       *)_a4;
+  SORT_KEY_T const * pivot      = (SORT_KEY_T const *)_a5;
+
+  /* Note keys in [ pivot[t-1], pivot[t] ) for t in [0,t_cnt) are keys
+     assigned to thread t for sorting.  pivot[-1] / pivot[t_cnt-1] are
+     an implied -infinity / +infinity and never explicitly accessed.  As
+     such, pivot is indexed [0,t_cnt-1). */
+
+  /* Allocate and clear a local scratch for counting.  We don't count
+     directly into key_cnt to avoid false sharing while counting. */
+
+  ulong * key_cnt = fd_alloca( alignof(ulong), sizeof(ulong)*t_cnt );
+
+  memset( key_cnt, 0, sizeof(ulong)*t_cnt );
+
+  for( long i=block_i0; i<block_i1; i++ ) {
+    SORT_KEY_T ki = key[i];
+
+    /* Determine which thread is responsible for subsorting this key */
+    /* FIXME: ideally, use a unrolled fixed count iteration for here */
+
+    ulong l = 0UL;
+    ulong h = t_cnt;
+    for(;;) {
+      ulong n = h - l;
+      if( n<2UL ) break;
+
+      /* At this point, the thread for key i is in [l,h) and this range
+         contains at least two threads.  Split this range in half. */
+
+      ulong m = l + (n>>1); /* In [1,t_cnt) */
+      int   c = SORT_BEFORE( ki, pivot[m-1UL] );
+
+      /* If ki is before pivot[m], the target thread is in [l,m).
+         Otherwise, the target thread is in [m,h). */
+
+      l = fd_ulong_if( c, l, m );
+      h = fd_ulong_if( c, m, h );
+    }
+
+    /* At this point, key[i] should be assigned to thread l.  Count it
+       and copy it into tmp to prepare to scatter. */
+
+    key_cnt[l]++;
+    tmp[i] = ki;
+  }
+
+  /* Send the counts back to main thread for partitioning */
+
+  memcpy( _key_cnt + (tpool_t0-tpool_base)*t_cnt, key_cnt, sizeof(ulong)*t_cnt );
+
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_BEGIN( SORT_(private_scatter_para), 1L ) {
+  ulong              tpool_base = (ulong             )_a0;
+  ulong              t_cnt      = (ulong             )_a1;
+  ulong      const * _part      = (ulong      const *)_a2;
+  SORT_KEY_T       * key        = (SORT_KEY_T       *)_a3;
+  SORT_KEY_T const * tmp        = (SORT_KEY_T const *)_a4;
+  SORT_KEY_T const * pivot      = (SORT_KEY_T const *)_a5;
+
+  /* Receive the key array partitioning from the main thread.  Like the
+     above, we don't operate on the part array directly to avoid false
+     sharing while scattering. */
+
+  ulong * part = fd_alloca( alignof(ulong), sizeof(ulong)*t_cnt );
+
+  memcpy( part, _part + (tpool_t0-tpool_base)*t_cnt, sizeof(ulong)*t_cnt );
+
+  for( long i=block_i0; i<block_i1; i++ ) {
+    SORT_KEY_T ki = tmp[i];
+
+    /* Determine which thread is responsible for subsort this key
+       (again).  Identical considerations to the above.  Note: we can
+       eliminate this computation if willing to burn O(N) additional
+       scratch memory by saving results computed above for use here. */
+
+    ulong l = 0UL;
+    ulong h = t_cnt;
+    for(;;) {
+      ulong n = h - l;
+      if( n<2UL ) break;
+      ulong m = l + (n>>1);
+      int   c = SORT_BEFORE( ki, pivot[m-1UL] );
+      l = fd_ulong_if( c, l, m );
+      h = fd_ulong_if( c, m, h );
+    }
+
+    /* Send this key to target thread */
+
+    key[ part[l]++ ] = ki;
+  }
+
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_BEGIN( SORT_(private_subsort_para), 1L ) {
+  ulong const * part   = (ulong const *)_a0;
+  SORT_KEY_T  * key    = (SORT_KEY_T  *)_a1;
+  SORT_KEY_T  * tmp    = (SORT_KEY_T  *)_a2;
+  int           stable = (int          )_a3;
+
+  ulong j0 = part[ block_i0 ];
+  ulong j1 = part[ block_i1 ];
+
+  if( stable ) SORT_(stable) ( key + j0, j1 - j0, tmp + j0 );
+  else         SORT_(inplace)( key + j0, j1 - j0 );
+
+} FD_FOR_ALL_END
+
+SORT_KEY_T *
+SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
+                  SORT_KEY_T * key,
+                  SORT_IDX_T   cnt,
+                  void *       scratch,
+                  ulong        seed,
+                  int          stable ) {
+
+  if( FD_UNLIKELY( cnt<(SORT_IDX_T)2 ) ) return key; /* nothing to do */
+
+  /* For the below (if sampling ops are fully threaded), sampling costs
+     O(S), the sample sort costs O(S lg(T S)), the downsampling costs
+     O(1), the partitioning costs O(T), the counting and scattering cost
+     O(N (lg T) / T), the subsorts cost (N/T) lg(N/T) and thread
+     synchronization overhead is O(lg T).
+
+     Combining all these, assuming the sampling ratio S is a fixed O(1)
+     quantity and assuming N (lg T) / T term in the counting/scattering
+     approximately cancals the -N lg T / T in the subsorts yields a
+     wallclock that scales as:
+
+       alpha N (ln N) / T + beta ln T + gamma T
+
+     The first term represents the parallelized sorting cost, the second
+     term represents the thread dispatch / sync cost, and the last term
+     represents the partitioning costs.  Minimizing cost with respect
+     to T yields:
+
+       -alpha (N ln N) / T_opt^2 + beta / T_opt + gamma = 0
+
+     whose (positive) solution is:
+
+       T_opt ~ (0.5 beta / gamma) [ sqrt( 1 + (4 alpha gamma N ln N)/beta^2) ) - 1 ]
+
+     In the limit 4 alpha gamma N ln N / beta^2 >> 1 (that is,
+     partitioning costs are much lower than thread start/stop costs), we
+     have:
+
+       T_opt -> (alpha N ln N) / beta
+
+     In the other limit, we have:
+
+       T_opt -> sqrt( alpha N ln N / gamma )
+
+     The first limit tends to apply in practice.  Thus we use:
+
+       T_opt ~ (N lg N) / thresh
+             ~ floor( (N msb N + N/2 + thresh/2) / thresh)
+
+     where thresh is an empirical minimum amount of sorting work to
+     justify starting / stopping a thread.  (As written below, the gamma
+     term is more like gamma T^2, which makes the other limit more like
+     the cube root of N ln N but doesn't change the the overall
+     conclusion.) */
+
+  ulong thresh = (4096UL + sizeof(SORT_KEY_T)-1UL) / sizeof(SORT_KEY_T);
+  ulong t_cnt  = fd_ulong_min( t1 - t0, (cnt*(ulong)fd_ulong_find_msb( cnt ) + ((cnt+thresh)>>1)) / thresh );
+  if( FD_UNLIKELY( t_cnt<2UL ) ) return stable ? SORT_(stable)( key, cnt, scratch ) : SORT_(inplace)( key, cnt );
+  t1 = t0 + t_cnt;
+
+  /* At this point, we have at least 2 threads available and at least 2
+     items to sort.  Sample the keys to get some idea of their
+     distribution, sort the samples and  downsample the sorted samples
+     into pivots that approximately uniformly partition the samples into
+     t_cnt groups (and thus approximately partition the keys uniformly
+     too).  Notes:
+
+     - The sampling below is practically uniform IID but it could be
+       made more robust with a rejection method (ala fd_rng_ulong_roll).
+
+     - Increasing SORT_OVERSAMPLE_RATIO improves the uniformity of the
+       partitioning of key space over the inputs but requires more stack
+       scratch memory and more overhead.
+
+     - All three steps here could be parallelized but it is probably not
+       worth it given the overhead for threaded versus the number of
+       samples.
+
+     - For a stable sort, the result is completely deterministic even
+       if the seed provided is non-deterministic. */
+
+  ulong        sample_cnt = t_cnt*(ulong)SORT_OVERSAMPLE_RATIO;
+  SORT_KEY_T * pivot      = fd_alloca( alignof(ulong), sizeof(ulong)*sample_cnt );
+
+  for( ulong i=0UL; i<sample_cnt; i++ ) pivot[i] = key[ fd_ulong_hash( seed ^ i ) % cnt ];
+
+  SORT_(inplace)( pivot, sample_cnt );
+
+  for( ulong i=1UL; i<t_cnt; i++ ) pivot[i-1UL] = pivot[ i*(ulong)SORT_OVERSAMPLE_RATIO ];
+
+  /* At this point, keys in [ pivot[t-1], pivot[t] ) should be assigned
+     to thread t for thread t's subsort.  pivot[-1] / pivot[t_cnt-1] are
+     an implicit -infinity / +infinity.  Split the input array equally
+     over threads and have each thread copy their block of keys into tmp
+     and count the number of keys in its block that could be assigned to
+     each thread. */
+
+# define part(i,j) part[ (i) + t_cnt*(j) ]
+
+  ulong * part = fd_alloca( alignof(ulong), sizeof(ulong)*t_cnt*t_cnt );
+
+  SORT_KEY_T * tmp = (SORT_KEY_T *)scratch;
+
+  FD_FOR_ALL( SORT_(private_cntcpy_para), tpool,t0,t1, 0L,(long)cnt, t0, t_cnt, part, key, tmp, pivot );
+
+  /* At this point, part(i,j) is the count of the number of keys in thread
+     j's block that were assigned to thread i's subsort.  Convert this
+     into a partitioning.  In-principle this can be parallelized but
+     this is rarely worth it practically. */
+
+  ulong k = 0UL;
+  for( ulong i=0UL; i<t_cnt; i++ ) {
+    for( ulong j=0UL; j<t_cnt; j++ ) {
+      ulong c_ij = part(i,j);
+      part(i,j) = k;
+      k += c_ij;
+    }
+  }
+
+  /* At this point, the range [ part(i,j), part(i+1,j) ) is where keys
+     in thread j's block assigned to thread i's subsort should be
+     scattered.  part(t_cnt,t_cnt-1) is an implied cnt.  Scatter the
+     keys from tmp back into key in subsorted order. */
+
+  FD_FOR_ALL( SORT_(private_scatter_para), tpool,t0,t1, 0L,(long)cnt, t0, t_cnt, part, key, tmp, pivot );
+
+  /* At this point, keys [ part(i,0), part(i+1,0) ) are the keys assigned
+     to thread i for subsorting.  part(t_cnt,0) is an implied cnt.
+     Since t_cnt>1 though this location exists.  We make that explicit
+     such that part[i],part[i+1] give the sets of keys each thread
+     should sort.  Do the thread parallel subsorts to get the keys into
+     final sorted order. */
+
+  part[ t_cnt ] = cnt;
+
+  FD_FOR_ALL( SORT_(private_subsort_para), tpool,t0,t1, 0L,(long)t_cnt, part, key, tmp, stable );
+
+# undef part
+
+  return key;
+}
+
+#endif /* FD_HAS_ALLOCA */
+#endif /* SORT_PARALLEL */
+#endif /* SORT_IMPL_STYLE!=1 */
 
 #undef SORT_
 #undef SORT_STATIC
 
 #undef SORT_IMPL_STYLE
 #undef SORT_IDX_IF
+#undef SORT_OVERSAMPLE_RATIO
 #undef SORT_PARALLEL
 #undef SORT_QUICK_SWAP_MINIMIZE
 #undef SORT_QUICK_ORDER_STYLE

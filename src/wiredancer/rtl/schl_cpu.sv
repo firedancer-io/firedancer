@@ -616,7 +616,7 @@ module shcl_cpu
       mem_d_wr_en    <= '0; 
     end
     else begin
-      if (curr_state[0] == ST_INIT) begin // Write in constants (intialization only happens at startup)
+      if (curr_state[0] == ST_INIT) begin // Write in constants (initialization only happens at startup)
         init_done <= (init_addr == NUM_CONSTS && next_instr_ready == '1); // Consts written into memory and initial instr read for all tags
       
         if( init_addr < NUM_CONSTS) begin

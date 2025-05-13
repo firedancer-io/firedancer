@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_waltz_ip_fd_fib4_netlink_h
+#define HEADER_fd_src_waltz_ip_fd_fib4_netlink_h
+
 /* fd_fib4_netlink.h provides APIs for importing routes from Linux netlink. */
 
 #if defined(__linux__)
@@ -50,3 +53,5 @@ fd_fib4_netlink_strerror( int err );
 FD_PROTOTYPES_END
 
 #endif /* defined(__linux__) */
+
+#endif /* HEADER_fd_src_waltz_ip_fd_fib4_netlink_h */

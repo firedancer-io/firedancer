@@ -153,7 +153,7 @@ genesis_create( void *                       buf,
 
   ulong const stake_account_index = genesis->accounts_len++;
 
-  uchar stake_data[ FD_STAKE_STATE_V2_SZ ];
+  uchar stake_data[ FD_STAKE_STATE_V2_SZ ] = {0};
 
   ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_V2_SZ );
   ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V3_SZ  );

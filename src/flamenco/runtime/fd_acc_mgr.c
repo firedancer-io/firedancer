@@ -92,16 +92,18 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
 
   ulong sz = sizeof(fd_account_meta_t)+min_data_sz;
   void * val;
-  if( fd_funk_val_sz( rec ) < sz )
-    val = fd_funk_val_truncate( rec,
-                                sz,
-                                fd_funk_alloc( funk ),
-                                wksp,
-                                fd_funk_val_min_align(),
-                                &funk_err );
-  else
+  if( fd_funk_val_sz( rec ) < sz ) {
+    val = fd_funk_val_truncate(
+        rec,
+        fd_funk_alloc( funk ),
+        wksp,
+        0UL,
+        sz,
+        &funk_err );
+    if( FD_UNLIKELY( !val ) ) FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) failed (%i-%s)", sz, funk_err, fd_funk_strerror( funk_err ) ));
+  } else {
     val = fd_funk_val( rec, wksp );
-
+  }
 
   if (NULL != opt_out_rec) {
     *opt_out_rec = rec;

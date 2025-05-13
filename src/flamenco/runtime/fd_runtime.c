@@ -173,10 +173,7 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
   fd_runtime_update_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ) );
 
   ulong               vote_acc_cnt  = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
-  fd_stake_weight_t * epoch_weights = fd_spad_alloc( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
-  if( FD_UNLIKELY( !epoch_weights ) ) {
-    FD_LOG_ERR(( "fd_spad_alloc() failed" ));
-  }
+  fd_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
 
   ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights, runtime_spad );
 
@@ -1538,9 +1535,8 @@ fd_runtime_block_execute_finalize_start( fd_exec_slot_ctx_t *             slot_c
   *task_data = fd_spad_alloc( runtime_spad,
                               alignof(fd_accounts_hash_task_data_t),
                               sizeof(fd_accounts_hash_task_data_t) );
-  (*task_data)->lthash_values = fd_spad_alloc( runtime_spad,
-                                               alignof(fd_lthash_value_t),
-                                               lt_hash_cnt * sizeof(fd_lthash_value_t) );
+  (*task_data)->lthash_values = fd_spad_alloc_check(
+      runtime_spad, alignof(fd_lthash_value_t), lt_hash_cnt * sizeof(fd_lthash_value_t) );
 
   for( ulong i=0UL; i<lt_hash_cnt; i++ ) {
     fd_lthash_zero( &((*task_data)->lthash_values)[i] );
@@ -1598,7 +1594,7 @@ block_finalize_tpool_wrapper( void * para_arg_1,
   ulong                          worker_cnt = (ulong)arg_2;
   fd_exec_slot_ctx_t *           slot_ctx   = (fd_exec_slot_ctx_t *)arg_3;
 
-  ulong cnt_per_worker = (task_data->info_sz / (worker_cnt-1UL)) + 1UL;
+  ulong cnt_per_worker = (worker_cnt>1) ? (task_data->info_sz / (worker_cnt-1UL)) + 1UL : task_data->info_sz;
   for( ulong worker_idx=1UL; worker_idx<worker_cnt; worker_idx++ ) {
     ulong start_idx = (worker_idx-1UL) * cnt_per_worker;
     if( start_idx >= task_data->info_sz ) {

@@ -351,14 +351,16 @@ fd_funk_rec_clone( fd_funk_t *               funk,
    this point, we can now free the lock on the hash chain.
 
    The caller can specify the alignment and min_sz they would like for
-   the value of the record. */
+   the value of the record. If the caller wishes to use default
+   alignment, they can pass 0UL (see fd_funk_val_truncate() for more
+   details). */
 
 void
 fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
                             fd_funk_txn_t *           txn,
                             fd_funk_rec_key_t const * key,
-                            ulong                     min_sz,
-                            ulong                     align );
+                            ulong                     align,
+                            ulong                     min_sz );
 
 
 /* fd_funk_rec_remove removes the live record with the

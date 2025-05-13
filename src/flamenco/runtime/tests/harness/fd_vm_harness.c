@@ -130,7 +130,7 @@ do{
     break;
   }
   ulong   rodata_sz = input->vm_ctx.rodata->size;
-  uchar * rodata = fd_spad_alloc_debug( spad, 8UL, rodata_sz );
+  uchar * rodata = fd_spad_alloc_check( spad, 8UL, rodata_sz );
   memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
   /* Enable direct_mapping for SBPF version >= v1 */

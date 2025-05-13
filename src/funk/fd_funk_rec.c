@@ -175,6 +175,7 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
     if( sz <= last_copy_sz ) {
       copy = last_copy;
     } else {
+      if( last_copy ) fd_valloc_free( valloc, last_copy );
       copy = last_copy = fd_valloc_malloc( valloc, 1, sz );
       last_copy_sz = sz;
     }
@@ -313,14 +314,14 @@ void
 fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
                             fd_funk_txn_t *           txn,
                             fd_funk_rec_key_t const * key,
-                            ulong                     min_sz,
-                            ulong                     align ) {
+                            ulong                     align,
+                            ulong                     min_sz ) {
 
   /* TODO: There is probably a cleaner way to allocate the txn memory. */
 
   /* See the header comment for why the max is 2. */
   #define MAX_TXN_KEY_CNT (2UL)
-  uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__( ( aligned( alignof(fd_funk_rec_map_txn_t) ) ) );
+  uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__((aligned(alignof(fd_funk_rec_map_txn_t))));
   #undef MAX_TXN_KEY_CNT
 
   /* First, we will do a global query to find a version of the record
@@ -329,17 +330,14 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
   fd_funk_rec_t const * rec_glob = NULL;
   fd_funk_txn_t const * txn_glob = NULL;
 
-  for( ;; ) {
+  for(;;) {
     fd_funk_rec_query_t query_glob[1];
     txn_glob = NULL;
-    rec_glob = fd_funk_rec_query_try_global( funk,
-                                             txn,
-                                             key,
-                                             &txn_glob,
-                                             query_glob );
+    rec_glob = fd_funk_rec_query_try_global(
+        funk, txn,key, &txn_glob, query_glob );
 
-    /* If the record exists and already exists in the specified funk txn,
-      we can return successfully. */
+    /* If the record exists and already exists in the specified funk
+       txn, we can return successfully. */
     if( rec_glob && txn==txn_glob ) {
       return;
     }
@@ -404,14 +402,18 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
   ulong old_val_sz = !!rec_glob ? rec_glob->val_sz : 0UL;
   ulong new_val_sz = fd_ulong_max( old_val_sz, min_sz );
 
-  uchar * new_val = fd_funk_val_truncate( new_rec,
-                                          new_val_sz,
-                                          fd_funk_alloc( funk ),
-                                          fd_funk_wksp( funk ),
-                                          align,
-                                          &err );
+  uchar * new_val = fd_funk_val_truncate(
+      new_rec,
+      fd_funk_alloc( funk ),
+      fd_funk_wksp( funk ),
+      align,
+      new_val_sz,
+      &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_CRIT(( "fd_funk_val_truncate returned err=%d", err ));
+  }
+  if( FD_UNLIKELY( !new_val ) ) {
+    FD_LOG_CRIT(( "fd_funk_val_truncate returned NULL" ));
   }
 
   if( rec_glob ) {
@@ -450,12 +452,13 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     ulong val_sz     = old_rec->val_sz;
-    void * buf = fd_funk_val_truncate( new_rec,
-                                       val_sz,
-                                       funk->alloc,
-                                       wksp,
-                                       fd_funk_val_min_align(),
-                                       opt_err );
+    void * buf = fd_funk_val_truncate(
+        new_rec,
+        fd_funk_alloc( funk ),
+        wksp,
+        0UL,
+        val_sz,
+        opt_err );
     if( !buf ) {
       fd_funk_rec_cancel( funk, prepare );
       return NULL;

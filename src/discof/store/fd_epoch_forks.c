@@ -2,8 +2,6 @@
 #include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
-#define VOTE_ACC_MAX   (2000000UL)
-
 static void
 dump( fd_epoch_forks_t * epoch_forks ) {
     for( ulong i = 0UL; i<MAX_EPOCH_FORKS; i++ ) {
@@ -44,7 +42,11 @@ fd_epoch_forks_publish( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost, ulon
 }
 
 uint
-fd_epoch_forks_prepare( fd_epoch_forks_t * epoch_forks, ulong parent_slot, ulong new_epoch, fd_epoch_fork_elem_t ** out_fork ) {
+fd_epoch_forks_prepare( fd_epoch_forks_t *      epoch_forks,
+                        ulong                   parent_slot,
+                        ulong                   new_epoch,
+                        fd_epoch_fork_elem_t ** out_fork,
+                        ulong                   vote_accounts_max ) {
   ulong empty = ULONG_MAX;
   ulong i = 0UL;
 
@@ -63,8 +65,9 @@ fd_epoch_forks_prepare( fd_epoch_forks_t * epoch_forks, ulong parent_slot, ulong
     epoch_forks->forks[ empty ].parent_slot = parent_slot;
     epoch_forks->forks[ empty ].epoch = new_epoch;
 
-    uchar * epoch_ctx_mem = epoch_forks->epoch_ctx_base + (empty * fd_ulong_align_up( fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ), fd_exec_epoch_ctx_align() ) );
-    epoch_forks->forks[ empty ].epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
+    /* FIXME DO NOT DYNAMICALLY ALLOCATE MEMORY IN API FUNCTIONS */
+    uchar * epoch_ctx_mem = epoch_forks->epoch_ctx_base + (empty * fd_ulong_align_up( fd_exec_epoch_ctx_footprint( vote_accounts_max ), fd_exec_epoch_ctx_align() ) );
+    epoch_forks->forks[ empty ].epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_accounts_max ) );
     *out_fork = &epoch_forks->forks[ empty ];
   } else {
     dump( epoch_forks );

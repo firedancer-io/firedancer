@@ -443,39 +443,31 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
   Accounts:
     0. Program account (writable)
     1. Authority account (signer)
-    2. (OPTIONAL) Source buffer account (writable)
 
-   https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L276-L351 */
+   https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L274-L322 */
 static int
 fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   int err;
 
-  /* These variables should exist outside of borrowed account scopes. */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
-
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L280 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L278 */
   fd_guarded_borrowed_account_t program;
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L281-L283 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L279-L281 */
   fd_pubkey_t const * authority_address = NULL;
   err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
-  /* It is ok if the source program does not exist.
-     https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L284-L286 */
-  fd_guarded_borrowed_account_t source_program;
-  uchar source_program_present = !( fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, 2UL, &source_program) );
-
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L287-L292 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L282-L287 */
   fd_loader_v4_state_t const * state = check_program_account( instr_ctx, &program, authority_address, &err );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L293 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L288 */
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
   if( FD_UNLIKELY( clock==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -485,95 +477,36 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
       is not needed. Otherwise, a cooldown of 1 slot is applied before being able to
       redeploy or retract the program.
 
-      https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L298-L304 */
+      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L293-L299 */
   if( FD_UNLIKELY( current_slot>0UL && fd_ulong_sat_add( state->slot, LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS )>current_slot ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Program was deployed recently, cooldown still in effect" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L305-L308 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L300-L303 */
   if( FD_UNLIKELY( !fd_loader_v4_status_is_retracted( state ) ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Destination program is not retracted" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L309-L323 */
-  fd_borrowed_account_t * buffer = &program;
-  if( source_program_present ) {
-
-    /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L310-L315 */
-    fd_loader_v4_state_t const * source_state = check_program_account( instr_ctx, &source_program, authority_address, &err );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L316-L319 */
-    if( FD_UNLIKELY( !fd_loader_v4_status_is_retracted( source_state ) ) ) {
-      fd_log_collector_msg_literal( instr_ctx, "Source program is not retracted" );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    }
-
-    buffer = &source_program;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L325-L328 */
-  ulong buffer_dlen = fd_borrowed_account_get_data_len( buffer );
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L305-L308 */
+  ulong buffer_dlen = fd_borrowed_account_get_data_len( &program );
   if( FD_UNLIKELY( buffer_dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
-  uchar const * programdata = fd_borrowed_account_get_data( buffer ) + LOADER_V4_PROGRAM_DATA_OFFSET;
+  uchar const * programdata = fd_borrowed_account_get_data( &program ) + LOADER_V4_PROGRAM_DATA_OFFSET;
 
   /* Our program cache is fundamentally different from Agave's. Here, they would perform verifications and
      add the program to their cache, but we only perform verifications now and defer cache population to the
      end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
-     https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L329-L336 */
+     https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L309-L316 */
   err = fd_deploy_program( instr_ctx, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  /* Swap the lamport values of the source and destination program. In this step, the source program
-     is closed, and lamports are transferred back to the account owner.
-
-     https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L338-L346 */
-  if( source_program_present ) {
-
-    /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L339 */
-    uchar const * source_program_data = fd_borrowed_account_get_data( &source_program );
-    err = fd_borrowed_account_set_data_from_slice( &program, source_program_data, fd_borrowed_account_get_data_len( &source_program ) );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L340 */
-    err = fd_borrowed_account_set_data_length( &source_program, 0UL );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L341-L344 */
-    ulong dst_lamports = fd_borrowed_account_get_lamports( &program );
-    ulong src_lamports = fd_borrowed_account_get_lamports( &source_program );
-
-    err = fd_borrowed_account_set_lamports( &source_program, dst_lamports );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-
-    err = fd_borrowed_account_set_lamports( &program, src_lamports );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L345 */
-    err = fd_borrowed_account_set_owner( &source_program, &fd_solana_system_program_id );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L347-L350 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L318-L321 */
   uchar * data = NULL;
   ulong   dlen = 0UL;
   err = fd_borrowed_account_get_data_mut( &program, &data, &dlen );

@@ -101,12 +101,14 @@ push_msg:
             commit: 0
             feature_set: 367846227
             client: 0
+          addrs_len: 1
           addrs: 
             - ip4: 
                 - 127
                 - 0
                 - 0
                 - 1
+          sockets_len: 12
           sockets: 
             - key: 0
               index: 0
@@ -144,6 +146,7 @@ push_msg:
             - key: 3
               index: 0
               offset: 1
+          extensions_len: 0
     - signature: '64dzXW7Yv2U6qvME4ZnQWgQqos3eqAqQj9Z3q21r6XKgg66rAk2z6dNBptqExgWL7shZ7Dgr86TiGs97ApcAzyM5'
       data: 
         node_instance: 

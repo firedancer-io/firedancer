@@ -2,18 +2,18 @@
 
 void *
 fd_funk_val_truncate( fd_funk_rec_t * rec,
-                      ulong           new_val_sz,
                       fd_alloc_t *    alloc,
                       fd_wksp_t *     wksp,
                       ulong           align,
+                      ulong           sz,
                       int *           opt_err ) {
 
   /* Check input args */
 
 #ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( (!rec) | (new_val_sz>FD_FUNK_REC_VAL_MAX) | (!alloc) | (!wksp) ) ||  /* NULL rec,too big,NULL alloc,NULL wksp */
-      FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE                            ) ||  /* Marked erase */
-      FD_UNLIKELY( align<FD_FUNK_VAL_ALIGN || !fd_ulong_is_pow2( align ) ) ) {          /* Align is not a power of 2 or too small */
+  if( FD_UNLIKELY( (!rec) | (sz>FD_FUNK_REC_VAL_MAX) | (!alloc) | (!wksp) ) ||  /* NULL rec,too big,NULL alloc,NULL wksp */
+      FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE                    ) ||  /* Marked erase */
+      FD_UNLIKELY( !fd_ulong_is_pow2( align )                             ) ) { /* Align is not a power of 2 */
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
@@ -22,7 +22,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
   ulong val_sz = (ulong)rec->val_sz;
   ulong val_max = (ulong)rec->val_max;
 
-  if( FD_UNLIKELY( !new_val_sz ) ) {
+  if( FD_UNLIKELY( !sz ) ) {
 
     /* User asked to truncate to 0.  Flush the any existing value. */
 
@@ -31,7 +31,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
     return NULL;
 
-  } else if( FD_LIKELY( new_val_sz > val_max ) ) {
+  } else if( FD_LIKELY( sz > val_max ) ) {
 
     /* User requested to increase the value size.  We presume they are
        asking for a specific size (as opposed to bumping up the size ala
@@ -42,8 +42,10 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     ulong   val_gaddr = rec->val_gaddr;
     uchar * val       = val_max ? fd_wksp_laddr_fast( wksp, val_gaddr ) : NULL; /* TODO: branchless */
 
+    /* NOTE: if the align is 0, we use the default alignment for
+       fd_alloc_malloc_at_least */
     ulong   new_val_max;
-    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, align, new_val_sz, &new_val_max );
+    uchar * new_val = fd_alloc_malloc_at_least( alloc, align, sz, &new_val_max );
     if( FD_UNLIKELY( !new_val ) ) { /* Allocation failure! */
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );
       return NULL;
@@ -53,7 +55,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     fd_memset( new_val + val_sz, 0, new_val_max - val_sz ); /* Clear out trailing padding to be on the safe side */
 
     rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
-    rec->val_sz    = (uint)new_val_sz;
+    rec->val_sz    = (uint)sz;
     rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
 
     if( val ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
@@ -65,7 +67,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
 
     /* Just set the new size */
 
-    rec->val_sz = (uint)new_val_sz;
+    rec->val_sz = (uint)sz;
 
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
     return (uchar *)fd_wksp_laddr_fast( wksp, rec->val_gaddr );
