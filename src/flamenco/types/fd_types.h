@@ -1544,7 +1544,6 @@ struct fd_epoch_bank {
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
   fd_hash_t genesis_hash;
-  uint cluster_type;
   uint cluster_version[3];
   fd_vote_accounts_t next_epoch_stakes;
   fd_epoch_schedule_t rent_epoch_schedule;

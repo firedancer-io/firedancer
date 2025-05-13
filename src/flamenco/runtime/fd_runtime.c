@@ -3890,7 +3890,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   fd_sha256_hash( buf, sz, genesis_hash.uc );
 
   fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
-  epoch_bank->cluster_type = genesis_block->cluster_type;
 
   if( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx,

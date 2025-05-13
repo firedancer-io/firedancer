@@ -8872,8 +8872,6 @@ int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_encode( &self->genesis_hash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->cluster_type, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   for( ulong i=0; i<3; i++ ) {
     err = fd_bincode_uint32_encode( self->cluster_version[i], ctx );
     if( FD_UNLIKELY( err ) ) return err;
@@ -8894,8 +8892,6 @@ static int fd_epoch_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
   err = fd_rent_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   for( ulong i=0; i<3; i++ ) {
     err = fd_bincode_uint32_decode_footprint( ctx );
@@ -8921,7 +8917,6 @@ static void fd_epoch_bank_decode_inner( void * struct_mem, void * * alloc_mem, f
   fd_epoch_schedule_decode_inner( &self->epoch_schedule, alloc_mem, ctx );
   fd_rent_decode_inner( &self->rent, alloc_mem, ctx );
   fd_hash_decode_inner( &self->genesis_hash, alloc_mem, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->cluster_type, ctx );
   for( ulong i=0; i<3; i++ ) {
     fd_bincode_uint32_decode_unsafe( self->cluster_version + i, ctx );
   }
@@ -8951,7 +8946,6 @@ void fd_epoch_bank_walk( void * w, fd_epoch_bank_t const * self, fd_types_walk_f
   fd_epoch_schedule_walk( w, &self->epoch_schedule, fun, "epoch_schedule", level );
   fd_rent_walk( w, &self->rent, fun, "rent", level );
   fd_hash_walk( w, &self->genesis_hash, fun, "genesis_hash", level );
-  fun( w, &self->cluster_type, "cluster_type", FD_FLAMENCO_TYPE_UINT, "uint", level );
   fun( w, NULL, "cluster_version", FD_FLAMENCO_TYPE_ARR, "uint[]", level++ );
   for( ulong i=0; i<3; i++ )
     fun( w, self->cluster_version + i, "cluster_version", FD_FLAMENCO_TYPE_UINT,    "uint",    level );
@@ -8966,7 +8960,6 @@ ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
   size += fd_epoch_schedule_size( &self->epoch_schedule );
   size += fd_rent_size( &self->rent );
   size += fd_hash_size( &self->genesis_hash );
-  size += sizeof(uint);
   size += 3 * sizeof(uint);
   size += fd_vote_accounts_size( &self->next_epoch_stakes );
   size += fd_epoch_schedule_size( &self->rent_epoch_schedule );

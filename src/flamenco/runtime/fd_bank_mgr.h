@@ -166,20 +166,20 @@
 #define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_FOOTPRINT (50000UL)
 #define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_ALIGN     (8UL)
 
-/* TODO: THe names for these two epoch stakes fields are not very
-   clear and should probably be renamed.
+// /* TODO: THe names for these two epoch stakes fields are not very
+//    clear and should probably be renamed.
 
-   fd_bank_mgr_epoch_stakes refers to the stakes for the epoch T-2.
-   fd_bank_mgr_next_epoch_stakes refers to the stakes for the epoch T-1.
-  */
+//    fd_bank_mgr_epoch_stakes refers to the stakes for the epoch T-2.
+//    fd_bank_mgr_next_epoch_stakes refers to the stakes for the epoch T-1.
+//   */
 
-#define FD_BANK_MGR_EPOCH_STAKES_ID        (32)
-#define FD_BANK_MGR_EPOCH_STAKES_FOOTPRINT (50000000UL)
-#define FD_BANK_MGR_EPOCH_STAKES_ALIGN     (1024UL)
+// #define FD_BANK_MGR_EPOCH_STAKES_ID        (32)
+// #define FD_BANK_MGR_EPOCH_STAKES_FOOTPRINT (50000000UL)
+// #define FD_BANK_MGR_EPOCH_STAKES_ALIGN     (1024UL)
 
-#define FD_BANK_MGR_NEXT_EPOCH_STAKES_ID        (33)
-#define FD_BANK_MGR_NEXT_EPOCH_STAKES_FOOTPRINT (50000000UL)
-#define FD_BANK_MGR_NEXT_EPOCH_STAKES_ALIGN     (1024UL)
+// #define FD_BANK_MGR_NEXT_EPOCH_STAKES_ID        (33)
+// #define FD_BANK_MGR_NEXT_EPOCH_STAKES_FOOTPRINT (50000000UL)
+// #define FD_BANK_MGR_NEXT_EPOCH_STAKES_ALIGN     (1024UL)
 
 
 /* TODO: make this struct opaque. */

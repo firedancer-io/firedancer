@@ -1086,7 +1086,6 @@
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
         { "name": "genesis_hash",          "type": "hash" },
-        { "name": "cluster_type",          "type": "uint" },
         { "name": "cluster_version",       "type": "array", "element": "uint", "length": 3 },
         { "name": "next_epoch_stakes",     "type": "vote_accounts"},
         { "name": "rent_epoch_schedule",   "type": "epoch_schedule" }
