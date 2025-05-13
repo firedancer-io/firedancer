@@ -431,7 +431,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
   ulong * total_epoch_stake_bm = NULL;
   FD_BANK_MGR_MODIFY_BEGIN( bank_mgr, total_epoch_stake, total_epoch_stake_bm ) {
-  FD_STORE( ulong, *total_epoch_stake_bm, total_epoch_stake );
+  *total_epoch_stake_bm = total_epoch_stake;
   } FD_BANK_MGR_MODIFY_END;
 
   FD_BANK_MGR_MODIFY_BEGIN( bank_mgr, vote_account_keys, vote_account_keys ) {
