@@ -212,13 +212,20 @@ snapshot_load_cmd_fn( args_t *   args,
 
   ulong goff_old          = 0UL;
   ulong file_rd_backp_old = 0UL;
+  ulong file_rd_wait_old  = 0UL;
   ulong snap_in_backp_old = 0UL;
   ulong snap_in_wait_old  = 0UL;
   ulong actalc_wait_old   = 0UL;
   ulong acc_cnt_old       = 0UL;
-  ulong frag_cnt_old      = 0UL;
-    sleep( 1 );
-  FD_LOG_NOTICE(( "---------------backp=(file,snap) busy=(snap,alc )-------------------------------" ));
+  sleep( 1 );
+  puts( "" );
+  puts( "Columns:" );
+  puts( "- bw:    Uncompressed bandwidth" );
+  puts( "- backp: Backpressured by downstream tile" );
+  puts( "- stall: Waiting on upstream tile"         );
+  puts( "- acc:   Number of accounts"               );
+  puts( "" );
+  puts( "-------------backp=(file,snap) busy=(file,snap,alc )---------------" );
   for(;;) {
     ulong filerd_status = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
@@ -230,28 +237,32 @@ snapshot_load_cmd_fn( args_t *   args,
 
     ulong goff          = FD_VOLATILE_CONST( snap_in_fseq[ 1 ] );
     ulong file_rd_backp = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
+    ulong file_rd_wait  = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
+                          FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
+                          file_rd_backp;
     ulong snap_in_backp = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
     ulong snap_in_wait  = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
-                          FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] );
+                          FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
+                          snap_in_backp;
     ulong actalc_wait   = FD_VOLATILE_CONST( actalc_metrics [ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
                           FD_VOLATILE_CONST( actalc_metrics [ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] );
-    ulong frag_cnt      = FD_VOLATILE_CONST( snap_accs_sync[0] );
     ulong acc_cnt       = FD_VOLATILE_CONST( snap_accs_sync[1] );
-    FD_LOG_NOTICE(( "rate=%4.2g GB/s backp=(%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%) acc=%8.3g/s frag=%8.3g/s",
-                    (double)( goff-goff_old )/1e9,
-                    ( (double)( file_rd_backp-file_rd_backp_old )*ns_per_tick )/1e7,
-                    ( (double)( snap_in_backp-snap_in_backp_old )*ns_per_tick )/1e7,
-                    ( (double)( snap_in_wait -snap_in_wait_old  )*ns_per_tick )/1e7,
-                    ( (double)( actalc_wait  -actalc_wait_old   )*ns_per_tick )/1e7,
-                    (double)( acc_cnt -acc_cnt_old  ),
-                    (double)( frag_cnt-frag_cnt_old ) ) );
+    printf( "bw=%4.2g GB/s backp=(%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%8.3g/s\n",
+            (double)( goff-goff_old )/1e9,
+            ( (double)( file_rd_backp-file_rd_backp_old )*ns_per_tick )/1e7,
+            ( (double)( snap_in_backp-snap_in_backp_old )*ns_per_tick )/1e7,
+            100-( ( (double)( file_rd_wait -file_rd_wait_old  )*ns_per_tick )/1e7 ),
+            100-( ( (double)( snap_in_wait -snap_in_wait_old  )*ns_per_tick )/1e7 ),
+            100-( ( (double)( actalc_wait  -actalc_wait_old   )*ns_per_tick )/1e7 ),
+            (double)( acc_cnt -acc_cnt_old  ) );
+    fflush( stdout );
     goff_old          = goff;
     file_rd_backp_old = file_rd_backp;
+    file_rd_wait_old  = file_rd_wait;
     snap_in_backp_old = snap_in_backp;
     snap_in_wait_old  = snap_in_wait;
     actalc_wait_old   = actalc_wait;
     acc_cnt_old       = acc_cnt;
-    frag_cnt_old      = frag_cnt;
     sleep( 1 );
   }
 
