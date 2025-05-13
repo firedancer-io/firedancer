@@ -307,15 +307,15 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     }
 
     ulong   sz  = sizeof(uint) + fd_slot_bank_size( slot_bank );
-    uchar * buf = fd_funk_val_truncate( new_rec,
-                                        sz,
-                                        fd_funk_alloc( ctx->funk ),
-                                        fd_funk_wksp( ctx->funk ),
-                                        fd_funk_val_min_align(),
-                                        &funk_err );
+    uchar * buf = fd_funk_val_truncate(
+        new_rec,
+        fd_funk_alloc( ctx->funk ),
+        fd_funk_wksp( ctx->funk ),
+        0UL,
+        sz,
+        &funk_err );
     if( FD_UNLIKELY( !buf ) ) FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) failed (%i-%s)", sz, funk_err, fd_funk_strerror( funk_err ) ));
     FD_STORE( uint, buf, FD_RUNTIME_ENC_BINCODE );
-
     fd_bincode_encode_ctx_t slot_bank_encode_ctx = {
       .data    = buf + sizeof(uint),
       .dataend = buf + sz,

@@ -64,10 +64,10 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 
 
 fd_funk_rec_t *
-fd_funk_rec_modify_try( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_funk_rec_query_t *     query ) {
+fd_funk_rec_modify( fd_funk_t *               funk,
+                    fd_funk_txn_t const *     txn,
+                    fd_funk_rec_key_t const * key,
+                    fd_funk_rec_query_t *     query ) {
   fd_funk_rec_map_t *    rec_map = fd_funk_rec_map( funk );
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_rec_key_set_pair( pair, txn, key );
@@ -314,15 +314,14 @@ void
 fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
                             fd_funk_txn_t *           txn,
                             fd_funk_rec_key_t const * key,
-                            ulong                     min_sz,
-                            ulong                     align ) {
+                            ulong                     align,
+                            ulong                     min_sz ) {
 
   /* TODO: There is probably a cleaner way to allocate the txn memory. */
 
   /* See the header comment for why the max is 2. */
   #define MAX_TXN_KEY_CNT (2UL)
-  uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__( ( aligned( alignof(fd_funk_rec_map_txn_t) ) ) );
-  #undef MAX_TXN_KEY_CNT
+  uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__((aligned(alignof(fd_funk_rec_map_txn_t))));
 
   /* First, we will do a global query to find a version of the record
      from either the current transaction or one of its ancestors. */
@@ -330,17 +329,14 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
   fd_funk_rec_t const * rec_glob = NULL;
   fd_funk_txn_t const * txn_glob = NULL;
 
-  for( ;; ) {
+  for(;;) {
     fd_funk_rec_query_t query_glob[1];
     txn_glob = NULL;
-    rec_glob = fd_funk_rec_query_try_global( funk,
-                                             txn,
-                                             key,
-                                             &txn_glob,
-                                             query_glob );
+    rec_glob = fd_funk_rec_query_try_global(
+        funk, txn,key, &txn_glob, query_glob );
 
-    /* If the record exists and already exists in the specified funk txn,
-      we can return successfully. */
+    /* If the record exists and already exists in the specified funk
+       txn, we can return successfully. */
     if( rec_glob && txn==txn_glob ) {
       return;
     }
@@ -357,7 +353,7 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
      will always need to add the current key to the txn. */
   /* TODO: Turn key_max into a const. */
 
-  fd_funk_rec_map_txn_t * map_txn = fd_funk_rec_map_txn_init( txn_mem, funk->rec_map, 2UL );
+  fd_funk_rec_map_txn_t * map_txn = fd_funk_rec_map_txn_init( txn_mem, funk->rec_map, MAX_TXN_KEY_CNT );
 
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_rec_key_set_pair( pair, txn, key );
@@ -366,7 +362,6 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
 
   fd_funk_xid_key_pair_t pair_glob[1];
   if( rec_glob ) {
-    /* We can reuse the pair, just need to replace the xid. */
     fd_funk_rec_key_set_pair( pair_glob, txn_glob, key );
     fd_funk_rec_map_txn_add( map_txn, pair_glob, 1 );
   }
@@ -386,13 +381,17 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
   err = fd_funk_rec_map_txn_query( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
   if( FD_UNLIKELY( err==FD_MAP_SUCCESS ) ) {
     /* The key has been inserted. We need to gracefully exit the txn. */
-    fd_funk_rec_map_txn_test( map_txn );
+    err = fd_funk_rec_map_txn_test( map_txn );
+    if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
+      FD_LOG_CRIT(( "fd_funk_rec_map_txn_test returned err %d", err ));
+    }
     fd_funk_rec_map_txn_fini( map_txn );
     return;
   }
 
-  /* Now we know for certain that the record hasn't been created yet. so
-     we will copy in the record from the global txn (if one exists). */
+  /* If we are at this point, we know for certain that the record hasn't
+     been created yet. We will copy in the record from the global txn
+     (if one exists). */
 
   fd_funk_rec_prepare_t prepare[1];
   fd_funk_rec_t *       new_rec = fd_funk_rec_prepare( funk, txn, key, prepare, &err );
@@ -405,14 +404,18 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
   ulong old_val_sz = !!rec_glob ? rec_glob->val_sz : 0UL;
   ulong new_val_sz = fd_ulong_max( old_val_sz, min_sz );
 
-  uchar * new_val = fd_funk_val_truncate( new_rec,
-                                          new_val_sz,
-                                          fd_funk_alloc( funk ),
-                                          fd_funk_wksp( funk ),
-                                          align,
-                                          &err );
+  uchar * new_val = fd_funk_val_truncate(
+      new_rec,
+      fd_funk_alloc( funk ),
+      fd_funk_wksp( funk ),
+      align,
+      new_val_sz,
+      &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_CRIT(( "fd_funk_val_truncate returned err=%d", err ));
+  }
+  if( FD_UNLIKELY( !new_val ) ) {
+    FD_LOG_CRIT(( "fd_funk_val_truncate returned NULL" ));
   }
 
   if( rec_glob ) {
@@ -423,12 +426,14 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
 
   fd_funk_rec_txn_publish( funk, prepare );
 
-  fd_funk_rec_map_txn_test( map_txn );
+  err = fd_funk_rec_map_txn_test( map_txn );
+  if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_txn_test returned err %d", err ));
+  }
 
-
-  /* We can omit a fd_funk_rec_map_txn_test() because we are blocking. */
   fd_funk_rec_map_txn_fini( map_txn );
 
+  #undef MAX_TXN_KEY_CNT
 }
 
 fd_funk_rec_t *
@@ -451,12 +456,13 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     ulong val_sz     = old_rec->val_sz;
-    void * buf = fd_funk_val_truncate( new_rec,
-                                       val_sz,
-                                       funk->alloc,
-                                       wksp,
-                                       fd_funk_val_min_align(),
-                                       opt_err );
+    void * buf = fd_funk_val_truncate(
+        new_rec,
+        fd_funk_alloc( funk ),
+        wksp,
+        0UL,
+        val_sz,
+        opt_err );
     if( !buf ) {
       fd_funk_rec_cancel( funk, prepare );
       return NULL;

@@ -214,10 +214,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     ulong val_sz = fd_sbpf_validated_program_footprint( &elf_info );
     void * val = fd_funk_val_truncate(
         rec,
-        val_sz,
         fd_funk_alloc( funk ),
         fd_funk_wksp( funk ),
-        fd_funk_val_min_align(),
+        0UL,
+        val_sz,
         &funk_err );
     if( FD_UNLIKELY( funk_err ) ) {
       FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", val_sz, funk_err, fd_funk_strerror( funk_err ) ));

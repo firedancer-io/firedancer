@@ -70,12 +70,12 @@ fd_bank_mgr_##name##_modify( fd_bank_mgr_t * bank_mgr ) {                       
   fd_funk_rec_try_clone_safe( bank_mgr->funk,                                                      \
                               bank_mgr->funk_txn,                                                  \
                               &key,                                                                \
-                              fd_bank_mgr_##name##_footprint,                                      \
-                              fd_bank_mgr_##name##_align );                                        \
-  fd_funk_rec_t * mod_rec = fd_funk_rec_modify_try( bank_mgr->funk,                                \
-                                                    bank_mgr->funk_txn,                            \
-                                                    &key,                                          \
-                                                    &bank_mgr->query );                            \
+                              fd_bank_mgr_##name##_align,                                          \
+                              fd_bank_mgr_##name##_footprint );                                    \
+  fd_funk_rec_t * mod_rec = fd_funk_rec_modify( bank_mgr->funk,                                    \
+                                                bank_mgr->funk_txn,                                \
+                                                &key,                                              \
+                                                &bank_mgr->query );                                \
   if( FD_UNLIKELY( !mod_rec ) ) {                                                                  \
     FD_LOG_CRIT(( "Failed to modify bank manager record" ));                                       \
   }                                                                                                \
