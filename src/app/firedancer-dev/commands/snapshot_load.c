@@ -189,25 +189,29 @@ snapshot_load_cmd_fn( args_t *   args,
   double ns_per_tick = 1.0/tick_per_ns;
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
-  fd_topo_tile_t * file_rd_tile = &topo->tiles[ fd_topo_find_tile( topo, "FileRd", 0UL ) ];
-  fd_topo_tile_t * snap_in_tile = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
+  fd_topo_tile_t * file_rd_tile  = &topo->tiles[ fd_topo_find_tile( topo, "FileRd", 0UL ) ];
+  fd_topo_tile_t * snap_in_tile  = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
   ulong            zstd_tile_idx =              fd_topo_find_tile( topo, "Unzstd", 0UL );
-  fd_topo_tile_t * unzstd_tile = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
+  fd_topo_tile_t * unzstd_tile   = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
+  fd_topo_tile_t * actalc_tile   = &topo->tiles[ fd_topo_find_tile( topo, "ActAlc", 0UL ) ];
 
-  ulong *          snap_in_fseq    = snap_in_tile->in_link_fseq[ 0 ];
-  ulong *          snap_accs_sync  = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_frags", 0UL ) ].mcache );
-  ulong volatile * file_rd_metrics = fd_metrics_tile( file_rd_tile->metrics );
-  ulong volatile * snap_in_metrics = fd_metrics_tile( snap_in_tile->metrics );
+  ulong *          snap_in_fseq      = snap_in_tile->in_link_fseq[ 0 ];
+  ulong *          snap_accs_sync    = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_frags", 0UL ) ].mcache );
+  ulong volatile * file_rd_metrics   = fd_metrics_tile( file_rd_tile->metrics );
+  ulong volatile * snap_in_metrics   = fd_metrics_tile( snap_in_tile->metrics );
   ulong volatile * unzstd_in_metrics = unzstd_tile ? fd_metrics_tile( unzstd_tile->metrics ) : NULL;
+  ulong volatile * actalc_metrics    = fd_metrics_tile( actalc_tile->metrics );
 
   ulong goff_old          = 0UL;
   ulong file_rd_backp_old = 0UL;
+  ulong snap_in_backp_old = 0UL;
   ulong snap_in_wait_old  = 0UL;
+  ulong actalc_wait_old   = 0UL;
   ulong acc_cnt_old       = 0UL;
   ulong frag_cnt_old      = 0UL;
-  for(;;) {
     sleep( 1 );
-
+  FD_LOG_NOTICE(( "---------------backp=(file,snap) busy=(snap,alc )-------------------------------" ));
+  for(;;) {
     ulong filerd_status = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong unzstd_status = unzstd_in_metrics ? FD_VOLATILE_CONST( unzstd_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
@@ -218,21 +222,29 @@ snapshot_load_cmd_fn( args_t *   args,
 
     ulong goff          = FD_VOLATILE_CONST( snap_in_fseq[ 1 ] );
     ulong file_rd_backp = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
+    ulong snap_in_backp = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
     ulong snap_in_wait  = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
                           FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] );
+    ulong actalc_wait   = FD_VOLATILE_CONST( actalc_metrics [ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
+                          FD_VOLATILE_CONST( actalc_metrics [ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] );
     ulong frag_cnt      = FD_VOLATILE_CONST( snap_accs_sync[0] );
     ulong acc_cnt       = FD_VOLATILE_CONST( snap_accs_sync[1] );
-    FD_LOG_NOTICE(( "rate=%4.2g GB/s back=%3.0f%% parser_busy=%3.0f%% acc=%8.3g/s frag=%8.3g/s",
+    FD_LOG_NOTICE(( "rate=%4.2g GB/s backp=(%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%) acc=%8.3g/s frag=%8.3g/s",
                     (double)( goff-goff_old )/1e9,
                     ( (double)( file_rd_backp-file_rd_backp_old )*ns_per_tick )/1e7,
+                    ( (double)( snap_in_backp-snap_in_backp_old )*ns_per_tick )/1e7,
                     ( (double)( snap_in_wait -snap_in_wait_old  )*ns_per_tick )/1e7,
+                    ( (double)( actalc_wait  -actalc_wait_old   )*ns_per_tick )/1e7,
                     (double)( acc_cnt -acc_cnt_old  ),
                     (double)( frag_cnt-frag_cnt_old ) ) );
     goff_old          = goff;
     file_rd_backp_old = file_rd_backp;
+    snap_in_backp_old = snap_in_backp;
     snap_in_wait_old  = snap_in_wait;
+    actalc_wait_old   = actalc_wait;
     acc_cnt_old       = acc_cnt;
     frag_cnt_old      = frag_cnt;
+    sleep( 1 );
   }
 
   FD_LOG_NOTICE(( "Loaded %g accounts", (double)FD_VOLATILE_CONST( snap_accs_sync[1] ) ));
