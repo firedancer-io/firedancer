@@ -2,6 +2,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/archive/fd_tar.h"
+#include "../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
 #include "../../flamenco/types/fd_types.h"
 #include <assert.h>
 #include <stdio.h>
@@ -65,7 +66,6 @@ struct fd_snapin_tile {
 
   uchar const * in_base;
   ulong         goff_translate;
-  ulong         loff_translate;
   ulong         in_skip;
 
   /* Frame buffer */
@@ -308,6 +308,9 @@ snapshot_read_is_complete( fd_snapin_tile_t const * restore ) {
 static int
 snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->buf );
+  if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
+    FD_LOG_ERR(( "account data size (%lu) exceeds max (%lu) (possible memory corruption?)", hdr->meta.data_len, FD_ACC_SZ_MAX ));
+  }
 
   ulong data_sz    = hdr->meta.data_len;
   restore->acc_sz  = data_sz;
@@ -344,7 +347,7 @@ snapshot_read_account_hdr_chunk( fd_snapin_tile_t * restore,
   int som = restore->buf_ctr == 0UL;
 
   ulong frag_goff = (ulong)buf - restore->goff_translate;
-  ulong frag_loff = (ulong)buf - restore->loff_translate;
+  ulong frag_loff = (ulong)buf - (ulong)restore->in_base;
 
   uchar const * buf_next = snapshot_read_buffered( restore, buf, bufsz );
   ulong hdr_read = (ulong)(buf_next-buf);
@@ -365,13 +368,14 @@ snapshot_read_account_hdr_chunk( fd_snapin_tile_t * restore,
      If data was included, skip ahead.  (Combining header+data into the
      same fragment reduces the amount of descriptor frags published.) */
 
+  ulong const frag_sz = hdr_read + peek_sz;
   fd_mcache_publish_stream(
       restore->out_mcache,
       restore->out_depth,
       restore->out_seq,
       frag_goff,
       frag_loff,
-      hdr_read + peek_sz,
+      frag_sz,
       fd_frag_meta_ctl( 0UL, som, eom, 0 )
   );
   restore->out_seq  = fd_seq_inc( restore->out_seq, 1UL );
@@ -401,7 +405,7 @@ snapshot_read_account_chunk( fd_snapin_tile_t * restore,
         restore->out_depth,
         restore->out_seq,
         (ulong)buf - restore->goff_translate,
-        (ulong)buf - restore->loff_translate,
+        (ulong)buf - (ulong)restore->in_base,
         chunk_sz,
         fd_frag_meta_ctl( 0UL, 0, eom, 0 )
     );
@@ -596,7 +600,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Join stream input */
 
-  ctx->in_base = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;;
+  FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
+  ctx->in_base = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->in_skip = 0UL;
 
   /* Join frame buffer */
@@ -776,7 +781,6 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
   uchar const *       cur    = start;
 
   ctx->goff_translate = (ulong)chunk0 - frag->goff;
-  ctx->loff_translate = (ulong)chunk0 - frag->loff;
 
   int consume_frag = 1;
   for(;;) {
@@ -789,7 +793,8 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
       if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_FAILED ) ) {
         FD_LOG_ERR(( "Failed to restore snapshot" ));
       }
-      FD_LOG_ERR(( "blocked" ));
+    }
+    if( FD_UNLIKELY( ctx->out_seq >= ctx->out_seq_max ) ) {
       consume_frag = 0; /* retry this frag */
       ulong consumed_sz = (uint)( cur-start );
       ctx->in_skip += consumed_sz;
@@ -807,10 +812,30 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
    credits back to the stream producer.  Also updates link in metrics. */
 
 static void
-fd_snapin_in_update( fd_snapin_in_t * in ) {
+fd_snapin_in_update( fd_snapin_tile_t *     ctx,
+                     fd_snapin_in_t *       in,
+                     ulong const * restrict cons_seq ) {
+  int   const downstream_active = !!ctx->manifest_done;
+  ulong const downstream_seq    = cons_seq[ 0 ];
+  ulong const downstream_goff   = cons_seq[ 1 ];
+
+  /* Defend against buggy consumer */
+  if( FD_UNLIKELY( fd_seq_gt( downstream_seq,  ctx->out_seq  ) |
+                   fd_seq_gt( downstream_goff, in->goff ) ) ) {
+    FD_LOG_CRIT(( "Consumer skipped ahead of me: self=(%lu,%lu) consumer=(%lu,%lu)",
+                  ctx->out_seq,   in->goff,
+                  downstream_seq, downstream_goff ));
+  }
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( in->fseq[0] ) = in->seq;
-  FD_VOLATILE( in->fseq[1] ) = in->goff;
+  if( !downstream_active ) {
+    /* Initially, just send this tile's progress */
+    FD_VOLATILE( in->fseq[1] ) = in->goff;
+  } else {
+    /* Once downstream tiles are active, forward backpressure signals */
+    FD_VOLATILE( in->fseq[1] ) = downstream_goff;
+  }
   FD_COMPILER_MFENCE();
 
   ulong volatile * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
@@ -834,13 +859,11 @@ fd_snapin_run1(
     ulong                      out_cnt,
     fd_frag_meta_t **          out_mcache, /* [out_cnt] */
     ulong *                    out_depth,  /* [out_cnt] */
-    ulong *                    out_seq,    /* [out_cnt] */
     ulong                      cons_cnt,
     ushort * restrict          event_map,  /* [1+in_cnt+cons_cnt] */
-    ulong *                    cons_out,   /* [cons_cnt] */
     ulong **                   cons_fseq,  /* [cons_cnt] */
     ulong volatile ** restrict cons_slow,  /* [cons_cnt] */
-    ulong * restrict           cons_seq,   /* [cons_cnt] */
+    ulong * restrict           cons_seq,   /* [2*cons_cnt] */
     long                       lazy,
     fd_rng_t *                 rng
 ) {
@@ -889,15 +912,15 @@ fd_snapin_run1(
     if( FD_UNLIKELY( !out_mcache[ out_idx ] ) ) FD_LOG_ERR(( "NULL out_mcache[%lu]", out_idx ));
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
-    out_seq[ out_idx ] = 0UL;
 
     cr_max = fd_ulong_min( cr_max, out_depth[ out_idx ] );
   }
 
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
     if( FD_UNLIKELY( !cons_fseq[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_fseq[%lu]", cons_idx ));
-    cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
-    cons_seq [ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] );
+    cons_slow[ cons_idx     ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
+    cons_seq [ 2*cons_idx   ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][0] );
+    cons_seq [ 2*cons_idx+1 ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][1] );
   }
 
   ulong * out_sync = fd_mcache_seq_laddr( out_mcache[0] );
@@ -938,12 +961,17 @@ fd_snapin_run1(
 
         /* Receive flow control credits. */
         ulong cons_idx = event_idx;
-        cons_seq[ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] );
+        /* Receive flow control credits from this out. */
+        FD_COMPILER_MFENCE();
+        cons_seq[ 2*cons_idx   ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][0] );
+        cons_seq[ 2*cons_idx+1 ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][1] );
+        FD_COMPILER_MFENCE();
 
       } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
+
         /* Send flow control credits and drain flow control diagnostics. */
         ulong in_idx = event_idx - cons_cnt - 1UL;
-        fd_snapin_in_update( &in[ in_idx ] );
+        fd_snapin_in_update( ctx, &in[ in_idx ], cons_seq );
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
@@ -968,7 +996,7 @@ fd_snapin_run1(
           ulong slowest_cons = ULONG_MAX;
           cr_avail = cr_max;
           for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
-            ulong cons_cr_avail = (ulong)fd_long_max( (long)cr_max-fd_long_max( fd_seq_diff( out_seq[ cons_out[ cons_idx ] ], cons_seq[ cons_idx ] ), 0L ), 0L );
+            ulong cons_cr_avail = (ulong)fd_long_max( (long)cr_max-fd_long_max( fd_seq_diff( ctx->out_seq, cons_seq[ cons_idx ] ), 0L ), 0L );
             slowest_cons = fd_ulong_if( cons_cr_avail<cr_avail, cons_idx, slowest_cons );
             cr_avail     = fd_ulong_min( cons_cr_avail, cr_avail );
           }
@@ -1076,7 +1104,13 @@ fd_snapin_run1(
     FD_COMPILER_MFENCE();
     fd_stream_frag_meta_t meta = FD_VOLATILE_CONST( *this_in_mline );
     ulong sz = 0U;
+
+    ulong const out_seq0 = ctx->out_seq;
     int consumed_frag = on_stream_frag( ctx, this_in, &meta, &sz );
+    ulong const out_seq1 = ctx->out_seq;
+    ulong const frags_published = out_seq1-out_seq0;
+    if( FD_UNLIKELY( frags_published>cr_avail ) ) FD_LOG_CRIT(( "frags_published (%lu) > cr_avail (%lu)", frags_published, cr_avail ));
+    cr_avail -= frags_published;
 
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
 
@@ -1126,12 +1160,10 @@ fd_snapin_run( fd_topo_t *      topo,
 
   fd_frag_meta_t * out_mcache[ tile->out_cnt ];
   ulong            out_depth [ tile->out_cnt ];
-  ulong            out_seq   [ tile->out_cnt ];
   for( ulong i=0UL; i<tile->out_cnt; i++ ) {
     out_mcache[ i ] = topo->links[ tile->out_link_id[ i ] ].mcache;
     FD_TEST( out_mcache[ i ] );
     out_depth [ i ] = fd_mcache_depth( out_mcache[ i ] );
-    out_seq   [ i ] = 0UL;
   }
 
   ulong   reliable_cons_cnt = 0UL;
@@ -1178,7 +1210,7 @@ fd_snapin_run( fd_topo_t *      topo,
   ushort           event_map[ 1+reliable_cons_cnt ];
   ulong volatile * cons_slow[   reliable_cons_cnt ];
   ulong            cons_seq [   reliable_cons_cnt ];
-  fd_snapin_run1( ctx, polled_in_cnt, polled_in, reliable_cons_cnt, out_mcache, out_depth, out_seq, reliable_cons_cnt, event_map, cons_out, cons_fseq, cons_slow, cons_seq, (ulong)10e3, rng );
+  fd_snapin_run1( ctx, polled_in_cnt, polled_in, reliable_cons_cnt, out_mcache, out_depth, reliable_cons_cnt, event_map, cons_fseq, cons_slow, cons_seq, (ulong)10e3, rng );
 }
 
 #ifndef FD_TILE_TEST

@@ -55,6 +55,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* FIXME check link names */
 
   fd_actalc_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  memset( ctx, 0, sizeof(fd_actalc_tile_t) );
 
   /* Join account output */
 
@@ -372,6 +373,7 @@ fd_actalc_run1(
 
       this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
       this_in->seq   = this_in_seq;
+      this_in->goff  = meta.goff + meta.sz;
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
       this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
