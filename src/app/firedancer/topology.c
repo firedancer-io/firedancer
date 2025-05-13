@@ -299,7 +299,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "writer"      );
   fd_topob_wksp( topo, "bstore"      );
   fd_topob_wksp( topo, "tcache"      );
-  fd_topob_wksp( topo, "pohi"        );
+  fd_topob_wksp( topo, "poh"        );
   fd_topob_wksp( topo, "voter"       );
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "turb_slot"   );
@@ -438,7 +438,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                             fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   /**/                             fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   fd_topo_tile_t * pack_tile =     fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /**/                             fd_topob_tile( topo, "pohi",    "pohi",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                             fd_topob_tile( topo, "poh",    "poh",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,          1 );
   /**/                             fd_topob_tile( topo, "gossip",  "gossip",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "sender",  "voter",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
@@ -689,12 +689,12 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in",  "dedup_pack",    0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in",  "poh_pack",      0UL,         FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "pack",   0UL,                         "pack_replay",   0UL                                                 );
-  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pohi",   0UL,           "metric_in",  "replay_poh",    i,           FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                 fd_topob_tile_in(  topo, "pohi",   0UL,           "metric_in",  "stake_out",     0UL,         FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                 fd_topob_tile_out( topo, "pohi",   0UL,                         "poh_shred",     0UL                                                 );
+  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "poh",   0UL,           "metric_in",  "replay_poh",    i,           FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "poh",   0UL,           "metric_in",  "stake_out",     0UL,         FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_out( topo, "poh",   0UL,                         "poh_shred",     0UL                                                 );
 
-  /**/                 fd_topob_tile_in(  topo, "pohi",  0UL,            "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                      fd_topob_tile_out( topo, "pohi",   0UL,                        "poh_pack",      0UL                                                );
+  /**/                 fd_topob_tile_in(  topo, "poh",  0UL,            "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                      fd_topob_tile_out( topo, "poh",   0UL,                        "poh_pack",      0UL                                                );
 
   /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "repair_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "repair",   0UL,                       "repair_sign",  0UL                                                  );
@@ -911,7 +911,7 @@ fd_topo_initialize( config_t * config ) {
       tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
       tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
       if( FD_UNLIKELY( tile->pack.use_consumed_cus ) ) FD_LOG_ERR(( "Firedancer does not support CU rebating yet.  [tiles.pack.use_consumed_cus] must be false" ));
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "pohi" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
       strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
 
       tile->poh.bank_cnt = config->layout.bank_tile_count;
