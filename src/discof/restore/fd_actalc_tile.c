@@ -8,6 +8,11 @@
 #define LINK_IN_MAX 1UL
 #define BURST       1UL
 
+/* The ActAlc tile has the following responsibilities:
+   - Bump allocate funk records
+   - Heap allocate account datas
+   - Copy account data */
+
 struct fd_actalc_tile {
   /* Stream input */
 
@@ -21,10 +26,16 @@ struct fd_actalc_tile {
 
   /* Funk database */
 
-  fd_funk_t    funk[1];
-  fd_alloc_t * alloc;
-  ulong        funk_seed;
-  uint         db_full : 1;
+  fd_funk_t       funk[1];
+  void *          funk_base;
+
+  fd_alloc_t *    alloc;
+  ulong           funk_seed;
+
+  fd_funk_rec_t * rec_next;
+  ulong           rec1_laddr;
+
+  uint            db_full : 1;
 
   /* Account output */
 
@@ -91,8 +102,14 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->actalc.funk_obj_id ) ) ) ) {
     FD_LOG_ERR(( "Failed to join database cache" ));
   }
+
+  ctx->funk_base = fd_wksp_containing( ctx->funk->shmem );
   ctx->alloc     = fd_funk_alloc( ctx->funk );
   ctx->funk_seed = fd_funk_seed( ctx->funk );
+
+  fd_funk_rec_map_t const * rec_map = fd_funk_rec_map( ctx->funk );
+  ctx->rec_next   = rec_map->ele;
+  ctx->rec1_laddr = (ulong)( rec_map->ele + rec_map->ele_max );
 
   /* Join account output */
 
@@ -123,16 +140,18 @@ allocate_account( fd_actalc_tile_t *              ctx,
 
   /* Allocate account */
 
-  ulong  rec_sz = sizeof(fd_account_meta_t)+acc_data_sz;
-  void * buf    = fd_alloc_malloc( ctx->alloc, 1UL, rec_sz );
+  ulong const  buf_min = sizeof(fd_account_meta_t)+acc_data_sz;
+  ulong        buf_max = 0UL;
+  void * const buf     = fd_alloc_malloc_at_least( ctx->alloc, 1UL, buf_min, &buf_max );
   if( FD_UNLIKELY( !buf ) ) {
     FD_LOG_WARNING(( "Database full after inserting %lu records totalling %.3f GiB: fd_alloc_malloc(align=1,sz=%lu) failed",
-                     ctx->metrics.alloc_cnt, (double)ctx->metrics.cum_alloc_sz/(double)(1UL<<30), rec_sz ));
+                     ctx->metrics.alloc_cnt, (double)ctx->metrics.cum_alloc_sz/(double)(1UL<<30), buf_min ));
     ctx->db_full = 1;
     return;
   }
+  ulong const buf_gaddr = (ulong)buf - (ulong)ctx->funk_base;
   ctx->metrics.alloc_cnt++;
-  ctx->metrics.cum_alloc_sz += rec_sz;
+  ctx->metrics.cum_alloc_sz += buf_min;
 
   /* Calculate funk hash */
 
@@ -154,9 +173,22 @@ allocate_account( fd_actalc_tile_t *              ctx,
   };
   memcpy( meta->info.owner, hdr->info.owner, sizeof(fd_pubkey_t) );
 
+  /* Allocate funk record */
+
+  fd_funk_rec_t * rec       = ctx->rec_next;
+  ulong const     rec_gaddr = (ulong)rec - (ulong)ctx->funk_base;
+  memset( rec, 0, sizeof(fd_funk_rec_t) );
+
+  memcpy( rec->pair.key->uc, hdr->meta.pubkey, sizeof(fd_pubkey_t) );
+  rec->pair.key->ul[ 4 ] = FD_FUNK_KEY_TYPE_ACC;
+
+  rec->map_hash  = funk_hash;
+  rec->val_sz    = (uint)buf_min;
+  rec->val_max   = (uint)buf_max;
+  rec->val_gaddr = buf_gaddr;
+
   /* Publish account descriptor */
 
-  ulong const rec_gaddr = (ulong)buf - (ulong)ctx->funk->shmem;
   fd_mcache_publish_account(
     ctx->out_mcache,
     ctx->out_depth,
@@ -165,7 +197,16 @@ allocate_account( fd_actalc_tile_t *              ctx,
     rec_gaddr,
     acc_seq0
   );
+
+  /* Wind up for next publish */
+
   ctx->out_seq = fd_seq_inc( ctx->out_seq, 1UL );
+  ctx->rec_next++;
+  if( FD_UNLIKELY( (ulong)ctx->rec_next >= ctx->rec1_laddr ) ) {
+    FD_LOG_WARNING(( "Funk record map full" ));
+    ctx->db_full  = 1;
+    return;
+  }
 }
 
 static void
