@@ -32,6 +32,7 @@ struct fd_stream_writer {
   ulong                   cons_cnt;      /* number of consumers */
   ulong *                 cons_seq;      /* consumer fseq values */
   ulong **                cons_fseq;     /* consumer fseq pointers */
+  ulong *                 out_sync;      /* out fseq */
 };
 typedef struct fd_stream_writer fd_stream_writer_t;
 
@@ -88,8 +89,8 @@ fd_stream_writer_update_flow_control_credits( fd_stream_writer_t * writer,
     ulong cr_byte_avail = writer->cr_byte_max;
     ulong cr_frag_avail = writer->cr_frag_max;
     for( ulong cons_idx=0UL; cons_idx<writer->cons_cnt; cons_idx++ ) {
-      ulong cons_cr_byte_avail = (ulong)fd_long_max( (long)writer->cr_byte_max-fd_long_max( fd_seq_diff( writer->goff, writer->cons_seq[ 2*cons_idx+1 ] ), 0L ), 0L );
-      ulong cons_cr_frag_avail = (ulong)fd_long_max( (long)writer->cr_frag_max-fd_long_max( fd_seq_diff( writer->out_seq,   writer->cons_seq[ 2*cons_idx   ] ), 0L ), 0L );
+      ulong cons_cr_byte_avail = (ulong)fd_long_max( (long)writer->cr_byte_max-fd_long_max( fd_seq_diff( writer->goff, writer->cons_seq[ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx+1 ] ), 0L ), 0L );
+      ulong cons_cr_frag_avail = (ulong)fd_long_max( (long)writer->cr_frag_max-fd_long_max( fd_seq_diff( writer->out_seq,   writer->cons_seq[ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx   ] ), 0L ), 0L );
       slowest_cons  = fd_ulong_if( cons_cr_byte_avail<cr_byte_avail, cons_idx, slowest_cons );
       cr_byte_avail = fd_ulong_min( cons_cr_byte_avail, cr_byte_avail );
       cr_frag_avail = fd_ulong_min( cons_cr_frag_avail, cr_frag_avail );
@@ -151,6 +152,11 @@ fd_stream_writer_advance( fd_stream_writer_t * writer,
 static inline int
 fd_stream_writer_is_backpressured( fd_stream_writer_t * writer ) {
   return writer->cr_byte_avail<writer->burst_byte || writer->cr_frag_avail<writer->burst_frag;
+}
+
+static inline void
+fd_stream_writer_notify_shutdown( fd_stream_writer_t * writer ) {
+  FD_VOLATILE( writer->out_sync[ EXPECTED_FSEQ_CNT_PER_CONS * writer->cons_cnt ]  ) = writer->out_seq;
 }
 
 static inline void *

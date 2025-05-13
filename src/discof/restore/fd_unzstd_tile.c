@@ -139,23 +139,23 @@ fd_unzstd_in_update( fd_stream_reader_t * in ) {
 }
 
 __attribute__((noreturn)) static void
-fd_unzstd_shutdown( void ) {
+fd_unzstd_shutdown( fd_unzstd_tile_t * ctx ) {
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  /* FIXME set final sequence number */
+  fd_stream_writer_notify_shutdown( ctx->writer );
   FD_COMPILER_MFENCE();
-  FD_LOG_INFO(( "Finished parsing snapshot" ));
 
   for(;;) pause();
 }
 
 static void
 fd_unzstd_poll_shutdown( fd_stream_ctx_t *      stream_ctx,
-                          ulong const volatile * shutdown_signal ) {
+                         fd_unzstd_tile_t *     ctx,
+                         ulong const volatile * shutdown_signal ) {
   ulong const in_seq_max = FD_VOLATILE_CONST( *shutdown_signal );
   if( FD_UNLIKELY( in_seq_max == stream_ctx->in[ 0 ].base.seq && in_seq_max != 0) ) {
     FD_LOG_WARNING(( "zstd shutting down! in_seq_max is %lu in[0].base.seq is %lu",
                      in_seq_max, stream_ctx->in[0].base.seq));
-    fd_unzstd_shutdown();
+    fd_unzstd_shutdown( ctx );
   }
 }
 
@@ -167,7 +167,7 @@ fd_unzstd_run1(
   FD_LOG_INFO(( "Running unzstd tile" ));
 
   /* run loop init */
-  ulong const volatile * restrict shutdown_signal = fd_mcache_seq_laddr_const( stream_ctx->in[0].base.mcache->f ) + 3;
+  ulong const volatile * restrict shutdown_signal = fd_mcache_seq_laddr_const( stream_ctx->in[0].base.mcache->f ) + 2;
   fd_stream_writer_init_flow_control_credits( ctx->writer );
   fd_stream_ctx_init_run_loop( stream_ctx );
 
@@ -181,7 +181,7 @@ fd_unzstd_run1(
         /* Receive flow control credits from this out. */
         fd_stream_writer_receive_flow_control_credits( ctx->writer, cons_idx );
 
-        fd_unzstd_poll_shutdown( stream_ctx, shutdown_signal );
+        fd_unzstd_poll_shutdown( stream_ctx, ctx, shutdown_signal );
 
       } else if( event_idx>stream_ctx->cons_cnt) { /* send credits */
         ulong in_idx = event_idx - stream_ctx->cons_cnt - 1UL;

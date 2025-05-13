@@ -211,7 +211,7 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong filerd_status = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong unzstd_status = unzstd_in_metrics ? FD_VOLATILE_CONST( unzstd_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
-    if( FD_UNLIKELY( filerd_status==2UL && snapin_status==2UL && unzstd_status==2UL ) ) {
+    if( FD_UNLIKELY( filerd_status==2UL && unzstd_status==2UL && snapin_status == 2UL ) ) {
       FD_LOG_NOTICE(( "Done" ));
       break;
     }

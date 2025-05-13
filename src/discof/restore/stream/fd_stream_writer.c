@@ -49,6 +49,7 @@ fd_stream_writer_new( void *                  mem,
   self->cons_cnt      = cons_cnt;
   self->cons_seq      = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), EXPECTED_FSEQ_CNT_PER_CONS*cons_cnt*sizeof(ulong) );
   self->cons_fseq     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *), cons_cnt*sizeof(ulong *) );
+  self->out_sync      = fd_mcache_seq_laddr( topo->links[ tile->out_link_id[ link_id ] ].mcache );
 
   /* Set up consumer fseq pointer array.
      We keep track of 2 fseqs per consumer to manage stream flow control.

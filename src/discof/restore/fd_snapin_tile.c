@@ -74,7 +74,6 @@ struct fd_snapin_tile {
   ulong   buf_ctr;  /* number of bytes allocated in buffer */
   ulong   buf_sz;   /* target buffer size (buf_ctr<buf_sz implies incomplete read) */
   ulong   buf_max;  /* byte capacity of buffer */
-  ulong   pad_sz;
 
   /* Tar parser */
 
@@ -101,6 +100,8 @@ struct fd_snapin_tile {
   ulong out_seq;
   ulong out_cnt;
   ulong out_depth;
+  ulong seq;
+  ulong const volatile * shutdown_signal;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -117,6 +118,24 @@ struct fd_snapin_in {
 };
 
 typedef struct fd_snapin_in fd_snapin_in_t;
+
+__attribute__((noreturn)) static void
+fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
+  ulong in_seq_max = FD_VOLATILE_CONST( *ctx->shutdown_signal );
+  /* wait for zstd tile to set shutdown sequence number */
+  while ( in_seq_max == 0 ) {
+    in_seq_max = FD_VOLATILE_CONST( *ctx->shutdown_signal );
+    FD_SPIN_PAUSE();
+  }
+
+  /* FIXME set final sequence number */
+  FD_MGAUGE_SET( TILE, STATUS, 2UL );
+  FD_TEST( in_seq_max == ctx->seq+1 && in_seq_max != 0 );
+  FD_COMPILER_MFENCE();
+  FD_LOG_WARNING(( "Finished parsing snapshot" ));
+
+  for(;;) pause();
+}
 
 static void
 fd_snapshot_restore_discard_buf( fd_snapin_tile_t * self ) {
@@ -598,6 +617,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_seq_max = 0UL;
   ctx->out_seq     = 0UL;
   ctx->out_depth   = fd_mcache_depth( ctx->out_mcache->f );
+  ctx->shutdown_signal = fd_mcache_seq_laddr_const( topo->links[ tile->in_link_id[ 0 ] ].mcache ) + 2;
 
 }
 
@@ -627,8 +647,11 @@ tar_process_hdr( fd_snapin_tile_t * reader,
     int not_zero=0;
     for( ulong i=0UL; i<sizeof(fd_tar_meta_t); i++ )
       not_zero |= reader->buf[ i ];
-    if( !not_zero ) return;
-
+    if( !not_zero ) {
+      cur += sizeof(fd_tar_meta_t);
+      fd_snapin_shutdown( reader );
+      return;
+    }
     /* Not an EOF, so must be a protocol error */
     ulong goff = (ulong)cur - reader->goff_translate - sizeof(fd_tar_meta_t);
     FD_LOG_WARNING(( "Invalid tar header magic at goff=0x%lx", goff ));
@@ -657,12 +680,11 @@ tar_read_hdr( fd_snapin_tile_t * reader,
   uchar const * end = cur+bufsz;
 
   /* Skip padding */
-  if( reader->pad_sz==0UL ) {
+  if( reader->buf_ctr==0UL ) {
     ulong  goff   = (ulong)cur - reader->goff_translate;
-    reader->pad_sz = fd_ulong_align_up( goff, 512UL ) - goff;
-    ulong pad_sz_cur = fd_ulong_min( reader->pad_sz, (ulong)( end-cur ) );
-    reader->pad_sz  -= pad_sz_cur;
-    cur += pad_sz_cur;
+    ulong  pad_sz = fd_ulong_align_up( goff, 512UL ) - goff;
+           pad_sz = fd_ulong_min( pad_sz, (ulong)( end-cur ) );
+    cur += pad_sz;
   }
 
   /* Determine number of bytes to read */
@@ -804,16 +826,6 @@ fd_snapin_in_update( fd_snapin_in_t * in ) {
   accum[3] = 0U;       accum[4] = 0U;       accum[5] = 0U;
 }
 
-// __attribute__((noreturn)) static void
-// fd_snapin_shutdown( void ) {
-//   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-//   /* FIXME set final sequence number */
-//   FD_COMPILER_MFENCE();
-//   FD_LOG_INFO(( "Finished parsing snapshot" ));
-
-//   for(;;) pause();
-// }
-
 __attribute__((noinline)) static void
 fd_snapin_run1(
     fd_snapin_tile_t *         ctx,
@@ -864,7 +876,6 @@ fd_snapin_run1(
   }
 
   FD_TEST( in_cnt==1 );
-  // ulong const volatile * restrict shutdown_signal = fd_mcache_seq_laddr_const( in[0].mcache->f ) + 3;
 
   /* out frag stream init */
 
@@ -923,7 +934,6 @@ fd_snapin_run1(
     ulong housekeeping_ticks = 0UL;
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
       ulong event_idx = (ulong)event_map[ event_seq ];
-
       if( FD_LIKELY( event_idx<cons_cnt ) ) { /* cons fctl for cons cons_idx */
 
         /* Receive flow control credits. */
@@ -931,17 +941,9 @@ fd_snapin_run1(
         cons_seq[ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] );
 
       } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
-
         /* Send flow control credits and drain flow control diagnostics. */
         ulong in_idx = event_idx - cons_cnt - 1UL;
         fd_snapin_in_update( &in[ in_idx ] );
-
-        /* Input tile finished? */
-        // ulong const in_seq_max = FD_VOLATILE_CONST( *shutdown_signal );
-        // FD_LOG_WARNING(("snapin: in_seq_max is %lu", in_seq_max));
-        // if( FD_UNLIKELY( in_seq_max == in[ 0 ].seq ) ) {
-        //   fd_snapin_shutdown();
-        // }
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
@@ -1092,6 +1094,7 @@ fd_snapin_run1(
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
       this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
+      ctx->seq = this_in->seq;
 
     }
 

@@ -83,7 +83,7 @@ fd_filerd_shutdown( fd_filerd_tile_t * ctx,
   }
   ctx->fd = -1;
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  FD_VOLATILE( ctx->out_sync[ 3 ] ) = seq_final;
+  FD_VOLATILE( ctx->out_sync[ 2 ] ) = seq_final;
   FD_COMPILER_MFENCE();
   FD_LOG_INFO(( "Reached end of file" ));
 
