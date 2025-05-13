@@ -1822,7 +1822,6 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_vote_accounts_generate( &self->epoch_stakes, alloc_mem, rng );
   fd_slot_lthash_generate( &self->lthash, alloc_mem, rng );
   fd_hash_generate( &self->prev_banks_hash, alloc_mem, rng );
-  fd_rent_fresh_accounts_generate( &self->rent_fresh_accounts, alloc_mem, rng );
   fd_epoch_reward_status_generate( &self->epoch_reward_status, alloc_mem, rng );
   return mem;
 }

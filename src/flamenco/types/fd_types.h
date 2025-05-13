@@ -234,7 +234,10 @@ typedef struct fd_solana_account_global fd_solana_account_global_t;
 #define FD_SOLANA_ACCOUNT_GLOBAL_ALIGN alignof(fd_solana_account_global_t)
 
 FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_global_t const * struct_mem ) { // vector
-  return (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->data_offset );
+  return struct_mem->data_offset ? (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->data_offset ) : NULL;
+}
+FD_FN_UNUSED static void fd_solana_account_data_update( fd_solana_account_global_t * struct_mem, uchar * vec ) {
+  struct_mem->data_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
 /* Encoded Size: Fixed (48 bytes) */
 struct __attribute__((packed)) fd_solana_account_stored_meta {
@@ -1521,6 +1524,20 @@ struct fd_rent_fresh_accounts {
 typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
 #define FD_RENT_FRESH_ACCOUNTS_ALIGN alignof(fd_rent_fresh_accounts_t)
 
+struct fd_rent_fresh_accounts_global {
+  ulong total_count;
+  ulong fresh_accounts_len;
+  ulong fresh_accounts_offset;
+};
+typedef struct fd_rent_fresh_accounts_global fd_rent_fresh_accounts_global_t;
+#define FD_RENT_FRESH_ACCOUNTS_GLOBAL_ALIGN alignof(fd_rent_fresh_accounts_global_t)
+
+FD_FN_UNUSED static fd_rent_fresh_account_t * fd_rent_fresh_accounts_fresh_accounts_join( fd_rent_fresh_accounts_global_t const * struct_mem ) { // vector
+  return struct_mem->fresh_accounts_offset ? (fd_rent_fresh_account_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->fresh_accounts_offset ) : NULL;
+}
+FD_FN_UNUSED static void fd_rent_fresh_accounts_fresh_accounts_update( fd_rent_fresh_accounts_global_t * struct_mem, fd_rent_fresh_account_t * vec ) {
+  struct_mem->fresh_accounts_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
+}
 /* Encoded Size: Dynamic */
 struct fd_epoch_bank {
   fd_stakes_t stakes;
@@ -1746,7 +1763,6 @@ struct fd_slot_bank {
   fd_vote_accounts_t epoch_stakes;
   fd_slot_lthash_t lthash;
   fd_hash_t prev_banks_hash;
-  fd_rent_fresh_accounts_t rent_fresh_accounts;
   fd_epoch_reward_status_t epoch_reward_status;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
@@ -4268,6 +4284,8 @@ ulong fd_rent_fresh_accounts_size( fd_rent_fresh_accounts_t const * self );
 static inline ulong fd_rent_fresh_accounts_align( void ) { return FD_RENT_FRESH_ACCOUNTS_ALIGN; }
 int fd_rent_fresh_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_rent_fresh_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_rent_fresh_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_rent_fresh_accounts_encode_global( fd_rent_fresh_accounts_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_epoch_bank_new( fd_epoch_bank_t * self );
 int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx );

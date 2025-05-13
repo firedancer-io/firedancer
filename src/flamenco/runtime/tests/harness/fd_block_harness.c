@@ -230,13 +230,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Update leader schedule */
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot, runner->spad );
 
-
-  /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
-  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
-  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
-  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
-  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, FD_BLOCKHASH_QUEUE_MAX_ENTRIES ) );
-
   ulong * slot_bm = fd_bank_mgr_slot_modify( bank_mgr );
   *slot_bm = slot_ctx->slot;
   fd_bank_mgr_slot_save( bank_mgr );
@@ -262,6 +255,11 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   *prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
   fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
 
+  /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, FD_BLOCKHASH_QUEUE_MAX_ENTRIES ) );
 
   block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES; // Max age is fixed at 300
   block_hash_queue->ages_root_offset = 0UL;
@@ -269,6 +267,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   block_hash_queue->last_hash_index  = 0UL;
   block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
 
+  fd_memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  fd_bank_mgr_block_hash_queue_save( bank_mgr );
 
   /* TODO: Restore this from input */
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( bank_mgr );
@@ -278,21 +278,21 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   clock_timestamp_votes->votes_root_offset = 0UL;
   fd_bank_mgr_clock_timestamp_votes_save( bank_mgr );
 
-  /* TODO: We might need to load this in from the input. We also need to size this out for worst case, but this also blows up the memory requirement. */
+  /* TODO: We might need to load this in from the input. We also need to
+     size this out for worst case, but this also blows up the memory
+     requirement. */
   /* Allocate all the memory for the rent fresh accounts list */
-  fd_rent_fresh_accounts_new( &slot_bank->rent_fresh_accounts );
-  slot_bank->rent_fresh_accounts.total_count        = 0UL;
-  slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
-  slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
-    runner->spad,
-    alignof(fd_rent_fresh_account_t),
-    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+
+  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( bank_mgr );
+  fd_rent_fresh_account_t * fresh_accounts              = (fd_rent_fresh_account_t *)fd_ulong_align_up( (ulong)rent_fresh_accounts + sizeof(fd_rent_fresh_accounts_global_t), alignof(fd_rent_fresh_account_t) );
+  rent_fresh_accounts->total_count        = 0UL;
+  rent_fresh_accounts->fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
+  fd_memset(  fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+  fd_rent_fresh_accounts_fresh_accounts_update( rent_fresh_accounts, fresh_accounts );
+  fd_bank_mgr_rent_fresh_accounts_save( bank_mgr );
 
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );
-  fd_memset( last_hash_mem, 0, sizeof(fd_hash_t) );
-  fd_bank_mgr_block_hash_queue_save( bank_mgr );
 
   // Use the latest lamports per signature
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );

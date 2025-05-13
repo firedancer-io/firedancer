@@ -505,8 +505,12 @@ class VectorMember(TypeNode):
             ret_type = f'{namespace}_{self.element}_global_t'
 
         print(f'FD_FN_UNUSED static {ret_type} * {type_name}_{self.name}_join( {type_name}_global_t const * struct_mem ) {{ // vector', file=header)
-        print(f'  return ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset );', file=header)
+        print(f'  return struct_mem->{self.name}_offset ? ({ret_type} *)fd_type_pun( (uchar *)struct_mem + struct_mem->{self.name}_offset ) : NULL;', file=header)
         print(f'}}', file=header)
+        print(f'FD_FN_UNUSED static void {type_name}_{self.name}_update( {type_name}_global_t * struct_mem, {ret_type} * vec ) {{', file=header)
+        print(f'  struct_mem->{self.name}_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;', file=header)
+        print(f'}}', file=header)
+
 
     def emitNew(self, indent=''):
         pass

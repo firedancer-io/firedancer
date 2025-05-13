@@ -255,6 +255,7 @@
     {
       "name": "vote_accounts",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key", "minalloc":15000 }
       ]
@@ -1070,6 +1071,7 @@
     {
       "name": "rent_fresh_accounts",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "total_count", "type": "ulong" },
         { "name": "fresh_accounts", "type": "vector", "element": "rent_fresh_account" }
@@ -1227,7 +1229,6 @@
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "lthash",                      "type": "slot_lthash" },
         { "name": "prev_banks_hash",             "type": "hash" },
-        { "name": "rent_fresh_accounts",         "type": "rent_fresh_accounts", "comment": "TODO: remove this after disable_partitioned_rent_collection is activated everywhere." },
         { "name": "epoch_reward_status",         "type": "epoch_reward_status" }
       ]
     },

@@ -166,6 +166,22 @@
 #define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_FOOTPRINT (50000UL)
 #define FD_BANK_MGR_RENT_FRESH_ACCOUNTS_ALIGN     (8UL)
 
+/* TODO: THe names for these two epoch stakes fields are not very
+   clear and should probably be renamed.
+
+   fd_bank_mgr_epoch_stakes refers to the stakes for the epoch T-2.
+   fd_bank_mgr_next_epoch_stakes refers to the stakes for the epoch T-1.
+  */
+
+#define FD_BANK_MGR_EPOCH_STAKES_ID        (32)
+#define FD_BANK_MGR_EPOCH_STAKES_FOOTPRINT (50000000UL)
+#define FD_BANK_MGR_EPOCH_STAKES_ALIGN     (1024UL)
+
+#define FD_BANK_MGR_NEXT_EPOCH_STAKES_ID        (33)
+#define FD_BANK_MGR_NEXT_EPOCH_STAKES_FOOTPRINT (50000000UL)
+#define FD_BANK_MGR_NEXT_EPOCH_STAKES_ALIGN     (1024UL)
+
+
 /* TODO: make this struct opaque. */
 struct fd_bank_mgr {
   fd_funk_t *           funk;
@@ -234,5 +250,5 @@ fd_bank_mgr_##name##_save(fd_bank_mgr_t* bank_mgr);
   X(ulong,                             use_prev_epoch_stake,        USE_PREV_EPOCH_STAKE)        \
   X(fd_hash_t,                         poh,                         POH)                         \
   X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           LAST_RESTART_SLOT)           \
-  X(fd_rent_fresh_accounts_t,          rent_fresh_accounts,         RENT_FRESH_ACCOUNTS)
+  X(fd_rent_fresh_accounts_global_t,   rent_fresh_accounts,         RENT_FRESH_ACCOUNTS)
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)

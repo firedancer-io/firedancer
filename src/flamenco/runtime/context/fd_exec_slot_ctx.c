@@ -570,15 +570,14 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
           elem );
     }
 
-    /* Move next EpochStakes
-       TODO Can we derive this instead of trusting the snapshot? */
+    /* Move next EpochStakes */
 
     fd_vote_accounts_pair_t_mapnode_t * pool = next_stakes.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * root = next_stakes.vote_accounts_root;
 
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root);
-          n;
-          n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
+    for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( pool, root );
+         n;
+         n = fd_vote_accounts_pair_t_map_successor( pool, n ) ) {
 
       fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire(
         epoch_bank->next_epoch_stakes.vote_accounts_pool );
@@ -595,20 +594,29 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
     }
   } while(0);
 
+  FD_LOG_WARNING(("Recovered EpochStakes of size %lu", fd_vote_accounts_size( &epoch_bank->next_epoch_stakes )));
+
   if ( NULL != manifest->lthash )
     slot_ctx->slot_bank.lthash = *manifest->lthash;
   else
     fd_lthash_zero( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash );
 
-  /* Allocate all the memory for the rent fresh accounts lists */
-  fd_rent_fresh_accounts_new( &slot_bank->rent_fresh_accounts );
-  slot_bank->rent_fresh_accounts.total_count        = 0UL;
-  slot_bank->rent_fresh_accounts.fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
-  slot_bank->rent_fresh_accounts.fresh_accounts     = fd_spad_alloc(
-    runtime_spad,
-    FD_RENT_FRESH_ACCOUNT_ALIGN,
-    sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
-  fd_memset(  slot_bank->rent_fresh_accounts.fresh_accounts, 0, sizeof(fd_rent_fresh_account_t) * FD_RENT_FRESH_ACCOUNTS_MAX );
+
+  fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( bank_mgr );
+
+  /* Setup rent fresh accounts */
+  rent_fresh_accounts->total_count        = 0UL;
+  rent_fresh_accounts->fresh_accounts_len = FD_RENT_FRESH_ACCOUNTS_MAX;
+
+  fd_rent_fresh_account_t * fresh_accounts = (fd_rent_fresh_account_t *)fd_ulong_align_up( (ulong)rent_fresh_accounts + sizeof(fd_rent_fresh_accounts_global_t), FD_RENT_FRESH_ACCOUNT_ALIGN );
+  memset( fresh_accounts, 0, rent_fresh_accounts->fresh_accounts_len * sizeof(fd_rent_fresh_account_t) );
+  fd_rent_fresh_accounts_fresh_accounts_update( rent_fresh_accounts, fresh_accounts );
+
+  fd_bank_mgr_rent_fresh_accounts_save( bank_mgr );
+
+  /* Setup next epoch stakes */
+
+
 
   return slot_ctx;
 }
