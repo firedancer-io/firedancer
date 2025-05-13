@@ -206,7 +206,7 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
 
                    !strcmp( tile->name, "gossip" ) ||
                    !strcmp( tile->name, "repair" ) ||
-                   !strcmp( tile->name, "pohi"   ) ||
+                   !strcmp( tile->name, "poh"   ) ||
                    !strcmp( tile->name, "storei" ) ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
        key material. */

@@ -357,7 +357,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "pack",
     "bank",   /* FRANK only */
     "poh",    /* FRANK only */
-    "pohi",   /* FIREDANCER only */
+    "poh",   /* FIREDANCER only */
     "shred",
     "store",  /* FRANK only */
     "storei", /* FIREDANCER only */

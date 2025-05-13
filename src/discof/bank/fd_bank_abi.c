@@ -59,3 +59,36 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank FD_PARAM_UNUSED
 void fd_ext_bank_release( void const * bank  FD_PARAM_UNUSED) {
   FD_LOG_ERR(("nope"));
 }
+
+int
+fd_ext_admin_rpc_set_identity( uchar const * identity_keypair FD_PARAM_UNUSED,
+                               int           require_tower FD_PARAM_UNUSED) {
+  FD_LOG_ERR(("nope"));
+  return 0;
+}
+
+void
+fd_ext_bank_acquire( void const * bank FD_PARAM_UNUSED) {
+  FD_LOG_ERR(("nope"));
+}
+
+int
+fd_ext_bank_load_account( void const *  bank FD_PARAM_UNUSED,
+                          int           fixed_root FD_PARAM_UNUSED,
+                          uchar const * addr FD_PARAM_UNUSED,
+                          uchar *       owner FD_PARAM_UNUSED,
+                          uchar *       data FD_PARAM_UNUSED,
+                          ulong *       data_sz FD_PARAM_UNUSED) {
+  FD_LOG_ERR(("nope"));
+  return 0;
+}
+
+void
+fd_ext_poh_register_tick( void const * bank FD_PARAM_UNUSED, uchar const * hash FD_PARAM_UNUSED) {
+  FD_LOG_ERR(("nope"));
+}
+
+void
+fd_ext_poh_signal_leader_change( void * sender FD_PARAM_UNUSED) {
+  FD_LOG_ERR(("nope"));
+}

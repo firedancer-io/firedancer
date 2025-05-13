@@ -39,6 +39,27 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
 
 void fd_ext_bank_release( void const * bank );
 
+int
+fd_ext_admin_rpc_set_identity( uchar const * identity_keypair,
+                               int           require_tower );
+
+void
+fd_ext_bank_acquire( void const * bank );
+
+int
+fd_ext_bank_load_account( void const *  bank,
+                          int           fixed_root,
+                          uchar const * addr,
+                          uchar *       owner,
+                          uchar *       data,
+                          ulong *       data_sz );
+
+void
+fd_ext_poh_register_tick( void const * bank, uchar const * hash );
+
+void
+fd_ext_poh_signal_leader_change( void * sender );
+
 FD_PROTOTYPES_END
 
 #endif
