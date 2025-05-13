@@ -13,7 +13,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( (!rec) | (sz>FD_FUNK_REC_VAL_MAX) | (!alloc) | (!wksp) ) ||  /* NULL rec,too big,NULL alloc,NULL wksp */
       FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE                    ) ||  /* Marked erase */
-      FD_UNLIKELY( !fd_ulong_is_pow2( align )                             ) ) { /* Align is not a power of 2 */
+      FD_UNLIKELY( !fd_ulong_is_pow2( align ) & (align != 0UL)            ) ) { /* Align is not a power of 2 or == 0 */
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
