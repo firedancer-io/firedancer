@@ -250,7 +250,7 @@ snapshot_load_cmd_fn( args_t *   args,
   fd_topo_tile_t * snap_in_tile    = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
   ulong            zstd_tile_idx   =              fd_topo_find_tile( topo, "Unzstd", 0UL );
   fd_topo_tile_t * unzstd_tile     = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
-  fd_topo_tile_t * actalc_tile     = &topo->tiles[ fd_topo_find_tile( topo, "ActAlc", 0UL ) ];
+  // fd_topo_tile_t * actalc_tile     = &topo->tiles[ fd_topo_find_tile( topo, "ActAlc", 0UL ) ];
 
   ulong *          snap_in_fseq      = snap_in_tile->in_link_fseq[ 0 ];
   ulong *          snap_accs_sync    = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_frags", 0UL ) ].mcache );
@@ -277,10 +277,10 @@ snapshot_load_cmd_fn( args_t *   args,
 
     ulong goff          = FD_VOLATILE_CONST( snap_in_fseq[ 1 ] );
     ulong file_rd_backp = file_rd_metrics ? FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] ) : 0UL;
-    ulong file_rd_wait  = file_rd_metrics ? FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
-                          FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
-                          file_rd_backp : 0UL;
-    ulong snap_in_backp = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
+    // ulong file_rd_wait  = file_rd_metrics ? FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
+    //                       FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
+    //                       file_rd_backp : 0UL;
+    // ulong snap_in_backp = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
     ulong snap_in_wait  = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
                           FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] );
     ulong frag_cnt      = FD_VOLATILE_CONST( snap_accs_sync[0] );

@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #define NAME "http"
+#define HTTP_CHUNK_SZ 8 * 1024 * 1024UL
 
 struct fd_httpdl_tile {
   fd_snapshot_http_t * http;
@@ -58,7 +59,7 @@ fd_httpdl_init_from_stream_ctx( void * _ctx,
 
   /* There's only one writer */
   ctx->writer = &stream_ctx->writers[0];
-  fd_stream_writer_set_read_max( ctx->writer, FD_SNAPSHOT_HTTP_RESP_BUF_MAX );
+  fd_stream_writer_set_read_max( ctx->writer, HTTP_CHUNK_SZ );
 }
 
 __attribute__((noreturn)) FD_FN_UNUSED static void
@@ -71,10 +72,53 @@ fd_httpdl_shutdown( fd_httpdl_tile_t * ctx ) {
   for(;;) pause();
 }
 
-static void
-after_credit( fd_httpdl_tile_t * ctx,
-              fd_stream_ctx_t *  stream_ctx ) {
+__attribute__((unused)) static void
+after_credit_chunk( void *             _ctx,
+                    fd_stream_ctx_t *  stream_ctx ) {
+  fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
   (void)stream_ctx;
+  ulong downloaded_sz = 0UL;
+
+  for(;;) {
+    if( downloaded_sz >= HTTP_CHUNK_SZ ) {
+      fd_stream_writer_publish( ctx->writer, downloaded_sz );
+      break;
+    }
+    /* get write pointers into dcache buffer */
+    uchar * out     = fd_stream_writer_get_write_ptr( ctx->writer );
+    ulong dst_max   = fd_stream_writer_get_avail_bytes( ctx->writer );
+    ulong sz        = 0UL;
+    
+    if( dst_max==0 ) {
+      fd_stream_writer_publish( ctx->writer, downloaded_sz );
+      break;
+    }
+
+    int err = fd_io_istream_snapshot_http_read( ctx->http, out, dst_max, &sz );
+    if( FD_UNLIKELY( err<0 ) ) FD_LOG_ERR(( "http err: %d", err ));
+    if( FD_UNLIKELY( err>0 ) ) {
+      FD_LOG_WARNING(("HTTP download complete! shutting down"));
+      fd_httpdl_shutdown( ctx );
+    }
+
+    if( sz ) {
+      fd_stream_writer_advance( ctx->writer, sz );
+      downloaded_sz += sz;
+    }
+  }
+}
+
+__attribute__((unused)) static void
+after_credit_stream( void *             _ctx,
+                     fd_stream_ctx_t *  stream_ctx ) {
+  fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
+  (void)stream_ctx;
+
+  /* Don't do anything if backpressured */
+  if( fd_stream_writer_is_backpressured( ctx->writer ) ) {
+    return;
+  }
+
   /* get write pointers into dcache buffer */
   uchar * out     = fd_stream_writer_get_write_ptr( ctx->writer );
   ulong dst_max   = fd_stream_writer_get_avail_bytes( ctx->writer );
@@ -105,18 +149,10 @@ fd_httpdl_run1(
                                fd_httpdl_init_from_stream_ctx,
                                NULL,
                                NULL,
+                               NULL,
+                               after_credit_stream,
                                NULL );
-  for(;;) {
-    fd_stream_ctx_do_housekeeping( stream_ctx,
-                                   ctx );
-
-    /* Check if we are backpressured, otherwise poll */
-    if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
-      fd_stream_ctx_process_backpressure( stream_ctx );
-    } else {
-      after_credit( ctx, stream_ctx );
-    }
-  }
+  fd_stream_ctx_run_loop( stream_ctx, ctx );
 }
 
 static void
@@ -124,11 +160,10 @@ fd_httpdl_run( fd_topo_t *      topo,
                fd_topo_tile_t * tile ) {
   fd_httpdl_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
-  ulong cons_cnt         = fd_topo_tile_reliable_consumer_cnt( topo, tile );
   ulong out_cnt          = tile->out_cnt;
 
-  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, cons_cnt, out_cnt ) );
-  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, cons_cnt, out_cnt );
+  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, out_cnt ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, out_cnt );
   fd_httpdl_run1( ctx, stream_ctx );
 }
 

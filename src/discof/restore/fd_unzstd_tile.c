@@ -95,6 +95,12 @@ on_stream_frag( void *                        _ctx,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       sz ) {
   fd_unzstd_tile_t * ctx = fd_type_pun(_ctx);
+
+  /* Don't do anything if backpressured */
+  if( fd_stream_writer_is_backpressured( ctx->writer ) ) {
+    return 0;
+  }
+
   uchar const * chunk0             = ctx->in_state.in_buf + frag->loff;
   uchar const * chunk_start        = chunk0 + ctx->in_state.in_skip;
   uchar const * chunk_end          = chunk0 + frag->sz;
@@ -180,20 +186,11 @@ fd_unzstd_run1(
                                fd_unzstd_init_from_stream_ctx,
                                fd_unzstd_in_update,
                                during_housekeeping,
-                               NULL );
+                               NULL,
+                               NULL,
+                               on_stream_frag );
 
-  for(;;) {
-    /* do housekeeping manages flow control credits */
-    fd_stream_ctx_do_housekeeping( stream_ctx,
-                                   ctx );
-
-    /* Check if we are backpressured, otherwise poll */
-    if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
-      fd_stream_ctx_process_backpressure( stream_ctx );
-    } else {
-      fd_stream_ctx_poll( stream_ctx, ctx, on_stream_frag );
-    }
-  }
+  fd_stream_ctx_run_loop( stream_ctx, ctx );
 }
 
 static void
@@ -201,11 +198,10 @@ fd_unzstd_run( fd_topo_t * topo,
                fd_topo_tile_t * tile ) {
   fd_unzstd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
-  ulong cons_cnt         = fd_topo_tile_reliable_consumer_cnt( topo, tile );
   ulong out_cnt          = tile->out_cnt;
 
-  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, cons_cnt, out_cnt ) );
-  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, cons_cnt, out_cnt );
+  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, out_cnt ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, out_cnt );
   fd_unzstd_run1( ctx,
                   stream_ctx );
 }
