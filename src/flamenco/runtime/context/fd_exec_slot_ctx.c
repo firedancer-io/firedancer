@@ -474,7 +474,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   /* Move EpochStakes */
   do {
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, NULL );
-    FD_LOG_WARNING(("THE CURRENT EPOCH %lu", epoch));
 
     /* We need to save the vote accounts for the current epoch and the next
        epoch as it is used to calculate the leader schedule at the epoch

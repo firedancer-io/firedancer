@@ -2667,9 +2667,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L281-L284 */
   ulong lamports_to_fund = new_target_program_account->vt->get_lamports( new_target_program_account ) + new_target_program_data_account->vt->get_lamports( new_target_program_data_account );
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr       = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong *         capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( slot_ctx->bank_mgr );
 
   /* Update capitalization.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L286-L297 */
@@ -2678,7 +2676,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   } else {
     *capitalization += lamports_to_fund - lamports_to_burn;
   }
-  fd_bank_mgr_capitalization_save( bank_mgr );
+  fd_bank_mgr_capitalization_save( slot_ctx->bank_mgr );
 
   /* Reclaim the source buffer account
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L305 */
@@ -2873,29 +2871,26 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* Change the speed of the poh clock
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6627-L6649 */
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
   if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick6 ) ) {
-    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
+    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( slot_ctx->bank_mgr );
     *hashes_per_tick = UPDATED_HASHES_PER_TICK6;
-    fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+    fd_bank_mgr_hashes_per_tick_save( slot_ctx->bank_mgr );
   } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick5 ) ) {
-    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
+    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( slot_ctx->bank_mgr );
     *hashes_per_tick = UPDATED_HASHES_PER_TICK5;
-    fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+    fd_bank_mgr_hashes_per_tick_save( slot_ctx->bank_mgr );
   } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick4 ) ) {
-    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
+    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( slot_ctx->bank_mgr );
     *hashes_per_tick = UPDATED_HASHES_PER_TICK4;
-    fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+    fd_bank_mgr_hashes_per_tick_save( slot_ctx->bank_mgr );
   } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick3 ) ) {
-    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
+    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( slot_ctx->bank_mgr );
     *hashes_per_tick = UPDATED_HASHES_PER_TICK3;
-    fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+    fd_bank_mgr_hashes_per_tick_save( slot_ctx->bank_mgr );
   } else if( FD_FEATURE_JUST_ACTIVATED( slot_ctx, update_hashes_per_tick2 ) ) {
-    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
+    ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( slot_ctx->bank_mgr );
     *hashes_per_tick = UPDATED_HASHES_PER_TICK2;
-    fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+    fd_bank_mgr_hashes_per_tick_save( slot_ctx->bank_mgr );
   }
 
   /* Get the new rate activation epoch */
@@ -2919,7 +2914,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
       This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
       See the comment in fd_exec_slot_ctx_recover_. */
 
-  ulong * use_prev_stakes = fd_bank_mgr_use_prev_epoch_stake_query( bank_mgr );
+  ulong * use_prev_stakes = fd_bank_mgr_use_prev_epoch_stake_query( slot_ctx->bank_mgr );
   if( use_prev_stakes && *use_prev_stakes == epoch ) {
     fd_update_epoch_stakes( slot_ctx );
   }
@@ -2966,7 +2961,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Distribute rewards */
 
-  fd_block_hash_queue_global_t const * bhq              = fd_bank_mgr_block_hash_queue_query( bank_mgr );
+  fd_block_hash_queue_global_t const * bhq              = fd_bank_mgr_block_hash_queue_query( slot_ctx->bank_mgr );
   fd_hash_t const *                    parent_blockhash = fd_block_hash_queue_last_hash_join( bhq );
 
   if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
@@ -3454,12 +3449,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
                                    fd_spad_t *                 runtime_spad ) {
   slot_ctx->slot = 0UL;
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
-  fd_hash_t * poh_bm = fd_bank_mgr_poh_modify( bank_mgr );
+  fd_hash_t * poh_bm = fd_bank_mgr_poh_modify( slot_ctx->bank_mgr );
   fd_memcpy( poh_bm->hash, genesis_hash->hash, FD_SHA256_HASH_SZ );
-  fd_bank_mgr_poh_save( bank_mgr );
+  fd_bank_mgr_poh_save( slot_ctx->bank_mgr );
 
   memset( slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
 
@@ -3471,15 +3463,15 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   epoch_bank->epoch_schedule          = genesis_block->epoch_schedule;
   epoch_bank->rent                    = genesis_block->rent;
 
-  ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+  ulong * block_height = fd_bank_mgr_block_height_modify( slot_ctx->bank_mgr );
   *block_height = 0UL;
-  fd_bank_mgr_block_height_save( bank_mgr );
+  fd_bank_mgr_block_height_save( slot_ctx->bank_mgr );
 
-  fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( bank_mgr );
+  fd_inflation_t * inflation = fd_bank_mgr_inflation_modify( slot_ctx->bank_mgr );
   *inflation = genesis_block->inflation;
-  fd_bank_mgr_inflation_save( bank_mgr );
+  fd_bank_mgr_inflation_save( slot_ctx->bank_mgr );
 
-  fd_block_hash_queue_global_t *      block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  fd_block_hash_queue_global_t *      block_hash_queue = fd_bank_mgr_block_hash_queue_modify( slot_ctx->bank_mgr );
   uchar *                             last_hash_mem    = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
   uchar *                             ages_pool_mem    = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool        = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
@@ -3498,47 +3490,47 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
   block_hash_queue->ages_root_offset = (ulong)ages_root - (ulong)block_hash_queue;
   block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  fd_bank_mgr_block_hash_queue_save( bank_mgr );
+  fd_bank_mgr_block_hash_queue_save( slot_ctx->bank_mgr );
 
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( bank_mgr );
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( slot_ctx->bank_mgr );
   *fee_rate_governor      = genesis_block->fee_rate_governor;
-  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+  fd_bank_mgr_fee_rate_governor_save( slot_ctx->bank_mgr );
 
-  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( slot_ctx->bank_mgr );
   *lamports_per_signature = 0UL;
-  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+  fd_bank_mgr_lamports_per_signature_save( slot_ctx->bank_mgr );
 
-  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( slot_ctx->bank_mgr );
   *prev_lamports_per_signature = 0UL;
-  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+  fd_bank_mgr_prev_lamports_per_signature_save( slot_ctx->bank_mgr );
 
-  ulong * max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
+  ulong * max_tick_height = fd_bank_mgr_max_tick_height_modify( slot_ctx->bank_mgr );
   *max_tick_height = genesis_block->ticks_per_slot * (slot_ctx->slot + 1);
-  fd_bank_mgr_max_tick_height_save( bank_mgr );
+  fd_bank_mgr_max_tick_height_save( slot_ctx->bank_mgr );
 
-  ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( bank_mgr );
+  ulong * hashes_per_tick = fd_bank_mgr_hashes_per_tick_modify( slot_ctx->bank_mgr );
   *hashes_per_tick = !!poh->hashes_per_tick ? poh->hashes_per_tick : 0UL;
-  fd_bank_mgr_hashes_per_tick_save( bank_mgr );
+  fd_bank_mgr_hashes_per_tick_save( slot_ctx->bank_mgr );
 
-  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_modify( bank_mgr );
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_modify( slot_ctx->bank_mgr );
   *ns_per_slot = target_tick_duration * genesis_block->ticks_per_slot;
-  fd_bank_mgr_ns_per_slot_save( bank_mgr );
+  fd_bank_mgr_ns_per_slot_save( slot_ctx->bank_mgr );
 
-  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_modify( bank_mgr );
+  ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_modify( slot_ctx->bank_mgr );
   *ticks_per_slot = genesis_block->ticks_per_slot;
-  fd_bank_mgr_ticks_per_slot_save( bank_mgr );
+  fd_bank_mgr_ticks_per_slot_save( slot_ctx->bank_mgr );
 
-  ulong * genesis_creation_time = fd_bank_mgr_genesis_creation_time_modify( bank_mgr );
+  ulong * genesis_creation_time = fd_bank_mgr_genesis_creation_time_modify( slot_ctx->bank_mgr );
   *genesis_creation_time = genesis_block->creation_time;
-  fd_bank_mgr_genesis_creation_time_save( bank_mgr );
+  fd_bank_mgr_genesis_creation_time_save( slot_ctx->bank_mgr );
 
-  double * slots_per_year = fd_bank_mgr_slots_per_year_modify( bank_mgr );
+  double * slots_per_year = fd_bank_mgr_slots_per_year_modify( slot_ctx->bank_mgr );
   *slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis_block->ticks_per_slot;
-  fd_bank_mgr_slots_per_year_save( bank_mgr );
+  fd_bank_mgr_slots_per_year_save( slot_ctx->bank_mgr );
 
-  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( slot_ctx->bank_mgr );
   *signature_cnt = 0UL;
-  fd_bank_mgr_signature_cnt_save( bank_mgr );
+  fd_bank_mgr_signature_cnt_save( slot_ctx->bank_mgr );
 
   /* Derive epoch stakes */
 
@@ -3729,16 +3721,16 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       .stake_history = {0}
   };
 
-  ulong * capitalization_bm = fd_bank_mgr_capitalization_modify( bank_mgr );
+  ulong * capitalization_bm = fd_bank_mgr_capitalization_modify( slot_ctx->bank_mgr );
   *capitalization_bm        = capitalization;
-  fd_bank_mgr_capitalization_save( bank_mgr );
+  fd_bank_mgr_capitalization_save( slot_ctx->bank_mgr );
 
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( bank_mgr );
+  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( slot_ctx->bank_mgr );
   uchar * clock_pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
   fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new(clock_pool_mem, 15000UL ) );
   clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( clock_pool) - (ulong)clock_timestamp_votes;
   clock_timestamp_votes->votes_root_offset = 0UL;
-  fd_bank_mgr_clock_timestamp_votes_save( bank_mgr );
+  fd_bank_mgr_clock_timestamp_votes_save( slot_ctx->bank_mgr );
 }
 
 static int
@@ -3746,28 +3738,26 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_capture_ctx_t *   capture_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_hash_t poh_old = *fd_bank_mgr_poh_query( bank_mgr );
+  fd_hash_t poh_old = *fd_bank_mgr_poh_query( slot_ctx->bank_mgr );
 
-  fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
-  ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr )) * *(fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
+  fd_hash_t * poh = fd_bank_mgr_poh_modify( slot_ctx->bank_mgr );
+  ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( slot_ctx->bank_mgr )) * *(fd_bank_mgr_ticks_per_slot_query( slot_ctx->bank_mgr ));
   while( hashcnt_per_slot-- ) {
     fd_sha256_hash( poh->hash, sizeof(fd_hash_t), &poh_old );
   }
-  fd_bank_mgr_poh_save( bank_mgr );
+  fd_bank_mgr_poh_save( slot_ctx->bank_mgr );
 
-  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( slot_ctx->bank_mgr );
   *execution_fees = 0UL;
-  fd_bank_mgr_execution_fees_save( bank_mgr );
+  fd_bank_mgr_execution_fees_save( slot_ctx->bank_mgr );
 
-  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( slot_ctx->bank_mgr );
   *priority_fees = 0UL;
-  fd_bank_mgr_priority_fees_save( bank_mgr );
+  fd_bank_mgr_priority_fees_save( slot_ctx->bank_mgr );
 
-  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( slot_ctx->bank_mgr );
   *signature_cnt = 0UL;
-  fd_bank_mgr_signature_cnt_save( bank_mgr );
+  fd_bank_mgr_signature_cnt_save( slot_ctx->bank_mgr );
 
   slot_ctx->txn_count                          = 0UL;
   slot_ctx->failed_txn_count                   = 0UL;
@@ -3825,6 +3815,11 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
   if( strlen( genesis_filepath ) == 0 ) {
     return;
+  }
+
+  slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( slot_ctx->bank_mgr_mem ), slot_ctx->funk, slot_ctx->funk_txn );
+  if( FD_UNLIKELY( !slot_ctx->bank_mgr ) ) {
+    FD_LOG_CRIT(( "failed to join bank mgr" ));
   }
 
   struct stat sbuf;
@@ -3924,26 +3919,24 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
-  fd_account_keys_global_t *         stake_account_keys      = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
+  fd_account_keys_global_t *         stake_account_keys      = fd_bank_mgr_stake_account_keys_modify( slot_ctx->bank_mgr );
   uchar *                            pool_mem                = (uchar *)fd_ulong_align_up( (ulong)stake_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
   fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
   fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = NULL;
 
   fd_account_keys_account_keys_pool_update( stake_account_keys, stake_account_keys_pool );
   fd_account_keys_account_keys_root_update( stake_account_keys, stake_account_keys_root );
-  fd_bank_mgr_stake_account_keys_save( bank_mgr );
+  fd_bank_mgr_stake_account_keys_save( slot_ctx->bank_mgr );
 
-  fd_account_keys_global_t *         vote_account_keys      = fd_bank_mgr_vote_account_keys_modify( bank_mgr );
+  fd_account_keys_global_t *         vote_account_keys      = fd_bank_mgr_vote_account_keys_modify( slot_ctx->bank_mgr );
                                      pool_mem               = (uchar *)fd_ulong_align_up( (ulong)vote_account_keys + sizeof(fd_account_keys_global_t), fd_account_keys_pair_t_map_align() );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = NULL;
 
   fd_account_keys_account_keys_pool_update( vote_account_keys, vote_account_keys_pool );
   fd_account_keys_account_keys_root_update( vote_account_keys, vote_account_keys_root );
-  fd_bank_mgr_stake_account_keys_save( bank_mgr );
+  fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
 }
 
 /******************************************************************************/
@@ -4150,10 +4143,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_txn_pool_t * txnpool    = fd_funk_txn_pool( funk );
   fd_epoch_bank_t *    epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, slot_ctx->funk_txn );
-
-
   if( capture_ctx != NULL ) {
     fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot );
   }
@@ -4197,14 +4186,14 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         }
       }
 
-      ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( bank_mgr );
+      ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_query( slot_ctx->bank_mgr );
       if( txn->xid.ul[0] >= *eah_start_slot ) {
         if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) {
           do_eah = 1;
         }
-        eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+        eah_start_slot = fd_bank_mgr_eah_start_slot_modify( slot_ctx->bank_mgr );
         *eah_start_slot = ULONG_MAX;
-        fd_bank_mgr_eah_start_slot_save( bank_mgr );
+        fd_bank_mgr_eah_start_slot_save( slot_ctx->bank_mgr );
       }
 
       break;
@@ -4220,7 +4209,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       .para_arg_1 = tpool
     };
 
-    fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( bank_mgr );
+    fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( slot_ctx->bank_mgr );
 
     fd_accounts_hash( slot_ctx->funk,
                       slot_ctx->slot,
@@ -4330,13 +4319,10 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
   /* Update block height. */
-  ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+  ulong * block_height = fd_bank_mgr_block_height_modify( slot_ctx->bank_mgr );
   *block_height += 1UL;
-  fd_bank_mgr_block_height_save( bank_mgr );
+  fd_bank_mgr_block_height_save( slot_ctx->bank_mgr );
 
   if( slot_ctx->slot != 0UL ) {
     ulong             slot_idx;
@@ -4345,9 +4331,9 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     ulong             new_epoch  = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, &slot_idx );
     if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
       /* The block after genesis has a height of 1. */
-      ulong * block_height = fd_bank_mgr_block_height_modify( bank_mgr );
+      ulong * block_height = fd_bank_mgr_block_height_modify( slot_ctx->bank_mgr );
       *block_height = 1UL;
-      fd_bank_mgr_block_height_save( bank_mgr );
+      fd_bank_mgr_block_height_save( slot_ctx->bank_mgr );
     }
 
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
@@ -4447,16 +4433,14 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
     *txn_cnt = block_info.txn_cnt;
 
-    fd_bank_mgr_t bank_mgr_obj;
-    fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, slot_ctx->funk_txn );
     fd_hash_t poh_out = {0};
-    fd_hash_t poh_in = *fd_bank_mgr_poh_query( bank_mgr );
+    fd_hash_t poh_in = *fd_bank_mgr_poh_query( slot_ctx->bank_mgr );
     if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &poh_in, &poh_out, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
-    fd_hash_t * poh = fd_bank_mgr_poh_modify( bank_mgr );
+    fd_hash_t * poh = fd_bank_mgr_poh_modify( slot_ctx->bank_mgr );
     fd_memcpy( poh->hash, poh_out.hash, sizeof(fd_hash_t) );
-    fd_bank_mgr_poh_save( bank_mgr );
+    fd_bank_mgr_poh_save( slot_ctx->bank_mgr );
 
     /* Dump the remainder of the block after preparation, POH verification, etc */
     if( FD_UNLIKELY( dump_block ) ) {
@@ -4467,7 +4451,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       break;
     }
 
-    poh = fd_bank_mgr_poh_query( bank_mgr );
+    poh = fd_bank_mgr_poh_query( slot_ctx->bank_mgr );
 
     } FD_SPAD_FRAME_END;
 
@@ -4493,11 +4477,9 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                 FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                 FD_BASE58_ENC_32_ALLOCA( fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot ) ) ));
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, slot_ctx->funk_txn );
-  ulong * transaction_count = fd_bank_mgr_transaction_count_modify( bank_mgr );
+  ulong * transaction_count = fd_bank_mgr_transaction_count_modify( slot_ctx->bank_mgr );
   *transaction_count += block_info.txn_cnt;
-  fd_bank_mgr_transaction_count_save( bank_mgr );
+  fd_bank_mgr_transaction_count_save( slot_ctx->bank_mgr );
 
   fd_runtime_save_slot_bank( slot_ctx );
 
