@@ -2134,7 +2134,7 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   if( fd_peer_table_key_cnt( glob->peers )!=0 &&
       ( glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]==0 ||
         glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]==0 ) ) {
-    FD_LOG_WARNING(( "received no CRDS traffic! Likely bad shred version (current: %u)", glob->my_contact.ci->shred_version ));
+    FD_LOG_WARNING(( "received no CRDS traffic! Likely bad shred version (current: %u)", glob->my_contact.ci_crd.shred_version ));
   }
 
   glob->recv_pkt_cnt = 0;
