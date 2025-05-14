@@ -17,6 +17,9 @@ endif
 run-runtime-test: $(OBJDIR)/bin/fd_ledger
 	python3.11 ./src/flamenco/runtime/tests/run_ledger_tests_all.py ./src/flamenco/runtime/tests/run_ledger_tests_all.txt
 
+run-backtest-test: $(OBJDIR)/bin/fd_ledger
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh
+
 run-runtime-test-nightly: $(OBJDIR)/bin/fd_ledger
 	# OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l mainnet-257033306 -s snapshot-257033306-EE3WdRoE4J1LTjegJMK3ZzxKZbSMQhLMaTM5Jp4SygMU.tar.zst -p 100 -y 450 -m 500000000 -e 257213306 -c 2.0.0
 	# OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l mainnet-296243940 -s snapshot-296400651-HDt9Gf1YKcruvuBV4q442qV4xjHer4KZ9sZao9XQspZP.tar.zst -p 100 -y 750 -m 700000000 -e 296550651 -c 2.0.0
