@@ -190,7 +190,7 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( stake_weight_cnt>MAX_PUB_CNT ) ) {
       FD_LOG_ERR(( "Stake weight count exceeded max" ));
     }
-    if( FD_UNLIKELY( slot_cnt>MAX_SLOTS_CNT ) ) {
+    if( FD_UNLIKELY( slot_cnt>MAX_SLOTS_PER_EPOCH ) ) {
       FD_LOG_ERR(( "Slot count exceeeded max" ));
     }
 
