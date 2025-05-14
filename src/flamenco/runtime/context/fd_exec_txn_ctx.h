@@ -66,6 +66,10 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   uint flags;
 
+  /* FIXME: Kind of a gross hack. */
+  uchar                       bank_mgr_mem[48]__attribute__((aligned(8UL)));
+  fd_bank_mgr_t *             bank_mgr;
+
   /* All pointers starting here are valid local joins in txn execution. */
   fd_features_t                        features;
   fd_sysvar_cache_t const *            sysvar_cache;

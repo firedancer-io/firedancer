@@ -258,19 +258,19 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   }
 
   /* Update the local join to the bank manager.*/
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
-  if( FD_UNLIKELY( !bank_mgr ) ) {
+   ctx->txn_ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
+  if( FD_UNLIKELY( !ctx->txn_ctx->bank_mgr ) ) {
     FD_LOG_ERR(( "Could not join bank mgr" ));
   }
 
-  ctx->txn_ctx->slot             = *(fd_bank_mgr_slot_query( bank_mgr ));
-  ctx->txn_ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( bank_mgr );
+  ctx->txn_ctx->slot             = *(fd_bank_mgr_slot_query( ctx->txn_ctx->bank_mgr ));
+  ctx->txn_ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( ctx->txn_ctx->bank_mgr );
   if( FD_UNLIKELY( !ctx->txn_ctx->block_hash_queue ) ) {
     FD_LOG_ERR(( "Could not find valid block hash queue" ));
   }
-  ctx->txn_ctx->fee_rate_governor = *(fd_bank_mgr_fee_rate_governor_query( bank_mgr ));
+  ctx->txn_ctx->fee_rate_governor = *(fd_bank_mgr_fee_rate_governor_query( ctx->txn_ctx->bank_mgr ));
 
-  ctx->txn_ctx->prev_lamports_per_signature = *(fd_bank_mgr_prev_lamports_per_signature_query( bank_mgr ));
+  ctx->txn_ctx->prev_lamports_per_signature = *(fd_bank_mgr_prev_lamports_per_signature_query( ctx->txn_ctx->bank_mgr ));
 
 }
 

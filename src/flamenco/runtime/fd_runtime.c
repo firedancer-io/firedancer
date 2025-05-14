@@ -490,14 +490,11 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar) )
     fd_sysvar_fees_update( slot_ctx, runtime_spad );
 
-
-  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
-
   ulong fees = 0UL;
   ulong burn = 0UL;
 
-  ulong * execution_fees = fd_bank_mgr_execution_fees_query( bank_mgr );
-  ulong * priority_fees  = fd_bank_mgr_priority_fees_query( bank_mgr );
+  ulong * execution_fees = fd_bank_mgr_execution_fees_query( slot_ctx->bank_mgr );
+  ulong * priority_fees  = fd_bank_mgr_priority_fees_query( slot_ctx->bank_mgr );
 
   if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, reward_full_priority_fee ) ) {
     ulong half_fee = *execution_fees / 2;
@@ -547,21 +544,21 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       slot_ctx->block_rewards.leader         = *leader;
     } while(0);
 
-    ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+    ulong * capitalization = fd_bank_mgr_capitalization_modify( slot_ctx->bank_mgr );
 
     ulong old = *capitalization;
     *capitalization = fd_ulong_sat_sub( *capitalization, burn );
     FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, *capitalization));
 
-    fd_bank_mgr_capitalization_save( bank_mgr );
+    fd_bank_mgr_capitalization_save( slot_ctx->bank_mgr );
 
-    execution_fees  = fd_bank_mgr_execution_fees_modify( bank_mgr );
+    execution_fees  = fd_bank_mgr_execution_fees_modify( slot_ctx->bank_mgr );
     *execution_fees = 0UL;
-    fd_bank_mgr_execution_fees_save( bank_mgr );
+    fd_bank_mgr_execution_fees_save( slot_ctx->bank_mgr );
 
-    priority_fees  = fd_bank_mgr_priority_fees_modify( bank_mgr );
+    priority_fees  = fd_bank_mgr_priority_fees_modify( slot_ctx->bank_mgr );
     *priority_fees = 0UL;
-    fd_bank_mgr_priority_fees_save( bank_mgr );
+    fd_bank_mgr_priority_fees_save( slot_ctx->bank_mgr );
   }
 
   fd_runtime_run_incinerator( slot_ctx );
@@ -1522,25 +1519,24 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
-  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
 
   if( slot_ctx->blockstore && slot_ctx->slot != 0UL ) {
     fd_blockstore_block_height_update( slot_ctx->blockstore,
                                        slot_ctx->slot,
-                                       *(fd_bank_mgr_block_height_query( bank_mgr )) );
+                                       *(fd_bank_mgr_block_height_query( slot_ctx->bank_mgr )) );
   }
 
-  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( bank_mgr );
+  ulong * execution_fees = fd_bank_mgr_execution_fees_modify( slot_ctx->bank_mgr );
   *execution_fees = 0UL;
-  fd_bank_mgr_execution_fees_save( bank_mgr );
+  fd_bank_mgr_execution_fees_save( slot_ctx->bank_mgr );
 
-  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( bank_mgr );
+  ulong * priority_fees = fd_bank_mgr_priority_fees_modify( slot_ctx->bank_mgr );
   *priority_fees = 0UL;
-  fd_bank_mgr_priority_fees_save( bank_mgr );
+  fd_bank_mgr_priority_fees_save( slot_ctx->bank_mgr );
 
-  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+  ulong * signature_cnt = fd_bank_mgr_signature_cnt_modify( slot_ctx->bank_mgr );
   *signature_cnt = 0UL;
-  fd_bank_mgr_signature_cnt_save( bank_mgr );
+  fd_bank_mgr_signature_cnt_save( slot_ctx->bank_mgr );
 
   slot_ctx->txn_count                          = 0UL;
   slot_ctx->nonvote_txn_count                  = 0UL;
@@ -1863,7 +1859,8 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
 
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
    executor to finalize borrowed account changes back into funk. It also
-   handles txncache insertion and updates to the vote/stake cache. */
+   handles txncache insertion and updates to the vote/stake cache.
+   TODO: This function should probably be moved to fd_executor.c. */
 
 void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
@@ -1880,7 +1877,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
   /* Collect fees */
 
-  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_bank_mgr_t * bank_mgr = task_info->txn_ctx->bank_mgr;
 
   ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
   *execution_fee += task_info->txn_ctx->execution_fee;
@@ -2199,6 +2196,8 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(( "failed to allocate txn ctx" ));
       }
 
+      task_infos[ curr_exec_idx ].txn_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( task_infos[ curr_exec_idx ].txn_ctx->bank_mgr_mem ), slot_ctx->funk, slot_ctx->funk_txn );
+
       fd_tpool_exec( tpool, worker_idx, fd_runtime_prepare_execute_finalize_txn_task,
                      slot_ctx, (ulong)capture_ctx, (ulong)task_infos[curr_exec_idx].txn,
                      &task_infos[ curr_exec_idx ], exec_spads[ worker_idx ], 0UL,
@@ -2282,15 +2281,15 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  // fd_bank_mgr_t   bank_mgr_obj;
+  // fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
-  fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_query( bank_mgr );
+  fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_query( slot_ctx->bank_mgr );
   if( FD_UNLIKELY( stake_account_keys==NULL ) ) {
     return;
   }
 
-  stake_account_keys = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
+  stake_account_keys = fd_bank_mgr_stake_account_keys_modify( slot_ctx->bank_mgr );
 
   fd_account_keys_pair_t_mapnode_t * account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
   fd_account_keys_pair_t_mapnode_t * account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
@@ -2301,7 +2300,7 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
   fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
   fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
 
-  fd_bank_mgr_stake_account_keys_save( bank_mgr );
+  fd_bank_mgr_stake_account_keys_save( slot_ctx->bank_mgr );
 }
 
 /* Replace the stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) by the stakes at T-1 (epoch_bank->next_epoch_stakes) */
