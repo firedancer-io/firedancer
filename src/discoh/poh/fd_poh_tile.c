@@ -315,12 +315,11 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/shred/fd_shredder.h"
-#include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../disco/plugin/fd_plugin.h"
-#include "../../flamenco/leaders/fd_leaders.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 
 #include <string.h>
 
@@ -501,7 +500,7 @@ typedef struct {
 
   fd_sha256_t * sha256;
 
-  fd_stake_ci_t * stake_ci;
+  fd_multi_epoch_leaders_t * mleaders;
 
   /* The last sequence number of an outgoing fragment to the shred tile,
      or ULONG max if no such fragment.  See fd_keyswitch.h for details
@@ -548,6 +547,8 @@ typedef struct {
 
   ulong parent_slot;
   uchar parent_block_id[ 32 ];
+
+  uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -1137,19 +1138,7 @@ next_leader_slot( fd_poh_ctx_t * ctx ) {
   /* If we have published anything in a particular slot, then we
      should never become leader for that slot again. */
   ulong min_leader_slot = fd_ulong_max( ctx->slot, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
-
-  for(;;) {
-    fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, min_leader_slot ); /* Safe to call from Rust */
-    if( FD_UNLIKELY( !leaders ) ) break;
-
-    while( min_leader_slot<(leaders->slot0+leaders->slot_cnt) ) {
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, min_leader_slot ); /* Safe to call from Rust */
-      if( FD_UNLIKELY( !memcmp( leader->key, ctx->identity_key.key, 32UL ) ) ) return min_leader_slot;
-      min_leader_slot++;
-    }
-  }
-
-  return ULONG_MAX;
+  return fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, &ctx->identity_key );
 }
 
 extern int
@@ -1181,7 +1170,6 @@ maybe_change_identity( fd_poh_ctx_t * ctx,
     }
 
     memcpy( ctx->identity_key.uc, ctx->keyswitch->bytes+32UL, 32UL );
-    fd_stake_ci_set_identity( ctx->stake_ci, &ctx->identity_key );
 
     /* When we switch key, we might have ticked part way through a slot
        that we are now leader in.  This violates the contract of the
@@ -1351,15 +1339,12 @@ fd_ext_poh_get_leader_after_n_slots( ulong n,
                                      uchar out_pubkey[ static 32 ] ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
   ulong slot = ctx->slot + n;
-  fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot ); /* Safe to call from Rust */
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot );
 
   int copied = 0;
-  if( FD_LIKELY( leaders ) ) {
-    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot ); /* Safe to call from Rust */
-    if( FD_LIKELY( leader ) ) {
-      memcpy( out_pubkey, leader, 32UL );
-      copied = 1;
-    }
+  if( FD_LIKELY( leader ) ) {
+    memcpy( out_pubkey, leader, 32UL );
+    copied = 1;
   }
   fd_ext_poh_write_unlock();
   return copied;
@@ -1375,7 +1360,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   l = FD_LAYOUT_APPEND( l, FD_SHA256_ALIGN, FD_SHA256_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -1822,7 +1806,7 @@ during_frag( fd_poh_ctx_t * ctx,
             ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
+    fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( dcache_entry ) );
     return;
   }
 
@@ -1958,7 +1942,7 @@ after_frag( fd_poh_ctx_t *      ctx,
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
-    fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+    fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
     /* It might seem like we do not need to do state transitions in and
        out of being the leader here, since leader schedule updates are
        always one epoch in advance (whether we are leader or not would
@@ -2234,7 +2218,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_poh_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
-  void * stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
   void * sha256   = FD_SCRATCH_ALLOC_APPEND( l, FD_SHA256_ALIGN,                  FD_SHA256_FOOTPRINT                );
 
 #define NONNULL( x ) (__extension__({                                        \
@@ -2242,8 +2225,8 @@ unprivileged_init( fd_topo_t *      topo,
       if( FD_UNLIKELY( !__x ) ) FD_LOG_ERR(( #x " was unexpectedly NULL" )); \
       __x; }))
 
-  ctx->stake_ci = NONNULL( fd_stake_ci_join( fd_stake_ci_new( stake_ci, &ctx->identity_key ) ) );
-  ctx->sha256 = NONNULL( fd_sha256_join( fd_sha256_new( sha256 ) ) );
+  ctx->mleaders = NONNULL( fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) ) );
+  ctx->sha256   = NONNULL( fd_sha256_join( fd_sha256_new( sha256 ) ) );
   ctx->current_leader_bank = NULL;
   ctx->signal_leader_change = NULL;
 

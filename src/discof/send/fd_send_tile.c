@@ -223,7 +223,7 @@ during_frag( fd_send_tile_ctx_t   * ctx,
     if( sz>sizeof(fd_stake_weight_t)*(MAX_SHRED_DESTS+1UL) ) {
       FD_LOG_ERR(( "sz %lu >= max expected stake update size %lu", sz, sizeof(fd_stake_weight_t) * (MAX_SHRED_DESTS+1UL) ));
     }
-    fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
+    fd_stake_ci_stake_msg_init( ctx->stake_ci, fd_type_pun_const( dcache_entry ) );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {

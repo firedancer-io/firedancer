@@ -2,21 +2,12 @@
 #define HEADER_fd_src_discof_replay_fd_exec_h
 
 #include "../../flamenco/fd_flamenco_base.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-
-/* Follows message structure in fd_stake_ci_stake_msg_init */
-struct fd_stake_weight_msg_t {
-  ulong epoch;               /* Epoch for which the stake weights are valid */
-  ulong staked_cnt;          /* Number of staked nodes */
-  ulong start_slot;          /* Start slot of the epoch */
-  ulong slot_cnt;            /* Number of slots in the epoch */
-  ulong excluded_stake;      /* Total stake that is excluded from leader selection */
-};
-typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;
 
 /* Replay tile msg link formatting. The following take a pointer into
    a dcache region and formats it as a specific message type. */
@@ -28,10 +19,9 @@ generate_stake_weight_msg( fd_exec_slot_ctx_t * slot_ctx,
                            ulong              * stake_weight_msg_out ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
-  fd_stake_weight_msg_t * stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_stake_weight_t     * stake_weights    = (fd_stake_weight_t *)&stake_weight_msg_out[5];
+  fd_stake_weight_msg_t * stake_weight_msg = fd_type_pun( stake_weight_msg_out );
   ulong                   stake_weight_idx = fd_stake_weights_by_node( &slot_ctx->slot_bank.epoch_stakes,
-                                                                       stake_weights,
+                                                                       stake_weight_msg->weights,
                                                                        runtime_spad );
 
   stake_weight_msg->epoch          = epoch;

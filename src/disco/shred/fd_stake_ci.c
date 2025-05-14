@@ -44,27 +44,19 @@ void * fd_stake_ci_delete( void          * mem  ) { return mem;          }
 
 
 void
-fd_stake_ci_stake_msg_init( fd_stake_ci_t * info,
-                            uchar const   * new_message ) {
-  ulong const * hdr = fd_type_pun_const( new_message );
-
-  ulong epoch               = hdr[ 0 ];
-  ulong staked_cnt          = hdr[ 1 ];
-  ulong start_slot          = hdr[ 2 ];
-  ulong slot_cnt            = hdr[ 3 ];
-  ulong excluded_stake      = hdr[ 4 ];
-
-  if( FD_UNLIKELY( staked_cnt > MAX_SHRED_DESTS ) )
+fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
+                            fd_stake_weight_msg_t const * msg ) {
+  if( FD_UNLIKELY( msg->staked_cnt > MAX_SHRED_DESTS ) )
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
+                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
 
-  info->scratch->epoch          = epoch;
-  info->scratch->start_slot     = start_slot;
-  info->scratch->slot_cnt       = slot_cnt;
-  info->scratch->staked_cnt     = staked_cnt;
-  info->scratch->excluded_stake = excluded_stake;
+  info->scratch->epoch          = msg->epoch;
+  info->scratch->start_slot     = msg->start_slot;
+  info->scratch->slot_cnt       = msg->slot_cnt;
+  info->scratch->staked_cnt     = msg->staked_cnt;
+  info->scratch->excluded_stake = msg->excluded_stake;
 
-  fd_memcpy( info->stake_weight, hdr+5UL, sizeof(fd_stake_weight_t)*staked_cnt );
+  fd_memcpy( info->stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_stake_weight_t) );
 }
 
 static inline void

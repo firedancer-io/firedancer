@@ -39,7 +39,7 @@ fd_epoch_leaders_new( void  *                   shmem,
   /* The eventual layout that we want is:
      struct                   (align=8, footprint=48)
      list of indices          (align=4, footprint=4*ceil(slot_cnt/4))
-     (up to 56 bytes of padding to align to 64)
+     (up to 60 bytes of padding to align to 64)
      list of pubkeys          (align=32, footprint=32*pub_cnt)
      the indeterminate pubkey (align=32, footprint=32)
      (possibly 32 bytes of padding to align to 64)
