@@ -453,7 +453,8 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
             break;
 
           default:
-            FD_LOG_ERR(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+            /* log with NOTICE, since flushing has a significant negative performance impact */
+            FD_LOG_NOTICE(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
         /* first message failed, so skip failing message and continue */
