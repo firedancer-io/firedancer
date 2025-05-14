@@ -557,7 +557,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
     int found = 0;
     for( ulong j=0UL; j<peer_cnt; j++ ) {
-      if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ i ].pubkey, data+j*(FD_GOSSIP_LINK_MSG_SIZE), 32UL ) ) ) {
+      if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ i ].pubkey, data+j*(58UL+12UL*6UL), 32UL ) ) ) {
         found = 1;
         break;
       }
@@ -578,7 +578,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     int found = 0;
     ulong found_idx = 0;
     for( ulong j=0UL; j<gui->gossip.peer_cnt; j++ ) {
-      if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ j ].pubkey, data+i*(FD_GOSSIP_LINK_MSG_SIZE), 32UL ) ) ) {
+      if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ j ].pubkey, data+i*(58UL+12UL*6UL), 32UL ) ) ) {
         found_idx = j;
         found = 1;
         break;
@@ -586,68 +586,68 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     }
 
     if( FD_UNLIKELY( !found ) ) {
-      fd_memcpy( gui->gossip.peers[ gui->gossip.peer_cnt ].pubkey->uc, data+i*(FD_GOSSIP_LINK_MSG_SIZE), 32UL );
-      gui->gossip.peers[ gui->gossip.peer_cnt ].wallclock = *(ulong const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+32UL);
-      gui->gossip.peers[ gui->gossip.peer_cnt ].shred_version = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+40UL);
-      gui->gossip.peers[ gui->gossip.peer_cnt ].has_version = *(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+42UL);
+      fd_memcpy( gui->gossip.peers[ gui->gossip.peer_cnt ].pubkey->uc, data+i*(58UL+12UL*6UL), 32UL );
+      gui->gossip.peers[ gui->gossip.peer_cnt ].wallclock = *(ulong const *)(data+i*(58UL+12UL*6UL)+32UL);
+      gui->gossip.peers[ gui->gossip.peer_cnt ].shred_version = *(ushort const *)(data+i*(58UL+12UL*6UL)+40UL);
+      gui->gossip.peers[ gui->gossip.peer_cnt ].has_version = *(data+i*(58UL+12UL*6UL)+42UL);
       if( FD_LIKELY( gui->gossip.peers[ gui->gossip.peer_cnt ].has_version ) ) {
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.major = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+43UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.minor = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+45UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.patch = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+47UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.has_commit = *(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+49UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.major = *(ushort const *)(data+i*(58UL+12UL*6UL)+43UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.minor = *(ushort const *)(data+i*(58UL+12UL*6UL)+45UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.patch = *(ushort const *)(data+i*(58UL+12UL*6UL)+47UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.has_commit = *(data+i*(58UL+12UL*6UL)+49UL);
         if( FD_LIKELY( gui->gossip.peers[ gui->gossip.peer_cnt ].version.has_commit ) ) {
-          gui->gossip.peers[ gui->gossip.peer_cnt ].version.commit = *(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+50UL);
+          gui->gossip.peers[ gui->gossip.peer_cnt ].version.commit = *(uint const *)(data+i*(58UL+12UL*6UL)+50UL);
         }
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.feature_set = *(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+54UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.feature_set = *(uint const *)(data+i*(58UL+12UL*6UL)+54UL);
       }
 
-      for( ulong j=0UL; j<FD_GOSSIP_NUM_SOCKETS; j++ ) {
-        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].ipv4 = *(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+58UL+j*6UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].port = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+58UL+j*6UL+4UL);
+      for( ulong j=0UL; j<12UL; j++ ) {
+        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].ipv4 = *(uint const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].port = *(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
       }
 
       gui->gossip.peer_cnt++;
     } else {
-      int peer_updated = gui->gossip.peers[ found_idx ].shred_version!=*(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+40UL) ||
-                         // gui->gossip.peers[ found_idx ].wallclock!=*(ulong const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+32UL) ||
-                         gui->gossip.peers[ found_idx ].has_version!=*(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+42UL);
+      int peer_updated = gui->gossip.peers[ found_idx ].shred_version!=*(ushort const *)(data+i*(58UL+12UL*6UL)+40UL) ||
+                         // gui->gossip.peers[ found_idx ].wallclock!=*(ulong const *)(data+i*(58UL+12UL*6UL)+32UL) ||
+                         gui->gossip.peers[ found_idx ].has_version!=*(data+i*(58UL+12UL*6UL)+42UL);
 
       if( FD_LIKELY( !peer_updated && gui->gossip.peers[ found_idx ].has_version ) ) {
-        peer_updated = gui->gossip.peers[ found_idx ].version.major!=*(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+43UL) ||
-                        gui->gossip.peers[ found_idx ].version.minor!=*(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+45UL) ||
-                        gui->gossip.peers[ found_idx ].version.patch!=*(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+47UL) ||
-                        gui->gossip.peers[ found_idx ].version.has_commit!=*(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+49UL) ||
-                        (gui->gossip.peers[ found_idx ].version.has_commit && gui->gossip.peers[ found_idx ].version.commit!=*(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+50UL)) ||
-                        gui->gossip.peers[ found_idx ].version.feature_set!=*(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+54UL);
+        peer_updated = gui->gossip.peers[ found_idx ].version.major!=*(ushort const *)(data+i*(58UL+12UL*6UL)+43UL) ||
+                        gui->gossip.peers[ found_idx ].version.minor!=*(ushort const *)(data+i*(58UL+12UL*6UL)+45UL) ||
+                        gui->gossip.peers[ found_idx ].version.patch!=*(ushort const *)(data+i*(58UL+12UL*6UL)+47UL) ||
+                        gui->gossip.peers[ found_idx ].version.has_commit!=*(data+i*(58UL+12UL*6UL)+49UL) ||
+                        (gui->gossip.peers[ found_idx ].version.has_commit && gui->gossip.peers[ found_idx ].version.commit!=*(uint const *)(data+i*(58UL+12UL*6UL)+50UL)) ||
+                        gui->gossip.peers[ found_idx ].version.feature_set!=*(uint const *)(data+i*(58UL+12UL*6UL)+54UL);
       }
 
       if( FD_LIKELY( !peer_updated ) ) {
-        for( ulong j=0UL; j<FD_GOSSIP_NUM_SOCKETS; j++ ) {
-          peer_updated = gui->gossip.peers[ found_idx ].sockets[ j ].ipv4!=*(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+58UL+j*6UL) ||
-                          gui->gossip.peers[ found_idx ].sockets[ j ].port!=*(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+58UL+j*6UL+4UL);
+        for( ulong j=0UL; j<12UL; j++ ) {
+          peer_updated = gui->gossip.peers[ found_idx ].sockets[ j ].ipv4!=*(uint const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL) ||
+                          gui->gossip.peers[ found_idx ].sockets[ j ].port!=*(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
           if( FD_LIKELY( peer_updated ) ) break;
         }
       }
 
       if( FD_UNLIKELY( peer_updated ) ) {
         updated[ update_cnt++ ] = found_idx;
-        gui->gossip.peers[ found_idx ].shred_version = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+40UL);
-        gui->gossip.peers[ found_idx ].wallclock = *(ulong const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+32UL);
-        gui->gossip.peers[ found_idx ].has_version = *(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+42UL);
+        gui->gossip.peers[ found_idx ].shred_version = *(ushort const *)(data+i*(58UL+12UL*6UL)+40UL);
+        gui->gossip.peers[ found_idx ].wallclock = *(ulong const *)(data+i*(58UL+12UL*6UL)+32UL);
+        gui->gossip.peers[ found_idx ].has_version = *(data+i*(58UL+12UL*6UL)+42UL);
         if( FD_LIKELY( gui->gossip.peers[ found_idx ].has_version ) ) {
-          gui->gossip.peers[ found_idx ].version.major = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+43UL);
-          gui->gossip.peers[ found_idx ].version.minor = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+45UL);
-          gui->gossip.peers[ found_idx ].version.patch = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+47UL);
-          gui->gossip.peers[ found_idx ].version.has_commit = *(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+49UL);
+          gui->gossip.peers[ found_idx ].version.major = *(ushort const *)(data+i*(58UL+12UL*6UL)+43UL);
+          gui->gossip.peers[ found_idx ].version.minor = *(ushort const *)(data+i*(58UL+12UL*6UL)+45UL);
+          gui->gossip.peers[ found_idx ].version.patch = *(ushort const *)(data+i*(58UL+12UL*6UL)+47UL);
+          gui->gossip.peers[ found_idx ].version.has_commit = *(data+i*(58UL+12UL*6UL)+49UL);
           if( FD_LIKELY( gui->gossip.peers[ found_idx ].version.has_commit ) ) {
-            gui->gossip.peers[ found_idx ].version.commit = *(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+50UL);
+            gui->gossip.peers[ found_idx ].version.commit = *(uint const *)(data+i*(58UL+12UL*6UL)+50UL);
           }
-          gui->gossip.peers[ found_idx ].version.feature_set = *(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+54UL);
+          gui->gossip.peers[ found_idx ].version.feature_set = *(uint const *)(data+i*(58UL+12UL*6UL)+54UL);
         }
 
-        for( ulong j=0UL; j<FD_GOSSIP_NUM_SOCKETS; j++ ) {
-          gui->gossip.peers[ found_idx ].sockets[ j ].ipv4 = *(uint const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+58UL+j*6UL);
-          gui->gossip.peers[ found_idx ].sockets[ j ].port = *(ushort const *)(data+i*(FD_GOSSIP_LINK_MSG_SIZE)+58UL+j*6UL+4UL);
+        for( ulong j=0UL; j<12UL; j++ ) {
+          gui->gossip.peers[ found_idx ].sockets[ j ].ipv4 = *(uint const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL);
+          gui->gossip.peers[ found_idx ].sockets[ j ].port = *(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
         }
       }
     }

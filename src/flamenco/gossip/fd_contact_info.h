@@ -29,7 +29,9 @@ typedef union fd_ip4_port fd_gossip_peer_addr_t;
 
 #define FD_GOSSIP_SOCKET_TAG_MAX                (13)
 
-FD_STATIC_ASSERT( sizeof(((fd_gossip_update_msg_t*)0)->addrs) == FD_GOSSIP_SOCKET_TAG_MAX*6,  fd_gossip_update_msg_addrs_sz );
+/* TODO: update fd_gossip_update_msg_t and change this assert to be ==
+   instead of <= */
+FD_STATIC_ASSERT( sizeof(((fd_gossip_update_msg_t*)0)->addrs) <= FD_GOSSIP_SOCKET_TAG_MAX*6,  fd_gossip_update_msg_addrs_sz );
 
 typedef fd_gossip_contact_info_v1_t fd_gossip_legacy_contact_info_t;
 

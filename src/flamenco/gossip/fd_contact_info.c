@@ -134,8 +134,11 @@ fd_contact_info_to_update_msg( fd_contact_info_t const * contact_info,
     cur_port += socket_entry->offset;
     ushort socket_tag = socket_entry->key;
 
-    if( FD_UNLIKELY( socket_tag >= FD_GOSSIP_SOCKET_TAG_MAX ) ){
-      FD_LOG_WARNING(( "Invalid socket tag %u", socket_tag ));
+    /* NOTE: We use FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS instead of FD_GOSSIP_SOCKET_TAG_MAX
+       since they aren't strictly the same. */
+
+    if( FD_UNLIKELY( socket_tag >= FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS ) ){
+      FD_LOG_WARNING(( "Unsupported socket tag in update msg %u", socket_tag ));
       continue;
     }
     if( FD_UNLIKELY( !fd_gossip_ip_addr_is_ip4( &ci_v2->addrs[ socket_entry->index ] ))){

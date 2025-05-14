@@ -766,7 +766,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
         jsonp_ulong( gui, "wallclock", gui->gossip.peers[ gossip_idx ].wallclock );
         jsonp_ulong( gui, "shred_version", gui->gossip.peers[ gossip_idx ].shred_version );
         jsonp_open_object( gui, "sockets" );
-          for( ulong j=0UL; j<13UL; j++ ) {
+          for( ulong j=0UL; j<12UL; j++ ) {
             if( FD_LIKELY( !gui->gossip.peers[ gossip_idx ].sockets[ j ].ipv4 && !gui->gossip.peers[ gossip_idx ].sockets[ j ].port ) ) continue;
             char const * tag;
             switch( j ) {
@@ -782,7 +782,6 @@ fd_gui_printf_peer( fd_gui_t *    gui,
               case  9: tag = "tpu_forwards";      break;
               case 10: tag = "tpu_forwards_quic"; break;
               case 11: tag = "tpu_vote";          break;
-              case 12: tag = "tpu_vote_quic";     break;
             }
             char line[ 64 ];
             FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(gui->gossip.peers[ gossip_idx ].sockets[ j ].ipv4 ), gui->gossip.peers[ gossip_idx ].sockets[ j ].port ) );
