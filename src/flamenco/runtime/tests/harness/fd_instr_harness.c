@@ -64,11 +64,12 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
-  /* Blockhash queue init */
-  uchar * mem = fd_spad_alloc( runner->spad, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( mem, slot_ctx->funk, slot_ctx->funk_txn );
+  /* Bank manager init */
+  slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( slot_ctx->bank_mgr_mem ), slot_ctx->funk, slot_ctx->funk_txn );
 
-  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  /* Blockhash queue init */
+
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( slot_ctx->bank_mgr );
 
   uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
   uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
@@ -81,7 +82,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
 
   memset( last_hash_mem, 0, sizeof(fd_hash_t) );
-  fd_bank_mgr_block_hash_queue_save( bank_mgr );
+  fd_bank_mgr_block_hash_queue_save( slot_ctx->bank_mgr );
 
   /* Set up txn context */
 
@@ -192,10 +193,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
     fd_account_meta_t const * meta = acc->vt->get_meta( acc );
     if (meta == NULL) {
-      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
-      acc->vt->set_meta_readonly( acc, &sentinel );
-      accts[i].starting_lamports = 0UL;
-      accts[i].starting_dlen     = 0UL;
+      fd_txn_account_setup_sentinel_meta_readonly( acc, txn_ctx->spad, txn_ctx->spad_wksp );
       continue;
     }
 
@@ -293,9 +291,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Set slot bank variables */
   slot_ctx->slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache, runner->wksp )->slot;
 
-  ulong * slot = fd_bank_mgr_slot_modify( bank_mgr );
+  ulong * slot = fd_bank_mgr_slot_modify( txn_ctx->bank_mgr );
   *slot = slot_ctx->slot;
-  fd_bank_mgr_slot_save( bank_mgr );
+  fd_bank_mgr_slot_save( txn_ctx->bank_mgr );
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
@@ -315,16 +313,16 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      block_hash_queue = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+      block_hash_queue = fd_bank_mgr_block_hash_queue_modify( txn_ctx->bank_mgr );
       fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
       fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
-      fd_bank_mgr_block_hash_queue_save( bank_mgr );
-      ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+      fd_bank_mgr_block_hash_queue_save( txn_ctx->bank_mgr );
+      ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( txn_ctx->bank_mgr );
       *lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      fd_bank_mgr_lamports_per_signature_save( bank_mgr );
-      ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+      fd_bank_mgr_lamports_per_signature_save( txn_ctx->bank_mgr );
+      ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( txn_ctx->bank_mgr );
       *prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+      fd_bank_mgr_prev_lamports_per_signature_save( txn_ctx->bank_mgr );
     }
   }
 

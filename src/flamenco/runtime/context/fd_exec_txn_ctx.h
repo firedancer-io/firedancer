@@ -114,27 +114,36 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
      Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
-  ulong                                accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t                          account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
-  ulong                                executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
-  fd_txn_account_t                     executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
-  fd_txn_account_t                     accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
-  /* This is a bit of a misnomer but Agave calls it "rollback".
+  ulong                           accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
+  fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
+  ulong                           executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
+  fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+  fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
+
+  /* The next three fields describe Agave's "rollback" accounts, which
+     are copies of the fee payer and (if applicable) nonce account. If the
+     transaction fails to load, the fee payer is still debited the transaction fee,
+     and the nonce account is advanced. The fee payer must also be rolled back to it's
+     state pre-transaction, plus debited any transaction fees.
+
+     This is a bit of a misnomer but Agave calls it "rollback".
      This is the account state that the nonce account should be in when
      the txn fails.
      It will advance the nonce account, rather than "roll back".
    */
-  fd_txn_account_t                     rollback_nonce_account[ 1 ];
-  ulong                                nonce_account_idx_in_txn;                    /* If the transaction has a nonce account that must be advanced, this would be !=ULONG_MAX. */
-  uint                                 num_instructions;                            /* Counter for number of instructions in txn */
-  fd_txn_return_data_t                 return_data;                                 /* Data returned from `return_data` syscalls */
-  fd_vote_account_cache_t *            vote_accounts_map;                           /* Cache of bank's deserialized vote accounts to support fork choice */
-  fd_vote_account_cache_entry_t *      vote_accounts_pool;                          /* Memory pool for deserialized vote account cache */
-  ulong                                accounts_resize_delta;                       /* Transaction level tracking for account resizing */
-  fd_hash_t                            blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
-  ulong                                execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
-  ulong                                priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
-  ulong                                collected_rent;                              /* Rent collected from accounts in this transaction */
+  fd_txn_account_t                rollback_nonce_account[ 1 ];
+  ulong                           nonce_account_idx_in_txn;                    /* If the transaction has a nonce account that must be advanced, this would be !=ULONG_MAX. */
+  fd_txn_account_t                rollback_fee_payer_account[ 1 ];
+
+  uint                            num_instructions;                            /* Counter for number of instructions in txn */
+  fd_txn_return_data_t            return_data;                                 /* Data returned from `return_data` syscalls */
+  fd_vote_account_cache_t *       vote_accounts_map;                           /* Cache of bank's deserialized vote accounts to support fork choice */
+  fd_vote_account_cache_entry_t * vote_accounts_pool;                          /* Memory pool for deserialized vote account cache */
+  ulong                           accounts_resize_delta;                       /* Transaction level tracking for account resizing */
+  fd_hash_t                       blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
+  ulong                           execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
+  ulong                           priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
+  ulong                           collected_rent;                              /* Rent collected from accounts in this transaction */
 
   uchar dirty_vote_acc  : 1; /* 1 if this transaction maybe modified a vote account */
   uchar dirty_stake_acc : 1; /* 1 if this transaction maybe modified a stake account */

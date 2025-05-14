@@ -136,23 +136,23 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==
 
 /* Accessors */
 
-/* fd_funk_rec_modify_try attempts to modify the record corresponding
-   to the given key in the given transaction. If the record does not
-   exist, NULL will be returned. If the txn is NULL, the query will be
-   done against funk's last published transaction (the root). On
-   success, a mutable pointer to the funk record is returned.
+/* fd_funk_rec_modify attempts to modify the record corresponding to the
+   given key in the given transaction. If the record does not exist,
+   NULL will be returned. If the txn is NULL, the query will be done
+   against funk's last published transaction (the root). On success,
+   a mutable pointer to the funk record is returned.
 
    Assumes funk is a current local join (NULL returns NULL), txn is NULL
    or points to an in-preparation transaction in the caller's address
    space, key points to a record key in the caller's address space (NULL
    returns NULL). It is SAFE to do concurrent operations on funk with
-   fd_funk_rec_modify_try.
+   fd_funk_rec_modify.
 
    If there is contention for this record (or any records that are
    hashed to same chain as this record), the function will block the
    caller until the contention is resolved.
 
-   A call to fd_funk_rec_modify_try must be followed by a call to
+   A call to fd_funk_rec_modify must be followed by a call to
    fd_funk_rec_modify_publish.
 
    The query argument remembers the query for later validity testing.
@@ -176,7 +176,7 @@ fd_funk_rec_modify( fd_funk_t *               funk,
                     fd_funk_rec_query_t *     query );
 
 /* fd_funk_rec_modify_publish commits any modifications to the record
-   done by fd_funk_rec_modify_try. All notes from fd_funk_rec_modify_try
+   done by fd_funk_rec_modify. All notes from fd_funk_rec_modify
    apply. Calling fd_funk_rec_modify_publish is required and is
    responsible for freeing the lock on the record (and the hash
    chain). */
