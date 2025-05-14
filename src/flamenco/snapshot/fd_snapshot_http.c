@@ -668,6 +668,8 @@ fd_io_istream_snapshot_http_read( void *  _this,
     return fd_snapshot_http_dl( this, dst, dst_max, dst_sz );
   case FD_SNAPSHOT_HTTP_STATE_READ:
     return fd_snapshot_http_read( this, dst, dst_max, dst_sz );
+  case FD_SNAPSHOT_HTTP_STATE_DONE:
+    return 1;
   }
 
   /* Not yet ready to read at this point. */

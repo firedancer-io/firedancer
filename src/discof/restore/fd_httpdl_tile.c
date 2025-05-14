@@ -33,7 +33,6 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_httpdl_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_httpdl_tile_t), sizeof(fd_httpdl_tile_t) );
   void * http_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_http_align(), fd_snapshot_http_footprint() );
-  ctx->writer            = FD_SCRATCH_ALLOC_APPEND( l, fd_stream_writer_align(), fd_stream_writer_footprint() );
 
   fd_memset( ctx, 0, sizeof(fd_httpdl_tile_t) );
 
@@ -59,18 +58,7 @@ fd_httpdl_init_from_stream_ctx( void * _ctx,
 
   /* There's only one writer */
   ctx->writer = &stream_ctx->writers[0];
-}
-
-static void
-during_housekeeping( void * _ctx,
-                     fd_stream_ctx_t *  stream_ctx ) {
-  (void)_ctx;
-  (void)stream_ctx;
-}
-
-static void
-metrics_write( fd_httpdl_tile_t * ctx ) {
-  (void)ctx;
+  fd_stream_writer_set_read_max( ctx->writer, FD_SNAPSHOT_HTTP_RESP_BUF_MAX );
 }
 
 __attribute__((noreturn)) FD_FN_UNUSED static void
@@ -83,6 +71,25 @@ fd_httpdl_shutdown( fd_httpdl_tile_t * ctx ) {
   for(;;) pause();
 }
 
+static void
+after_credit( fd_httpdl_tile_t * ctx,
+              fd_stream_ctx_t *  stream_ctx ) {
+  (void)stream_ctx;
+  /* get write pointers into dcache buffer */
+  uchar * out     = fd_stream_writer_get_write_ptr( ctx->writer );
+  ulong dst_max   = fd_stream_writer_get_avail_bytes( ctx->writer );
+  ulong sz        = 0UL;
+
+  int err = fd_io_istream_snapshot_http_read( ctx->http, out, dst_max, &sz );
+  if( FD_UNLIKELY( err<0 ) ) FD_LOG_ERR(( "http err: %d", err ));
+  if( FD_UNLIKELY( err>0 ) ) fd_httpdl_shutdown( ctx );
+
+  if( sz ) {
+    fd_stream_writer_advance( ctx->writer, sz );
+    fd_stream_writer_publish( ctx->writer, sz );
+  }
+}
+
 __attribute__((noinline)) static void
 fd_httpdl_run1(
   fd_httpdl_tile_t * ctx,
@@ -90,21 +97,36 @@ fd_httpdl_run1(
 
   FD_LOG_INFO(( "Running httpdl tile" ));
 
-  fd_stream_ctx_init_run_loop( stream_ctx, ctx, fd_httpdl_init_from_stream_ctx );
+  fd_stream_ctx_init_run_loop( stream_ctx,
+                               ctx,
+                               fd_httpdl_init_from_stream_ctx,
+                               NULL,
+                               NULL,
+                               NULL );
   for(;;) {
     fd_stream_ctx_do_housekeeping( stream_ctx,
-                                   ctx,
-                                   NULL,
-                                   during_housekeeping,
-                                   NULL );
+                                   ctx );
 
     /* Check if we are backpressured, otherwise poll */
     if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
       fd_stream_ctx_process_backpressure( stream_ctx );
     } else {
-      after_credit( ctx );
+      after_credit( ctx, stream_ctx );
     }
   }
+}
+
+static void
+fd_httpdl_run( fd_topo_t *      topo,
+               fd_topo_tile_t * tile ) {
+  fd_httpdl_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
+  ulong cons_cnt         = fd_topo_tile_reliable_consumer_cnt( topo, tile );
+  ulong out_cnt          = tile->out_cnt;
+
+  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, cons_cnt, out_cnt ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, cons_cnt, out_cnt );
+  fd_httpdl_run1( ctx, stream_ctx );
 }
 
 fd_topo_run_tile_t fd_tile_snapshot_restore_HttpDl = {
