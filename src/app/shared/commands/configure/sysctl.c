@@ -100,8 +100,8 @@ init_param_list( sysctl_param_t const * list ) {
   for( sysctl_param_t const * p=list; p->path; p++ ) {
     ulong param;
     if( FD_UNLIKELY( -1==fd_file_util_read_ulong( p->path, &param ) ) ) {
-      /* If the syctl file does not exist in /proc/sys it's likely it
-         doesn't e*/
+      /* If the syctl file does not exist in /proc/sys, it's likely it
+         doesn't exist anywhere else */
       if( FD_UNLIKELY( p->allow_missing && errno==ENOENT ) ) continue;
 
       FD_LOG_ERR(( "could not read kernel parameter `%s`, system might not support configuring sysctl (%i-%s)", p->path, errno, fd_io_strerror( errno ) ));
@@ -138,8 +138,10 @@ check_param_list( sysctl_param_t const * list ) {
 
   for( sysctl_param_t const * p=list; p->path; p++ ) {
     ulong param;
-    if( FD_UNLIKELY( -1==fd_file_util_read_ulong( p->path, &param ) ) )
+    if( FD_UNLIKELY( -1==fd_file_util_read_ulong( p->path, &param ) ) ) {
+      if( FD_UNLIKELY( p->allow_missing && errno==ENOENT ) ) continue;
       FD_LOG_ERR(( "could not read kernel parameter `%s`, system might not support configuring sysctl (%i-%s)", p->path, errno, fd_io_strerror( errno ) ));
+    }
     switch( p->mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<(p->value) ) )
