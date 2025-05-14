@@ -41,6 +41,7 @@ struct fd_archiver_backtest_tile_ctx {
 
   ulong                  playback_started;
   ulong                  playback_end_slot;
+  ulong                  playback_start_slot;
 
   ulong *                published_wmark; /* same as the one in replay tile */
   fd_alloc_t *           alloc;
@@ -229,6 +230,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->playback_started           = 0;
   ctx->playback_end_slot          = tile->archiver.end_slot;
+  ctx->playback_start_slot        = ULONG_MAX;
   if( FD_UNLIKELY( 0==ctx->playback_end_slot ) ) FD_LOG_ERR(( "end_slot is required for rocksdb playback" ));
 
   /* Setup the blockstore */
@@ -259,6 +261,7 @@ after_credit( fd_archiver_backtest_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->playback_started ) ) {
     ulong wmark = fd_fseq_query( ctx->published_wmark );
     if( wmark==ULONG_MAX ) return;
+    if( ctx->playback_start_slot==ULONG_MAX ) ctx->playback_start_slot=wmark;
     if( wmark!=ctx->replay_notification.slot_exec.slot ) return;
 
     ctx->playback_started=1;
@@ -330,13 +333,15 @@ after_frag( fd_archiver_backtest_tile_ctx_t * ctx,
       FD_LOG_ERR(( "Failed at decoding bank hash from rocksdb" ));
     }
 
-    if( FD_LIKELY( !memcmp( bank_hash, &versioned->inner.current.frozen_hash, sizeof(fd_hash_t) ) ) ) {
-      FD_LOG_WARNING(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
-    } else {
-      FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
-                   slot,
-                   FD_BASE58_ENC_32_ALLOCA( versioned->inner.current.frozen_hash.hash ),
-                   FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
+    if( slot!=ctx->playback_start_slot && ctx->playback_start_slot!=ULONG_MAX ) {
+      if( FD_LIKELY( !memcmp( bank_hash, &versioned->inner.current.frozen_hash, sizeof(fd_hash_t) ) ) ) {
+        FD_LOG_WARNING(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
+      } else {
+        FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
+                    slot,
+                    FD_BASE58_ENC_32_ALLOCA( versioned->inner.current.frozen_hash.hash ),
+                    FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
+      }
     }
     notify_one_slot( ctx, stem );
 
