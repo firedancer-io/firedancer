@@ -150,21 +150,32 @@ do{
   uchar *                  input_ptr      = NULL;
   uchar                    program_id_idx = instr_ctx->instr->program_id;
   fd_txn_account_t const * program_acc    = &instr_ctx->txn_ctx->accounts[program_id_idx];
+  uchar                    is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
+                                            ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
-  uchar   is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
-                           ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
+  int stack_push_err = fd_instr_stack_push( instr_ctx->txn_ctx, (fd_instr_info_t *)instr_ctx->instr );
+  if( FD_UNLIKELY( stack_push_err ) ) {
+    FD_LOG_WARNING(( "instr stack push err" ));
+    fd_runtime_fuzz_instr_ctx_destroy( runner, instr_ctx );
+    return 0;
+  }
 
-  /* TODO: Check for an error code. Probably unlikely during fuzzing though */
-  fd_bpf_loader_input_serialize_parameters( instr_ctx,
-                                            &input_sz,
-                                            pre_lens,
-                                            input_mem_regions,
-                                            &input_mem_regions_cnt,
-                                            acc_region_metas,
-                                            direct_mapping,
-                                            mask_out_rent_epoch_in_vm_serialization,
-                                            is_deprecated,
-                                            &input_ptr );
+  /* Serialize accounts into input memory region. */
+  int err = fd_bpf_loader_input_serialize_parameters( instr_ctx,
+                                                      &input_sz,
+                                                      pre_lens,
+                                                      input_mem_regions,
+                                                      &input_mem_regions_cnt,
+                                                      acc_region_metas,
+                                                      direct_mapping,
+                                                      mask_out_rent_epoch_in_vm_serialization,
+                                                      is_deprecated,
+                                                      &input_ptr );
+  if( FD_UNLIKELY( err ) ) {
+    fd_runtime_fuzz_instr_ctx_destroy( runner, instr_ctx );
+    return 0;
+  }
 
   if( input->vm_ctx.heap_max>FD_VM_HEAP_DEFAULT ) {
     break;
