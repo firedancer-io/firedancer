@@ -1233,22 +1233,21 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
 
-  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
-  ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( bank_mgr );
-  ulong * slot = fd_bank_mgr_slot_query( bank_mgr );
+  ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( ctx->bank_mgr );
+  ulong * slot = fd_bank_mgr_slot_query( ctx->bank_mgr );
   ctx->slot = !!slot ? *slot : 0UL;
 
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( bank_mgr );
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( ctx->bank_mgr );
   if( fee_rate_governor ) {
     ctx->fee_rate_governor = *fee_rate_governor;
   }
 
-  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_query( bank_mgr );
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_query( ctx->bank_mgr );
   if( prev_lamports_per_signature ) {
     ctx->prev_lamports_per_signature = *prev_lamports_per_signature;
   }
 
-  ulong * total_epoch_stake = fd_bank_mgr_total_epoch_stake_query( bank_mgr );
+  ulong * total_epoch_stake = fd_bank_mgr_total_epoch_stake_query( ctx->bank_mgr );
   if( total_epoch_stake ) {
     ctx->total_epoch_stake = *total_epoch_stake;
   }
@@ -1257,7 +1256,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
   ctx->schedule                    = epoch_bank->epoch_schedule;
   ctx->rent                        = epoch_bank->rent;
-  double * slots_per_year = fd_bank_mgr_slots_per_year_query( bank_mgr );
+  double * slots_per_year = fd_bank_mgr_slots_per_year_query( ctx->bank_mgr );
   ctx->slots_per_year              = !!slots_per_year ? *slots_per_year : 0.0;
   ctx->stakes                      = epoch_bank->stakes;
 
