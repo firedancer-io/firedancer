@@ -82,7 +82,10 @@ after_credit( fd_httpdl_tile_t * ctx,
 
   int err = fd_io_istream_snapshot_http_read( ctx->http, out, dst_max, &sz );
   if( FD_UNLIKELY( err<0 ) ) FD_LOG_ERR(( "http err: %d", err ));
-  if( FD_UNLIKELY( err>0 ) ) fd_httpdl_shutdown( ctx );
+  if( FD_UNLIKELY( err>0 ) ) {
+    FD_LOG_WARNING(("HTTP download complete! shutting down"));
+    fd_httpdl_shutdown( ctx );
+  }
 
   if( sz ) {
     fd_stream_writer_advance( ctx->writer, sz );
@@ -130,7 +133,7 @@ fd_httpdl_run( fd_topo_t *      topo,
 }
 
 fd_topo_run_tile_t fd_tile_snapshot_restore_HttpDl = {
-    .name              = NAME,
+    .name              = "HttpDl",
     .scratch_align     = scratch_align,
     .scratch_footprint = scratch_footprint,
     .privileged_init   = privileged_init,

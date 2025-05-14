@@ -126,14 +126,35 @@ snapshot_load_topo( config_t *     config,
     fd_topob_wksp( topo, "HttpDl" );
     fd_topo_tile_t * httpdl_tile = fd_topob_tile( topo, "HttpDl", "HttpDl", "HttpDl", tile_to_cpu[1], 0, 0 );
     fd_memcpy( httpdl_tile->httpdl.path, src->http.path, PATH_MAX );
-    fd_memcpy( httpdl_tile->httpdl.snapshot_dir, args->snapshot_load.snapshot_path, PATH_MAX );
+    fd_memcpy( httpdl_tile->httpdl.snapshot_dir, args->snapshot_load.snapshot_dir, PATH_MAX );
     fd_memcpy( httpdl_tile->httpdl.dest, src->http.dest, sizeof(src->http.dest) );
     httpdl_tile->httpdl.ip4      = src->http.ip4;
     httpdl_tile->httpdl.path_len = src->http.path_len;
     httpdl_tile->httpdl.port     = src->http.port;
 
-    fd_topob_tile_out( topo, "HttpDl", 0UL, "snap_stream", 0UL );
+    /* "unzstd": Zstandard decompress tile */
+    fd_topob_wksp( topo, "Unzstd" );
+    fd_topo_tile_t * unzstd_tile = fd_topob_tile( topo, "Unzstd", "Unzstd", "Unzstd", tile_to_cpu[2], 0, 0 );
+    (void)unzstd_tile;
+
+    /* Compressed data stream */
+    fd_topob_wksp( topo, "snap_zstd" );
+    fd_topo_link_t * zstd_link   = fd_topob_link( topo, "snap_zstd", "snap_zstd", 512UL, 0UL, 0UL );
+    fd_topo_obj_t *  zstd_dcache = fd_topob_obj( topo, "dcache", "snap_zstd");
+    zstd_link->dcache_obj_id = zstd_dcache->id;
+    FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", zstd_dcache->id ) );
+
+    /* filerd tile -> compressed stream */
+    fd_topob_tile_out( topo, "HttpDl", 0UL, "snap_zstd", 0UL );
     fd_topob_tile_uses( topo, httpdl_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+    /* compressed stream -> unzstd tile */
+    fd_topob_tile_in( topo, "Unzstd", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_uses( topo, unzstd_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+
+    /* unzstd tile -> uncompressed stream */
+    fd_topob_tile_out( topo, "Unzstd", 0UL, "snap_stream", 0UL );
+    fd_topob_tile_uses( topo, unzstd_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
   fd_topob_wksp( topo, "SnapIn" );
@@ -190,9 +211,11 @@ snapshot_load_cmd_args( int *    pargc,
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->snapshot_load.snapshot_path ), snapshot_src, snapshot_file_strlen ) );
 
   /* FIXME: check if we need the snapshot dir argument (parse the snapshot input src to see if it's http)*/
-  ulong snapshot_dir_strlen = strlen( snapshot_dir );
-  if( FD_UNLIKELY( snapshot_file_strlen>=sizeof(args->snapshot_load.snapshot_dir) ) ) FD_LOG_ERR(( "--snapshot-dir: dir too long" ));
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->snapshot_load.snapshot_dir ), snapshot_dir, snapshot_dir_strlen ) );
+  if( snapshot_dir!=NULL ) {
+    ulong snapshot_dir_strlen = strlen( snapshot_dir );
+    if( FD_UNLIKELY( snapshot_file_strlen>=sizeof(args->snapshot_load.snapshot_dir) ) ) FD_LOG_ERR(( "--snapshot-dir: dir too long" ));
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->snapshot_load.snapshot_dir ), snapshot_dir, snapshot_dir_strlen ) );
+  }
 }
 
 static void
@@ -220,15 +243,20 @@ snapshot_load_cmd_fn( args_t *   args,
   double ns_per_tick = 1.0/tick_per_ns;
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
-  fd_topo_tile_t * file_rd_tile = &topo->tiles[ fd_topo_find_tile( topo, "FileRd", 0UL ) ];
-  fd_topo_tile_t * snap_in_tile = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
-  ulong            zstd_tile_idx =              fd_topo_find_tile( topo, "Unzstd", 0UL );
-  fd_topo_tile_t * unzstd_tile = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
+  ulong            httpdl_tile_idx =              fd_topo_find_tile( topo, "HttpDl", 0UL );
+  ulong            filerd_tile_idx =              fd_topo_find_tile( topo, "FileRd", 0UL );
+  fd_topo_tile_t * http_dl_tile    = httpdl_tile_idx!=ULONG_MAX ?  &topo->tiles[ httpdl_tile_idx ] : NULL;
+  fd_topo_tile_t * file_rd_tile    = filerd_tile_idx!=ULONG_MAX ?  &topo->tiles[ filerd_tile_idx ] : NULL;
+  fd_topo_tile_t * snap_in_tile    = &topo->tiles[ fd_topo_find_tile( topo, "SnapIn", 0UL ) ];
+  ulong            zstd_tile_idx   =              fd_topo_find_tile( topo, "Unzstd", 0UL );
+  fd_topo_tile_t * unzstd_tile     = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
+  fd_topo_tile_t * actalc_tile     = &topo->tiles[ fd_topo_find_tile( topo, "ActAlc", 0UL ) ];
 
-  ulong *          snap_in_fseq    = snap_in_tile->in_link_fseq[ 0 ];
-  ulong *          snap_accs_sync  = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_frags", 0UL ) ].mcache );
-  ulong volatile * file_rd_metrics = fd_metrics_tile( file_rd_tile->metrics );
-  ulong volatile * snap_in_metrics = fd_metrics_tile( snap_in_tile->metrics );
+  ulong *          snap_in_fseq      = snap_in_tile->in_link_fseq[ 0 ];
+  ulong *          snap_accs_sync    = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_frags", 0UL ) ].mcache );
+  ulong volatile * file_rd_metrics   = file_rd_tile ? fd_metrics_tile( file_rd_tile->metrics ) : NULL;
+  ulong volatile * http_dl_metrics   = http_dl_tile ? fd_metrics_tile( http_dl_tile->metrics ) : NULL;
+  ulong volatile * snap_in_metrics   = fd_metrics_tile( snap_in_tile->metrics );
   ulong volatile * unzstd_in_metrics = unzstd_tile ? fd_metrics_tile( unzstd_tile->metrics ) : NULL;
 
   ulong goff_old          = 0UL;
@@ -237,18 +265,22 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong acc_cnt_old       = 0UL;
   ulong frag_cnt_old      = 0UL;
   for(;;) {
-    sleep( 1 );
-
-    ulong filerd_status = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+    sleep( 1 );    
+    ulong filerd_status = file_rd_metrics ? FD_VOLATILE_CONST( file_rd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
+    ulong httpdl_status = http_dl_metrics ? FD_VOLATILE_CONST( http_dl_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
     ulong snapin_status = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong unzstd_status = unzstd_in_metrics ? FD_VOLATILE_CONST( unzstd_in_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
-    if( FD_UNLIKELY( filerd_status==2UL && unzstd_status==2UL && snapin_status == 2UL ) ) {
+    if( FD_UNLIKELY( httpdl_status==2UL && filerd_status==2UL && unzstd_status==2UL && snapin_status == 2UL ) ) {
       FD_LOG_NOTICE(( "Done" ));
       break;
     }
 
     ulong goff          = FD_VOLATILE_CONST( snap_in_fseq[ 1 ] );
-    ulong file_rd_backp = FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
+    ulong file_rd_backp = file_rd_metrics ? FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] ) : 0UL;
+    ulong file_rd_wait  = file_rd_metrics ? FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
+                          FD_VOLATILE_CONST( file_rd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
+                          file_rd_backp : 0UL;
+    ulong snap_in_backp = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] );
     ulong snap_in_wait  = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
                           FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] );
     ulong frag_cnt      = FD_VOLATILE_CONST( snap_accs_sync[0] );
