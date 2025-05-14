@@ -209,13 +209,11 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 
   if( !txn ) { /* Modifying last published */
     if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
-      __asm__("int $3");
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_FROZEN );
       return NULL;
     }
   } else {
     if( FD_UNLIKELY( fd_funk_txn_is_frozen( txn ) ) ) {
-      __asm__("int $3");
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_FROZEN );
       return NULL;
     }
