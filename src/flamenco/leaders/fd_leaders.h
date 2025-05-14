@@ -27,12 +27,9 @@
    dedup pubkeys into a lookup table and only store an index for each
    rotation. */
 
-#include "../fd_flamenco_base.h"
+#include "fd_leaders_base.h"
 #include "../types/fd_types.h"
 #include "../../ballet/wsample/fd_wsample.h"
-
-#define MAX_SLOTS_CNT         432000UL
-#define MAX_PUB_CNT           50000UL
 
 #define FD_ULONG_MAX(  a, b ) (__builtin_choose_expr( __builtin_constant_p( a ) & __builtin_constant_p( b ),        \
                                                       ((ulong )(a))>=((ulong )(b)) ? ((ulong )(a)) : ((ulong )(b)), \

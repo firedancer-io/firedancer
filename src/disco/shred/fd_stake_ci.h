@@ -15,8 +15,7 @@
 #include "fd_shred_dest.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 
-#define MAX_SHRED_DESTS              40200UL
-#define MAX_SLOTS_PER_EPOCH         432000UL
+#define MAX_SHRED_DESTS             MAX_STAKED_LEADERS
 /* staked+unstaked <= MAX_SHRED_DESTS implies
    MAX_SHRED_DEST_FOOTPRINT>=fd_shred_dest_footprint( staked, unstaked )
    This is asserted in the tests.  The size of fd_shred_dest_t, varies
@@ -119,12 +118,11 @@ void * fd_stake_ci_delete( void          * mem  );
    need to cancel an operation that begun but didn't finish.  Calling
    init multiple times without calling fini will not leak any resources.
 
-   new_message should be a pointer to the first byte of the dcache entry
-   containing the stakes update.  new_message will be accessed
-   new_message[i] for i in [0, FD_STAKE_CI_STAKE_MSG_SZ).  new_message
-   must contain at least one staked pubkey, and the pubkeys must be
-   sorted in the usual way (by stake descending, ties broken by pubkey
-   ascending).
+   msg should be a pointer to the first byte of the dcache entry
+   containing the stakes update. msg will be accessed msg->weights[i]
+   for i in [0, msg->staked_cnt).  msg must contain at least one
+   staked pubkey, and the pubkeys must be sorted in the usual way (by
+   stake descending, ties broken by pubkey ascending).
 
    fd_stake_ci_dest_add_init behaves slightly differently and returns a
    pointer to the first element of an array of size MAX_SHRED_DESTS-1 to
@@ -148,10 +146,10 @@ void * fd_stake_ci_delete( void          * mem  );
    contact info will be preserved.  If a stake message doesn't have
    contact info for an unstaked node, on the other hand, that node will
    be deleted from the list. */
-void                       fd_stake_ci_stake_msg_init( fd_stake_ci_t * info, uchar const * new_message );
-void                       fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info                            );
-fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info                            );
-void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulong cnt                 );
+void                       fd_stake_ci_stake_msg_init( fd_stake_ci_t * info, fd_stake_weight_msg_t const * msg );
+void                       fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info                                    );
+fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info                                    );
+void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulong                         cnt );
 
 
 /* fd_stake_ci_set_identity changes the identity of the locally running

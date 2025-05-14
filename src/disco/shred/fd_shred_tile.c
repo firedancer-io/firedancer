@@ -86,10 +86,6 @@
    have a max and use statically sized arrays than alloca. */
 #define MAX_BANK_CNT 64UL
 
-/* MAX_SHRED_DESTS indicates the maximum number of destinations (i.e. a
-   pubkey -> ip, port) that the shred tile can keep track of. */
-#define MAX_SHRED_DESTS 40200UL
-
 #define FD_SHRED_TILE_SCRATCH_ALIGN 128UL
 
 #define IN_KIND_CONTACT (0UL)
@@ -101,8 +97,6 @@
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
-
-#define MAX_SLOTS_PER_EPOCH 432000UL
 
 #define DCACHE_ENTRIES_PER_FEC_SET (4UL)
 FD_STATIC_ASSERT( sizeof(fd_shred34_t) < USHORT_MAX, shred_34 );
@@ -397,7 +391,7 @@ during_frag( fd_shred_ctx_t * ctx,
                    ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
+    fd_stake_ci_stake_msg_init( ctx->stake_ci, fd_type_pun_const( dcache_entry ) );
     return;
   }
 

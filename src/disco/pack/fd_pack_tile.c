@@ -25,8 +25,6 @@
 #define IN_KIND_BANK   (2UL)
 #define IN_KIND_SIGN   (3UL)
 
-#define MAX_SLOTS_PER_EPOCH          432000UL
-
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/bank.  At 31
    transactions/microblock, that's 62k txn/sec/bank. */

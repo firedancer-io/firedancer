@@ -1,5 +1,4 @@
 #include "fd_stake_ci.h"
-
 #define SLOTS_PER_EPOCH 1000 /* Just for testing */
 
 fd_stake_ci_t _info[1];
@@ -8,20 +7,11 @@ uchar stake_msg[ FD_STAKE_CI_STAKE_MSG_SZ ];
 
 fd_pubkey_t identity_key[1];
 
-typedef struct {
-    ulong epoch;
-    ulong staked_cnt;
-    ulong start_slot;
-    ulong slot_cnt;
-    ulong excluded_stake;
-    fd_stake_weight_t weights[];
-  } stake_msg_hdr_t;
-
-static uchar *
+static fd_stake_weight_msg_t *
 generate_stake_msg( uchar *      _buf,
                     ulong        epoch,
                     char const * stakers ) {
-  stake_msg_hdr_t *buf = (stake_msg_hdr_t *)_buf;
+  fd_stake_weight_msg_t *buf = fd_type_pun( _buf );
 
   buf->epoch          = epoch;
   buf->start_slot     = epoch * SLOTS_PER_EPOCH;
@@ -34,7 +24,7 @@ generate_stake_msg( uchar *      _buf,
     memset( buf->weights[i].key.uc, *stakers, sizeof(fd_pubkey_t) );
     buf->weights[i].stake = 1000UL/(i+1UL);
   }
-  return _buf;
+  return fd_type_pun( _buf );
 }
 
 static ulong
@@ -346,12 +336,12 @@ test_limits( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   for( ulong stake_weight_cnt=40198UL; stake_weight_cnt<=40201UL; stake_weight_cnt++ ) {
-    stake_msg_hdr_t * buf = (stake_msg_hdr_t *)stake_msg;
-    buf->epoch          = stake_weight_cnt;
-    buf->start_slot     = stake_weight_cnt * SLOTS_PER_EPOCH;
-    buf->slot_cnt       = SLOTS_PER_EPOCH;
-    buf->staked_cnt     = 0UL;
-    buf->excluded_stake = 0UL;
+    fd_stake_weight_msg_t * buf = fd_type_pun( stake_msg );
+    buf->epoch                  = stake_weight_cnt;
+    buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
+    buf->slot_cnt               = SLOTS_PER_EPOCH;
+    buf->staked_cnt             = 0UL;
+    buf->excluded_stake         = 0UL;
 
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
@@ -364,7 +354,7 @@ test_limits( void ) {
         buf->excluded_stake += stake;
       }
     }
-    fd_stake_ci_stake_msg_init( info, stake_msg );
+    fd_stake_ci_stake_msg_init( info, buf );
     fd_stake_ci_stake_msg_fini( info );
 
     for( ulong cluster_info_cnt=40198UL; cluster_info_cnt<=40201UL; cluster_info_cnt++ ) {

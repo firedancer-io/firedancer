@@ -319,9 +319,9 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
 
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
-void fd_repair_set_stake_weights_init( fd_repair_t * repair,
+void fd_repair_set_stake_weights_init( fd_repair_t             * repair,
                                        fd_stake_weight_t const * stake_weights,
-                                       ulong stake_weights_cnt );
+                                       ulong                     stake_weights_cnt );
 
 void fd_repair_set_stake_weights_fini( fd_repair_t * repair );
 
