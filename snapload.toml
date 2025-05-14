@@ -2,6 +2,7 @@
 max_page_size = "huge"
 
 [funk]
+max_account_records = 100_000_000
 heap_size_gib = 64
 
 [log]

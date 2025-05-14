@@ -441,6 +441,10 @@ typedef struct {
       ulong funk_obj_id;
     } actalc;
 
+    struct {
+      ulong funk_obj_id;
+    } actidx;
+
   };
 } fd_topo_tile_t;
 

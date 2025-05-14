@@ -30,6 +30,8 @@ union fd_account_frag_meta {
 
   fd_frag_meta_t f[1];
 
+  fd_stream_frag_meta_t acc[1];
+
 };
 
 typedef union fd_account_frag_meta fd_account_frag_meta_t;

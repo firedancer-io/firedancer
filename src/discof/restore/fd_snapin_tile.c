@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <unistd.h>
 
+#define NAME        "SnapIn"
 #define LINK_IN_MAX  1UL
 #define BURST       16UL
 
@@ -578,10 +579,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `FileRd` tile" ));
+  if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
 
-  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `FileRd` has %lu ins, expected 1",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `FileRd` has %lu outs, expected 1", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
   /* FIXME check link names */
 
   if( FD_UNLIKELY( !tile->snapin.scratch_sz ) ) FD_LOG_ERR(( "scratch_sz param not set" ));
@@ -1140,7 +1141,7 @@ fd_snapin_run1(
   }
 }
 
-static void
+FD_FN_UNUSED static void
 fd_snapin_run( fd_topo_t *      topo,
                fd_topo_tile_t * tile ) {
   fd_stream_frag_meta_t * in_mcache[ LINK_IN_MAX ];

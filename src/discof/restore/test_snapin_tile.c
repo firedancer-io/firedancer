@@ -1,3 +1,4 @@
+#define FD_TILE_TEST
 #include "fd_snapin_tile.c"
 
 int
@@ -11,6 +12,13 @@ main( int     argc,
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
+
+  fd_topo_tile_t topo_tile = {
+    .name = "snapin",
+  };
+
+  uchar * tile_scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( &topo_tile ), 1UL );
+  FD_TEST( tile_scratch );
 
   fd_wksp_delete_anonymous( wksp );
 
