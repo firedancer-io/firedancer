@@ -68,7 +68,13 @@ static void * work_thread(void * arg) {
       fd_funk_rec_prepare_t prepare[1];
       fd_funk_rec_t * rec = fd_funk_rec_prepare(funk, txn, &key, prepare, NULL);
       if( rec == NULL ) continue;
-      void * val = fd_funk_val_truncate(rec, sizeof(ulong), fd_funk_alloc( funk ), wksp, NULL);
+      void * val = fd_funk_val_truncate(
+          rec,
+          fd_funk_alloc( funk ),
+          wksp,
+          0UL,
+          sizeof(ulong),
+          NULL);
       memcpy(val, &key.ul[0], sizeof(ulong));
       fd_funk_rec_publish( funk, prepare );
 
