@@ -259,7 +259,6 @@ ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
 
-
 static void
 gossip_deliver_fun( fd_crds_data_t * data,
                     void *           arg ) {

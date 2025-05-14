@@ -49,7 +49,9 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
   *ci_int = *ci_v2;
 
   ci_int->addrs           = contact_info->addrs;
+  ci_int->addrs_len       = 0U;
   ci_int->sockets         = contact_info->sockets;
+  ci_int->sockets_len     = 0U;
   ci_int->extensions_len  = 0U; /* unsupported */
   ci_int->extensions      = NULL; /* unsupported */
 
@@ -60,14 +62,11 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
      index > FD_GOSSIP_SOCKET_TAG_MAX, even if they are valid.
 
      TODO: populate socket entries first and then build addrs list */
-  ci_int->addrs_len = fd_ushort_min( ci_v2->addrs_len, FD_GOSSIP_SOCKET_TAG_MAX );
-  fd_memcpy( ci_int->addrs, ci_v2->addrs, sizeof(fd_gossip_ip_addr_t)*ci_int->addrs_len );
 
   /* For sockets, validate individual entries and keep track of offsets */
-  ushort sock_cnt   = 0U;
   ushort cur_offset = 0U;
   ushort cur_port   = 0U;
-  for( ulong i = 0UL; i<ci_int->sockets_len; i++ ) {
+  for( ulong i = 0UL; i<ci_v2->sockets_len; i++ ) {
     fd_gossip_socket_entry_t const * socket_entry = &ci_v2->sockets[ i ];
     cur_offset += socket_entry->offset;
     cur_port   += socket_entry->offset;
@@ -82,26 +81,46 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
       FD_LOG_WARNING(( "Duplicate socket tag %u", socket_entry->key ));
       continue;
     }
-    if( FD_UNLIKELY( socket_entry->index >= ci_int->addrs_len ) ) {
-      /* NOTE: This can affect how we select between duplicate entries */
-      FD_LOG_WARNING(( "Invalid socket entry addr index %u", socket_entry->index ));
-      continue;
+
+    /* find (or insert) addr index
+       TODO: can avoid nested for loop with a simple mapping of (ci_v2 addr_idx, ci_int addr_idx) */
+    uchar addr_index = UCHAR_MAX;
+    for( ulong j = 0UL; j < ci_int->addrs_len; j++ ) {
+      if( FD_LIKELY( memcmp(&ci_int->addrs[j], &ci_v2->addrs[socket_entry->index], sizeof(fd_gossip_ip_addr_t)) == 0 ) ) {
+        addr_index = (uchar)j;
+        break;
+      }
     }
 
-    contact_info->socket_tag_idx[ socket_entry->key ] = sock_cnt;
-    ci_int->sockets[ sock_cnt ]                       = *socket_entry;
-    ci_int->sockets[ sock_cnt ].offset                = cur_offset;
-    contact_info->ports[ sock_cnt ]                   = cur_port;
+    if( FD_UNLIKELY( addr_index == UCHAR_MAX ) ) {
+      if( FD_UNLIKELY( socket_entry->index >= ci_v2->addrs_len ) ) {
+        FD_LOG_WARNING(( "addr index %u out of bounds for addrs_len %u", socket_entry->index, ci_v2->addrs_len ));
+        continue;
+      }
+      if( FD_UNLIKELY( ci_int->addrs_len >= FD_GOSSIP_SOCKET_TAG_MAX ) ) {
+        FD_LOG_ERR(( "Too many unique addresses (%u) in contact info, possible broken implementation of fd_contact_info_from_ci_v2", ci_int->addrs_len ));
+        continue;
+      }
+      ci_int->addrs[ ci_int->addrs_len ] = ci_v2->addrs[ socket_entry->index ];
+      addr_index = (uchar)ci_int->addrs_len;
+      ci_int->addrs_len++;
+    }
 
-    sock_cnt++;
+    ci_int->sockets[ ci_int->sockets_len ].index            = addr_index;
+    ci_int->sockets[ ci_int->sockets_len ].key              = socket_entry->key;
+    ci_int->sockets[ ci_int->sockets_len ].offset           = cur_offset;
+
+    /* Metadata updates */
+    contact_info->socket_tag_idx[ socket_entry->key ]       = ci_int->sockets_len;
+    contact_info->ports[ ci_int->sockets_len ]              = cur_port;
+
+    ci_int->sockets_len++;
     cur_offset = 0U;
-
   }
 
-  if( FD_UNLIKELY( sock_cnt > FD_GOSSIP_SOCKET_TAG_MAX ) ){
-    FD_LOG_ERR(( "Too many sockets (%u) in contact info, possible broken implementation of fd_contact_info_from_ci_v2", sock_cnt ));
+  if( FD_UNLIKELY( ci_int->sockets_len > FD_GOSSIP_SOCKET_TAG_MAX ) ){
+    FD_LOG_ERR(( "Too many sockets (%u) in contact info, possible broken implementation of fd_contact_info_from_ci_v2", ci_int->sockets_len ));
   }
-  ci_int->sockets_len = sock_cnt;
 }
 
 void
