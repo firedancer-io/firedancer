@@ -10,6 +10,9 @@
 #define FD_RUNTIME_ENC_BINCODE 0xB13C0DEFU /* classic bincode encoding */
 #define FD_RUNTIME_ENC_ARCHIVE 0xA3C417EAU /* archival encoding */
 
+/* https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L36-L38 */
+#define FD_FEATURE_SIZEOF      (9UL)
+
 FD_PROTOTYPES_BEGIN
 
 static inline fd_funk_rec_key_t
