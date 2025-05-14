@@ -101,7 +101,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
                                          slot_ctx->runtime_wksp );
 }
 
-/* Create EpochRewards syavar with calculated rewards
+/* Create EpochRewards sysvar with calculated rewards
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L25 */
 void
@@ -112,10 +112,6 @@ fd_sysvar_epoch_rewards_init( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                num_partitions,
                               fd_point_value_t     point_value,
                               fd_hash_t const *    last_blockhash ) {
-  if( FD_UNLIKELY( total_rewards < distributed_rewards ) ) {
-    FD_LOG_ERR(( "total rewards overflow" ));
-  }
-
   fd_sysvar_epoch_rewards_t epoch_rewards = {
     .distribution_starting_block_height = distribution_starting_block_height,
     .num_partitions                     = num_partitions,
@@ -131,6 +127,10 @@ fd_sysvar_epoch_rewards_init( fd_exec_slot_ctx_t * slot_ctx,
       https://github.com/anza-xyz/agave/blob/b9c9ecccbb05d9da774d600bdbef2cf210c57fa8/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L36-L43 */
   if( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) ) {
     epoch_rewards.total_rewards = point_value.rewards;
+  }
+
+  if( FD_UNLIKELY( epoch_rewards.total_rewards<distributed_rewards ) ) {
+    FD_LOG_ERR(( "total rewards overflow" ));
   }
 
   fd_memcpy( &epoch_rewards.parent_blockhash, last_blockhash, FD_HASH_FOOTPRINT );
