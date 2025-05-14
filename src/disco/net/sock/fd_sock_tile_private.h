@@ -4,6 +4,7 @@
 #if FD_HAS_HOSTED
 
 #include "../../../util/fd_util_base.h"
+#include "../../metrics/generated/fd_metrics_enums.h"
 #include <poll.h>
 #include <sys/socket.h>
 
@@ -26,13 +27,12 @@
 
 struct fd_sock_tile_metrics {
   ulong sys_recvmmsg_cnt;
-  ulong sys_sendmmsg_cnt;
+  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_CNT ];
   ulong rx_pkt_cnt;
   ulong tx_pkt_cnt;
   ulong tx_drop_cnt;
   ulong rx_bytes_total;
   ulong tx_bytes_total;
-  ulong tx_permission_error_cnt;
 };
 
 typedef struct fd_sock_tile_metrics fd_sock_tile_metrics_t;

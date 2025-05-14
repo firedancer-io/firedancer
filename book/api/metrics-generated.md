@@ -557,14 +557,18 @@
 ## Sock Tile
 | Metric | Type | Description |
 |--------|------|-------------|
-| sock_&#8203;syscalls_&#8203;sendmmsg | `counter` | Number of sendmmsg syscalls dispatched |
+| sock_&#8203;syscalls_&#8203;sendmmsg_&#8203;no_&#8203;error | `counter` | Number of sendmmsg syscalls dispatched (No error) |
+| sock_&#8203;syscalls_&#8203;sendmmsg_&#8203;slow | `counter` | Number of sendmmsg syscalls dispatched (ENOBUFS, EAGAIN error) |
+| sock_&#8203;syscalls_&#8203;sendmmsg_&#8203;perm | `counter` | Number of sendmmsg syscalls dispatched (EPERM error (blocked by netfilter)) |
+| sock_&#8203;syscalls_&#8203;sendmmsg_&#8203;unreach | `counter` | Number of sendmmsg syscalls dispatched (ENETUNREACH, EHOSTUNREACH error) |
+| sock_&#8203;syscalls_&#8203;sendmmsg_&#8203;down | `counter` | Number of sendmmsg syscalls dispatched (ENONET, ENETDOWN, EHOSTDOWN error) |
+| sock_&#8203;syscalls_&#8203;sendmmsg_&#8203;other | `counter` | Number of sendmmsg syscalls dispatched (Unrecognized error code) |
 | sock_&#8203;syscalls_&#8203;recvmmsg | `counter` | Number of recvmsg syscalls dispatched |
 | sock_&#8203;rx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets received |
 | sock_&#8203;tx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets sent |
 | sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |
 | sock_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
 | sock_&#8203;rx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes received (including Ethernet header). |
-| sock_&#8203;tx_&#8203;permission_&#8203;error_&#8203;cnt | `counter` | Number of send attempts that failed with EPERM (e.g. due to nftables) |
 
 ## Repair Tile
 | Metric | Type | Description |
