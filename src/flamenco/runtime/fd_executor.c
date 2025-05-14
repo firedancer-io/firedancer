@@ -1091,6 +1091,30 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;;
 }
 
+/* This function mimics Agave's `.and(self.pop())` functionality,
+   where we always pop the instruction stack no matter what the error code is.
+   https://github.com/anza-xyz/agave/blob/v2.2.12/program-runtime/src/invoke_context.rs#L480 */
+static inline int
+fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
+                      fd_instr_info_t *     instr,
+                      int                   instr_exec_result ) {
+  int stack_pop_err = fd_instr_stack_pop( instr_ctx->txn_ctx, instr );
+
+  /* Only report the stack pop error on success */
+  if( FD_UNLIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS && stack_pop_err ) ) {
+    FD_TXN_PREPARE_ERR_OVERWRITE( instr_ctx->txn_ctx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, stack_pop_err, instr_ctx->txn_ctx->instr_err_idx );
+    instr_exec_result = stack_pop_err;
+  }
+
+  if( FD_UNLIKELY( instr_exec_result && !instr_ctx->txn_ctx->failed_instr ) ) {
+    instr_ctx->txn_ctx->failed_instr = instr_ctx;
+    instr_ctx->instr_err   = (uint)( -instr_exec_result - 1 );
+  }
+
+  return instr_exec_result;
+}
+
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
@@ -1131,7 +1155,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
        https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/message_processor.rs#L88 */
     fd_exec_instr_fn_t native_prog_fn;
     uchar              is_precompile;
-    int                stack_pop_err;
     int                err = fd_executor_lookup_native_program( &txn_ctx->accounts[ instr->program_id ],
                                                                 txn_ctx,
                                                                 &native_prog_fn,
@@ -1167,7 +1190,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       instr_exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
       FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
-      goto instr_stack_pop;
+      return fd_execute_instr_end( ctx, instr, instr_exec_result );
     }
 
     if( FD_LIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS ) ) {
@@ -1185,24 +1208,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_log_collector_program_failure( ctx );
     }
 
-  /* Having this "goto" block here allows us to control the flow similar to Agave,
-     where we always pop the instruction stack no matter what the error code is.
-     https://github.com/anza-xyz/agave/blob/v2.2.12/program-runtime/src/invoke_context.rs#L480 */
-  instr_stack_pop:
-    stack_pop_err = fd_instr_stack_pop( txn_ctx, instr );
-    /* Only report the stack pop error on success */
-    if( FD_UNLIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS && stack_pop_err ) ) {
-      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, stack_pop_err, txn_ctx->instr_err_idx );
-      instr_exec_result = stack_pop_err;
-    }
-
-    if( FD_UNLIKELY( instr_exec_result && !txn_ctx->failed_instr ) ) {
-      txn_ctx->failed_instr = ctx;
-      ctx->instr_err        = (uint)( -instr_exec_result - 1 );
-    }
-
-    return instr_exec_result;
+    return fd_execute_instr_end( ctx, instr, instr_exec_result );
   } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
 
