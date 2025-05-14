@@ -25,12 +25,18 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   int funk_err = 0;
-  uchar * buf = fd_funk_val_truncate( rec, sz, fd_funk_alloc( funk ), fd_funk_wksp( funk ), &funk_err );
+  uchar * buf = fd_funk_val_truncate(
+      rec,
+      fd_funk_alloc( funk ),
+      fd_funk_wksp( funk ),
+      0UL,
+      sz,
+      &funk_err );
   if( FD_UNLIKELY( !buf ) ) FD_LOG_ERR(( "fd_funk_val_truncate() failed (%i-%s)", funk_err, fd_funk_strerror( funk_err ) ));
   FD_STORE( uint, buf, FD_RUNTIME_ENC_BINCODE );
   fd_bincode_encode_ctx_t ctx = {
-      .data = buf + sizeof(uint),
-      .dataend = buf + sz,
+    .data = buf + sizeof(uint),
+    .dataend = buf + sz,
   };
 
   if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
@@ -66,7 +72,13 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   int funk_err = 0;
-  uchar * buf = fd_funk_val_truncate( rec, sz, fd_funk_alloc( funk ), fd_funk_wksp( funk ), &funk_err );
+  uchar * buf = fd_funk_val_truncate(
+      rec,
+      fd_funk_alloc( funk ),
+      fd_funk_wksp( funk ),
+      0UL,
+      sz,
+      &funk_err );
   if( FD_UNLIKELY( !buf ) ) FD_LOG_ERR(( "fd_funk_val_truncate() failed (%i-%s)", funk_err, fd_funk_strerror( funk_err ) ));
   FD_STORE( uint, buf, FD_RUNTIME_ENC_BINCODE );
   fd_bincode_encode_ctx_t ctx = {
