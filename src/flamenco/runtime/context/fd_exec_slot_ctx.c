@@ -593,13 +593,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
     }
   } while(0);
 
-  FD_LOG_WARNING(("Recovered EpochStakes of size %lu", fd_vote_accounts_size( &epoch_bank->next_epoch_stakes )));
-
   if ( NULL != manifest->lthash )
     slot_ctx->slot_bank.lthash = *manifest->lthash;
   else
     fd_lthash_zero( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash );
-
 
   fd_rent_fresh_accounts_global_t * rent_fresh_accounts = fd_bank_mgr_rent_fresh_accounts_modify( bank_mgr );
 

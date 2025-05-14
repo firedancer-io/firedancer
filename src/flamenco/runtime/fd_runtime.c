@@ -2281,9 +2281,6 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  // fd_bank_mgr_t   bank_mgr_obj;
-  // fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
   fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_query( slot_ctx->bank_mgr );
   if( FD_UNLIKELY( stake_account_keys==NULL ) ) {
     return;
@@ -4097,10 +4094,8 @@ fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                                                           poh_verification_info_cnt * sizeof(fd_poh_verification_info_t) );
   fd_runtime_block_verify_info_collect( block_info, &tmp_in_poh_hash, poh_verification_info );
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr        = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong *         tick_height     = fd_bank_mgr_tick_height_query( bank_mgr );
-  ulong *         max_tick_height = fd_bank_mgr_max_tick_height_query( bank_mgr );
+  ulong * tick_height     = fd_bank_mgr_tick_height_query( slot_ctx->bank_mgr );
+  ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( slot_ctx->bank_mgr );
 
   uchar * block_data = fd_spad_alloc( runtime_spad, 128UL, FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT );
   ulong   tick_res   = fd_runtime_block_verify_ticks( slot_ctx->blockstore,
@@ -4109,7 +4104,7 @@ fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                                       FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT,
                                                       *tick_height,
                                                       *max_tick_height,
-                                                      *(fd_bank_mgr_hashes_per_tick_query( bank_mgr ))
+                                                      *(fd_bank_mgr_hashes_per_tick_query( slot_ctx->bank_mgr ))
   );
   if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
     FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, slot_ctx->slot ));
