@@ -155,20 +155,18 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, &slot_idx );
 
-  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
-
   if( FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, accounts_lt_hash) ) {
-    ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+    ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( slot_ctx->bank_mgr );
     *eah_start_slot = ULONG_MAX;
-    fd_bank_mgr_eah_start_slot_save( bank_mgr );
+    fd_bank_mgr_eah_start_slot_save( slot_ctx->bank_mgr );
 
-    ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_modify( bank_mgr );
+    ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_modify( slot_ctx->bank_mgr );
     *eah_stop_slot = ULONG_MAX;
-    fd_bank_mgr_eah_stop_slot_save( bank_mgr );
+    fd_bank_mgr_eah_stop_slot_save( slot_ctx->bank_mgr );
 
-    ulong * eah_interval = fd_bank_mgr_eah_interval_modify( bank_mgr );
+    ulong * eah_interval = fd_bank_mgr_eah_interval_modify( slot_ctx->bank_mgr );
     *eah_interval = ULONG_MAX;
-    fd_bank_mgr_eah_interval_save( bank_mgr );
+    fd_bank_mgr_eah_interval_save( slot_ctx->bank_mgr );
     return;
   }
 
@@ -185,39 +183,39 @@ fd_calculate_epoch_accounts_hash_values( fd_exec_slot_ctx_t * slot_ctx ) {
   const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
 
   if( calculation_interval < MINIMUM_CALCULATION_INTERVAL ) {
-    ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+    ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( slot_ctx->bank_mgr );
     *eah_start_slot = ULONG_MAX;
-    fd_bank_mgr_eah_start_slot_save( bank_mgr );
+    fd_bank_mgr_eah_start_slot_save( slot_ctx->bank_mgr );
 
-    ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_modify( bank_mgr );
+    ulong * eah_stop_slot = fd_bank_mgr_eah_stop_slot_modify( slot_ctx->bank_mgr );
     *eah_stop_slot = ULONG_MAX;
-    fd_bank_mgr_eah_stop_slot_save( bank_mgr );
+    fd_bank_mgr_eah_stop_slot_save( slot_ctx->bank_mgr );
 
-    ulong * eah_interval = fd_bank_mgr_eah_interval_modify( bank_mgr );
+    ulong * eah_interval = fd_bank_mgr_eah_interval_modify( slot_ctx->bank_mgr );
     *eah_interval = ULONG_MAX;
-    fd_bank_mgr_eah_interval_save( bank_mgr );
+    fd_bank_mgr_eah_interval_save( slot_ctx->bank_mgr );
 
     return;
   }
 
-  ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( bank_mgr );
+  ulong * eah_start_slot = fd_bank_mgr_eah_start_slot_modify( slot_ctx->bank_mgr );
 
   *eah_start_slot = first_slot_in_epoch + calculation_offset_start;
   if( slot_ctx->slot > *eah_start_slot ) {
     *eah_start_slot = ULONG_MAX;
   }
-  fd_bank_mgr_eah_start_slot_save( bank_mgr );
+  fd_bank_mgr_eah_start_slot_save( slot_ctx->bank_mgr );
 
-  ulong * eah_end_slot = fd_bank_mgr_eah_stop_slot_modify( bank_mgr );
+  ulong * eah_end_slot = fd_bank_mgr_eah_stop_slot_modify( slot_ctx->bank_mgr );
   *eah_end_slot = first_slot_in_epoch + calculation_offset_stop;
   if( slot_ctx->slot > *eah_end_slot ) {
     *eah_end_slot = ULONG_MAX;
   }
-  fd_bank_mgr_eah_stop_slot_save( bank_mgr );
+  fd_bank_mgr_eah_stop_slot_save( slot_ctx->bank_mgr );
 
-  ulong * eah_interval = fd_bank_mgr_eah_interval_modify( bank_mgr );
+  ulong * eah_interval = fd_bank_mgr_eah_interval_modify( slot_ctx->bank_mgr );
   *eah_interval = calculation_interval;
-  fd_bank_mgr_eah_interval_save( bank_mgr );
+  fd_bank_mgr_eah_interval_save( slot_ctx->bank_mgr );
 
 }
 
@@ -228,9 +226,7 @@ fd_should_include_epoch_accounts_hash( fd_exec_slot_ctx_t * slot_ctx ) {
     return 0;
   }
 
-  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
-
-  ulong calculation_stop = *fd_bank_mgr_eah_stop_slot_query( bank_mgr );
+  ulong calculation_stop = *fd_bank_mgr_eah_stop_slot_query( slot_ctx->bank_mgr );
   return slot_ctx->slot_bank.prev_slot < calculation_stop && (slot_ctx->slot >= calculation_stop);
 }
 
@@ -243,24 +239,22 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
               ulong                   dirty_key_cnt ) {
   slot_ctx->slot_bank.prev_banks_hash = slot_ctx->slot_bank.banks_hash;
 
-  FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
-
-  ulong * signature_cnt_bm     = fd_bank_mgr_signature_cnt_query( bank_mgr );
+  ulong * signature_cnt_bm     = fd_bank_mgr_signature_cnt_query( slot_ctx->bank_mgr );
   ulong   signature_cnt        = !!signature_cnt_bm ? *signature_cnt_bm : 0UL;
-  ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_modify( bank_mgr );
+  ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_modify( slot_ctx->bank_mgr );
   *parent_signature_cnt        = signature_cnt;
-  fd_bank_mgr_parent_signature_cnt_save( bank_mgr );
+  fd_bank_mgr_parent_signature_cnt_save( slot_ctx->bank_mgr );
 
-  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( slot_ctx->bank_mgr );
 
-  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( slot_ctx->bank_mgr );
   *prev_lamports_per_signature = *lamports_per_signature;
-  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+  fd_bank_mgr_prev_lamports_per_signature_save( slot_ctx->bank_mgr );
 
-  ulong * transaction_count = fd_bank_mgr_transaction_count_query( bank_mgr );
+  ulong * transaction_count = fd_bank_mgr_transaction_count_query( slot_ctx->bank_mgr );
   slot_ctx->parent_transaction_count = *transaction_count;
 
-  fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( bank_mgr );
+  fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_query( slot_ctx->bank_mgr );
 
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ) {
     sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );
@@ -275,7 +269,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
     fd_sha256_append( &sha, (uchar const *) &slot_ctx->account_delta_hash, sizeof( fd_hash_t  ) );
   fd_sha256_append( &sha, (uchar const *) &signature_cnt, sizeof( ulong ) );
 
-  fd_hash_t * poh = fd_bank_mgr_poh_query( bank_mgr );
+  fd_hash_t * poh = fd_bank_mgr_poh_query( slot_ctx->bank_mgr );
   fd_sha256_append( &sha, (uchar const *) poh, sizeof( fd_hash_t ) );
 
   fd_sha256_fini( &sha, hash->hash );
@@ -614,11 +608,9 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
 
     /* Sort and hash "dirty keys" to the accounts delta hash. */
 
-    FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
-
-    ulong * signature_cnt_bm = fd_bank_mgr_signature_cnt_modify( bank_mgr );
+    ulong * signature_cnt_bm = fd_bank_mgr_signature_cnt_modify( slot_ctx->bank_mgr );
     *signature_cnt_bm = signature_cnt;
-    fd_bank_mgr_signature_cnt_save( bank_mgr );
+    fd_bank_mgr_signature_cnt_save( slot_ctx->bank_mgr );
 
     fd_hash_bank( slot_ctx, capture_ctx, hash, dirty_keys, dirty_key_cnt);
 
