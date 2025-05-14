@@ -40,7 +40,7 @@ backtest_topo( config_t * config ) {
 
   enum{
   metric_cpu_idx=0,
-  rocksdb_cpu_idx,
+  backtest_cpu_idx,
   replay_cpu_idx,
   exec_idx_start
   };
@@ -55,10 +55,17 @@ backtest_topo( config_t * config ) {
   fd_topob_tile( topo, "metric", "metric", "metric_in", metric_cpu_idx, 0, 0 );
 
   /**********************************************************************/
-  /* Add the rocksdb tile to topo                                       */
+  /* Add the backtest tile to topo                                      */
   /**********************************************************************/
-  fd_topob_wksp( topo, "rocksdb" );
-  fd_topo_tile_t * rocksdb_tile = fd_topob_tile( topo, "arch_b", "rocksdb", "metric_in", rocksdb_cpu_idx, 0, 0 );
+  fd_topob_wksp( topo, "backtest" );
+  fd_topo_tile_t * backtest_tile   = fd_topob_tile( topo, "btest", "backtest", "metric_in", backtest_cpu_idx, 0, 0 );
+  backtest_tile->archiver.end_slot = config->tiles.archiver.end_slot;
+  strncpy( backtest_tile->archiver.archiver_path, config->tiles.archiver.archiver_path, PATH_MAX );
+  if( FD_UNLIKELY( 0==strlen( backtest_tile->archiver.archiver_path ) ) ) {
+    FD_LOG_ERR(( "Rocksdb not found, check `archiver.archiver_path` in toml" ));
+  } else {
+    FD_LOG_NOTICE(( "Found rocksdb path from config: %s", backtest_tile->archiver.archiver_path ));
+  }
 
   /**********************************************************************/
   /* Add the replay tile to topo                                        */
@@ -99,12 +106,12 @@ backtest_topo( config_t * config ) {
   topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "store_replay", 0 ) ] ].permit_no_producers = 1;
 
   /**********************************************************************/
-  /* Setup rocksdb->replay link (repair_repla) in topo                  */
+  /* Setup backtest->replay link (repair_repla) in topo                 */
   /**********************************************************************/
   fd_topob_wksp( topo, "repair_repla" );
   fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(ulong), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "arch_b", 0UL, "repair_repla", 0UL );
+  fd_topob_tile_out( topo, "btest", 0UL, "repair_repla", 0UL );
 
   /**********************************************************************/
   /* Setup pack/batch->replay links in topo w/o a producer              */
@@ -139,11 +146,11 @@ backtest_topo( config_t * config ) {
   FOR(bank_tile_cnt) topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_poh", i ) ] ].permit_no_consumers = 1;
 
   /**********************************************************************/
-  /* Setup replay->rocksdb link (replay_notif) in topo                  */
+  /* Setup replay->backtest link (replay_notif) in topo                 */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_notif" );
   fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH, FD_REPLAY_NOTIF_MTU, 1UL );
-  fd_topob_tile_in(  topo, "arch_b", 0UL, "metric_in", "replay_notif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in(  topo, "btest", 0UL, "metric_in", "replay_notif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_notif", 0UL );
 
   /**********************************************************************/
@@ -179,7 +186,7 @@ backtest_topo( config_t * config ) {
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
-  /* blockstore_obj shared by replay and rocksdb tiles */
+  /* blockstore_obj shared by replay and backtest tiles */
   fd_topob_wksp( topo, "bstore"      );
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
                                                           "bstore",
@@ -189,14 +196,14 @@ backtest_topo( config_t * config ) {
                                                           config->firedancer.blockstore.txn_max,
                                                           config->firedancer.blockstore.alloc_max );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, rocksdb_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, backtest_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
-  /* turb_slot_obj shared by replay and rocksdb tiles */
+  /* turb_slot_obj shared by replay and backtest tiles */
   fd_topob_wksp( topo, "turb_slot"   );
   fd_topo_obj_t * turb_slot_obj = fd_topob_obj( topo, "fseq", "turb_slot" );
   fd_topob_tile_uses( topo, replay_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, rocksdb_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, backtest_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, turb_slot_obj->id, "turb_slot" ) );
 
   /* runtime_pub_obj shared by replay, exec and writer tiles */
@@ -238,11 +245,11 @@ backtest_topo( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, writer_fseq_obj->id, "writer_fseq.%lu", i ) );
   }
 
-  /* root_slot_obj shared by replay and rocksdb tiles */
-  fd_topob_wksp( topo, "root_slot" );
+  /* root_slot_obj shared by replay and backtest tiles */
+  fd_topob_wksp( topo, "root_slot"    );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, rocksdb_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( topo, backtest_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
 
   /* txncache_obj, busy_obj, poh_slot_obj and constipated_obj only by replay tile */

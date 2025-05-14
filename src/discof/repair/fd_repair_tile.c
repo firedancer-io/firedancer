@@ -882,6 +882,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
+  ctx->stem = stem;
+
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_CONTACT ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
@@ -1035,7 +1037,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
-  ctx->stem = stem;
   fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->buffer;
   fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
