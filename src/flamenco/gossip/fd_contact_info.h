@@ -75,7 +75,7 @@ fd_contact_info_get_socket_addr( fd_contact_info_t const *  ci_int,
 int
 fd_contact_info_insert_socket( fd_contact_info_t *            ci_int,
                                fd_gossip_peer_addr_t const *  peer,
-                               uchar socket_tag );
+                               uchar                          socket_tag );
 
 /***** Conversion APIs *****/
 

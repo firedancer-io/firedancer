@@ -52,16 +52,11 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
   ci_int->addrs_len       = 0U;
   ci_int->sockets         = contact_info->sockets;
   ci_int->sockets_len     = 0U;
-  ci_int->extensions_len  = 0U; /* unsupported */
   ci_int->extensions      = NULL; /* unsupported */
+  ci_int->extensions_len  = 0U;   /* unsupported */
 
   reset_socket_tag_idx( contact_info->socket_tag_idx );
 
-  /* For addrs, copy first FD_GOSSIP_SOCKET_TAG_MAX entries only.
-     NOTE: This means we have to drop socket entries where
-     index > FD_GOSSIP_SOCKET_TAG_MAX, even if they are valid.
-
-     TODO: populate socket entries first and then build addrs list */
 
   /* For sockets, validate individual entries and keep track of offsets */
   ushort cur_offset = 0U;
@@ -77,12 +72,13 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
       // FD_LOG_WARNING(( "Invalid socket entry key %u", socket_entry->key ));
       continue;
     }
+
     if( FD_UNLIKELY( contact_info->socket_tag_idx[ socket_entry->key ]!=USHORT_MAX ) ){
       FD_LOG_WARNING(( "Duplicate socket tag %u", socket_entry->key ));
       continue;
     }
 
-    /* find (or insert) addr index
+    /* Find addr index
        TODO: can avoid nested for loop with a simple mapping of (ci_v2 addr_idx, ci_int addr_idx) */
     uchar addr_index = UCHAR_MAX;
     for( ulong j = 0UL; j < ci_int->addrs_len; j++ ) {
@@ -92,6 +88,7 @@ fd_contact_info_from_ci_v2( fd_gossip_contact_info_v2_t const * ci_v2,
       }
     }
 
+    /* Add entry to end of addrs if does not exist */
     if( FD_UNLIKELY( addr_index == UCHAR_MAX ) ) {
       if( FD_UNLIKELY( socket_entry->index >= ci_v2->addrs_len ) ) {
         FD_LOG_WARNING(( "addr index %u out of bounds for addrs_len %u", socket_entry->index, ci_v2->addrs_len ));
