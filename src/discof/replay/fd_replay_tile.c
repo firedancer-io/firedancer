@@ -1297,7 +1297,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
 static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
-  FD_LOG_INFO(( "sending init msg" ));
+  FD_LOG_NOTICE(( "sending init msg" ));
   fd_replay_out_link_t * bank_out = &ctx->bank_out[ 0UL ];
   fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->epoch_ctx );
@@ -2483,6 +2483,14 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
+replay_publish_leader_schedule( void *ctx, uchar *memory, ulong len )
+{
+  (void) ctx;
+  (void) memory;
+  (void) len;
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
@@ -2714,6 +2722,9 @@ unprivileged_init( fd_topo_t *      topo,
     one_off_features[i] = tile->replay.enable_features[i];
   }
   fd_features_enable_one_offs(&ctx->epoch_ctx->features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL);
+
+  ctx->epoch_ctx->hooks.publish_leader_schedule = replay_publish_leader_schedule;
+  ctx->epoch_ctx->hooks.publish_leader_schedule_ctx = ctx;
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
