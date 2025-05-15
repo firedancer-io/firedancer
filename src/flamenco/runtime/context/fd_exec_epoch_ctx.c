@@ -237,6 +237,8 @@ fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
 
   self->runtime_public->features = prev->features; /* large memcpy */
 
+  fd_memcpy(&self->hooks, &prev->hooks, sizeof(self->hooks));
+
   fd_epoch_bank_t * old_epoch_bank = fd_exec_epoch_ctx_epoch_bank( prev );
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {

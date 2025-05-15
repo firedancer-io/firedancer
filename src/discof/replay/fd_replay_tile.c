@@ -1295,7 +1295,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
 static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
-  FD_LOG_INFO(( "sending init msg" ));
+  FD_LOG_NOTICE(( "sending init msg" ));
   fd_replay_out_link_t * bank_out = &ctx->bank_out[ 0UL ];
   fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->epoch_ctx );
@@ -2479,6 +2479,22 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
+replay_publish_leader_schedule( void *_ctx, uchar *memory, ulong len )
+{
+  fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *) _ctx;
+
+  FD_LOG_NOTICE(( "sending publish leader schedule %lu", len ));
+  fd_replay_out_link_t * bank_out = &ctx->bank_out[ 0UL ];
+  uchar * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
+  fd_memcpy(msg, memory, len);
+
+  ulong sig = fd_disco_replay_old_sig( ctx->slot_ctx->slot_bank.slot, REPLAY_FLAG_PUBLISH_LEADER );
+  fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, len, 0UL, 0UL, 0UL );
+  bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, len, bank_out->chunk0, bank_out->wmark );
+  bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
@@ -2710,6 +2726,9 @@ unprivileged_init( fd_topo_t *      topo,
     one_off_features[i] = tile->replay.enable_features[i];
   }
   fd_features_enable_one_offs(&ctx->epoch_ctx->features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL);
+
+  ctx->epoch_ctx->hooks.publish_leader_schedule = replay_publish_leader_schedule;
+  ctx->epoch_ctx->hooks.publish_leader_schedule_ctx = ctx;
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );

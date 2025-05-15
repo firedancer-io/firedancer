@@ -355,6 +355,8 @@
 #define IN_KIND_BANK  (0)
 #define IN_KIND_PACK  (1)
 #define IN_KIND_STAKE (2)
+#define IN_KIND_REPLAY (3)
+#define IN_KIND_PACK_REPLAY (4)
 
 
 typedef struct {
@@ -371,7 +373,7 @@ typedef struct {
   ulong       chunk;
 } fd_poh_out_ctx_t;
 
-typedef struct {
+typedef struct __attribute__((aligned(32UL))) {
   fd_stem_context_t * stem;
 
   /* Static configuration determined at genesis creation time.  See
@@ -576,7 +578,7 @@ typedef struct {
    returned lock value back to zero, and the POH tile continues with its
    day. */
 
-static fd_poh_ctx_t * fd_poh_global_ctx;
+static fd_poh_ctx_t * fd_poh_global_ctx = NULL;
 
 static volatile ulong fd_poh_waiting_lock __attribute__((aligned(128UL)));
 static volatile ulong fd_poh_returned_lock __attribute__((aligned(128UL)));
@@ -750,7 +752,7 @@ extern                  void fd_ext_poh_register_tick( void const * bank, uchar 
    It can be used with `fd_ext_poh_signal_leader_change` which
    will just issue a nonblocking send on the channel. */
 
-CALLED_FROM_RUST void
+void
 fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments above, will be 6.4 microseconds for mainnet-beta. */
                        ulong         hashcnt_per_tick,    /* See clock comments above, will be 62,500 for mainnet-beta. */
                        ulong         ticks_per_slot,      /* See clock comments above, will almost always be 64. */
@@ -773,8 +775,8 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
   ctx->reset_slot          = ctx->slot;
   ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
 
-  memcpy( ctx->reset_hash, last_entry_hash, 32UL );
-  memcpy( ctx->hash, last_entry_hash, 32UL );
+  fd_memcpy( ctx->reset_hash, last_entry_hash, 32UL );
+  fd_memcpy( ctx->hash, last_entry_hash, 32UL );
 
   ctx->signal_leader_change = signal_leader_change;
 
@@ -952,7 +954,7 @@ fd_ext_bank_load_account( void const *  bank,
                           uchar *       data,
                           ulong *       data_sz );
 
-CALLED_FROM_RUST static void
+static void
 publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot,
                        ulong          epoch ) {
@@ -1019,8 +1021,8 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   leader->limits.slot_max_vote_cost           = ctx->limits.slot_max_vote_cost;
   leader->limits.slot_max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
 
-  memcpy( leader->bundle->last_blockhash,     ctx->reset_hash,    32UL );
-  memcpy( leader->bundle->tip_receiver_owner, tip_receiver_owner, 32UL );
+  fd_memcpy( leader->bundle->last_blockhash,     ctx->reset_hash,    32UL );
+  fd_memcpy( leader->bundle->tip_receiver_owner, tip_receiver_owner, 32UL );
 
   if( FD_UNLIKELY( leader->ticks_per_slot+leader->total_skipped_ticks>=MAX_SKIPPED_TICKS ) )
     FD_LOG_ERR(( "Too many skipped ticks %lu for slot %lu, chain must halt", leader->ticks_per_slot+leader->total_skipped_ticks, slot ));
@@ -1036,7 +1038,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
    is by the replay stage.  See the notes in the long comment above for
    more on how this works. */
 
-CALLED_FROM_RUST void
+void
 fd_ext_poh_begin_leader( void const * bank,
                          ulong        slot,
                          ulong        epoch,
@@ -1262,8 +1264,8 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   }
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
-  memcpy( ctx->reset_hash, reset_blockhash, 32UL );
-  memcpy( ctx->hash, reset_blockhash, 32UL );
+  fd_memcpy( ctx->reset_hash, reset_blockhash, 32UL );
+  fd_memcpy( ctx->hash, reset_blockhash, 32UL );
   if( FD_LIKELY( parent_block_id!=NULL ) ) {
     ctx->parent_slot = completed_bank_slot;
     memcpy( ctx->parent_block_id, parent_block_id, 32UL );
@@ -1457,6 +1459,8 @@ after_credit( fd_poh_ctx_t *      ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   ctx->stem = stem;
+
+  if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) return;
 
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( fd_poh_waiting_lock ) )  {
@@ -1804,6 +1808,8 @@ before_frag( fd_poh_ctx_t * ctx,
   return 0;
 }
 
+extern void fd_ext_poh_publish_leader_schedule( uchar * data, ulong   data_len );
+
 static inline void
 during_frag( fd_poh_ctx_t * ctx,
              ulong          in_idx,
@@ -1838,6 +1844,22 @@ during_frag( fd_poh_ctx_t * ctx,
       slot = fd_disco_poh_sig_slot( sig );
       break;
     }
+    case IN_KIND_REPLAY: {
+      // yech...  this is sorta now in the right place...  These flags really the right thing?  Who came up with this?!
+      if( ctx->reset_slot==ULONG_MAX && fd_disco_replay_old_sig_flags( sig )==REPLAY_FLAG_INIT ) {
+        FD_LOG_NOTICE(( "init msg rx" ));
+        fd_poh_init_msg_t * init_msg = (fd_poh_init_msg_t *) fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        fd_ext_poh_initialize( init_msg->tick_duration_ns, init_msg->hashcnt_per_tick, init_msg->ticks_per_slot, init_msg->tick_height, init_msg->last_entry_hash, NULL );
+        ctx->skip_frag = 1;
+      } else if( fd_disco_replay_old_sig_flags( sig )==REPLAY_FLAG_PUBLISH_LEADER ) {
+        FD_LOG_NOTICE(( "fd_ext_poh_publish_leader_schedule %lu", sz ));
+        fd_ext_poh_publish_leader_schedule ( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sz );
+      }
+
+      return;
+    }
+    case IN_KIND_PACK_REPLAY:
+      return;
     default:
       FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -2289,15 +2311,20 @@ unprivileged_init( fd_topo_t *      topo,
     FD_COMPILER_MFENCE();
   }
 
-  FD_LOG_INFO(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
+#if 0
+  FD_LOG_NOTICE(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
+#endif
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;
+#if 0
   FD_COMPILER_MFENCE();
   for(;;) {
     if( FD_LIKELY( FD_VOLATILE_CONST( fd_poh_waiting_lock ) ) ) break;
     FD_SPIN_PAUSE();
   }
+#endif
   FD_VOLATILE( fd_poh_waiting_lock ) = 0UL;
   FD_VOLATILE( fd_poh_returned_lock ) = 1UL;
+#if 0
   FD_COMPILER_MFENCE();
   for(;;) {
     if( FD_UNLIKELY( !FD_VOLATILE_CONST( fd_poh_returned_lock ) ) ) break;
@@ -2306,6 +2333,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Agave client" ));
+#endif
 
   fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH, BEGIN_LEADER_DELAY_SECONDS ),
                                                         FD_MHIST_SECONDS_MAX( POH, BEGIN_LEADER_DELAY_SECONDS ) ) );
@@ -2331,6 +2359,10 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = IN_KIND_PACK;
     } else if( !strcmp( link->name, "bank_poh"  ) ) {
       ctx->in_kind[ i ] = IN_KIND_BANK;
+    } else if( !strcmp( link->name, "replay_poh"  ) ) {
+      ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    } else if( !strcmp( link->name, "pack_replay"  ) ) {
+      ctx->in_kind[ i ] = IN_KIND_PACK_REPLAY;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }

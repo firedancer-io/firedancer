@@ -23,6 +23,14 @@ typedef struct fd_exec_epoch_ctx_layout fd_exec_epoch_ctx_layout_t;
 
 typedef struct fd_runtime_public fd_runtime_public_t;
 
+typedef void (*FunctionPublishLeaderSchedule)(void *ctx, uchar *memory, ulong len);
+
+struct fd_runtime_hooks_ctx {
+  FunctionPublishLeaderSchedule  publish_leader_schedule;
+  void                          *publish_leader_schedule_ctx;
+};
+typedef struct fd_runtime_hooks_ctx fd_runtime_hooks_ctx_t;
+
 struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   ulong                      magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
 
@@ -35,6 +43,8 @@ struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   fd_runtime_public_t *      runtime_public;
   int                        constipate_root; /* Used for constipation in offline replay. */
   ulong                      total_epoch_stake;
+
+  fd_runtime_hooks_ctx_t     hooks;
 };
 
 #define FD_EXEC_EPOCH_CTX_ALIGN (alignof(fd_exec_epoch_ctx_t))

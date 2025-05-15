@@ -24,6 +24,7 @@
 #define REPLAY_FLAG_MICROBLOCK          (0x04UL)
 #define REPLAY_FLAG_CATCHING_UP         (0x08UL)
 #define REPLAY_FLAG_INIT                (0x10UL)
+#define REPLAY_FLAG_PUBLISH_LEADER      (0x20UL)
 
 #define EXEC_FLAG_READY_NEW             (0x20UL)
 #define EXEC_FLAG_EXECUTING_SLICE       (0x40UL)
