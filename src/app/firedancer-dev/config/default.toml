@@ -6,7 +6,7 @@
       "entrypoint.testnet.solana.com:8001",
       "entrypoint2.testnet.solana.com:8001",
       "entrypoint3.testnet.solana.com:8001",
-      "${VALIDATOR_IP}:8001",
+      "{validator_ip}:8001",
     ]
 [blockstore]
     shred_max = 16777216
