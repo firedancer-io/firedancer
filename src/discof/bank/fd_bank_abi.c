@@ -1,4 +1,6 @@
 #include "fd_bank_abi.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h"
 
 int
 fd_bank_abi_resolve_address_lookup_tables( void const *     bank FD_PARAM_UNUSED,
@@ -7,6 +9,36 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank FD_PARAM_UNUSED
                                            fd_txn_t const * txn  FD_PARAM_UNUSED,
                                            uchar const *    payload  FD_PARAM_UNUSED,
                                            fd_acct_addr_t * out_lut_accts  FD_PARAM_UNUSED) {
+
+  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
+    fd_txn_acct_addr_lut_t const * lut = &fd_txn_get_address_tables_const( txn )[ i ];
+    uchar const * addr = payload + lut->addr_off;
+
+    /* Lookup sysvar_slot_hashes */
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( (fd_exec_slot_ctx_t *)0,
+                                                                                     (fd_spad_t *)0 );
+    if( FD_UNLIKELY( !slot_hashes_global ) ) {
+      FD_LOG_ERR(( "failed to get slot hashes global" ));
+    }
+
+    fd_slot_hash_t * slot_hash = NULL;
+    fd_sysvar_slot_hashes_join( (void *)slot_hashes_global, &slot_hash );
+
+    int err = fd_runtime_load_txn_address_lookup_tables( txn,
+                                                         payload,
+                                                         (fd_funk_t *)0,
+                                                         (fd_funk_txn_t *)0,
+                                                         slot,
+                                                         slot_hash,
+                                                         out_lut_accts );
+    if( FD_UNLIKELY( err != FD_RUNTIME_EXECUTE_SUCCESS ) ) {  
+      FD_LOG_WARNING(( "failed to load txn address lookup tables" ));
+    }
+    /* That's it? Check on deactivated slot*/
+
+
+  }
+
 
 
 #if 0
