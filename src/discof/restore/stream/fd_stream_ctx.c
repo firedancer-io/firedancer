@@ -22,6 +22,7 @@ fd_stream_ctx_init( fd_stream_ctx_t * ctx,
   }
 
   /* init writers */
+  /* FIXME: make burst_byte and burst_frag configurable */
   for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
     fd_stream_writer_new( &ctx->writers[i],
                           topo,
@@ -33,6 +34,8 @@ fd_stream_ctx_init( fd_stream_ctx_t * ctx,
 
   fd_stream_ticks_init( ctx->ticks, ctx->event_map->event_cnt, 1e3L );
   fd_stream_metrics_init( ctx->metrics );
+
+  /* FIXME: rng seed should not be 0 */
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, 0, 0UL ) ) );
 }
 

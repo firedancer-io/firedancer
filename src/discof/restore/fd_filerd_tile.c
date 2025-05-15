@@ -1,4 +1,5 @@
 #include "fd_restore_base.h"
+#include "stream/fd_stream_ctx.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include <errno.h>
@@ -7,18 +8,11 @@
 #include <unistd.h>
 
 #define NAME "FileRd"
+#define FILE_READ_MAX 8UL<<20
 
 struct fd_filerd_tile {
-  int fd;
-
-  uchar * buf; /* dcache */
-  ulong   buf_base;
-  ulong   buf_off;
-  ulong   buf_sz;
-  ulong   goff;
-  ulong   read_max;
-
-  ulong * out_sync; /* mcache seq sync */
+  fd_stream_writer_t * writer;
+  int                  fd;
 };
 
 typedef struct fd_filerd_tile fd_filerd_tile_t;
@@ -48,42 +42,28 @@ privileged_init( fd_topo_t *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  fd_filerd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
+  (void)topo;
   if( FD_UNLIKELY( tile->in_cnt !=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 0",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
-
-  void * out_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ) );
-  FD_TEST( out_dcache );
-
-  ctx->buf      = out_dcache;
-  ctx->buf_base = (ulong)out_dcache - (ulong)fd_wksp_containing( out_dcache );
-  ctx->buf_off  = 0UL;
-  ctx->buf_sz   = fd_dcache_data_sz( out_dcache );
-  ctx->goff     = 0UL;
-  ctx->read_max = (8UL<<20);
-  ctx->out_sync = fd_mcache_seq_laddr( topo->links[ tile->out_link_id[ 0 ] ].mcache );
 }
 
 static void
-during_housekeeping( fd_filerd_tile_t * ctx ) {
-  (void)ctx;
-}
+fd_filerd_init_from_stream_ctx( void * _ctx,
+                                fd_stream_ctx_t * stream_ctx ) {
+  fd_filerd_tile_t * ctx = fd_type_pun(_ctx);
 
-static void
-metrics_write( fd_filerd_tile_t * ctx ) {
-  (void)ctx;
+  ctx->writer = &stream_ctx->writers[0];
+  fd_stream_writer_set_read_max( ctx->writer, FILE_READ_MAX );
 }
 
 __attribute__((noreturn)) FD_FN_UNUSED static void
-fd_filerd_shutdown( fd_filerd_tile_t * ctx,
-                    ulong              seq_final ) {
+fd_filerd_shutdown( fd_filerd_tile_t * ctx ) {
   if( FD_UNLIKELY( close( ctx->fd ) ) ) {
     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   ctx->fd = -1;
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  FD_VOLATILE( ctx->out_sync[ 2 ] ) = seq_final;
+  fd_stream_writer_notify_shutdown( ctx->writer );
   FD_COMPILER_MFENCE();
   FD_LOG_INFO(( "Reached end of file" ));
 
@@ -91,28 +71,26 @@ fd_filerd_shutdown( fd_filerd_tile_t * ctx,
 }
 
 static void
-after_credit( fd_filerd_tile_t *      ctx,
-              fd_stream_frag_meta_t * out_mcache,
-              ulong const             out_depth,
-              ulong * restrict        out_seq,
-              ulong * restrict        cr_frag_avail,
-              ulong * restrict        cr_byte_avail,
-              int * restrict          charge_busy_after ) {
-  /* Assumes *cr_frag_avail>=2 */
+after_credit( void *            _ctx,
+              fd_stream_ctx_t * stream_ctx,
+              int *             poll_in FD_PARAM_UNUSED ) {
+  fd_filerd_tile_t * ctx = fd_type_pun(_ctx);
+  (void)stream_ctx;
+
+  if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
+    return;
+  }
+
   int fd = ctx->fd;
   if( FD_UNLIKELY( fd<0 ) ) return;
 
-  if( FD_UNLIKELY( ctx->buf_off >= ctx->buf_sz ) ) {
-    FD_LOG_CRIT(( "Buffer overflow (buf_off=%lu buf_sz=%lu)", ctx->buf_off, ctx->buf_sz ));
-  }
+  uchar * out     = fd_stream_writer_get_write_ptr( ctx->writer );
+  ulong dst_max   = fd_stream_writer_get_avail_bytes( ctx->writer );
 
-  ulong const read_max = fd_ulong_min( *cr_byte_avail, ctx->read_max );
-  ulong const read_sz  = fd_ulong_min( read_max, ctx->buf_sz - ctx->buf_off );
-
-  long res = read( fd, ctx->buf + ctx->buf_off, read_sz );
+  long res = read( fd, out, dst_max );
   if( FD_UNLIKELY( res<=0L ) ) {
     if( FD_UNLIKELY( res==0 ) ) {
-      fd_filerd_shutdown( ctx, out_seq[0] );
+      fd_filerd_shutdown( ctx );
       return;
     }
     if( FD_LIKELY( errno==EAGAIN ) ) return;
@@ -121,220 +99,37 @@ after_credit( fd_filerd_tile_t *      ctx,
   }
 
   ulong sz = (ulong)res;
-  cr_byte_avail[0] -= sz;
-  *charge_busy_after = 1;
-
-  ulong frag_sz = fd_ulong_min( read_sz, sz );
-
-  ulong loff = ctx->buf_base + ctx->buf_off;
-  fd_mcache_publish_stream( out_mcache, out_depth, out_seq[0], ctx->goff, loff, frag_sz, 0 );
-  out_seq[0] = fd_seq_inc( out_seq[0], 1UL );
-  cr_frag_avail[0]--;
-  ctx->goff    += frag_sz;
-  ctx->buf_off += frag_sz;
-  if( ctx->buf_off >= ctx->buf_sz ) ctx->buf_off = 0UL; /* cmov */
+  if( FD_LIKELY( sz ) ) {
+    fd_stream_writer_advance( ctx->writer, sz );
+    fd_stream_writer_publish( ctx->writer, sz );
+  }
 }
 
-/* run/run1 are a custom run loop based on fd_stem.c. */
-
 __attribute__((noinline)) static void
-fd_filerd_run1(
-    fd_filerd_tile_t *         ctx,
-    fd_stream_frag_meta_t *    out_mcache,
-    void *                     out_dcache,
-    ulong                      cons_cnt,
-    ushort * restrict          event_map, /* cnt=1+cons_cnt */
-    ulong ** restrict          cons_fseq, /* cnt=  cons_cnt  points to each consumer's fseq */
-    ulong volatile ** restrict cons_slow, /* cnt=  cons_cnt  points to 'slow' metrics */
-    ulong * restrict           cons_seq,  /* cnt=2*cons_cnt  cache of recent fseq observations */
-    long                       lazy,
-    fd_rng_t *                 rng
-) {
+fd_filerd_run1( fd_filerd_tile_t *         ctx,
+                fd_stream_ctx_t *          stream_ctx ) {
+  FD_LOG_INFO(( "Running filerd tile" ));
 
-  /* out flow control state */
-  ulong    cr_byte_avail;  /* byte burst quota */
-  ulong    cr_frag_avail;  /* frag burst quota */
-
-  /* housekeeping state */
-  ulong    event_cnt;
-  ulong    event_seq;
-  ulong    async_min; /* min number of ticks between a housekeeping event */
-
-  /* performance metrics */
-  ulong metric_in_backp;
-  ulong metric_backp_cnt;
-  ulong metric_regime_ticks[9];
-
-  metric_in_backp  = 1UL;
-  metric_backp_cnt = 0UL;
-  memset( metric_regime_ticks, 0, sizeof( metric_regime_ticks ) );
-
-  /* out frag stream init */
-
-  cr_byte_avail = 0UL;
-  cr_frag_avail = 0UL;
-
-  ulong const out_depth = fd_mcache_depth( out_mcache->f );
-  ulong       out_seq   = 0UL;
-
-  ulong const out_bufsz = fd_dcache_data_sz( out_dcache );
-
-  ulong const cr_byte_max = out_bufsz;
-  ulong const cr_frag_max = out_depth;
-
-  ulong const burst_byte = 512UL; /* don't producing frags smaller than this */
-  ulong const burst_frag =   2UL;
-
-  for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
-    if( FD_UNLIKELY( !cons_fseq[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_fseq[%lu]", cons_idx ));
-    cons_slow[ cons_idx     ] = fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF;
-    cons_seq [ 2*cons_idx   ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][0] );
-    cons_seq [ 2*cons_idx+1 ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][1] );
-  }
-
-  /* housekeeping init */
-
-  //if( lazy<=0L ) lazy = fd_tempo_lazy_default( out_depth );
-  lazy = 1e3L;
-  FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
-
-  /* Initial event sequence */
-
-  event_cnt = 1UL + cons_cnt;
-  event_map[ 0 ] = (ushort)cons_cnt;
-  for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
-    event_map[ 1+cons_idx ] = (ushort)cons_idx;
-  }
-  event_seq = 0UL;
-
-  async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
-  if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy %lu %lu", (ulong)lazy, event_cnt ));
-
-  FD_LOG_INFO(( "Running file reader" ));
-  FD_MGAUGE_SET( TILE, STATUS, 1UL );
-  long then = fd_tickcount();
-  long now  = then;
-  for(;;) {
-
-    /* Do housekeeping at a low rate in the background */
-    ulong housekeeping_ticks = 0UL;
-    if( FD_UNLIKELY( (now-then)>=0L ) ) {
-      ulong event_idx = (ulong)event_map[ event_seq ];
-
-      if( FD_LIKELY( event_idx<cons_cnt ) ) {
-        ulong cons_idx = event_idx;
-
-        /* Receive flow control credits from this out. */
-        FD_COMPILER_MFENCE();
-        cons_seq[ 2*cons_idx   ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][0] );
-        cons_seq[ 2*cons_idx+1 ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][1] );
-        FD_COMPILER_MFENCE();
-
-      } else { /* event_idx==cons_cnt, housekeeping event */
-
-        /* Update metrics counters to external viewers */
-        FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)now );
-        FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
-        FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
-        FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
-        metrics_write( ctx );
-        FD_COMPILER_MFENCE();
-        metric_backp_cnt = 0UL;
-
-        /* Receive flow control credits */
-        if( FD_LIKELY( cr_byte_avail<cr_byte_max || cr_frag_avail<cr_frag_max ) ) {
-          ulong slowest_cons = ULONG_MAX;
-          cr_frag_avail = cr_frag_max;
-          cr_byte_avail = cr_byte_max;
-          for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
-            ulong cons_cr_frag_avail = (ulong)fd_long_max( (long)cr_frag_max-fd_long_max( fd_seq_diff( out_seq,   cons_seq[ 2*cons_idx   ] ), 0L ), 0L );
-            ulong cons_cr_byte_avail = (ulong)fd_long_max( (long)cr_byte_max-fd_long_max( fd_seq_diff( ctx->goff, cons_seq[ 2*cons_idx+1 ] ), 0L ), 0L );
-            slowest_cons  = fd_ulong_if( cons_cr_byte_avail<cr_byte_avail, cons_idx, slowest_cons );
-            cr_frag_avail = fd_ulong_min( cons_cr_frag_avail, cr_frag_avail );
-            cr_byte_avail = fd_ulong_min( cons_cr_byte_avail, cr_byte_avail );
-          }
-
-          if( FD_LIKELY( slowest_cons!=ULONG_MAX ) ) {
-            FD_COMPILER_MFENCE();
-            (*cons_slow[ slowest_cons ]) += metric_in_backp;
-            FD_COMPILER_MFENCE();
-          }
-        }
-
-        during_housekeeping( ctx );
-      }
-
-      event_seq++;
-      if( FD_UNLIKELY( event_seq>=event_cnt ) ) {
-        event_seq = 0UL;
-        ulong  swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)event_cnt );
-        ushort map_tmp        = event_map[ swap_idx ];
-        event_map[ swap_idx ] = event_map[ 0        ];
-        event_map[ 0        ] = map_tmp;
-      }
-
-      /* Reload housekeeping timer */
-      then = now + (long)fd_tempo_async_reload( rng, async_min );
-      long next = fd_tickcount();
-      housekeeping_ticks = (ulong)(next - now);
-      now = next;
-    }
-
-    /* Check if we are backpressured. */
-
-    if( FD_UNLIKELY( cr_byte_avail<burst_byte || cr_frag_avail<burst_frag ) ) {
-      metric_backp_cnt += (ulong)!metric_in_backp;
-      metric_in_backp   = 1UL + (cr_byte_avail<burst_byte);
-      FD_SPIN_PAUSE();
-      metric_regime_ticks[2] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[5] += (ulong)(next - now);
-      now = next;
-      continue;
-    }
-    metric_in_backp = 0UL;
-
-    int charge_busy_after = 0;
-    after_credit( ctx, out_mcache, out_depth, &out_seq, &cr_frag_avail, &cr_byte_avail, &charge_busy_after );
-
-    metric_regime_ticks[1] += housekeeping_ticks;
-    long next = fd_tickcount();
-    metric_regime_ticks[4] += (ulong)(next - now);
-    now = next;
-    continue;
-  }
+  fd_stream_ctx_run( stream_ctx,
+                     ctx,
+                     fd_filerd_init_from_stream_ctx,
+                     NULL,
+                     NULL,
+                     NULL,
+                     after_credit,
+                     NULL );
 }
 
 static void
 fd_filerd_run( fd_topo_t *        topo,
                fd_topo_tile_t *   tile ) {
-  fd_stream_frag_meta_t * out_mcache = fd_type_pun( topo->links[ tile->out_link_id[ 0 ] ].mcache );
-  FD_TEST( out_mcache );
-
-  ulong   reliable_cons_cnt = 0UL;
-  ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[0] && consumer_tile->in_link_reliable[ j ] ) ) {
-        cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
-        FD_TEST( cons_fseq[ reliable_cons_cnt ] );
-        reliable_cons_cnt++;
-        FD_TEST( reliable_cons_cnt<FD_TOPO_MAX_LINKS );
-      }
-    }
-  }
-
-  /* FIXME rng seed should not be zero */
-  fd_rng_t rng[1];
-  FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
-
   fd_filerd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  ushort           event_map[ 1+reliable_cons_cnt ];
-  ulong volatile * cons_slow[   reliable_cons_cnt ];
-  ulong            cons_seq [ 2*reliable_cons_cnt ];
-  fd_filerd_run1( ctx, out_mcache, ctx->buf, reliable_cons_cnt, event_map, cons_fseq, cons_slow, cons_seq, (ulong)10e3, rng );
+  ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
+  ulong out_cnt          = tile->out_cnt;
+
+  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, out_cnt ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, out_cnt );
+  fd_filerd_run1( ctx, stream_ctx );
 }
 
 fd_topo_run_tile_t fd_tile_snapshot_restore_FileRd = {

@@ -4,7 +4,7 @@
 #include "stream/fd_stream_ctx.h"
 #include <unistd.h>
 
-#define NAME "http"
+#define NAME "HttpDl"
 #define HTTP_CHUNK_SZ 8 * 1024 * 1024UL
 
 struct fd_httpdl_tile {
@@ -53,11 +53,20 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-fd_httpdl_init_from_stream_ctx( void * _ctx,
+unprivileged_init( fd_topo_t * topo,
+                   fd_topo_tile_t * tile ) {
+  (void)topo;
+  if( FD_UNLIKELY( tile->in_cnt !=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 0",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
+}
+
+static void
+fd_httpdl_init_from_stream_ctx( void *            _ctx,
                                 fd_stream_ctx_t * stream_ctx ) {
   fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
 
-  /* There's only one writer */
+  /* There's only one writer. Since fd_stream_ctx_t owns the 
+     stream writer, we just assign the pointer here. */
   ctx->writer = &stream_ctx->writers[0];
   fd_stream_writer_set_read_max( ctx->writer, HTTP_CHUNK_SZ );
 }
@@ -75,7 +84,8 @@ fd_httpdl_shutdown( fd_httpdl_tile_t * ctx ) {
 
 __attribute__((unused)) static void
 after_credit_chunk( void *             _ctx,
-                    fd_stream_ctx_t *  stream_ctx ) {
+                    fd_stream_ctx_t *  stream_ctx,
+                    int *              opt_poll_in FD_PARAM_UNUSED ) {
   fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
   (void)stream_ctx;
   ulong downloaded_sz = 0UL;
@@ -113,7 +123,8 @@ after_credit_chunk( void *             _ctx,
 
 __attribute__((unused)) static void
 after_credit_stream( void *             _ctx,
-                     fd_stream_ctx_t *  stream_ctx ) {
+                     fd_stream_ctx_t *  stream_ctx,
+                     int *              opt_poll_in FD_PARAM_UNUSED ) {
   fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
   (void)stream_ctx;
 
@@ -131,7 +142,7 @@ after_credit_stream( void *             _ctx,
   if( FD_UNLIKELY( err==1 ) ) fd_httpdl_shutdown( ctx );
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "http err: %d", err ));
 
-  if( sz ) {
+  if( FD_LIKELY( sz ) ) {
     fd_stream_writer_advance( ctx->writer, sz );
     fd_stream_writer_publish( ctx->writer, sz );
   }
@@ -167,11 +178,12 @@ fd_httpdl_run( fd_topo_t *      topo,
 }
 
 fd_topo_run_tile_t fd_tile_snapshot_restore_HttpDl = {
-    .name              = "HttpDl",
-    .scratch_align     = scratch_align,
-    .scratch_footprint = scratch_footprint,
-    .privileged_init   = privileged_init,
-    .run               = fd_httpdl_run,
+  .name              = NAME,
+  .scratch_align     = scratch_align,
+  .scratch_footprint = scratch_footprint,
+  .privileged_init   = privileged_init,
+  .unprivileged_init = unprivileged_init,
+  .run               = fd_httpdl_run,
 };
 
 #undef NAME
