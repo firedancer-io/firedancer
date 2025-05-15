@@ -435,6 +435,10 @@ typedef struct {
       int archive_fd;
     } archiver;
 
+    struct{
+      char  funk_file[ PATH_MAX ];
+    } resolv;
+
   };
 } fd_topo_tile_t;
 
