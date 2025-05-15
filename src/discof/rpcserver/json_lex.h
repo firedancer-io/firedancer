@@ -41,13 +41,16 @@ struct json_lex_state {
     ulong last_str_sz;
     ulong last_str_alloc;
     char  last_str_firstbuf[512];
+
+    fd_spad_t * spad;
 };
 typedef struct json_lex_state json_lex_state_t;
 
 // Initialize a lexical state given some json text
 void json_lex_state_new(json_lex_state_t* state,
                         const char* json,
-                        ulong json_sz);
+                        ulong json_sz,
+                        fd_spad_t * spad);
 
 void json_lex_state_delete(json_lex_state_t* state);
 

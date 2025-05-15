@@ -271,8 +271,9 @@ generic_program_to_json( fd_webserver_t * ws,
                          fd_txn_t * txn,
                          fd_txn_instr_t * instr,
                          const uchar * raw,
-                         int * need_comma ) {
-  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
+                         int * need_comma,
+                         fd_spad_t * spad) {
+  FD_SPAD_FRAME_BEGIN( spad ) {
     if( *need_comma ) EMIT_SIMPLE(",");
     EMIT_SIMPLE("{\"accounts\":[");
     const uchar * instr_acc_idxs = raw + instr->acct_off;
@@ -288,7 +289,7 @@ generic_program_to_json( fd_webserver_t * ws,
     fd_base58_encode_32((const uchar*)(accts + instr->program_id), NULL, buf32);
     fd_web_reply_sprintf(ws, "\",\"program\":\"unknown\",\"programId\":\"%s\",\"stackHeight\":null}", buf32);
     *need_comma = 1;
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
   return NULL;
 }
 
@@ -297,14 +298,16 @@ vote_program_to_json( fd_webserver_t * ws,
                       fd_txn_t * txn,
                       fd_txn_instr_t * instr,
                       const uchar * raw,
-                      int * need_comma ) {
+                      int * need_comma,
+                      fd_spad_t * spad ) {
   (void)txn;
-  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
+  FD_SPAD_FRAME_BEGIN( spad ) {
     if( *need_comma ) EMIT_SIMPLE(",");
 
     int decode_result;
-    fd_vote_instruction_t * instruction = fd_bincode_decode_scratch(
+    fd_vote_instruction_t * instruction = fd_bincode_decode_spad(
         vote_instruction,
+        spad,
         raw + instr->data_off,
         instr->data_sz,
         &decode_result );
@@ -315,12 +318,12 @@ vote_program_to_json( fd_webserver_t * ws,
 
     EMIT_SIMPLE("{\"parsed\":");
 
-    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
+    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
     fd_vote_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
 
     EMIT_SIMPLE(",\"program\":\"vote\",\"programId\":\"Vote111111111111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
   return NULL;
 }
 
@@ -329,14 +332,16 @@ system_program_to_json( fd_webserver_t * ws,
                         fd_txn_t * txn,
                         fd_txn_instr_t * instr,
                         const uchar * raw,
-                        int * need_comma ) {
+                        int * need_comma,
+                        fd_spad_t * spad ) {
   (void)txn;
-  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
+  FD_SPAD_FRAME_BEGIN( spad ) {
     if( *need_comma ) EMIT_SIMPLE(",");
 
     int decode_result;
-    fd_system_program_instruction_t * instruction = fd_bincode_decode_scratch(
+    fd_system_program_instruction_t * instruction = fd_bincode_decode_spad(
         system_program_instruction,
+        spad,
         raw + instr->data_off,
         instr->data_sz,
         &decode_result );
@@ -347,12 +352,12 @@ system_program_to_json( fd_webserver_t * ws,
 
     EMIT_SIMPLE("{\"parsed\":");
 
-    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
+    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
     fd_system_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
 
     EMIT_SIMPLE(",\"program\":\"system\",\"programId\":\"11111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
   return NULL;
 }
 
@@ -361,9 +366,10 @@ config_program_to_json( fd_webserver_t * ws,
                         fd_txn_t * txn,
                         fd_txn_instr_t * instr,
                         const uchar * raw,
-                        int * need_comma ) {
+                        int * need_comma,
+                        fd_spad_t * spad ) {
   FD_LOG_WARNING(( "config_program_to_json not implemented" ));
-  generic_program_to_json( ws, txn, instr, raw, need_comma );
+  generic_program_to_json( ws, txn, instr, raw, need_comma, spad );
   return NULL;
 }
 
@@ -372,9 +378,10 @@ stake_program_to_json( fd_webserver_t * ws,
                        fd_txn_t * txn,
                        fd_txn_instr_t * instr,
                        const uchar * raw,
-                       int * need_comma ) {
+                       int * need_comma,
+                       fd_spad_t * spad ) {
   FD_LOG_WARNING(( "stake_program_to_json not implemented" ));
-  generic_program_to_json( ws, txn, instr, raw, need_comma );
+  generic_program_to_json( ws, txn, instr, raw, need_comma, spad );
   return NULL;
 }
 
@@ -383,14 +390,16 @@ compute_budget_program_to_json( fd_webserver_t * ws,
                                 fd_txn_t * txn,
                                 fd_txn_instr_t * instr,
                                 const uchar * raw,
-                                int * need_comma ) {
+                                int * need_comma,
+                                fd_spad_t * spad ) {
   (void)txn;
-  FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
+  FD_SPAD_FRAME_BEGIN( spad ) {
     if( *need_comma ) EMIT_SIMPLE(",");
 
     int decode_result;
-    fd_compute_budget_program_instruction_t * instruction = fd_bincode_decode_scratch(
+    fd_compute_budget_program_instruction_t * instruction = fd_bincode_decode_spad(
         compute_budget_program_instruction,
+        spad,
         raw + instr->data_off,
         instr->data_sz,
         &decode_result );
@@ -401,12 +410,12 @@ compute_budget_program_to_json( fd_webserver_t * ws,
 
     EMIT_SIMPLE("{\"parsed\":");
 
-    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
+    fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
     fd_compute_budget_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
 
     EMIT_SIMPLE(",\"program\":\"compute_budget\",\"programId\":\"ComputeBudget111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
   return NULL;
 }
 
@@ -415,9 +424,10 @@ address_lookup_table_program_to_json( fd_webserver_t * ws,
                                       fd_txn_t * txn,
                                       fd_txn_instr_t * instr,
                                       const uchar * raw,
-                                      int * need_comma ) {
+                                      int * need_comma,
+                                      fd_spad_t * spad ) {
   FD_LOG_WARNING(( "address_lookup_table_program_to_json not implemented" ));
-  generic_program_to_json( ws, txn, instr, raw, need_comma );
+  generic_program_to_json( ws, txn, instr, raw, need_comma, spad );
   return NULL;
 }
 
@@ -426,9 +436,10 @@ executor_zk_elgamal_proof_program_to_json( fd_webserver_t * ws,
                                            fd_txn_t * txn,
                                            fd_txn_instr_t * instr,
                                            const uchar * raw,
-                                           int * need_comma ) {
+                                           int * need_comma,
+                                           fd_spad_t * spad ) {
   FD_LOG_WARNING(( "executor_zk_elgamal_proof_program_to_json not implemented" ));
-  generic_program_to_json( ws, txn, instr, raw, need_comma );
+  generic_program_to_json( ws, txn, instr, raw, need_comma, spad );
   return NULL;
 }
 
@@ -437,9 +448,10 @@ bpf_loader_program_to_json( fd_webserver_t * ws,
                             fd_txn_t * txn,
                             fd_txn_instr_t * instr,
                             const uchar * raw,
-                            int * need_comma ) {
+                            int * need_comma,
+                            fd_spad_t * spad ) {
   FD_LOG_WARNING(( "bpf_loader_program_to_json not implemented" ));
-  generic_program_to_json( ws, txn, instr, raw, need_comma );
+  generic_program_to_json( ws, txn, instr, raw, need_comma, spad );
   return NULL;
 }
 
@@ -449,7 +461,8 @@ fd_instr_to_json( fd_webserver_t * ws,
                   fd_txn_instr_t * instr,
                   const uchar * raw,
                   fd_rpc_encoding_t encoding,
-                  int * need_comma ) {
+                  int * need_comma,
+                  fd_spad_t * spad ) {
   if( encoding == FD_ENC_JSON ) {
     if( *need_comma ) EMIT_SIMPLE(",");
     EMIT_SIMPLE("{\"accounts\":[");
@@ -470,27 +483,27 @@ fd_instr_to_json( fd_webserver_t * ws,
     }
     const fd_pubkey_t * prog = accts + instr->program_id;
     if ( !memcmp( prog, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      return vote_program_to_json( ws, txn, instr, raw, need_comma );
+      return vote_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if ( !memcmp( prog, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      return system_program_to_json( ws, txn, instr, raw, need_comma );
+      return system_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if ( !memcmp( prog, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      return config_program_to_json( ws, txn, instr, raw, need_comma );
+      return config_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if ( !memcmp( prog, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      return stake_program_to_json( ws, txn, instr, raw, need_comma );
+      return stake_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if ( !memcmp( prog, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      return compute_budget_program_to_json( ws, txn, instr, raw, need_comma );
+      return compute_budget_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if( !memcmp( prog, fd_solana_address_lookup_table_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      return address_lookup_table_program_to_json( ws, txn, instr, raw, need_comma );
+      return address_lookup_table_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if( !memcmp( prog, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      return executor_zk_elgamal_proof_program_to_json( ws, txn, instr, raw, need_comma );
+      return executor_zk_elgamal_proof_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if( !memcmp( prog, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ))) {
-      return bpf_loader_program_to_json( ws, txn, instr, raw, need_comma );
+      return bpf_loader_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if( !memcmp( prog, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      return bpf_loader_program_to_json( ws, txn, instr, raw, need_comma );
+      return bpf_loader_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else if( !memcmp( prog, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      return bpf_loader_program_to_json( ws, txn, instr, raw, need_comma );
+      return bpf_loader_program_to_json( ws, txn, instr, raw, need_comma, spad );
     } else {
-      generic_program_to_json( ws, txn, instr, raw, need_comma );
+      generic_program_to_json( ws, txn, instr, raw, need_comma, spad );
     }
   }
   return NULL;
@@ -502,7 +515,8 @@ fd_txn_to_json_full( fd_webserver_t * ws,
                      const uchar* raw,
                      ulong raw_sz,
                      fd_rpc_encoding_t encoding,
-                     long maxvers ) {
+                     long maxvers,
+                     fd_spad_t * spad ) {
   (void)maxvers;
 
   if( encoding == FD_ENC_BASE64 ) {
@@ -578,7 +592,7 @@ fd_txn_to_json_full( fd_webserver_t * ws,
   ushort instr_cnt = txn->instr_cnt;
   int need_comma = 0;
   for (ushort idx = 0; idx < instr_cnt; idx++) {
-    const char * res = fd_instr_to_json( ws, txn, &txn->instr[idx], raw, encoding, &need_comma );
+    const char * res = fd_instr_to_json( ws, txn, &txn->instr[idx], raw, encoding, &need_comma, spad );
     if( res ) return res;
   }
 
@@ -647,9 +661,10 @@ fd_txn_to_json( fd_webserver_t * ws,
                 ulong raw_sz,
                 fd_rpc_encoding_t encoding,
                 long maxvers,
-                enum fd_block_detail detail ) {
+                enum fd_block_detail detail,
+                fd_spad_t * spad ) {
   if( detail == FD_BLOCK_DETAIL_FULL )
-    return fd_txn_to_json_full( ws, txn, raw, raw_sz, encoding, maxvers );
+    return fd_txn_to_json_full( ws, txn, raw, raw_sz, encoding, maxvers, spad );
   else if( detail == FD_BLOCK_DETAIL_ACCTS )
     return fd_txn_to_json_accts( ws, txn, raw, encoding, maxvers );
   return "unsupported detail parameter";
@@ -662,20 +677,25 @@ fd_block_to_json( fd_webserver_t * ws,
                   const char * call_id,
                   const uchar * blk_data,
                   ulong blk_sz,
-                  fd_block_info_t * meta,
-                  fd_hash_t * parent_hash,
+                  fd_replay_notif_msg_t * info,
+                  fd_replay_notif_msg_t * parent_info,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
-                  fd_block_rewards_t * rewards ) {
+                  fd_block_rewards_t * rewards,
+                  fd_spad_t * spad ) {
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
-  fd_base58_encode_32(meta->block_hash.uc, 0, hash);
+  fd_base58_encode_32(info->slot_exec.block_hash.uc, 0, hash);
   char phash[50];
-  fd_base58_encode_32(parent_hash->uc, 0, phash);
-  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
-                       meta->block_height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
+  if( parent_info ) {
+    fd_base58_encode_32(parent_info->slot_exec.block_hash.uc, 0, phash);
+  } else {
+    phash[0] = '\0';
+  }
+  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%lu,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
+                       info->slot_exec.height, info->slot_exec.ts/(ulong)1e9, info->slot_exec.parent, hash, phash);
 
   if( rewards ) {
     fd_base58_encode_32(rewards->leader.uc, 0, hash);
@@ -790,7 +810,7 @@ fd_block_to_json( fd_webserver_t * ws,
           if ( err ) return err;
         }
 
-        const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, raw, pay_sz, encoding, maxvers, detail );
+        const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, raw, pay_sz, encoding, maxvers, detail, spad );
         if ( err ) return err;
 
         EMIT_SIMPLE("}");
@@ -814,7 +834,8 @@ fd_account_to_json( fd_webserver_t * ws,
                     uchar const * val,
                     ulong val_sz,
                     long off,
-                    long len ) {
+                    long len,
+                    fd_spad_t * spad ) {
   fd_web_reply_sprintf(ws, "{\"data\":[\"");
 
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
@@ -862,7 +883,7 @@ fd_account_to_json( fd_webserver_t * ws,
 # if FD_HAS_ZSTD
   case FD_ENC_BASE64_ZSTD: {
     size_t const cBuffSize = ZSTD_compressBound( val_sz );
-    void * cBuff = fd_scratch_alloc( 1, cBuffSize );
+    void * cBuff = fd_spad_alloc( spad, 1, cBuffSize );
     size_t const cSize = ZSTD_compress( cBuff, cBuffSize, val, val_sz, 1 );
     if (fd_web_reply_encode_base64(ws, cBuff, cSize)) {
       return "failed to encode data in base64";

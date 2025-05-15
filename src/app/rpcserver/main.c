@@ -27,8 +27,6 @@ static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
 
-  args->valloc = fd_libc_alloc_virtual();
-
   char const * funk_file = fd_env_strip_cmdline_cstr( argc, argv, "--funk-file", NULL, NULL );
   if( FD_UNLIKELY( !funk_file ))
     FD_LOG_ERR(( "--funk-file argument is required" ));
@@ -100,8 +98,6 @@ static void
 init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
   args->offline = 1;
-
-  args->valloc = fd_libc_alloc_virtual();
 
   char const * funk_file = fd_env_strip_cmdline_cstr( argc, argv, "--funk-file", NULL, NULL );
   if( FD_UNLIKELY( !funk_file ))
@@ -208,7 +204,6 @@ int main( int argc, char ** argv ) {
     while( !stopflag ) {
       fd_rpc_ws_poll( ctx );
     }
-    fd_rpc_stop_service( ctx );
     fd_halt();
     return 0;
   }
@@ -223,8 +218,6 @@ int main( int argc, char ** argv ) {
 
     fd_rpc_ws_poll( ctx );
   }
-
-  fd_rpc_stop_service( ctx );
 
   fd_halt();
   return 0;

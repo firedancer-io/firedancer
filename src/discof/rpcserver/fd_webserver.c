@@ -181,13 +181,13 @@ request( fd_http_server_request_t const * request ) {
       fwrite("\n", 1, 1, stdout);
       fflush(stdout);
 #endif
-      FD_SCRATCH_SCOPE_BEGIN {
+      FD_SPAD_FRAME_BEGIN( ws->spad ) {
         json_lex_state_t lex;
-        json_lex_state_new(&lex, (const char*)request->post.body, request->post.body_len);
+        json_lex_state_new(&lex, (const char*)request->post.body, request->post.body_len, ws->spad);
         json_parse_root(ws, &lex);
         json_lex_state_delete(&lex);
         fd_web_reply_flush( ws );
-      } FD_SCRATCH_SCOPE_END;
+      } FD_SPAD_FRAME_END;
     }
 
     fd_http_server_response_t response = {
@@ -258,7 +258,7 @@ ws_message( ulong conn_id, uchar const * data, ulong data_len, void * ctx ) {
   fd_web_reply_new( ws );
 
   json_lex_state_t lex;
-  json_lex_state_new(&lex, (const char*)data, data_len);
+  json_lex_state_new(&lex, (const char*)data, data_len, ws->spad);
   struct json_values values;
   json_values_new(&values);
   struct json_path path;
@@ -284,10 +284,11 @@ void fd_web_ws_send( fd_webserver_t * ws, ulong conn_id ) {
   fd_http_server_ws_send( ws->server, conn_id );
 }
 
-int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_valloc_t valloc, fd_webserver_t * ws, void * cb_arg ) {
+int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_spad_t * spad, fd_webserver_t * ws, void * cb_arg ) {
   memset(ws, 0, sizeof(fd_webserver_t));
 
   ws->cb_arg = cb_arg;
+  ws->spad = spad;
 
   fd_http_server_callbacks_t callbacks = {
     .request    = request,
@@ -298,16 +299,11 @@ int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_valloc
     .ws_message = ws_message,
   };
 
-  void* server_mem = fd_valloc_malloc( valloc, fd_http_server_align(), fd_http_server_footprint( params ) );
+  void* server_mem = fd_spad_alloc( spad, fd_http_server_align(), fd_http_server_footprint( params ) );
   ws->server = fd_http_server_join( fd_http_server_new( server_mem, params, callbacks, ws ) );
 
   FD_TEST( fd_http_server_listen( ws->server, 0, portno ) != NULL );
 
-  return 0;
-}
-
-int fd_webserver_stop(fd_valloc_t valloc, fd_webserver_t * ws) {
-  fd_valloc_free( valloc, fd_http_server_delete( fd_http_server_leave( ws->server ) ) );
   return 0;
 }
 

@@ -17,23 +17,26 @@ fuzz=args.fuzz
 fixtures = []
 
 def good_method(arg):
-    print(arg)
+    print('GOOD: ' + json.dumps(arg))
     data = json.dumps(arg).encode('utf-8')
     if fuzz:
         fixtures.append(data)
     x = requests.post(url,headers={'Content-Type':'application/json'},data=data)
+    with open('response','wb') as fd:
+        fd.write(x.content)
     res = json.loads(x.content)
     print(res)
     assert arg['id'] == res['id']
     return res
 
 def bad_method(arg):
-    print(arg)
+    print("BAD: " + json.dumps(arg))
     data = json.dumps(arg).encode('utf-8')
     if fuzz:
         fixtures.append(data)
     x = requests.post(url,headers={'Content-Type':'application/json'},data=data)
-    print(x.content)
+    with open('response','bw') as fd:
+        fd.write(x.content)
     res = json.loads(x.content)
     print(res)
     assert res['error'] is not None

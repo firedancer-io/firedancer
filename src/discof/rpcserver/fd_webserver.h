@@ -8,6 +8,7 @@
 
 struct fd_webserver {
   fd_http_server_t * server;
+  fd_spad_t *        spad;
   void *             cb_arg;
   unsigned int       status_code;
   ulong              prev_reply_len;
@@ -17,9 +18,7 @@ struct fd_webserver {
 };
 typedef struct fd_webserver fd_webserver_t;
 
-int fd_webserver_start(ushort portno, fd_http_server_params_t params, fd_valloc_t valloc, fd_webserver_t * ws, void * cb_arg);
-
-int fd_webserver_stop(fd_valloc_t valloc, fd_webserver_t * ws);
+int fd_webserver_start(ushort portno, fd_http_server_params_t params, fd_spad_t * spadc, fd_webserver_t * ws, void * cb_arg);
 
 int fd_webserver_poll(fd_webserver_t * ws);
 

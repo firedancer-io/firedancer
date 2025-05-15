@@ -14,7 +14,6 @@
 typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 
 struct fd_rpcserver_args {
-  fd_valloc_t          valloc;
   int                  offline;
   fd_funk_t            funk[1];
   fd_blockstore_t      blockstore_ljoin;
@@ -24,14 +23,15 @@ struct fd_rpcserver_args {
   ushort               port;
   fd_http_server_params_t params;
   struct sockaddr_in   tpu_addr;
+
+  /* Bump allocator */
+  fd_spad_t *          spad;
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;
 
 void fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx);
 
 void fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx);
-
-void fd_rpc_stop_service(fd_rpc_ctx_t * ctx);
 
 int fd_rpc_ws_poll(fd_rpc_ctx_t * ctx);
 
