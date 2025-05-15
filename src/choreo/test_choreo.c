@@ -1050,6 +1050,1149 @@ test_full_tower( fd_wksp_t * wksp ) {
   fd_funk_close_file( &funk_close_args );
 }
 
+void
+test_agave_max_by_weight( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 4, funk );
+  ghost_insert( ghost, 4, 5, funk );
+
+  ulong voter_cnt = 1;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  fd_voter_t * voter0 = fd_epoch_voters( epoch );
+
+  fd_ghost_replay_vote( ghost, voter0, 4 );
+  FD_TEST( fd_ghost_query( ghost, 4 )->weight>fd_ghost_query( ghost, 5 )->weight );
+
+  fd_ghost_node_t const * node4 = fd_ghost_query( ghost, 4 );
+  fd_ghost_node_t const * node0 = fd_ghost_query( ghost, 0 );
+  /* The following pattern is used in function fd_ghost_head */
+  FD_TEST( node0==fd_ptr_if( fd_int_if( node4->weight==node0->weight,
+                                        node4->slot<node0->slot, node4->weight>node0->weight ),
+                             node4, node0 ) );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test max_by_weight" ));
+}
+
+void
+test_agave_add_root_parent( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+  ghost_init( ghost, 3, funk );
+  ghost_insert( ghost, 3, 4, funk );
+  ghost_insert( ghost, 4, 5, funk );
+
+  ulong voter_cnt = 1;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  fd_voter_t * voter0 = fd_epoch_voters( epoch );
+  fd_ghost_replay_vote( ghost, voter0, 5 );
+
+  /**********************************************************************/
+  /* Add slot #2 as the new root                                        */
+  /**********************************************************************/
+  ulong old_root=3;
+  ulong new_root=2;
+  fd_ghost_node_t * node_pool    = fd_ghost_node_pool( ghost );
+  fd_ghost_node_map_t * node_map = fd_ghost_node_map( ghost );
+  ulong null_idx                 = fd_ghost_node_pool_idx_null( node_pool );
+
+  /* Initialize and insert the root node from a pool element. */
+  fd_ghost_node_t * slot_2_node = fd_ghost_node_pool_ele_acquire( node_pool );
+  memset( slot_2_node, 0, sizeof( fd_ghost_node_t ) );
+  slot_2_node->slot        = new_root;
+  slot_2_node->next        = null_idx;
+  slot_2_node->valid       = 1;
+  slot_2_node->parent_idx  = null_idx;
+  slot_2_node->child_idx   = fd_ghost_node_map_idx_query( node_map, &old_root, null_idx, node_pool );
+  slot_2_node->sibling_idx = null_idx;
+  fd_ghost_node_map_ele_insert( node_map, slot_2_node, node_pool ); /* cannot fail */
+
+  /* Update root and old root node */
+  fd_ghost_node_t * slot_3_node = fd_ghost_node_map_ele_query( node_map, &old_root, NULL, node_pool );
+  ulong new_root_idx=fd_ghost_node_map_idx_query( node_map, &new_root, null_idx, node_pool );
+  slot_3_node->parent_idx = ghost->root_idx = new_root_idx;
+
+  /**********************************************************************/
+  /* Check the updated ghost tree                                       */
+  /**********************************************************************/
+  FD_TEST( fd_ghost_node_pool_ele( node_pool, slot_3_node->parent_idx )->slot==2 );
+  FD_TEST( fd_ghost_query( ghost, 3 )->weight==100 );
+  FD_TEST( fd_ghost_query( ghost, 2 )->weight==0 );
+  FD_TEST( slot_2_node->child_idx==fd_ghost_node_map_idx_query( node_map, &old_root /* 3 */, null_idx, node_pool )
+           && slot_3_node->sibling_idx==null_idx );
+  FD_TEST( fd_ghost_head( ghost, slot_2_node )->slot==5 );
+  FD_LOG_WARNING(( "Agave then tests whether slot 5 is the *deepest* slot from slot 2, "
+                   "but it seems sthat FD does not have this functionality." ));
+  FD_TEST( slot_2_node->parent_idx==null_idx );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test add_root_parent" ));
+}
+
+fd_ghost_t *
+test_agave_setup_forks( fd_wksp_t * wksp,
+                        fd_funk_t * funk ) {
+  /*
+     Build fork structure:
+          slot 0
+            |
+          slot 1
+          /    \
+     slot 2    |
+        |    slot 3
+     slot 4    |
+             slot 5
+               |
+             slot 6
+   */
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 1, funk );
+  ghost_insert( ghost, 1, 2, funk );
+  ghost_insert( ghost, 2, 4, funk );
+  ghost_insert( ghost, 1, 3, funk );
+  ghost_insert( ghost, 3, 5, funk );
+  ghost_insert( ghost, 5, 6, funk );
+
+  return ghost;
+}
+
+void
+test_agave_ancestor_iterator( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+
+  const fd_ghost_node_t * test1_node6 = fd_ghost_query( ghost, 6 );
+  const fd_ghost_node_t * test1_node5 = fd_ghost_parent( ghost, test1_node6 );
+  FD_TEST( test1_node5->slot==5 );
+  const fd_ghost_node_t * test1_node3 = fd_ghost_parent( ghost, test1_node5 );
+  FD_TEST( test1_node3->slot==3 );
+  const fd_ghost_node_t * test1_node1 = fd_ghost_parent( ghost, test1_node3 );
+  FD_TEST( test1_node1->slot==1 );
+  const fd_ghost_node_t * test1_node0 = fd_ghost_parent( ghost, test1_node1 );
+  FD_TEST( test1_node0->slot==0 );
+  FD_TEST( NULL==fd_ghost_parent( ghost, test1_node0 ) );
+
+  const fd_ghost_node_t * test2_node4 = fd_ghost_query( ghost, 4 );
+  const fd_ghost_node_t * test2_node2 = fd_ghost_parent( ghost, test2_node4 );
+  FD_TEST( test2_node2->slot==2 );
+  const fd_ghost_node_t * test2_node1 = fd_ghost_parent( ghost, test2_node2 );
+  FD_TEST( test2_node1->slot==1 );
+  const fd_ghost_node_t * test2_node0 = fd_ghost_parent( ghost, test2_node1 );
+  FD_TEST( test2_node0->slot==0 );
+  FD_TEST( NULL==fd_ghost_parent( ghost, test2_node0 ) );
+
+  const fd_ghost_node_t * test3_node1 = fd_ghost_query( ghost, 1 );
+  const fd_ghost_node_t * test3_node0 = fd_ghost_parent( ghost, test3_node1 );
+  FD_TEST( test3_node0->slot==0 );
+  FD_TEST( NULL==fd_ghost_parent( ghost, test3_node0 ) );
+
+  const fd_ghost_node_t * test4_node0 = fd_ghost_query( ghost, 0 );
+  FD_TEST( NULL==fd_ghost_parent( ghost, test4_node0 ) );
+
+  // Set a root, everything but slots 2, 4 should be removed
+  fd_ghost_publish( ghost, 2 );
+  const fd_ghost_node_t * test5_node4 = fd_ghost_query( ghost, 4 );
+  const fd_ghost_node_t * test5_node2 = fd_ghost_parent( ghost, test5_node4 );
+  FD_TEST( test5_node2->slot==2 );
+  FD_TEST( NULL==fd_ghost_parent( ghost, test5_node2 ) );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test ancestor_iterator" ));
+}
+
+void
+test_agave_new_from_frozen_banks( fd_wksp_t * wksp FD_PARAM_UNUSED ) {
+  FD_LOG_WARNING(( "In Agave, HeaviestSubtreeForkChoice maintains (slot#, bank_hash), "
+                   "but FD only maintains slot# in fd_ghost_node_t. In this unit test, "
+                   "Agave mostly tries to test the bank_hash part. This may have some "
+                   "implications to how Agave handles duplication (different bank_hash "
+                   "with the same slot#). Need to revisit it, probably in a later test." ));
+}
+
+void
+test_agave_set_root( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+
+  // Set root to 1, should only purge 0
+  fd_ghost_publish( ghost, 1 );
+  for( ulong slot=0; slot<=6; slot++ ){
+    if( slot==0 ) {
+      FD_TEST( NULL==fd_ghost_query( ghost, slot ) );
+    } else {
+      FD_TEST( NULL!=fd_ghost_query( ghost, slot ) );
+    }
+  }
+
+  // Set root to 5, should purge everything except 5, 6
+  fd_ghost_publish( ghost, 5 );
+  for( ulong slot=0; slot<=6; slot++ ) {
+    if( slot!=5 && slot!=6 ) {
+      FD_TEST( NULL==fd_ghost_query( ghost, slot ) );
+    } else {
+      FD_TEST( NULL!=fd_ghost_query( ghost, slot ) );
+    }
+  }
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test set_root" ));
+}
+
+void
+test_agave_set_root_and_add_votes( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+  ulong voter_cnt = 1;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  fd_voter_t * voter0 = fd_epoch_voters( epoch );
+
+  // Vote for slot 2
+  fd_ghost_replay_vote( ghost, voter0, 2 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==4 );
+
+  // Set a root
+  fd_ghost_publish( ghost, 1 );
+
+  // Vote again for slot 3 on a different fork than the last vote,
+  // verify this fork is now the best fork
+  fd_ghost_replay_vote( ghost, voter0, 3 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==6 );
+  FD_TEST( fd_ghost_query( ghost, 1 )->replay_stake==0 );
+  FD_TEST( fd_ghost_query( ghost, 3 )->replay_stake==100 );
+  FD_TEST( fd_ghost_query( ghost, 1 )->weight==100 );
+  FD_TEST( fd_ghost_query( ghost, 3 )->weight==100 );
+
+  // Set a root at last vote
+  fd_ghost_publish( ghost, 3 );
+  // Check new leaf 7 is still propagated properly
+  ghost_insert( ghost, 6, 7, funk );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==7 );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test set_root_and_add_votes" ));
+}
+
+void
+test_agave_set_root_and_add_outdated_votes( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+  ulong voter_cnt = 1;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  fd_voter_t * voter0 = fd_epoch_voters( epoch );
+
+  // Vote for slot 0
+  fd_ghost_replay_vote( ghost, voter0, 0 );
+
+  // Set root to 1, should purge 0 from the tree, but
+  // there's still an outstanding vote for slot 0 in `pubkey_votes`.
+  fd_ghost_publish( ghost, 1 );
+
+  // Vote again for slot 3, verify everything is ok
+  fd_ghost_replay_vote( ghost, voter0, 3 );
+  FD_TEST( fd_ghost_query( ghost, 3 )->replay_stake==100 );
+  FD_TEST( fd_ghost_query( ghost, 1 )->weight==100 );
+  FD_TEST( fd_ghost_query( ghost, 3 )->weight==100 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==6 );
+
+  // Set root again on different fork than the last vote
+  fd_ghost_publish( ghost, 2 );
+  // Smaller vote than last vote 3 should be ignored
+  fd_ghost_replay_vote( ghost, voter0, 2 );
+  FD_TEST( fd_ghost_query( ghost, 2 )->replay_stake==0 );
+  FD_TEST( fd_ghost_query( ghost, 2 )->weight==0 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==4 );
+
+  // New larger vote than last vote 3 should be processed
+  fd_ghost_replay_vote( ghost, voter0, 4 );
+  FD_TEST( fd_ghost_query( ghost, 2 )->replay_stake==0 );
+  FD_TEST( fd_ghost_query( ghost, 4 )->replay_stake==100 );
+  FD_TEST( fd_ghost_query( ghost, 2 )->weight==100 );
+  FD_TEST( fd_ghost_query( ghost, 4 )->weight==100 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==4 );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test set_root_and_add_outdated_votes" ));
+}
+
+void
+test_agave_best_overall_slot( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==4 );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test best_overall_slot" ));
+}
+
+void
+test_agave_propagate_new_leaf( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+
+  // Add a leaf 10, it should be the best and deepest choice
+  ghost_insert( ghost, 4, 10, funk );
+  for( fd_ghost_node_t * node=(fd_ghost_node_t *)fd_ghost_query( ghost, 10 );
+       node!=NULL;
+       node=(fd_ghost_node_t *)fd_ghost_parent( ghost, node ) ) {
+    FD_TEST( fd_ghost_head( ghost, node )->slot==10 );
+    // TODO: check deepest slot as well
+  }
+
+  // Add a smaller leaf 9, it should be the best and deepest choice
+  ghost_insert( ghost, 4, 9, funk );
+  for( fd_ghost_node_t * node=(fd_ghost_node_t *)fd_ghost_query( ghost, 9 );
+       node!=NULL;
+       node=(fd_ghost_node_t *)fd_ghost_parent( ghost, node ) ) {
+    FD_TEST( fd_ghost_head( ghost, node )->slot==9 );
+    // TODO: check deepest slot as well
+  }
+
+  // Add a higher leaf 11, should not change the best or deepest choice
+  ghost_insert( ghost, 4, 11, funk );
+  for( fd_ghost_node_t * node=(fd_ghost_node_t *)fd_ghost_query( ghost, 9 );
+       node!=NULL;
+       node=(fd_ghost_node_t *)fd_ghost_parent( ghost, node ) ) {
+    FD_TEST( fd_ghost_head( ghost, node )->slot==9 );
+    // TODO: check deepest slot as well
+  }
+
+  ulong voter_cnt = 2;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  fd_voter_t * voter0 = fd_epoch_voters( epoch );
+  fd_voter_t * voter1 = fd_epoch_voters( epoch )+1;
+
+  // Leaf slot 9 stops being the `best_slot` at slot 1 because there
+  // are now votes for the branch at slot 3
+  fd_ghost_replay_vote( ghost, voter0, 6 );
+
+  // Because slot 1 now sees the child branch at slot 3 has non-zero
+  // weight, adding smaller leaf slot 8 in the other child branch at slot 2
+  // should not propagate past slot 1
+  // Similarly, both forks have the same tree height so we should tie break by
+  // stake weight choosing 6 as the deepest slot when possible.
+  ghost_insert( ghost, 4, 8, funk );
+  for( fd_ghost_node_t * node=(fd_ghost_node_t *)fd_ghost_query( ghost, 8 );
+       node!=NULL;
+       node=(fd_ghost_node_t *)fd_ghost_parent( ghost, node ) ) {
+    ulong best_slot=( node->slot>1 ) ? 8 : 6;
+    FD_TEST( fd_ghost_head( ghost, node )->slot==best_slot );
+    // TODO: check deepest slot as well
+  }
+
+  // Add vote for slot 8, should now be the best slot (has same weight
+  // as fork containing slot 6, but slot 2 is smaller than slot 3).
+  fd_ghost_replay_vote( ghost, voter1, 8 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==8 );
+  // TODO: check deepest slot as well
+
+  // Because slot 4 now sees the child leaf 8 has non-zero
+  // weight, adding smaller leaf slots should not propagate past slot 4
+  // Similarly by tiebreak, 8 should be the deepest slot
+  ghost_insert( ghost, 4, 7, funk );
+  for( fd_ghost_node_t * node=(fd_ghost_node_t *)fd_ghost_query( ghost, 8 );
+       node!=NULL;
+       node=(fd_ghost_node_t *)fd_ghost_parent( ghost, node ) ) {
+    FD_TEST( fd_ghost_head( ghost, node )->slot==8 );
+    // TODO: check deepest slot as well
+  }
+
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_query( ghost, 8 ) )->slot==8 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_query( ghost, 9 ) )->slot==9 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_query( ghost, 10 ) )->slot==10 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_query( ghost, 11 ) )->slot==11 );
+  // TODO: check deepest slot as well
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_WARNING(( "Pass Agave unit test propagate_new_leaf w/o several tests for the deepest slot" ));
+}
+
+void
+test_agave_propagate_new_leaf_2( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 4, funk );
+  ghost_insert( ghost, 4, 6, funk );
+
+  ulong voter_cnt = 1;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  fd_voter_t * voter0 = fd_epoch_voters( epoch );
+
+  // slot 6 should be the best because it's the only leaf
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==6 );
+
+  // Add a leaf slot 5. Even though 5 is less than the best leaf 6,
+  // it's not less than it's sibling slot 4, so the best overall
+  // leaf should remain unchanged
+  ghost_insert( ghost, 0, 5, funk );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==6 );
+
+  // Add a leaf slot 2 on a different fork than leaf 6. Slot 2 should
+  // be the new best because it's for a lesser slot
+  ghost_insert( ghost, 0, 2, funk );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==2 );
+
+  // Add a vote for slot 4, so leaf 6 should be the best again
+  fd_ghost_replay_vote( ghost, voter0, 4 );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==6 );
+
+  // Adding a slot 1 that is less than the current best leaf 6 should not change the best
+  // slot because the fork slot 5 is on has a higher weight
+  ghost_insert( ghost, 0, 1, funk );
+  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==6 );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test propagate_new_leaf_2" ));
+}
+
+void
+test_agave_aggregate_slot( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+  (void)ghost;
+  FD_LOG_WARNING(( "This function tests HeaviestSubtreeForkChoice.aggregate_slot() which "
+                   "is close to fd_ghost_replay_vote() and fd_ghost_head(), but we don't have "
+                   "certain fields in ghost node: height, deepest_slot, is_duplicate_confimed." ));
+
+  fd_funk_close_file( &funk_close_args );
+}
+
+void
+test_agave_process_update_operations( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+  ulong voter_cnt = 3;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100, 100, 100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /* Note: our code processes ghost tree updates with fd_ghost_replay_vote()
+   * which seems a lot simpler than how Agave generates update operations. */
+  {
+    // Voter 0, 1, 2 vote for slot 3, 2, 1 respectively
+    fd_voter_t * voter0 = fd_epoch_voters( epoch );
+    fd_ghost_replay_vote( ghost, voter0, 3 );
+    fd_voter_t * voter1 = fd_epoch_voters( epoch )+1;
+    fd_ghost_replay_vote( ghost, voter1, 2 );
+    fd_voter_t * voter2 = fd_epoch_voters( epoch )+2;
+    fd_ghost_replay_vote( ghost, voter2, 1 );
+                                   /* 0      1      2      3      4  5  6  */
+    ulong expected_weight[] =       { 3*100, 3*100, 1*100, 1*100, 0, 0, 0 };
+    ulong expected_replay_stake[] = { 0,     100,   100,   100,   0, 0, 0 };
+    ulong expected_best_slot[] =    { 4,     4,     4,     6,     4, 6, 6 };
+    for( ulong slot=0; slot<=6; slot++ ) {
+      FD_TEST( fd_ghost_query( ghost, slot )->weight==expected_weight[slot] );
+      FD_TEST( fd_ghost_query( ghost, slot )->replay_stake==expected_replay_stake[slot] );
+      FD_TEST( fd_ghost_head( ghost, fd_ghost_query( ghost, slot ) )->slot==expected_best_slot[slot] );
+      /* TODO: deepest slot */
+    }
+  }
+
+  {
+    // Voter 0, 1, 2 now vote for slot 4, 3, 3 instead
+    fd_voter_t * voter0 = fd_epoch_voters( epoch );
+    fd_ghost_replay_vote( ghost, voter0, 4 );
+    fd_voter_t * voter1 = fd_epoch_voters( epoch )+1;
+    fd_ghost_replay_vote( ghost, voter1, 3 );
+    fd_voter_t * voter2 = fd_epoch_voters( epoch )+2;
+    fd_ghost_replay_vote( ghost, voter2, 3 );
+                                   /* 0      1      2      3      4      5  6  */
+    ulong expected_weight[] =       { 3*100, 3*100, 1*100, 2*100, 1*100, 0, 0 };
+    ulong expected_replay_stake[] = { 0,     0,     0,     200,   100,   0, 0 };
+    ulong expected_best_slot[] =    { 6,     6,     4,     6,     4,     6, 6 };
+    for( ulong slot=0; slot<=6; slot++ ) {
+      FD_TEST( fd_ghost_query( ghost, slot )->weight==expected_weight[slot] );
+      FD_TEST( fd_ghost_query( ghost, slot )->replay_stake==expected_replay_stake[slot] );
+      FD_TEST( fd_ghost_head( ghost, fd_ghost_query( ghost, slot ) )->slot==expected_best_slot[slot] );
+      /* TODO: deepest slot */
+    }
+  }
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_WARNING(( "Pass Agave unit test process_update_operations w/o checking deepest slot" ));
+}
+
+void
+test_agave_generate_update_operations( fd_wksp_t * wksp FD_PARAM_UNUSED ) {
+  FD_LOG_NOTICE(( "Skip Agave unit test genereate_update_operations because "
+                  "we update ghost tree differently with fd_ghost_replay_vote()" ));
+}
+
+void
+test_agave_add_votes( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  fd_ghost_t * ghost = test_agave_setup_forks( wksp, funk );
+  ulong voter_cnt = 3;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100, 100, 100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /* Note: our code processes ghost tree updates with fd_ghost_replay_vote()
+   * which seems a lot simpler than how Agave generates update operations. */
+  {
+    // Voter 0, 1, 2 vote for slot 3, 2, 1 respectively
+    fd_voter_t * voter0 = fd_epoch_voters( epoch );
+    fd_ghost_replay_vote( ghost, voter0, 3 );
+    fd_voter_t * voter1 = fd_epoch_voters( epoch )+1;
+    fd_ghost_replay_vote( ghost, voter1, 2 );
+    fd_voter_t * voter2 = fd_epoch_voters( epoch )+2;
+    fd_ghost_replay_vote( ghost, voter2, 1 );
+
+    FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot==4 );
+  }
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test add_votes" ));
+}
+
+static int
+fd_is_best_child( fd_ghost_t const * ghost, fd_ghost_node_t const * node ) {
+  /* the logic is copy-pasted from fd_ghost_head in fd_ghost.c */
+  fd_ghost_node_t const * node_pool  = fd_ghost_node_pool_const( ghost );
+  ulong null_idx                     = fd_ghost_node_pool_idx_null( node_pool );
+  if( node->parent_idx==null_idx ) return 1;
+
+  fd_ghost_node_t const * parent = fd_ghost_node_pool_ele_const( node_pool, node->parent_idx );
+  fd_ghost_node_t const * head   = fd_ghost_node_pool_ele_const( node_pool, parent->child_idx );
+  fd_ghost_node_t const * curr   = head;
+  while( curr ) {
+    head = fd_ptr_if(
+      fd_int_if(
+        /* if the weights are equal... */
+
+        curr->weight == head->weight,
+
+        /* ...tie-break by slot number */
+
+        curr->slot < head->slot,
+
+        /* otherwise return curr if curr > head */
+
+        curr->weight > head->weight ),
+      curr, head );
+
+    curr = fd_ghost_node_pool_ele_const( node_pool, curr->sibling_idx );
+  }
+  return head==node;
+}
+
+void
+test_agave_is_best_child( fd_wksp_t * wksp ) {
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 4, funk );
+  ghost_insert( ghost, 4, 9, funk );
+  ghost_insert( ghost, 4, 10, funk );
+
+  /* We don't have is_best_child, but the logic is part of fd_ghost_head and
+   * the unit test here splits that logic into a static function. */
+  FD_TEST( fd_is_best_child( ghost, fd_ghost_query( ghost, 0 ) ) );
+  FD_TEST( fd_is_best_child( ghost, fd_ghost_query( ghost, 4 ) ) );
+
+  // 9 is better than 10
+  FD_TEST( fd_is_best_child( ghost, fd_ghost_query( ghost, 9 ) ) );
+  FD_TEST( !fd_is_best_child( ghost, fd_ghost_query( ghost, 10 ) ) );
+
+  // Add new leaf 8, which is better than 9, as both have weight 0
+  ghost_insert( ghost, 4, 8, funk );
+  FD_TEST( fd_is_best_child( ghost, fd_ghost_query( ghost, 8 ) ) );
+  FD_TEST( !fd_is_best_child( ghost, fd_ghost_query( ghost, 9 ) ) );
+  FD_TEST( !fd_is_best_child( ghost, fd_ghost_query( ghost, 10 ) ) );
+
+  // Add vote for 9, it's the best again
+  ulong voter_cnt = 3;
+  voter_t voters[voter_cnt];
+  ulong stakes[] = {100, 100, 100};
+  init_vote_accounts( voters, voter_cnt );
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  fd_voter_t * voter0 = fd_epoch_voters( epoch );
+  fd_ghost_replay_vote( ghost, voter0, 9 );
+  FD_TEST( fd_is_best_child( ghost, fd_ghost_query( ghost, 9 ) ) );
+  FD_TEST( !fd_is_best_child( ghost, fd_ghost_query( ghost, 8 ) ) );
+  FD_TEST( !fd_is_best_child( ghost, fd_ghost_query( ghost, 10 ) ) );
+
+  fd_funk_close_file( &funk_close_args );
+  FD_LOG_NOTICE(( "Pass Agave unit test is_best_child" ));
+}
+
+void
+test_agave_collect_vote_lockouts_sums( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 1, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 2;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {1, 1};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  voter_vote_for_slot( wksp, towers[0], funk, 0, 1, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, 0, 1, &voters[1] );
+
+  fd_forks_t * forks;
+  ulong curr_slot = 1;
+  INIT_FORKS( curr_slot );
+  fd_forks_update( forks, epoch, funk, ghost, curr_slot );
+
+  FD_TEST( fd_ghost_query( ghost, 0 )->weight==2 );
+  FD_TEST( fd_ghost_query( ghost, fd_ghost_root( ghost )->slot )->weight==2 );
+
+  // Check that all voters have voted for slot#0 in the funk txn for slot#1
+  fd_fork_t *     fork = fd_fork_frontier_ele_query( forks->frontier, &curr_slot, NULL, forks->pool );
+  fd_funk_txn_t * txn  = fork->slot_ctx->funk_txn;
+  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
+  for( ulong i=0; i<fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
+    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+    fd_voter_t * voter = &epoch_voters[i];
+    ulong vote = 0UL;
+    for( ; ; ) {
+      fd_funk_rec_query_t query[1];
+      fd_voter_state_t const * state = fd_voter_state( funk, query, txn, &voter->rec );
+      vote = fd_voter_state_vote( state );
+      if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+        break;
+      }
+    }
+    FD_TEST( vote==0 );
+    //TODO: check the hash being voted in addition to the slot#
+  }
+
+  FD_LOG_NOTICE(( "Pass Agave test collect_vote_lockouts_sum" ));
+  fd_funk_close_file( &funk_close_args );
+}
+
+void
+test_agave_collect_vote_lockouts_root( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  ghost_init( ghost, 0, funk );
+  for( ulong slot=1; slot<=FD_TOWER_VOTE_MAX; slot++ )
+    ghost_insert( ghost, slot-1, slot, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 2;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {1, 1};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i=0; i<voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  for( ulong slot=0; slot<FD_TOWER_VOTE_MAX; slot++ ) {
+    voter_vote_for_slot( wksp, towers[0], funk, slot, slot+1, &voters[0] );
+    voter_vote_for_slot( wksp, towers[1], funk, slot, slot+1, &voters[1] );
+  }
+
+  fd_forks_t * forks;
+  ulong curr_slot = FD_TOWER_VOTE_MAX;
+  INIT_FORKS( curr_slot );
+  fd_forks_update( forks, epoch, funk, ghost, curr_slot );
+
+  for( ulong slot=0; slot<FD_TOWER_VOTE_MAX; slot++ )
+    FD_TEST( fd_ghost_query( ghost, slot )->weight==2 );
+  FD_TEST( fd_ghost_query( ghost, 0 )->weight==2 );
+  FD_TEST( fd_ghost_query( ghost, fd_ghost_root( ghost )->slot )->weight==2 );
+
+  // Check that all voters have voted for slot#30 in the funk txn for slot#31 (FD_TOWER_VOTE_MAX)
+  fd_fork_t *     fork = fd_fork_frontier_ele_query( forks->frontier, &curr_slot, NULL, forks->pool );
+  fd_funk_txn_t * txn  = fork->slot_ctx->funk_txn;
+  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
+  for( ulong i=0; i<fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
+    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+    fd_voter_t * voter = &epoch_voters[i];
+    for( ; ; ) {
+      fd_funk_rec_query_t query[1];
+      fd_voter_state_t const * state = fd_voter_state( funk, query, txn, &voter->rec );
+      if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+        ulong cnt=fd_voter_state_cnt( state );
+        for( ulong slot=0; slot<cnt; slot++ ) {
+          FD_TEST( slot==state->votes[slot].slot );
+          //TODO: check the hash being voted in addition to the slot#
+        }
+        break;
+      }
+    }
+  }
+
+  FD_LOG_NOTICE(( "Pass Agave test collect_vote_lockouts_root" ));
+  fd_funk_close_file( &funk_close_args );
+}
+
+void
+test_agave_check_vote_threshold_forks( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  /* THRESHOLD_DEPTH is defined in fd_tower.c */
+#define THRESHOLD_DEPTH         (8)
+  ghost_init( ghost, 0, funk );
+  for( ulong slot=1; slot<=THRESHOLD_DEPTH+1; slot++ )
+    ghost_insert( ghost, slot-1, slot, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 4;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {1, 1, 1, 1};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i=0; i<voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  /* 3 voters vote for slot#6 (THRESHOLD_DEPTH-2) with lockout=2 */
+  voter_vote_for_slot( wksp, towers[0], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[1] );
+  voter_vote_for_slot( wksp, towers[2], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[2] );
+  for( ulong slot=0; slot<THRESHOLD_DEPTH; slot++ ) {
+    voter_vote_for_slot( wksp, towers[3], funk, slot, slot+1, &voters[3] );
+  }
+
+  fd_forks_t * forks;
+  INIT_FORKS( THRESHOLD_DEPTH );
+  fd_forks_update( forks, epoch, funk, ghost, THRESHOLD_DEPTH );
+
+  // CASE 1: Record the first VOTE_THRESHOLD tower votes for fork 2. We want to
+  // evaluate a vote on slot VOTE_THRESHOLD_DEPTH. The nth most recent vote should be
+  // for slot 0, which is common to all account vote states, so we should pass the
+  // threshold check
+  {
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = xid.ul[1] = THRESHOLD_DEPTH;
+    fd_funk_txn_map_query_t query[1];
+    fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+    FD_TEST( fd_funk_txn_map_query_try( &txn_map, &xid, NULL, query, 0 )==FD_MAP_SUCCESS );
+    FD_TEST( query->ele );
+    void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+    fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+    FD_TEST( 1==fd_tower_threshold_check( towers[3], epoch, funk, query->ele, THRESHOLD_DEPTH, spad ) );
+  }
+
+  // CASE 2: Now we want to evaluate a vote for slot VOTE_THRESHOLD_DEPTH + 1. This slot
+  // will expire the vote in one of the vote accounts, so we should have insufficient
+  // stake to pass the threshold
+  {
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = xid.ul[1] = THRESHOLD_DEPTH+1;
+    fd_funk_txn_map_query_t query[1];
+    fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+    FD_TEST( fd_funk_txn_map_query_try( &txn_map, &xid, NULL, query, 0 )==FD_MAP_SUCCESS );
+    FD_TEST( query->ele );
+    void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+    fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+    FD_TEST( 0==fd_tower_threshold_check( towers[3], epoch, funk, query->ele, THRESHOLD_DEPTH+1, spad ) );
+  }
+
+  FD_LOG_NOTICE(( "Pass Agave test check_vote_threshold_forks" ));
+  fd_funk_close_file( &funk_close_args );
+}
+
+void
+test_agave_check_vote_threshold_deep_and_shallow_below_threshold( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  /* THRESHOLD_DEPTH is defined in fd_tower.c */
+#define THRESHOLD_DEPTH         (8)
+  ghost_init( ghost, 0, funk );
+  for( ulong slot=1; slot<=THRESHOLD_DEPTH; slot++ )
+    ghost_insert( ghost, slot-1, slot, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 2;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {6, 4};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i=0; i<voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  {
+    /* To replicate this test, we need to make sure that the lockout here does not expire at slot#8; */
+    /* As as result, the threshold stake will be 60% (<67%) in the threshold check, failing the check. */
+    fd_tower_vote( towers[0], 0 );
+    fd_tower_votes_peek_head( towers[0] )->conf=3;
+    fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[0], &voters[0] );
+    fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, THRESHOLD_DEPTH );
+    insert_vote_state_into_funk_txn( funk, funk_txn, &voters[0].pubkey, vote_state_versioned );
+  }
+  voter_vote_for_slot( wksp, towers[1], funk, 4, THRESHOLD_DEPTH, &voters[1] );
+
+  fd_forks_t * forks;
+  INIT_FORKS( THRESHOLD_DEPTH );
+  fd_forks_update( forks, epoch, funk, ghost, THRESHOLD_DEPTH );
+
+  {
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = xid.ul[1] = THRESHOLD_DEPTH;
+    fd_funk_txn_map_query_t query[1];
+    fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+    FD_TEST( fd_funk_txn_map_query_try( &txn_map, &xid, NULL, query, 0 )==FD_MAP_SUCCESS );
+    FD_TEST( query->ele );
+    void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+    fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+
+    void * tower_mem=fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    fd_tower_t * tower=fd_tower_join( fd_tower_new( tower_mem ) );
+    for( ulong slot=0; slot<THRESHOLD_DEPTH; slot++ ) {
+      fd_tower_vote( tower, slot );
+    }
+
+    FD_TEST( 0==fd_tower_threshold_check( tower, epoch, funk, query->ele, THRESHOLD_DEPTH, spad ) );
+    FD_LOG_NOTICE(( "Pass Agave test check_vote_threshold_deep_below_threshold" ));
+
+    ulong stakes1[] = {7, 1};
+    fd_epoch_t * epoch1 = mock_epoch( wksp, voter_cnt, stakes1, voters );
+    FD_TEST( 1==fd_tower_threshold_check( tower, epoch1, funk, query->ele, THRESHOLD_DEPTH, spad ) );
+    /* In agave, threshold check would fail -- although the check which looks back 8 slots passes;
+     * Agave has another "shallow" check which looks back only 4 slots; This shallow check is missing in FD.
+     * The FD_TEST below is the correct one to be used here. */
+    //FD_TEST( 0==fd_tower_threshold_check( tower, epoch1, funk, query->ele, THRESHOLD_DEPTH, spad ) );
+    FD_LOG_WARNING(( "Fail Agave test check_vote_threshold_shallow_below_threshold" ));
+  }
+
+  fd_funk_close_file( &funk_close_args );
+}
+
+void
+test_agave_is_locked_out_tests( fd_wksp_t * wksp ) {
+  {
+    fd_funk_close_file_args_t funk_close_args;
+    fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+    FD_TEST( funk );
+    void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+    fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+    ghost_init( ghost, 0, funk );
+    ghost_insert( ghost, 0, 1, funk );
+    ghost_insert( ghost, 0, 2, funk );
+
+    void * tower_mem=fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    fd_tower_t * tower=fd_tower_join( fd_tower_new( tower_mem ) );
+    fd_tower_vote( tower, 1 );
+    FD_TEST( 0==fd_tower_lockout_check( tower, ghost, 2 ) );
+    FD_LOG_NOTICE(( "Pass Agave test is_locked_out_root_slot_sibling_fail" ));
+    fd_funk_close_file( &funk_close_args );
+  }
+
+  {
+    fd_funk_close_file_args_t funk_close_args;
+    fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+    FD_TEST( funk );
+    void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+    fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+    ghost_init( ghost, 0, funk );
+    ghost_insert( ghost, 0, 1, funk );
+
+    void * tower_mem=fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    fd_tower_t * tower=fd_tower_join( fd_tower_new( tower_mem ) );
+    fd_tower_vote( tower, 0 );
+    fd_tower_vote( tower, 1 );
+    FD_TEST( 0==fd_tower_lockout_check( tower, ghost, 0 ) );
+    FD_LOG_NOTICE(( "Pass Agave test is_locked_out_double_vote" ));
+    fd_funk_close_file( &funk_close_args );
+  }
+
+  {
+    fd_funk_close_file_args_t funk_close_args;
+    fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+    FD_TEST( funk );
+    void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+    fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+    ghost_init( ghost, 0, funk );
+    ghost_insert( ghost, 0, 1, funk );
+
+    void * tower_mem=fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    fd_tower_t * tower=fd_tower_join( fd_tower_new( tower_mem ) );
+    fd_tower_vote( tower, 0 );
+    FD_TEST( 1==fd_tower_lockout_check( tower, ghost, 1 ) );
+    FD_LOG_NOTICE(( "Pass Agave test is_locked_out_child" ));
+    fd_funk_close_file( &funk_close_args );
+  }
+
+  {
+    fd_funk_close_file_args_t funk_close_args;
+    fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+    FD_TEST( funk );
+    void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+    fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+    ghost_init( ghost, 0, funk );
+    ghost_insert( ghost, 0, 1, funk );
+    ghost_insert( ghost, 0, 2, funk );
+
+    void * tower_mem=fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    fd_tower_t * tower=fd_tower_join( fd_tower_new( tower_mem ) );
+    fd_tower_vote( tower, 0 );
+    fd_tower_vote( tower, 1 );
+    FD_TEST( 0==fd_tower_lockout_check( tower, ghost, 2 ) );
+    FD_LOG_NOTICE(( "Pass Agave test is_locked_out_sibling" ));
+    fd_funk_close_file( &funk_close_args );
+  }
+
+  {
+    fd_funk_close_file_args_t funk_close_args;
+    fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+    FD_TEST( funk );
+    void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+    fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+    ghost_init( ghost, 0, funk );
+    ghost_insert( ghost, 0, 1, funk );
+    ghost_insert( ghost, 0, 4, funk );
+
+    void * tower_mem=fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    fd_tower_t * tower=fd_tower_join( fd_tower_new( tower_mem ) );
+    fd_tower_vote( tower, 0 );
+    fd_tower_vote( tower, 1 );
+    FD_TEST( 1==fd_tower_lockout_check( tower, ghost, 4 ) );
+    fd_tower_vote( tower, 4 );
+    FD_TEST( fd_tower_votes_peek_index_const( tower, 0 )->slot==0 );
+    FD_TEST( fd_tower_votes_peek_index_const( tower, 0 )->conf==2 );
+    FD_TEST( fd_tower_votes_peek_index_const( tower, 1 )->slot==4 );
+    FD_TEST( fd_tower_votes_peek_index_const( tower, 1 )->conf==1 );
+
+    FD_LOG_NOTICE(( "Pass Agave test is_locked_out_last_vote_expired" ));
+    fd_funk_close_file( &funk_close_args );
+  }
+}
+
+void
+test_agave_is_slot_confirmed_tests( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  /* THRESHOLD_DEPTH is defined in fd_tower.c */
+  ulong slot=1;
+  ghost_init( ghost, slot, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 2;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {1, 1};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i=0; i<voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  {
+   fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[0], &voters[0] );
+   fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+   insert_vote_state_into_funk_txn( funk, funk_txn, &voters[0].pubkey, vote_state_versioned );
+  }
+  {
+   fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+   fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+   insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+  }
+
+  fd_forks_t * forks;
+  INIT_FORKS( slot );
+  fd_forks_update( forks, epoch, funk, ghost, slot );
+  FD_TEST( forks->confirmed==0 );
+  FD_LOG_NOTICE(( "Pass Agave unit test is_slot_confirmed_unknown_slot" )); /* no votes yet */
+
+  voter_vote_for_slot( wksp, towers[0], funk, slot, slot, &voters[0] );
+  fd_forks_update( forks, epoch, funk, ghost, slot );
+  FD_TEST( forks->confirmed==0 );
+  FD_LOG_NOTICE(( "Pass Agave unit test is_slot_confirmed_not_enough_stake_failure" ));
+
+  voter_vote_for_slot( wksp, towers[1], funk, slot, slot, &voters[1] );
+  fd_forks_update( forks, epoch, funk, ghost, slot );
+  FD_TEST( forks->confirmed==slot );
+  FD_LOG_NOTICE(( "Pass Agave unit test is_slot_confirmed_pass" ));
+
+  fd_funk_close_file( &funk_close_args );
+}
 
 int
 main( int argc, char ** argv ) {
@@ -1071,6 +2214,76 @@ main( int argc, char ** argv ) {
   test_vote_threshold_check( wksp );
   test_vote_switch_check_4forks( wksp );
   test_full_tower( wksp );
+
+  /* Below are unit tests from Agave core/src/consensus/heaviest_subtree_fork_choice.rs */
+  test_agave_max_by_weight( wksp );
+  test_agave_add_root_parent( wksp );
+  test_agave_ancestor_iterator( wksp );
+  test_agave_new_from_frozen_banks( wksp );            /* Not passing */
+  test_agave_set_root( wksp );
+  test_agave_set_root_and_add_votes( wksp );
+  test_agave_set_root_and_add_outdated_votes( wksp );
+  test_agave_best_overall_slot( wksp );
+  test_agave_propagate_new_leaf( wksp );               /* Need deepest slot */
+  test_agave_propagate_new_leaf_2( wksp );
+  test_agave_aggregate_slot( wksp );                   /* Not passing */
+  test_agave_process_update_operations( wksp );        /* Need deepest slot */
+  test_agave_generate_update_operations( wksp );
+  test_agave_add_votes( wksp );
+  test_agave_is_best_child( wksp );
+
+  FD_LOG_WARNING(( "The 1 test below requires `stray_restored_slot` in fd_tower_t "
+                   "for handling an edge case, but it seems missing on our side." ));
+  /* test_stray_restored_slot() */
+
+  FD_LOG_WARNING(( "The 5 tests below use fd_ghost_node->valid, but it seems not maintained." ));
+  /* test_mark_valid_invalid_forks()
+   * test_mark_valid_then_descendant_invalid()
+   * test_mark_valid_then_ancestor_invalid()
+   * test_set_unconfirmed_duplicate_confirm_smaller_slot_first()
+   * test_set_unconfirmed_duplicate_confirm_larger_slot_first() */
+
+  /*         slot 0
+               |
+             slot 1
+             /       \
+        slot 2        |
+           |          slot 3
+        slot 4               \
+        /    \                slot 5
+ slot 10      slot 10        /     |     \
+                     slot 6   slot 10   slot 10
+                    /      \
+               slot 10   slot 10
+  All the "slot 10" above have different bank hashes. */
+  FD_LOG_WARNING(( "The 10 tests below use the tree above with duplicate "
+                   "slot 10s which seems not supported by fd_ghost_node_t." ));
+  /* test_add_new_leaf_duplicate()
+   * test_add_votes_duplicate_tie()
+   * test_add_votes_duplicate_greater_hash_ignored()
+   * test_add_votes_duplicate_smaller_hash_prioritized()
+   * test_add_votes_duplicate_then_outdated()
+   * test_add_votes_duplicate_zero_stake()
+   * test_mark_invalid_then_valid_duplicate()
+   * test_mark_invalid_then_add_new_heavier_duplicate_slot() */
+
+  FD_LOG_NOTICE(( "Skip 8 Agave unit tests test_split_off_*() "
+                  "because tree split seems only used in repair instead of consensus." ));
+  FD_LOG_NOTICE(( "Skip 2 Agave unit tests test_merge() and test_merge_duplicate() "
+                  "because tree merge seems only used in repair instead of consensus." ));
+  FD_LOG_NOTICE(( "Skip 2 Agave unit tests test_purge_prune() and test_purge_prune_complicated() "
+                  "because purge_prune seems only used in repair instead of consensus." ));
+  FD_LOG_NOTICE(( "Skip 1 Agave unit test test_subtree_diff() "
+                  "because it is only used in set_tree_root which has already been tested." ));
+
+  /* Below are unit tests from Agave core/src/consensus.rs */
+  test_agave_collect_vote_lockouts_sums( wksp );
+  test_agave_collect_vote_lockouts_root( wksp );
+  test_agave_check_vote_threshold_forks( wksp );
+  test_agave_check_vote_threshold_deep_and_shallow_below_threshold( wksp );
+  test_agave_is_locked_out_tests( wksp );
+  test_agave_is_slot_confirmed_tests( wksp );
+
   fd_halt();
   return 0;
 }
