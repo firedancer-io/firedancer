@@ -5,6 +5,7 @@
 #define HEADER_fd_src_discoh_fd_bank_abi_h
 
 #include "../../disco/pack/fd_pack.h"
+#include "../../funk/fd_funk.h"
 
 #define FD_BANK_ABI_TXN_INIT_SUCCESS                   ( 0)
 #define FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_NOT_FOUND     (-1)
@@ -14,6 +15,13 @@
 #define FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX  (-5)
 
 FD_PROTOTYPES_BEGIN
+
+struct fd_bank_shim_ctx{
+   fd_funk_t *     funk;
+   fd_spad_t *     spad;
+
+};
+typedef struct fd_bank_shim_ctx fd_bank_shim_ctx_t;
 
 /* This function resolves the address lookup tables for the provided
    transaction by writing them out to the out_lut_accts.  The accounts
@@ -29,12 +37,12 @@ FD_PROTOTYPES_BEGIN
    effect (extensions do not become active on the slot they occur in). */
 
 int
-fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
-                                           int              fixed_root,
-                                           ulong            slot,
-                                           fd_txn_t const * txn,
-                                           uchar const *    payload,
-                                           fd_acct_addr_t * out_lut_accts );
+fd_bank_abi_resolve_address_lookup_tables( fd_bank_shim_ctx_t const *      ctx,
+                                           int                             fixed_root,
+                                           ulong                           slot,
+                                           fd_txn_t const *                txn,
+                                           uchar const *                   payload,
+                                           fd_acct_addr_t *                out_lut_accts );
 
 
 void fd_ext_bank_release( void const * bank );

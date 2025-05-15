@@ -17,8 +17,6 @@ struct fd_addrlut {
 
 typedef struct fd_addrlut fd_addrlut_t;
 
-#define FD_ADDRLUT_META_SZ       (56UL)
-#define FD_ADDRLUT_MAX_ADDR_CNT (256UL)
 #define DEFAULT_COMPUTE_UNITS   (750UL)
 #define MAX_ENTRIES             FD_SYSVAR_SLOT_HASHES_CAP
 
@@ -69,11 +67,11 @@ fd_addrlut_deserialize( fd_addrlut_t * lut,
     return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
   FD_TEST( lut->state.discriminant == fd_address_lookup_table_state_enum_lookup_table );
 
-  if( data_sz < FD_ADDRLUT_META_SZ )
+  if( data_sz < FD_LOOKUP_TABLE_META_SIZE )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
-  uchar const * raw_addr_data    = data   +FD_ADDRLUT_META_SZ;
-  ulong         raw_addr_data_sz = data_sz-FD_ADDRLUT_META_SZ;
+  uchar const * raw_addr_data    = data   +FD_LOOKUP_TABLE_META_SIZE;
+  ulong         raw_addr_data_sz = data_sz-FD_LOOKUP_TABLE_META_SIZE;
 
   if( !fd_ulong_is_aligned( raw_addr_data_sz, 32UL ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -91,12 +89,12 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
 
   /* TODO can this ever get hit?  All code paths to this function seem
      to check account data size during deserialization. */
-  if( FD_UNLIKELY( data_sz<FD_ADDRLUT_META_SZ ) )
+  if( FD_UNLIKELY( data_sz<FD_LOOKUP_TABLE_META_SIZE ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   fd_bincode_encode_ctx_t encode =
     { .data    = data,
-      .dataend = data+FD_ADDRLUT_META_SZ };
+      .dataend = data+FD_LOOKUP_TABLE_META_SIZE };
   fd_memset( data, 0, (ulong)encode.dataend - (ulong)encode.data );
 
   int bin_err = fd_address_lookup_table_state_encode( state, &encode );
@@ -647,7 +645,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L263-L269 */
-  if( FD_UNLIKELY( lut->addr_cnt >= FD_ADDRLUT_MAX_ADDR_CNT ) ) {
+  if( FD_UNLIKELY( lut->addr_cnt >= FD_LOOKUP_TABLE_MAX_ADDR_CNT ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table is full and cannot contain more addresses" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
@@ -661,10 +659,10 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L276-L279 */
   ulong old_addr_cnt = lut->addr_cnt;
   ulong new_addr_cnt = lut->addr_cnt + extend->new_addrs_len;
-  if( FD_UNLIKELY( new_addr_cnt > FD_ADDRLUT_MAX_ADDR_CNT ) ) {
+  if( FD_UNLIKELY( new_addr_cnt > FD_LOOKUP_TABLE_MAX_ADDR_CNT ) ) {
     /* Max msg_sz: 65 - 6 + 20*2 = 99 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Extended lookup table length %lu would exceed max capacity of %lu", new_addr_cnt, FD_ADDRLUT_MAX_ADDR_CNT );
+      "Extended lookup table length %lu would exceed max capacity of %lu", new_addr_cnt, FD_LOOKUP_TABLE_MAX_ADDR_CNT );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -682,7 +680,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/address-lookup-table/src/processor.rs#L302
-  new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
+  new_table_data_sz = FD_LOOKUP_TABLE_META_SIZE + new_addr_cnt * sizeof(fd_pubkey_t);
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/address-lookup-table/src/processor.rs#L286 */
   uchar * lut_data_mut = NULL;
@@ -698,11 +696,11 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L311-L313 */
   do {
-    uchar * new_keys = lut_data_mut + FD_ADDRLUT_META_SZ + old_addr_cnt * sizeof(fd_pubkey_t);
+    uchar * new_keys = lut_data_mut + FD_LOOKUP_TABLE_META_SIZE + old_addr_cnt * sizeof(fd_pubkey_t);
     fd_memcpy( new_keys, extend->new_addrs, extend->new_addrs_len * sizeof(fd_pubkey_t) );
   } while(0);
   fd_borrowed_account_set_data_length( &lut_acct, new_table_data_sz );
-  lut->addr            = (fd_pubkey_t *)(lut_data_mut + FD_ADDRLUT_META_SZ);
+  lut->addr            = (fd_pubkey_t *)(lut_data_mut + FD_LOOKUP_TABLE_META_SIZE);
   lut->addr_cnt        = new_addr_cnt;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L316 */

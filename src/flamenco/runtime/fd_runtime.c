@@ -1223,7 +1223,9 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
 
     /* Realistically impossible case, but need to make sure we don't cause an OOB data access
        https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
-    if( FD_UNLIKELY( addr_lut_rec->vt->get_data_len( addr_lut_rec ) < FD_LOOKUP_TABLE_META_SIZE ) ) {
+    ulong addr_lut_rec_data_len = addr_lut_rec->vt->get_data_len( addr_lut_rec );
+    if( FD_UNLIKELY( addr_lut_rec_data_len<FD_LOOKUP_TABLE_META_SIZE ||
+                     addr_lut_rec_data_len>( FD_LOOKUP_TABLE_META_SIZE+( FD_LOOKUP_TABLE_MAX_ADDR_CNT*sizeof(fd_pubkey_t) ) ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
     }
 
@@ -1243,6 +1245,9 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
     fd_address_lookup_table_state_t table[1];
     fd_address_lookup_table_state_t * addr_lookup_table_state = fd_address_lookup_table_state_decode( table, &decode_ctx );
 
+    int is_lookup_table = fd_address_lookup_table_state_is_lookup_table( table );
+    if( FD_UNLIKELY( !is_lookup_table ) ) return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
     if( FD_UNLIKELY( addr_lookup_table_state->discriminant != fd_address_lookup_table_state_enum_lookup_table ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
@@ -1250,13 +1255,13 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
 
     /* Again probably an impossible case, but the ALUT data needs to be 32-byte aligned
        https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
-    if( FD_UNLIKELY( (addr_lut_rec->vt->get_data_len( addr_lut_rec ) - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
+    if( FD_UNLIKELY( (addr_lut_rec_data_len - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
     }
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L101-L112 */
     fd_acct_addr_t * lookup_addrs  = (fd_acct_addr_t *)&addr_lut_rec->vt->get_data( addr_lut_rec )[FD_LOOKUP_TABLE_META_SIZE];
-    ulong         lookup_addrs_cnt = (addr_lut_rec->vt->get_data_len( addr_lut_rec ) - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
+    ulong         lookup_addrs_cnt = (addr_lut_rec_data_len - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
     ulong active_addresses_len;

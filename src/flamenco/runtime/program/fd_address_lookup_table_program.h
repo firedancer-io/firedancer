@@ -9,6 +9,7 @@
 
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L19 */
 #define FD_LOOKUP_TABLE_META_SIZE      (56)
+#define FD_LOOKUP_TABLE_MAX_ADDR_CNT   (256UL)
 
 FD_PROTOTYPES_BEGIN
 
