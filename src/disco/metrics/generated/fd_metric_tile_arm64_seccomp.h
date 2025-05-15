@@ -21,9 +21,9 @@
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
-static const unsigned int sock_filter_policy_fd_metric_tile.arm64_instr_cnt = 45;
+static const unsigned int sock_filter_policy_fd_metric_tile_arm64_instr_cnt = 45;
 
-static void populate_sock_filter_policy_fd_metric_tile.arm64( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int metrics_socket_fd) {
+static void populate_sock_filter_policy_fd_metric_tile_arm64( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int metrics_socket_fd) {
   FD_TEST( out_cnt >= 45 );
   struct sock_filter filter[45] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
