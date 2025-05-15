@@ -3,7 +3,7 @@
 fd_event_map_t *
 fd_event_map_new( void * mem,
                   ulong  in_cnt,
-                  ulong  cons_cnt ) {
+                  ulong  out_cnt ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -17,13 +17,13 @@ fd_event_map_new( void * mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_event_map_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_map_t), sizeof(fd_event_map_t) );
 
-  ulong event_cnt = 1UL + in_cnt + cons_cnt;
+  ulong event_cnt = 1UL + in_cnt + out_cnt;
   self->event_map = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort), sizeof(ushort)*event_cnt );
   self->event_cnt = event_cnt;
   self->event_seq = 0UL;
 
   /* init event map */
-  fd_event_map_init(self, in_cnt, cons_cnt );
+  fd_event_map_init(self, in_cnt, out_cnt );
 
   return self;
 }

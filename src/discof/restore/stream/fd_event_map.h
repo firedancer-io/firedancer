@@ -22,8 +22,8 @@ fd_event_map_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_event_map_footprint( ulong in_cnt,
-                        ulong cons_cnt ) {
-  ulong event_cnt = 1UL + in_cnt + cons_cnt;
+                        ulong out_cnt ) {
+  ulong event_cnt = 1UL + in_cnt + out_cnt;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND(l, alignof(fd_event_map_t), sizeof(fd_event_map_t) );
   l = FD_LAYOUT_APPEND(l, alignof(ushort),         sizeof(ushort)*event_cnt );
@@ -33,17 +33,17 @@ fd_event_map_footprint( ulong in_cnt,
 fd_event_map_t *
 fd_event_map_new( void * mem,
                   ulong in_cnt,
-                  ulong cons_cnt );
+                  ulong out_cnt );
 
 static inline void
 fd_event_map_init( fd_event_map_t * map,
                    ulong            in_cnt,
-                   ulong            cons_cnt ) {
+                   ulong            out_cnt ) {
   ulong idx = 0UL;
-  map->event_map[ idx++ ] = (ushort)cons_cnt;
+  map->event_map[ idx++ ] = (ushort)out_cnt;
   for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ )
-    map->event_map[ idx++ ] = (ushort)(in_idx+cons_cnt+1UL);
-  for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ )
+    map->event_map[ idx++ ] = (ushort)(in_idx+out_cnt+1UL);
+  for( ulong cons_idx=0UL; cons_idx<out_cnt; cons_idx++ )
     map->event_map[ idx++ ] = (ushort)cons_idx;
 }
 

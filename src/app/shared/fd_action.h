@@ -92,6 +92,7 @@ struct fdctl_args {
 
   struct {
     char snapshot_path[ PATH_MAX ];
+    char snapshot_dir[ PATH_MAX ];
   } snapshot_load;
 };
 

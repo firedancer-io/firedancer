@@ -3,15 +3,32 @@
 
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../disco/topo/fd_topo.h"
-#include "stream/fd_stream_reader.h"
 
-struct fd_stream_frag_meta_ctx {
-  uchar const * in_buf;
-  ulong         goff_translate;
-  ulong         loff_translate;
-  ulong         in_skip;
+/* fd_stream_frag_meta_t is a variation of fd_frag_meta_t optimized for
+   stream I/O. */
+
+union fd_stream_frag_meta {
+
+struct {
+
+  ulong  seq;     /* frag sequence number */
+  uint   sz;
+  ushort unused;
+  ushort ctl;
+
+  ulong  goff;    /* stream offset */
+  ulong  loff;    /* dcache offset */
+
 };
-typedef struct fd_stream_frag_meta_ctx fd_stream_frag_meta_ctx_t;
+
+fd_frag_meta_t f[1];
+
+};
+
+typedef union fd_stream_frag_meta fd_stream_frag_meta_t;
+
+FD_STATIC_ASSERT( alignof(fd_stream_frag_meta_t)==32, abi );
+FD_STATIC_ASSERT( sizeof (fd_stream_frag_meta_t)==32, abi );
 
 /* fd_account_frag_meta_t is a variation of fd_frag_meta_t optimized for
    accounts. */
@@ -39,7 +56,37 @@ typedef union fd_account_frag_meta fd_account_frag_meta_t;
 FD_STATIC_ASSERT( alignof(fd_account_frag_meta_t)==32, abi );
 FD_STATIC_ASSERT( sizeof (fd_account_frag_meta_t)==32, abi );
 
+/* fd_stream_frag_meta_ctx_t tracks receiving state from a stream */
+struct fd_stream_frag_meta_ctx {
+  uchar const * in_buf;
+  ulong         goff_translate;
+  ulong         loff_translate;
+  ulong         in_skip;
+};
+typedef struct fd_stream_frag_meta_ctx fd_stream_frag_meta_ctx_t;
+
 FD_PROTOTYPES_BEGIN
+
+static inline void
+fd_mcache_publish_stream( fd_stream_frag_meta_t * mcache,
+                          ulong                   depth,
+                          ulong                   seq,
+                          ulong                   goff,
+                          ulong                   loff,
+                          ulong                   sz,
+                          ulong                   ctl ) {
+  fd_stream_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  FD_COMPILER_MFENCE();
+  meta->seq   = fd_seq_dec( seq, 1UL );
+  FD_COMPILER_MFENCE();
+  meta->goff  = goff;
+  meta->sz    = (uint)sz;
+  meta->ctl   = (ushort)ctl;
+  meta->loff  = loff;
+  FD_COMPILER_MFENCE();
+  meta->seq   = seq;
+  FD_COMPILER_MFENCE();
+}
 
 static inline void
 fd_mcache_publish_account( fd_account_frag_meta_t * mcache,

@@ -7,7 +7,6 @@ fd_stream_writer_new( void *                  mem,
                       fd_topo_t *             topo,
                       fd_topo_tile_t *        tile,
                       ulong                   link_id,
-                      ulong                   read_max,
                       ulong                   burst_byte,
                       ulong                   burst_frag ) {
   if( FD_UNLIKELY( !mem ) ) {
@@ -34,7 +33,7 @@ fd_stream_writer_new( void *                  mem,
   self->buf_off       = 0UL;
   self->buf_sz        = fd_dcache_data_sz( dcache );
   self->goff          = 0UL;
-  self->read_max      = read_max;
+  self->read_max      = 0UL; /* this should be set by the tile via fd_stream_writer_set_read_max */
   self->stream_off    = 0UL;
   self->goff_start    = 0UL;
   self->out_seq       = 0UL;
@@ -61,7 +60,9 @@ fd_stream_writer_new( void *                  mem,
     for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ link_id ] && consumer_tile->in_link_reliable[ j ] ) ) {
         self->cons_fseq[ cons_idx ] = consumer_tile->in_link_fseq[ j ];
-        if( FD_UNLIKELY( !self->cons_fseq[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_fseq[%lu]", cons_idx ));
+        if( FD_UNLIKELY( !self->cons_fseq[ cons_idx ] ) ) {
+          FD_LOG_ERR(( "NULL cons_fseq[%lu] for out_link=%lu", cons_idx, tile->out_link_id[ link_id ] ));
+        }
         cons_idx++;
       }
     }

@@ -27,8 +27,8 @@ struct fd_stream_writer {
   ulong                   cr_frag_avail; /* frags available in the slowest consumer */
   ulong                   cr_byte_max;   /* max dcache buffer credits (size of dcache buffer)*/
   ulong                   cr_frag_max;   /* max mcache frag credits */
-  ulong                   burst_byte;
-  ulong                   burst_frag;
+  ulong                   burst_byte;    /* dcache backpressure threshold */
+  ulong                   burst_frag;    /* mcache backpressure threshold */
   ulong                   cons_cnt;      /* number of consumers */
   ulong *                 cons_seq;      /* consumer fseq values */
   ulong **                cons_fseq;     /* consumer fseq pointers */
@@ -60,7 +60,6 @@ fd_stream_writer_new( void *                  mem,
                       fd_topo_t *             topo,
                       fd_topo_tile_t *        tile,
                       ulong                   link_id,
-                      ulong                   read_max,
                       ulong                   burst_byte,
                       ulong                   burst_frag );
 
@@ -73,17 +72,23 @@ fd_stream_writer_init_flow_control_credits( fd_stream_writer_t * writer ) {
 }
 
 static inline void
-fd_stream_writer_receive_flow_control_credits( fd_stream_writer_t * writer,
-                                               ulong                cons_idx) {
-  FD_COMPILER_MFENCE();
-  writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx   ] = FD_VOLATILE_CONST( writer->cons_fseq[ cons_idx ][0] );
-  writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx+1 ] = FD_VOLATILE_CONST( writer->cons_fseq[ cons_idx ][1] );
-  FD_COMPILER_MFENCE();
+fd_stream_writer_set_read_max( fd_stream_writer_t * writer,
+                               ulong                read_max ) {
+  writer->read_max = read_max;
 }
 
 static inline void
-fd_stream_writer_update_flow_control_credits( fd_stream_writer_t * writer,
-                                              ulong * slowest_cons_out ) {
+fd_stream_writer_receive_flow_control_credits( fd_stream_writer_t * writer ) {
+  for( ulong i=0UL; i<writer->cons_cnt; i++ ) {
+    FD_COMPILER_MFENCE();
+    writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*i   ] = FD_VOLATILE_CONST( writer->cons_fseq[ i ][0] );
+    writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*i+1 ] = FD_VOLATILE_CONST( writer->cons_fseq[ i ][1] );
+    FD_COMPILER_MFENCE();
+  }
+}
+
+static inline void
+fd_stream_writer_update_flow_control_credits( fd_stream_writer_t * writer ) {
   ulong slowest_cons = ULONG_MAX;
   if( FD_LIKELY( writer->cr_byte_avail<writer->cr_byte_max || writer->cr_frag_avail<writer->cr_frag_max ) ) {
     ulong cr_byte_avail = writer->cr_byte_max;
@@ -98,10 +103,6 @@ fd_stream_writer_update_flow_control_credits( fd_stream_writer_t * writer,
 
     writer->cr_byte_avail = cr_byte_avail;
     writer->cr_frag_avail = cr_frag_avail;
-  }
-
-  if( slowest_cons_out ) {
-    *slowest_cons_out = slowest_cons;
   }
 }
 
