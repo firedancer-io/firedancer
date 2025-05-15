@@ -47,8 +47,7 @@ struct fd_rpcserv_tile_ctx {
 };
 typedef struct fd_rpcserv_tile_ctx fd_rpcserv_tile_ctx_t;
 
-#define FD_RPC_SCRATCH_MAX (1LU<<28)
-#define FD_RPC_SCRATCH_DEPTH 64
+#define FD_RPC_SCRATCH_MAX (1LU<<30)
 
 const fd_http_server_params_t RPCSERV_HTTP_PARAMS = {
   .max_connection_cnt    = 10,
@@ -68,10 +67,8 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_RPC_SCRATCH_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_RPC_SCRATCH_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RPC_SCRATCH_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -167,9 +164,9 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  void * alloc_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   void * stake_ci_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
-  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_rpcserv_tile_ctx_t) );
+  void * spad_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RPC_SCRATCH_MAX ) );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   if( FD_UNLIKELY( !strcmp( tile->rpcserv.identity_key_path, "" ) ) )
     FD_LOG_ERR( ( "identity_key_path not set" ) );
@@ -189,6 +186,9 @@ privileged_init( fd_topo_t *      topo,
 
   args->stake_ci = fd_stake_ci_join( fd_stake_ci_new( stake_ci_mem, ctx->identity_key ) );
 
+  uchar * spad_mem_cur = spad_mem;
+  args->spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RPC_SCRATCH_MAX ) );
+
   strncpy( ctx->funk_file, tile->replay.funk_file, sizeof(ctx->funk_file) );
   /* Open funk after replay tile is booted */
 
@@ -204,15 +204,7 @@ privileged_init( fd_topo_t *      topo,
 
   args->blockstore_fd = ctx->blockstore_fd;
 
-  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
-  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
-  if( FD_UNLIKELY( !alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) );
-  }
-  args->valloc = fd_alloc_virtual( alloc );
-
+  fd_spad_push( args->spad ); /* We close this out when we stop the server */
   fd_rpc_create_ctx( args, &ctx->ctx );
 
 
@@ -240,16 +232,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  (void)FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  (void)FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
-  void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_RPC_SCRATCH_MAX ) );
-  void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_RPC_SCRATCH_DEPTH ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_ulong_align_up( FD_RPC_SCRATCH_MAX, fd_spad_align() ) );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  FD_TEST( ( !!smem ) & ( !!fmem ) );
-  fd_scratch_attach( smem, fmem, FD_RPC_SCRATCH_MAX, FD_RPC_SCRATCH_DEPTH );
 
   ctx->activated = 0;
 
@@ -272,7 +259,6 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_rpcserv_tile_ctx_t) );
 
   populate_sock_filter_policy_fd_rpcserv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ), (uint)ctx->blockstore_fd );
   return sock_filter_policy_fd_rpcserv_tile_instr_cnt;
@@ -286,7 +272,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  FD_SCRATCH_ALLOC_FINI( l, alignof(fd_rpcserv_tile_ctx_t) );
 
   if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 

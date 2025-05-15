@@ -66,7 +66,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_ulong_align_up( MEM_FOOTPRINT, fd_spad_align() ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( MEM_FOOTPRINT ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -144,7 +144,7 @@ unprivileged_init( fd_topo_t      * topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapshot_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_snapshot_tile_ctx_t) );
-  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_ulong_align_up( MEM_FOOTPRINT, fd_spad_align() ) );
+  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( MEM_FOOTPRINT ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem > (ulong)scratch + scratch_footprint(tile) ) ) {

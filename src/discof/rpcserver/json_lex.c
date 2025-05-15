@@ -8,7 +8,8 @@ static void json_lex_append_char(json_lex_state_t* lex, uint ch);
 
 void json_lex_state_new(struct json_lex_state* state,
                         const char* json,
-                        ulong json_sz) {
+                        ulong json_sz,
+                        fd_spad_t * spad) {
   state->json = json;
   state->json_sz = json_sz;
   state->pos = 0;
@@ -18,6 +19,7 @@ void json_lex_state_new(struct json_lex_state* state,
   state->last_str_sz = 0;
   state->last_str_alloc = sizeof(state->last_str_firstbuf);
   state->last_str_firstbuf[0] = '\0';
+  state->spad = spad;
 }
 
 void json_lex_state_delete(struct json_lex_state* state) {
@@ -384,7 +386,7 @@ static char* json_lex_append_prepare(json_lex_state_t* lex, ulong sz) {
       lex->last_str_alloc <<= 1;
     } while (new_sz + 1 > lex->last_str_alloc);
     char* oldstr = lex->last_str;
-    lex->last_str = (char*)fd_scratch_alloc(1, lex->last_str_alloc);
+    lex->last_str = (char*)fd_spad_alloc( lex->spad, 1, lex->last_str_alloc);
     // Copy the old content to the new space
     fd_memcpy(lex->last_str, oldstr, lex->last_str_sz);
   }
@@ -432,7 +434,7 @@ void json_lex_sprintf(json_lex_state_t* lex, const char* format, ...) {
       do {
         lex->last_str_alloc <<= 1;
       } while ((ulong)r + 1U > lex->last_str_alloc);
-      lex->last_str = (char*)fd_scratch_alloc(1, lex->last_str_alloc);
+      lex->last_str = (char*)fd_spad_alloc( lex->spad, 1, lex->last_str_alloc);
       va_list ap;
       va_start(ap, format);
       r = vsnprintf(lex->last_str, lex->last_str_alloc, format, ap);
