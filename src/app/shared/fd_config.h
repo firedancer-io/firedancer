@@ -76,6 +76,7 @@ struct fd_configh {
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
     uint minimum_snapshot_download_speed;
+    uint maximum_snapshot_download_abort;
     uint maximum_full_snapshots_to_retain;
     uint maximum_incremental_snapshots_to_retain;
     char path[ PATH_MAX ];

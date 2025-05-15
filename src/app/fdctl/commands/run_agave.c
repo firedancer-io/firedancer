@@ -167,6 +167,7 @@ agave_boot( config_t const * config ) {
   if( strcmp( "", config->frankendancer.snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->frankendancer.snapshots.incremental_path );
   ADDU( "--maximum-snapshots-to-retain", config->frankendancer.snapshots.maximum_full_snapshots_to_retain );
   ADDU( "--maximum-incremental-snapshots-to-retain", config->frankendancer.snapshots.maximum_incremental_snapshots_to_retain );
+  ADDU( "--maximum-snapshot-download-abort", config->frankendancer.snapshots.maximum_snapshot_download_abort );
   ADDU( "--minimal-snapshot-download-speed", config->frankendancer.snapshots.minimum_snapshot_download_speed );
 
   if( config->frankendancer.layout.agave_unified_scheduler_handler_threads ) {

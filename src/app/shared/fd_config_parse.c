@@ -298,6 +298,7 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( uint,   snapshots.full_snapshot_interval_slots           );
   CFG_POP      ( uint,   snapshots.incremental_snapshot_interval_slots    );
   CFG_POP      ( uint,   snapshots.minimum_snapshot_download_speed        );
+  CFG_POP      ( uint,   snapshots.maximum_snapshot_download_abort        );
   CFG_POP      ( uint,   snapshots.maximum_full_snapshots_to_retain       );
   CFG_POP      ( uint,   snapshots.maximum_incremental_snapshots_to_retain);
   CFG_POP      ( cstr,   snapshots.path                                   );
