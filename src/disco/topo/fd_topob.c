@@ -371,6 +371,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "writer", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
+    "alpen",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
     "batch",  /* FIREDANCER only */
     "pktgen",

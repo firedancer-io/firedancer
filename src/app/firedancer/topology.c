@@ -716,6 +716,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_gossi", 0UL                                                  );
     /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_store", 0UL                                                  );
   }
+  /**/                 fd_topob_tile_in(  topo, "alpen",  0UL,          "metric_in",   "replay_alpen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );
