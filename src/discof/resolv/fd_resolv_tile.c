@@ -329,7 +329,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   (void)_tspub;
 
   /* NOTE: this link is not setup in the firedancer topology */
-  // if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) {
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) {
   //   switch( sig ) {
   //     case 0: {
   //       /* rooted slot updates are done by replay_notif link */
@@ -362,8 +362,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
   //     default:
   //       FD_LOG_ERR(( "unknown sig %lu", sig ));
   //   }
-  //   return;
-  // }
+    return;
+  }
 
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
