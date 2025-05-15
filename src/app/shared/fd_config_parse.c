@@ -263,7 +263,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   snapshots.incremental_snapshots                  );
   CFG_POP      ( uint,   snapshots.full_snapshot_interval_slots           );
   CFG_POP      ( uint,   snapshots.incremental_snapshot_interval_slots    );
-  CFG_POP      ( uint,   snapshots.minimum_snapshot_download_speed        );
+  CFG_POP      ( uint,   snapshots.maximum_snapshot_download_abort        );
+  CFG_POP      ( uint,   snapshots.maximum_snapshot_download_abort        );
   CFG_POP      ( uint,   snapshots.maximum_full_snapshots_to_retain       );
   CFG_POP      ( uint,   snapshots.maximum_incremental_snapshots_to_retain);
   CFG_POP      ( cstr,   snapshots.path                                   );
@@ -501,6 +502,7 @@ fdctl_cfg_validate( config_t * cfg ) {
 
   CFG_HAS_NON_ZERO( snapshots.full_snapshot_interval_slots );
   CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
+  CFG_HAS_NON_ZERO( snapshots.maximum_snapshot_download_abort );
   CFG_HAS_NON_ZERO( snapshots.minimum_snapshot_download_speed );
 
   CFG_HAS_NON_EMPTY( layout.affinity );

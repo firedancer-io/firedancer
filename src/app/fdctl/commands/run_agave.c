@@ -166,6 +166,7 @@ agave_boot( config_t const * config ) {
   if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->snapshots.incremental_path );
   ADDU( "--maximum-snapshots-to-retain", config->snapshots.maximum_full_snapshots_to_retain );
   ADDU( "--maximum-incremental-snapshots-to-retain", config->snapshots.maximum_incremental_snapshots_to_retain );
+  ADDU( "--maximum-snapshot-download-abort", config->snapshots.maximum_snapshot_download_abort );
   ADDU( "--minimal-snapshot-download-speed", config->snapshots.minimum_snapshot_download_speed );
 
   if( config->layout.agave_unified_scheduler_handler_threads ) {

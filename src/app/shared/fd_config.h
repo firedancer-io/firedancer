@@ -237,6 +237,7 @@ struct fd_config {
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
+    uint maximum_snapshot_download_abort;
     uint minimum_snapshot_download_speed;
     uint maximum_full_snapshots_to_retain;
     uint maximum_incremental_snapshots_to_retain;
