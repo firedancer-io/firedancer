@@ -3,8 +3,7 @@
 #include "../../disco/tiles.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/types/fd_types.h"
-#include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_filemap.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 
 #if FD_HAS_AVX
@@ -115,8 +114,6 @@ typedef struct {
 } fd_resolv_in_ctx_t;
 
 typedef struct {
-  fd_funk_t * funk;
-
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
@@ -513,21 +510,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
-
-  /********************************************************************/
-  /* funk-specific setup                                              */
-  /********************************************************************/
-  FD_LOG_NOTICE(( "Trying to join funk at file=%s", tile->exec.funk_file ));
-  fd_funk_txn_start_write( NULL );
-  if( FD_UNLIKELY( !fd_funk_open_file(
-      ctx->funk, tile->exec.funk_file,
-      1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL ) ) ) {
-    FD_LOG_ERR(( "fd_funk_open_file(%s) failed", tile->exec.funk_file ));
-  }
-  fd_funk_txn_end_write( NULL );
-  // ctx->funk_wksp = fd_funk_wksp( ctx->funk );
-
-
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

@@ -811,9 +811,9 @@ fd_topo_initialize( config_t * config ) {
       tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
-      strncpy( tile->resolv.funk_file, config->tiles.replay.funk_file, sizeof(tile->exec.funk_file) );
+      tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "resolv" ) ) ) {
-
+      strncpy( tile->resolv.funk_file, config->tiles.replay.funk_file, sizeof(tile->exec.funk_file) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
       strncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
