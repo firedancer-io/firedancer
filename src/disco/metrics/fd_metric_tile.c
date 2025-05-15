@@ -8,7 +8,7 @@
 #include <string.h>
 
 #if defined(__aarch64__)
-#include "generated/fd_metric_tile.arm64_seccomp.h"
+#include "generated/fd_metric_tile_arm64_seccomp.h"
 #else
 #include "generated/fd_metric_tile_seccomp.h"
 #endif
