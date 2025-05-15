@@ -38,9 +38,8 @@ uchar * FD_FN_SENSITIVE
 fd_bls12_381_sign( uchar         sig[ 192 ],
                    uchar const   msg[], /* msg_sz */
                    ulong         msg_sz,
-                   uchar const   public_key[ 96 ],
+                   /* uchar const   public_key[ 96 ], */
                    uchar const   private_key[ 32 ] ) {
-  (void)public_key;
   blst_scalar secret[1];
   blst_p2 msg_hash[1];
 

@@ -7,6 +7,7 @@
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/bls/fd_bls12_381.h"
 
 #include <errno.h>
 #include <sys/mman.h>
@@ -43,6 +44,7 @@ typedef struct {
 
   uchar *           public_key;
   uchar *           private_key;
+  uchar *           bls_private_key;
 } fd_sign_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -179,6 +181,10 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
+  case FD_KEYGUARD_SIGN_TYPE_VOTE_BLS12_381: {
+    fd_bls12_381_sign( ctx->out[ in_idx ].data, ctx->_data, sz, ctx->bls_private_key );
+    break;
+  }
   default:
     FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
@@ -210,6 +216,9 @@ privileged_init_sensitive( fd_topo_t *      topo,
   uchar * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
+
+  //FIXME
+  ctx->bls_private_key = ctx->private_key;
 
     /* The stack can be taken over and reorganized by under AddressSanitizer,
      which causes this code to fail.  */
