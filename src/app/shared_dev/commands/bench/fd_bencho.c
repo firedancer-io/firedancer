@@ -85,8 +85,10 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
       return did_work;
     }
 
-    if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) )
-      FD_LOG_ERR(( "RPC server returned error %ld", response->status ));
+    if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) ) {
+      FD_LOG_WARNING(( "RPC server returned error %ld", response->status ));
+      return did_work;
+    }
 
     ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
     ctx->blockhash_deadline = fd_log_wallclock() + 400L * 1000L * 1000L; /* 400 millis til we fetch new blockhash */
