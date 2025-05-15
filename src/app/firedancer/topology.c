@@ -535,6 +535,10 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, store_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  for( ulong i=0UL; i<resolv_tile_cnt; i++ ) {
+    fd_topo_tile_t * resolv_tile = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
+    fd_topob_tile_uses( topo, resolv_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
   FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
 
   /* This fseq maintains the observed current turbine slot for the purposes of
