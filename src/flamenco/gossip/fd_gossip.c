@@ -1,97 +1,728 @@
+#include <math.h>
 #include "fd_gossip.h"
-#include "fd_gossip_types.h"
+#include "fd_bloom.h"
+#include "fd_gossip_metrics.h"
+#include "fd_gossip_private.h"
+#include "fd_gossip_crds_msg_builder.h"
 
-#include "fd_crds.h"
+#include "crds/fd_crds.h"
 #include "fd_active_set.h"
-#include "fd_prune_finder.h"
 #include "fd_ping_tracker.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../disco/keyguard/fd_keyguard.h"
+
+#define BLOOM_FILTER_MAX_BITS           (512UL*8UL) /* TODO: Calculate for worst case contactinfo */
+#define BLOOM_FALSE_POSITIVE_RATE       (      0.1)
+#define BLOOM_NUM_KEYS                  (      8.0)
+
+#define PONG_SIGN_TYPE                  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519
+#define GOSSIP_SIGN_TYPE                FD_KEYGUARD_SIGN_TYPE_ED25519
+
+struct stake_weight {
+  fd_pubkey_t key;
+  ulong       stake;
+  ulong       hash;
+};
+typedef struct stake_weight stake_weight_entry_t;
+
+fd_pubkey_t pubkey_null = { .ul = {0UL,0UL,0UL,0UL} };
+
+#define MAP_NAME               stake_map
+#define MAP_T                  stake_weight_entry_t
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_HASH_T             ulong
+#define MAP_KEY_NULL           pubkey_null
+#define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
+#define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
+#define MAP_KEY_HASH(key)      ((key).ui[3])
+#define MAP_KEY_MOVE(k0,k1)    (fd_memcpy((k0).key,(k1).key,sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_LG_SLOT_CNT        CRDS_MAX_CONTACT_INFO_LG
+
+#include "../../util/tmpl/fd_map.c"
+
+#include "fd_push_set_private.c"
+
+struct fd_gossip_private {
+  uchar               identity_pubkey[ 32UL ];
+  ulong               identity_stake;
+
+  fd_gossip_metrics_t metrics[1];
+
+  fd_crds_t *         crds;
+  fd_active_set_t *   active_set;
+  fd_ping_tracker_t * ping_tracker;
+
+  fd_sha512_t         sha512[1];
+
+  fd_ip4_port_t       entrypoints[ 16UL ];
+  ulong               entrypoints_cnt;
+
+  fd_rng_t *          rng;
+  fd_bloom_t *        bloom;
+
+  /* TODO: has_shred_version */
+  ushort              expected_shred_version;
+
+  stake_weight_entry_t *    stake_weights;
+
+  /* Event timers */
+  struct {
+    long next_pull_request;
+    long next_active_set_refresh;
+    long next_contact_info_refresh;
+    long next_flush_push_state;
+  } timers;
+
+  /* Callbacks */
+  fd_gossip_sign_fn   sign_fn;
+  void *              sign_ctx;
+
+  fd_gossip_send_fn   send_fn;
+  void *              send_ctx;
+
+  struct {
+    uchar             crds_val[ 1232UL ];
+    ulong             crds_val_sz;
+    fd_contact_info_t ci[1];
+  } my_contact_info;
+
+  /* Push state for each peer in the active set. Tracks the active set,
+     and must be flushed prior to a call to fd_active_set_rotate or
+     fd_active_set_prune. */
+  push_set_t *          active_pset;
+  fd_gossip_out_ctx_t * gossip_net_out;
+};
+
+ulong
+fd_gossip_align( void ) {
+  return fd_ping_tracker_align();
+}
+
+ulong
+fd_gossip_footprint( ulong max_values ) {
+  ulong l;
+  l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t) );
+  l = FD_LAYOUT_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 /* FIXME: figure out better numbers */ ) );
+  l = FD_LAYOUT_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
+  l = FD_LAYOUT_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
+  l = FD_LAYOUT_FINI( l, fd_gossip_align() );
+  return l;
+}
+
+
+void *
+fd_gossip_new( void *                    shmem,
+               fd_rng_t *                rng,
+               ulong                     max_values,
+               ulong                     entrypoints_cnt,
+               fd_ip4_port_t const *     entrypoints,
+               fd_contact_info_t const * my_contact_info,
+               long                      now,
+               fd_gossip_send_fn         send_fn,
+               void *                    send_ctx,
+               fd_gossip_sign_fn         sign_fn,
+               void *                    sign_ctx,
+               fd_gossip_out_ctx_t *     gossip_update_out,
+               fd_gossip_out_ctx_t *     gossip_net_out ) {
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_ERR(( "NULL shmem" ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_gossip_align() ) ) ) {
+    FD_LOG_ERR(( "misaligned shmem" ));
+  }
+  if( FD_UNLIKELY( entrypoints_cnt>16UL ) ) {
+    FD_LOG_ERR(( "entrypoints_cnt %lu exceeds maximum of 16", entrypoints_cnt ));
+  }
+  if( FD_UNLIKELY( !gossip_net_out ) ) {
+    FD_LOG_ERR(( "NULL gossip_out" ));
+  }
+
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t) );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 ) );
+  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
+  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
+  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
+  void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
+
+  gossip->gossip_net_out  = gossip_net_out;
+
+  gossip->entrypoints_cnt = entrypoints_cnt;
+  fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
+
+  gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip->metrics->crds_table, gossip_update_out ) );
+  gossip->active_set    = fd_active_set_join( fd_active_set_new( active_set, rng ) );
+  gossip->ping_tracker  = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
+  gossip->bloom         = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
+  gossip->stake_weights = stake_map_join( stake_map_new( stake_weights ) );
+  gossip->active_pset   = push_set_join( push_set_new( active_ps, FD_ACTIVE_SET_MAX_PEERS ) );
+
+  fd_sha512_init( gossip->sha512 );
+  gossip->rng = rng;
+
+  gossip->send_fn   = send_fn;
+  gossip->send_ctx  = send_ctx;
+  gossip->sign_fn   = sign_fn;
+  gossip->sign_ctx  = sign_ctx;
+
+  fd_gossip_set_my_contact_info( gossip, my_contact_info, now );
+  return gossip;
+}
+
+fd_gossip_t *
+fd_gossip_join( void * shgossip ) {
+  if( FD_UNLIKELY( !shgossip ) ) {
+    FD_LOG_ERR(( "NULL shgossip" ));
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shgossip, fd_gossip_align() ) ) ) {
+    FD_LOG_ERR(( "misaligned shgossip" ));
+  }
+
+  return (fd_gossip_t *)shgossip;
+}
+
+fd_gossip_metrics_t const *
+fd_gossip_metrics( fd_gossip_t const * gossip ){ return gossip->metrics; }
 
 static int
-parse_message( uchar const *         data,
-               ulong                 data_sz,
-               fd_gossip_message_t * message ) {
-  
+is_entrypoint( fd_gossip_t const *   gossip,
+               fd_ip4_port_t const * peer_addr ) {
+  for( ulong i=0UL; i<gossip->entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( peer_addr->l==gossip->entrypoints[i].l ) ) return 1;
+  }
   return 0;
 }
 
+static fd_ip4_port_t
+random_entrypoint( fd_gossip_t const * gossip ) {
+  ulong idx = fd_rng_ulong_roll( gossip->rng, gossip->entrypoints_cnt );
+  return gossip->entrypoints[ idx ];
+}
+
+static void
+crds_builder_flush( fd_gossip_t *                  gossip,
+                    fd_gossip_crds_msg_builder_t * builder,
+                    fd_stem_context_t *            stem,
+                    fd_ip4_port_t                  dest_addr,
+                    long                           now ) {
+  if( FD_UNLIKELY( fd_gossip_crds_msg_builder_get_crds_len( builder )==0UL ) ) {
+    /* Nothing to flush */
+    return;
+  }
+  gossip->send_fn( gossip->send_ctx, stem, builder->msg, builder->msg_sz, &dest_addr, (ulong)now );
+  uint msg_type = fd_gossip_crds_msg_builder_get_msg_type( builder );
+  gossip->metrics->tx_msg_count[ msg_type ]++;
+  gossip->metrics->tx_msg_bytes[ msg_type ] += builder->msg_sz;
+
+  ulong * crds_count = msg_type==FD_GOSSIP_MESSAGE_PUSH ? gossip->metrics->tx_push_crd_count : gossip->metrics->tx_pull_crd_count;
+  ulong * crds_bytes = msg_type==FD_GOSSIP_MESSAGE_PUSH ? gossip->metrics->tx_push_crd_bytes : gossip->metrics->tx_pull_crd_bytes;
+
+  ulong crds_len = fd_gossip_crds_msg_builder_get_crds_len( builder );
+  for( ulong i=0UL; i<crds_len; i++ ) {
+    fd_gossip_crds_builder_crds_meta_t * meta = &builder->crds_meta[ i ];
+    crds_count[ meta->tag ]++;
+    crds_bytes[ meta->tag ] += meta->sz;
+  }
+  fd_gossip_crds_msg_builder_reset( builder );
+}
+
+/* Note: NOT a no-op in the case contact info does not exist. We
+   reset and push it back to the last-hit queue instead.
+
+   TODO: Is this desired behavior? */
+static void
+active_push_set_flush( fd_gossip_t *       gossip,
+                       push_set_t *        pset,
+                       ulong               idx,
+                       fd_stem_context_t * stem,
+                       long                now ) {
+  fd_contact_info_t const * ci = fd_crds_contact_info_lookup( gossip->crds,
+                                                              fd_active_set_node_pubkey( gossip->active_set, idx ) );
+  push_set_entry_t * state = pset_entry_pool_ele( pset->pool, idx );
+  if( FD_LIKELY( ci ) ) {
+    crds_builder_flush( gossip, state->builder, stem, fd_contact_info_gossip_socket( ci ), now );
+  } else {
+    fd_gossip_crds_msg_builder_reset( state->builder );
+  }
+  push_set_pop_append( pset, state, now );
+}
+
+static void
+active_push_set_insert( fd_gossip_t *                       gossip,
+                        uchar const *                       crds_val,
+                        ulong                               crds_sz,
+                        uchar const *                       origin_pubkey,
+                        ulong                               origin_stake,
+                        fd_stem_context_t *                 stem,
+                        long                                now ) {
+  ulong out_nodes[ 12UL ];
+  ulong out_nodes_cnt = fd_active_set_nodes( gossip->active_set,
+                                             gossip->identity_pubkey,
+                                             gossip->identity_stake,
+                                             origin_pubkey,
+                                             origin_stake,
+                                             0UL, /* ignore_prunes_if_peer_is_origin TODO */
+                                             out_nodes );
+  for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
+    ulong idx            = out_nodes[ j ];
+    push_set_entry_t * entry = pset_entry_pool_ele( gossip->active_pset->pool, idx );
+    if( FD_UNLIKELY( fd_gossip_crds_msg_builder_needs_flush( entry->builder, crds_sz ) ) ) {
+      active_push_set_flush( gossip, gossip->active_pset, idx, stem, now );
+    }
+    fd_gossip_crds_msg_builder_append( entry->builder, crds_val, crds_sz );
+    push_set_pop_append( gossip->active_pset, entry, now );
+  }
+}
+
+static void
+push_my_contact_info( fd_gossip_t * gossip,
+                      fd_stem_context_t * stem,
+                      long now ){
+  active_push_set_insert( gossip,
+                          gossip->my_contact_info.crds_val,
+                          gossip->my_contact_info.crds_val_sz,
+                          gossip->identity_pubkey,
+                          gossip->identity_stake,
+                          stem,
+                          now );
+}
+
+static inline void
+refresh_contact_info( fd_gossip_t *       gossip,
+                      long                now ) {
+  gossip->my_contact_info.ci->wallclock_nanos = now;
+  fd_gossip_contact_info_encode( gossip->my_contact_info.ci,
+                                 gossip->my_contact_info.crds_val,
+                                 1232UL,
+                                 &gossip->my_contact_info.crds_val_sz );
+  gossip->sign_fn( gossip->sign_ctx,
+                   gossip->my_contact_info.crds_val+64UL,
+                   gossip->my_contact_info.crds_val_sz-64UL,
+                   GOSSIP_SIGN_TYPE,
+                   gossip->my_contact_info.crds_val );
+
+  /* We don't have stem_ctx here so we pre-empt in next
+     fd_gossip_advance iteration instead. */
+  gossip->timers.next_contact_info_refresh = now;
+}
+
+void
+fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
+                               fd_contact_info_t const * contact_info,
+                               long                      now ) {
+  fd_memcpy( gossip->identity_pubkey, contact_info->pubkey.uc, 32UL );
+  gossip->expected_shred_version = contact_info->shred_version;
+
+  *gossip->my_contact_info.ci = *contact_info;
+  refresh_contact_info( gossip, now );
+}
+
+ulong
+get_stake( fd_gossip_t const * gossip,
+           uchar const * pubkey ) {
+  stake_weight_entry_t const * entry = stake_map_query_const( gossip->stake_weights, *(fd_pubkey_t const *)pubkey, NULL );
+  if( FD_UNLIKELY( !entry ) ) {
+    return 0UL;
+  }
+  return entry->stake;
+}
+
+void
+fd_gossip_stakes_update( fd_gossip_t *             gossip,
+                         fd_stake_weight_t const * stake_weights,
+                         ulong                     stake_weights_cnt ) {
+  if( FD_UNLIKELY( stake_weights_cnt>CRDS_MAX_CONTACT_INFO ) ) {
+    FD_LOG_ERR(( "stake_weights_cnt %lu exceeds maximum of %d", stake_weights_cnt, CRDS_MAX_CONTACT_INFO ));
+  }
+
+  stake_map_clear( gossip->stake_weights );
+
+  for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
+    stake_weight_entry_t * entry = stake_map_insert( gossip->stake_weights, stake_weights[i].key );
+    if( FD_UNLIKELY( !entry ) ) {
+      FD_LOG_ERR(( "Failed to insert stake weight" ));
+    }
+    entry->stake = stake_weights[i].stake;
+  }
+  /* Update the identity stake */
+  gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
+}
+
+
+
+struct __attribute__((__packed__)) prune_sign_data_pre {
+ uchar prefix[18UL];
+ uchar origin[32UL];
+ ulong prunes_len;
+};
+
+typedef struct prune_sign_data_pre prune_sign_data_pre_t;
+
+struct __attribute__((__packed__)) prune_sign_data_post {
+ uchar destination[32UL];
+ ulong wallclock;
+};
+
+typedef struct prune_sign_data_post prune_sign_data_post_t;
+
 static int
-rx_pull_request( fd_gossip_t *                    gossip,
-                 fd_gossip_pull_request_t const * pull_request,
-                 long                             now ) {
-  /* TODO: Implement data budget? */
+verify_prune( fd_gossip_view_prune_t const * view,
+              uchar const *                  payload,
+              fd_sha512_t *                  sha ) {
+  uchar sign_data[1232UL];
 
-  fd_gossip_crds_data_t const * data = pull_request->value->data;
-  if( FD_UNLIKELY( data->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_NOT_CONTACT_INFO;
+  prune_sign_data_pre_t * pre = (prune_sign_data_pre_t *)sign_data;
+  fd_memcpy( pre->prefix, "\xffSOLANA_PRUNE_DATA", 18UL );
+  fd_memcpy( pre->origin, payload+view->origin_off, 32UL );
+  pre->prunes_len = view->prunes_len;
 
-  fd_gossip_contact_info_t const * contact_info = data->contact_info;
-  if( FD_UNLIKELY( !memcmp( data->contact_info->pubkey, gossip->identity_pubkey, 32UL ) ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_LOOPBACK;
+  ulong prunes_arr_sz = view->prunes_len*32UL;
+  fd_memcpy( sign_data+sizeof(prune_sign_data_pre_t), payload+view->prunes_off, prunes_arr_sz );
 
-  if( FD_UNLIKELY( !is_valid_address( node ) ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_INVALID_ADDRESS;
+  prune_sign_data_post_t * post = (prune_sign_data_post_t *)( sign_data + sizeof(prune_sign_data_pre_t) + prunes_arr_sz );
+  post->wallclock               = view->wallclock;
+  fd_memcpy( post->destination, payload+view->destination_off, 32UL );
 
-  fd_gossip_crds_filter_t const * filter = pull_request->filter;
+  ulong signable_data_len = sizeof(prune_sign_data_pre_t) + prunes_arr_sz + sizeof(prune_sign_data_post_t);
+
+  int err_prefix    = fd_ed25519_verify( sign_data,
+                                         signable_data_len,
+                                         payload+view->signature_off,
+                                         payload+view->origin_off,
+                                         sha );
+  int err_no_prefix = fd_ed25519_verify( sign_data+18UL,
+                                         signable_data_len-18UL,
+                                         payload+view->signature_off,
+                                         payload+view->origin_off,
+                                         sha );
+
+  /* Either sigverify needs to pass */
+  return (err_prefix && err_no_prefix) ? -1 : FD_ED25519_SUCCESS;
+
+}
+
+static int
+verify_crds_value( fd_gossip_view_crds_value_t const * value,
+                    uchar const *                      payload,
+                    fd_sha512_t *                      sha ) {
+    return fd_ed25519_verify( payload+value->signature_off+64UL, /* signable data begins after signature */
+                              value->length-64UL,                /* signable data length */
+                              payload+value->signature_off,
+                              payload+value->pubkey_off,
+                              sha );
+}
+
+static int
+verify_ping_pong( fd_gossip_view_t const * view,
+                  fd_sha512_t *            sha ) {
+  /* Ping/Pong messages */
+  uchar const * signature, * pubkey, * signable_data;
+
+  if( view->tag==FD_GOSSIP_MESSAGE_PING ) {
+    signature     = view->ping->signature;
+    pubkey        = view->ping->pubkey;
+    signable_data = view->ping->ping_token;
+  } else if( view->tag==FD_GOSSIP_MESSAGE_PONG ) {
+    signature     = view->pong->signature;
+    pubkey        = view->pong->pubkey;
+    signable_data = view->pong->ping_hash;
+  } else {
+    FD_LOG_ERR(( "Invalid type %u, should not reach", view->tag ));
+  }
+
+  return fd_ed25519_verify( signable_data,
+                            32UL,
+                            signature,
+                            pubkey,
+                            sha );
+}
+
+static int
+verify_signatures( fd_gossip_view_t const * view,
+                   uchar const *            payload,
+                   fd_sha512_t *            sha ) {
+  switch( view->tag ) {
+    case FD_GOSSIP_MESSAGE_PULL_REQUEST:
+      return verify_crds_value( view->pull_request->contact_info, payload, sha );
+    case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
+    case FD_GOSSIP_MESSAGE_PUSH:
+    /* Push and pull resp CRDS values are verified in their
+       respective rx_* loops */
+      break;
+    case FD_GOSSIP_MESSAGE_PRUNE:
+      return verify_prune( view->prune, payload, sha );
+    case FD_GOSSIP_MESSAGE_PING:
+    case FD_GOSSIP_MESSAGE_PONG:
+      return verify_ping_pong( view, sha );
+    default:
+      return -1;
+  };
+  return FD_ED25519_SUCCESS;
+}
+
+
+/* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/cluster_info.rs#L1996
+   This should never be called on an unverified contact info!
+
+   Agave performs this check early in the receive pipeline, but since we
+   only verify a CRDS value in the push/pullresp we have to perform it
+   there. Order doesn't matter since the failure case causes the
+   validator to abort. */
+static void
+check_duplicate_instance( fd_gossip_t *                     gossip,
+                          fd_contact_info_t const *         contact_info) {
+  if( FD_UNLIKELY( gossip->my_contact_info.ci->instance_creation_wallclock_nanos<contact_info->instance_creation_wallclock_nanos &&
+                   !memcmp( contact_info->pubkey.uc, gossip->identity_pubkey, 32UL ) ) ) {
+    FD_LOG_ERR(( "duplicate running instances of the same validator node" ));
+  }
+}
+
+static int
+rx_pull_request( fd_gossip_t *                         gossip,
+                 fd_gossip_view_pull_request_t const * pr_view,
+                 uchar const *                         payload,
+                 fd_ip4_port_t const *                 peer_addr,
+                 fd_stem_context_t *                   stem,
+                 long                                  now ) {
+  /* TODO: Implement data budget? Or at least limit iteration range */
+
+  fd_gossip_view_crds_value_t const * contact_info = pr_view->contact_info;
+
+  /* Some pull requests still attach legacy contact infos instead of the
+     current type. We choose to ignore such pull requests entirely since
+     legacy contact infos should be fully deprecated. */
+  if( FD_UNLIKELY( contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return -1;
+
+  if( FD_UNLIKELY( !memcmp( payload+contact_info->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) return -1;
+
+  uchar const * node = payload+contact_info->pubkey_off;
+  ulong node_stake = get_stake( gossip, node );
+
+  if( FD_UNLIKELY( !fd_ping_tracker_active( gossip->ping_tracker,
+                                            node,
+                                            node_stake,
+                                            peer_addr,
+                                            now ) &&
+                   !is_entrypoint( gossip, peer_addr) ) ) {
+    fd_ping_tracker_track( gossip->ping_tracker,
+                           node,
+                           node_stake,
+                           peer_addr,
+                           now );
+    return -1;
+  }
+
+  fd_bloom_t filter[1];
+  filter->keys_len = pr_view->bloom_keys_len;
+  filter->keys     = (ulong *)( payload + pr_view->bloom_keys_offset );
+
+  filter->bits_len = pr_view->bloom_bits_cnt;
+  filter->bits     = (ulong *)( payload + pr_view->bloom_bits_offset );
 
   /* TODO: Jitter? */
   long clamp_wallclock_lower_nanos = now - 15L*1000L*1000L*1000L;
   long clamp_wallclock_upper_nanos = now + 15L*1000L*1000L*1000L;
-  if( FD_UNLIKELY( contact_info->wallclock<clamp_wallclock_lower_nanos || contact_info->wallclock>clamp_wallclock_upper_nanos ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_WALLCLOCK;
+  if( FD_UNLIKELY( contact_info->wallclock_nanos<clamp_wallclock_lower_nanos ||
+                   contact_info->wallclock_nanos>clamp_wallclock_upper_nanos ) ) return -1;
 
-  ulong packet_sz = 0UL;
-  uchar packet[ 1232UL; ];
+  fd_gossip_crds_msg_builder_t pull_resp[1];
+  fd_gossip_crds_msg_builder_init( pull_resp, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PULL_RESPONSE );
 
-  for( fd_crds_iter_t it=fd_crds_mask_iter_init( gossip->crds, mask, mask_bits ); !fd_crds_mask_iter_done( it ); it=fd_crds_mask_iter_next(it) ) {
-    fd_crds_value_t * candidate = fd_crds_mask_iter_value( it );
+  uchar iter_mem[ 16UL ];
+
+  for( fd_crds_mask_iter_t * it=fd_crds_mask_iter_init( gossip->crds, pr_view->mask, pr_view->mask_bits, iter_mem );
+       !fd_crds_mask_iter_done( it, gossip->crds );
+       it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
+    fd_crds_entry_t const * candidate = fd_crds_mask_iter_entry( it, gossip->crds );
 
     /* TODO: Add jitter here? */
-    if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock ) ) continue;
+    // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock_nanos ) ) continue;
 
-    ulong serialized_sz;
-    error = serialize_crds_value_into_packet( candidate, packet, 1232UL-packet_sz, &serialized_sz );
-    if( FD_LIKELY( !error ) ) {
-      packet_sz += serialized_sz;
-    } else {
-      /* CRDS value can't fit into the packet anymore, just ship what
-         we have now and start a new one. */
-      gossip->tx_fn( gossip->tx_ctx, packet, packet_sz );
-      packet_sz = 0UL;
+    if( FD_UNLIKELY( !fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
+
+    uchar const * crds_val;
+    ulong         crds_size;
+    fd_crds_entry_value( candidate, &crds_val, &crds_size );
+    if( FD_UNLIKELY( fd_gossip_crds_msg_builder_needs_flush( pull_resp, crds_size ) ) ) {
+      crds_builder_flush( gossip, pull_resp, stem, *peer_addr, now );
     }
+    fd_gossip_crds_msg_builder_append( pull_resp, crds_val, crds_size );
   }
-
-  /* TODO: Send packet if there's anything leftover */
-
+  crds_builder_flush( gossip, pull_resp, stem, *peer_addr, now );
   return 0;
 }
 
+
 static int
-rx_pull_response( fd_gossip_t *                     gossip,
-                  fd_gossip_pull_response_t const * pull_response,
-                  long                              now ) {
+rx_pull_response( fd_gossip_t *                          gossip,
+                  fd_gossip_view_pull_response_t const * pull_response,
+                  uchar const *                          payload,
+                  fd_stem_context_t *                    stem,
+                  long                                   now ) {
   /* TODO: use epoch_duration and make timeouts ... ? */
+  fd_gossip_metrics_t * metrics = gossip->metrics;
+  for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
+    fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
+    metrics->rx_pull_crd_count[ value->tag ]++;
+    metrics->rx_pull_crd_bytes[ value->tag ] += value->length;
 
-  for( ulong i=0UL; i<pull_response->values_len; i++ ) {
-    int upserts = fd_crds_upserts( gossip->crds, pull_response->values[ i ] );
-
-    if( FD_UNLIKELY( !upserts ) ) {
-      failed_inserts_append( gossip, pull_response->values[ i ] );
+    int checks_res = fd_crds_checks_fast( gossip->crds,
+                                             value,
+                                             payload,
+                                             0 /* from_push_msg m*/ );
+    if( FD_UNLIKELY( !!checks_res ) ) {
+      checks_res < 0 ? metrics->rx_pull_crd_fail[ value->tag ]++
+                     : metrics->rx_pull_crd_duplicate[ value->tag ]++;
       continue;
     }
 
+    uchar const * origin_pubkey    = payload+value->pubkey_off;
+    ulong origin_stake             = get_stake( gossip, origin_pubkey );
+
     /* TODO: Is this jittered in Agave? */
     long accept_after_nanos;
-    if( FD_UNLIKELY( !memcmp( pull_response->sender_pubkey, gossip->identity_pubkey, 32UL ) ) ) {
+    uchar is_me = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
+    if( FD_UNLIKELY( is_me ) ) {
       accept_after_nanos = 0L;
-    } else if( stake( pull_response->sender_pubkey ) ) {
+    } else if( !origin_stake ) {
       accept_after_nanos = now-15L*1000L*1000L*1000L;
     } else {
       accept_after_nanos = now-432000L*1000L*1000L*1000L;
     }
 
-    if( FD_LIKELY( accept_after_nanos<=fd_crds_value_wallclock( pull_response->values[ i ] ) ) ) {
-      fd_crds_insert( gossip->crds, pull_response->values[ i ], now );
-      fd_crds_update_record_timestamp( pull_response->sender_pubkey, now );
-    } else if( fd_crds_has_contact_info( pull_response->sender_pubkey ) ) {
-      fd_crds_insert( gossip->crds, pull_response->values[ i ], now );
-    } else {
-      failed_inserts_append( gossip, pull_response->values[ i ] );
+    /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
+    if( FD_UNLIKELY( accept_after_nanos>value->wallclock_nanos &&
+                     !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
+      metrics->rx_pull_crd_fail[ value->tag ]++;
+      uchar candidate_hash[ 32UL ];
+      fd_crds_genrate_hash( payload+value->value_off, value->length, candidate_hash );
+      fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
+      continue;
+    }
+
+    int err = verify_crds_value( value, payload, gossip->sha512 );
+    if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) continue;
+
+    fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
+                                                        value,
+                                                        payload,
+                                                        origin_stake,
+                                                        is_me,
+                                                        now,
+                                                        stem );
+    if( FD_UNLIKELY( !candidate ) ) continue;
+    metrics->rx_pull_crd_upserted[ value->tag ]++;
+    if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
+      fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
+      check_duplicate_instance( gossip, contact_info );
+
+      fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
+      if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) && !is_me ) ) {
+        fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, &origin_addr, now );
+        int active = fd_ping_tracker_active( gossip->ping_tracker, origin_pubkey, origin_stake, &origin_addr, now );
+        active  ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+                : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+      }
+    }
+    active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now );
+  }
+  return 0;
+}
+
+/* process_push_crds() > 0 holds the duplicate count */
+static int
+process_push_crds( fd_gossip_t *                       gossip,
+                   fd_gossip_view_crds_value_t const * value,
+                   uchar const *                       payload,
+                   long                                now,
+                   fd_stem_context_t *                 stem ) {
+  fd_gossip_metrics_t * metrics = gossip->metrics;
+  metrics->rx_push_crd_count[ value->tag ]++;
+  metrics->rx_push_crd_bytes[ value->tag ] += value->length;
+
+  /* TODO: pretty sure this is 15s now. */
+  if( FD_UNLIKELY( value->wallclock_nanos<now-30L*1000L*1000L*1000L || value->wallclock_nanos>now+30L*1000L*1000L*1000L ) ) return -1;
+  /* overrides_fast here, either count duplicates or purge if older (how!?) */
+
+
+  /* return values in both fd_crds_checks_fast and fd_crds_inserted need
+     to be propagated since they both work the same (error>0 holds duplicate
+     count). This is quite fragile. */
+  int checks_res = fd_crds_checks_fast( gossip->crds,
+                                        value,
+                                        payload,
+                                        1 /* from_push_msg */ );
+  if( FD_UNLIKELY( !!checks_res ) ) {
+    checks_res < 0 ? metrics->rx_push_crd_fail[ value->tag ]++
+                   : metrics->rx_push_crd_duplicate[ value->tag ]++;
+    return checks_res;
+  }
+
+  int err = verify_crds_value( value, payload, gossip->sha512 );
+  if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
+    return -1;
+  }
+
+  uchar const * origin_pubkey    = payload+value->pubkey_off;
+  uchar is_me                    = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
+  ulong origin_stake             = get_stake( gossip, origin_pubkey );
+
+
+  fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
+                                                      value,
+                                                      payload,
+                                                      origin_stake,
+                                                      is_me,
+                                                      now,
+                                                      stem );
+  if( FD_UNLIKELY( !candidate ) ) return -1;
+
+  metrics->rx_push_crd_upserted[ value->tag ]++;
+  if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
+    fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
+    check_duplicate_instance( gossip, contact_info );
+
+    fd_ip4_port_t origin_addr              = fd_contact_info_gossip_socket( contact_info );
+    if( FD_LIKELY( !is_entrypoint( gossip, &origin_addr ) && !is_me ) ) {
+      fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, &origin_addr, now );
+
+      int active = fd_ping_tracker_active( gossip->ping_tracker, origin_pubkey, origin_stake, &origin_addr, now );
+      active ? fd_crds_peer_active( gossip->crds, origin_pubkey, now )
+             : fd_crds_peer_inactive( gossip->crds, origin_pubkey, now );
+    }
+  }
+  active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now );
+  return 0;
+}
+
+static int
+rx_push( fd_gossip_t *                 gossip,
+         fd_gossip_view_push_t const * push,
+         uchar const *                 payload,
+         long                          now,
+         fd_stem_context_t *           stem ) {
+  for( ulong i=0UL; i<push->crds_values_len; i++ ) {
+    int err = process_push_crds( gossip,
+                                 &push->crds_values[ i ],
+                                 payload,
+                                 now,
+                                 stem );
+    if( FD_UNLIKELY( err>0 ) ) {
+      /* TODO: implement prune finder
+      ulong num_duplicates         = (ulong)err;
+      uchar const * relayer_pubkey = payload+push->from_off;
+      fd_prune_finder_record( gossip->prune_finder,
+                              origin_pubkey,
+                              origin_stake,
+                              relayer_pubkey,
+                              get_stake( gossip, relayer_pubkey ),
+                              num_duplicates ); */
     }
   }
 
@@ -99,296 +730,475 @@ rx_pull_response( fd_gossip_t *                     gossip,
 }
 
 static int
-rx_push( fd_gossip_t *            gossip,
-         fd_gossip_push_t const * push,
-         long                     now ) {
-  uchar const * relayer_pubkey = push->sender_pubkey;
+rx_prune( fd_gossip_t *                  gossip,
+          uchar const *                  payload,
+          fd_gossip_view_prune_t const * prune,
+          long                           now ) {
+  if( FD_UNLIKELY( now-FD_MILLI_TO_NANOSEC(500L)>(long)prune->wallclock_nanos ) ) return -1;
+  else if( FD_UNLIKELY( !!memcmp( gossip->identity_pubkey, payload+prune->destination_off, 32UL ) ) ) return -1;
 
-  for( ulong i=0UL; i<push->values_len; i++ ) {
-    fd_gossip_crds_value_t * value = push->values[ i ];
-    if( FD_UNLIKELY( value->timestamp<now-30L*1000L*1000L*1000L || value->timestamp>now+30L*1000L*1000L*1000L ) ) continue;
 
-    uchar const * origin_pubkey = fd_crds_value_pubkey( value );
+  fd_active_set_prunes( gossip->active_set,
+                        gossip->identity_pubkey,
+                        gossip->identity_stake,
+                        payload+prune->prunes_off,
+                        prune->prunes_len,
+                        payload+prune->origin_off,
+                        get_stake( gossip, payload+prune->origin_off ),
+                        NULL /* TODO: use out_node_idx to update push states */ );
 
-    int error = fd_crds_insert( gossip->crds, value, now );
-    ulong num_duplicates = 0UL;
-    if( FD_UNLIKELY( error>0 ) )      num_duplicates = (ulong)error;
-    else if( FD_UNLIKELY( error<0 ) ) num_duplicates = ULONG_MAX;
+  return 0;
+}
 
-    fd_prune_finder_record( gossip->prune_finder, origin_pubkey, relayer_pubkey, num_duplicates );
-  }
+
+static int
+rx_ping( fd_gossip_t *           gossip,
+         fd_gossip_view_ping_t * ping,
+         fd_ip4_port_t *         peer_address,
+         fd_stem_context_t *     stem,
+         long                    now ) {
+  /* TODO: have this point to dcache buffer directly instead */
+  uchar out_payload[ sizeof(fd_gossip_view_pong_t) + 4UL];
+  FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PONG );
+
+  fd_gossip_view_pong_t * out_pong = (fd_gossip_view_pong_t *)(out_payload + 4UL);
+  fd_memcpy( out_pong->pubkey, gossip->identity_pubkey, 32UL );
+
+  /* fd_keyguard checks payloads for certain patterns before performing the
+     sign. Pattern-matching can't be done on hashed data, so we need
+     to supply the pre-hashed image to the sign fn (fd_keyguard will hash when
+     supplied with FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519) while also hashing
+     the image ourselves onto pong->ping_hash */
+
+  /* Clobber the ping message pubkey since we already verified the message at
+     this point */
+  uchar *    pre_hash_img = ping->ping_token-16UL;
+  fd_memcpy( pre_hash_img, "SOLANA_PING_PONG", 16UL );
+
+  fd_sha256_hash( pre_hash_img, 48UL, out_pong->ping_hash );
+  gossip->sign_fn( gossip->sign_ctx, pre_hash_img, 48UL, PONG_SIGN_TYPE, out_pong->signature );
+
+  gossip->send_fn( gossip->send_ctx, stem, (uchar *)out_payload, sizeof(out_payload), peer_address, (ulong)now );
+
+  gossip->metrics->tx_msg_count[ FD_GOSSIP_MESSAGE_PONG ]++;
+  gossip->metrics->tx_msg_bytes[ FD_GOSSIP_MESSAGE_PONG ] += sizeof(out_payload);
 
   return 0;
 }
 
 static int
-rx_prune( fd_gossip_t *             gossip,
-          fd_gossip_prune_t const * prune,
-          long                      now ) {
-  if( FD_UNLIKELY( now-500L*1000L*1000L>prune->data->wallclock ) ) return FD_GOSSIP_RX_ERR_PRUNE_TIMEOUT;
-  else if( FD_UNLIKELY( !memcmp( gossip->identity_pubkey, prune->data->destination, 32UL ) ) ) return FD_GOSSIP_RX_ERR_PRUNE_DESTINATION;
+rx_pong( fd_gossip_t *           gossip,
+         fd_gossip_view_pong_t * pong,
+         fd_ip4_port_t *         peer_address,
+         long                    now ) {
+  if( FD_UNLIKELY( is_entrypoint( gossip, peer_address ) )) return 0;
 
-  ulong identity_stake = ??;
-  for( ulong i=0UL; i<prune->data->prunes_len; i++ ) {
-    ulong origin_stake = ??;
-
-    fd_active_set_prune( gossip->active_set,
-                         gossip->identity_pubkey,
-                         gossip->identity_stake,
-                         prune->data->pubkey,
-                         prune->data->destination,
-                         prune->data->prunes[ i ],
-                         origin_stake );
-  }
+  fd_ping_tracker_register( gossip->ping_tracker,
+                            gossip->crds,
+                            pong->pubkey,
+                            get_stake( gossip, pong->pubkey ),
+                            peer_address,
+                            pong->ping_hash,
+                            now );
+  return 0;
 }
 
-static int
-rx_ping( fd_gossip_t *      gossip,
-         fd_gossip_ping_t * ping ) {
-  fd_gossip_message_t * message = new_outgoing( gossip );
+static void
+filter_shred_version_crds_container( fd_gossip_t *                     gossip,
+                                     fd_gossip_view_crds_container_t * container,
+                                     uchar const *                     payload ) {
+  fd_contact_info_t const * relayer_ci = fd_crds_contact_info_lookup( gossip->crds, payload+container->from_off );
 
-  message->tag = FD_GOSSIP_MESSAGE_PONG;
-  fd_memcpy( message->pong->from, gossip->identity_pubkey, 32UL );
-  message->pong->hash = hash_ping_token( ping->token );
-  gossip->sign_fn( gossip->sign_ctx, message->pong->hash, 32UL, message->pong->signature );
+  if( FD_LIKELY( relayer_ci && relayer_ci->shred_version==gossip->expected_shred_version ) ) {
+    /* Retain ALL Contact Infos. For other CRDS entries filter if origin
+       pubkey shred version does not match */
+    for( ulong i=0UL; i<container->crds_values_len; i++ ) {
+      fd_gossip_view_crds_value_t * value = &container->crds_values[ i ];
+      if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
+      fd_contact_info_t const * origin_ci = fd_crds_contact_info_lookup( gossip->crds, payload+value->pubkey_off );
 
-  /* TODO: Send it */
-}
-
-static int
-rx_pong( fd_gossip_t *      gossip,
-         fd_gossip_pong_t * pong ) {
-  for( ulong i=0UL; i<2UL; i++ ) {
-
-    if( FD_LIKELY( hash_ping_token( ) ) ) {
-      return FD_GOSSIP_RX_SUCCESS;
+      if( FD_UNLIKELY( !origin_ci || origin_ci->shred_version!=gossip->expected_shred_version ) ) {
+        /* Remove entry view with swap */
+        container->crds_values[ i ] = container->crds_values[ container->crds_values_len - 1 ];
+        container->crds_values_len--;
+        i--;
+      }
     }
+  } else {
+    /* Relayer is either unknown or has mismatched shred version. Filter
+       out ALL non-contact info entries */
+    ushort filtered_cnt = 0UL;
+    for( ulong i=0UL; i<container->crds_values_len; i++ ) {
+      fd_gossip_view_crds_value_t * value = &container->crds_values[ i ];
+      if( FD_LIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+        if( FD_UNLIKELY( filtered_cnt!=i ) ) {
+          container->crds_values[ filtered_cnt ] = container->crds_values[ i ];
+        }
+        filtered_cnt++;
+      }
+    }
+    container->crds_values_len = filtered_cnt;
   }
+}
 
-  return FD_GOSSIP_RX_ERR_PONG_UNMATCHED;
+/* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/cluster_info.rs#L1976 */
+static int
+filter_shred_version( fd_gossip_t *            gossip,
+                      fd_gossip_view_t       * view,
+                      uchar const *            payload ) {
+  switch( view->tag ) {
+    case FD_GOSSIP_MESSAGE_PUSH:
+    case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
+      filter_shred_version_crds_container( gossip, view->pull_response, payload );
+      break;
+    case FD_GOSSIP_MESSAGE_PULL_REQUEST:
+    /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/cluster_info.rs#L2885 */
+      {
+        if( FD_UNLIKELY( view->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return -1;
+        ushort shred_vers = view->pull_request->contact_info->contact_info->shred_version;
+        if( FD_UNLIKELY( shred_vers!=0U && shred_vers!=gossip->expected_shred_version ) ) return -1;
+      }
+      break;
+    default:
+      /* No-op */
+      break;
+  }
+  return 0;
+}
+
+/* FIXME: This feels like it should be higher up the rx processing stack (i.e., tile level)*/
+static int
+strip_network_hdrs( uchar const *   data,
+                    ulong           data_sz,
+                    uchar ** const  payload,
+                    ulong *         payload_sz,
+                    fd_ip4_port_t * peer_address ) {
+  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)data;
+  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
+  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
+
+  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+data_sz ) )
+    FD_LOG_ERR(( "Malformed UDP header" ));
+  ulong udp_sz = fd_ushort_bswap( udp->net_len );
+  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) )
+    FD_LOG_ERR(( "Malformed UDP header" ));
+  ulong payload_sz_ = udp_sz-sizeof(fd_udp_hdr_t);
+
+  *payload     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+  *payload_sz  = payload_sz_;
+
+  if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) )
+    FD_LOG_ERR(( "Malformed UDP payload" ));
+
+  peer_address->addr = ip4->saddr;
+  peer_address->port = udp->net_sport;
+  return 0;
 }
 
 int
 fd_gossip_rx( fd_gossip_t * gossip,
-              uchar const * data,
-              ulong         data_sz,
-              long          now ) {
-  fd_gossip_message_t message[ 1 ];
-  int error = parse_message( data, data_sz, message );
+              uchar const * packet,
+              ulong         packet_sz,
+              long          now,
+              fd_stem_context_t * stem ) {
+
+  uchar *       gossip_payload;
+  ulong         gossip_payload_sz;
+  fd_ip4_port_t peer_address[1];
+
+  // FD_LOG_WARNING(( "fd_gossip_rx: data_sz=%lu", data_sz ));
+
+  int error = strip_network_hdrs( packet,
+                                  packet_sz,
+                                  &gossip_payload,
+                                  &gossip_payload_sz,
+                                  peer_address );
   if( FD_UNLIKELY( error ) ) return error;
 
-  error = verify_signatures( gossip, message );
+  fd_gossip_view_t view[ 1 ];
+  ulong decode_sz = fd_gossip_msg_parse( view, gossip_payload, gossip_payload_sz );
+  if( FD_UNLIKELY( !decode_sz ) ) {
+    FD_LOG_WARNING(( "Failed to decode gossip message" ));
+    return -1;
+  }
+  gossip->metrics->rx_msg_count[ view->tag ]++;
+  gossip->metrics->rx_msg_bytes[ view->tag ] += gossip_payload_sz;
+
+  error = verify_signatures( view, gossip_payload, gossip->sha512 );
   if( FD_UNLIKELY( error ) ) return error;
 
-  error = filter_shred_version( gossip, message );
-  if( FD_UNLIKELY( error ) ) return error;
-
-  error = check_duplicate_instance( gossip, message );
-  if( FD_UNLIKELY( error ) ) return error;
-
-  /* TODO: This should verify ping tracker active for pull request */
-  error = verify_gossip_address( gossip, message );
+  error = filter_shred_version( gossip, view, gossip_payload );
   if( FD_UNLIKELY( error ) ) return error;
 
   /* TODO: Implement traffic shaper / bandwidth limiter */
 
-  switch( message->tag ) {
+  switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
-      error = rx_pull_request( gossip, message->pull_request );
+      error = rx_pull_request( gossip,
+                               view->pull_request,
+                               gossip_payload,
+                               peer_address,
+                               stem,
+                               now );
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      error = rx_pull_response( gossip, message->pull_response );
+      error = rx_pull_response( gossip, view->pull_response, gossip_payload, stem, now );
       break;
     case FD_GOSSIP_MESSAGE_PUSH:
-      error = rx_push( gossip, message->push );
+      error = rx_push( gossip, view->push, gossip_payload, now, stem );
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
-      error = rx_prune( gossip, message->prune );
+      error = rx_prune( gossip, gossip_payload, view->prune, now );
       break;
     case FD_GOSSIP_MESSAGE_PING:
-      error = rx_ping( gossip, message->ping );
+      error = rx_ping( gossip, view->ping, peer_address, stem, now );
       break;
     case FD_GOSSIP_MESSAGE_PONG:
-      error = rx_pong( gossip, message->pong );
+      error = rx_pong( gossip, view->pong, peer_address, now );
       break;
     default:
-      FD_LOG_CRIT(( "Unknown gossip message type %d", message->tag ));
+      FD_LOG_CRIT(( "Unknown gossip message type %d", view->tag ));
       break;
   }
-
   return error;
 }
 
-static void
-purge_failed_inserts( fd_gossip_t * gossip,
-                      long          now ) {
-  long cutoff_nanos = now-20L*1000L*1000L*1000L;
-  while( gossip->failed_inserts_len ) {
-    ulong ts = gossip->failed_inserts[ gossip->failed_inserts_idx ]->timestamp;
-    if( FD_UNLIKELY( ts>=cutoff_nanos ) ) break;
+int
+fd_gossip_push_vote( fd_gossip_t *       gossip,
+                     uchar const *       txn,
+                     ulong               txn_sz,
+                     fd_stem_context_t * stem,
+                     long                now ) {
+  /* TODO: we can avoid addt'l memcpy if we pass a propely laid out
+     crds buffer instead */
+  uchar crds_val[ 1232UL ];
+  ulong crds_val_sz;
+  fd_gossip_crds_vote_encode( crds_val,
+                              1232UL,
+                              txn,
+                              txn_sz,
+                              gossip->identity_pubkey,
+                              now,
+                              &crds_val_sz );
+  fd_gossip_view_crds_value_t value[1];
 
-    gossip->failed_inserts_idx++;
-    gossip->failed_inserts_len--;
+  gossip->sign_fn( gossip->sign_ctx,
+                   crds_val+64UL,
+                   crds_val_sz-64UL,
+                   GOSSIP_SIGN_TYPE,
+                   crds_val );
+
+  value->tag                   = FD_GOSSIP_VALUE_VOTE;
+  value->value_off             = 0UL;
+  value->length                = (ushort)crds_val_sz;
+  value->pubkey_off            = 64UL+1UL; /* Signature + vote index */
+  value->wallclock_nanos       = now;
+  fd_gossip_view_vote_t * vote = value->vote;
+  vote->index                  = 0UL; /* TODO */
+  vote->txn_sz                 = (ushort)txn_sz;
+  vote->txn_off                = 64UL+1UL+32UL; /* Signature + vote index + pubkey */
+
+  int res = fd_crds_checks_fast( gossip->crds,
+                                 value,
+                                 crds_val,
+                                 0 );
+  if( FD_UNLIKELY( res ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( !fd_crds_insert( gossip->crds,
+                                    value,
+                                    crds_val,
+                                    gossip->identity_stake,
+                                    1, /* is_me */
+                                    now,
+                                    stem ) ) ) {
+    return -1;
+  }
+  /* TODO: Possibly flush if we want this out ASAP? */
+  active_push_set_insert( gossip,
+                          crds_val,
+                          crds_val_sz,
+                          gossip->identity_pubkey,
+                          gossip->identity_stake,
+                          stem,
+                          now );
+  return 0;
+}
+
+static void
+tx_ping( fd_gossip_t *       gossip,
+         fd_stem_context_t * stem,
+         long                now ) {
+
+  /* TODO: have this point to dcache buffer directly instead. */
+  uchar out_payload[ sizeof(fd_gossip_view_ping_t) + 4UL ];
+  FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PING );
+
+  fd_gossip_view_ping_t * out_ping = (fd_gossip_view_ping_t *)( out_payload + 4UL );
+  fd_memcpy( out_ping->pubkey, gossip->identity_pubkey, 32UL );
+
+  uchar const *         peer_pubkey;
+  uchar const *         ping_token;
+  fd_ip4_port_t const * peer_address;
+  while( fd_ping_tracker_pop_request( gossip->ping_tracker,
+                                      now,
+                                      gossip->crds,
+                                      &peer_pubkey,
+                                      &peer_address,
+                                      &ping_token ) ) {
+    fd_memcpy( out_ping->ping_token, ping_token, 32UL );
+
+    gossip->sign_fn( gossip->sign_ctx, out_ping->ping_token, 32UL, GOSSIP_SIGN_TYPE, out_ping->signature );
+    gossip->send_fn( gossip->send_ctx, stem, out_payload, sizeof(out_payload), peer_address, (ulong)now );
+
+    gossip->metrics->tx_msg_count[ FD_GOSSIP_MESSAGE_PING ]++;
+    gossip->metrics->tx_msg_bytes[ FD_GOSSIP_MESSAGE_PING ] += sizeof(out_payload);
   }
 }
 
 static void
-tx_ping( fd_gossip_t * gossip,
-         long          now ) {
-  uchar const * peer_pubkey;
-  while( fd_ping_tracker_pop_request( gossip->ping_tracker, now, &peer_pubkey ) ) {
-    /* TODO: Generate and send a ping message ... */
+tx_pull_request( fd_gossip_t *       gossip,
+                 fd_stem_context_t * stem,
+                 long                now ) {
+  ulong total_crds_vals = fd_crds_len( gossip->crds ) + fd_crds_purged_len( gossip->crds );
+  ulong num_items       = fd_ulong_max( 512UL, total_crds_vals );
+
+  double max_items      = fd_bloom_max_items( (double)BLOOM_FILTER_MAX_BITS, BLOOM_NUM_KEYS, BLOOM_FALSE_POSITIVE_RATE );
+  ulong  num_bits       = fd_bloom_num_bits( max_items, BLOOM_FALSE_POSITIVE_RATE, (double)BLOOM_FILTER_MAX_BITS );
+
+  double _mask_bits     = ceil( log2( (double)num_items / max_items ) );
+  uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
+  ulong mask            = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
+
+
+  uchar payload[ 1232UL ];
+
+  ulong payload_sz;
+  ulong * keys_ptr, * bits_ptr, * bits_set;
+
+  int res = fd_gossip_pull_request_init( payload,
+                                         1232UL,
+                                         BLOOM_NUM_KEYS,
+                                         num_bits,
+                                         mask,
+                                         mask_bits,
+                                         gossip->my_contact_info.crds_val,
+                                         gossip->my_contact_info.crds_val_sz,
+                                         &keys_ptr,
+                                         &bits_ptr,
+                                         &bits_set,
+                                         &payload_sz );
+  if( FD_UNLIKELY( !!res ) ) {
+    FD_LOG_WARNING(( "Failed to initialize pull request" ));
+    return;
   }
-}
+  fd_bloom_t filter[1];
+  fd_bloom_init_inplace( keys_ptr, bits_ptr, BLOOM_NUM_KEYS, num_bits, 0, gossip->rng, BLOOM_FALSE_POSITIVE_RATE, filter );
 
-static void
-tx_push( fd_gossip_t * gossip,
-         long          now ) {
-  ulong num_pushes = 0UL;
-
-  for( fd_crds_since_iter_t it=fd_crds_since_iter_init( gossip->crds, gossip->crds_cursor ); !fd_crds_since_iter_end( it ); it=fd_crds_since_iter_next(it) ) {
-    fd_crds_value_t * value = fd_crds_since_iter_value( it );
-
-    if( FD_UNLIKELY( fd_crds_value_wallclock( value )<now-30L*1000L*1000L*1000L || fd_crds_value_wallclock( value )>now+30L*1000L*1000L*1000L ) ) continue;
-
-    uchar const * origin_pubkey = fd_crds_value_pubkey( value );
-    ulong         origin_stake  = stake( gossip, origin_pubkey );
-
-    int retain;
-    int ignore_prunes_if_peer_is_origin;
-    switch( value->tag ) {
-      case FD_GOSSIP_CRDS_VALUE_CONTACT_INFO:
-      case FD_GOSSIP_CRDS_VALUE_LEGACY_CONTACT_INFO:
-      case FD_GOSSIP_CRDS_VALUE_VOTE:
-      case FD_GOSSIP_CRDS_VALUE_EPOCH_SLOTS:
-      case FD_GOSSIP_CRDS_VALUE_LEGACY_SNAPSHOT_HASHES:
-      case FD_GOSSIP_CRDS_VALUE_SNAPSHOT_HASHES:
-      case FD_GOSSIP_CRDS_VALUE_VERSION:
-      case FD_GOSSIP_CRDS_VALUE_ACCOUNT_HASHES:
-      case FD_GOSSIP_CRDS_VALUE_NODE_INSTANCE:
-        ignore_prunes_if_peer_is_origin = 1;
-        retain = 1;
-        break;
-      case FD_GOSSIP_CRDS_VALUE_LOWEST_SLOT:
-      case FD_GOSSIP_CRDS_VALUE_LEGACY_VERSION:
-      case FD_GOSSIP_CRDS_VALUE_DUPLICATE_SHRED:
-      case FD_GOSSIP_CRDS_VALUE_RESTART_HEAVIEST_FORK:
-      case FD_GOSSIP_CRDS_VALUE_RESTART_LAST_VOTED_FORK_SLOTS:
-        ignore_prunes_if_peer_is_origin = 0;
-        retain = stake_len( gossip )<500UL || origin_stake>=1000000000UL;
-        break;
-      default:
-        FD_LOG_CRIT(( "Unknown CRDS value type %d", value->tag ));
-        break;
-    }
-
-    if( FD_UNLIKELY( !retain ) ) continue;
-
-    ulong nodes[ 12UL ];
-    ulong nodes_len = fd_active_set_nodes( gossip->active_set,
-                                           gossip->identity_pubkey,
-                                           gossip->identity_stake,
-                                           origin_pubkey,
-                                           origin_stake,
-                                           ignore_prunes_if_peer_is_origin,
-                                           nodes );
-
-    ulong targets_len[ 300UL ] = { 0UL };
-    fd_crds_value_t * targets[ 300UL ][ 4096UL ];
-
-    for( ulong i=0UL i<fd_ulong_min( 9UL, nodes_len ); i++ ) {
-      targets[ nodes[ i ] ][ targets_len[ nodes[ i ] ] ] = value;
-      targets_len[ nodes[ i ] ]++;
-      num_pushes++;
-      if( FD_UNLIKELY( num_pushes>=4096UL ) ) break;
-    }
-
-    if( FD_UNLIKELY( num_pushes>=4096UL ) ) break;
+  uchar iter_mem[ 16UL ];
+  for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
+       !fd_crds_mask_iter_done( it, gossip->crds );
+       it = fd_crds_mask_iter_next( it, gossip->crds ) ) {
+    fd_bloom_insert( filter, fd_crds_entry_hash( fd_crds_mask_iter_entry( it, gossip->crds ) ), 32UL );
   }
 
-  for( ulong i=0UL; i<300UL; i++ ) {
-    fd_gossip_push_t * push = new_outgoing( gossip );
-
-    for( ulong j=0UL; j<targets_len[ i ]; j++ ) {
-      /* TODO: Serialize into minimum number of push packets */
-    }
+  for( fd_crds_mask_iter_t * it = fd_crds_purged_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
+       !fd_crds_purged_mask_iter_done( it, gossip->crds );
+       it = fd_crds_purged_mask_iter_next( it, gossip->crds ) ){
+    fd_bloom_insert( filter, fd_crds_purged_mask_iter_hash( it, gossip->crds ), 32UL );
   }
 
-  gossip->crds_cursor = fd_crds_cursor( gossip->crds );
-}
+  int num_bits_set = 0;
+  for( ulong i=0UL; i<(num_bits+63)/64UL; i++ ) num_bits_set += fd_ulong_popcnt( bits_ptr[ i ] );
+  *bits_set = (ulong)num_bits_set;
 
-static void
-tx_pull_request( fd_gossip_t * gossip,
-                 long          now ) {
-  static const ulong MAX_FILTER_BYTES = 512UL; /* TODO: TODO: Calculate this for worst case ContactInfo */
 
-  ulong num_items = fd_ulong_max( 512UL, fd_crds_len( gossip->crds ) + fd_crds_purged_len( gossip->crds ) + gossip->failed_inserts_len );
-  double max_bits = (double)(MAX_FILTER_BYTES * 8UL);
-  double max_items = ceil(max_bits / (-8.0 / log( 1.0 - exp( log( 0.1 ) / 8.0 ) )));
-  double _mask_bits = ceil( log2( (double)num_items / max_items ) );
-  ulong mask_bits = _mask_bits >= 0.0 ? (ulong)_mask_bits : 0UL;
-
-  ulong mask = fd_rng_ulong( gossip->rng ) & ((1UL<<mask_bits)-1UL);
-
-  fd_bloom_t * filter = ??; /* TODO: allocated in gossip_t */
-  fd_bloom_initialize( filter, max_items );
-
-  for( fd_crds_iter_t it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits );
-       !fd_crds_mask_iter_done( it );
-       it = fd_crds_mask_iter_next( it ) ) {
-    fd_bloom_insert( filter, fd_crds_value_hash( fd_crds_mask_iter_value( it ) ), 32UL );
+  fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
+  fd_ip4_port_t peer_addr;
+  if( FD_UNLIKELY( !peer ) ) {
+    /* Choose random entrypoint */
+    peer_addr = random_entrypoint( gossip );
+  } else {
+    peer_addr = fd_contact_info_gossip_socket( peer );
   }
 
-  ulong shift = 64UL-mask_bits;
-  for( ulong i=0UL; i<fd_crds_purged_len( gossip->crds ); i++ ) {
-    /* TODO: Make the purged list also a bplus, for fast finding of matching hashes? */
-    uchar const * hash = fd_crds_purged( gossip->crds, i );
-    if( FD_LIKELY( (fd_ulong_load_8( hash )>>shift)!=mask ) ) continue;
-    fd_bloom_insert( filter, hash, 32UL );
-  }
-
-  for( ulong i=0UL; i<gossip->failed_inserts_len; i++ ) {
-    /* TODO: Make the failed insert list also a bplus, for fast finding of matching hashes? */
-    fd_gossip_crds_value_t * value = gossip->failed_inserts[ (gossip->failed_inserts_idx+i) % gossip->failed_inserts_len ];
-    uchar const * hash = fd_crds_value_hash( value );
-    if( FD_LIKELY( (fd_ulong_load_8( hash )>>shift)!=mask ) ) continue;
-    fd_bloom_insert( filter, hash, 32UL );
-  }
-
-  fd_ip4_port_t peer = fd_crds_sample_peer( gossip->crds );
-
-  /* TODO: Send the pull request to the peer */
+  gossip->send_fn( gossip->send_ctx,
+                   stem,
+                   payload,
+                   payload_sz,
+                   &peer_addr,
+                   (ulong)now );
+  gossip->metrics->tx_msg_count[ FD_GOSSIP_MESSAGE_PULL_REQUEST ]++;
+  gossip->metrics->tx_msg_bytes[ FD_GOSSIP_MESSAGE_PULL_REQUEST ] += payload_sz;
 }
 
 static inline long
 next_pull_request( fd_gossip_t const * gossip,
                    long                now ) {
+  (void)gossip;
   /* TODO: Not always every 200 micros ... we should send less frequently
      the table is smaller.  Agave sends 1024 every 200 millis, but
      reduces 1024 to a lower amount as the table size shrinks...
      replicate this in the frequency domain. */
   /* TODO: Jitter */
-  return now+200L*1000L;
+  return now+1600L*1000L;
+}
+
+static inline void
+rotate_active_set( fd_gossip_t *       gossip,
+                   fd_stem_context_t * stem,
+                   long                now ) {
+  push_set_t * pset          = gossip->active_pset;
+  ulong        replaced_idx  = fd_active_set_rotate( gossip->active_set, gossip->crds );
+  if( FD_UNLIKELY( replaced_idx==ULONG_MAX ) ) {
+    return;
+  }
+  push_set_entry_t * entry = pset_entry_pool_ele( pset->pool, replaced_idx );
+  if( FD_LIKELY( !!entry->pool.in_use ) ) {
+    active_push_set_flush( gossip, pset, replaced_idx, stem, now );
+  } else {
+    entry->pool.in_use              = 1U;
+    entry->last_hit.wallclock_nanos = now;
+    pset_last_hit_ele_push_tail( pset->last_hit, entry, pset->pool );
+  }
+  fd_gossip_crds_msg_builder_init( entry->builder, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
+}
+
+static inline void
+flush_stale_push_states( fd_gossip_t *       gossip,
+                         fd_stem_context_t * stem,
+                         long                now ) {
+  long stale_if_before = now-1*1000L*1000L;
+  push_set_t * push_set = gossip->active_pset;
+  if( FD_UNLIKELY( pset_last_hit_is_empty( push_set->last_hit, push_set->pool ) ) ) return;
+
+  for(;;) {
+    push_set_entry_t * entry     = pset_last_hit_ele_peek_head( push_set->last_hit, push_set->pool );
+    ulong              entry_idx = pset_entry_pool_idx( push_set->pool, entry );
+    if( FD_UNLIKELY( entry->last_hit.wallclock_nanos>stale_if_before ) ) break;
+    active_push_set_flush( gossip, push_set, entry_idx, stem, now );
+  }
 }
 
 void
-fd_gossip_advance( fd_gossip_t * gossip,
-                   long          now ) {
-  purge_failed_inserts( gossip, now );
-  fd_crds_expire( gossip->crds, now );
-
-  tx_ping( gossip, now );
-  if( FD_UNLIKELY( now>=gossip->next_pull_request ) ) {
-    tx_pull_request( gossip, now );
-    gossip->next_pull_request = next_pull_request( gossip, now );
+fd_gossip_advance( fd_gossip_t *       gossip,
+                   long                now,
+                   fd_stem_context_t * stem ) {
+  fd_crds_advance( gossip->crds, now, stem );
+  tx_ping( gossip, stem, now );
+  flush_stale_push_states( gossip, stem, now );
+  if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
+    tx_pull_request( gossip, stem, now );
+    gossip->timers.next_pull_request = next_pull_request( gossip, now );
   }
-  if( FD_UNLIKELY( now>=gossip->next_contact_info_refresh ) ) {
+  if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */
     refresh_contact_info( gossip, now );
-    gossip->next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
+    push_my_contact_info( gossip, stem, now);
+    gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
   }
-  if( FD_UNLIKELY( now>=gossip->next_active_set_refresh ) ) {
-    refresh_active_set( gossip, now );
-    gossip->next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
+  if( FD_UNLIKELY( now>=gossip->timers.next_active_set_refresh ) ) {
+    rotate_active_set( gossip, stem, now );
+    gossip->timers.next_active_set_refresh = now+300L*1000L*1000L; /* TODO: Jitter */
   }
 }

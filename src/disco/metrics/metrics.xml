@@ -760,27 +760,37 @@ metric introduced.
 <tile name="gossip">
     <gauge name="ShredVersion" label="The shred version of this node, or zero if a gossip spy" />
 
-    <gauge name="TableCapacity" label="The capacity of the CRDS table" />
-    <gauge name="TableSize" label="The size of the CRDS table" />
-    <gauge name="TableExpired" label="The number of entries the CRDS table has expired" />
-    <gauge name="TableEvicted" label="The number of entries the CRDS table has evicted" />
+    <gauge name="TableCapacity"     label="The capacity of the CRDS table" />
+    <gauge name="TableSize"         label="The current size of the CRDS table" />
+    <gauge name="TableCrdsCounts"   label="The number of CRDS values in the table, by type" enum="CrdsValue" />
+    <gauge name="PurgedSize"        label="The size of list of purged table entries" />
+    <gauge name="VisibleStake"      label="The total visible stake in the CRDS table, in lamports" />
+    <gauge name="UnstakedPeerCount" label="The number of peers in the CRDS table that are not staked" />
+    <gauge name="StakedPeerCount"   label="The number of peers in the CRDS table that are staked" />
 
-    <gauge name="PingPeerCapacity" label="The capacity of the list of ping peers" />
-    <gauge name="PingPeerSize" label="The size of the list of ping peers" />
+    <counter name="UndeterminedCrds" label="Number of CRDS values processed with undetermined result" enum="CrdsValue" />
 
-    <gauge name="PurgedCapacity" label="The capacity of list of purged table entries" />
-    <gauge name="PurgedSize" label="The size of list of purged table entries" />
+    <counter name="MessageRxCount"    label="Number of gossip messages received"            enum="GossipMessage"/>
+    <counter name="MessageRxBytes"    label="Number of bytes received in gossip messages"   enum="GossipMessage" />
+    <counter name="MessageTxCount"        label="Number of gossip messages sent"                enum="GossipMessage" />
+    <counter name="MessageTxBytes"        label="Number of bytes sent in gossip messages"       enum="GossipMessage" />
 
-    <gauge name="FailedCapacity" label="The capacity of list of failed table entries" />
-    <gauge name="FailedSize" label="The size of list of failed table entries" />
+    <counter name="CrdsPushRxCount"     label="Number of CRDS values received from push messages"             enum="CrdsValue" />
+    <counter name="CrdsPushRxBytes"     label="Number of bytes received in CRDS push messages"                enum="CrdsValue" />
+    <counter name="CrdsPushUpserted"    label="Number of CRDS values upserted from push messages"             enum="CrdsValue" />
+    <counter name="CrdsPushDuplicates"  label="Number of CRDS values that were duplicates in push messages"   enum="CrdsValue" />
+    <counter name="CrdsPushOld"         label="Number of CRDS values that were old in push messages"          enum="CrdsValue" />
 
-    <counter name="MessageProcessed" enum="GossipProcessingResult" summary="The result of processing a gossip message from the network" />
-    <counter name="MessageReceived" enum="GossipMessage" summary="Number of gossip messages received" />
-    <counter name="MessageSent" enum="GossipMessage" summary="Number of gossip messages sent" />
+    <counter name="CrdsPullRxCount"     label="Number of CRDS values received from pull response messages"              enum="CrdsValue" />
+    <counter name="CrdsPullRxBytes"     label="Number of bytes received in CRDS pull response messages"                 enum="CrdsValue" />
+    <counter name="CrdsPullUpserted"    label="Number of CRDS values upserted from pull response messages"              enum="CrdsValue" />
+    <counter name="CrdsPullDuplicates"  label="Number of CRDS values that were duplicates in pull response messages"    enum="CrdsValue" />
+    <counter name="CrdsPullOld"         label="Number of CRDS values that were old in pull response messages"           enum="CrdsValue" />
 
-    <counter name="CrdsProcessed" enum="CrdsProcessingResult" summary="The result of processing a CRDS value from the network" />
-    <counter name="CrdsReceived" enum="CrdsValue" summary="Number of CRDS values received" />
-    <counter name="CrdsSent" enum="CrdsValue" summary="Number of CRDS values sent" />
+    <counter name="CrdsPushTxCount" label="Number of CRDS values sent"                            enum="CrdsValue" />
+    <counter name="CrdsPushTxBytes" label="Number of bytes sent in CRDS messages"                 enum="CrdsValue" />
+    <counter name="CrdsPullTxCount" label="Number of CRDS values sent in pull response messages"  enum="CrdsValue" />
+    <counter name="CrdsPullTxBytes" label="Number of bytes sent in CRDS pull response messages"   enum="CrdsValue" />
 </tile>
 
 <tile name="sign">

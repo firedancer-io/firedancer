@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_gossip_fd_active_set_h
 
 #include "fd_bloom.h"
+#include "crds/fd_crds.h"
 
 /* fd_active_set provides APIs for tracking the active set of nodes we
    should push messages to in a gossip network.
@@ -22,7 +23,7 @@
     (2) Peers sometimes request that we don't forward messages from
         other originating (origin) nodes to them, because they already
         have a lot of paths from that node.  This is called a prune.
-   
+
    Complication (1) is handled by keeping a list of the top 12 peers
    (sorted by stake) for each of 25 buckets of stakes.  These buckets
    are all rotated together.
@@ -31,6 +32,9 @@
    12 peers in each bucket.  The bloom filter is used to track which
    origins the peer has pruned. */
 
+#define FD_ACTIVE_SET_STAKE_ENTRIES    (25UL)
+#define FD_ACTIVE_SET_PEERS_PER_ENTRY  (12UL)
+#define FD_ACTIVE_SET_MAX_PEERS        (FD_ACTIVE_SET_STAKE_ENTRIES*FD_ACTIVE_SET_PEERS_PER_ENTRY) /* 300 */
 struct fd_active_set_peer {
   uchar        pubkey[ 32UL ];
   fd_bloom_t * bloom;
@@ -41,7 +45,7 @@ typedef struct fd_active_set_peer fd_active_set_peer_t;
 struct fd_active_set_entry {
   ulong                nodes_idx;
   ulong                nodes_len;
-  fd_active_set_peer_t nodes[ 12UL ][ 1UL ];
+  fd_active_set_peer_t nodes[ FD_ACTIVE_SET_PEERS_PER_ENTRY ][ 1UL ];
 };
 
 typedef struct fd_active_set_entry fd_active_set_entry_t;
@@ -49,7 +53,7 @@ typedef struct fd_active_set_entry fd_active_set_entry_t;
 #define FD_ACTIVE_SET_ALIGN     (64UL)
 
 struct __attribute__((aligned(FD_ACTIVE_SET_ALIGN))) fd_active_set_private {
-  fd_active_set_entry_t entries[ 25UL ][ 1UL ];
+  fd_active_set_entry_t entries[ FD_ACTIVE_SET_STAKE_ENTRIES ][ 1UL ];
 
   fd_rng_t * rng;
 
@@ -82,7 +86,7 @@ fd_active_set_join( void * shas );
    have pruned the origin, except if ignore_prunes_if_peer_is_origin
    is non-zero, in which case the list will include a peer if its pubkey
    matches the origin pubkey.
-   
+
    Up to 12 peer nodes will be returned in out_nodes.  The values
    returned in out_nodes are an internal peer index of the active set
    and should not be used for anything other than calling
@@ -104,20 +108,26 @@ fd_active_set_node_pubkey( fd_active_set_t * active_set,
                            ulong             peer_idx );
 
 void
-fd_active_set_prune( fd_active_set_t * active_set,
-                     uchar const *     identity_pubkey,
-                     ulong             identity_stake,
-                     uchar const *     peer,
-                     uchar const *     destination,
-                     uchar const *     origin,
-                     ulong             origin_stake );
+fd_active_set_prunes( fd_active_set_t * active_set,
+                      uchar const *     identity_pubkey,
+                      ulong             identity_stake,
+                      uchar const *     peers,
+                      ulong             peers_len,
+                      uchar const *     origin,
+                      ulong             origin_stake,
+                      ulong *           opt_out_node_idx );
 
-void
+/* fd_active_set_rotate chooses a random active set entry to swap/introduce
+   a peer into. The peer is sampled from a distribution
+   (provided by crds) specific to the active set bucket.
+
+   returns the index that is being replaced within the
+   300 peer set. This allows users to maintain data structures that track the
+   active set. Returns ULONG_MAX if no peer replacement is found. */
+
+ulong
 fd_active_set_rotate( fd_active_set_t *     active_set,
-                      ulong                 cluster_size,
-                      uchar const * const * nodes,
-                      ulong const *         stakes,
-                      ulong                 nodes_len );
+                      fd_crds_t *           crds );
 
 FD_PROTOTYPES_END
 
