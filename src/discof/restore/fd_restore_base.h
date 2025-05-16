@@ -2,7 +2,6 @@
 #define HEADER_fd_src_discof_restore_fd_restore_base_h
 
 #include "../../tango/mcache/fd_mcache.h"
-#include "../../disco/topo/fd_topo.h"
 
 /* fd_stream_frag_meta_t is a variation of fd_frag_meta_t optimized for
    stream I/O. */
