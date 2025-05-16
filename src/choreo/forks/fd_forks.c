@@ -259,10 +259,10 @@ slot_ctx_restore( ulong                 slot,
 
   // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks
   // hash calculation and not needed when restoring parent
-
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( slot_ctx_out->bank_mgr );
   FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%s",
                    slot_ctx_out->slot,
-                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.banks_hash.hash ) ));
+                   FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
 
   /* Prepare bank for next slot */
   slot_ctx_out->slot = slot;

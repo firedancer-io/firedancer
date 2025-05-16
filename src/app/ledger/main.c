@@ -514,17 +514,18 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
     }
 
+    fd_hash_t * bank_hash_bm = fd_bank_mgr_bank_hash_query( ledger_args->slot_ctx->bank_mgr );
     err = fd_blockstore_bank_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
-    } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
+    } else if( FD_UNLIKELY( 0 != memcmp( bank_hash_bm,
                                          expected.hash,
                                          32UL ) ) ) {
 
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( expected_hash, expected.hash );
       char bank_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( bank_hash, ledger_args->slot_ctx->slot_bank.banks_hash.hash );
+      fd_acct_addr_cstr( bank_hash, bank_hash_bm->hash );
 
       FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,

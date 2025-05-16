@@ -1599,8 +1599,9 @@ fd_runtime_block_execute_finalize_finish( fd_exec_slot_ctx_t *             slot_
                                           fd_accounts_hash_task_data_t *   task_data,
                                           ulong                            lt_hash_cnt ) {
 
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( slot_ctx->bank_mgr );
   int err = fd_update_hash_bank_exec_hash( slot_ctx,
-                                           &slot_ctx->slot_bank.banks_hash,
+                                           bank_hash,
                                            capture_ctx,
                                            task_data,
                                            1UL,
@@ -3447,7 +3448,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_memcpy( poh_bm->hash, genesis_hash->hash, FD_SHA256_HASH_SZ );
   fd_bank_mgr_poh_save( slot_ctx->bank_mgr );
 
-  memset( slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ );
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_modify( slot_ctx->bank_mgr );
+  memset( bank_hash->hash, 0, FD_SHA256_HASH_SZ );
+  fd_bank_mgr_bank_hash_save( slot_ctx->bank_mgr );
 
   fd_poh_config_t const * poh        = &genesis_block->poh_config;
   fd_exec_epoch_ctx_t *   epoch_ctx  = slot_ctx->epoch_ctx;
@@ -3783,9 +3786,10 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   fd_runtime_freeze( slot_ctx, runtime_spad );
 
   /* sort and update bank hash */
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( slot_ctx->bank_mgr );
   int result = fd_update_hash_bank_tpool( slot_ctx,
                                           capture_ctx,
-                                          &slot_ctx->slot_bank.banks_hash,
+                                          bank_hash,
                                           0UL,
                                           NULL,
                                           runtime_spad );
@@ -4464,13 +4468,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   block_eval_time          += fd_log_wallclock();
   double block_eval_time_ms = (double)block_eval_time * 1e-6;
   double tps                = (double) block_info.txn_cnt / ((double)block_eval_time * 1e-9);
-  FD_LOG_INFO(( "evaluated block successfully - slot: %lu, elapsed: %6.6f ms, signatures: %lu, txns: %lu, tps: %6.6f, bank_hash: %s, leader: %s",
+  FD_LOG_INFO(( "evaluated block successfully - slot: %lu, elapsed: %6.6f ms, signatures: %lu, txns: %lu, tps: %6.6f, leader: %s",
                 slot,
                 block_eval_time_ms,
                 block_info.signature_cnt,
                 block_info.txn_cnt,
                 tps,
-                FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
                 FD_BASE58_ENC_32_ALLOCA( fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot ) ) ));
 
   ulong * transaction_count = fd_bank_mgr_transaction_count_modify( slot_ctx->bank_mgr );

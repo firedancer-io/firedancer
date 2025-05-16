@@ -80,7 +80,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   slot_ctx->runtime_wksp                = fd_wksp_containing( slot_ctx );
   slot_ctx->slot                        = slot;
 
-  fd_memcpy( &slot_ctx->slot_bank.banks_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof( fd_hash_t ) );
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_modify( slot_ctx->bank_mgr );
+  fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
+  fd_bank_mgr_bank_hash_save( slot_ctx->bank_mgr );
 
   /* Set up slot bank */
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
@@ -512,7 +514,8 @@ fd_runtime_fuzz_block_run( fd_runtime_fuzz_runner_t * runner,
     /* Capture hashes */
     uchar out_lt_hash[32];
     fd_lthash_hash( (fd_lthash_value_t const *)slot_ctx->slot_bank.lthash.lthash, out_lt_hash );
-    fd_memcpy( effects->bank_hash, slot_ctx->slot_bank.banks_hash.hash, sizeof(fd_hash_t) );
+    fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( slot_ctx->bank_mgr );
+    fd_memcpy( effects->bank_hash, bank_hash, sizeof(fd_hash_t) );
     fd_memcpy( effects->lt_hash, out_lt_hash, sizeof(fd_hash_t) );
     fd_memcpy( effects->account_delta_hash, slot_ctx->account_delta_hash.hash, sizeof(fd_hash_t) );
 

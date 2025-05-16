@@ -50,7 +50,7 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_funk_rec_publish( funk, prepare );
 
-  FD_LOG_DEBUG(( "epoch frozen, slot=%lu bank_hash=%s", slot_ctx->slot, FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ) ));
+  FD_LOG_DEBUG(( "epoch frozen, slot=%lu", slot_ctx->slot ));
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -99,9 +99,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_funk_rec_publish( funk, prepare );
 
-  FD_LOG_DEBUG(( "slot frozen, slot=%lu bank_hash=%s",
-                 slot_ctx->slot,
-                 FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ) ));
+  FD_LOG_DEBUG(( "slot frozen, slot=%lu", slot_ctx->slot ));
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -192,10 +190,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%s lthash=%s",
-                    (long)slot_ctx->slot,
-                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
-                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ) ));
+    FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld",
+                    (long)slot_ctx->slot ));
 
     ulong * execution_fees = fd_bank_mgr_execution_fees_modify( slot_ctx->bank_mgr );
     *execution_fees = 0;

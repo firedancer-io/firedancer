@@ -630,7 +630,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
   bank->ancestors_len                         = 0UL;
   bank->ancestors                             = NULL;
 
-  bank->hash                                  = slot_bank->banks_hash;
+  // bank->hash                                  = slot_bank->banks_hash;
   bank->parent_hash                           = slot_bank->prev_banks_hash;
   // bank->parent_slot                           = slot_bank->prev_slot;
   // bank->hard_forks                            = slot_bank->hard_forks;

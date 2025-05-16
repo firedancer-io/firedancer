@@ -1138,7 +1138,8 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.root = fd_fseq_query( ctx->published_wmark );
     msg->slot_exec.height = block_entry_block_height;
     msg->slot_exec.shred_cnt = fork->slot_ctx->shred_cnt;
-    memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
+    fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( fork->slot_ctx->bank_mgr );
+    memcpy( &msg->slot_exec.bank_hash, bank_hash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
     msg->slot_exec.ts = tsorig;
@@ -1725,7 +1726,8 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
     FD_COMPILER_MFENCE();
     block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
     memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
-    memcpy( &block_info->bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
+    fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( fork->slot_ctx->bank_mgr );
+    memcpy( &block_info->bank_hash, bank_hash, sizeof(fd_hash_t) );
 
     fd_block_map_publish( query );
     ctx->flags = EXEC_FLAG_FINISHED_SLOT;
@@ -2620,7 +2622,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Bank hash comparison, and halt if there's a mismatch after replay  */
     /**********************************************************************/
 
-    fd_hash_t const * bank_hash = &child->slot_ctx->slot_bank.banks_hash;
+    fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( fork->slot_ctx->bank_mgr );
     fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx->epoch_ctx->bank_hash_cmp;
     fd_bank_hash_cmp_lock( bank_hash_cmp );
     fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );

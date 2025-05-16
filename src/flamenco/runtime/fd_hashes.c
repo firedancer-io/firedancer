@@ -238,7 +238,9 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
               fd_hash_t *             hash,
               fd_pubkey_hash_pair_t * dirty_keys,
               ulong                   dirty_key_cnt ) {
-  slot_ctx->slot_bank.prev_banks_hash = slot_ctx->slot_bank.banks_hash;
+
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( slot_ctx->bank_mgr );
+  slot_ctx->slot_bank.prev_banks_hash = *bank_hash;
 
   ulong * signature_cnt_bm     = fd_bank_mgr_signature_cnt_query( slot_ctx->bank_mgr );
   ulong   signature_cnt        = !!signature_cnt_bm ? *signature_cnt_bm : 0UL;
@@ -265,7 +267,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
-  fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *)bank_hash, sizeof( fd_hash_t ) );
   if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) )
     fd_sha256_append( &sha, (uchar const *) &slot_ctx->account_delta_hash, sizeof( fd_hash_t  ) );
   fd_sha256_append( &sha, (uchar const *) &signature_cnt, sizeof( ulong ) );

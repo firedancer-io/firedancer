@@ -65,9 +65,7 @@ usage( void ) {
     fd_blockstore_t * blockstore = fd_blockstore_join( &blockstore_ljoin, shblockstore ); \
     fd_buf_shred_pool_reset( blockstore->shred_pool, 0 );                                \
     FD_TEST( blockstore );                                                               \
-    fd_slot_bank_t slot_bank = {                                                         \
-        .banks_hash = { .hash = {0} },                                                   \
-    };                                                                                   \
+    fd_slot_bank_t slot_bank = {0};                                                      \
     fd_slot_bank_new( &slot_bank );                                                      \
     int fd = open( "dummy.archv", O_RDWR | O_CREAT, 0666 );                              \
     FD_TEST( fd > 0 );
