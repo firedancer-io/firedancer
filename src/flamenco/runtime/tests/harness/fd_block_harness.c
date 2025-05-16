@@ -298,7 +298,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_bank_mgr_rent_fresh_accounts_save( bank_mgr );
 
   // Set genesis hash to {0}
-  fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );
+  fd_hash_t * genesis_hash = fd_bank_mgr_genesis_hash_modify( bank_mgr );
+  fd_memset( genesis_hash->hash, 0, sizeof(fd_hash_t) );
+  fd_bank_mgr_genesis_hash_save( bank_mgr );
 
   // Use the latest lamports per signature
   fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );

@@ -861,7 +861,7 @@ method_getGenesisHash(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     fd_webserver_t * ws = &ctx->global->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-    fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
+    // fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
     fd_web_reply_sprintf(ws, "\",\"id\":%s}" CRLF, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;

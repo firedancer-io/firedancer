@@ -3829,8 +3829,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
   }
 
-  fd_epoch_bank_t *   epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-
   fd_genesis_solana_t * genesis_block;
   fd_hash_t             genesis_hash;
 
@@ -3861,7 +3859,9 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   // The hash is generated from the raw data... don't mess with this..
   fd_sha256_hash( buf, sz, genesis_hash.uc );
 
-  fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
+  fd_hash_t * genesis_hash_bm = fd_bank_mgr_genesis_hash_modify( slot_ctx->bank_mgr );
+  fd_memcpy( genesis_hash_bm, buf, sizeof(fd_hash_t) );
+  fd_bank_mgr_genesis_hash_save( slot_ctx->bank_mgr );
 
   if( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx,

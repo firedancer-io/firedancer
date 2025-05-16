@@ -8914,8 +8914,6 @@ int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_rent_encode( &self->rent, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_encode( &self->genesis_hash, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_accounts_encode( &self->next_epoch_stakes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_schedule_encode( &self->rent_epoch_schedule, ctx );
@@ -8930,8 +8928,6 @@ static int fd_epoch_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
   err = fd_epoch_schedule_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_rent_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -8952,7 +8948,6 @@ static void fd_epoch_bank_decode_inner( void * struct_mem, void * * alloc_mem, f
   fd_stakes_decode_inner( &self->stakes, alloc_mem, ctx );
   fd_epoch_schedule_decode_inner( &self->epoch_schedule, alloc_mem, ctx );
   fd_rent_decode_inner( &self->rent, alloc_mem, ctx );
-  fd_hash_decode_inner( &self->genesis_hash, alloc_mem, ctx );
   fd_vote_accounts_decode_inner( &self->next_epoch_stakes, alloc_mem, ctx );
   fd_epoch_schedule_decode_inner( &self->rent_epoch_schedule, alloc_mem, ctx );
 }
@@ -8969,7 +8964,6 @@ void fd_epoch_bank_new(fd_epoch_bank_t * self) {
   fd_stakes_new( &self->stakes );
   fd_epoch_schedule_new( &self->epoch_schedule );
   fd_rent_new( &self->rent );
-  fd_hash_new( &self->genesis_hash );
   fd_vote_accounts_new( &self->next_epoch_stakes );
   fd_epoch_schedule_new( &self->rent_epoch_schedule );
 }
@@ -8978,7 +8972,6 @@ void fd_epoch_bank_walk( void * w, fd_epoch_bank_t const * self, fd_types_walk_f
   fd_stakes_walk( w, &self->stakes, fun, "stakes", level );
   fd_epoch_schedule_walk( w, &self->epoch_schedule, fun, "epoch_schedule", level );
   fd_rent_walk( w, &self->rent, fun, "rent", level );
-  fd_hash_walk( w, &self->genesis_hash, fun, "genesis_hash", level );
   fd_vote_accounts_walk( w, &self->next_epoch_stakes, fun, "next_epoch_stakes", level );
   fd_epoch_schedule_walk( w, &self->rent_epoch_schedule, fun, "rent_epoch_schedule", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_bank", level-- );
@@ -8988,7 +8981,6 @@ ulong fd_epoch_bank_size( fd_epoch_bank_t const * self ) {
   size += fd_stakes_size( &self->stakes );
   size += fd_epoch_schedule_size( &self->epoch_schedule );
   size += fd_rent_size( &self->rent );
-  size += fd_hash_size( &self->genesis_hash );
   size += fd_vote_accounts_size( &self->next_epoch_stakes );
   size += fd_epoch_schedule_size( &self->rent_epoch_schedule );
   return size;

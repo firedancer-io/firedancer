@@ -1552,7 +1552,6 @@ struct fd_epoch_bank {
   fd_stakes_t stakes;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
-  fd_hash_t genesis_hash;
   fd_vote_accounts_t next_epoch_stakes;
   fd_epoch_schedule_t rent_epoch_schedule;
 };

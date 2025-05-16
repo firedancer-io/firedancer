@@ -263,7 +263,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   // Blockhash_queue[end] = last (latest) hash
   // Blockhash_queue[0] = genesis hash
   if( num_blockhashes > 0 ) {
-    memcpy( &epoch_bank->genesis_hash, test_ctx->blockhash_queue[0]->bytes, sizeof(fd_hash_t) );
+    fd_hash_t * genesis_hash = fd_bank_mgr_genesis_hash_modify( slot_ctx->bank_mgr );
+    memcpy( genesis_hash->hash, test_ctx->blockhash_queue[0]->bytes, sizeof(fd_hash_t) );
+    fd_bank_mgr_genesis_hash_save( slot_ctx->bank_mgr );
 
     for( ulong i = 0; i < num_blockhashes; ++i ) {
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
@@ -277,7 +279,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   } else {
     // Add a default empty blockhash and use it as genesis
     num_blockhashes = 1;
-    memcpy( &epoch_bank->genesis_hash, empty_bytes, sizeof(fd_hash_t) );
+    fd_hash_t * genesis_hash = fd_bank_mgr_genesis_hash_modify( slot_ctx->bank_mgr );
+    memcpy( genesis_hash->hash, empty_bytes, sizeof(fd_hash_t) );
+    fd_bank_mgr_genesis_hash_save( slot_ctx->bank_mgr );
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
     fd_hash_t * poh = fd_bank_mgr_poh_modify( slot_ctx->bank_mgr );

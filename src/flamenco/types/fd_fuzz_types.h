@@ -1637,7 +1637,6 @@ void *fd_epoch_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_stakes_generate( &self->stakes, alloc_mem, rng );
   fd_epoch_schedule_generate( &self->epoch_schedule, alloc_mem, rng );
   fd_rent_generate( &self->rent, alloc_mem, rng );
-  fd_hash_generate( &self->genesis_hash, alloc_mem, rng );
   fd_vote_accounts_generate( &self->next_epoch_stakes, alloc_mem, rng );
   fd_epoch_schedule_generate( &self->rent_epoch_schedule, alloc_mem, rng );
   return mem;

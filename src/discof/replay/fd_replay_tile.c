@@ -2182,7 +2182,8 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   init_after_snapshot( ctx, stem );
 
   if( ctx->replay_plugin_out_mem && strlen( ctx->genesis ) > 0 ) {
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, ctx->epoch_ctx->epoch_bank.genesis_hash.uc, sizeof(fd_hash_t) );
+    fd_hash_t * genesis_hash = fd_bank_mgr_genesis_hash_query( ctx->slot_ctx->bank_mgr );
+    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, genesis_hash->hash, sizeof(fd_hash_t) );
   }
 
   /* Redirect ctx->slot_ctx to point to the memory inside forks. */
