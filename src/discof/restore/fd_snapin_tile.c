@@ -576,6 +576,25 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return l;
 }
 
+static fd_snapin_tile_t *
+scratch_init( void *                 mem,
+              fd_topo_tile_t const * tile ) {
+  if( FD_UNLIKELY( !mem ) ) return NULL;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, scratch_align() ) ) ) return NULL;
+
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_snapin_tile_t * ctx          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
+  void *             accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
+  void *             scratch_mem  = FD_SCRATCH_ALLOC_APPEND( l, 16UL, tile->snapin.scratch_sz );
+
+  fd_memset( ctx, 0, sizeof(fd_snapin_tile_t) );
+  ctx->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
+  FD_TEST( ctx->accv_map );
+  ctx->buf = scratch_mem;
+
+  return ctx;
+}
+
 FD_FN_UNUSED static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -587,11 +606,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( !tile->snapin.scratch_sz ) ) FD_LOG_ERR(( "scratch_sz param not set" ));
 
-  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
-  fd_snapin_tile_t * ctx          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
-  void *             accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
-  void *             scratch_mem  = FD_SCRATCH_ALLOC_APPEND( l, 16UL, tile->snapin.scratch_sz );
-  fd_memset( ctx, 0, sizeof(fd_snapin_tile_t) );
+  fd_snapin_tile_t * ctx = scratch_init( fd_topo_obj_laddr( topo, tile->tile_obj_id ), tile );
+  if( FD_UNLIKELY( !ctx ) ) FD_LOG_ERR(( "scratch_init failed" ));
 
   /* Init state */
 
@@ -607,15 +623,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Join frame buffer */
 
-  ctx->buf     = scratch_mem;
   ctx->buf_sz  = 0UL;
   ctx->buf_ctr = 0UL;
   ctx->buf_max = tile->snapin.scratch_sz;
-
-  /* Join snapshot file parser */
-
-  ctx->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
-  FD_TEST( ctx->accv_map );
 
   /* Join account output */
 

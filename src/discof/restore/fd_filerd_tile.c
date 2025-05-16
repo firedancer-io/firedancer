@@ -50,9 +50,9 @@ unprivileged_init( fd_topo_t *      topo,
 static void
 fd_filerd_init_from_stream_ctx( void *            _ctx,
                                 fd_stream_ctx_t * stream_ctx ) {
-  fd_filerd_tile_t * ctx = fd_type_pun(_ctx);
-
-  ctx->writer = fd_stream_writer_join( &stream_ctx->writers[0] );
+  fd_filerd_tile_t * ctx = _ctx;
+  ctx->writer = fd_stream_writer_join( stream_ctx->writers[0] );
+  FD_TEST( ctx->writer );
   fd_stream_writer_set_frag_sz_max( ctx->writer, FILE_READ_MAX );
 }
 
@@ -63,7 +63,7 @@ fd_filerd_shutdown( fd_filerd_tile_t * ctx ) {
   }
   ctx->fd = -1;
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  fd_stream_writer_notify_shutdown( ctx->writer );
+  fd_stream_writer_close( ctx->writer );
   FD_COMPILER_MFENCE();
   FD_LOG_INFO(( "Reached end of file" ));
 
@@ -74,24 +74,22 @@ static void
 after_credit( void *            _ctx,
               fd_stream_ctx_t * stream_ctx,
               int *             poll_in FD_PARAM_UNUSED ) {
-  fd_filerd_tile_t * ctx = fd_type_pun(_ctx);
+  fd_filerd_tile_t * ctx = _ctx;
   (void)stream_ctx;
+
+  uchar * out     = fd_stream_writer_prepare( ctx->writer );
+  ulong   out_max = fd_stream_writer_publish_sz_max( ctx->writer );
 
   /* technically, this is not needed because fd_stream_ctx_run_loop
      checks for backpresure on all outgoing links and there is only one
      outgoing link anyways. But, it is added for clarity that
      callbacks should handle backpressure for their out links. */
-  if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
-    return;
-  }
+  if( FD_UNLIKELY( !out_max ) ) return;
 
   int fd = ctx->fd;
   if( FD_UNLIKELY( fd<0 ) ) return;
 
-  uchar * out   = fd_stream_writer_get_write_ptr( ctx->writer );
-  ulong dst_max = fd_stream_writer_get_avail_bytes( ctx->writer );
-
-  long res = read( fd, out, dst_max );
+  long res = read( fd, out, out_max );
   if( FD_UNLIKELY( res<=0L ) ) {
     if( FD_UNLIKELY( res==0 ) ) {
       fd_filerd_shutdown( ctx );
@@ -102,11 +100,7 @@ after_credit( void *            _ctx,
     /* aborts app */
   }
 
-  ulong sz = (ulong)res;
-  if( FD_LIKELY( sz ) ) {
-    fd_stream_writer_advance( ctx->writer, sz );
-    fd_stream_writer_publish( ctx->writer, sz );
-  }
+  fd_stream_writer_publish( ctx->writer, (ulong)res, 0UL );
 }
 
 __attribute__((noinline)) static void
@@ -128,11 +122,8 @@ static void
 fd_filerd_run( fd_topo_t *        topo,
                fd_topo_tile_t *   tile ) {
   fd_filerd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
-  ulong out_cnt          = tile->out_cnt;
-
-  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, out_cnt ) );
-  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, out_cnt );
+  void * ctx_mem = fd_alloca_check( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_footprint( topo, tile ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile );
   fd_filerd_run1( ctx, stream_ctx );
 }
 
