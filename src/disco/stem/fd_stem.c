@@ -430,8 +430,11 @@ STEM_(run1)( ulong                        in_cnt,
           for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
             ulong out_idx = cons_out[ cons_idx ];
             ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ]-fd_long_max( fd_seq_diff( out_seq[ out_idx ], cons_seq[ cons_idx ] ), 0L ), 0L );
-
-            slowest_cons = fd_ulong_if( cons_cr_avail<min_cr_avail, cons_idx, slowest_cons );
+            /* If a reliable consumer exits, they can set the credit
+               return fseq to ULONG_MAX to indicate they are no longer
+               actively consuming. */
+            cons_cr_avail = fd_ulong_if( cons_seq[ cons_idx ]==ULONG_MAX, out_depth[ out_idx ], cons_cr_avail );
+            slowest_cons  = fd_ulong_if( cons_cr_avail<min_cr_avail, cons_idx, slowest_cons );
 
             cr_avail[ out_idx ] = fd_ulong_min( cr_avail[ out_idx ], cons_cr_avail );
             min_cr_avail        = fd_ulong_min( cons_cr_avail, min_cr_avail );
