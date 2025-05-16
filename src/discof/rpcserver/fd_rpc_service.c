@@ -2374,7 +2374,7 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
     if( bind(gctx->tpu_socket, (const struct sockaddr*)fd_type_pun_const(&addrLocal), sizeof(addrLocal)) == -1 ) {
       FD_LOG_ERR(( "bind failed (%i-%s)", errno, strerror( errno ) ));
     }
-    memcpy( &gctx->tpu_addr, &args->tpu_addr, sizeof(struct sockaddr_in) );
+    gctx->tpu_addr = args->tpu_addr;
 
   } else {
     gctx->tpu_socket = -1;

@@ -1130,8 +1130,8 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.height = block_entry_block_height;
     msg->slot_exec.transaction_count = fork->slot_ctx->slot_bank.transaction_count;
     msg->slot_exec.shred_cnt = fork->slot_ctx->shred_cnt;
-    memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
-    memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
+    msg->slot_exec.bank_hash = fork->slot_ctx->slot_bank.banks_hash;
+    msg->slot_exec.block_hash = ctx->blockhash;
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
     msg->slot_exec.ts = tsorig;
     NOTIFY_END;
@@ -1701,7 +1701,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
      FD_COMPILER_MFENCE();
      block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
      memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
-     memcpy( &block_info->bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
+     block_info->bank_hash = fork->slot_ctx->slot_bank.banks_hash;
 
      fd_block_map_publish( query );
      ctx->flags = EXEC_FLAG_FINISHED_SLOT;

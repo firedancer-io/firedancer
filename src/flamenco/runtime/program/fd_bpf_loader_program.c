@@ -1408,7 +1408,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         /* copy in the authority public key into the authority address.
            https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L926-L928 */
-        memcpy( account_state->inner.buffer.authority_address, new_authority, sizeof(fd_pubkey_t) );
+        *account_state->inner.buffer.authority_address = *new_authority;
 
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
@@ -1431,7 +1431,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         /* copy in the authority public key into the upgrade authority address.
            https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L946-L949 */
         if( new_authority ) {
-          memcpy( account_state->inner.program_data.upgrade_authority_address, new_authority, sizeof(fd_pubkey_t) );
+          *account_state->inner.program_data.upgrade_authority_address = *new_authority;
         } else {
           account_state->inner.program_data.upgrade_authority_address = NULL;
         }
