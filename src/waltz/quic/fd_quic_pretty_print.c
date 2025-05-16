@@ -558,6 +558,12 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pretty_print,
   out_buf    += sz;
   out_buf_sz -= sz;
 
+  char time_str[FD_LOG_WALLCLOCK_CSTR_BUF_SZ];
+  /* */ sz = safe_snprintf( out_buf, out_buf_sz, "\"trace_time\": \"%s\", ",
+                            fd_log_wallclock_cstr( fd_log_wallclock(), time_str ) );
+  out_buf    += sz;
+  out_buf_sz -= sz;
+
   /* */ sz = safe_snprintf( out_buf, out_buf_sz, "\"src_ip_addr\": \"%s\", \"src_udp_port\": \"%u\", ",
                             ip4_to_str( tmp_buf, ip4_saddr ), fd_ushort_bswap( udp_sport ) );
   out_buf    += sz;

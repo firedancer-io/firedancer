@@ -13,20 +13,18 @@
 #include "../../../../util/net/fd_udp.h"
 
 static int
-before_frag( void * _ctx FD_FN_UNUSED,
-             ulong  in_idx,
-             ulong  seq,
+before_frag( void * _ctx   FD_FN_UNUSED,
+             ulong  in_idx FD_FN_UNUSED,
+             ulong  seq    FD_FN_UNUSED,
              ulong  sig ) {
   /* Skip non-QUIC packets */
   ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( proto!=DST_PROTO_TPU_QUIC ) return 1;
-
-  /* Delay receive until fd_quic_tile is caught up */
-  ulong * tgt_fseq = fd_quic_trace_target_fseq[ in_idx ];
-  for(;;) {
-    ulong tgt_seq = fd_fseq_query( tgt_fseq );
-    if( FD_LIKELY( fd_seq_ge( tgt_seq, seq ) ) ) break;
-    FD_SPIN_PAUSE();
+  switch( proto ) {
+    case DST_PROTO_OUTGOING:
+    case DST_PROTO_TPU_QUIC:
+      break;
+    default:
+        return 1;
   }
 
   return 0;
@@ -40,40 +38,51 @@ during_frag( void * _ctx   FD_PARAM_UNUSED,
              ulong  chunk,
              ulong  sz,
              ulong  ctl ) {
-  fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
-  fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds[ 0 ], chunk, ctl, sz ), sz );
+  fd_quic_ctx_t *       ctx       = &fd_quic_trace_ctx;
+  fd_quic_trace_ctx_t * trace_ctx = (fd_quic_trace_ctx_t*)_ctx;
+
+  ulong proto = fd_disco_netmux_sig_proto( sig );
+  if( proto == DST_PROTO_TPU_QUIC ) {
+    fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds[0], chunk, ctl, sz ), sz );
+  } else if( proto == DST_PROTO_OUTGOING ) {
+    ulong p = (trace_ctx->net_out_base + (chunk<<FD_CHUNK_LG_SZ));
+    fd_memcpy( ctx->buffer, (void*)p, sz );
+  }
 }
 
 static int
 bounds_check_conn( fd_quic_t *      quic,
                    fd_quic_conn_t * conn ) {
+  (void)quic;
+
   long conn_off = (long)((ulong)conn-(ulong)quic);
   return conn_off >= (long)quic->layout.conns_off && conn_off < (long)quic->layout.conn_map_off;
 }
 
-static void
+static ulong
 fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
                        uchar *               data,
                        ulong                 data_sz,
                        uint                  ip4_saddr,
-                       ushort                udp_sport ) {
+                       ushort                udp_sport,
+                       uint                  key_idx ) {
   fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
   fd_quic_t *          quic     = ctx->quic;
   fd_quic_state_t *    state    = fd_quic_get_state( quic );
   fd_quic_conn_map_t * conn_map = translate_ptr( state->conn_map );
 
-  if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return;
+  if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return FD_QUIC_PARSE_FAIL;
 
   fd_quic_initial_t initial[1] = {0};
   ulong rc = fd_quic_decode_initial( initial, data, data_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_LOG_DEBUG(( "fd_quic_decode_initial failed" ));
-    return;
+    return FD_QUIC_PARSE_FAIL;
   }
   ulong len = (ulong)( initial->pkt_num_pnoff + initial->len );
   if( FD_UNLIKELY( len > data_sz ) ) {
     FD_LOG_DEBUG(( "Bogus initial packet length" ));
-    return;
+    return FD_QUIC_PARSE_FAIL;
   }
   if( FD_UNLIKELY( initial->dst_conn_id_len > 20 ) ) {
     FD_LOG_DEBUG(( "Bogus destination connection id length: %u", (uint)initial->dst_conn_id_len ));
@@ -82,154 +91,201 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
   fd_quic_crypto_keys_t _keys[1];
   fd_quic_crypto_keys_t const * keys = NULL;
   if( initial->dst_conn_id_len == FD_QUIC_CONN_ID_SZ ) {
-    ulong dst_conn_id = fd_ulong_load_8( initial->dst_conn_id );
-    if( dst_conn_id==0 ) return;
-    fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
-    if( conn_entry ) {
+    ulong conn_id = key_idx == 0 ? fd_ulong_load_8( initial->dst_conn_id )
+                                 : fd_ulong_load_8( initial->src_conn_id );
+    if( conn_id==0 ) return FD_QUIC_PARSE_FAIL;
+
+    fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, conn_id, NULL );
+    if( conn_entry && conn_entry->conn ) {
       fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
       if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {
-        keys = &conn->keys[fd_quic_enc_level_initial_id][0];
+        keys = &conn->keys[fd_quic_enc_level_initial_id][key_idx];
+
+#       define EMPTY ((uchar[16]){0})
+        /* assume this is a new connection, since this is an Initial packet */
+        if( keys && memcmp( keys->pkt_key, EMPTY, sizeof( keys->pkt_key ) ) != 0 ) {
+          /* load the appropriate cid into peer_conn_id */
+          ulong peer_conn_id = key_idx == 0 ? fd_ulong_load_8( initial->src_conn_id )
+                                            : fd_ulong_load_8( initial->dst_conn_id );
+
+          if( 1 ) {
+            /* insert into peer_cid map */
+            peer_conn_id_map_t * entry = peer_conn_id_map_insert( fd_quic_trace_peer_map, peer_conn_id );
+
+            /* NULL entry either implies already exists, or full */
+            if( entry ) {
+              entry->conn_idx = conn->conn_idx;
+            }
+          }
+        }
       }
     }
   }
-  if( !keys ) {
-    /* Set secrets->initial_secret */
-    fd_quic_crypto_secrets_t secrets[1];
-    fd_quic_gen_initial_secrets(
-        secrets,
-        initial->dst_conn_id, initial->dst_conn_id_len,
-        /* is_client */ 0 );
 
-    /* Derive secrets->secret[0][0] */
-    fd_tls_hkdf_expand_label(
-        secrets->secret[0][0], FD_QUIC_SECRET_SZ,
-        secrets->initial_secret,
-        FD_QUIC_CRYPTO_LABEL_CLIENT_IN,
-        FD_QUIC_CRYPTO_LABEL_CLIENT_IN_LEN,
-        NULL, 0UL );
+  if( !keys || memcmp( keys->pkt_key, EMPTY, sizeof( keys->pkt_key ) ) == 0 ) {
+    if( key_idx == 0 ) {
+      /* on ingress, try creating the skeys */
 
-    /* Derive decryption key */
-    fd_quic_gen_keys( _keys, secrets->secret[0][0] );
-    keys = _keys;
+      /* Set secrets->initial_secret */
+      fd_quic_crypto_secrets_t secrets[1];
+      fd_quic_gen_initial_secrets(
+          secrets,
+          initial->dst_conn_id, initial->dst_conn_id_len,
+          /* is_client */ 0 );
+
+      /* Derive secrets->secret[0][0] */
+      fd_tls_hkdf_expand_label(
+          secrets->secret[0][0], FD_QUIC_SECRET_SZ,
+          secrets->initial_secret,
+          FD_QUIC_CRYPTO_LABEL_CLIENT_IN,
+          FD_QUIC_CRYPTO_LABEL_CLIENT_IN_LEN,
+          NULL, 0UL );
+
+      /* Derive decryption key */
+      fd_quic_gen_keys( _keys, secrets->secret[0][key_idx] );
+      keys = _keys;
+    }
   }
+
+  if( !keys ) return FD_QUIC_PARSE_FAIL;
 
   ulong pktnum_off = initial->pkt_num_pnoff;
   int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pktnum_off, keys );
-  if( hdr_err!=FD_QUIC_SUCCESS ) return;
+  if( hdr_err!=FD_QUIC_SUCCESS ) return FD_QUIC_PARSE_FAIL;
 
   ulong pktnum_sz   = fd_quic_h0_pkt_num_len( data[0] )+1u;
   ulong pktnum_comp = fd_quic_pktnum_decode( data+pktnum_off, pktnum_sz );
   ulong pktnum      = pktnum_comp;  /* don't bother decompressing since initial pktnum is usually low */
 
-  int crypt_err = fd_quic_crypto_decrypt( data, data_sz, pktnum_off, pktnum, keys );
-  if( crypt_err!=FD_QUIC_SUCCESS ) return;
+  ulong body_sz     = initial->len;  /* length of packet number, frames, and auth tag */
+  ulong tot_sz      = pktnum_off + body_sz;
+
+  if( tot_sz > data_sz ) return FD_QUIC_PARSE_FAIL;
+
+  int crypt_err = fd_quic_crypto_decrypt( data, tot_sz, pktnum_off, pktnum, keys );
+  if( crypt_err!=FD_QUIC_SUCCESS ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   ulong hdr_sz  = pktnum_off + pktnum_sz;
   ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
-  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;
-
-  uchar conn_id_truncated[24] = {0};
-  fd_memcpy( conn_id_truncated, initial->dst_conn_id, initial->dst_conn_id_len );
-  fd_quic_trace_frame_ctx_t frame_ctx = {
-    .conn_id  = fd_ulong_load_8( conn_id_truncated ),
-    .pkt_num  = pktnum,
-    .src_ip   = ip4_saddr,
-    .src_port = udp_sport,
-    .pkt_type = FD_QUIC_PKT_TYPE_INITIAL
-  };
+  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return FD_QUIC_PARSE_FAIL;
 
   if( trace_ctx->dump ) {
     fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
                                    state->now,
                                    data,
                                    data_sz,
-                                   "ingress",
+                                   key_idx == 0 ? "ingress" : "egress",
                                    ip4_saddr,
                                    udp_sport );
+    fflush( stdout );
   } else {
+    uchar conn_id_truncated[24] = {0};
+    fd_memcpy( conn_id_truncated, initial->dst_conn_id, initial->dst_conn_id_len );
+    fd_quic_trace_frame_ctx_t frame_ctx = {
+      .conn_id  = fd_ulong_load_8( &initial->dst_conn_id_len ),
+      .pkt_num  = pktnum,
+      .src_ip   = ip4_saddr,
+      .src_port = udp_sport,
+      .pkt_type = FD_QUIC_PKT_TYPE_INITIAL
+    };
+
     fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
   }
+
+  return tot_sz;
 }
 
-static void
+static ulong
 fd_quic_trace_handshake( fd_quic_trace_ctx_t * trace_ctx,
                          uchar *               data,
                          ulong                 data_sz,
                          uint                  ip4_saddr,
-                         ushort                udp_sport ) {
+                         ushort                udp_sport,
+                         uint                  key_idx ) {
   fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
   fd_quic_t *          quic     = ctx->quic;
   fd_quic_state_t *    state    = fd_quic_get_state( quic );
   fd_quic_conn_map_t * conn_map = translate_ptr( state->conn_map );
 
-  if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return;
+  if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return FD_QUIC_PARSE_FAIL;
 
   fd_quic_handshake_t handshake[1] = {0};
   ulong rc = fd_quic_decode_handshake( handshake, data, data_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_LOG_DEBUG(( "fd_quic_decode_handshake failed" ));
-    return;
+    return FD_QUIC_PARSE_FAIL;
   }
   ulong len = (ulong)( handshake->pkt_num_pnoff + handshake->len );
   if( FD_UNLIKELY( len > data_sz ) ) {
     FD_LOG_DEBUG(( "Bogus handshake packet length" ));
-    return;
+    return FD_QUIC_PARSE_FAIL;
   }
 
   /* keeping this logic similar to the equivalent in fd_quic_trace_initial */
   /* for future merging */
   fd_quic_crypto_keys_t const * keys = NULL;
   if( handshake->dst_conn_id_len == FD_QUIC_CONN_ID_SZ ) {
-    ulong dst_conn_id = fd_ulong_load_8( handshake->dst_conn_id );
-    if( dst_conn_id==0 ) return;
-    fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
-    if( conn_entry ) {
+    ulong conn_id = key_idx == 0 ? fd_ulong_load_8( handshake->dst_conn_id )
+                                 : fd_ulong_load_8( handshake->src_conn_id );
+    if( conn_id==0 ) return FD_QUIC_PARSE_FAIL;
+    fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, conn_id, NULL );
+    if( conn_entry && conn_entry->conn ) {
       fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
       if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {
-        keys = &conn->keys[fd_quic_enc_level_handshake_id][0];
+        keys = &conn->keys[fd_quic_enc_level_handshake_id][key_idx];
       }
     }
   }
-  if( !keys ) {
-    return;
+  if( !keys || memcmp( keys->pkt_key, EMPTY, sizeof( keys->pkt_key ) ) == 0 ) {
+    return FD_QUIC_PARSE_FAIL;
   }
 
   ulong pktnum_off = handshake->pkt_num_pnoff;
   int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pktnum_off, keys );
-  if( hdr_err!=FD_QUIC_SUCCESS ) return;
+  if( hdr_err!=FD_QUIC_SUCCESS ) return FD_QUIC_PARSE_FAIL;
 
   ulong pktnum_sz   = fd_quic_h0_pkt_num_len( data[0] )+1u;
   ulong pktnum_comp = fd_quic_pktnum_decode( data+pktnum_off, pktnum_sz );
   ulong pktnum      = pktnum_comp; /* TODO decompress */
 
+  ulong body_sz     = handshake->len;  /* length of packet number, frames, and auth tag */
+  ulong tot_sz      = pktnum_off + body_sz;
+
+  if( tot_sz > data_sz ) return FD_QUIC_PARSE_FAIL;
+
   int crypt_err = fd_quic_crypto_decrypt( data, data_sz, pktnum_off, pktnum, keys );
-  if( crypt_err!=FD_QUIC_SUCCESS ) return;
+  if( crypt_err!=FD_QUIC_SUCCESS ) return FD_QUIC_PARSE_FAIL;
 
   ulong hdr_sz  = pktnum_off + pktnum_sz;
   ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
-  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;
-
-  uchar conn_id_truncated[8] = {0};
-  fd_memcpy( conn_id_truncated, handshake->dst_conn_id, 8 );
-  fd_quic_trace_frame_ctx_t frame_ctx = {
-    .conn_id  = fd_ulong_load_8( conn_id_truncated ),
-    .pkt_num  = pktnum,
-    .src_ip   = ip4_saddr,
-    .src_port = udp_sport,
-    .pkt_type = FD_QUIC_PKT_TYPE_INITIAL
-  };
+  if( FD_UNLIKELY( data_sz<wrap_sz ) ) return FD_QUIC_PARSE_FAIL;
 
   if( trace_ctx->dump ) {
     fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
                                    state->now,
                                    data,
                                    data_sz,
-                                   "ingress",
+                                   key_idx == 0 ? "ingress" : "egress",
                                    ip4_saddr,
                                    udp_sport );
+    fflush( stdout );
   } else {
+    uchar conn_id_truncated[8] = {0};
+    fd_memcpy( conn_id_truncated, handshake->dst_conn_id, 8 );
+    fd_quic_trace_frame_ctx_t frame_ctx = {
+      .conn_id  = fd_ulong_load_8( conn_id_truncated ),
+      .pkt_num  = pktnum,
+      .src_ip   = ip4_saddr,
+      .src_port = udp_sport,
+      .pkt_type = FD_QUIC_PKT_TYPE_HANDSHAKE
+    };
+
     fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
   }
+
+  return FD_QUIC_PARSE_FAIL;
 }
 
 static void
@@ -237,7 +293,8 @@ fd_quic_trace_1rtt( fd_quic_trace_ctx_t * trace_ctx,
                     uchar *               data,
                     ulong                 data_sz,
                     uint                  ip4_saddr,
-                    ushort                udp_sport ) {
+                    ushort                udp_sport,
+                    uint                  key_idx ) {
   fd_quic_ctx_t *      ctx      = &fd_quic_trace_ctx;
   fd_quic_t *          quic     = ctx->quic;
   fd_quic_state_t *    state    = fd_quic_get_state( quic );
@@ -245,14 +302,53 @@ fd_quic_trace_1rtt( fd_quic_trace_ctx_t * trace_ctx,
 
   if( FD_UNLIKELY( data_sz < FD_QUIC_SHORTEST_PKT ) ) return;
 
-  /* Look up conn */
-  ulong dst_conn_id = fd_ulong_load_8( data+1 );
-  fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
-  if( !conn_entry || !dst_conn_id ) return;
-  fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
-  if( FD_UNLIKELY( !bounds_check_conn( quic, conn ) ) ) return;
+  fd_quic_conn_t * conn        = NULL;
+  ulong            dst_conn_id = 0UL;
 
-  fd_quic_crypto_keys_t * keys = &conn->keys[ fd_quic_enc_level_appdata_id ][ 0 ];
+  /* key_idx 0 is ingress, key_idx 1 is egress */
+  if( key_idx == 0 ) {
+    /* Look up conn */
+    dst_conn_id = fd_ulong_load_8( data+1 );
+    fd_quic_conn_map_t * conn_entry = fd_quic_conn_map_query( conn_map, dst_conn_id, NULL );
+
+    if( conn_entry && dst_conn_id && conn_entry->conn ) {
+      conn = translate_ptr( conn_entry->conn );
+      if( FD_UNLIKELY( !bounds_check_conn( quic, conn ) ) ) return;
+    }
+  } else {
+
+    /* we use the first 8 bytes of the peer conn_id for the key
+       since we don't actually know the length */
+
+    ulong peer_conn_id;
+    memcpy( &peer_conn_id, data+1, 8UL );
+
+    /* look up connection id in peer conn_id map */
+    uint                 conn_idx = 0;
+    peer_conn_id_map_t * peer_entry = peer_conn_id_map_query( fd_quic_trace_peer_map, peer_conn_id, NULL );
+
+    if( FD_LIKELY( peer_entry ) ) {
+      conn_idx = peer_entry->conn_idx;
+    } else {
+      /* report packet with unavailable connection */
+      char time_str[FD_LOG_WALLCLOCK_CSTR_BUF_SZ];
+      printf( "{ \"type\": \"packet\", \"flow\": \"%s\", \"trace_time\": \"%s\", \"src_ip_addr\": \"147.75.106.207\", \"src_udp_port\": \"12067\", \"hdr_type\": \"1-rtt\", \"err\": \"no-connection\", \"dst_conn_id\": \"%lx\" }, ] }\n",
+         key_idx == 0 ? "ingress" : "egress",
+         fd_log_wallclock_cstr( fd_log_wallclock(), time_str ),
+         peer_conn_id
+        );
+      return;
+    }
+
+    long conn_loc = (long)quic + (long)quic->layout.conns_off;
+    fd_quic_conn_t * conns = (fd_quic_conn_t*)conn_loc;
+
+    conn = &conns[conn_idx];
+  }
+
+  if( !conn ) return;
+
+  fd_quic_crypto_keys_t * keys = &conn->keys[ fd_quic_enc_level_appdata_id ][ key_idx ];
 
   ulong pktnum_off = 9UL;
   int hdr_err = fd_quic_crypto_decrypt_hdr( data, data_sz, pktnum_off, keys );
@@ -268,23 +364,24 @@ fd_quic_trace_1rtt( fd_quic_trace_ctx_t * trace_ctx,
   ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
   if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;
 
-  fd_quic_trace_frame_ctx_t frame_ctx = {
-    .conn_id  = dst_conn_id,
-    .pkt_num  = pktnum,
-    .src_ip   = ip4_saddr,
-    .src_port = udp_sport,
-    .pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT
-  };
-
   if( trace_ctx->dump ) {
     fd_quic_pretty_print_quic_pkt( &state->quic_pretty_print,
                                    state->now,
                                    data,
                                    data_sz,
-                                   "ingress",
+                                   key_idx == 0 ? "ingress" : "egress",
                                    ip4_saddr,
                                    udp_sport );
-  } else {
+    fflush( stdout );
+  } else if( key_idx == 0 ) {
+    fd_quic_trace_frame_ctx_t frame_ctx = {
+      .conn_id  = dst_conn_id,
+      .pkt_num  = pktnum,
+      .src_ip   = ip4_saddr,
+      .src_port = udp_sport,
+      .pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT
+    };
+
     fd_quic_trace_frames( &frame_ctx, data+hdr_sz, data_sz-wrap_sz );
   }
 
@@ -296,23 +393,36 @@ fd_quic_trace_pkt( void *          ctx,
                    uchar *         data,
                    ulong           data_sz,
                    uint            ip4_saddr,
-                   ushort          udp_sport ) {
-  /* FIXME: for now, only handle 1-RTT */
-  int is_long = fd_quic_h0_hdr_form( data[0] );
-  if( is_long ) {
-    switch( fd_quic_h0_long_packet_type( data[0] ) ) {
-    case FD_QUIC_PKT_TYPE_INITIAL:
-      fd_quic_trace_initial( ctx, data, data_sz, ip4_saddr, udp_sport );
-      break;
-    case FD_QUIC_PKT_TYPE_HANDSHAKE:
-      fd_quic_trace_handshake( ctx, data, data_sz, ip4_saddr, udp_sport );
+                   ushort          udp_sport,
+                   uint            key_idx ) {
+
+  uchar * cur_ptr = data;
+  uchar * end_ptr = data + data_sz;
+  while( cur_ptr < end_ptr ) {
+    int is_long = fd_quic_h0_hdr_form( cur_ptr[0] );
+    ulong sz = 0;
+    if( is_long ) {
+      switch( fd_quic_h0_long_packet_type( cur_ptr[0] ) ) {
+      case FD_QUIC_PKT_TYPE_INITIAL:
+        sz = fd_quic_trace_initial( ctx, cur_ptr, (ulong)( end_ptr - cur_ptr ), ip4_saddr, udp_sport, key_idx );
+        break;
+      case FD_QUIC_PKT_TYPE_HANDSHAKE:
+        sz = fd_quic_trace_handshake( ctx, cur_ptr, (ulong)( end_ptr - cur_ptr ), ip4_saddr, udp_sport, key_idx );
+        break;
+      }
+
+      /* TODO TX should support FD_QUIC_PKT_TYPE_RETRY */
+      /* FD_QUIC_PKT_TYPE_RETRY    as the server, we shouldn't be receiving RETRY packets */
+      /* FD_QUIC_PKT_TYPE_ZERO_RTT we don't support 0-RTT packets */
+    } else {
+      fd_quic_trace_1rtt( ctx, cur_ptr, (ulong)( end_ptr - cur_ptr ), ip4_saddr, udp_sport, key_idx );
+      /* one-rtt packets are last in the datagram */
       break;
     }
 
-    /* FD_QUIC_PKT_TYPE_RETRY    as the server, we shouldn't be receiving RETRY packets */
-    /* FD_QUIC_PKT_TYPE_ZERO_RTT we don't support 0-RTT packets */
-  } else {
-    fd_quic_trace_1rtt( ctx, data, data_sz, ip4_saddr, udp_sport );
+    if( sz == 0 || sz == FD_QUIC_PARSE_FAIL ) break;
+
+    cur_ptr += sz;
   }
 }
 
@@ -326,6 +436,8 @@ after_frag( void * _ctx,
             ulong  tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx; (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
+  ulong proto   = fd_disco_netmux_sig_proto( sig );
+  uint  key_idx = proto == DST_PROTO_TPU_QUIC ? 0 : 1;
 
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
 
@@ -354,7 +466,7 @@ after_frag( void * _ctx,
 
   uint   ip4_saddr = fd_uint_load_4( ip4_hdr->saddr_c );
   ushort udp_sport = fd_ushort_bswap( udp_hdr->net_sport );
-  fd_quic_trace_pkt( _ctx, cur, (ulong)( end-cur ), ip4_saddr, udp_sport );
+  fd_quic_trace_pkt( _ctx, cur, (ulong)( end-cur ), ip4_saddr, udp_sport, key_idx );
 }
 
 
@@ -369,21 +481,25 @@ after_frag( void * _ctx,
 #include "../../../../disco/stem/fd_stem.c"
 
 void
-fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache, int dump ) {
-  fd_frag_meta_t const * in_mcache_tbl[1] = { in_mcache };
+fd_quic_trace_rx_tile( fd_quic_trace_ctx_t *  trace_ctx,
+                       fd_frag_meta_t const * rx_mcache,
+                       fd_frag_meta_t const * tx_mcache ) {
 
-  uchar   fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
-  ulong * fseq = fd_fseq_join( fd_fseq_new( fseq_mem, 0UL ) );
-  ulong * fseq_tbl[1] = { fseq };
+  uchar   fseq_mem[ FD_FSEQ_FOOTPRINT*2 ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  ulong * fseq_tbl[2] = {0};
+  for( uint j = 0; j < 2; ++j ){
+    ulong * fseq = fd_fseq_join( fd_fseq_new( fseq_mem + j * FD_FSEQ_FOOTPRINT, 0UL ) );
+    fseq_tbl[j] = fseq;
+  }
 
   fd_rng_t rng[1];
   FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_tickcount(), 0UL ) ) );
 
   uchar scratch[ sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
 
-  fd_quic_trace_ctx_t ctx[1] = {{ .dump = dump }};
+  fd_frag_meta_t const * in_mcache_tbl[2] = { rx_mcache, tx_mcache };
 
-  stem_run1( /* in_cnt     */ 1UL,
+  stem_run1( /* in_cnt     */ 2UL,
              /* in_mcache  */ in_mcache_tbl,
              /* in_fseq    */ fseq_tbl,
              /* out_cnt    */ 0UL,
@@ -395,7 +511,9 @@ fd_quic_trace_rx_tile( fd_frag_meta_t const * in_mcache, int dump ) {
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,
-             /* ctx        */ ctx );
+             /* ctx        */ trace_ctx );
 
-  fd_fseq_delete( fd_fseq_leave( fseq ) );
+  for( int j = 0; j < 2; ++j ){
+    fd_fseq_delete( fd_fseq_leave( fseq_tbl[j] ) );
+  }
 }
