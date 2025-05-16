@@ -12,13 +12,13 @@ test_insert_votes( fd_wksp_t * wksp ) {
   ulong slot = 1;
   ulong validator_id = 0;
   fd_hash_t blockid = {0};
-  fd_hash_t bank_hash = {0};
 
-  notar_insert( slot_votes, &blockid, slot, validator_id, &bank_hash );
+  notar_insert( slot_votes, &blockid, slot, validator_id );
   skip_insert( slot_votes, slot, validator_id );
-  notar_fallback_insert( slot_votes, &blockid, slot, validator_id, &bank_hash );
+  notar_fallback_insert( slot_votes, &blockid, slot, validator_id );
   skip_fallback_insert( slot_votes, slot, validator_id );
   finalize_insert( slot_votes, slot, validator_id );
+
 
 } // test_insert_votes
 
