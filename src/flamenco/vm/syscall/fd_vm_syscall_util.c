@@ -73,9 +73,9 @@ int
 fd_vm_syscall_sol_log( /**/            void *  _vm,
                        /**/            ulong   msg_vaddr,
                        /**/            ulong   msg_sz,
-                       FD_PARAM_UNUSED ulong   r2,
                        FD_PARAM_UNUSED ulong   r3,
                        FD_PARAM_UNUSED ulong   r4,
+                       FD_PARAM_UNUSED ulong   r5,
                        /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
