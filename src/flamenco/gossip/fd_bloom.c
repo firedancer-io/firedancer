@@ -49,7 +49,7 @@ fd_bloom_new( void *     shmem,
   if( FD_UNLIKELY( false_positive_rate>=1.0 ) ) return NULL;
 
   if( FD_UNLIKELY( max_bits<1UL || max_bits>32768UL ) ) return NULL;
-  
+
   if( FD_UNLIKELY( !rng ) ) return NULL;
 
   ulong num_keys = (ulong)( (double)max_bits*FD_BLOOM_LN_2 );
@@ -123,7 +123,7 @@ fd_bloom_insert( fd_bloom_t *  bloom,
 
   for( ulong i=0UL; i<bloom->keys_len; i++ ) {
     ulong bit = (hash ^ bloom->keys[ i ]) % bloom->bits_len;
-    bloom->bits[ bit / 8UL ] |= (1UL << (bit % 8UL));
+    bloom->bits[ bit / 64UL ] |= (1UL << (bit % 64UL));
   }
 }
 
@@ -134,7 +134,7 @@ fd_bloom_contains( fd_bloom_t *  bloom,
   ulong hash = fd_hash( bloom->hash_seed, key, key_sz );
   for( ulong i=0UL; i<bloom->keys_len; i++ ) {
     ulong bit = (hash ^ bloom->keys[ i ]) % bloom->bits_len;
-    if( !(bloom->bits[ bit / 8UL ] & (1UL << (bit % 8UL))) ) {
+    if( !(bloom->bits[ bit / 64UL ] & (1UL << (bit % 64UL))) ) {
       return 0;
     }
   }
