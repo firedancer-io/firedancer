@@ -6,6 +6,7 @@
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../funk/fd_funk.h"
@@ -59,17 +60,15 @@ typedef struct {
   ulong confirmed; /* highest confirmed slot (2/3 of stake has voted) */
   ulong finalized; /* highest finalized slot (2/3 of stake has rooted) */
 
-  fd_gossip_duplicate_shred_t duplicate_shred;
-  uchar                       duplicate_shred_chunk[FD_EQVOC_PROOF_CHUNK_SZ];
-  uchar *                     epoch_voters_buf;
-  char                        funk_file[PATH_MAX];
-  fd_funk_t                   funk[1];
-  fd_gossip_vote_t            gossip_vote;
-  fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
-  fd_replay_out_t             replay_out;
-  fd_tower_t *                scratch;
-  fd_snapshot_manifest_t      snapshot_manifest;
-  uchar *                     vote_ix_buf;
+  fd_gossip_duplicate_shred_upd_t duplicate_shred;
+  fd_gossip_vote_upd_t            vote;
+  uchar *                         epoch_voters_buf;
+  char                            funk_file[PATH_MAX];
+  fd_funk_t                       funk[1];
+  fd_lockout_offset_t             lockouts[FD_TOWER_VOTE_MAX];
+  fd_replay_out_t                 replay_out;
+  fd_tower_t *                    scratch;
+  fd_snapshot_manifest_t          snapshot_manifest;
 } ctx_t;
 
 static void
@@ -248,6 +247,18 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     scratch_align() );
 }
 
+static inline int
+before_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq     FD_PARAM_UNUSED,
+             ulong   sig ) {
+  if( ctx->in_kind[in_idx]==IN_KIND_GOSSIP ){
+    return sig!=FD_GOSSIP_UPDATE_TAG_VOTE &&
+           sig!=FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
+  }
+  return 0;
+}
+
 static void
 during_frag( ctx_t * ctx,
              ulong   in_idx FD_PARAM_UNUSED,
@@ -328,7 +339,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
-    if(        0==strcmp( link->name, "gossip_tower" ) ) {
+    if(        0==strcmp( link->name, "gossip_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
     } else if( 0==strcmp( link->name, "replay_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
@@ -395,6 +406,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 

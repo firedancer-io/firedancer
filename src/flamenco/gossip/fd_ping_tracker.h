@@ -20,7 +20,7 @@
 
    Once a peer has been pinged, we wait up to twenty seconds for a
    response before trying again.  We repeatedly retry pinging the peer
-   until the peer responds, or their most recent mesage becomes older
+   until the peer responds, or their most recent message becomes older
    than two minutes.
 
    Once a peer is validated by responding to a ping with a valid pong,
@@ -30,6 +30,7 @@
 
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
+#include "crds/fd_crds.h"
 
 #define FD_PING_TRACKER_ALIGN (128UL)
 
@@ -74,10 +75,13 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
    that they can be considered as valid.  It should be called any time
    a peer sends a valid-looking pong.  Valid looking, because it might
    not be ponging an actual ping token we sent, but this function will
-   validate that before marking the peer as active. */
+   validate that before marking the peer as active.
+
+   If a peer is marked as active, notify crds. */
 
 void
 fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
+                          fd_crds_t *           crds,
                           uchar const *         peer_pubkey,
                           ulong                 peer_stake,
                           fd_ip4_port_t const * peer_address,
@@ -87,7 +91,7 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
 /* fd_ping_tracker_active returns 1 if a peer is actively responding to
    pings at the provided address, and we can send data to them, or zero
    otherwise.
-   
+
    This should be called before sending any kind of gossip data to a
    peer (except ping messages themselves).  This does not send out new
    pings or update the ping tracker. */
@@ -103,7 +107,9 @@ fd_ping_tracker_active( fd_ping_tracker_t const * ping_tracker,
    needs to be sent to a peer.  If a ping request needs to be sent, the
    peer pubkey is returned in out_peer_pubkey.  The caller should send a
    ping message to the peer.  The structure assumes the ping will be
-   sent, and updates internal state accordingly.
+   sent, and updates internal state accordingly. If a previously
+   active peer is marked inactive (because they didn't respond to a
+   ping), the tracker will notify crds accordingly.
 
    Returns 1 if a ping request needs to be sent, or 0 if no ping request
    is needed.
@@ -116,8 +122,16 @@ fd_ping_tracker_active( fd_ping_tracker_t const * ping_tracker,
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
+                             fd_crds_t *            crds,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );
+
+/* fd_ping_tracker_response_hash generates a hash of a ping token, to be
+   embedded in a corresponding pong message that is then verified by the ping
+   sender.
+
+   Assumes both token and hash are the starting address of a 32byte region of
+   memory */
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_ping_tracker_h */

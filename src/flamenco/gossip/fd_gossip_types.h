@@ -91,7 +91,7 @@
    TODO: Remove the _upd suffixes once the types are removed from
    fd_types.h and fd_contact_info.h */
 
-struct fd_contact_info_upd {
+struct fd_contact_info {
   fd_pubkey_t pubkey;          /* The identity public key of the peer node */
   ushort      shred_version;   /* The shred version of the peer node, should be non-zero but not required */
 
@@ -117,7 +117,7 @@ struct fd_contact_info_upd {
   } version;
 };
 
-typedef struct fd_contact_info_upd fd_contact_info_upd_t;
+typedef struct fd_contact_info fd_contact_info_t;
 
 /* A gossip vote represents a vote transaction that was sent to us by a
    peer node.  It is sent when the tag is FD_GOSSIP_UPDATE_TAG_VOTE.
@@ -183,7 +183,6 @@ typedef struct fd_gossip_snapshot_hashes_upd fd_gossip_snapshot_hashes_upd_t;
 
 struct fd_gossip_update_message {
   uchar tag;
-
   uchar origin_pubkey[ 32UL ];
   ulong origin_stake;
   long  wallclock_nanos;
@@ -191,7 +190,7 @@ struct fd_gossip_update_message {
   union {
     struct {
       ulong                 idx; /* Index into flat array to place this contact info, see comments on FD_CONTACT_INFO_TABLE_SIZE */
-      fd_contact_info_upd_t contact_info[ 1 ];
+      fd_contact_info_t contact_info[ 1 ];
     } contact_info;
 
     struct {
