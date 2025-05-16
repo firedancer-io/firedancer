@@ -52,9 +52,8 @@ fd_filerd_init_from_stream_ctx( void *            _ctx,
                                 fd_stream_ctx_t * stream_ctx ) {
   fd_filerd_tile_t * ctx = fd_type_pun(_ctx);
 
-  /* TODO: this should be a join */
-  ctx->writer = &stream_ctx->writers[0];
-  fd_stream_writer_set_read_max( ctx->writer, FILE_READ_MAX );
+  ctx->writer = fd_stream_writer_join( &stream_ctx->writers[0] );
+  fd_stream_writer_set_frag_sz_max( ctx->writer, FILE_READ_MAX );
 }
 
 __attribute__((noreturn)) FD_FN_UNUSED static void

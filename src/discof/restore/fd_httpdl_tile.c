@@ -65,10 +65,9 @@ fd_httpdl_init_from_stream_ctx( void *            _ctx,
                                 fd_stream_ctx_t * stream_ctx ) {
   fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
 
-  /* There's only one writer. Since fd_stream_ctx_t owns the
-     stream writer, we just assign the pointer here. */
-  ctx->writer = &stream_ctx->writers[0];
-  fd_stream_writer_set_read_max( ctx->writer, HTTP_CHUNK_SZ );
+  /* join writer */
+  ctx->writer = fd_stream_writer_join( &stream_ctx->writers[0] );
+  fd_stream_writer_set_frag_sz_max( ctx->writer, HTTP_CHUNK_SZ );
 }
 
 __attribute__((noreturn)) FD_FN_UNUSED static void

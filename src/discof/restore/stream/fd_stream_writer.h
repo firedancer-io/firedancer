@@ -8,16 +8,17 @@
 /* A shared stream has a single producer and multiple consumers.
    fd_stream_writer implements the producer APIs of the shared stream */
 struct fd_stream_writer {
+  ulong                   magic;         /* magic */
   fd_stream_frag_meta_t * out_mcache;    /* frag producer mcache */
 
-  uchar *                 buf;           /* laddr of shared dcache buffer */
-  ulong                   buf_base;      /* offset to the dcache buffer from wksp */
+  uchar *                 dcache;        /* laddr of shared dcache buffer */
+  ulong                   base;          /* offset to the dcache buffer from wksp */
 
   /* dcache buffer state */
   ulong                   buf_off;       /* local write offset into dcache buffer */
   ulong                   buf_sz;        /* dcache buffer size */
   ulong                   goff;          /* global offset into byte stream */
-  ulong                   read_max;      /* max chunk size */
+  ulong                   frag_sz_max;   /* max frag size (controls the size of a single write into dcache)*/
   ulong                   stream_off;    /* start of published stream */
   ulong                   goff_start;    /* start of goff in stream */
   ulong                   out_seq;       /* current sequence number */
@@ -36,6 +37,7 @@ struct fd_stream_writer {
 };
 typedef struct fd_stream_writer fd_stream_writer_t;
 
+#define FD_STREAM_WRITER_MAGIC (0xFD57337717E736C0UL)
 #define EXPECTED_FSEQ_CNT_PER_CONS 2
 
 FD_PROTOTYPES_BEGIN
@@ -50,9 +52,19 @@ fd_stream_writer_footprint( void ) {
   return sizeof(fd_stream_writer_t);
 }
 
+static inline fd_stream_writer_t *
+fd_stream_writer_join( void * _writer ) {
+  fd_stream_writer_t * writer = (fd_stream_writer_t *)_writer;
+  if( FD_UNLIKELY( !writer ) ) return NULL;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)writer, fd_stream_writer_align() ) ) ) return NULL;
+  if( FD_UNLIKELY( writer->magic!=FD_STREAM_WRITER_MAGIC ) )  return NULL;
+
+  return writer;
+}
+
 static inline uchar *
 fd_stream_writer_get_write_ptr( fd_stream_writer_t * writer ) {
-  return writer->buf + writer->buf_off;
+  return writer->dcache + writer->buf_off;
 }
 
 fd_stream_writer_t *
@@ -72,9 +84,9 @@ fd_stream_writer_init_flow_control_credits( fd_stream_writer_t * writer ) {
 }
 
 static inline void
-fd_stream_writer_set_read_max( fd_stream_writer_t * writer,
-                               ulong                read_max ) {
-  writer->read_max = read_max;
+fd_stream_writer_set_frag_sz_max( fd_stream_writer_t * writer,
+                                  ulong                frag_sz_max ) {
+  writer->frag_sz_max = frag_sz_max;
 }
 
 static inline void
@@ -113,14 +125,14 @@ fd_stream_writer_get_avail_bytes( fd_stream_writer_t * writer ) {
     return 0;
   }
 
-  ulong const read_max = fd_ulong_min( writer->cr_byte_avail, writer->read_max );
-  return fd_ulong_min( read_max, writer->buf_sz - writer->buf_off );
+  ulong const frag_sz_max = fd_ulong_min( writer->cr_byte_avail, writer->frag_sz_max );
+  return fd_ulong_min( frag_sz_max, writer->buf_sz - writer->buf_off );
 }
 
 static inline void
 fd_stream_writer_publish( fd_stream_writer_t * writer,
                           ulong                frag_sz ) {
-  ulong loff = writer->buf_base + writer->stream_off;
+  ulong loff = writer->base + writer->stream_off;
   fd_mcache_publish_stream( writer->out_mcache,
                             fd_mcache_depth( writer->out_mcache->f ),
                             writer->out_seq,

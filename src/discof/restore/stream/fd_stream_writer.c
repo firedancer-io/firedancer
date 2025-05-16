@@ -27,16 +27,17 @@ fd_stream_writer_new( void *                  mem,
   fd_stream_frag_meta_t * out_mcache = fd_type_pun( topo->links[ tile->out_link_id[ link_id ] ].mcache );
   ulong cons_cnt                     = fd_topo_link_reliable_consumer_cnt( topo, link );
 
-  self->out_mcache = out_mcache;
-  self->buf           = dcache;
-  self->buf_base      = (ulong)dcache - (ulong)fd_wksp_containing( dcache );
-  self->buf_off       = 0UL;
-  self->buf_sz        = fd_dcache_data_sz( dcache );
-  self->goff          = 0UL;
-  self->read_max      = 0UL; /* this should be set by the tile via fd_stream_writer_set_read_max */
-  self->stream_off    = 0UL;
-  self->goff_start    = 0UL;
-  self->out_seq       = 0UL;
+  self->magic       = FD_STREAM_WRITER_MAGIC;
+  self->out_mcache  = out_mcache;
+  self->dcache      = dcache;
+  self->base        = (ulong)dcache - (ulong)fd_wksp_containing( dcache );
+  self->buf_off     = 0UL;
+  self->buf_sz      = fd_dcache_data_sz( dcache );
+  self->goff        = 0UL;
+  self->frag_sz_max = 0UL; /* this should be set by the tile via fd_stream_writer_set_frag_sz_max */
+  self->stream_off  = 0UL;
+  self->goff_start  = 0UL;
+  self->out_seq     = 0UL;
 
   /* Set up flow control state */
   self->cr_byte_avail = 0UL;
