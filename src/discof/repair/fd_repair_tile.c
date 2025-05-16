@@ -879,7 +879,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  seq    FD_PARAM_UNUSED,
             ulong                  sig    FD_PARAM_UNUSED,
             ulong                  sz,
-            ulong                  tsorig FD_PARAM_UNUSED,
+            ulong                  tsorig,
             ulong                  tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
 
