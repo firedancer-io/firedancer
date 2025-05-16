@@ -163,6 +163,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* clang-format off */
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t),  sizeof(fd_exec_tile_ctx_t) );
+  l       = FD_LAYOUT_APPEND( l, alignof(fd_bank_mgr_t),       sizeof(fd_bank_mgr_t) );
   return FD_LAYOUT_FINI( l, scratch_align() );
   /* clang-format on */
 }
@@ -254,18 +255,20 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
     FD_LOG_ERR(( "Could not find valid sysvar cache" ));
   }
 
-  /* Update the local join to the bank manager.*/
-  ctx->txn_ctx->bank_mgr = fd_bank_mgr_join( ctx->txn_ctx->bank_mgr_mem, ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn );
-  if( FD_UNLIKELY( !ctx->txn_ctx->bank_mgr ) ) {
-    FD_LOG_ERR(( "Could not join bank mgr" ));
+  /* Refresh the bank manager join for the slot that's being executed. */
+  ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->funk, funk_txn );
+  if( FD_UNLIKELY( !ctx->bank_mgr ) ) {
+    FD_LOG_ERR(( "Could not join bank mgr for slot %lu", slot_msg->slot ));
   }
 
-  ctx->txn_ctx->slot             = *(fd_bank_mgr_slot_query( ctx->txn_ctx->bank_mgr ));
-  ctx->txn_ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( ctx->txn_ctx->bank_mgr );
+  ctx->txn_ctx->slot             = *(fd_bank_mgr_slot_query( ctx->bank_mgr ));
+  ctx->txn_ctx->block_hash_queue = fd_bank_mgr_block_hash_queue_query( ctx->bank_mgr );
   if( FD_UNLIKELY( !ctx->txn_ctx->block_hash_queue ) ) {
     FD_LOG_ERR(( "Could not find valid block hash queue" ));
   }
-  ctx->txn_ctx->fee_rate_governor = *(fd_bank_mgr_fee_rate_governor_query( ctx->txn_ctx->bank_mgr ));
+  ctx->txn_ctx->fee_rate_governor = *(fd_bank_mgr_fee_rate_governor_query( ctx->bank_mgr ));
+
+  ctx->txn_ctx->bank_mgr = ctx->bank_mgr;
 }
 
 static void
@@ -542,6 +545,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_exec_tile_ctx_t * ctx               = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
+  uchar *              bank_mgr_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
   ulong                scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_ERR( ( "Scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
@@ -687,6 +691,12 @@ unprivileged_init( fd_topo_t *      topo,
   /* Initialize sequence numbers to be 0. */
   ctx->txn_id = 0U;
   ctx->bpf_id = 0U;
+
+  /********************************************************************/
+  /* bank manager                                                    */
+  /********************************************************************/
+
+  ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( bank_mgr_mem ), ctx->funk, NULL );
 
   FD_LOG_NOTICE(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 }

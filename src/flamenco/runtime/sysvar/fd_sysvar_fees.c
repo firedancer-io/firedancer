@@ -44,10 +44,8 @@ https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1f
 void
 fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
                             ulong                  latest_singatures_per_slot ) {
-  fd_bank_mgr_t            bank_mgr_obj;
-  fd_bank_mgr_t *          bank_mgr               = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_fee_rate_governor_t * base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( bank_mgr );
-  ulong *                  lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
+  fd_fee_rate_governor_t * base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( slot_ctx->bank_mgr );
+  ulong *                  lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( slot_ctx->bank_mgr );
 
   fd_fee_rate_governor_t me = {
     .target_signatures_per_slot    = base_fee_rate_governor->target_signatures_per_slot,
@@ -91,21 +89,21 @@ fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
 
-  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( bank_mgr );
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( slot_ctx->bank_mgr );
   if( FD_UNLIKELY( *lamports_per_signature==0UL ) ) {
     *prev_lamports_per_signature = new_lamports_per_signature;
   } else {
     *prev_lamports_per_signature = *lamports_per_signature;
   }
-  fd_bank_mgr_prev_lamports_per_signature_save( bank_mgr );
+  fd_bank_mgr_prev_lamports_per_signature_save( slot_ctx->bank_mgr );
 
-  base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( bank_mgr );
+  base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( slot_ctx->bank_mgr );
   *base_fee_rate_governor = me;
-  fd_bank_mgr_fee_rate_governor_save( bank_mgr );
+  fd_bank_mgr_fee_rate_governor_save( slot_ctx->bank_mgr );
 
-  lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( bank_mgr );
+  lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( slot_ctx->bank_mgr );
   *lamports_per_signature = new_lamports_per_signature;
-  fd_bank_mgr_lamports_per_signature_save( bank_mgr );
+  fd_bank_mgr_lamports_per_signature_save( slot_ctx->bank_mgr );
 }
 
 void
@@ -120,9 +118,7 @@ fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad )
     FD_LOG_ERR(( "failed to read sysvar fees" ));
   }
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( slot_ctx->bank_mgr );
   fees->fee_calculator.lamports_per_signature = *lamports_per_signature;
   write_fees( slot_ctx, fees );
 }

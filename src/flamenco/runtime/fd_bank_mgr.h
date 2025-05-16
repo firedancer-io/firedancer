@@ -22,6 +22,9 @@ FD_PROTOTYPES_BEGIN
    not contain gaddrs or local pointers -- all data must be accessed
    directly or with an offset.
 
+   Important Note: The bank manager object should NOT be shared across
+   threads. Each thread should have its own bank manager object.
+
    The standard usage pattern of the bank manager is to first refresh a
    local join for each slot via a call to fd_bank_mgr_join().
    If this join is not refreshed with the latest funk txn, then the

@@ -1868,7 +1868,8 @@ void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad ) {
+                         fd_spad_t *                  finalize_spad,
+                         fd_bank_mgr_t *              bank_mgr ) {
 
   /* for all accounts, if account->is_verified==true, propagate update
      to cache entry. */
@@ -1877,8 +1878,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
 
   /* Collect fees */
-
-  fd_bank_mgr_t * bank_mgr = task_info->txn_ctx->bank_mgr;
 
   ulong * execution_fee = fd_bank_mgr_execution_fees_modify( bank_mgr );
   *execution_fee += task_info->txn_ctx->execution_fee;
@@ -1984,7 +1983,8 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
           fd_vote_record_timestamp_vote_with_slot( slot_ctx,
                                                    acc_rec->pubkey,
                                                    ts->timestamp,
-                                                   ts->slot );
+                                                   ts->slot,
+                                                   bank_mgr );
         } FD_SPAD_FRAME_END;
       }
 
@@ -2104,7 +2104,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
     return;
   }
 
-  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad );
+  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad, task_info->txn_ctx->bank_mgr );
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
@@ -2188,7 +2188,8 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(( "failed to allocate txn ctx" ));
       }
 
-      task_infos[ curr_exec_idx ].txn_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( task_infos[ curr_exec_idx ].txn_ctx->bank_mgr_mem ), slot_ctx->funk, slot_ctx->funk_txn );
+      FD_BANK_MGR_DECL( bank_mgr, slot_ctx->funk, slot_ctx->funk_txn );
+      task_infos[ curr_exec_idx ].txn_ctx->bank_mgr = bank_mgr;
 
       fd_tpool_exec( tpool, worker_idx, fd_runtime_prepare_execute_finalize_txn_task,
                      slot_ctx, (ulong)capture_ctx, (ulong)task_infos[curr_exec_idx].txn,

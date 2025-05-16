@@ -151,11 +151,9 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_txn_account_mutable_fini( rec, funk, txn );
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, funk, txn );
-  ulong * capitalization = fd_bank_mgr_capitalization_modify( bank_mgr );
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( slot_ctx->bank_mgr );
   (*capitalization)++;
-  fd_bank_mgr_capitalization_save( bank_mgr );
+  fd_bank_mgr_capitalization_save( slot_ctx->bank_mgr );
 
   // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
   FD_TEST( !err );
@@ -218,9 +216,7 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_write_builtin_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id, "zk_elgamal_proof_program", 24UL );
   }
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_cluster_version_t * cluster_version = fd_bank_mgr_cluster_version_query( bank_mgr );
+  fd_cluster_version_t * cluster_version = fd_bank_mgr_cluster_version_query( slot_ctx->bank_mgr );
 
   /* Precompiles have empty account data */
   if( cluster_version &&cluster_version->major<2 ) {

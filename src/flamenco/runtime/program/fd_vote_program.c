@@ -2161,10 +2161,8 @@ void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          long                 timestamp,
-                                         ulong                slot ) {
-
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+                                         ulong                slot,
+                                         fd_bank_mgr_t *      bank_mgr ) {
 
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( bank_mgr );
   fd_clock_timestamp_vote_t_mapnode_t * pool = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
@@ -2921,10 +2919,7 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
 static void
 remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t * vote_account ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
-  fd_account_keys_global_t * vote_account_keys = fd_bank_mgr_vote_account_keys_modify( bank_mgr );
+  fd_account_keys_global_t * vote_account_keys = fd_bank_mgr_vote_account_keys_modify( slot_ctx->bank_mgr );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
 
@@ -2932,7 +2927,7 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t * vote_acco
   fd_vote_accounts_t * epoch_vote_accounts = &epoch_bank->stakes.vote_accounts;
   if( FD_UNLIKELY( epoch_vote_accounts->vote_accounts_pool==NULL ) ) {
     FD_LOG_DEBUG(("Vote accounts pool does not exist"));
-    fd_bank_mgr_vote_account_keys_save( bank_mgr );
+    fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
     return;
   }
 
@@ -2945,7 +2940,7 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t * vote_acco
 
   if( FD_UNLIKELY( vote_account_keys_pool==NULL ) ) {
     FD_LOG_DEBUG(("Vote accounts pool does not exist"));
-    fd_bank_mgr_vote_account_keys_save( bank_mgr );
+    fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
     return;
   }
 
@@ -2956,23 +2951,20 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t * vote_acco
     fd_account_keys_pair_t_map_remove( vote_account_keys_pool, &vote_account_keys_root, account_key_entry );
   }
 
-  fd_bank_mgr_vote_account_keys_save( bank_mgr );
+  fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
 }
 
 static void
 upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx,
                      fd_txn_account_t *   vote_account ) {
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
-  fd_account_keys_global_t *         vote_account_keys      = fd_bank_mgr_vote_account_keys_modify( bank_mgr );
+  fd_account_keys_global_t *         vote_account_keys      = fd_bank_mgr_vote_account_keys_modify( slot_ctx->bank_mgr );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
   fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
 
   if( FD_UNLIKELY( vote_account_keys_pool==NULL ) ) {
     FD_LOG_DEBUG(( "Vote accounts pool does not exist" ));
-    fd_bank_mgr_vote_account_keys_save( bank_mgr );
+    fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
     return;
   }
 
@@ -2987,7 +2979,7 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx,
     // Skip duplicates
     if( FD_LIKELY( fd_account_keys_pair_t_map_find( vote_account_keys_pool, vote_account_keys_root, &key ) ||
                    fd_vote_accounts_pair_t_map_find( epoch_bank->stakes.vote_accounts.vote_accounts_pool, epoch_bank->stakes.vote_accounts.vote_accounts_root, &vote_acc )  ) ) {
-      fd_bank_mgr_vote_account_keys_save( bank_mgr );
+      fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
       return;
     }
 
@@ -2998,9 +2990,9 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
     fd_account_keys_pair_t_map_insert( vote_account_keys_pool, &vote_account_keys_root, new_node );
-    fd_bank_mgr_vote_account_keys_save( bank_mgr );
+    fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
   } else {
-    fd_bank_mgr_vote_account_keys_save( bank_mgr );
+    fd_bank_mgr_vote_account_keys_save( slot_ctx->bank_mgr );
     remove_vote_account( slot_ctx, vote_account );
   }
 }

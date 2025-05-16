@@ -28,14 +28,10 @@ static long
 timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
-
-  uint128 * ns_per_slot_bm = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+  uint128 * ns_per_slot_bm = fd_bank_mgr_ns_per_slot_query( slot_ctx->bank_mgr );
   uint128   ns_per_slot = !!ns_per_slot_bm ? *ns_per_slot_bm : 0;
 
-  ulong * genesis_creation_time_bm = fd_bank_mgr_genesis_creation_time_query( bank_mgr );
+  ulong * genesis_creation_time_bm = fd_bank_mgr_genesis_creation_time_query( slot_ctx->bank_mgr );
   ulong   genesis_creation_time = !!genesis_creation_time_bm ? *genesis_creation_time_bm : 0;
 
   return (long)(genesis_creation_time + ((slot_ctx->slot * ns_per_slot) / NS_IN_S));
@@ -96,9 +92,7 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
                           long                 estimate,
                           long                 epoch_start_timestamp ) {
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  uint128 * ns_per_slot_bm = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+  uint128 * ns_per_slot_bm = fd_bank_mgr_ns_per_slot_query( slot_ctx->bank_mgr );
   uint128   ns_per_slot = !!ns_per_slot_bm ? *ns_per_slot_bm : 0;
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
@@ -130,14 +124,12 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( bank_mgr );
+  fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_query( slot_ctx->bank_mgr );
   fd_clock_timestamp_vote_t_mapnode_t * votes = !!clock_timestamp_votes ? fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes ) : NULL;
   if( NULL==votes ) {
     return timestamp_from_genesis( slot_ctx );
   }
-  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( bank_mgr );
+  uint128 * ns_per_slot = fd_bank_mgr_ns_per_slot_query( slot_ctx->bank_mgr );
 
   /* TODO: actually take the stake-weighted median. For now, just use the root node. */
   fd_clock_timestamp_vote_t * head = &votes->elem;

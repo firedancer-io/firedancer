@@ -337,9 +337,6 @@ struct fd_replay_tile_ctx {
   fd_replay_tile_metrics_t metrics;
 
   ulong * exec_slice_deque; /* Deque to buffer exec slices */
-
-  /* Local join to the bank_mgr that must be refreshed at every slot. */
-  fd_bank_mgr_t * bank_mgr;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -366,7 +363,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -737,10 +733,10 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
   ctx->skip_frag = 0;
   if( in_idx==BATCH_IN_IDX ) {
-    fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_modify( ctx->bank_mgr );
+    fd_hash_t * epoch_account_hash = fd_bank_mgr_epoch_account_hash_modify( ctx->slot_ctx->bank_mgr );
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
     fd_memcpy( epoch_account_hash, src, sizeof(fd_hash_t) );
-    fd_bank_mgr_epoch_account_hash_save( ctx->bank_mgr );
+    fd_bank_mgr_epoch_account_hash_save( ctx->slot_ctx->bank_mgr );
     FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( epoch_account_hash ) ));
   }
 }
@@ -1475,8 +1471,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     send_exec_epoch_msg( ctx, stem, fork->slot_ctx );
   }
 
-  ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->funk, fork->slot_ctx->funk_txn );
-
   /* At this point we need to notify all of the exec tiles and tell them
      that a new slot is ready to be published. At this point, we should
      also mark the tile as not being ready. */
@@ -1515,12 +1509,12 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ 0UL ];
   fd_poh_init_msg_t * msg = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
-  FD_TEST( ctx->bank_mgr && ctx->bank_mgr->funk && ctx->bank_mgr->funk_txn );
-  msg->hashcnt_per_tick = *(fd_bank_mgr_hashes_per_tick_query( ctx->bank_mgr ));
-  msg->ticks_per_slot   = *(fd_bank_mgr_ticks_per_slot_query( ctx->bank_mgr ));
-  msg->tick_duration_ns = (ulong)(*fd_bank_mgr_ns_per_slot_query( ctx->bank_mgr ) / *(fd_bank_mgr_ticks_per_slot_query( ctx->bank_mgr )));
+  FD_TEST( ctx->slot_ctx->bank_mgr && ctx->slot_ctx->bank_mgr->funk && ctx->slot_ctx->bank_mgr->funk_txn );
+  msg->hashcnt_per_tick = *(fd_bank_mgr_hashes_per_tick_query( ctx->slot_ctx->bank_mgr ));
+  msg->ticks_per_slot   = *(fd_bank_mgr_ticks_per_slot_query( ctx->slot_ctx->bank_mgr ));
+  msg->tick_duration_ns = (ulong)(*fd_bank_mgr_ns_per_slot_query( ctx->slot_ctx->bank_mgr ) / *(fd_bank_mgr_ticks_per_slot_query( ctx->slot_ctx->bank_mgr )));
 
-  fd_block_hash_queue_global_t * bhq       = fd_bank_mgr_block_hash_queue_query( ctx->bank_mgr );
+  fd_block_hash_queue_global_t * bhq       = fd_bank_mgr_block_hash_queue_query( ctx->slot_ctx->bank_mgr );
   fd_hash_t *                    last_hash = fd_block_hash_queue_last_hash_join( bhq );
   if( last_hash ) {
     memcpy(msg->last_entry_hash, last_hash, sizeof(fd_hash_t));
@@ -2811,7 +2805,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  void * bank_mgr_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_mgr_align(), fd_bank_mgr_footprint() );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
@@ -2858,12 +2851,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->last_full_snap       = 0UL;
 
   FD_LOG_NOTICE(( "Snapshot intervals full=%lu incremental=%lu", ctx->snapshot_interval, ctx->incremental_interval ));
-
-  /**********************************************************************/
-  /* bank_mgr                                                               */
-  /**********************************************************************/
-
-  ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( bank_mgr_mem ), ctx->funk, NULL );
 
   /**********************************************************************/
   /* funk                                                               */

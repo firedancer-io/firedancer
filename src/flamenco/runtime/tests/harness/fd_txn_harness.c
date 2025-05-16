@@ -34,9 +34,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Allocate contexts */
   uchar *               epoch_ctx_mem = fd_spad_alloc( runner->spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
-  fd_exec_epoch_ctx_t * epoch_ctx
-
-       = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
+  fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
 
   assert( epoch_ctx );
   assert( slot_ctx  );
@@ -50,6 +48,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   slot_ctx->funk_txn     = funk_txn;
   slot_ctx->funk         = funk;
   slot_ctx->runtime_wksp = runner->wksp;
+
+  slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( slot_ctx->bank_mgr_mem ), slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Restore feature flags */
 
@@ -88,8 +88,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
   slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
 
   /* Setup Bank manager */
-
-  slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( slot_ctx->bank_mgr_mem ), slot_ctx->funk, slot_ctx->funk_txn );
 
   ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( slot_ctx->bank_mgr );
   *lamports_per_signature = 5000;

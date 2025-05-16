@@ -576,7 +576,8 @@ void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad );
+                         fd_spad_t *                  finalize_spad,
+                         fd_bank_mgr_t *              bank_mgr );
 
 /* Epoch Boundary *************************************************************/
 

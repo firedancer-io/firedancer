@@ -3243,10 +3243,7 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
 static void
 fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t * stake_account ) {
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-
-  fd_account_keys_global_t *         stake_account_keys = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
+  fd_account_keys_global_t *         stake_account_keys = fd_bank_mgr_stake_account_keys_modify( slot_ctx->bank_mgr );
   fd_account_keys_pair_t_mapnode_t * account_keys_pool  = fd_account_keys_account_keys_pool_join( stake_account_keys );
   fd_account_keys_pair_t_mapnode_t * account_keys_root  = fd_account_keys_account_keys_root_join( stake_account_keys );
 
@@ -3265,7 +3262,7 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
 
   fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
   fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
-  fd_bank_mgr_stake_account_keys_save( bank_mgr );
+  fd_bank_mgr_stake_account_keys_save( slot_ctx->bank_mgr );
 }
 
 /* Updates stake delegation in epoch stakes */
@@ -3283,9 +3280,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
     return;
   }
 
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_modify( bank_mgr );
+  fd_account_keys_global_t * stake_account_keys = fd_bank_mgr_stake_account_keys_modify( slot_ctx->bank_mgr );
 
   fd_account_keys_pair_t_mapnode_t * account_keys_pool = NULL;
   fd_account_keys_pair_t_mapnode_t * account_keys_root = NULL;
@@ -3298,7 +3293,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
     account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
   }
 
-  fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key);
+  fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key );
   if( FD_UNLIKELY( !entry ) ) {
     fd_account_keys_pair_t_mapnode_t key;
     fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
@@ -3325,7 +3320,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account
   fd_account_keys_account_keys_pool_update( stake_account_keys, account_keys_pool );
   fd_account_keys_account_keys_root_update( stake_account_keys, account_keys_root );
 
-  fd_bank_mgr_stake_account_keys_save( bank_mgr );
+  fd_bank_mgr_stake_account_keys_save( slot_ctx->bank_mgr );
 }
 
 void fd_store_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_txn_account_t * stake_account ) {

@@ -25,10 +25,7 @@
 
 static void
 encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
-  fd_bank_mgr_t bank_mgr_obj;
-
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( bank_mgr );
+  fd_block_hash_queue_global_t * bhq = fd_bank_mgr_block_hash_queue_query( slot_ctx->bank_mgr );
 
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq );
   fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq );
@@ -80,12 +77,10 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 
 static void
 register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
-  fd_bank_mgr_t   bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
 
-  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( bank_mgr );
+  ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( slot_ctx->bank_mgr );
 
-  fd_block_hash_queue_global_t *      bhq       = fd_bank_mgr_block_hash_queue_modify( bank_mgr );
+  fd_block_hash_queue_global_t *      bhq       = fd_bank_mgr_block_hash_queue_modify( slot_ctx->bank_mgr );
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( bhq );
   fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( bhq );
   bhq->last_hash_index++;
@@ -118,7 +113,7 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
   bhq->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)bhq;
   bhq->ages_root_offset = (ulong)ages_root - (ulong)bhq;
 
-  fd_bank_mgr_block_hash_queue_save( bank_mgr );
+  fd_bank_mgr_block_hash_queue_save( slot_ctx->bank_mgr );
 }
 
 /* This implementation is more consistent with Agave's bank implementation for updating the block hashes sysvar:
@@ -130,9 +125,8 @@ void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Update the blockhash queue */
-  fd_bank_mgr_t bank_mgr_obj;
-  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
-  fd_hash_t * poh = fd_bank_mgr_poh_query( bank_mgr );
+
+  fd_hash_t * poh = fd_bank_mgr_poh_query( slot_ctx->bank_mgr );
   register_blockhash( slot_ctx, poh );
 
   /* Derive the new sysvar recent blockhashes from the blockhash queue */
