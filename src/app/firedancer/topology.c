@@ -210,7 +210,7 @@ fd_topo_initialize( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
   ulong resolv_tile_cnt = config->layout.resolv_tile_count;
-  ulong alpenv_tile_cnt = config->layout.bls_verify_tile_count;
+  ulong alpenv_tile_cnt = config->firedancer.layout.bls_verify_tile_count;
 
   int enable_rpc    = ( config->rpc.port != 0 );
   int enable_rstart = !!config->tiles.restart.enabled;

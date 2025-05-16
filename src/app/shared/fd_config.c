@@ -433,6 +433,7 @@ fd_config_fill( fd_config_t * config,
 
 static void
 fd_config_validatef( fd_configf_t const * config ) {
+  CFG_HAS_NON_ZERO ( layout.bls_verify_tile_count );
   (void)config;
 }
 
@@ -472,7 +473,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
   CFG_HAS_NON_ZERO ( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
-  CFG_HAS_NON_ZERO ( layout.bls_verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
 

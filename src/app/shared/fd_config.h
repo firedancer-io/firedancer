@@ -121,6 +121,7 @@ struct fd_configf {
   struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
+    uint bls_verify_tile_count;
   } layout;
 };
 
@@ -226,7 +227,6 @@ struct fd_config {
     uint quic_tile_count;
     uint resolv_tile_count;
     uint verify_tile_count;
-    uint bls_verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
   } layout;
