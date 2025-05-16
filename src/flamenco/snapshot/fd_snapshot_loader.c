@@ -162,7 +162,14 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
     d->vsrc = fd_io_istream_file_virtual( d->vfile );
     break;
   case FD_SNAPSHOT_SRC_HTTP:
-    d->http = fd_snapshot_http_new( d->http_mem, src->http.dest, src->http.ip4, src->http.port, src->snapshot_dir, &d->name );
+    d->http = fd_snapshot_http_new(
+      d->http_mem,
+      src->http.dest,
+      src->http.ip4,
+      src->http.port,
+      src->snapshot_dir,
+      &d->name,
+      src->http.http_header );
     if( FD_UNLIKELY( !d->http ) ) {
       FD_LOG_WARNING(( "Failed to create fd_snapshot_http_t" ));
       return NULL;
@@ -222,7 +229,8 @@ fd_snapshot_loader_advance( fd_snapshot_loader_t * dumper ) {
 fd_snapshot_src_t *
 fd_snapshot_src_parse( fd_snapshot_src_t * src,
                        char *              cstr,
-                       int                 src_type ) {
+                       int                 src_type,
+                       char const *        http_header ) {
 
   fd_memset( src, 0, sizeof(fd_snapshot_src_t) );
 
@@ -242,9 +250,10 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
     regmatch_t * m_port     = &group[2];
     regmatch_t * m_path     = &group[3];
 
-    src->type = FD_SNAPSHOT_SRC_HTTP;
-    src->http.path     = cstr + m_path->rm_so;
-    src->http.path_len = (ulong)m_path->rm_eo - (ulong)m_path->rm_so;
+    src->type             = FD_SNAPSHOT_SRC_HTTP;
+    src->http.path        = cstr + m_path->rm_so;
+    src->http.path_len    = (ulong)m_path->rm_eo - (ulong)m_path->rm_so;
+    src->http.http_header = http_header;
 
     /* Resolve port to IPv4 address */
 
@@ -329,12 +338,13 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
 
 fd_snapshot_src_t *
 fd_snapshot_src_parse_type_unknown( fd_snapshot_src_t * src,
-                                    char *              cstr ) {
+                                    char *              cstr,
+                                    char const *        snapshot_http_header ) {
 
   if( 0==strncmp( cstr, "http://", 7 ) ) {
-    return fd_snapshot_src_parse( src, cstr, FD_SNAPSHOT_SRC_HTTP );
+    return fd_snapshot_src_parse( src, cstr, FD_SNAPSHOT_SRC_HTTP, snapshot_http_header );
   } else {
-    return fd_snapshot_src_parse( src, cstr, FD_SNAPSHOT_SRC_FILE );
+    return fd_snapshot_src_parse( src, cstr, FD_SNAPSHOT_SRC_FILE, NULL );
   }
 
   __builtin_unreachable();

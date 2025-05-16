@@ -149,6 +149,14 @@
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
 
+#define FD_FUNK_MAGIC (0xf17eda2ce7fc2c02UL) /* firedancer funk version 2 */
+
+#define DLIST_NAME   fd_funk_accounts_lru
+#define DLIST_ELE_T fd_funk_rec_t
+#define DLIST_PREV  accounts_lru_prev_idx
+#define DLIST_NEXT  accounts_lru_next_idx
+#define DLIST_IDX_T uint
+
 /* FD_FUNK_ALIGN describe the alignment needed
    for a funk.  ALIGN should be a positive integer power of 2.
    The footprint is dynamic depending on map sizes. */
@@ -158,7 +166,7 @@
 /* The details of a fd_funk_shmem_private are exposed here to facilitate
    inlining various operations. */
 
-#define FD_FUNK_MAGIC (0xf17eda2ce7fc2c02UL) /* firedancer funk version 2 */
+#include "../util/tmpl/fd_dlist.c"
 
 struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
 
@@ -254,6 +262,11 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
   uchar lock;        /* lock for synchronizing modifications to funk object */
+
+  /* LRU cache of the Funk accounts */
+  fd_funk_accounts_lru_t accounts_lru;
+
+  uchar accounts_lru_lock; /* lock for synchronizing modifications to the accounts LRU (FIXME: remove this) */
 
   /* Padding to FD_FUNK_ALIGN here */
 };
@@ -480,6 +493,13 @@ static inline int
 fd_funk_txn_is_full( fd_funk_t * funk ) {
   return fd_funk_txn_pool_is_empty( funk->txn_pool );
 }
+
+void
+fd_funk_rec_lru_add( fd_funk_t * funk,
+                     fd_funk_rec_t * rec );
+
+fd_funk_rec_t *
+fd_funk_rec_lru_pop_head( fd_funk_t * funk );
 
 /* Misc */
 
