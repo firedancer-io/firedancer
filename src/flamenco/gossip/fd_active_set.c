@@ -98,68 +98,80 @@ fd_active_set_nodes( fd_active_set_t * active_set,
     fd_active_set_peer_t * peer = entry->nodes[ (entry->nodes_idx+i) % 12UL ];
 
     int must_push_if_peer_is_origin = ignore_prunes_if_peer_is_origin && !memcmp( peer->pubkey, origin, 32UL );
-    int must_push_own_values = identity_eq_origin && !memcmp( peer->pubkey, identity_pubkey, 32UL );
+    int must_push_own_values = identity_eq_origin && !memcmp( peer->pubkey, identity_pubkey, 32UL ); /* why ? */
     if( FD_UNLIKELY( fd_bloom_contains( peer->bloom, origin, 32UL ) && !must_push_own_values && !must_push_if_peer_is_origin ) ) continue;
     out_nodes[ out_idx++ ] = stake_bucket*12UL + i;
   }
   return out_idx;
 }
 
+uchar const *
+fd_active_set_node_pubkey( fd_active_set_t * active_set,
+                           ulong             peer_idx ){
+  ulong bucket = peer_idx / FD_ACTIVE_SET_PEERS_PER_ENTRY;
+  ulong idx    = peer_idx % FD_ACTIVE_SET_PEERS_PER_ENTRY;
+  if( FD_UNLIKELY( bucket>=FD_ACTIVE_SET_STAKE_ENTRIES ) ) {
+    FD_LOG_ERR(( "peer_idx out of range" ));
+  }
+  if( FD_UNLIKELY( active_set->entries[ bucket ]->nodes_len<=idx ) ) {
+    FD_LOG_ERR(( "peer_idx out of range within bucket" ));
+  }
+
+  return active_set->entries[ bucket ]->nodes[ idx ]->pubkey;
+}
+
 void
-fd_active_set_prune( fd_active_set_t * active_set,
-                     uchar const *     identity_pubkey,
-                     ulong             identity_stake,
-                     uchar const *     peer,
-                     uchar const *     destination,
-                     uchar const *     origin,
-                     ulong             origin_stake ) {
+fd_active_set_prunes( fd_active_set_t * active_set,
+                      uchar const *     identity_pubkey,
+                      ulong             identity_stake,
+                      uchar const *     peers,
+                      ulong             peers_len,
+                      uchar const *     origin,
+                      ulong             origin_stake,
+                      ulong *           opt_out_node_idx ) {
   if( FD_UNLIKELY( !memcmp( identity_pubkey, origin, 32UL ) ) ) return;
 
   ulong bucket = fd_active_set_stake_bucket( fd_ulong_min( identity_stake, origin_stake ) );
   for( ulong i=0UL; i<12UL; i++ ) {
-    if( FD_UNLIKELY( !memcmp( active_set->entries[ bucket ]->nodes[ i ]->pubkey, destination, 32UL ) ) ) {
-      fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, peer, 32UL );
+    if( FD_UNLIKELY( !memcmp( active_set->entries[ bucket ]->nodes[ i ]->pubkey, origin, 32UL ) ) ) {
+      for( ulong j=0UL; j<peers_len; j++ ) {
+          fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, &peers[j*32UL], 32UL );
+      }
+      if( opt_out_node_idx ) {
+        *opt_out_node_idx = bucket*12UL + i;
+      }
       return;
     }
   }
 }
 
-void
+ulong
 fd_active_set_rotate( fd_active_set_t *     active_set,
-                      ulong                 cluster_size,
-                      uchar const * const * nodes,
-                      ulong const *         stakes,
-                      ulong                 nodes_len ) {
-  ulong num_bloom_filter_items = fd_ulong_max( cluster_size, 512UL );
+                      fd_crds_t *           crds ) {
+  ulong num_bloom_filter_items = fd_ulong_max( fd_crds_peer_count( crds ), 512UL );
 
-  for( ulong i=0UL; i<25UL; i++ ) {
-    fd_active_set_entry_t * entry = active_set->entries[ i ];
+  ulong bucket = fd_rng_ulong_roll( active_set->rng, 25UL );
+  fd_active_set_entry_t * entry = active_set->entries[ bucket ];
 
-    /* TODO: Weighted shuffle of nodes by stake */
-    (void)stakes;
+  ulong replace_idx;
 
-    for( ulong i=0UL; i<nodes_len; i++ ) {
-      int has_peer = 0;
-      for( ulong j=0UL; j<entry->nodes_len; j++ ) {
-        fd_active_set_peer_t * peer = entry->nodes[ (entry->nodes_idx+j) % 12UL ];
-
-        if( FD_UNLIKELY( !memcmp( peer->pubkey, nodes[ i ], 32UL ) ) ) {
-          has_peer = 1;
-          break;
-        }
-      }
-
-      if( FD_LIKELY( has_peer ) ) continue;
-
-      fd_active_set_peer_t * replace = entry->nodes[ entry->nodes_idx ];
-      fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
-      fd_bloom_insert( replace->bloom, nodes[ i ], 32UL );
-      fd_memcpy( replace->pubkey, nodes[ i ], 32UL );
-      entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
-      entry->nodes_idx = (entry->nodes_idx+1UL) % 12UL;
-
-      /* Just replace one peer, if we are replacing. */
-      if( FD_LIKELY( entry->nodes_len==12UL ) ) break;
-    }
+  if( FD_LIKELY( entry->nodes_len==12UL ) ) {
+    replace_idx = fd_rng_ulong_roll( active_set->rng, entry->nodes_len );
+    fd_crds_bucket_add( crds, bucket, entry->nodes[ replace_idx ]->pubkey );
+  } else {
+    replace_idx = entry->nodes_len;
   }
+
+  fd_active_set_peer_t * replace = entry->nodes[ replace_idx ];
+
+  fd_contact_info_t const * new_peer = fd_crds_bucket_sample_and_remove( crds, active_set->rng, bucket );
+  if( FD_UNLIKELY( !new_peer ) ) {
+    return ULONG_MAX;
+  }
+
+  fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
+  fd_bloom_insert( replace->bloom, new_peer->pubkey.uc, 32UL );
+  fd_memcpy( replace->pubkey, new_peer->pubkey.uc, 32UL );
+  entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
+  return bucket*12UL+replace_idx;
 }

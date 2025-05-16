@@ -86,12 +86,9 @@
    sockets may be unroutable or invalid (a private network), and the
    version fields are completely arbitrary.
 
-   However, the pubkey is authenticated, as messages are signed.
+   However, the pubkey is authenticated, as messages are signed. */
 
-   TODO: Remove the _upd suffixes once the types are removed from
-   fd_types.h and fd_contact_info.h */
-
-struct fd_contact_info_upd {
+struct fd_contact_info {
   fd_pubkey_t pubkey;          /* The identity public key of the peer node */
   ushort      shred_version;   /* The shred version of the peer node, should be non-zero but not required */
 
@@ -117,7 +114,7 @@ struct fd_contact_info_upd {
   } version;
 };
 
-typedef struct fd_contact_info_upd fd_contact_info_upd_t;
+typedef struct fd_contact_info fd_contact_info_t;
 
 /* A gossip vote represents a vote transaction that was sent to us by a
    peer node.  It is sent when the tag is FD_GOSSIP_UPDATE_TAG_VOTE.
@@ -128,13 +125,13 @@ typedef struct fd_contact_info_upd fd_contact_info_upd_t;
    particular the signatures have not been verified.   Transaction data
    is arbitrary and could be empty or corrupt or malicious. */
 
-struct fd_gossip_vote_upd {
+struct fd_gossip_vote {
   uchar vote_tower_index;
   ulong txn_sz;
   uchar txn[ 1232UL ];
 };
 
-typedef struct fd_gossip_vote_upd fd_gossip_vote_upd_t;
+typedef struct fd_gossip_vote fd_gossip_vote_t;
 
 #define FD_GOSSIP_DUPLICATE_SHRED_MAX_CHUNKS (1054UL)
 
@@ -143,16 +140,17 @@ typedef struct fd_gossip_vote_upd fd_gossip_vote_upd_t;
    a slashable offense, but for now it simply "proven" on the chain and
    communicated among peers. */
 
-struct fd_gossip_duplicate_shred_upd {
+struct fd_gossip_duplicate_shred {
   ushort index;
   ulong  slot;
   uchar  num_chunks;
   uchar  chunk_index;
+  long   wallclock; /* in nanos */
   ulong  chunk_len;
   uchar  chunk[ FD_GOSSIP_DUPLICATE_SHRED_MAX_CHUNKS ];
 };
 
-typedef struct fd_gossip_duplicate_shred_upd fd_gossip_duplicate_shred_upd_t;
+typedef struct fd_gossip_duplicate_shred fd_gossip_duplicate_shred_t;
 
 struct fd_gossip_snapshot_hash_pair {
   ulong slot;
@@ -172,36 +170,35 @@ typedef struct fd_gossip_snapshot_hash_pair fd_gossip_snapshot_hash_pair_t;
    list of recent incremental snapshots is provided which build on top
    of the full snapshot. */
 
-struct fd_gossip_snapshot_hashes_upd {
+struct fd_gossip_snapshot_hashes {
   fd_gossip_snapshot_hash_pair_t full[ 1 ];
 
   ulong                          incremental_len;
   fd_gossip_snapshot_hash_pair_t incremental[ FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL ];
 };
 
-typedef struct fd_gossip_snapshot_hashes_upd fd_gossip_snapshot_hashes_upd_t;
+typedef struct fd_gossip_snapshot_hashes fd_gossip_snapshot_hashes_t;
 
 struct fd_gossip_update_message {
   uchar tag;
-
   uchar origin_pubkey[ 32UL ];
   ulong origin_stake;
   long  wallclock_nanos;
 
   union {
     struct {
-      ulong                 idx; /* Index into flat array to place this contact info, see comments on FD_CONTACT_INFO_TABLE_SIZE */
-      fd_contact_info_upd_t contact_info[ 1 ];
+      ulong             idx; /* Index into flat array to place this contact info, see comments on FD_CONTACT_INFO_TABLE_SIZE */
+      fd_contact_info_t contact_info[ 1 ];
     } contact_info;
 
     struct {
       ulong idx; /* Index into flat array of contact info to remove, see FD_CONTACT_INFO_TABLE_SIZE */
     } contact_info_remove;
 
-    ulong                           lowest_slot;
-    fd_gossip_vote_upd_t            vote;
-    fd_gossip_duplicate_shred_upd_t duplicate_shred;
-    fd_gossip_snapshot_hashes_upd_t snapshot_hashes;
+    ulong                       lowest_slot;
+    fd_gossip_vote_t            vote;
+    fd_gossip_duplicate_shred_t duplicate_shred;
+    fd_gossip_snapshot_hashes_t snapshot_hashes;
   };
 };
 
