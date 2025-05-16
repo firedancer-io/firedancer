@@ -119,6 +119,12 @@ struct fd_configf {
   } runtime;
 
   struct {
+    ulong max_account_records;
+    ulong heap_size_gib;
+    ulong max_database_transactions;
+  } funk;
+
+  struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint writer_tile_count;
   } layout;
@@ -286,6 +292,10 @@ struct fd_config {
       char affinity[ AFFINITY_SZ ];
       char fake_dst_ip[ 16 ];
     } pktgen;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } snapshot_load;
   } development;
 
   struct {
@@ -365,10 +375,6 @@ struct fd_config {
     struct {
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
-      uint  funk_rec_max;
-      ulong funk_sz_gb;
-      ulong funk_txn_max;
-      char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  incremental_url[ PATH_MAX ];

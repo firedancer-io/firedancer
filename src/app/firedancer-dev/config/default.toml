@@ -15,6 +15,10 @@
     idx_max = 8192
     alloc_max = 10737418240
     file = "{blockstore_path}"
+[funk]
+    heap_size_gib = 140
+    max_account_records = 150000000
+    max_database_transactions = 2000
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384
@@ -24,10 +28,6 @@
     [tiles.replay]
         snapshot_url = "http://{validator_ip}:8899/snapshot.tar.bz2"
         incremental_url = "http://{validator_ip}:8899/incremental-snapshot.tar.bz2"
-        funk_sz_gb = 140
-        funk_rec_max = 150000000
-        funk_txn_max = 2000
-        funk_file = "{funk_path}"
     [tiles.metric]
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999
