@@ -35,6 +35,7 @@ struct __attribute__((aligned(16))) fd_stream_writer {
   ulong frag_sz_max;      /* max data sz for each frag descriptor */
 
   /* Cold data */
+  ulong   magic;
   ulong   cons_cnt;       /* number of consumers */
   ulong   cons_max;       /* max number of consumers */
   ulong * out_sync;       /* points to mcache 'sync' field (last published seq no) */
@@ -43,6 +44,8 @@ struct __attribute__((aligned(16))) fd_stream_writer {
 };
 
 typedef struct fd_stream_writer fd_stream_writer_t;
+
+#define FD_STREAM_WRITER_MAGIC (0xFD57337717E736C0UL)
 
 /* Forward declarations */
 
@@ -90,7 +93,7 @@ fd_stream_writer_new( void *                  mem,
 void *
 fd_stream_writer_delete( fd_stream_writer_t * writer );
 
-/* fd_stream_writer_join_topo constructs a stream writer for a topology
+/* fd_stream_writer_new_topo constructs a stream writer for a topology
    definition.  Calls new() and register_consumer() under the hood.
    tile is the actor that will be writing stream frags in topo.
    out_link_idx is the index of the output link for that tile. */
@@ -103,6 +106,15 @@ fd_stream_writer_new_topo(
     fd_topo_tile_t const * tile,
     ulong                  out_link_idx
 );
+
+static inline fd_stream_writer_t *
+fd_stream_writer_join( void * _writer ) {
+  fd_stream_writer_t * writer = _writer;
+  if( FD_UNLIKELY( !writer ) ) return NULL;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)writer, fd_stream_writer_align() ) ) ) return NULL;
+  if( FD_UNLIKELY( writer->magic!=FD_STREAM_WRITER_MAGIC ) ) return NULL;
+  return writer;
+}
 
 /* Control API ********************************************************/
 

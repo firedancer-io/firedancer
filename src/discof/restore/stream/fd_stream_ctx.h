@@ -27,7 +27,8 @@ typedef void
 
 typedef void
 (* fd_tile_run_fn_t)( void *            ctx,
-                      fd_stream_ctx_t * stream_ctx );
+                      fd_stream_ctx_t * stream_ctx,
+                      int *             opt_poll_in );
 
 typedef int
 (* fd_tile_on_stream_frag_fn_t)( void *                        ctx,
@@ -202,6 +203,14 @@ fd_stream_ctx_advance_poll_idle( fd_stream_ctx_t * ctx ) {
 }
 
 static inline void
+fd_stream_ctx_advance_skip_poll( fd_stream_ctx_t * ctx ) {
+  ctx->metrics->regime_ticks[1] += ctx->ticks->housekeeping_ticks;
+  long next = fd_tickcount();
+  ctx->metrics->regime_ticks[4] += (ulong)(next - ctx->ticks->now);
+  ctx->ticks->now = next;
+}
+
+static inline void
 fd_stream_ctx_poll( fd_stream_ctx_t * ctx,
                     void *            tile_ctx ) {
   ctx->metrics->in_backp = 0UL;
@@ -267,7 +276,13 @@ fd_stream_ctx_run_loop( fd_stream_ctx_t * ctx,
 
     /* equivalent of after credit */
     if( ctx->tile_run ) {
-      ctx->tile_run( tile_ctx, ctx );
+      int poll_in = 1;
+      ctx->tile_run( tile_ctx, ctx, &poll_in );
+
+      if( FD_UNLIKELY( !poll_in ) ) {
+        fd_stream_ctx_advance_skip_poll( ctx );
+        continue;
+      }
     }
 
     fd_stream_ctx_poll( ctx, tile_ctx );

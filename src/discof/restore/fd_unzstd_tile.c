@@ -7,13 +7,13 @@
 
 #define NAME "unzstd"
 #define ZSTD_WINDOW_SZ (33554432UL)
+#define ZSTD_FRAME_SZ 16384UL
 #define LINK_IN_MAX 1
 
 struct fd_unzstd_tile {
   fd_stream_frag_meta_ctx_t in_state; /* input mcache context */
   fd_zstd_dstream_t *       dstream;  /* zstd decompress reader */
   fd_stream_writer_t *      writer;   /* stream writer object */
-  ulong const volatile *    shutdown_signal;
 };
 typedef struct fd_unzstd_tile fd_unzstd_tile_t;
 
@@ -35,6 +35,10 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+
+  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
+
   fd_unzstd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_unzstd_tile_t), sizeof(fd_unzstd_tile_t) );
   void * zstd_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_zstd_dstream_align(), fd_zstd_dstream_footprint( ZSTD_WINDOW_SZ ) );
 
@@ -55,8 +59,9 @@ fd_unzstd_init_from_stream_ctx( void * _ctx,
   fd_unzstd_tile_t * ctx = fd_type_pun(_ctx);
 
   /* There's only one writer */
-  ctx->writer = stream_ctx->writers[0];
-  ctx->shutdown_signal = fd_mcache_seq_laddr_const( stream_ctx->in[0].base.mcache->f ) + 2;
+  ctx->writer = fd_stream_writer_join( stream_ctx->writers[0] );
+  FD_TEST( ctx->writer );
+  fd_stream_writer_set_frag_sz_max( ctx->writer, ZSTD_FRAME_SZ );
 }
 
 __attribute__((noreturn)) static void
@@ -71,10 +76,10 @@ fd_unzstd_shutdown( fd_unzstd_tile_t * ctx ) {
 static void
 fd_unzstd_poll_shutdown( fd_stream_ctx_t *      stream_ctx,
                          fd_unzstd_tile_t *     ctx ) {
-  ulong const in_seq_max = FD_VOLATILE_CONST( *ctx->shutdown_signal );
-  if( FD_UNLIKELY( in_seq_max == stream_ctx->in[ 0 ].base.seq && in_seq_max != 0) ) {
+  ulong shutdown_seq = fd_stream_reader_poll_shutdown( stream_ctx->in_ptrs[0] );
+  if( FD_UNLIKELY( shutdown_seq ) ) {
     FD_LOG_WARNING(( "zstd shutting down! in_seq_max is %lu in[0].base.seq is %lu",
-                     in_seq_max, stream_ctx->in[0].base.seq));
+                     shutdown_seq, stream_ctx->in[0].base.seq));
     fd_unzstd_shutdown( ctx );
   }
 }

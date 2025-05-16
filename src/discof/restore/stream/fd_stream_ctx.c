@@ -18,7 +18,7 @@ fd_stream_ctx_footprint( fd_topo_t const *      topo,
   l = FD_LAYOUT_APPEND( l, alignof(fd_stream_reader_t *), in_cnt*sizeof(fd_stream_reader_t *) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_map_t),       fd_event_map_footprint( in_cnt, out_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_stream_writer_t *), out_cnt*sizeof(fd_stream_writer_t *) );
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+  for( ulong i=0UL; i<out_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
     ulong writer_fp = fd_stream_writer_footprint( fd_topo_link_reliable_consumer_cnt( topo, link ) );
     FD_TEST( writer_fp );
@@ -53,7 +53,7 @@ fd_stream_ctx_new( void *                 mem,
   void * event_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_event_map_align(),          fd_event_map_footprint( in_cnt, out_cnt ) );
   self->writers        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stream_writer_t *), out_cnt*sizeof(fd_stream_writer_t *) );
 
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+  for( ulong i=0UL; i<out_cnt; i++ ) {
     fd_topo_link_t const * link     = &topo->links[ tile->out_link_id[ i ] ];
     ulong const            cons_cnt = fd_topo_link_reliable_consumer_cnt( topo, link );
     void *                 writer   = FD_SCRATCH_ALLOC_APPEND( l, fd_stream_writer_align(), fd_stream_writer_footprint( cons_cnt ) );
@@ -91,19 +91,10 @@ fd_stream_ctx_new( void *                 mem,
     self->in_ptrs[ i ] = &self->in[ i ];
   }
 
-  /* init writers */
-  for( ulong i=0UL; i<self->out_cnt; i++ ) {
-    fd_stream_writer_new_topo(
-        self->writers[i],
-        self->out_cnt,
-        topo,
-        tile,
-        i
-    );
-  }
-
   fd_stream_ticks_init( self->ticks, self->event_map->event_cnt, 1e3L );
   fd_stream_metrics_init( self->metrics );
+
+  /* FIXME: rng seed should not be 0 */
   FD_TEST( fd_rng_join( fd_rng_new( self->rng, 0, 0UL ) ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_stream_ctx_align() );

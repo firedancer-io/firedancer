@@ -48,6 +48,8 @@ fd_stream_writer_new( void *                  mem,
   writer->cons_max = cons_max;
   /* writer->out_sync already set */
 
+  FD_COMPILER_MFENCE();
+  writer->magic = FD_STREAM_WRITER_MAGIC;
   return writer;
 }
 
@@ -68,7 +70,7 @@ fd_stream_writer_register_consumer(
   }
 
   ulong const cons_idx = writer->cons_cnt++;
-  ulong * seq = writer->cons_seq + ( cons_idx*FD_STREAM_WRITER_CONS_SEQ_STRIDE+0 );
+  ulong * seq = writer->cons_seq + ( cons_idx*FD_STREAM_WRITER_CONS_SEQ_STRIDE );
   writer->cons_fseq[ cons_idx ] = fd_type_pun( fseq_join );
   seq[ 0 ] = FD_VOLATILE_CONST( fseq_join[ 0 ] );
   seq[ 1 ] = FD_VOLATILE_CONST( fseq_join[ 1 ] );
