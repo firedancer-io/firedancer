@@ -82,7 +82,6 @@ test_eqvoc_proof_from_chunks( fd_eqvoc_t * eqvoc,
     chunks[chunk_idx].num_chunks  = chunk_cnt;
     chunks[chunk_idx].chunk_len   = chunk_len;
     chunks[chunk_idx].chunk_index = chunk_idx;
-    chunks[chunk_idx].chunk       = fd_alloc_malloc( alloc, 1, chunk_len );
   }
 
   uchar shred1_ascii[6] = { 0x73, 0x68, 0x72, 0x65, 0x64, 0x31 };
@@ -183,9 +182,6 @@ test_eqvoc_proof_to_chunks( FD_PARAM_UNUSED fd_eqvoc_t * eqvoc,
   chunk_cnt       = fd_ulong_if( (int)( sz % chunk_len ), chunk_cnt + 1, chunk_cnt );
 
   fd_gossip_duplicate_shred_t duplicate_shreds[chunk_cnt];
-  for( ulong i = 0; i < chunk_cnt; i++ ) {
-    duplicate_shreds[i].chunk = fd_alloc_malloc( alloc, 1, chunk_len );
-  }
 
   fd_eqvoc_proof_t proof = { 0 };
   proof.producer = producer;

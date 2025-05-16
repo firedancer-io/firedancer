@@ -5,6 +5,16 @@
 #include <math.h>
 
 static const double FD_BLOOM_LN_2 = 0.69314718055994530941723212145818;
+static ulong
+fnv_hasher( uchar const * ele,
+            ulong         ele_sz,
+            ulong         key ) {
+  for( ulong i=0UL; i<ele_sz; i++ ) {
+    key ^= (ulong)ele[i];
+    key *= 1099511628211UL; /* FNV prime */
+  }
+  return key;
+}
 
 FD_FN_CONST ulong
 fd_bloom_align( void ) {
@@ -49,7 +59,7 @@ fd_bloom_new( void *     shmem,
   if( FD_UNLIKELY( false_positive_rate>=1.0 ) ) return NULL;
 
   if( FD_UNLIKELY( max_bits<1UL || max_bits>32768UL ) ) return NULL;
-  
+
   if( FD_UNLIKELY( !rng ) ) return NULL;
 
   ulong num_keys = (ulong)( (double)max_bits*FD_BLOOM_LN_2 );
@@ -111,19 +121,15 @@ fd_bloom_initialize( fd_bloom_t * bloom,
   bloom->keys_len = num_keys;
   bloom->bits_len = (ulong)num_bits;
   fd_memset( bloom->bits, 0, (ulong)((num_bits+7UL)/8UL) );
-
-  bloom->hash_seed = fd_rng_ulong( bloom->rng );
 }
 
 void
 fd_bloom_insert( fd_bloom_t *  bloom,
                  uchar const * key,
                  ulong         key_sz ) {
-  ulong hash = fd_hash( bloom->hash_seed, key, key_sz );
-
   for( ulong i=0UL; i<bloom->keys_len; i++ ) {
-    ulong bit = (hash ^ bloom->keys[ i ]) % bloom->bits_len;
-    bloom->bits[ bit / 8UL ] |= (1UL << (bit % 8UL));
+    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ]) % bloom->bits_len;
+    bloom->bits[ bit / 64UL ] |= (1UL << (bit % 64UL));
   }
 }
 
@@ -131,12 +137,36 @@ int
 fd_bloom_contains( fd_bloom_t *  bloom,
                    uchar const * key,
                    ulong         key_sz ) {
-  ulong hash = fd_hash( bloom->hash_seed, key, key_sz );
   for( ulong i=0UL; i<bloom->keys_len; i++ ) {
-    ulong bit = (hash ^ bloom->keys[ i ]) % bloom->bits_len;
-    if( !(bloom->bits[ bit / 8UL ] & (1UL << (bit % 8UL))) ) {
+    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ]) % bloom->bits_len;
+    if( !(bloom->bits[ bit / 64UL ] & (1UL << (bit % 64UL))) ) {
       return 0;
     }
   }
   return 1;
+}
+
+int
+fd_bloom_init_inplace( ulong *      keys,
+                       ulong *      bits,
+                       ulong        keys_len,
+                       ulong        bits_len,
+                       ulong        hash_seed,
+                       fd_rng_t *   rng,
+                       double       false_positive_rate,
+                       fd_bloom_t * out_bloom ) {
+  if( FD_UNLIKELY( !keys || !bits || !out_bloom ) ) {
+    FD_LOG_ERR(( "NULL keys, bits or out_bloom" ));
+    return -1;
+  }
+  out_bloom->keys                = keys;
+  out_bloom->keys_len            = keys_len;
+  out_bloom->bits                = bits;
+  out_bloom->bits_len            = bits_len;
+  out_bloom->hash_seed           = hash_seed;
+  out_bloom->rng                 = rng;
+  out_bloom->false_positive_rate = false_positive_rate;
+  out_bloom->max_bits            = bits_len;
+
+  return 0;
 }

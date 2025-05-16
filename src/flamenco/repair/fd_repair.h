@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_repair_fd_repair_h
 #define HEADER_fd_src_flamenco_repair_fd_repair_h
 
-#include "../gossip/fd_gossip.h"
+#include "../gossip/fd_gossip_types.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../disco/metrics/generated/fd_metrics_repair.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -22,7 +22,7 @@
 #define FD_REPAIR_SCRATCH_DEPTH  (1UL << 11UL)
 
 /* Max number of validators that can be actively queried */
-#define FD_ACTIVE_KEY_MAX (1<<12)
+#define FD_ACTIVE_KEY_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<20)
 /* Max number of sticky repair peers */
