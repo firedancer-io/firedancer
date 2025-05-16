@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_gossip_fd_crds_h
 
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_net_headers.h"
 
 struct fd_crds_value_private;
 typedef struct fd_crds_value_private fd_crds_value_t;
@@ -101,7 +102,7 @@ fd_crds_release( fd_crds_t *       crds,
 /* fd_crds_upserts checks if inserting the value into the CRDS would
    succeed.  An insert will fail if the value is already present in the
    CRDS with a newer timestamp, or if the value is not present. */
-
+int
 fd_crds_upserts( fd_crds_t *       crds,
                  fd_crds_value_t * value );
 

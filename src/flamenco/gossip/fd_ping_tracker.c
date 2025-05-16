@@ -202,6 +202,16 @@ fd_ping_tracker_join( void * shpt ) {
 }
 
 static void
+hash_ping_token( uchar const *         ping_token,
+                 uchar *               expected_pong_token,
+                 fd_sha256_t * sha ) {
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, ping_token, 32UL );
+  fd_sha256_fini( sha, expected_pong_token );
+}
+
+static void
 remove_tracking( fd_ping_tracker_t * ping_tracker,
                  fd_ping_peer_t *    peer ) {
   if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_INVALID ) )         invalid_list_ele_remove( ping_tracker->invalid, peer, ping_tracker->pool );
@@ -235,10 +245,7 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
     peer->state             = FD_PING_TRACKER_STATE_INVALID;
 
     for( ulong i=0UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( ping_tracker->rng );
-    fd_sha256_init( ping_tracker->sha );
-    fd_sha256_append( ping_tracker->sha, "SOLANA_PING_PONG", 16UL );
-    fd_sha256_append( ping_tracker->sha, peer->ping_token, 32UL );
-    fd_sha256_fini( ping_tracker->sha, peer->expected_pong_token );
+    hash_ping_token( peer->ping_token, peer->expected_pong_token, ping_tracker->sha );
 
     invalid_list_ele_push_head( ping_tracker->invalid, peer, ping_tracker->pool );
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
@@ -263,10 +270,7 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
       peer->next_ping_nanos = now;
       peer->state           = FD_PING_TRACKER_STATE_INVALID;
       for( ulong i=0UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( ping_tracker->rng );
-      fd_sha256_init( ping_tracker->sha );
-      fd_sha256_append( ping_tracker->sha, "SOLANA_PING_PONG", 16UL );
-      fd_sha256_append( ping_tracker->sha, peer->ping_token, 32UL );
-      fd_sha256_fini( ping_tracker->sha, peer->expected_pong_token );
+      hash_ping_token( peer->ping_token, peer->expected_pong_token, ping_tracker->sha );
       invalid_list_ele_push_head( ping_tracker->invalid, peer, ping_tracker->pool );
     }
   }
@@ -297,10 +301,6 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
   remove_tracking( ping_tracker, peer );
   peer->state = FD_PING_TRACKER_STATE_VALID;
   for( ulong i=0UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( ping_tracker->rng );
-  fd_sha256_init( ping_tracker->sha );
-  fd_sha256_append( ping_tracker->sha, "SOLANA_PING_PONG", 16UL );
-  fd_sha256_append( ping_tracker->sha, peer->ping_token, 32UL );
-  fd_sha256_fini( ping_tracker->sha, peer->expected_pong_token );
   waiting_list_ele_push_tail( ping_tracker->waiting, peer, ping_tracker->pool );
 }
 
@@ -374,4 +374,11 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     *out_token            = next->ping_token;
     return 1;
   }
+}
+
+void
+fd_ping_tracker_hash_ping_token( uchar const * token,
+                                 uchar *       hash ) {
+  fd_sha256_t sha[1];
+  hash_ping_token( token, hash, sha );
 }

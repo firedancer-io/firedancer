@@ -1,4 +1,8 @@
+#ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_types_h
+#define HEADER_fd_src_flamenco_gossip_fd_gossip_types_h
+
 #include "fd_gossip.h"
+#include "fd_crds_value.h"
 
 #define FD_GOSSIP_MESSAGE_PULL_REQUEST  (0)
 #define FD_GOSSIP_MESSAGE_PULL_RESPONSE (1)
@@ -6,6 +10,7 @@
 #define FD_GOSSIP_MESSAGE_PRUNE         (3)
 #define FD_GOSSIP_MESSAGE_PING          (4)
 #define FD_GOSSIP_MESSAGE_PONG          (5)
+#define FD_GOSSIP_MESSAGE_END           (6)
 
 #define FD_GOSSIP_VALUE_VOTE                          ( 1)
 #define FD_GOSSIP_VALUE_LOWEST_SLOT                   ( 2)
@@ -17,10 +22,10 @@
 #define FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK         (13)
 
 struct fd_gossip_bloom {
-  ulong   keys_len;
-  ulong * keys;
-  ulong   bits_len;
-  ulong * bits;
+  ulong keys_len;
+  ulong keys[ 150UL ]; /* max num keys if len(bits) == 1 */
+  ulong bits_len;
+  ulong bits[ 150UL ]; /* max num bits if len(keys) == 1 */
   ulong num_bits_set;
 };
 
@@ -34,28 +39,10 @@ struct fd_gossip_crds_filter {
 
 typedef struct fd_gossip_crds_filter fd_gossip_crds_filter_t;
 
-struct fd_gossip_crds_data {
-  uchar tag;
-  union {
-    fd_gossip_vote_t                          vote[ 1 ];
-    fd_gossip_lowest_slot_t                   lowest_slot[ 1 ];
-    fd_gossip_epoch_slots_t                   epoch_slots[ 1 ];
-    fd_gossip_duplicate_shred_t               duplicate_shred[ 1 ];
-    fd_gossip_snapshot_hashes_t               snapshot_hashes[ 1 ];
-    fd_gossip_contact_info_t                  contact_info[ 1 ];
-    fd_gossip_restart_last_voted_fork_slots_t restart_last_voted_fork_slots[ 1 ];
-    fd_gossip_restart_heaviest_fork_t         restart_heaviest_fork[ 1 ];
-  };
-};
 
 typedef struct fd_gossip_crds_data fd_gossip_crds_data_t;
 
-struct fd_gossip_crds_value {
-  uchar                 signature[ 64UL ];
-  fd_gossip_crds_data_t data[ 1 ];
-};
 
-typedef struct fd_gossip_crds_value fd_gossip_crds_value_t;
 
 struct fd_gossip_pull_request {
   fd_gossip_crds_filter_t filter[ 1 ];
@@ -65,47 +52,41 @@ struct fd_gossip_pull_request {
 typedef struct fd_gossip_pull_request fd_gossip_pull_request_t;
 
 struct fd_gossip_pull_response {
-  uchar                    sender_pubkey[ 32UL ];
-  ulong                    values_len;
-  fd_gossip_crds_value_t * values;
+  uchar sender_pubkey[ 32UL ];
+  ulong values_len;
+  // fd_gossip_crds_value_t   values[ ];
 };
 
 typedef struct fd_gossip_pull_response fd_gossip_pull_response_t;
 
 struct fd_gossip_push {
-  uchar                    sender_pubkey[ 32UL ];
-  ulong                    values_len;
-  fd_gossip_crds_value_t * values;
+  uchar sender_pubkey[ 32UL ];
+  ulong values_len;
+  // fd_gossip_crds_value_t values[ ];
 };
 
 typedef struct fd_gossip_push fd_gossip_push_t;
 
-struct fd_gossip_message_ping {
+struct fd_gossip_message_ping_pong {
   uchar from[ 32UL ];
-  uchar token[ 32UL ];
-  uchar signature[ 64UL ];
-};
-
-typedef struct fd_gossip_message_ping fd_gossip_ping_t;
-
-struct fd_gossip_message_pong {
-  uchar from[ 32UL ];
-  uchar hash[ 32UL ];
-  uchar signature[ 64UL ];
-};
-
-typedef struct fd_gossip_message_pong fd_gossip_pong_t;
-
-struct fd_gossip_message {
-  uchar tag;
-  union {
-    fd_gossip_pull_request_t  pull_request[ 1 ];
-    fd_gossip_pull_response_t pull_response[ 1 ];
-    fd_gossip_push_t          push[ 1 ];
-    fd_gossip_prune_t         prune[ 1 ];
-    fd_gossip_ping_t          ping[ 1 ];
-    fd_gossip_pong_t          pong[ 1 ];
+  union{
+    uchar hash[ 32UL ]; /* Hash of the last ping */
+    uchar token[ 32UL ]; /* Token to be used in the pong */
   };
+  uchar signature[ 64UL ];
 };
 
-typedef struct fd_gossip_message fd_gossip_message_t;
+typedef struct fd_gossip_message_ping_pong fd_gossip_ping_pong_t;
+
+struct fd_gossip_message_prune {
+  uchar from[ 32UL ];
+  ulong prunes_len;
+  uchar prunes[ 33UL ][ 32UL ]; /* 33 pubkeys fit in MTU (rounded down) */
+  uchar signature[ 64UL ];
+  uchar destination[ 32UL ];
+  ulong wallclock;
+
+};
+typedef struct fd_gossip_message_prune fd_gossip_prune_t;
+
+#endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_types_h */
