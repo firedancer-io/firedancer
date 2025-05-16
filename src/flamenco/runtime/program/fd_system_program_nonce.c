@@ -6,6 +6,7 @@
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../fd_executor.h"
+#include "../fd_bank_mgr.h"
 
 static int
 require_acct( fd_exec_instr_ctx_t * ctx,
@@ -72,7 +73,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_hash_t const * last_hash = ctx->txn_ctx->block_hash_queue.last_hash;
+  fd_hash_t const * last_hash = fd_block_hash_queue_last_hash_join( ctx->txn_ctx->block_hash_queue );
   if( FD_UNLIKELY( last_hash==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
@@ -215,7 +216,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = data->authority,
           .durable_nonce  = next_durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = ctx->txn_ctx->prev_lamports_per_signature
+            .lamports_per_signature = *(fd_bank_mgr_prev_lamports_per_signature_query( ctx->txn_ctx->bank_mgr ))
           }
         } }
       } }
@@ -578,7 +579,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = *authorized,
           .durable_nonce  = durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = ctx->txn_ctx->prev_lamports_per_signature
+            .lamports_per_signature = *(fd_bank_mgr_prev_lamports_per_signature_query( ctx->txn_ctx->bank_mgr ))
           }
         } }
       } }
@@ -875,8 +876,8 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_block_hash_queue_t hash_queue         = txn_ctx->block_hash_queue;
-  fd_hash_t *           last_blockhash     = hash_queue.last_hash;
+  fd_block_hash_queue_global_t const * hash_queue     = txn_ctx->block_hash_queue;
+  fd_hash_t *                          last_blockhash = fd_block_hash_queue_last_hash_join( hash_queue );
 
   /* check_transaction_age */
   fd_hash_t   next_durable_nonce   = {0};
@@ -888,7 +889,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   /* get_hash_info_if_valid. Check 151 hashes from the block hash queue and its
      age to see if it is valid. */
 
-  if( fd_executor_is_blockhash_valid_for_age( &hash_queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
+  if( fd_executor_is_blockhash_valid_for_age( hash_queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -999,7 +1000,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
               .authority      = state->inner.current.inner.initialized.authority,
               .durable_nonce  = next_durable_nonce,
               .fee_calculator = {
-                .lamports_per_signature = txn_ctx->prev_lamports_per_signature
+                .lamports_per_signature = *(fd_bank_mgr_prev_lamports_per_signature_query( txn_ctx->bank_mgr ))
               }
             } }
           } }

@@ -1,4 +1,5 @@
 #include "fd_sysvar.h"
+#include "../fd_bank_mgr.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "fd_sysvar_rent.h"
@@ -32,12 +33,16 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
   fd_acc_lamports_t lamports_after = fd_ulong_max( lamports_before, fd_rent_exempt_minimum_balance( &epoch_bank->rent, sz ) );
   rec->vt->set_lamports( rec, lamports_after );
 
+  ulong * capitalization = fd_bank_mgr_capitalization_modify( slot_ctx->bank_mgr );
+
   /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1826 */
-  if       ( lamports_after > lamports_before ) {
-    slot_ctx->slot_bank.capitalization += ( lamports_after - lamports_before );
+  if( lamports_after > lamports_before ) {
+    *capitalization += ( lamports_after - lamports_before );
   } else if( lamports_after < lamports_before ) {
-    slot_ctx->slot_bank.capitalization -= ( lamports_before - lamports_after );
+    *capitalization -= ( lamports_before - lamports_after );
   }
+
+  fd_bank_mgr_capitalization_save( slot_ctx->bank_mgr );
 
   rec->vt->set_data_len( rec, sz );
   rec->vt->set_owner( rec, owner );
