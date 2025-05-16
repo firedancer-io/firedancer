@@ -1084,79 +1084,6 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 
 }
 
-static int
-suppress_notify( const fd_pubkey_t * prog ) {
-  /* Certain accounts are just noise and a waste of notification bandwidth */
-  if( !memcmp( prog, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return 1;
-  } else if( !memcmp( prog, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return 1;
-  } else if( !memcmp( prog, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return 1;
-  } else {
-    return 0;
-  }
-}
-
-static void
-publish_account_notifications( fd_replay_tile_ctx_t * ctx,
-                               fd_fork_t *            fork,
-                               ulong                  curr_slot,
-                               fd_txn_p_t const *     txns,
-                               ulong                  txn_cnt ) {
-  if( FD_LIKELY( !ctx->notif_out_mcache ) ) return;
-
-  long notify_time_ns = -fd_log_wallclock();
-#define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
-#define NOTIFY_END                                                      \
-  fd_mcache_publish( ctx->notif_out_mcache, ctx->notif_out_depth, ctx->notif_out_seq, \
-                      0UL, ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), 0UL, tsorig, tsorig ); \
-  ctx->notif_out_seq   = fd_seq_inc( ctx->notif_out_seq, 1UL );     \
-  ctx->notif_out_chunk = fd_dcache_compact_next( ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), \
-                                                  ctx->notif_out_chunk0, ctx->notif_out_wmark ); \
-  msg = NULL
-
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_replay_notif_msg_t * msg = NULL;
-
-  for( ulong i = 0; i < txn_cnt; ++i ) {
-      uchar const * raw = txns[i].payload;
-      fd_txn_t const * txn = TXN(txns + i);
-      ushort acct_cnt = txn->acct_addr_cnt;
-      const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
-      FD_TEST((void*)(accts + acct_cnt) <= (void*)(raw + txns[i].payload_sz));
-      fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
-      FD_TEST((void*)(sigs + txn->signature_cnt) <= (void*)(raw + txns[i].payload_sz));
-      for( ushort j = 0; j < acct_cnt; ++j ) {
-        if( suppress_notify( accts + j ) ) continue;
-        if( msg == NULL ) {
-          NOTIFY_START;
-          msg->type = FD_REPLAY_ACCTS_TYPE;
-          msg->accts.funk_xid = fork->slot_ctx->funk_txn->xid;
-          fd_memcpy( msg->accts.sig, sigs, sizeof(fd_ed25519_sig_t) );
-          msg->accts.accts_cnt = 0;
-        }
-        struct fd_replay_notif_acct * out = &msg->accts.accts[ msg->accts.accts_cnt++ ];
-        fd_memcpy( out->id, accts + j, sizeof(out->id) );
-        int writable = ((j < txn->signature_cnt - txn->readonly_signed_cnt) ||
-                        ((j >= txn->signature_cnt) && (j < acct_cnt - txn->readonly_unsigned_cnt)));
-        out->flags = (writable ? FD_REPLAY_NOTIF_ACCT_WRITTEN : FD_REPLAY_NOTIF_ACCT_NO_FLAGS );
-
-        if( msg->accts.accts_cnt == FD_REPLAY_NOTIF_ACCT_MAX ) {
-          NOTIFY_END;
-        }
-      }
-      if( msg ) {
-        NOTIFY_END;
-      }
-    }
-
-#undef NOTIFY_START
-#undef NOTIFY_END
-  notify_time_ns += fd_log_wallclock();
-  FD_LOG_DEBUG(("TIMING: notify_account_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)notify_time_ns * 1e-6));
-}
-
 static void
 replay_plugin_publish( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t * stem,
@@ -1191,6 +1118,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_replay_notif_msg_t * msg = NULL;
 
+  FD_LOG_NOTICE(( "shred cnt %lu %lu", curr_slot, fork->slot_ctx->shred_cnt ));
   {
     NOTIFY_START;
     msg->type = FD_REPLAY_SLOT_TYPE;
@@ -1199,11 +1127,14 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.root = fd_fseq_query( ctx->published_wmark );
     msg->slot_exec.height = block_entry_block_height;
     msg->slot_exec.transaction_count = fork->slot_ctx->slot_bank.transaction_count;
+    msg->slot_exec.shred_cnt = fork->slot_ctx->shred_cnt;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
+    msg->slot_exec.ts = tsorig;
     NOTIFY_END;
   }
+  fork->slot_ctx->shred_cnt = 0UL;
 
 #undef NOTIFY_START
 #undef NOTIFY_END
@@ -1704,8 +1635,6 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
         FD_LOG_ERR(( "Unable to select a fork" ));
       }
 
-      publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
-
       /* dispatch dcache */
       ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -1869,6 +1798,7 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   ctx->slice_exec_ctx.mblks_rem  = FD_LOAD( ulong, ctx->mbatch );
   ctx->slice_exec_ctx.wmark      = sizeof(ulong);
   ctx->slice_exec_ctx.last_mblk_off = 0;
+  fork->slot_ctx->shred_cnt    += data_cnt;
 
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));

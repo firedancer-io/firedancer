@@ -81,15 +81,23 @@ metric introduced.
     <counter name="XdpTxRingEmptyDescs" summary="xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring" />
 </tile>
 
+<enum name="SockErr">
+    <int value="0" name="NoError" label="No error" />
+    <int value="1" name="Slow" label="ENOBUFS, EAGAIN error" />
+    <int value="2" name="Perm" label="EPERM error (blocked by netfilter)" />
+    <int value="3" name="Unreach" label="ENETUNREACH, EHOSTUNREACH error" />
+    <int value="4" name="Down" label="ENONET, ENETDOWN, EHOSTDOWN error" />
+    <int value="3" name="Other" label="Unrecognized error code" />
+</enum>
+
 <tile name="sock">
-    <counter name="SyscallsSendmmsg" summary="Number of sendmmsg syscalls dispatched" />
+    <counter name="SyscallsSendmmsg" enum="SockErr" summary="Number of sendmmsg syscalls dispatched" />
     <counter name="SyscallsRecvmmsg" summary="Number of recvmsg syscalls dispatched" />
     <counter name="RxPktCnt" summary="Number of packets received" />
     <counter name="TxPktCnt" summary="Number of packets sent" />
     <counter name="TxDropCnt" summary="Number of packets failed to send" />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
     <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
-    <counter name="TxPermissionErrorCnt" summary="Number of send attempts that failed with EPERM (e.g. due to nftables)" />
 </tile>
 
 <enum name="TpuRecvType">

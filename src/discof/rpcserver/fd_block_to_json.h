@@ -5,6 +5,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../discof/geyser/fd_replay_notif.h"
 
 typedef struct fd_webserver fd_webserver_t;
 
@@ -24,7 +25,8 @@ const char* fd_txn_to_json( fd_webserver_t * ws,
                             ulong raw_sz,
                             fd_rpc_encoding_t encoding,
                             long maxvers,
-                            enum fd_block_detail detail );
+                            enum fd_block_detail detail,
+                            fd_spad_t * spad );
 
 const char* fd_block_to_json( fd_webserver_t * ws,
                               fd_blockstore_t * blockstore,
@@ -32,12 +34,13 @@ const char* fd_block_to_json( fd_webserver_t * ws,
                               const char * call_id,
                               const uchar * blk_data,
                               ulong blk_sz,
-                              fd_block_info_t * meta,
-                              fd_hash_t * parent_hash,
+                              fd_replay_notif_msg_t * info,
+                              fd_replay_notif_msg_t * parent_info,
                               fd_rpc_encoding_t encoding,
                               long maxvers,
                               enum fd_block_detail detail,
-                              fd_block_rewards_t * rewards );
+                              fd_block_rewards_t * rewards,
+                              fd_spad_t * spad );
 
 #define FD_LONG_UNSET (1L << 63L)
 
@@ -47,6 +50,7 @@ const char* fd_account_to_json( fd_webserver_t * ws,
                                 uchar const * val,
                                 ulong val_sz,
                                 long off,
-                                long len );
+                                long len,
+                                fd_spad_t * spad );
 
 #endif /* HEADER_fd_src_discof_rpcserver_fd_block_to_json_h */

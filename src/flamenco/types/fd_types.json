@@ -2864,6 +2864,24 @@
         { "name": "secp256r1_instruction_signature_count", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79"
+    },
+    {
+      "name": "rent_paying",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports", "type": "ulong" },
+        { "name": "data_size", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "rent_state",
+      "type": "enum",
+      "variants": [
+        { "name": "uninitialized" },
+        { "name": "rent_paying", "type": "rent_paying" },
+        { "name": "rent_exempt" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15"
     }
   ]
 }

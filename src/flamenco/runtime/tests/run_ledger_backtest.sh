@@ -159,6 +159,7 @@ echo "
          snapshot = \"$SNAPSHOT\"
          cluster_version = \"$CLUSTER_VERSION\"
          enable_features = [ \"$ONE_OFFS\" ]
+         funk_file = \"$DUMP/$LEDGER/backtest.funk\"
      [tiles.gui]
          enabled = false
  [blockstore]
@@ -166,6 +167,7 @@ echo "
      block_max = 8192
      txn_max = 1048576
      alloc_max = 10737418240
+     file = \"$DUMP/$LEDGER/backtest.blockstore\"
  [funk]
      heap_size_gib = $FUNK_PAGES
      max_account_records = $INDEX_MAX
@@ -192,8 +194,10 @@ $OBJDIR/bin/firedancer-dev keys new vote --config ${DUMP_DIR}/${LEDGER}_backtest
 fi
 
 echo "Running backtest for $LEDGER"
+sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
+
 set -x
-  $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
+  sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
 
 { set +x; } &> /dev/null
 echo_notice "Finished on-demand ingest and replay\n"
@@ -203,6 +207,7 @@ echo "Log for ledger $LEDGER at $LOG"
 if grep -q "Rocksdb playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
 then
   :
+  exit 0
   #   rm $LOG
 else
   if [ -n "$TRASH_HASH" ]; then
@@ -214,4 +219,6 @@ else
   tail -40 $LOG
   echo_error "backtest test failed: $*"
   echo $LOG
+
+  exit 1
 fi

@@ -576,7 +576,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return l;
 }
 
-static void
+FD_FN_UNUSED static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));

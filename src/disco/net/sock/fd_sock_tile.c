@@ -436,33 +436,40 @@ static void
 flush_tx_batch( fd_sock_tile_t * ctx ) {
   ulong batch_cnt = ctx->batch_cnt;
   for( int j = 0; j < (int)batch_cnt; /* incremented in loop */ ) {
-    ctx->metrics.sys_sendmmsg_cnt++;
-
     int remain   = (int)batch_cnt - j;
     int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg + j, (uint)remain, MSG_DONTWAIT );
+    if( send_cnt>=0 ) {
+      ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_NO_ERROR_IDX ]++;
+    }
     if( FD_UNLIKELY( send_cnt < remain ) ) {
+      ctx->metrics.tx_drop_cnt++;
       if( FD_UNLIKELY( send_cnt < 0 ) ) {
         switch( errno ) {
-          case EAGAIN:
-          case ENOBUFS:
-            ctx->metrics.tx_drop_cnt++;
-            break;
-
-          case EPERM:
-            ctx->metrics.tx_permission_error_cnt++;
-            break;
-
-          default:
-            FD_LOG_ERR(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        case EAGAIN:
+        case ENOBUFS:
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_SLOW_IDX ]++;
+          break;
+        case EPERM:
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_PERM_IDX ]++;
+          break;
+        case ENETUNREACH:
+        case EHOSTUNREACH:
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_UNREACH_IDX ]++;
+          break;
+        case ENONET:
+        case ENETDOWN:
+        case EHOSTDOWN:
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_DOWN_IDX ]++;
+          break;
+        default:
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_OTHER_IDX ]++;
+          /* log with NOTICE, since flushing has a significant negative performance impact */
+          FD_LOG_NOTICE(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
         /* first message failed, so skip failing message and continue */
         j++;
       } else {
-        /* sent at least one, and error on ctx->batch_msg[send_cnt] is lost
-           so assume recoverable and continue */
-        ctx->metrics.tx_drop_cnt++;
-
         /* send_cnt succeeded, so skip those and also the failing message */
         j += send_cnt + 1;
 
@@ -624,13 +631,12 @@ after_credit( fd_sock_tile_t *    ctx,
 static void
 metrics_write( fd_sock_tile_t * ctx ) {
   FD_MCNT_SET( SOCK, SYSCALLS_RECVMMSG,       ctx->metrics.sys_recvmmsg_cnt     );
-  FD_MCNT_SET( SOCK, SYSCALLS_SENDMMSG,       ctx->metrics.sys_sendmmsg_cnt     );
+  FD_MCNT_ENUM_COPY( SOCK, SYSCALLS_SENDMMSG, ctx->metrics.sys_sendmmsg_cnt     );
   FD_MCNT_SET( SOCK, RX_PKT_CNT,              ctx->metrics.rx_pkt_cnt           );
   FD_MCNT_SET( SOCK, TX_PKT_CNT,              ctx->metrics.tx_pkt_cnt           );
   FD_MCNT_SET( SOCK, TX_DROP_CNT,             ctx->metrics.tx_drop_cnt          );
   FD_MCNT_SET( SOCK, TX_BYTES_TOTAL,          ctx->metrics.tx_bytes_total       );
   FD_MCNT_SET( SOCK, RX_BYTES_TOTAL,          ctx->metrics.rx_bytes_total       );
-  FD_MCNT_SET( SOCK, TX_PERMISSION_ERROR_CNT, ctx->metrics.tx_permission_error_cnt );
 }
 
 static ulong

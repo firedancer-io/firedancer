@@ -50,7 +50,7 @@ void json_values_new(struct json_values* values);
 void json_values_delete(struct json_values* values);
 
 // Add a parsed value to a json_values
-void json_add_value(struct json_values* values, struct json_path* path, const void* data, ulong data_sz);
+void json_add_value(struct json_values* values, struct json_path* path, const void* data, ulong data_sz, fd_spad_t * spad);
 
 // Retrieve a value at a given path. A NULL is returned if the path
 // isn't found

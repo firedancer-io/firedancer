@@ -6,6 +6,7 @@
       "entrypoint.testnet.solana.com:8001",
       "entrypoint2.testnet.solana.com:8001",
       "entrypoint3.testnet.solana.com:8001",
+      "{validator_ip}:8001",
     ]
 [blockstore]
     shred_max = 16777216
@@ -13,6 +14,7 @@
     txn_max = 1048576
     idx_max = 8192
     alloc_max = 10737418240
+    file = "{blockstore_path}"
 [funk]
     heap_size_gib = 140
     max_account_records = 150000000
@@ -24,8 +26,8 @@
         repair_intake_listen_port = 9294
         repair_serve_listen_port = 8034
     [tiles.replay]
-        snapshot_url = "http://${VALIDATOR_IP}:8899/snapshot.tar.bz2"
-        incremental_url = "http://${VALIDATOR_IP}:8899/incremental-snapshot.tar.bz2"
+        snapshot_url = "http://{validator_ip}:8899/snapshot.tar.bz2"
+        incremental_url = "http://{validator_ip}:8899/incremental-snapshot.tar.bz2"
     [tiles.metric]
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = 7999
@@ -33,10 +35,10 @@
     vote = false
     expected_shred_version = 64475
 [paths]
-    identity_key = "${KEYS}/fd-identity-keypair.json"
-    vote_account = "${KEYS}/fd-vote-keypair.json"
+    identity_key = "{keys}/fd-identity-keypair.json"
+    vote_account = "{keys}/fd-vote-keypair.json"
 [log]
-    path = "${LEDGER_DIR}/firedancer-dev.log"
+    path = "{ledger_dir}/firedancer-dev.log"
     level_stderr = "INFO"
     level_logfile = "NOTICE"
 

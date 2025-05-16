@@ -467,8 +467,16 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
     txn_result->custom_error                      = 0;
     txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
     txn_result->has_fee_details                   = false;
+    txn_result->loaded_accounts_data_size         = task_info->txn_ctx->loaded_accounts_data_size;
 
     if( txn_result->sanitization_error ) {
+      /* Collect fees for transactions that failed to load */
+      if( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+        txn_result->has_fee_details                = true;
+        txn_result->fee_details.prioritization_fee = task_info->txn_ctx->priority_fee;
+        txn_result->fee_details.transaction_fee    = task_info->txn_ctx->execution_fee;
+      }
+
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
       /* If exec_res was an instruction error and we have a sanitization error, it was a precompile error */
         txn_result->instruction_error       = (uint32_t) -txn_ctx->exec_err;
@@ -509,8 +517,8 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
     }
 
     txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
-    txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
+    txn_result->fee_details.transaction_fee    = task_info->txn_ctx->execution_fee;
+    txn_result->fee_details.prioritization_fee = task_info->txn_ctx->priority_fee;
 
     /* Rent is only collected on successfully loaded transactions */
     txn_result->rent                           = txn_ctx->collected_rent;
@@ -537,18 +545,27 @@ fd_runtime_fuzz_txn_run( fd_runtime_fuzz_runner_t * runner,
       abort();
     }
 
-    /* Capture borrowed accounts */
-    for( ushort j=0; j < txn_ctx->accounts_cnt; j++ ) {
-      fd_txn_account_t * acc = &txn_ctx->accounts[j];
+    /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
+    fd_txn_account_t * accounts_to_save = txn_ctx->accounts;
+    ulong              accounts_cnt     = txn_ctx->accounts_cnt;
+    if( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+      accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
+      accounts_cnt     = 0UL;
 
-      /* For fees-only transactions, only save the fee payer (and potentially the nonce) only */
-      if( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
-        if( j!=FD_FEE_PAYER_TXN_IDX && j!=task_info->txn_ctx->nonce_account_idx_in_txn ) {
-          continue;
-        }
+      if( FD_LIKELY( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+        accounts_to_save[accounts_cnt++] = *txn_ctx->rollback_fee_payer_account;
       }
 
-      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
+        accounts_to_save[accounts_cnt++] = *txn_ctx->rollback_nonce_account;
+      }
+    }
+
+    /* Capture borrowed accounts */
+    for( ulong j=0UL; j<accounts_cnt; j++ ) {
+      fd_txn_account_t * acc = &accounts_to_save[j];
+
+      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( acc->vt->is_mutable( acc ) );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;

@@ -146,7 +146,7 @@ main( int     argc,
       uint val = (fd_rng_uint( rng )<<2) | 1U;
       rrec->val = val;
 
-      memcpy( fd_funk_val_truncate( trec, sizeof(val), alloc, wksp, NULL ), &val, sizeof(val) );
+      memcpy( fd_funk_val_truncate( trec, alloc, wksp, 0UL, sizeof(val), NULL ), &val, sizeof(val) );
 
       fd_funk_rec_publish( tst, prepare );
 

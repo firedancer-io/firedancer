@@ -187,7 +187,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
         FD_SPIN_PAUSE();
       }
       FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-        fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info, ctx->spad, ctx->wksp );
+        fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info, ctx->spad );
       } FD_SPAD_FRAME_END;
     }
     /* Notify the replay tile. */
