@@ -5,7 +5,7 @@
  * @kind problem
  * @problem.severity warning
  * @precision high
- * @id asymmetric-research/account-meta-deref-before-modify
+ * @id asymmetric-research/account-vtable-mismatch
  */
 
 import cpp
