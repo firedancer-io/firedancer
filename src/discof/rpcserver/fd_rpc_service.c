@@ -245,6 +245,7 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   return slot_bank;
 }
 
+/*
 static const char *
 block_flags_to_confirmation_status( uchar flags ) {
   if( flags & (1U << FD_BLOCK_FLAG_FINALIZED) ) return "\"finalized\"";
@@ -252,6 +253,7 @@ block_flags_to_confirmation_status( uchar flags ) {
   if( flags & (1U << FD_BLOCK_FLAG_PROCESSED) ) return "\"processed\"";
   return "null";
 }
+*/
 
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
@@ -484,8 +486,6 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
 
   const char * err = fd_block_to_json(ws,
-                                      blockstore,
-                                      ctx->global->blockstore_fd,
                                       ctx->call_id,
                                       blk_data,
                                       blk_sz,
@@ -1305,7 +1305,6 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
                        ctx->global->last_slot);
 
@@ -1331,6 +1330,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_web_reply_sprintf(ws, "null");
       continue;
     }
+    /* FIXME
     fd_txn_map_t elem;
     uchar flags;
     if( fd_blockstore_txn_query_volatile( blockstore, ctx->global->blockstore_fd,  key, &elem, NULL, &flags, NULL ) ) {
@@ -1341,6 +1341,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
     // TODO other fields
     fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":%s}",
                          elem.slot, block_flags_to_confirmation_status(flags));
+    */
   }
 
   fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
@@ -1586,6 +1587,8 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
   }
+  (void)enc;
+#if 0  /* FIXME */
   fd_txn_map_t elem;
   long blk_ts;
   uchar blk_flags;
@@ -1620,6 +1623,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_method_error(ctx, -1, "%s", err);
     return 0;
   }
+#endif
   fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
 
   return 0;
