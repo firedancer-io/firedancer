@@ -219,7 +219,7 @@ fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred
 /* fd_eqvoc_proof_init initializes a new proof entry. */
 
 void
-fd_eqvoc_proof_init( fd_eqvoc_proof_t * proof, fd_pubkey_t const * producer, ulong wallclock, ulong chunk_cnt, ulong chunk_sz, void * bmtree_mem ) {
+fd_eqvoc_proof_init( fd_eqvoc_proof_t * proof, fd_pubkey_t const * producer, long wallclock, ulong chunk_cnt, ulong chunk_sz, void * bmtree_mem ) {
   proof->producer   = *producer;
   proof->bmtree_mem = bmtree_mem;
   proof->wallclock  = wallclock;
@@ -378,9 +378,8 @@ void
 fd_eqvoc_proof_to_chunks( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t * chunks_out ) {
   for (uchar i = 0; i < FD_EQVOC_PROOF_CHUNK_CNT; i++ ) {
     fd_gossip_duplicate_shred_t * chunk = &chunks_out[i];
-    chunk->duplicate_shred_index = i;
-    chunk->from = proof->key.hash;
-    chunk->wallclock = (ulong)fd_log_wallclock();
+    chunk->index = i;
+    chunk->wallclock = fd_log_wallclock();
     chunk->slot = proof->key.slot;
     chunk->num_chunks = FD_EQVOC_PROOF_CHUNK_CNT;
     chunk->chunk_len = FD_EQVOC_PROOF_CHUNK_SZ;

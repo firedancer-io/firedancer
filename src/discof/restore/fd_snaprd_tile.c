@@ -5,6 +5,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/gossip/fd_gossip_types.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -39,6 +40,10 @@
 
 #define SNAPRD_FILE_BUF_SZ (1024UL*1024UL) /* 1 MiB */
 
+#define IN_KIND_SNAPCTL (0)
+#define IN_KIND_GOSSIP  (1)
+#define MAX_IN_LINKS    (3)
+
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
@@ -63,6 +68,8 @@ struct fd_snaprd_tile {
     int   full_snapshot_fd;
     int   incremental_snapshot_fd;
   } local_out;
+
+  uchar in_kind[ MAX_IN_LINKS ];
 
   struct {
     ulong full_snapshot_slot;
@@ -99,6 +106,18 @@ struct fd_snaprd_tile {
   } metrics;
 
   struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+  } gossip_in;
+
+  struct {
+    fd_gossip_update_message_t tmp_upd_buf;
+    fd_contact_info_t *        ci_table;
+  } gossip;
+
+  struct {
     fd_wksp_t * wksp;
     ulong       chunk0;
     ulong       wmark;
@@ -118,9 +137,10 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),         fd_sshttp_footprint()          );
-  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),         fd_ssping_footprint( 65536UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
+  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
+  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -204,7 +224,7 @@ read_http_data( fd_snaprd_tile_t *  ctx,
     case FD_SSHTTP_ADVANCE_AGAIN: break;
     case FD_SSHTTP_ADVANCE_ERROR: {
       FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
       fd_ssping_invalidate( ctx->ssping, ctx->addr, now );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
@@ -378,7 +398,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
-        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
+        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), fd_ushort_bswap( best.port ) ));
         ctx->addr  = best;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
         fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, now );
@@ -445,7 +465,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap(ctx->addr.port) ));
       fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
@@ -474,6 +494,37 @@ after_credit( fd_snaprd_tile_t *  ctx,
   }
 }
 
+static int
+before_frag( fd_snaprd_tile_t * ctx FD_PARAM_UNUSED,
+             ulong              in_idx,
+             ulong              seq FD_PARAM_UNUSED,
+             ulong              sig ) {
+  if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ){
+    return !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
+              sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
+              sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES );
+  }
+  return 0;
+}
+
+static void
+during_frag( fd_snaprd_tile_t * ctx,
+             ulong              in_idx,
+             ulong              seq FD_PARAM_UNUSED,
+             ulong              sig FD_PARAM_UNUSED,
+             ulong              chunk,
+             ulong              sz,
+             ulong              ctl FD_PARAM_UNUSED) {
+  if( ctx->in_kind[ in_idx ]!= IN_KIND_GOSSIP ) return;
+
+  if( FD_UNLIKELY( chunk<ctx->gossip_in.chunk0 ||
+                   chunk>ctx->gossip_in.wmark ) ) {
+    FD_LOG_ERR(( "snaprd: unexpected chunk %lu", chunk ));
+  }
+  /* TODO: Size checks */
+  fd_memcpy( &ctx->gossip.tmp_upd_buf, fd_chunk_to_laddr( ctx->gossip_in.mem, chunk ), sz );
+}
+
 static void
 after_frag( fd_snaprd_tile_t *  ctx,
             ulong               in_idx,
@@ -484,18 +535,44 @@ after_frag( fd_snaprd_tile_t *  ctx,
             ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx;
+
   (void)seq;
   (void)tsorig;
   (void)tspub;
   (void)sz;
 
-  FD_TEST( sig==FD_SNAPSHOT_MSG_CTRL_ACK || sig==FD_SNAPSHOT_MSG_CTRL_MALFORMED );
+  if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) {
+    fd_gossip_update_message_t * msg = &ctx->gossip.tmp_upd_buf;
+    switch( msg->tag ) {
+      case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
+          fd_contact_info_t * cur      = &ctx->gossip.ci_table[ msg->contact_info.idx ];
+          fd_ip4_port_t       cur_addr = ctx->gossip.ci_table[ msg->contact_info.idx ].sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
+          if( cur_addr.l ){
+            fd_ssping_remove( ctx->ssping, cur_addr );
+          }
+          fd_contact_info_t * new = msg->contact_info.contact_info;
+          fd_ip4_port_t new_addr  = new->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
+          if( new_addr.l ) {
+            fd_ssping_add( ctx->ssping, new_addr );
+          }
+          *cur = *new;
+        }
+        break;
+      case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
+          fd_contact_info_t * cur  = &ctx->gossip.ci_table[ msg->contact_info_remove.idx ];
+          fd_ip4_port_t       addr = cur->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
+          if( addr.l ) {
+            fd_ssping_remove( ctx->ssping, addr );
+          }
+        }
+        break;
+      case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES:
+        /* TODO */
+        break;
+    }
 
-  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ACK ) ) ctx->ack_cnt++;
-  else {
-    FD_TEST( ctx->state!=FD_SNAPRD_STATE_SHUTDOWN &&
-             ctx->state!=FD_SNAPRD_STATE_COLLECTING_PEERS &&
-             ctx->state!=FD_SNAPRD_STATE_WAITING_FOR_PEERS );
+  } else {
+    FD_TEST( sig==FD_SNAPSHOT_MSG_CTRL_ACK || sig==FD_SNAPSHOT_MSG_CTRL_MALFORMED );
 
     switch( ctx->state) {
       case FD_SNAPRD_STATE_READING_FULL_FILE:
@@ -622,6 +699,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snaprd_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
   void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
   void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
+  // void * _gossip_peers_rx = FD_SCRATCH_ALLOC_APPEND( l, gossip_peers_rx_align(),    gossip_peers_rx_footprint()    );
+  void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
 
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
@@ -646,28 +725,47 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
   FD_TEST( ctx->sshttp );
 
-  if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
-    fd_ip4_port_t initial_peers[ 2UL ] = {
-      { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = 8899 },
-      { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = 8899 }, /* Solana testnet peer */
-    };
-    for( ulong i=0UL; i<2UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
-  } else if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "private" ) ) ) {
-    fd_ip4_port_t initial_peers[ 1UL ] = {
-      { .addr = FD_IP4_ADDR( 147, 28, 185, 47 ), .port = 8899 } /* A private cluster peer */
-    };
-    for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
-  } else if (FD_LIKELY( !strcmp( tile->snaprd.cluster, "mainnet" ) ) ) {
-    fd_ip4_port_t initial_peers[ 3UL ] = {
-      { .addr = FD_IP4_ADDR( 149, 255, 37 , 130 ), .port = 8899 },
-      { .addr = FD_IP4_ADDR( 34 , 1  , 238, 227 ), .port = 8899 },
-      { .addr = FD_IP4_ADDR( 34 , 1  , 139, 131 ), .port = 8899 }
-    };
-    for( ulong i=0UL; i<3UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
+  ctx->gossip.ci_table = _ci_table;
+  /* zero-out memory so that we can perform null checks in after_frag */
+  fd_memset( ctx->gossip.ci_table, 0, sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+
+  FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
+  uchar has_gossip_in = 0;
+  for( ulong i=0UL; i<(tile->in_cnt); i++ ){
+    fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
+    if( 0==strcmp( in_link->name, "gossip_out" ) ) {
+      has_gossip_in         = 1;
+      ctx->in_kind[ i ]     = IN_KIND_GOSSIP;
+      ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
+      ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
+      ctx->gossip_in.mtu    = in_link->mtu;
+    } else if( 0==strcmp( in_link->name, "snapdc_rd" ) ||
+               0==strcmp( in_link->name, "snapin_rd" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_SNAPCTL;
+    }
   }
-  else {
-    FD_LOG_ERR(( "unexpected cluster %s", tile->snaprd.cluster ));
+
+  if( FD_UNLIKELY( !has_gossip_in ) ) {
+    if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
+      FD_LOG_NOTICE(( "no gossip input link found, using initial peers for testnet" ));
+      fd_ip4_port_t initial_peers[ 2UL ] = {
+        { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = fd_ushort_bswap(8899) },
+        { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = fd_ushort_bswap(8899) }, /* Solana testnet peer */
+      };
+
+      for( ulong i=0UL; i<2UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
+    } else if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "private" ) ) ) {
+      fd_ip4_port_t initial_peers[ 1UL ] = {
+        { .addr = FD_IP4_ADDR( 147, 28, 185, 47 ), .port = fd_ushort_bswap( 8899 ) } /* A private cluster peer */
+      };
+
+      for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
+    } else {
+      FD_LOG_ERR(( "unexpected cluster %s", tile->snaprd.cluster ));
+    }
   }
+
 
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 
@@ -687,6 +785,8 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_BEFORE_FRAG     before_frag
+#define STEM_CALLBACK_DURING_FRAG     during_frag
 #define STEM_CALLBACK_AFTER_FRAG      after_frag
 
 #include "../../disco/stem/fd_stem.c"

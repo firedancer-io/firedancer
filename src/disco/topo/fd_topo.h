@@ -196,9 +196,10 @@ struct fd_topo_tile {
 
     struct {
       char identity_key_path[ PATH_MAX ];
+#     define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 
       ulong         entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ 16UL ];
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
       uint   ip_addr;
       int    has_expected_shred_version;
