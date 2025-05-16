@@ -7,43 +7,9 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "fd_pubkey_type.h"
 
-#define FD_HASH_FOOTPRINT (32UL)
-#define FD_HASH_ALIGN (8UL)
-#define FD_PUBKEY_FOOTPRINT FD_HASH_FOOTPRINT
-#define FD_PUBKEY_ALIGN FD_HASH_ALIGN
 #define FD_SIGNATURE_ALIGN (8UL)
-
-/* TODO this should not have packed alignment, but it's misused everywhere */
-
-union __attribute__((packed)) fd_hash {
-  uchar hash[ FD_HASH_FOOTPRINT ];
-  uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangeable
-
-  // Generic type specific accessors
-  ulong ul  [ FD_HASH_FOOTPRINT / sizeof(ulong) ];
-  uint  ui  [ FD_HASH_FOOTPRINT / sizeof(uint)  ];
-  uchar uc  [ FD_HASH_FOOTPRINT ];
-};
-typedef union fd_hash fd_hash_t;
-typedef union fd_hash fd_pubkey_t;
-
-FD_STATIC_ASSERT( sizeof(fd_hash_t) == sizeof(fd_bmtree_node_t), hash incompatibility ); /* various areas of Firedancer code use fd_hash_t as the type for merkle roots */
-
-FD_FN_PURE static inline int
-fd_hash_eq( fd_hash_t const * a,
-            fd_hash_t const * b ) {
-  return 0==memcmp( a, b, sizeof(fd_hash_t) );
-}
-
-FD_FN_PURE static inline int
-fd_hash_eq1( fd_hash_t a,
-             fd_hash_t b ) {
-  return
-    ( a.ul[0]==b.ul[0] ) & ( a.ul[1]==b.ul[1] ) &
-    ( a.ul[2]==b.ul[2] ) & ( a.ul[3]==b.ul[3] );
-}
-
 union fd_signature {
   uchar uc[ 64 ];
   ulong ul[  8 ];
