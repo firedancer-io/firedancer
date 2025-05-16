@@ -86,7 +86,6 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
-  slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
 
   /* Set up epoch context and epoch bank */
   /* TODO: Do we need any more of these? */
@@ -95,6 +94,10 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* All bank mgr stuff here. */
   fd_bank_mgr_t   bank_mgr_obj;
   fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  ulong * prev_slot = fd_bank_mgr_prev_slot_modify( bank_mgr );
+  *prev_slot = test_ctx->slot_ctx.prev_slot;
+  fd_bank_mgr_prev_slot_save( bank_mgr );
 
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
   ulong * max_tick_height = fd_bank_mgr_max_tick_height_modify( bank_mgr );
@@ -144,7 +147,8 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_memcpy( &epoch_bank->rent_epoch_schedule, val_epoch_schedule, sizeof(fd_epoch_schedule_t) );
   uchar * val_rent = fd_wksp_laddr_fast( runner->wksp, slot_ctx->sysvar_cache->gaddr_rent );
   fd_memcpy( &epoch_bank->rent, val_rent, sizeof(fd_rent_t) );
-  epoch_bank->stakes.epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->prev_slot, NULL );
+  prev_slot = fd_bank_mgr_prev_slot_query( bank_mgr );
+  epoch_bank->stakes.epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, *prev_slot, NULL );
 
   /* Update stake cache for epoch T */
   for( uint i=0U; i<test_ctx->epoch_ctx.stake_accounts_count; i++ ) {

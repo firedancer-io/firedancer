@@ -4,7 +4,7 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
-
+#include "../fd_bank_mgr.h"
 /* FIXME These constants should be header defines */
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L11 */
@@ -116,11 +116,14 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
     }
   }
 
+  ulong * prev_slot_bm = fd_bank_mgr_prev_slot_query( slot_ctx->bank_mgr );
+  ulong   prev_slot = !!prev_slot_bm ? *prev_slot_bm : 0UL;
+
   if( !found ) {
     // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
       .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
-      .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
+      .slot = prev_slot,   // parent_slot
     };
     FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
 

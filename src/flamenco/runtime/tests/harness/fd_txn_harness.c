@@ -85,9 +85,12 @@ fd_runtime_fuzz_txn_ctx_create( fd_runtime_fuzz_runner_t *         runner,
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
   slot_ctx->slot                                                      = slot;
-  slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
 
   /* Setup Bank manager */
+
+  ulong * prev_slot = fd_bank_mgr_prev_slot_modify( slot_ctx->bank_mgr );
+  *prev_slot = slot_ctx->slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
+  fd_bank_mgr_prev_slot_save( slot_ctx->bank_mgr );
 
   ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( slot_ctx->bank_mgr );
   *lamports_per_signature = 5000;

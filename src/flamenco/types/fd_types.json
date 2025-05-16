@@ -1232,7 +1232,6 @@
       "name": "slot_bank",
       "type": "struct",
       "fields": [
-        { "name": "prev_slot",                   "type": "ulong" },
         { "name": "banks_hash",                  "type": "hash" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "lthash",                      "type": "slot_lthash" },

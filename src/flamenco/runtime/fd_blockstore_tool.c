@@ -66,7 +66,6 @@ usage( void ) {
     fd_buf_shred_pool_reset( blockstore->shred_pool, 0 );                                \
     FD_TEST( blockstore );                                                               \
     fd_slot_bank_t slot_bank = {                                                         \
-        .prev_slot = 0,                                                                  \
         .banks_hash = { .hash = {0} },                                                   \
     };                                                                                   \
     fd_slot_bank_new( &slot_bank );                                                      \

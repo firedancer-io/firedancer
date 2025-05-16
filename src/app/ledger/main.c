@@ -350,7 +350,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   for( ulong slot = start_slot; slot<=ledger_args->end_slot && !aborted; ++slot ) {
 
-    ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
+    ulong * prev_slot_bm = fd_bank_mgr_prev_slot_query( ledger_args->slot_ctx->bank_mgr );
+    *prev_slot_bm = prev_slot;
+    fd_bank_mgr_prev_slot_save( ledger_args->slot_ctx->bank_mgr );
 
     FD_LOG_DEBUG(( "reading slot %lu", slot ));
 

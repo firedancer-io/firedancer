@@ -455,8 +455,9 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  ulong slot0 = (slot_ctx->slot_bank.prev_slot == 0) ? 0 :
-    slot_ctx->slot_bank.prev_slot + 1;   /* Accomodate skipped slots */
+  ulong * prev_slot = fd_bank_mgr_prev_slot_query( slot_ctx->bank_mgr );
+  ulong slot0 = ( *prev_slot == 0 ) ? 0 :
+    *prev_slot + 1;   /* Accomodate skipped slots */
   ulong slot1 = slot_ctx->slot;
 
   for( ulong s = slot0; s <= slot1; ++s ) {
@@ -4317,10 +4318,12 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   *block_height += 1UL;
   fd_bank_mgr_block_height_save( slot_ctx->bank_mgr );
 
+  ulong * prev_slot = fd_bank_mgr_prev_slot_query( slot_ctx->bank_mgr );
+
   if( slot_ctx->slot != 0UL ) {
     ulong             slot_idx;
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-    ulong             prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.prev_slot, &slot_idx );
+    ulong             prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, *prev_slot, &slot_idx );
     ulong             new_epoch  = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot, &slot_idx );
     if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
       /* The block after genesis has a height of 1. */
@@ -4476,7 +4479,9 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_save_slot_bank( slot_ctx );
 
-  slot_ctx->slot_bank.prev_slot = slot;
+  ulong * prev_slot = fd_bank_mgr_prev_slot_modify( slot_ctx->bank_mgr );
+  *prev_slot = slot;
+  fd_bank_mgr_prev_slot_save( slot_ctx->bank_mgr );
   // FIXME: this shouldn't be doing this, it doesn't work with forking. punting changing it though
   // slot_ctx->slot = slot+1UL;
 

@@ -1379,8 +1379,10 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx->epoch_ctx );
 
   /* if it is an epoch boundary, push out stake weights */
+
+  ulong * prev_slot = fd_bank_mgr_prev_slot_query( fork->slot_ctx->bank_mgr );
   if( fork->slot_ctx->slot != 0 ) {
-    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx->slot, fork->slot_ctx->slot_bank.prev_slot );
+    is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx->slot, *prev_slot );
   }
 
   fd_block_map_query_t query[1] = { 0 };
@@ -1391,7 +1393,10 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   // curr_block_info->in_poh_hash = fork->slot_ctx->slot_bank.poh;
   fd_block_map_publish( query );
 
-  fork->slot_ctx->slot_bank.prev_slot   = fork->slot_ctx->slot;
+  prev_slot = fd_bank_mgr_prev_slot_modify( fork->slot_ctx->bank_mgr );
+  *prev_slot = fork->slot_ctx->slot;
+  fd_bank_mgr_prev_slot_save( fork->slot_ctx->bank_mgr );
+
   fork->slot_ctx->slot        = curr_slot;
 
   ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( fork->slot_ctx->bank_mgr );
@@ -2002,7 +2007,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
                                ctx->slot_ctx->slot,
                                ctx->runtime_spad );
 
-    ctx->slot_ctx->slot_bank.prev_slot = 0UL;
+    ulong * prev_slot = fd_bank_mgr_prev_slot_modify( ctx->slot_ctx->bank_mgr );
+    *prev_slot = 0UL;
+    fd_bank_mgr_prev_slot_save( ctx->slot_ctx->bank_mgr );
     ctx->slot_ctx->slot      = 1UL;
 
     ulong hashcnt_per_slot = *(fd_bank_mgr_hashes_per_tick_query( ctx->slot_ctx->bank_mgr )) * *(fd_bank_mgr_ticks_per_slot_query( ctx->slot_ctx->bank_mgr ));
@@ -2029,7 +2036,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
                                             ctx->runtime_spad,
                                             &exec_para_ctx_block_finalize );
 
-    ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot                = 1UL;
     snapshot_slot                      = 1UL;
 
@@ -2050,7 +2056,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   }
 
   ctx->curr_slot     = snapshot_slot;
-  ctx->parent_slot   = ctx->slot_ctx->slot_bank.prev_slot;
+  ctx->parent_slot   = *fd_bank_mgr_prev_slot_query( ctx->slot_ctx->bank_mgr );
   ctx->snapshot_slot = snapshot_slot;
   ctx->blockhash     = ( fd_hash_t ){ .hash = { 0 } };
   ctx->flags         = EXEC_FLAG_READY_NEW;

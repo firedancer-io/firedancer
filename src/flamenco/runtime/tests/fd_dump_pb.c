@@ -483,7 +483,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   // fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) ); // TODO: dump here when process epoch happens after poh verification
   fd_memcpy( block_context->slot_ctx.parent_bank_hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_pubkey_t) );
   fd_memcpy( block_context->slot_ctx.parent_lt_hash, &slot_ctx->slot_bank.lthash.lthash, FD_LTHASH_LEN_BYTES );
-  block_context->slot_ctx.prev_slot                 = slot_ctx->slot_bank.prev_slot;
+  block_context->slot_ctx.prev_slot                 = *(fd_bank_mgr_prev_slot_query( bank_mgr ));
   block_context->slot_ctx.prev_lps                  = *(fd_bank_mgr_prev_lamports_per_signature_query( bank_mgr ));
   block_context->slot_ctx.prev_epoch_capitalization = *(fd_bank_mgr_capitalization_query( bank_mgr ));
 

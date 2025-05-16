@@ -252,6 +252,8 @@ fd_blockstore_init( fd_blockstore_t *      blockstore,
                     fd_slot_bank_t const * slot_bank,
                     ulong                  slot ) {
 
+  (void)slot_bank;
+
   if( fd_size_max < FD_BLOCKSTORE_ARCHIVE_MIN_SIZE ) {
     FD_LOG_ERR(( "archive file size too small" ));
     return NULL;
@@ -276,7 +278,6 @@ fd_blockstore_init( fd_blockstore_t *      blockstore,
   if ( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to prepare block map for slot %lu", smr ));
 
   ele->slot = smr;
-  ele->parent_slot    = slot_bank->prev_slot;
   memset( ele->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
   ele->child_slot_cnt = 0;
   // ele->in_poh_hash    = slot_bank->poh;
