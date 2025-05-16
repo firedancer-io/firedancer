@@ -197,7 +197,8 @@ fd_runtime_send_leader_schedule(fd_exec_slot_ctx_t * slot_ctx          FD_PARAM_
     ptr++;
   }
 
-  fd_ext_poh_publish_leader_schedule(memory.as_ptr(), 40 + stakes.len() as u64 * 40);
+  if( NULL != slot_ctx->epoch_ctx->hooks.publish_leader_schedule )
+    slot_ctx->epoch_ctx->hooks.publish_leader_schedule(slot_ctx->epoch_ctx->hooks.publish_leader_schedule_ctx, memory,  40UL + (stake_weight_cnt * 40UL));
 }
 
 void
