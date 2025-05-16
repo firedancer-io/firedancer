@@ -3,6 +3,7 @@
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../flamenco/gossip/fd_gossip_update_msg.h"
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "generated/fd_tower_tile_seccomp.h"
@@ -51,17 +52,15 @@ typedef struct {
   ulong        confirmed; /* highest confirmed slot (2/3 of stake has voted) */
   ulong        finalized; /* highest finalized slot (2/3 of stake has rooted) */
 
-  fd_hash_t                   bank_hash;
-  fd_hash_t                   block_hash;
-  fd_gossip_duplicate_shred_t duplicate_shred;
-  uchar                       duplicate_shred_chunk[FD_EQVOC_PROOF_CHUNK_SZ];
-  uchar *                     epoch_voters_buf;
-  char                        funk_file[PATH_MAX];
-  fd_funk_t                   funk[1];
-  fd_gossip_vote_t            gossip_vote;
-  fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
-  fd_tower_t *                scratch;
-  uchar *                     vote_ix_buf;
+  fd_hash_t                       bank_hash;
+  fd_hash_t                       block_hash;
+  fd_gossip_upd_duplicate_shred_t duplicate_shred;
+  fd_gossip_upd_vote_t            vote;
+  uchar *                         epoch_voters_buf;
+  char                            funk_file[PATH_MAX];
+  fd_funk_t                       funk[1];
+  fd_lockout_offset_t             lockouts[FD_TOWER_VOTE_MAX];
+  fd_tower_t *                    scratch;
 } ctx_t;
 
 static void
@@ -201,6 +200,18 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     scratch_align() );
 }
 
+static inline int
+before_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq     FD_PARAM_UNUSED,
+             ulong   sig ) {
+  if( ctx->in_kind[in_idx]==IN_KIND_GOSSIP ){
+    return fd_gossip_update_message_sig_tag( sig )!=FD_GOSSIP_UPDATE_TAG_VOTE &&
+           fd_gossip_update_message_sig_tag( sig )!=FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
+  }
+  return 0;
+}
+
 static void
 during_frag( ctx_t * ctx,
              ulong   in_idx,
@@ -214,19 +225,19 @@ during_frag( ctx_t * ctx,
   switch( in_kind ) {
 
     case IN_KIND_GOSSIP: {
-      uchar const * chunk_laddr = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-      switch(sig) {
-        case fd_crds_data_enum_vote: {
-          memcpy( &ctx->vote_ix_buf[0], chunk_laddr, sz );
+      uchar const * chunk_laddr              = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+      fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( chunk_laddr );
+      switch( msg->tag ) {
+        case FD_GOSSIP_UPDATE_TAG_VOTE: {
+          ctx->vote = msg->vote;
           break;
         }
-        case fd_crds_data_enum_duplicate_shred: {
-          memcpy( &ctx->duplicate_shred, chunk_laddr, sizeof(fd_gossip_duplicate_shred_t) );
-          memcpy( ctx->duplicate_shred_chunk, chunk_laddr + sizeof(fd_gossip_duplicate_shred_t), FD_EQVOC_PROOF_CHUNK_SZ );
+        case FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED: {
+          ctx->duplicate_shred = msg->duplicate_shred;
           break;
         }
         default: {
-          FD_LOG_ERR(( "unexpected crds discriminant %lu", sig ));
+          FD_LOG_ERR(( "unexpected gossip update msg: %u", msg->tag ));
           break;
         }
       }
@@ -358,7 +369,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
-    if(        0==strcmp( link->name, "gossip_tower" ) ) {
+    if(        0==strcmp( link->name, "gossip_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
     } else if( 0==strcmp( link->name, "replay_tower" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
@@ -419,6 +430,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 
