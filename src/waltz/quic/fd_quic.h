@@ -148,6 +148,28 @@ typedef ulong
    immutable during an active join. */
 
 struct __attribute__((aligned(16UL))) fd_quic_config {
+  /* Used by tracing/logging code */
+#define FD_QUIC_CONFIG_ENUM_LIST_role(X,...) \
+  X( FD_QUIC_ROLE_CLIENT, "ROLE_CLIENT" )    \
+  X( FD_QUIC_ROLE_SERVER, "ROLE_SERVER" )
+
+#define FD_QUIC_CONFIG_LIST(X,...) \
+  X( role,                        "%d",     enum,  "enum",         __VA_ARGS__ ) \
+  X( retry,                       "%d",     bool,  "bool",         __VA_ARGS__ ) \
+  X( tick_per_us,                 "%f",     units, "ticks per ms", __VA_ARGS__ ) \
+  X( idle_timeout,                "%lu",    units, "ns",           __VA_ARGS__ ) \
+  X( keep_alive,                  "%d",     bool,  "bool",         __VA_ARGS__ ) \
+  X( ack_delay,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
+  X( ack_threshold,               "%lu",    units, "bytes",        __VA_ARGS__ ) \
+  X( retry_ttl,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
+  X( tls_hs_ttl,                  "%lu",    units, "ns",           __VA_ARGS__ ) \
+  X( identity_public_key,         "%x",     hex32, "",             __VA_ARGS__ ) \
+  X( sign,                        "%p",     ptr,   "",             __VA_ARGS__ ) \
+  X( sign_ctx,                    "%p",     ptr,   "",             __VA_ARGS__ ) \
+  X( keylog_file,                 "%s",     value, "",             __VA_ARGS__ ) \
+  X( initial_rx_max_stream_data,  "%lu",    units, "bytes",        __VA_ARGS__ ) \
+  X( net.dscp,                    "0x%02x", value, "",             __VA_ARGS__ )
+
   /* Protocol config ***************************************/
 
   /* role: one of FD_QUIC_ROLE_{CLIENT,SERVER} */
