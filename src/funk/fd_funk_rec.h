@@ -309,7 +309,7 @@ void
 fd_funk_rec_cancel( fd_funk_t *             funk,
                     fd_funk_rec_prepare_t * prepare );
 
-/* fd_funk_rec_clone copies a record from an ancestor transaction
+/* fd_funk_` copies a record from an ancestor transaction
    to create a new record in the given transaction. The record can be
    modified afterward and must then be published.
 

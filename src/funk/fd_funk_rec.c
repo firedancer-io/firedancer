@@ -396,6 +396,7 @@ fd_funk_rec_try_clone_safe( fd_funk_t *               funk,
   fd_funk_rec_prepare_t prepare[1];
   fd_funk_rec_t *       new_rec = fd_funk_rec_prepare( funk, txn, key, prepare, &err );
   if( FD_UNLIKELY( err ) ) {
+    __asm__("int $3");
     FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
   }
 

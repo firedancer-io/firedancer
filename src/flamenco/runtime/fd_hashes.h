@@ -152,12 +152,12 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 
 int
 fd_accounts_hash( fd_funk_t *             funk,
-                  fd_slot_bank_t *        slot_bank,
+                  ulong                   slot,
                   fd_hash_t *             accounts_hash,
                   fd_spad_t *             runtime_spad,
                   fd_features_t *         features,
                   fd_exec_para_cb_ctx_t * exec_para_ctx,
-                  fd_lthash_value_t *  lt_hash );
+                  fd_lthash_value_t *     lt_hash );
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version

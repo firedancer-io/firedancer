@@ -16,6 +16,8 @@ struct __attribute__((aligned(8UL))) fd_txn_account_private_state {
   ulong                     meta_gaddr;
   ulong                     data_gaddr;
 
+  int                       is_verified;
+
   /* Provide borrowing semantics.
      Used for single-threaded logic only, thus not comparable to a
      data synchronization lock. */
