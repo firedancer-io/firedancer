@@ -210,6 +210,7 @@ fd_topo_initialize( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
   ulong resolv_tile_cnt = config->layout.resolv_tile_count;
+  ulong alpenv_tile_cnt = config->layout.bls_verify_tile_count;
 
   int enable_rpc    = ( config->rpc.port != 0 );
   int enable_rstart = !!config->tiles.restart.enabled;
@@ -311,6 +312,14 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topob_wksp( topo, "writer_fseq" );
 
+  fd_topob_wksp( topo, "alpen" );
+  fd_topob_wksp( topo, "alpenv" );
+  fd_topob_wksp( topo, "replay_alpen" );
+  fd_topob_wksp( topo, "net_alpen" );
+  fd_topob_wksp( topo, "alpen_sign" );
+  fd_topob_wksp( topo, "sign_alpen" );
+  fd_topob_wksp( topo, "alpen_alpenv" );
+
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -394,6 +403,12 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "store_rstart", "store_rstart", 128UL,                                    sizeof(fd_funk_txn_xid_t),     1UL );
   }
 
+  /**/                 fd_topob_link( topo, "alpen_net",    "net_alpen",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "replay_alpen", "replay_alpen", 128UL,                                    32UL,                          1UL );
+  /**/                 fd_topob_link( topo, "alpen_sign",   "alpen_sign",   128UL,                                    FD_TXN_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "sign_alpen",   "sign_alpen",   128UL,                                    64UL,                          1UL );
+  /**/                 fd_topob_link( topo, "alpen_alpenv", "alpen_alpenv", 4096UL,                                   FD_TXN_MTU,                    1UL );
+
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
@@ -427,6 +442,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
+  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_alpen",  i, config->net.ingress_buffer_size );
 
   /*                                              topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_keyswitch */
   FOR(quic_tile_cnt)               fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
@@ -716,7 +732,20 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_gossi", 0UL                                                  );
     /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_store", 0UL                                                  );
   }
-  /**/                 fd_topob_tile_in(  topo, "alpen",  0UL,          "metric_in",   "replay_alpen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "replay_alpen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "net_alpen",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/             fd_topos_tile_in_net(  topo,                           "metric_in", "alpen_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_net",    0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "sign_alpen",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED ); /* Sync */
+  /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_alpen",   0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "alpen_sign",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_sign",   0UL                                                  );
+  FOR(alpenv_tile_cnt) fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "alpenv_alpen",   i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  FOR(alpenv_tile_cnt) fd_topob_tile_out( topo, "alpenv",     i,                       "alpenv_alpen",   i                                                  );
+  FOR(alpenv_tile_cnt) fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_alpenv",   i                                                  );
+  FOR(alpenv_tile_cnt) fd_topob_tile_in(  topo, "alpenv",     i,          "metric_in", "alpen_alpenv",   i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+
+
 
   if( config->tiles.archiver.enabled ) {
     fd_topob_wksp( topo, "arch_f" );

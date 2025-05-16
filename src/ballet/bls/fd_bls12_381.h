@@ -3,6 +3,9 @@
 
 #include "../fd_ballet_base.h"
 
+#define FD_BLS_SUCCESS ( 0) /* Operation was successful */
+#define FD_BLS_FAILURE (-1) /* Operation failed */
+
 FD_PROTOTYPES_BEGIN
 
 int

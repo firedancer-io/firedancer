@@ -462,6 +462,19 @@ user = ""
     # denial of service or spam attack.
     verify_tile_count = 6
 
+    # How many BLS verify tiles to run.  BLS verify tiles perform signature
+    # verification on incoming consensus messages, like votes and
+    # certificates.
+    #
+    # BLS verify tiles are designed to scale linearly when adding more
+    # tiles, and the BLS verify tile count should be increased as the
+    # number of Solana staked validators increases.
+    #
+    # On modern hardware, each verify tile can handle around ???
+    # transactions per second.  ??? tiles seem to be enough to handle
+    # current `mainnet-beta` traffic with <=2k staked validators.
+    bls_verify_tile_count = 2
+
     # How many bank tiles to run.  Should be set to 4.  Bank tiles
     # execute transactions, so the validator can include the results of
     # the transaction into a block when we are leader.  Because of

@@ -371,6 +371,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.resolv_tile_count                         );
   CFG_POP      ( uint,   layout.verify_tile_count                         );
+  CFG_POP      ( uint,   layout.bls_verify_tile_count                     );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
 

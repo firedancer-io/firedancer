@@ -70,7 +70,7 @@ fd_bls12_381_verify( uchar const   msg[], /* msg_sz */
   if( FD_LIKELY( blst_core_verify_pk_in_g1(
     point_pk, point_sig, hash_or_encode, msg, msg_sz, NULL, 0, NULL, 0
   )==BLST_SUCCESS ) ) {
-    return 0;
+    return FD_BLS_SUCCESS;
   }
   return -1;
 }
