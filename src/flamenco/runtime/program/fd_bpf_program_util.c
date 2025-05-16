@@ -82,17 +82,17 @@ static int
 fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t *    slot_ctx,
                                                               fd_txn_account_t *      program_acc,
                                                               uchar const **          program_data,
-                                                              ulong *                 program_data_len,
-                                                              fd_spad_t *             runtime_spad ) {
+                                                              ulong *                 program_data_len ) {
   FD_TXN_ACCOUNT_DECL( programdata_acc );
 
-  fd_bpf_upgradeable_loader_state_t * program_account_state =
-    fd_bincode_decode_spad(
-      bpf_upgradeable_loader_state, runtime_spad,
+  fd_bpf_upgradeable_loader_state_t program_account_state[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_flat(
+      program_account_state,
+      bpf_upgradeable_loader_state,
       program_acc->vt->get_data( program_acc ),
       program_acc->vt->get_data_len( program_acc ),
-      NULL );
-  if( FD_UNLIKELY( !program_account_state ) ) {
+      NULL
+  ) ) ) {
     return -1;
   }
   if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
@@ -182,7 +182,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
 
     int res;
     if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      res = fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_acc, &program_data, &program_data_len, runtime_spad );
+      res = fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_acc, &program_data, &program_data_len );
     } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
       res = fd_bpf_get_executable_program_content_for_v4_loader( program_acc, &program_data, &program_data_len );
     } else {
