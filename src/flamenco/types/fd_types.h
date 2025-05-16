@@ -1767,7 +1767,6 @@ typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
 struct fd_slot_bank {
   fd_vote_accounts_t epoch_stakes;
   fd_slot_lthash_t lthash;
-  fd_hash_t prev_banks_hash;
   fd_epoch_reward_status_t epoch_reward_status;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;

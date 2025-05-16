@@ -1234,7 +1234,6 @@
       "fields": [
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "lthash",                      "type": "slot_lthash" },
-        { "name": "prev_banks_hash",             "type": "hash" },
         { "name": "epoch_reward_status",         "type": "epoch_reward_status" }
       ]
     },

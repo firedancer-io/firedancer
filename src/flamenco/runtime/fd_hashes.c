@@ -240,7 +240,10 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
               ulong                   dirty_key_cnt ) {
 
   fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( slot_ctx->bank_mgr );
-  slot_ctx->slot_bank.prev_banks_hash = *bank_hash;
+
+  fd_hash_t * prev_bank_hash = fd_bank_mgr_prev_bank_hash_modify( slot_ctx->bank_mgr );
+  *prev_bank_hash = *bank_hash;
+  fd_bank_mgr_prev_bank_hash_save( slot_ctx->bank_mgr );
 
   ulong * signature_cnt_bm     = fd_bank_mgr_signature_cnt_query( slot_ctx->bank_mgr );
   ulong   signature_cnt        = !!signature_cnt_bm ? *signature_cnt_bm : 0UL;
@@ -303,7 +306,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
     fd_solcap_write_bank_preimage(
         capture_ctx->capture,
         hash->hash,
-        slot_ctx->slot_bank.prev_banks_hash.hash,
+        prev_bank_hash,
         FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, remove_accounts_delta_hash) ? NULL : slot_ctx->account_delta_hash.hash,
         lthash,
         poh,
@@ -320,7 +323,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
                     "last_blockhash:   %s\n",
                     slot_ctx->slot,
                     FD_BASE58_ENC_32_ALLOCA( hash->hash ),
-                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
+                    FD_BASE58_ENC_32_ALLOCA( prev_bank_hash ),
                     FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
                     signature_cnt,
                     FD_BASE58_ENC_32_ALLOCA( poh->hash ) ));
@@ -335,7 +338,7 @@ fd_hash_bank( fd_exec_slot_ctx_t *    slot_ctx,
                     "last_blockhash:   %s\n",
                     slot_ctx->slot,
                     FD_BASE58_ENC_32_ALLOCA( hash->hash ),
-                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
+                    FD_BASE58_ENC_32_ALLOCA( prev_bank_hash ),
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->account_delta_hash.hash ),
                     FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
                     signature_cnt,

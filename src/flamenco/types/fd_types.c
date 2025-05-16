@@ -9994,8 +9994,6 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_encode( &self->lthash, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_encode( &self->prev_banks_hash, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_reward_status_encode( &self->epoch_reward_status, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -10006,8 +10004,6 @@ static int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_slot_lthash_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_epoch_reward_status_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -10025,7 +10021,6 @@ static void fd_slot_bank_decode_inner( void * struct_mem, void * * alloc_mem, fd
   fd_slot_bank_t * self = (fd_slot_bank_t *)struct_mem;
   fd_vote_accounts_decode_inner( &self->epoch_stakes, alloc_mem, ctx );
   fd_slot_lthash_decode_inner( &self->lthash, alloc_mem, ctx );
-  fd_hash_decode_inner( &self->prev_banks_hash, alloc_mem, ctx );
   fd_epoch_reward_status_decode_inner( &self->epoch_reward_status, alloc_mem, ctx );
 }
 void * fd_slot_bank_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -10040,14 +10035,12 @@ void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_bank_t) );
   fd_vote_accounts_new( &self->epoch_stakes );
   fd_slot_lthash_new( &self->lthash );
-  fd_hash_new( &self->prev_banks_hash );
   fd_epoch_reward_status_new( &self->epoch_reward_status );
 }
 void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_bank", level++ );
   fd_vote_accounts_walk( w, &self->epoch_stakes, fun, "epoch_stakes", level );
   fd_slot_lthash_walk( w, &self->lthash, fun, "lthash", level );
-  fd_hash_walk( w, &self->prev_banks_hash, fun, "prev_banks_hash", level );
   fd_epoch_reward_status_walk( w, &self->epoch_reward_status, fun, "epoch_reward_status", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_bank", level-- );
 }
@@ -10055,7 +10048,6 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   ulong size = 0;
   size += fd_vote_accounts_size( &self->epoch_stakes );
   size += fd_slot_lthash_size( &self->lthash );
-  size += fd_hash_size( &self->prev_banks_hash );
   size += fd_epoch_reward_status_size( &self->epoch_reward_status );
   return size;
 }
