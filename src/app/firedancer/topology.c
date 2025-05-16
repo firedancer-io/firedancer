@@ -408,6 +408,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "alpen_sign",   "alpen_sign",   128UL,                                    FD_TXN_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "sign_alpen",   "sign_alpen",   128UL,                                    64UL,                          1UL );
   /**/                 fd_topob_link( topo, "alpen_alpenv", "alpen_alpenv", 4096UL,                                   FD_TXN_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "alpenv_alpen", "alpen_alpenv", 4096UL,                                   32UL,                          1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -459,6 +460,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "sender",  "voter",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                             fd_topob_tile( topo, "eqvoc",   "eqvoc",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                             fd_topob_tile( topo, "alpen",   "alpen",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
+  FOR(alpenv_tile_cnt)             fd_topob_tile( topo, "alpenv",  "alpenv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   fd_topo_tile_t * replay_tile =   fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(exec_tile_cnt)               fd_topob_tile( topo, "exec",    "exec",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
@@ -848,6 +851,11 @@ fd_topo_initialize( config_t * config ) {
       tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
       tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
       tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "alpen" ) ) ) {
+      strncpy( tile->alpen.identity_key_path, config->paths.identity_key, sizeof(tile->alpen.identity_key_path) );
+
+      tile->alpen.alpen_listen_port             = config->tiles.alpen.alpen_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
       strncpy( tile->store_int.blockstore_file,    config->firedancer.blockstore.file,        sizeof(tile->store_int.blockstore_file) );

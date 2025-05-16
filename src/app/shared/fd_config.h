@@ -343,6 +343,10 @@ struct fd_config {
     } shred;
 
     struct {
+      ushort alpen_listen_port;
+    } alpen;
+
+    struct {
       char   prometheus_listen_address[ 16 ];
       ushort prometheus_listen_port;
     } metric;

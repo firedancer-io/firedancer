@@ -148,6 +148,7 @@ typedef struct {
       int so_rcvbuf;
 
       ushort shred_listen_port;
+      ushort alpen_listen_port;
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
       ushort gossip_listen_port;
@@ -407,6 +408,7 @@ typedef struct {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
+      ushort alpen_listen_port;
     } alpen;
 
     struct {

@@ -971,6 +971,10 @@ user = ""
         # slots.
         additional_shred_destination = ""
 
+    # The alpen tile handles votes following the Alpenglow protocol.
+    [tiles.alpen]
+        alpen_listen_port = 8009
+
     # TODO: DOCS
     [tiles.repair]
         repair_intake_listen_port = 8701

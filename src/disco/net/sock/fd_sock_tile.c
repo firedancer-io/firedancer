@@ -181,6 +181,7 @@ privileged_init( fd_topo_t *      topo,
     (ushort)tile->net.legacy_transaction_listen_port,
     (ushort)tile->net.quic_transaction_listen_port,
     (ushort)tile->net.shred_listen_port,
+    (ushort)tile->net.alpen_listen_port,
     (ushort)tile->net.gossip_listen_port,
     (ushort)tile->net.repair_intake_listen_port,
     (ushort)tile->net.repair_serve_listen_port,
@@ -189,6 +190,7 @@ privileged_init( fd_topo_t *      topo,
     "net_quic",   /* legacy_transaction_listen_port */
     "net_quic",   /* quic_transaction_listen_port */
     "net_shred",  /* shred_listen_port (turbine) */
+    "net_alpen",  /* alpen_listen_port (alpenglow) */
     "net_gossip", /* gossip_listen_port */
     "net_shred",  /* shred_listen_port (repair) */
     "net_repair"  /* repair_serve_listen_port */
@@ -197,6 +199,7 @@ privileged_init( fd_topo_t *      topo,
     DST_PROTO_TPU_UDP,  /* legacy_transaction_listen_port */
     DST_PROTO_TPU_QUIC, /* quic_transaction_listen_port */
     DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
+    DST_PROTO_ALPEN,    /* alpen_listen_port (alpenglow) */
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
     DST_PROTO_SHRED,    /* shred_listen_port (repair) */
     DST_PROTO_REPAIR    /* repair_serve_listen_port */

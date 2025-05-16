@@ -196,6 +196,7 @@ typedef struct {
   uint   default_address;
   uint   bind_address;
   ushort shred_listen_port;
+  ushort alpen_listen_port;
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
   ushort gossip_listen_port;
@@ -207,6 +208,7 @@ typedef struct {
 
   fd_net_out_ctx_t quic_out[1];
   fd_net_out_ctx_t shred_out[1];
+  fd_net_out_ctx_t alpen_out[1];
   fd_net_out_ctx_t gossip_out[1];
   fd_net_out_ctx_t repair_out[1];
 
@@ -741,6 +743,9 @@ net_rx_packet( fd_net_ctx_t *      ctx,
   if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) ) {
     proto = DST_PROTO_SHRED;
     out = ctx->shred_out;
+  } else if( FD_UNLIKELY( udp_dstport==ctx->alpen_listen_port ) ) {
+    proto = DST_PROTO_ALPEN;
+    out = ctx->alpen_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->quic_transaction_listen_port ) ) {
     proto = DST_PROTO_TPU_QUIC;
     out = ctx->quic_out;
@@ -761,10 +766,11 @@ net_rx_packet( fd_net_ctx_t *      ctx,
 
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                   "Only the following ports should be configured to forward packets: "
-                  "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
+                  "%hu, %hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
                   "Please report this error to Firedancer maintainers.",
                   udp_dstport,
                   ctx->shred_listen_port,
+                  ctx->alpen_listen_port,
                   ctx->quic_transaction_listen_port,
                   ctx->legacy_transaction_listen_port,
                   ctx->gossip_listen_port,
@@ -1099,6 +1105,7 @@ privileged_init( fd_topo_t *      topo,
       (ushort)tile->net.legacy_transaction_listen_port,
       (ushort)tile->net.quic_transaction_listen_port,
       (ushort)tile->net.shred_listen_port,
+      (ushort)tile->net.alpen_listen_port,
       (ushort)tile->net.gossip_listen_port,
       (ushort)tile->net.repair_intake_listen_port,
       (ushort)tile->net.repair_serve_listen_port,
@@ -1146,6 +1153,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->bind_address                   = tile->net.bind_address;
   ctx->shred_listen_port              = tile->net.shred_listen_port;
+  ctx->alpen_listen_port              = tile->net.alpen_listen_port;
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
   ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
   ctx->gossip_listen_port             = tile->net.gossip_listen_port;
@@ -1181,6 +1189,12 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
       ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
       ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+    } else if( strcmp( out_link->name, "net_alpen" ) == 0 ) {
+      fd_topo_link_t * alpen_out = out_link;
+      ctx->alpen_out->mcache = alpen_out->mcache;
+      ctx->alpen_out->sync   = fd_mcache_seq_laddr( ctx->alpen_out->mcache );
+      ctx->alpen_out->depth  = fd_mcache_depth( ctx->alpen_out->mcache );
+      ctx->alpen_out->seq    = fd_mcache_seq_query( ctx->alpen_out->sync );
     } else if( strcmp( out_link->name, "net_gossip" ) == 0 ) {
       fd_topo_link_t * gossip_out = out_link;
       ctx->gossip_out->mcache = gossip_out->mcache;
@@ -1206,6 +1220,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* Check if any of the tiles we set a listen port for do not have an outlink. */
   if( FD_UNLIKELY( ctx->shred_listen_port!=0 && ctx->shred_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "shred listen port set but no out link was found" ));
+  } else if( FD_UNLIKELY( ctx->alpen_listen_port!=0 && ctx->alpen_out->mcache==NULL ) ) {
+    FD_LOG_ERR(( "alpen listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->quic_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
