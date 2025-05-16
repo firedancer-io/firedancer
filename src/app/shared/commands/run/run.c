@@ -4,7 +4,7 @@
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
 #if defined(__aarch64__)
-#include "generated/pidns.arm64_seccomp.h"
+#include "generated/pidns_arm64_seccomp.h"
 #else
 #include "generated/pidns_seccomp.h"
 #endif
@@ -336,7 +336,14 @@ main_pid_namespace( void * _args ) {
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
 
   struct sock_filter seccomp_filter[ 128UL ];
+  unsigned int instr_cnt;
+  #if defined(__aarch64__)
+  populate_sock_filter_policy_pidns_arm64( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
+  instr_cnt = sock_filter_policy_pidns_arm64_instr_cnt;
+  #else
   populate_sock_filter_policy_pidns( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
+  instr_cnt = sock_filter_policy_pidns_instr_cnt;
+  #endif
 
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
@@ -350,7 +357,7 @@ main_pid_namespace( void * _args ) {
                       0UL,
                       allow_fds_cnt,
                       allow_fds,
-                      sock_filter_policy_pidns_instr_cnt,
+                      instr_cnt,
                       seccomp_filter );
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
@@ -783,7 +790,7 @@ run_firedancer( config_t * config,
 
   run_firedancer_init( config, init_workspaces );
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__aarch64__)
 
 #ifndef SYS_landlock_create_ruleset
 #define SYS_landlock_create_ruleset 444

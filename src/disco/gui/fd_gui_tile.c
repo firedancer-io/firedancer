@@ -11,7 +11,7 @@
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 #if defined(__aarch64__)
-#include "generated/fd_gui_tile.arm64_seccomp.h"
+#include "generated/fd_gui_tile_arm64_seccomp.h"
 #else
 #include "generated/fd_gui_tile_seccomp.h"
 #endif
