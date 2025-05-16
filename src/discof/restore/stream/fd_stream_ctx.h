@@ -11,17 +11,29 @@
 struct fd_stream_ctx;
 typedef struct fd_stream_ctx fd_stream_ctx_t;
 
-typedef void fd_tile_ctx_init_run_loop_fn_t( void *            ctx,
-                                             fd_stream_ctx_t * stream_ctx );
-typedef void fd_tile_update_in_fn_t( fd_stream_reader_t * reader );
-typedef void fd_tile_housekeeping_fn_t( void *            ctx,
-                                        fd_stream_ctx_t * stream_ctx );
-typedef void fd_tile_metrics_write_fn_t( void * ctx );
-typedef void fd_tile_run_fn_t( void * ctx, fd_stream_ctx_t * stream_ctx );
-typedef int fd_tile_on_stream_frag_fn_t( void *                        ctx,
-                                         fd_stream_reader_t *          reader,
-                                         fd_stream_frag_meta_t const * frag,
-                                         ulong *                       sz );
+typedef void
+(* fd_tile_ctx_init_run_loop_fn_t)( void *            ctx,
+                                    fd_stream_ctx_t * stream_ctx );
+
+typedef void
+(* fd_tile_update_in_fn_t)( fd_stream_reader_t * reader );
+
+typedef void
+(* fd_tile_housekeeping_fn_t)( void *            ctx,
+                               fd_stream_ctx_t * stream_ctx );
+
+typedef void
+(* fd_tile_metrics_write_fn_t)( void * ctx );
+
+typedef void
+(* fd_tile_run_fn_t)( void *            ctx,
+                      fd_stream_ctx_t * stream_ctx );
+
+typedef int
+(* fd_tile_on_stream_frag_fn_t)( void *                        ctx,
+                                 fd_stream_reader_t *          reader,
+                                 fd_stream_frag_meta_t const * frag,
+                                 ulong *                       sz );
 
 struct fd_stream_ctx {
   fd_stream_reader_t *         in;
@@ -33,54 +45,38 @@ struct fd_stream_ctx {
   fd_rng_t                     rng[1];
   fd_stream_ticks_t            ticks[1];
   fd_stream_metrics_t          metrics[1];
-  fd_stream_writer_t *         writers;
-  fd_tile_update_in_fn_t *     tile_update_in;
-  fd_tile_housekeeping_fn_t *  tile_housekeeping;
-  fd_tile_metrics_write_fn_t * tile_metrics_write;
-  fd_tile_run_fn_t *           tile_run;
-  fd_tile_on_stream_frag_fn_t * tile_on_stream_frag;
+  fd_stream_writer_t **        writers;
+  fd_tile_update_in_fn_t       tile_update_in;
+  fd_tile_housekeeping_fn_t    tile_housekeeping;
+  fd_tile_metrics_write_fn_t   tile_metrics_write;
+  fd_tile_run_fn_t             tile_run;
+  fd_tile_on_stream_frag_fn_t  tile_on_stream_frag;
 };
 typedef struct fd_stream_ctx fd_stream_ctx_t;
 
 FD_PROTOTYPES_BEGIN
 
-FD_FN_PURE static inline ulong
-fd_stream_ctx_scratch_align( void ) {
-  return FD_STEM_SCRATCH_ALIGN;
-}
+FD_FN_PURE ulong
+fd_stream_ctx_align( void );
 
-FD_FN_PURE static inline ulong
-fd_stream_ctx_scratch_footprint( ulong in_cnt,
-                                 ulong out_cnt ) {
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stream_ctx_t),      sizeof(fd_stream_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stream_reader_t),   in_cnt*sizeof(fd_stream_reader_t)   );        /* in */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stream_reader_t *), in_cnt*sizeof(fd_stream_reader_t *) );        /* in_ptrs */
-  l = FD_LAYOUT_APPEND( l, fd_event_map_align(),          fd_event_map_footprint( in_cnt, out_cnt ) ); /* event_map */
-  return FD_LAYOUT_FINI( l, fd_stream_ctx_scratch_align() );
-}
+ulong
+fd_stream_ctx_footprint( fd_topo_t const *      topo,
+                         fd_topo_tile_t const * tile );
 
 fd_stream_ctx_t *
-fd_stream_ctx_new( void * mem,
-                   fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   ulong  in_cnt,
-                   ulong  out_cnt );
-
-void
-fd_stream_ctx_init( fd_stream_ctx_t * ctx,
-                    fd_topo_t *      topo,
-                    fd_topo_tile_t * tile );
+fd_stream_ctx_new( void *                 mem,
+                   fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile );
 
 static inline void
-fd_stream_ctx_init_run_loop( fd_stream_ctx_t *                ctx,
-                             void *                           tile_ctx,
-                             fd_tile_ctx_init_run_loop_fn_t * tile_init_run_loop,
-                             fd_tile_update_in_fn_t *         tile_update_in,
-                             fd_tile_housekeeping_fn_t *      tile_housekeeping,
-                             fd_tile_metrics_write_fn_t *     tile_metrics_write,
-                             fd_tile_run_fn_t *               tile_run,
-                             fd_tile_on_stream_frag_fn_t *    tile_on_stream_frag ) {
+fd_stream_ctx_init_run_loop( fd_stream_ctx_t *              ctx,
+                             void *                         tile_ctx,
+                             fd_tile_ctx_init_run_loop_fn_t tile_init_run_loop,
+                             fd_tile_update_in_fn_t         tile_update_in,
+                             fd_tile_housekeeping_fn_t      tile_housekeeping,
+                             fd_tile_metrics_write_fn_t     tile_metrics_write,
+                             fd_tile_run_fn_t               tile_run,
+                             fd_tile_on_stream_frag_fn_t    tile_on_stream_frag ) {
   if( ctx->in_cnt && !tile_update_in ) {
     FD_LOG_ERR(( "tile_update_in function cannot be null if there are producers to this tile!" ));
   }
@@ -98,20 +94,16 @@ fd_stream_ctx_init_run_loop( fd_stream_ctx_t *                ctx,
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   fd_stream_ticks_init_timer( ctx->ticks );
 
-  for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
-    fd_stream_writer_init_flow_control_credits( &ctx->writers[ i ] );
-  }
-
   if( tile_init_run_loop ) {
     tile_init_run_loop( tile_ctx, ctx );
   }
 }
 
 static inline void
-fd_stream_ctx_update_flow_control_credits( fd_stream_ctx_t * ctx ) {
+fd_stream_ctx_calculate_backpressure( fd_stream_ctx_t * ctx ) {
   /* Recalculate flow control credits */
   for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
-    fd_stream_writer_update_flow_control_credits( &ctx->writers[i] );
+    fd_stream_writer_calculate_backpressure( ctx->writers[i] );
   }
 }
 
@@ -139,7 +131,7 @@ fd_stream_ctx_do_housekeeping( fd_stream_ctx_t * ctx,
       ulong out_idx = event_idx;
 
       /* Receive flow control credits from this out. */
-      fd_stream_writer_receive_flow_control_credits( &ctx->writers[ out_idx ] );
+      fd_stream_writer_receive_flow_control_credits( ctx->writers[ out_idx ] );
 
     } else if( event_idx>ctx->out_cnt) { /* send credits */
       ulong in_idx = event_idx - ctx->out_cnt - 1UL;
@@ -152,7 +144,7 @@ fd_stream_ctx_do_housekeeping( fd_stream_ctx_t * ctx,
                                          ctx->ticks->now,
                                          ctx->tile_metrics_write,
                                          ctx );
-      fd_stream_ctx_update_flow_control_credits( ctx );
+      fd_stream_ctx_calculate_backpressure( ctx );
 
       if( ctx->tile_housekeeping ) {
         ctx->tile_housekeeping( tile_ctx, ctx );
@@ -178,7 +170,7 @@ static inline int
 fd_stream_ctx_is_backpressured( fd_stream_ctx_t * ctx ) {
   int backpressured = 1UL;
   for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
-    backpressured &= fd_stream_writer_is_backpressured( &ctx->writers[i] );
+    backpressured &= !fd_stream_writer_publish_sz_max( ctx->writers[i] );
   }
   return backpressured;
 }
@@ -283,14 +275,14 @@ fd_stream_ctx_run_loop( fd_stream_ctx_t * ctx,
 }
 
 static inline void
-fd_stream_ctx_run( fd_stream_ctx_t *                ctx,
-                   void *                           tile_ctx,
-                   fd_tile_ctx_init_run_loop_fn_t * tile_init_run_loop,
-                   fd_tile_update_in_fn_t *         tile_update_in,
-                   fd_tile_housekeeping_fn_t *      tile_housekeeping,
-                   fd_tile_metrics_write_fn_t *     tile_metrics_write,
-                   fd_tile_run_fn_t *               tile_run,
-                   fd_tile_on_stream_frag_fn_t *    tile_on_stream_frag ) {
+fd_stream_ctx_run( fd_stream_ctx_t *              ctx,
+                   void *                         tile_ctx,
+                   fd_tile_ctx_init_run_loop_fn_t tile_init_run_loop,
+                   fd_tile_update_in_fn_t         tile_update_in,
+                   fd_tile_housekeeping_fn_t      tile_housekeeping,
+                   fd_tile_metrics_write_fn_t     tile_metrics_write,
+                   fd_tile_run_fn_t               tile_run,
+                   fd_tile_on_stream_frag_fn_t    tile_on_stream_frag ) {
   fd_stream_ctx_init_run_loop( ctx,
                                tile_ctx,
                                tile_init_run_loop,

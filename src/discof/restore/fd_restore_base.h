@@ -8,19 +8,19 @@
 
 union fd_stream_frag_meta {
 
-struct {
+  struct {
 
-  ulong  seq;     /* frag sequence number */
-  uint   sz;
-  ushort unused;
-  ushort ctl;
+    ulong  seq;     /* frag sequence number */
+    uint   sz;
+    ushort unused;
+    ushort ctl;
 
-  ulong  goff;    /* stream offset */
-  ulong  loff;    /* dcache offset */
+    ulong  goff;    /* stream offset */
+    ulong  loff;    /* dcache offset */
 
-};
+  };
 
-fd_frag_meta_t f[1];
+  fd_frag_meta_t f[1];
 
 };
 

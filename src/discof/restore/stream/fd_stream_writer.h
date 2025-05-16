@@ -1,44 +1,60 @@
 #ifndef HEADER_fd_src_discof_restore_stream_fd_stream_writer_h
 #define HEADER_fd_src_discof_restore_stream_fd_stream_writer_h
 
-#include "../../../util/fd_util_base.h"
-#include "../../../disco/topo/fd_topo.h"
-#include "fd_stream_reader.h"
+/* fd_stream_writer.h provides an API to publish data to SPMC shared
+   memory byte streams. */
 
-/* A shared stream has a single producer and multiple consumers.
-   fd_stream_writer implements the producer APIs of the shared stream */
-struct fd_stream_writer {
-  fd_stream_frag_meta_t * out_mcache;    /* frag producer mcache */
+#include "../fd_restore_base.h"
 
-  uchar *                 buf;           /* laddr of shared dcache buffer */
-  ulong                   buf_base;      /* offset to the dcache buffer from wksp */
+/* fd_stream_writer_t holds stream producer state. */
 
-  /* dcache buffer state */
-  ulong                   buf_off;       /* local write offset into dcache buffer */
-  ulong                   buf_sz;        /* dcache buffer size */
-  ulong                   goff;          /* global offset into byte stream */
-  ulong                   read_max;      /* max chunk size */
-  ulong                   stream_off;    /* start of published stream */
-  ulong                   goff_start;    /* start of goff in stream */
-  ulong                   out_seq;       /* current sequence number */
+struct __attribute__((aligned(16))) fd_stream_writer {
+  /* Fragment descriptor output */
+  fd_stream_frag_meta_t * mcache;    /* frag producer mcache */
+  ulong                   seq;       /* next sequence number */
+  ulong                   depth;     /* mcache depth */
 
-  /* flow control */
-  ulong                   cr_byte_avail; /* bytes available in the slowest consumer */
-  ulong                   cr_frag_avail; /* frags available in the slowest consumer */
-  ulong                   cr_byte_max;   /* max dcache buffer credits (size of dcache buffer)*/
-  ulong                   cr_frag_max;   /* max mcache frag credits */
-  ulong                   burst_byte;    /* dcache backpressure threshold */
-  ulong                   burst_frag;    /* mcache backpressure threshold */
-  ulong                   cons_cnt;      /* number of consumers */
-  ulong *                 cons_seq;      /* consumer fseq values */
-  ulong **                cons_fseq;     /* consumer fseq pointers */
-  ulong *                 out_sync;      /* out fseq */
+  /* Data buffer (dcache) output */
+  uchar * data;           /* points to first byte of dcache data region (dcache join) */
+  ulong   data_max;       /* dcache data region size */
+  ulong   data_cur;       /* next dcache data offset in [0,data_sz) */
+  uchar * base;           /* workspace base address */
+  ulong   goff;           /* byte stream offset */
+
+  /* This point is 16-byte aligned */
+
+  /* Backpressure */
+  ulong             cr_byte_avail; /* byte publish count before slowest consumer overrun */
+  ulong             cr_frag_avail; /* frag publish count before slowest consumer overrun */
+  ulong *           cons_seq;      /* cons_seq[ 2*cons_idx+i ] caches cons_fseq[ cons_idx ][i] */
+  ulong volatile ** cons_fseq;     /* cons_fseq[ cons_idx ] points to consumer fseq */
+  /* Each consumer reports a 'frag sequence number' and the 'stream offset' */
+# define FD_STREAM_WRITER_CONS_SEQ_STRIDE 2UL
+
+  /* Fragmentation */
+  ulong frag_sz_max;      /* max data sz for each frag descriptor */
+
+  /* Cold data */
+  ulong   cons_cnt;       /* number of consumers */
+  ulong   cons_max;       /* max number of consumers */
+  ulong * out_sync;       /* points to mcache 'sync' field (last published seq no) */
+
+  /* variable length data follows */
 };
+
 typedef struct fd_stream_writer fd_stream_writer_t;
 
-#define EXPECTED_FSEQ_CNT_PER_CONS 2
+/* Forward declarations */
+
+typedef struct fd_topo fd_topo_t;
+typedef struct fd_topo_tile fd_topo_tile_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* Constructor API ****************************************************/
+
+/* fd_stream_writer_{align,footprint} describe a memory region suitable
+   to hold a stream_writer. */
 
 FD_FN_CONST static inline ulong
 fd_stream_writer_align( void ) {
@@ -46,124 +62,218 @@ fd_stream_writer_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_stream_writer_footprint( void ) {
-  return sizeof(fd_stream_writer_t);
+fd_stream_writer_footprint( ulong cons_max ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stream_writer_t), sizeof(fd_stream_writer_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),              cons_max*sizeof(ulong)*FD_STREAM_WRITER_CONS_SEQ_STRIDE );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong *),            cons_max*sizeof(ulong *) );
+  return FD_LAYOUT_FINI( l, fd_stream_writer_align() );
 }
 
-static inline uchar *
-fd_stream_writer_get_write_ptr( fd_stream_writer_t * writer ) {
-  return writer->buf + writer->buf_off;
-}
+/* fd_stream_writer_new initializes the memory region at mem as a
+   stream_writer object.  mcache_join is a local join to an mcache
+   (frag_meta or similar pointer) to which frags will be published.
+   dcache_join is a local join to a dcache into which data is written.
+   Returns writer object in mem on success, and NULL on failure.  Logs
+   reason for failure. */
 
 fd_stream_writer_t *
 fd_stream_writer_new( void *                  mem,
-                      fd_topo_t *             topo,
-                      fd_topo_tile_t *        tile,
-                      ulong                   link_id,
-                      ulong                   burst_byte,
-                      ulong                   burst_frag );
+                      ulong                   cons_max,
+                      fd_stream_frag_meta_t * mcache_join,
+                      uchar *                 dcache_join );
+
+/* fd_stream_writer_delete releases the memory region backing a
+   stream_writer.  Returns a pointer to the memory region originally
+   provided to fd_stream_writer_new. */
+
+void *
+fd_stream_writer_delete( fd_stream_writer_t * writer );
+
+/* fd_stream_writer_join_topo constructs a stream writer for a topology
+   definition.  Calls new() and register_consumer() under the hood.
+   tile is the actor that will be writing stream frags in topo.
+   out_link_idx is the index of the output link for that tile. */
+
+fd_stream_writer_t *
+fd_stream_writer_new_topo(
+    void *                 mem,
+    ulong                  cons_max,
+    fd_topo_t const *      topo,
+    fd_topo_tile_t const * tile,
+    ulong                  out_link_idx
+);
+
+/* Control API ********************************************************/
+
+/* fd_stream_writer_register_consumer registers a consumer of the
+   stream to the writer.  fseq_join is a local join to that consumer's
+   fseq (points to the fseq's seq[0] field).  Future backpressure checks
+   will include this consumer.  Returns a pointer to this consumer's
+   seq cache field, or NULL on if cons_max exceeded (logs warning). */
+
+ulong *
+fd_stream_writer_register_consumer(
+    fd_stream_writer_t * writer,
+    ulong *              fseq_join
+);
+
+/* fd_stream_writer_close marks the stream as closed. */
 
 static inline void
-fd_stream_writer_init_flow_control_credits( fd_stream_writer_t * writer ) {
-  for( ulong cons_idx=0UL; cons_idx<writer->cons_cnt; cons_idx++ ) {
-    writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx   ] = FD_VOLATILE_CONST( writer->cons_fseq[ cons_idx ][0] );
-    writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx+1 ] = FD_VOLATILE_CONST( writer->cons_fseq[ cons_idx ][1] );
-  }
+fd_stream_writer_close( fd_stream_writer_t * writer ) {
+  FD_VOLATILE( writer->out_sync[ 0 ] ) = writer->seq;
+  FD_VOLATILE( writer->out_sync[ 1 ] ) = writer->goff;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( writer->out_sync[ 2 ] ) = 1;
 }
 
-static inline void
-fd_stream_writer_set_read_max( fd_stream_writer_t * writer,
-                               ulong                read_max ) {
-  writer->read_max = read_max;
-}
+/* Flow control API ***************************************************/
+
+/* fd_stream_writer_set_frag_sz_max puts an upper bound on the fragment
+   sizes produced to the stream.  This helps reduce latency. */
+
+void
+fd_stream_writer_set_frag_sz_max( fd_stream_writer_t * writer,
+                                  ulong                frag_sz_max );
+
+/* fd_stream_writer_receive_flow_control_credits updates cached consumer
+   progress from the consumers' fseq objects.
+
+   FIXME Provide an API to round-robin update ins temporally spaced apart */
 
 static inline void
 fd_stream_writer_receive_flow_control_credits( fd_stream_writer_t * writer ) {
+  ulong const stride = FD_STREAM_WRITER_CONS_SEQ_STRIDE;
   for( ulong i=0UL; i<writer->cons_cnt; i++ ) {
+    /* FIXME could be SSE aligned copy */
     FD_COMPILER_MFENCE();
-    writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*i   ] = FD_VOLATILE_CONST( writer->cons_fseq[ i ][0] );
-    writer->cons_seq [ EXPECTED_FSEQ_CNT_PER_CONS*i+1 ] = FD_VOLATILE_CONST( writer->cons_fseq[ i ][1] );
+    writer->cons_seq[ stride*i   ] = FD_VOLATILE_CONST( writer->cons_fseq[ i ][0] );
+    writer->cons_seq[ stride*i+1 ] = FD_VOLATILE_CONST( writer->cons_fseq[ i ][1] );
     FD_COMPILER_MFENCE();
   }
 }
+
+/* fd_stream_writer_calculate_backpressure updates fragment and stream
+   backpressure from cached consumer progress. */
 
 static inline void
-fd_stream_writer_update_flow_control_credits( fd_stream_writer_t * writer ) {
-  ulong slowest_cons = ULONG_MAX;
-  if( FD_LIKELY( writer->cr_byte_avail<writer->cr_byte_max || writer->cr_frag_avail<writer->cr_frag_max ) ) {
-    ulong cr_byte_avail = writer->cr_byte_max;
-    ulong cr_frag_avail = writer->cr_frag_max;
-    for( ulong cons_idx=0UL; cons_idx<writer->cons_cnt; cons_idx++ ) {
-      ulong cons_cr_byte_avail = (ulong)fd_long_max( (long)writer->cr_byte_max-fd_long_max( fd_seq_diff( writer->goff, writer->cons_seq[ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx+1 ] ), 0L ), 0L );
-      ulong cons_cr_frag_avail = (ulong)fd_long_max( (long)writer->cr_frag_max-fd_long_max( fd_seq_diff( writer->out_seq,   writer->cons_seq[ EXPECTED_FSEQ_CNT_PER_CONS*cons_idx   ] ), 0L ), 0L );
-      slowest_cons  = fd_ulong_if( cons_cr_byte_avail<cr_byte_avail, cons_idx, slowest_cons );
-      cr_byte_avail = fd_ulong_min( cons_cr_byte_avail, cr_byte_avail );
-      cr_frag_avail = fd_ulong_min( cons_cr_frag_avail, cr_frag_avail );
-    }
+fd_stream_writer_calculate_backpressure( fd_stream_writer_t * writer ) {
+  ulong const cr_byte_max = writer->data_max;
+  ulong const cr_frag_max = writer->depth;
 
-    writer->cr_byte_avail = cr_byte_avail;
-    writer->cr_frag_avail = cr_frag_avail;
+  ulong cr_byte_avail = ULONG_MAX;
+  ulong cr_frag_avail = ULONG_MAX;
+  ulong const stride = FD_STREAM_WRITER_CONS_SEQ_STRIDE;
+  for( ulong cons_idx=0UL; cons_idx<writer->cons_cnt; cons_idx++ ) {
+    ulong cons_cr_byte_avail = (ulong)fd_long_max( (long)cr_byte_max-fd_long_max( fd_seq_diff( writer->goff, writer->cons_seq[ stride*cons_idx+1 ] ), 0L ), 0L );
+    ulong cons_cr_frag_avail = (ulong)fd_long_max( (long)cr_frag_max-fd_long_max( fd_seq_diff( writer->seq,  writer->cons_seq[ stride*cons_idx   ] ), 0L ), 0L );
+    cr_byte_avail = fd_ulong_min( cons_cr_byte_avail, cr_byte_avail );
+    cr_frag_avail = fd_ulong_min( cons_cr_frag_avail, cr_frag_avail );
   }
+
+  writer->cr_byte_avail = cr_byte_avail;
+  writer->cr_frag_avail = cr_frag_avail;
 }
 
-static inline ulong
-fd_stream_writer_get_avail_bytes( fd_stream_writer_t * writer ) {
-  if( FD_UNLIKELY( writer->buf_off > writer->buf_sz ) ) {
-    FD_LOG_CRIT(( "Buffer overflow (buf_off=%lu buf_sz=%lu)", writer->buf_off, writer->buf_sz ));
+/* In-place publish API ************************************************
+
+   Example usage:
+
+     void * p  = fd_stream_writer_prepare( w );
+     ulong  sz = fd_stream_writer_publish_sz_max( w )
+     fd_memcpy( p, src, sz );
+     src += sz;
+     fd_stream_writer_publish( w, sz ); */
+
+/* fd_stream_writer_prepare prepares the caller for a frag publish.
+   Returns a pointer to a memory region of publish_sz_max() bytes, into
+   which the caller can write data.  A subsequent publish() call makes
+   the data visible to consumers.  U.B. return value if
+   publish_sz_max()==0. */
+
+static inline void *
+fd_stream_writer_prepare( fd_stream_writer_t * writer ) {
+  if( FD_UNLIKELY( writer->data_cur > writer->data_max ) ) {
+    FD_LOG_CRIT(( "Out-of-bounds data_cur (data_cur=%lu data_max=%lu)", writer->data_cur, writer->data_max ));
     return 0;
   }
-
-  ulong const read_max = fd_ulong_min( writer->cr_byte_avail, writer->read_max );
-  return fd_ulong_min( read_max, writer->buf_sz - writer->buf_off );
+  return writer->data + writer->data_cur;
 }
+
+/* fd_stream_writer_publish_sz_max returns the max amount of bytes that
+   can be published in the next fragment. */
+
+static inline ulong
+fd_stream_writer_publish_sz_max( fd_stream_writer_t * writer ) {
+  ulong const data_backp = writer->cr_byte_avail;
+  ulong const frag_backp = fd_ulong_if( !!writer->cr_frag_avail, writer->frag_sz_max, 0UL );
+  ulong const buf_avail  = writer->data_max - writer->data_cur;
+  return fd_ulong_min( fd_ulong_min( data_backp, frag_backp ), buf_avail );
+}
+
+/* fd_stream_writer_publish completes a publish operation.  Writes a
+   fragment descriptor out to the mcache if frag_sz>0. */
 
 static inline void
 fd_stream_writer_publish( fd_stream_writer_t * writer,
-                          ulong                frag_sz ) {
-  ulong loff = writer->buf_base + writer->stream_off;
-  fd_mcache_publish_stream( writer->out_mcache,
-                            fd_mcache_depth( writer->out_mcache->f ),
-                            writer->out_seq,
-                            writer->goff_start,
-                            loff,
-                            frag_sz,
-                            0 );
-  writer->out_seq = fd_seq_inc( writer->out_seq, 1UL );
+                          ulong                frag_sz,
+                          ulong                ctl ) {
+  if( FD_UNLIKELY( !frag_sz ) ) return;
+
+  uchar * const data = writer->data + writer->data_cur;
+  ulong   const loff = (ulong)data - (ulong)writer->base;
+
+  fd_mcache_publish_stream(
+      writer->mcache,
+      writer->depth,
+      writer->seq,
+      writer->goff,
+      loff,
+      frag_sz,
+      ctl
+  );
+
+  /* Advance fragment descriptor stream */
+  writer->seq = fd_seq_inc( writer->seq, 1UL );
   writer->cr_frag_avail -= 1;
 
-  /* rewind buf_off to start of buffer */
-  if( writer->buf_off >= writer->buf_sz ) {
-    writer->buf_off = 0UL;
+  /* Advance buffer */
+  writer->data_cur += frag_sz;
+  writer->goff     += frag_sz;
+  if( FD_UNLIKELY( writer->data_cur > writer->data_max ) ) {
+    FD_LOG_CRIT(( "Out-of-bounds data_cur (data_cur=%lu data_max=%lu)", writer->data_cur, writer->data_max ));
+    return;
   }
-
-  /* update stream_off and goff_start to current values
-     of buf_off and goff */
-  writer->stream_off = writer->buf_off;
-  writer->goff_start = writer->goff;
+  if( writer->data_cur == writer->data_max ) {
+    writer->data_cur = 0UL; /* cmov */
+  }
 }
 
-static inline void
-fd_stream_writer_advance( fd_stream_writer_t * writer,
-                          ulong                sz ) {
-  writer->goff          += sz;
-  writer->buf_off       += sz;
-  writer->cr_byte_avail -= sz;
-}
+/* Copy publish API ***************************************************/
 
-static inline int
-fd_stream_writer_is_backpressured( fd_stream_writer_t * writer ) {
-  return writer->cr_byte_avail<writer->burst_byte || writer->cr_frag_avail<writer->burst_frag;
-}
+/* fd_stream_writer_copy publishes the given chunk to the stream as a
+   sequence of stream frags.  data points to the first byte of the chunk
+   to send.  data_sz is the number of bytes (<=copy_max()).
+   ctl specifies how to set the 'ctl' field.  All ctl bits are copied as
+   is, except for 'som' and 'eom', which act as a mask:
+   Use 'fd_frag_meta_ctl( ..., som=1, eom=1, ... )' to set the 'som'
+   bit on the first frag and the 'eom' bit on the last flag.  Pass
+   'fd_frag_meta_ctl( ..., som=0, eom=0, ... )' or just '0UL' to leave
+   fragmentation bits cleared on published frags.  */
 
-static inline void
-fd_stream_writer_notify_shutdown( fd_stream_writer_t * writer ) {
-  FD_VOLATILE( writer->out_sync[ EXPECTED_FSEQ_CNT_PER_CONS * writer->cons_cnt ]  ) = writer->out_seq;
-}
+void
+fd_stream_writer_copy( fd_stream_writer_t * writer,
+                       void const *         data,
+                       ulong                data_sz,
+                       ulong                ctl );
 
-static inline void *
-fd_stream_writer_delete( fd_stream_writer_t * writer ) {
-  fd_memset( writer, 0, sizeof(fd_stream_writer_t) );
-  return (void *)writer;
+static inline ulong
+fd_stream_writer_copy_max( fd_stream_writer_t * writer ) {
+  ulong const data_backp = writer->cr_byte_avail;
+  ulong const frag_backp = fd_ulong_sat_mul( writer->cr_frag_avail, writer->frag_sz_max );
+  ulong const buf_avail  = writer->data_max - writer->data_cur;
+  return fd_ulong_min( fd_ulong_min( data_backp, frag_backp ), buf_avail );
 }
 
 FD_PROTOTYPES_END

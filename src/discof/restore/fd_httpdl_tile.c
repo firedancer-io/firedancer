@@ -58,15 +58,15 @@ fd_httpdl_init_from_stream_ctx( void * _ctx,
   fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
 
   /* There's only one writer */
-  ctx->writer = &stream_ctx->writers[0];
-  fd_stream_writer_set_read_max( ctx->writer, HTTP_CHUNK_SZ );
+  ctx->writer = stream_ctx->writers[0];
+  fd_stream_writer_set_frag_sz_max( ctx->writer, HTTP_CHUNK_SZ );
 }
 
 __attribute__((noreturn)) FD_FN_UNUSED static void
 fd_httpdl_shutdown( fd_httpdl_tile_t * ctx ) {
   fd_snapshot_http_cleanup_fds( ctx->http );
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  fd_stream_writer_notify_shutdown( ctx->writer );
+  fd_stream_writer_close( ctx->writer );
   FD_COMPILER_MFENCE();
   FD_LOG_WARNING(("Done downloading snapshot"));
 
@@ -76,39 +76,23 @@ fd_httpdl_shutdown( fd_httpdl_tile_t * ctx ) {
 __attribute__((unused)) static void
 after_credit_chunk( void *             _ctx,
                     fd_stream_ctx_t *  stream_ctx ) {
-  fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
+  fd_httpdl_tile_t * ctx = _ctx;
   (void)stream_ctx;
-  ulong downloaded_sz = 0UL;
 
-  /* Don't do anything if backpressured */
-  if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
-    return;
-  }
+  /* Output */
+  uchar * const out     = fd_stream_writer_prepare( ctx->writer );
+  uchar * const out_end = out + fd_stream_writer_publish_sz_max( ctx->writer );
+  uchar *       out_cur = out;
 
-  for(;;) {
-    if( downloaded_sz >= HTTP_CHUNK_SZ ) {
-      fd_stream_writer_publish( ctx->writer, downloaded_sz );
-      break;
-    }
-    /* get write pointers into dcache buffer */
-    uchar * out     = fd_stream_writer_get_write_ptr( ctx->writer );
-    ulong dst_max   = fd_stream_writer_get_avail_bytes( ctx->writer );
-    ulong sz        = 0UL;
-
-    if( dst_max==0 ) {
-      fd_stream_writer_publish( ctx->writer, downloaded_sz );
-      break;
-    }
-
-    int err = fd_io_istream_snapshot_http_read( ctx->http, out, dst_max, &sz );
+  while( out_cur<out_end ) {
+    ulong chunk_sz;
+    int err = fd_io_istream_snapshot_http_read( ctx->http, out_cur, (ulong)out_cur-(ulong)out, &chunk_sz );
     if( FD_UNLIKELY( err==1 ) ) fd_httpdl_shutdown( ctx );
     else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "http err: %d", err ));
-
-    if( sz ) {
-      fd_stream_writer_advance( ctx->writer, sz );
-      downloaded_sz += sz;
-    }
+    out_cur += chunk_sz;
   }
+
+  fd_stream_writer_publish( ctx->writer, (ulong)out_cur-(ulong)out, 0UL );
 }
 
 __attribute__((unused)) static void
@@ -117,24 +101,16 @@ after_credit_stream( void *             _ctx,
   fd_httpdl_tile_t * ctx = fd_type_pun(_ctx);
   (void)stream_ctx;
 
-  /* Don't do anything if backpressured */
-  if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
-    return;
-  }
+  /* Output */
+  uchar * const out     = fd_stream_writer_prepare( ctx->writer );
+  ulong   const out_max = fd_stream_writer_publish_sz_max( ctx->writer );
 
-  /* get write pointers into dcache buffer */
-  uchar * out     = fd_stream_writer_get_write_ptr( ctx->writer );
-  ulong dst_max   = fd_stream_writer_get_avail_bytes( ctx->writer );
-  ulong sz        = 0UL;
-
-  int err = fd_io_istream_snapshot_http_read( ctx->http, out, dst_max, &sz );
+  ulong chunk_sz;
+  int err = fd_io_istream_snapshot_http_read( ctx->http, out, out_max, &chunk_sz );
   if( FD_UNLIKELY( err==1 ) ) fd_httpdl_shutdown( ctx );
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "http err: %d", err ));
 
-  if( sz ) {
-    fd_stream_writer_advance( ctx->writer, sz );
-    fd_stream_writer_publish( ctx->writer, sz );
-  }
+  fd_stream_writer_publish( ctx->writer, chunk_sz, 0UL );
 }
 
 __attribute__((noinline)) static void
@@ -158,11 +134,9 @@ static void
 fd_httpdl_run( fd_topo_t *      topo,
                fd_topo_tile_t * tile ) {
   fd_httpdl_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
-  ulong out_cnt          = tile->out_cnt;
-
-  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, out_cnt ) );
-  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, out_cnt );
+  void * ctx_mem = fd_alloca_check( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_footprint( topo, tile ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile );
+  FD_TEST( stream_ctx );
   fd_httpdl_run1( ctx, stream_ctx );
 }
 
@@ -175,6 +149,3 @@ fd_topo_run_tile_t fd_tile_snapshot_restore_HttpDl = {
 };
 
 #undef NAME
-
-
-

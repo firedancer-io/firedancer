@@ -89,7 +89,7 @@ typedef struct {
    All input links will be automatically polled by the tile
    infrastructure, and output links will automatically source and manage
    credits from consumers. */
-typedef struct {
+struct fd_topo_tile {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
@@ -455,7 +455,9 @@ typedef struct {
     } actidx;
 
   };
-} fd_topo_tile_t;
+};
+
+typedef struct fd_topo_tile fd_topo_tile_t;
 
 typedef struct {
   ulong id;

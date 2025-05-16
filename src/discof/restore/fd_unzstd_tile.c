@@ -3,12 +3,10 @@
 #include "fd_restore_base.h"
 #include "stream/fd_stream_ctx.h"
 #include "stream/fd_stream_writer.h"
-#include <errno.h>
-#include <unistd.h>
+#include <unistd.h> /* pause */
 
 #define NAME "unzstd"
 #define ZSTD_WINDOW_SZ (33554432UL)
-#define ZSTD_FRAME_SZ 16384UL
 #define LINK_IN_MAX 1
 
 struct fd_unzstd_tile {
@@ -57,15 +55,14 @@ fd_unzstd_init_from_stream_ctx( void * _ctx,
   fd_unzstd_tile_t * ctx = fd_type_pun(_ctx);
 
   /* There's only one writer */
-  ctx->writer = &stream_ctx->writers[0];
-  fd_stream_writer_set_read_max( ctx->writer, ZSTD_FRAME_SZ );
+  ctx->writer = stream_ctx->writers[0];
   ctx->shutdown_signal = fd_mcache_seq_laddr_const( stream_ctx->in[0].base.mcache->f ) + 2;
 }
 
 __attribute__((noreturn)) static void
 fd_unzstd_shutdown( fd_unzstd_tile_t * ctx ) {
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  fd_stream_writer_notify_shutdown( ctx->writer );
+  fd_stream_writer_close( ctx->writer );
   FD_COMPILER_MFENCE();
 
   for(;;) pause();
@@ -96,61 +93,44 @@ on_stream_frag( void *                        _ctx,
                 ulong *                       sz ) {
   fd_unzstd_tile_t * ctx = fd_type_pun(_ctx);
 
-  /* Don't do anything if backpressured */
-  if( FD_UNLIKELY( fd_stream_writer_is_backpressured( ctx->writer ) ) ) {
-    return 0;
-  }
+  /* Input */
+  uchar const * in_chunk0      = ctx->in_state.in_buf + frag->loff;
+  uchar const * in_chunk_start = in_chunk0 + ctx->in_state.in_skip;
+  uchar const * in_chunk_end   = in_chunk0 + frag->sz;
+  uchar const * in_cur         = in_chunk_start;
+  int           in_consume     = 0;
 
-  uchar const * chunk0             = ctx->in_state.in_buf + frag->loff;
-  uchar const * chunk_start        = chunk0 + ctx->in_state.in_skip;
-  uchar const * chunk_end          = chunk0 + frag->sz;
-  uchar const * cur                = chunk_start;
-  ulong         total_decompressed = 0UL;
-  int           consume_frag       = 0;
+  /* Output */
+  uchar * const out     = fd_stream_writer_prepare( ctx->writer );
+  uchar * const out_end = out + fd_stream_writer_publish_sz_max( ctx->writer );
+  uchar *       out_cur = out;
 
-  for(;;) {
-    uchar const * prev = cur;
+  while( out_cur<out_end ) {
+    uchar const * in_prev = in_cur;
 
-    if( cur==chunk_end ) {
+    if( in_cur==in_chunk_end ) {
       /* Done with frag */
-      fd_stream_writer_publish( ctx->writer, total_decompressed );
       ctx->in_state.in_skip = 0UL;
-      consume_frag          = 1;
-      break;
-    }
-
-    /* get write pointers into dcache buffer */
-    uchar * buf_write_start = fd_stream_writer_get_write_ptr( ctx->writer );
-    uchar * out             = buf_write_start;
-    ulong dst_max           = fd_stream_writer_get_avail_bytes( ctx->writer );
-    uchar * out_end         = buf_write_start + dst_max;
-
-    if( dst_max==0 ) {
-      /* we are blocked by downstream */
-      fd_stream_writer_publish( ctx->writer, total_decompressed );
+      in_consume            = 1;
       break;
     }
 
     /* fd_zstd_dstream_read updates chunk_start and out */
-    int zstd_err = fd_zstd_dstream_read( ctx->dstream, &cur, chunk_end, &out, out_end, NULL );
-    if( FD_UNLIKELY( zstd_err>0) ) {
+    int zstd_err = fd_zstd_dstream_read( ctx->dstream, &in_cur, in_chunk_end, &out_cur, out_end, NULL );
+    if( FD_UNLIKELY( zstd_err>0 ) ) {
       FD_LOG_ERR(( "fd_zstd_dstream_read failed" ));
       break;
     }
 
-    /* accumulate decompressed bytes */
-    ulong decompress_sz  = (ulong)out - (ulong)buf_write_start;
-    total_decompressed  += decompress_sz;
-
     /* accumulate consumed bytes */
-    ulong consumed_sz      = (ulong)cur - (ulong)prev;
+    ulong consumed_sz      = (ulong)in_cur - (ulong)in_prev;
     ctx->in_state.in_skip += consumed_sz;
-
-    fd_stream_writer_advance( ctx->writer, decompress_sz );
   }
 
-  *sz = (ulong)cur - (ulong)chunk_start;
-  return consume_frag;
+  fd_stream_writer_publish( ctx->writer, (ulong)out_cur-(ulong)out, 0UL );
+
+  *sz = (ulong)in_cur - (ulong)in_chunk_start;
+  return in_consume;
 }
 
 static void
@@ -194,13 +174,10 @@ static void
 fd_unzstd_run( fd_topo_t * topo,
                fd_topo_tile_t * tile ) {
   fd_unzstd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  ulong in_cnt           = fd_topo_tile_producer_cnt( topo, tile );
-  ulong out_cnt          = tile->out_cnt;
-
-  void * ctx_mem = fd_alloca( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_scratch_footprint( in_cnt, out_cnt ) );
-  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile, in_cnt, out_cnt );
-  fd_unzstd_run1( ctx,
-                  stream_ctx );
+  void * ctx_mem = fd_alloca_check( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_footprint( topo, tile ) );
+  fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile );
+  FD_TEST( stream_ctx );
+  fd_unzstd_run1( ctx, stream_ctx );
 }
 
 #ifndef FD_TILE_TEST
