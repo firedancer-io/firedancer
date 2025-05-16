@@ -1,6 +1,11 @@
+#ifndef HEADER_fd_src_flamenco_runtime_fd_bank_mgr_h
+#define HEADER_fd_src_flamenco_runtime_fd_bank_mgr_h
+
 #include "../../funk/fd_funk.h"
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
+
+FD_PROTOTYPES_BEGIN
 
 /* The bank manager is a wrapper on top of funk that manages on-chain
    state not represented by accounts. In practice, this on-chain state
@@ -82,8 +87,6 @@ fd_bank_mgr_##name##_save_cleanup( fd_bank_mgr_t ** bank_mgr ) { \
   return 0;                                                      \
 }
 
-
-
 /* These are some convenience wrapper macros for the bank manager. */
 
 #define FD_BANK_MGR_DECL(bank_mgr, funk, funk_txn)                                                    \
@@ -143,3 +146,7 @@ if( FD_UNLIKELY( !bank_mgr ) ) {                                                
   X(fd_rent_fresh_accounts_global_t,   rent_fresh_accounts,         31UL, 50000UL,     8UL   ) \
   X(fd_cluster_version_t,              cluster_version,             32UL, 12UL,        4UL   )
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_flamenco_runtime_fd_bank_mgr_h */
