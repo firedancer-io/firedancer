@@ -78,7 +78,7 @@ extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_sender;
 extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_alpen;
-extern fd_topo_run_tile_t fd_tile_alpen_verify;
+extern fd_topo_run_tile_t fd_tile_alpenv;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_restart;
 
@@ -108,7 +108,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_sender,
   &fd_tile_eqvoc,
   &fd_tile_alpen,
-  &fd_tile_alpen_verify,
+  &fd_tile_alpenv,
   &fd_tile_rpcserv,
   &fd_tile_restart,
   NULL,

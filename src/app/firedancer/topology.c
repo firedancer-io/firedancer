@@ -406,9 +406,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "alpen_net",    "net_alpen",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "replay_alpen", "replay_alpen", 128UL,                                    32UL,                          1UL );
   /**/                 fd_topob_link( topo, "alpen_sign",   "alpen_sign",   128UL,                                    FD_TXN_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "sign_alpen",   "sign_alpen",   128UL,                                    64UL,                          1UL );
+  /**/                 fd_topob_link( topo, "sign_alpen",   "sign_alpen",   128UL,                                    192UL,                         1UL );
   /**/                 fd_topob_link( topo, "alpen_alpenv", "alpen_alpenv", 4096UL,                                   FD_TXN_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "alpenv_alpen", "alpen_alpenv", 4096UL,                                   32UL,                          1UL );
+  FOR(alpenv_tile_cnt) fd_topob_link( topo, "alpenv_alpen", "alpen_alpenv", 4096UL,                                   32UL,                          1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -736,6 +736,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "rstart",   0UL,                       "rstart_store", 0UL                                                  );
   }
   /**/                 fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "replay_alpen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out( topo, "replay",   0UL,                       "replay_alpen", 0UL                                                  );
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "net_alpen",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/             fd_topos_tile_in_net(  topo,                           "metric_in", "alpen_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_net",    0UL                                                  );
@@ -745,8 +746,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_sign",   0UL                                                  );
   FOR(alpenv_tile_cnt) fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "alpenv_alpen",   i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(alpenv_tile_cnt) fd_topob_tile_out( topo, "alpenv",     i,                       "alpenv_alpen",   i                                                  );
-  FOR(alpenv_tile_cnt) fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_alpenv",   i                                                  );
-  FOR(alpenv_tile_cnt) fd_topob_tile_in(  topo, "alpenv",     i,          "metric_in", "alpen_alpenv",   i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_alpenv", 0UL                                                  );
+  FOR(alpenv_tile_cnt) fd_topob_tile_in(  topo, "alpenv",     i,          "metric_in", "alpen_alpenv", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
 
 
@@ -856,6 +857,8 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->alpen.identity_key_path, config->paths.identity_key, sizeof(tile->alpen.identity_key_path) );
 
       tile->alpen.alpen_listen_port             = config->tiles.alpen.alpen_listen_port;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "alpenv" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
       strncpy( tile->store_int.blockstore_file,    config->firedancer.blockstore.file,        sizeof(tile->store_int.blockstore_file) );

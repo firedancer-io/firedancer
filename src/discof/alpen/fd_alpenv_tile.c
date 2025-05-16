@@ -1,5 +1,5 @@
 #include "../../disco/topo/fd_topo.h"
-#include "generated/fd_alpen_verify_tile_seccomp.h"
+#include "generated/fd_alpenv_tile_seccomp.h"
 
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
@@ -143,8 +143,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_alpen_verify_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_alpen_verify_tile_instr_cnt;
+  populate_sock_filter_policy_fd_alpenv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_alpenv_tile_instr_cnt;
 }
 
 static ulong
@@ -176,7 +176,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_alpen_verify = {
+fd_topo_run_tile_t fd_tile_alpenv = {
   .name                     = "alpenv",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
