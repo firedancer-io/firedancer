@@ -1,5 +1,6 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
+#include "../../../ballet/hex/fd_hex.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -382,6 +383,35 @@ main( int     argc,
       vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
       FD_VM_SYSCALL_SOL_CURVE_MUL,
+      in0_vaddr,
+      in1_vaddr,
+      result_point_vaddr,
+      0UL, // ret_code
+      FD_VM_SUCCESS, // syscall_ret
+      expected_result_host_ptr
+    ) );
+  }
+
+  {
+    uchar _points[ 96 ]; uchar * points = _points;
+    fd_hex_decode( points, "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb", 48 );
+    fd_hex_decode( points+48, "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb", 48 );
+
+    uchar _expected[ 48 ];
+    fd_hex_decode( _expected, "a572cbea904d67468808c8eb50a9450c9721db309128012543902d0ac358a62ae28f75bb8f1c7c42c39a8c5529bf0f4e", 48 );
+
+    memcpy( &vm->heap[0], points, 96 );
+
+    in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 48UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 96UL;
+    expected_result_host_ptr = _expected;
+
+    FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+      "fd_vm_syscall_sol_curve_group_op: bls12-381, add",
+      vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381,
+      FD_VM_SYSCALL_SOL_CURVE_ADD,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,

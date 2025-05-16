@@ -831,17 +831,20 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS   ( 0UL) /* ed25519 */
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO ( 1UL) /* ristretto255 */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381            ( 2UL) /* bls12-381 */
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...} specifies the curve operation */
 
 #define FD_VM_SYSCALL_SOL_CURVE_ADD                  ( 0UL) /* add */
 #define FD_VM_SYSCALL_SOL_CURVE_SUB                  ( 1UL) /* add inverse */
 #define FD_VM_SYSCALL_SOL_CURVE_MUL                  ( 2UL) /* scalar mul */
+#define FD_VM_SYSCALL_SOL_CURVE_HASH                 ( 3UL) /* hash to point */
 
-/* FD_VM_SYSCALL_SOL_CURVE_CURVE25519_{...}_SZ specifies the size of inputs/outputs. */
+/* FD_VM_SYSCALL_SOL_CURVE_{...}_SZ specifies the size of inputs/outputs. */
 
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ  (32UL) /* point (compressed) */
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ (32UL) /* scalar */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_POINT_SZ   (48UL) /* point (compressed) */
 
 /* syscall(aa2607ca) sol_curve_validate_point
 

@@ -2,6 +2,7 @@
 
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../../ballet/ed25519/fd_ristretto255.h"
+#include "../../../ballet/bls/fd_bls12_381.h"
 
 int
 fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
@@ -69,8 +70,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 #define MATCH_ID_OP(crv_id,grp_op) ((crv_id << 4) | grp_op)
 #define EDWARDS   FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS
 #define RISTRETTO FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO
+#define BLS       FD_VM_SYSCALL_SOL_CURVE_BLS12_381
 
   ulong cost = 0UL;
+  ulong input_sz = 32UL;
   switch( curve_id ) {
 
   case EDWARDS:
@@ -113,6 +116,19 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     }
     break;
 
+  case BLS:
+    switch( group_op ) {
+
+    case FD_VM_SYSCALL_SOL_CURVE_ADD:
+      cost = FD_VM_CURVE25519_RISTRETTO_ADD_COST; //FIXME
+      input_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_POINT_SZ;
+      break;
+
+    default:
+      goto invalid_error;
+    }
+    break;
+
   default:
     goto invalid_error;
   }
@@ -122,10 +138,9 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L949-L958 */
 
-  /* Note: left_input_addr is a point for add, sub, BUT it's a scalar for mul.
-     However, from a memory mapping perspective it's always 32 bytes, so we unify the code. */
-  uchar const * inputL = FD_VM_MEM_HADDR_LD( vm, left_input_addr,   FD_VM_ALIGN_RUST_POD_U8_ARRAY, 32UL );
-  uchar const * inputR = FD_VM_MEM_HADDR_LD( vm, right_input_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  /* Note: left_input_addr is a point for add, sub, BUT it's a scalar for mul. */
+  uchar const * inputL = FD_VM_MEM_HADDR_LD( vm, left_input_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, input_sz );
+  uchar const * inputR = FD_VM_MEM_HADDR_LD( vm, right_input_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, input_sz );
 
   switch( MATCH_ID_OP( curve_id, group_op ) ) {
 
@@ -225,6 +240,16 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
+  /* BLS12-381 */
+  case MATCH_ID_OP( BLS, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_POINT_SZ );
+    /* Compute add */
+    if( FD_LIKELY( fd_bls12_381_g1_add_syscall( result, inputL, inputR )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+  }
+
   default:
     /* COV: this can never happen because of the previous switch */
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
@@ -236,6 +261,7 @@ soft_error:
 #undef MATCH_ID_OP
 #undef EDWARDS
 #undef RISTRETTO
+#undef BLS
 
 invalid_error:
   /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
