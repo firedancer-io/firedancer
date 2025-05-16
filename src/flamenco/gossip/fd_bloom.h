@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_gossip_fd_bloom_h
 
 #include "../../util/fd_util.h"
+#include <math.h>
 
 #define FD_BLOOM_ALIGN     (64UL)
 #define FD_BLOOM_FOOTPRINT (128UL)
@@ -57,6 +58,31 @@ int
 fd_bloom_contains( fd_bloom_t *  bloom,
                    uchar const * key,
                    ulong         key_sz );
+
+int
+fd_bloom_init_inplace( ulong *      keys,
+                       ulong *      bits,
+                       ulong        keys_len,
+                       ulong        bits_len,
+                       ulong        hash_seed,
+                       fd_rng_t *   rng,
+                       double       false_positive_rate,
+                       fd_bloom_t * out_bloom );
+
+static inline double
+fd_bloom_max_items( double max_bits,
+                    double num_keys,
+                    double false_positive_rate ) {
+  return ceil( max_bits / ( -num_keys / log( 1.0 - exp( log( false_positive_rate ) / num_keys ) )));
+}
+
+static inline ulong
+fd_bloom_num_bits( double num_items,
+                   double false_positive_rate,
+                   double max_bits ) {
+  double num_bits = ceil( ((double)num_items * log( false_positive_rate )) / log( 1.0 / pow( 2.0, log( 2.0 ) )));
+  return (ulong)fmax( 1.0, fmin( max_bits, num_bits ) );
+}
 
 FD_PROTOTYPES_END
 

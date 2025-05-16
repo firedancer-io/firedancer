@@ -1893,14 +1893,14 @@ typedef struct fd_gossip_contact_info_v1 fd_gossip_contact_info_v1_t;
 #define FD_GOSSIP_CONTACT_INFO_V1_ALIGN alignof(fd_gossip_contact_info_v1_t)
 
 /* Encoded Size: Dynamic */
-struct fd_gossip_vote {
+struct fd_gossip_vote_old {
   uchar index;
   fd_pubkey_t from;
   fd_flamenco_txn_t txn;
   ulong wallclock;
 };
-typedef struct fd_gossip_vote fd_gossip_vote_t;
-#define FD_GOSSIP_VOTE_ALIGN alignof(fd_gossip_vote_t)
+typedef struct fd_gossip_vote_old fd_gossip_vote_old_t;
+#define FD_GOSSIP_VOTE_OLD_ALIGN alignof(fd_gossip_vote_old_t)
 
 struct fd_gossip_deprecated_compression_type {
   uint discriminant;
@@ -2040,7 +2040,7 @@ typedef struct fd_gossip_node_instance fd_gossip_node_instance_t;
 
 /* https://github.com/firedancer-io/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/duplicate_shred.rs#L25 */
 /* Encoded Size: Dynamic */
-struct fd_gossip_duplicate_shred {
+struct fd_gossip_duplicate_shred_old {
   ushort duplicate_shred_index;
   fd_pubkey_t from;
   ulong wallclock;
@@ -2052,8 +2052,8 @@ struct fd_gossip_duplicate_shred {
   ulong chunk_len;
   uchar* chunk;
 };
-typedef struct fd_gossip_duplicate_shred fd_gossip_duplicate_shred_t;
-#define FD_GOSSIP_DUPLICATE_SHRED_ALIGN alignof(fd_gossip_duplicate_shred_t)
+typedef struct fd_gossip_duplicate_shred_old fd_gossip_duplicate_shred_old_t;
+#define FD_GOSSIP_DUPLICATE_SHRED_OLD_ALIGN alignof(fd_gossip_duplicate_shred_old_t)
 
 /* Encoded Size: Dynamic */
 struct fd_gossip_incremental_snapshot_hashes {
@@ -2157,7 +2157,7 @@ typedef struct fd_gossip_restart_heaviest_fork fd_gossip_restart_heaviest_fork_t
 
 union fd_crds_data_inner {
   fd_gossip_contact_info_v1_t contact_info_v1;
-  fd_gossip_vote_t vote;
+  fd_gossip_vote_old_t vote;
   fd_gossip_lowest_slot_t lowest_slot;
   fd_gossip_slot_hashes_t snapshot_hashes;
   fd_gossip_slot_hashes_t accounts_hashes;
@@ -2165,7 +2165,7 @@ union fd_crds_data_inner {
   fd_gossip_version_v1_t version_v1;
   fd_gossip_version_v2_t version_v2;
   fd_gossip_node_instance_t node_instance;
-  fd_gossip_duplicate_shred_t duplicate_shred;
+  fd_gossip_duplicate_shred_old_t duplicate_shred;
   fd_gossip_incremental_snapshot_hashes_t incremental_snapshot_hashes;
   fd_gossip_contact_info_v2_t contact_info_v2;
   fd_gossip_restart_last_voted_fork_slots_t restart_last_voted_fork_slots;
@@ -4342,13 +4342,13 @@ static inline ulong fd_gossip_contact_info_v1_align( void ) { return FD_GOSSIP_C
 int fd_gossip_contact_info_v1_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_gossip_contact_info_v1_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_gossip_vote_new( fd_gossip_vote_t * self );
-int fd_gossip_vote_encode( fd_gossip_vote_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_vote_walk( void * w, fd_gossip_vote_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_gossip_vote_size( fd_gossip_vote_t const * self );
-static inline ulong fd_gossip_vote_align( void ) { return FD_GOSSIP_VOTE_ALIGN; }
-int fd_gossip_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_gossip_vote_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_vote_old_new( fd_gossip_vote_old_t * self );
+int fd_gossip_vote_old_encode( fd_gossip_vote_old_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_vote_old_walk( void * w, fd_gossip_vote_old_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_gossip_vote_old_size( fd_gossip_vote_old_t const * self );
+static inline ulong fd_gossip_vote_old_align( void ) { return FD_GOSSIP_VOTE_OLD_ALIGN; }
+int fd_gossip_vote_old_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_vote_old_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_gossip_deprecated_compression_type_new_disc( fd_gossip_deprecated_compression_type_t * self, uint discriminant ) { self->discriminant = discriminant; }
 static inline void fd_gossip_deprecated_compression_type_new( fd_gossip_deprecated_compression_type_t * self ) { self->discriminant = (uint)ULONG_MAX; }
@@ -4466,13 +4466,13 @@ static inline int fd_gossip_node_instance_decode_footprint( fd_bincode_decode_ct
 }
 void * fd_gossip_node_instance_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_gossip_duplicate_shred_new( fd_gossip_duplicate_shred_t * self );
-int fd_gossip_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_duplicate_shred_walk( void * w, fd_gossip_duplicate_shred_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_gossip_duplicate_shred_size( fd_gossip_duplicate_shred_t const * self );
-static inline ulong fd_gossip_duplicate_shred_align( void ) { return FD_GOSSIP_DUPLICATE_SHRED_ALIGN; }
-int fd_gossip_duplicate_shred_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_gossip_duplicate_shred_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_gossip_duplicate_shred_old_new( fd_gossip_duplicate_shred_old_t * self );
+int fd_gossip_duplicate_shred_old_encode( fd_gossip_duplicate_shred_old_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_duplicate_shred_old_walk( void * w, fd_gossip_duplicate_shred_old_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_gossip_duplicate_shred_old_size( fd_gossip_duplicate_shred_old_t const * self );
+static inline ulong fd_gossip_duplicate_shred_old_align( void ) { return FD_GOSSIP_DUPLICATE_SHRED_OLD_ALIGN; }
+int fd_gossip_duplicate_shred_old_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_duplicate_shred_old_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_incremental_snapshot_hashes_new( fd_gossip_incremental_snapshot_hashes_t * self );
 int fd_gossip_incremental_snapshot_hashes_encode( fd_gossip_incremental_snapshot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );

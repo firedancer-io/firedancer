@@ -4,6 +4,7 @@
 #include "../../disco/fd_txn_m_t.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "generated/fd_send_tile_seccomp.h"
+#include "../../flamenco/gossip/fd_gossip_types.h"
 
 #include <sys/random.h>
 
@@ -274,19 +275,20 @@ quic_send( fd_send_tile_ctx_t  *  ctx,
 /* handle_new_contact_info handles a new contact. Validates contact info
    and starts/restarts a connection if necessary. */
 static inline void
-handle_new_contact_info( fd_send_tile_ctx_t   * ctx,
-                         fd_shred_dest_wire_t * contact ) {
-  uint    new_ip   = contact->ip4_addr;
-  ushort  new_port = contact->udp_port;
+handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
+                         fd_gossip_update_message_t const * msg ) {
+  fd_ip4_port_t tpu_quic = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ];
+  uint    new_ip         = tpu_quic.addr;
+  ushort  new_port       = tpu_quic.port;
   if( FD_UNLIKELY( new_ip==0 || new_port==0 ) ) {
     ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_UNROUTABLE_IDX]++;
     return;
   }
 
-  fd_send_conn_entry_t * entry  = fd_send_conn_map_query( ctx->conn_map, *contact->pubkey, NULL );
+  fd_send_conn_entry_t * entry  = fd_send_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
   if( FD_UNLIKELY( !entry ) ) {
     /* Skip if UNSTAKED */
-    FD_LOG_DEBUG(("send_tile: Skipping unstaked pubkey %s at %u.%u.%u.%u:%u", FD_BASE58_ENC_32_ALLOCA( contact->pubkey->key ), new_ip&0xFF, (new_ip>>8)&0xFF, (new_ip>>16)&0xFF, (new_ip>>24)&0xFF, new_port));
+    FD_LOG_DEBUG(("send_tile: Skipping unstaked pubkey %s at %u.%u.%u.%u:%u", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey ), new_ip&0xFF, (new_ip>>8)&0xFF, (new_ip>>16)&0xFF, (new_ip>>24)&0xFF, new_port));
     ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_UNSTAKED_IDX]++;
     return;
   }
@@ -311,9 +313,20 @@ handle_new_contact_info( fd_send_tile_ctx_t   * ctx,
 }
 
 static inline void
-finalize_new_cluster_contact_info( fd_send_tile_ctx_t * ctx ) {
-  for( ulong i=0UL; i<ctx->contact_cnt; i++ ) {
-    handle_new_contact_info( ctx, &ctx->contact_buf[i] );
+handle_contact_info_remvoval( fd_send_tile_ctx_t *               ctx FD_PARAM_UNUSED,
+                              fd_gossip_update_message_t const * msg FD_PARAM_UNUSED ) {
+  /* TODO: Handle Contact Info removal */
+  return;
+}
+
+static inline void
+finalize_contact_info_update( fd_send_tile_ctx_t * ctx ) {
+  fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( ctx->contact_buf );
+  if( FD_LIKELY( msg->tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ) {
+    handle_contact_info_update( ctx, msg );
+  } else if ( FD_UNLIKELY( msg->tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ) ) {
+    /* TODO */
+    handle_contact_info_remvoval( ctx, msg );
   }
 }
 
@@ -363,6 +376,18 @@ before_credit( fd_send_tile_ctx_t * ctx,
   *charge_busy = fd_quic_service( ctx->quic );
 }
 
+static inline int
+before_frag( fd_send_tile_ctx_t * ctx,
+             ulong                in_idx,
+             ulong                seq FD_PARAM_UNUSED,
+             ulong                sig ) {
+  if( FD_UNLIKELY( ctx->in_links[in_idx].kind==IN_KIND_GOSSIP ) ) {
+    return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
+           sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+  }
+  return 0;
+}
+
 static void
 during_frag( fd_send_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -393,13 +418,6 @@ during_frag( fd_send_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
-    if( sz>sizeof(fd_shred_dest_wire_t)*MAX_STAKED_LEADERS ) {
-      FD_LOG_ERR(( "sz %lu >= max expected gossip update size %lu", sz, sizeof(fd_shred_dest_wire_t) * MAX_STAKED_LEADERS ));
-    }
-    if( FD_UNLIKELY( sz%sizeof(fd_shred_dest_wire_t)!=0UL ) ) {
-      FD_LOG_ERR(( "sz %lu is not a multiple of sizeof(fd_shred_dest_wire_t) %lu", sz, sizeof(fd_shred_dest_wire_t) ));
-    }
-    ctx->contact_cnt = sz / sizeof(fd_shred_dest_wire_t);
     fd_memcpy( ctx->contact_buf, dcache_entry, sz );
   }
 
@@ -477,7 +495,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
-    finalize_new_cluster_contact_info( ctx );
+    finalize_contact_info_update( ctx );
     return;
   }
 
@@ -587,7 +605,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_port    = tile->send.send_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
-  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_send" );
+  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out" );
   setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "stake_out"   );
   setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_send"  );
 
@@ -723,6 +741,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_send_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_send_tile_ctx_t)
 
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
