@@ -70,12 +70,13 @@
 
 /* ---- End consensus-critical constants */
 
-#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE     ( 1U)
-#define FD_TXN_P_FLAGS_BUNDLE             ( 2U)
-#define FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ( 4U)
-#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS   ( 8U)
-#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS    (16U)
-#define FD_TXN_P_FLAGS_FEES_ONLY          (32U)
+#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE         ( 1U)
+#define FD_TXN_P_FLAGS_BUNDLE                 ( 2U)
+#define FD_TXN_P_FLAGS_INITIALIZER_BUNDLE     ( 4U)
+#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS       ( 8U)
+#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS        (16U)
+#define FD_TXN_P_FLAGS_FEES_ONLY              (32U)
+#define FD_TXN_P_FLAGS_SCHEDULED_WHILE_LEADER (64U)
 
 #define FD_TXN_P_FLAGS_RESULT_MASK  (0xFF000000U)
 
@@ -346,9 +347,9 @@ FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-F
    returns one of the FD_PACK_INSERT_ACCEPT_* or FD_PACK_INSERT_REJECT_*
    codes explained above.
  */
-fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                     );
-int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at );
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                   );
+fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                                        );
+int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong leader_slot, ulong expires_at );
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                                      );
 
 /* fd_pack_insert_bundle_{init,fini,cancel} are parallel to the
    similarly named fd_pack_insert_txn functions but can be used to
@@ -633,16 +634,22 @@ void fd_pack_rebate_cus( fd_pack_t * pack, fd_pack_rebate_t const * rebate );
 int fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
 
 /* fd_pack_expire_before deletes all available transactions with
-   expires_at values strictly less than expire_before.  pack must be a
-   local join of a pack object.  Returns the number of transactions
-   deleted.  Subsequent calls to fd_pack_expire_before with the same or
-   a smaller value are no-ops. */
+   expires_at values strictly less than expire_before, and updates pack
+   with the provides leader slot value. pack must be a local join of a
+   pack object.  Returns the number of transactions deleted.  Subsequent
+   calls to fd_pack_expire_before with the same or a smaller value are
+   no-ops. */
 ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
 
 /* fd_pack_delete_txn removes a transaction (identified by its first
    signature) from the pool of available transactions.  Returns 1 if the
    transaction was found (and then removed) and 0 if not. */
 int fd_pack_delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0 );
+
+/* fd_pack_start_block resets state that is known at the beginning of
+block.  leader_slot is used by pack to set the
+FD_TXN_P_FLAGS_SCHEDULED_WHILE_LEADER flag on scheduled transactions. */
+void fd_pack_start_block( fd_pack_t * pack, ulong leader_slot );
 
 /* fd_pack_end_block resets some state to prepare for the next block.
    Specifically, the per-block limits are cleared and transactions in

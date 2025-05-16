@@ -424,7 +424,7 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   ulong blockhash_slot = insert->txnp->blockhash_slot;
 
   long insert_duration = -fd_tickcount();
-  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot );
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, ctx->leader_slot, blockhash_slot );
   insert_duration      += fd_tickcount();
   ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
   fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -972,7 +972,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     } else {
       ulong blockhash_slot = sig;
       long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot );
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, ctx->leader_slot, blockhash_slot );
       insert_duration      += fd_tickcount();
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
