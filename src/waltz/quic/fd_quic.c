@@ -4458,10 +4458,14 @@ static ulong
 fd_quic_handle_ping_frame(
     fd_quic_frame_ctx_t *  ctx,
     fd_quic_ping_frame_t * data FD_PARAM_UNUSED,
-    uchar const *          p    FD_PARAM_UNUSED,
+    uchar const *          p0   FD_PARAM_UNUSED,
     ulong                  p_sz FD_PARAM_UNUSED ) {
   FD_DTRACE_PROBE_1( quic_handle_ping_frame, ctx->conn->our_conn_id );
-  return 0;
+  /* skip pings and pads */
+  uchar const *       p     = p0;
+  uchar const * const p_end = p + p_sz;
+  while( p < p_end && ((uint)p[0] & 0xfeu) == 0 ) p++;
+  return (ulong)( p - p0 );
 }
 
 /* Retry packet metadata
