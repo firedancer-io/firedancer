@@ -61,6 +61,18 @@ fd_keyguard_authorize_ping( fd_keyguard_authority_t const * authority,
                             ulong                           sz,
                             int                             sign_type ) {
   (void)authority;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz != 32 ) return 0;
+  if( 0!=memcmp( data, "SOLANA_PING_PONG", 16 ) ) return 0;
+  return 1;
+}
+
+static int
+fd_keyguard_authorize_pong( fd_keyguard_authority_t const * authority,
+                            uchar const *                   data,
+                            ulong                           sz,
+                            int                             sign_type ) {
+  (void)authority;
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) return 0;
   if( sz != 48 ) return 0;
   if( 0!=memcmp( data, "SOLANA_PING_PONG", 16 ) ) return 0;
@@ -140,8 +152,14 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
         (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
             FD_KEYGUARD_PAYLOAD_REPAIR |
             FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
+  /* Also allow ambiguities between shred and gossip ping messages
+     until shred sign type is fixed... */
+  int is_shred_ping =
+    0==( payload_mask &
+        (~( FD_KEYGUARD_PAYLOAD_SHRED |
+            FD_KEYGUARD_PAYLOAD_PING  ) ) );
 
-  if( FD_UNLIKELY( is_ambiguous && !is_gossip_repair ) ) {
+  if( FD_UNLIKELY( is_ambiguous && !is_gossip_repair && !is_shred_ping ) ) {
     FD_LOG_WARNING(( "ambiguous payload type (role=%#x mask=%#lx)", (uint)role, payload_mask ));
   }
 
@@ -164,11 +182,13 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   case FD_KEYGUARD_ROLE_GOSSIP: {
     int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
                     fd_keyguard_authorize_ping( authority, data, sz, sign_type );
+    int pong_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PONG )) &&
+                    fd_keyguard_authorize_pong( authority, data, sz, sign_type );
     int prune_ok  = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PRUNE )) &&
                     fd_keyguard_authorize_gossip_prune( authority, data, sz, sign_type );
     int gossip_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_GOSSIP )) &&
                     fd_keyguard_authorize_gossip( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !ping_ok && !prune_ok && !gossip_ok ) ) {
+    if( FD_UNLIKELY( !ping_ok && !pong_ok && !prune_ok && !gossip_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for gossip (mask=%#lx)", payload_mask ));
       return 0;
     }
@@ -178,9 +198,11 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   case FD_KEYGUARD_ROLE_REPAIR: {
     int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
                     fd_keyguard_authorize_ping( authority, data, sz, sign_type );
+    int pong_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PONG )) &&
+                    fd_keyguard_authorize_pong( authority, data, sz, sign_type );
     int repair_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_REPAIR )) &&
                     fd_keyguard_authorize_repair( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !ping_ok && !repair_ok ) ) {
+    if( FD_UNLIKELY( !ping_ok && !pong_ok && !repair_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for repair (mask=%#lx)", payload_mask ));
       return 0;
     }
