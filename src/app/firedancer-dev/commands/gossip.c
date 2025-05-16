@@ -1,5 +1,6 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
+#include "../../shared_dev/commands/dev.h"
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
@@ -45,7 +46,7 @@ gossip_topo( config_t * config ) {
   net_tile->net.gossip_listen_port = config->gossip.port;
 
   fd_topob_wksp( topo, "gossip" );
-  fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 0 );
+  fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 1 /* uses_keyswitch */ );
 
   strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
@@ -92,24 +93,22 @@ gossip_topo( config_t * config ) {
   fd_topo_print_log( /* stdout */ 1, topo );
 }
 
-static void
-gossip_cmd_args( int *    pargc FD_PARAM_UNUSED,
-                 char *** pargv FD_PARAM_UNUSED,
-                 args_t * args  FD_PARAM_UNUSED ) {}
-
-static void
+void
 gossip_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                config_t * config ) {
   gossip_topo( config );
   fd_topo_t * topo = &config->topo;
 
-  configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
-  configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
-  configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
-  configure_stage( &fd_cfg_stage_ethtool_gro,      CONFIGURE_CMD_INIT, config );
+  args_t configure_args = {
+    .configure.command = CONFIGURE_CMD_INIT,
+  };
 
-  initialize_workspaces( config );
-  initialize_stacks( config );
+  for( ulong i=0UL; STAGES[ i ]; i++ )
+    configure_args.configure.stages[ i ] = STAGES[ i ];
+  configure_cmd_fn( &configure_args, config );
+
+  run_firedancer_init( config, 1 );
+
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp( topo, config->net.bind_address_parsed );
   }
@@ -128,28 +127,9 @@ gossip_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   for(;;) pause();
 }
 
-static void
-configure_stage_perm( configure_stage_t const * stage,
-                      fd_cap_chk_t *            chk,
-                      config_t const *          config ) {
-  int enabled = !stage->enabled || stage->enabled( config );
-  if( enabled && stage->check( config ).result != CONFIGURE_OK )
-    if( stage->init_perm ) stage->init_perm( chk, config );
-}
-
-static void
-gossip_cmd_perm( args_t *         args FD_PARAM_UNUSED,
-                 fd_cap_chk_t *   chk,
-                 config_t const * config ) {
-  configure_stage_perm( &fd_cfg_stage_sysctl,           chk, config );
-  configure_stage_perm( &fd_cfg_stage_hugetlbfs,        chk, config );
-  configure_stage_perm( &fd_cfg_stage_ethtool_channels, chk, config );
-  configure_stage_perm( &fd_cfg_stage_ethtool_gro,      chk, config );
-}
-
 action_t fd_action_gossip = {
   .name = "gossip",
-  .args = gossip_cmd_args,
+  .args = NULL,
   .fn   = gossip_cmd_fn,
-  .perm = gossip_cmd_perm,
+  .perm = dev_cmd_perm,
 };

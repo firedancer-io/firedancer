@@ -118,7 +118,7 @@ test_juggle( void ) {
   FD_TEST( !memcmp( out_pubkey, random_pubkey1, 32UL ) );
   FD_TEST( out_address->addr==random_address1->addr );
   FD_TEST( out_address->port==random_address1->port );
-  
+
   uchar valid_pong_token[ 32UL ];
   fd_sha256_t sha[1];
   FD_TEST( fd_sha256_join( fd_sha256_new( sha ) ) );
