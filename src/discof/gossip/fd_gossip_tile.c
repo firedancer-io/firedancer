@@ -128,15 +128,15 @@ struct fd_gossip_tile_ctx {
   ulong       verify_out_wmark;
   ulong       verify_out_chunk;
 
-  fd_frag_meta_t * eqvoc_out_mcache;
-  ulong *          eqvoc_out_sync;
-  ulong            eqvoc_out_depth;
-  ulong            eqvoc_out_seq;
+  fd_frag_meta_t * tower_out_mcache;
+  ulong *          tower_out_sync;
+  ulong            tower_out_depth;
+  ulong            tower_out_seq;
 
-  fd_wksp_t * eqvoc_out_mem;
-  ulong       eqvoc_out_chunk0;
-  ulong       eqvoc_out_wmark;
-  ulong       eqvoc_out_chunk;
+  fd_wksp_t * tower_out_mem;
+  ulong       tower_out_chunk0;
+  ulong       tower_out_wmark;
+  ulong       tower_out_chunk;
 
   fd_frag_meta_t * restart_out_mcache;
   ulong *          restart_out_sync;
@@ -312,25 +312,25 @@ gossip_deliver_fun( fd_crds_data_t * data,
       ele->contact_info = contact_info;
     }
   } else if( fd_crds_data_is_duplicate_shred( data ) ) {
-    if( FD_UNLIKELY( !ctx->eqvoc_out_mcache ) ) return;
+    if( FD_UNLIKELY( !ctx->tower_out_mcache ) ) return;
 
     fd_gossip_duplicate_shred_t const * duplicate_shred = &data->inner.duplicate_shred;
-    uchar * eqvoc_msg = fd_chunk_to_laddr( ctx->eqvoc_out_mem, ctx->eqvoc_out_chunk );
-    memcpy( eqvoc_msg, duplicate_shred, sizeof(fd_gossip_duplicate_shred_t) );
-    memcpy( eqvoc_msg + sizeof(fd_gossip_duplicate_shred_t), duplicate_shred->chunk, duplicate_shred->chunk_len );
+    uchar * tower_msg = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
+    memcpy( tower_msg, duplicate_shred, sizeof(fd_gossip_duplicate_shred_t) );
+    memcpy( tower_msg + sizeof(fd_gossip_duplicate_shred_t), duplicate_shred->chunk, duplicate_shred->chunk_len );
 
     ulong sig = 1UL;
-    fd_mcache_publish( ctx->eqvoc_out_mcache,
-                       ctx->eqvoc_out_depth,
-                       ctx->eqvoc_out_seq,
+    fd_mcache_publish( ctx->tower_out_mcache,
+                       ctx->tower_out_depth,
+                       ctx->tower_out_seq,
                        sig,
-                       ctx->eqvoc_out_chunk,
+                       ctx->tower_out_chunk,
                        sizeof(fd_gossip_duplicate_shred_t),
                        0UL,
                        0,
                        0 );
-    ctx->eqvoc_out_seq   = fd_seq_inc( ctx->eqvoc_out_seq, 1UL );
-    ctx->eqvoc_out_chunk = fd_dcache_compact_next( ctx->eqvoc_out_chunk, sizeof(fd_gossip_duplicate_shred_t), ctx->eqvoc_out_chunk0, ctx->eqvoc_out_wmark );
+    ctx->tower_out_seq   = fd_seq_inc( ctx->tower_out_seq, 1UL );
+    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_gossip_duplicate_shred_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
   } else if( fd_crds_data_is_restart_last_voted_fork_slots( data ) ) {
     if( FD_UNLIKELY( !ctx->restart_out_mcache ) ) return;
 
@@ -886,17 +886,17 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->voter_contact_out_wmark  = fd_dcache_compact_wmark ( ctx->voter_contact_out_mem, link->dcache, link->mtu );
       ctx->voter_contact_out_chunk  = ctx->voter_contact_out_chunk0;
 
-    } else if( 0==strcmp( link->name, "gossip_eqvoc" ) ) {
+    } else if( 0==strcmp( link->name, "gossip_tower" ) ) {
 
-      if( FD_UNLIKELY( ctx->eqvoc_out_mcache ) ) FD_LOG_ERR(( "gossip tile has multiple gossip_eqvoc out links" ));
-      ctx->eqvoc_out_mcache = link->mcache;
-      ctx->eqvoc_out_sync   = fd_mcache_seq_laddr( ctx->eqvoc_out_mcache );
-      ctx->eqvoc_out_depth  = fd_mcache_depth( ctx->eqvoc_out_mcache );
-      ctx->eqvoc_out_seq    = fd_mcache_seq_query( ctx->eqvoc_out_sync );
-      ctx->eqvoc_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->eqvoc_out_chunk0 = fd_dcache_compact_chunk0( ctx->eqvoc_out_mem, link->dcache );
-      ctx->eqvoc_out_wmark  = fd_dcache_compact_wmark ( ctx->eqvoc_out_mem, link->dcache, link->mtu );
-      ctx->eqvoc_out_chunk  = ctx->eqvoc_out_chunk0;
+      if( FD_UNLIKELY( ctx->tower_out_mcache ) ) FD_LOG_ERR(( "gossip tile has multiple gossip_tower out links" ));
+      ctx->tower_out_mcache = link->mcache;
+      ctx->tower_out_sync   = fd_mcache_seq_laddr( ctx->tower_out_mcache );
+      ctx->tower_out_depth  = fd_mcache_depth( ctx->tower_out_mcache );
+      ctx->tower_out_seq    = fd_mcache_seq_query( ctx->tower_out_sync );
+      ctx->tower_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->tower_out_chunk0 = fd_dcache_compact_chunk0( ctx->tower_out_mem, link->dcache );
+      ctx->tower_out_wmark  = fd_dcache_compact_wmark ( ctx->tower_out_mem, link->dcache, link->mtu );
+      ctx->tower_out_chunk  = ctx->tower_out_chunk0;
 
     } else if( 0==strcmp( link->name, "gossi_rstart" ) ) {
 
