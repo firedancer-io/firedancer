@@ -9,13 +9,13 @@ API for consumers to subscribe to validator information. It primarily
 exists in the current form to support the Firedancer GUI.
 
 ::: warning WARNING
-The API is not currently stable, is not versioned, may not exist for
+The API is not currently stable, is not versioned, and may not exist for
 long, may break or start producing incorrect data at any moment, and
 should not generally be used for anything without extreme caution.
 :::
 
 ## Connecting
-To connect to the API, create a WebSocket client from the language of
+To connect to the API, create a WebSocket client in the language of
 your choice, for example in JavaScript
 
 ::: code-group
@@ -41,8 +41,8 @@ all connected clients.
 ## Keeping Up
 The server does not drop information, slow down, or stop publishing the
 stream of information if the client cannot keep up. A client that is
-reading too slow and cannot keep up with incoming data stream will have
-its connection forcibly closed by the server.
+reading too slow and cannot keep up with the incoming data stream will have
+its connection was forcibly closed by the server.
 
 Most data updates are streamed in real time as the changes occur except
 certain updates (performance counters like packet counters) which would
@@ -593,7 +593,7 @@ won't know how many made it into the block yet, as we do when looking at
 the waterfall for a block that has been published.
 
 The waterfall should generally be balanced: total transactions in and
-total transactions out will be the roughly the same, but not always
+total transactions out will be roughly the same, but not always
 strictly. Transactions in could be more or less than transactions out
 due to sampling jitter. When subtracting, be sure to account for
 potential underflow.
@@ -776,8 +776,8 @@ once they are confirmed (the prior epoch has fully rooted).
 | end_time_nanos | ` string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
-| excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
-| staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which have are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
+| excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the lists below. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
+| staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which have are staked in this epoch.  There will be at most 40,200 staked keys, after which lower-staked keys will not be included |
 | staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divided by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
 
@@ -795,7 +795,7 @@ from gossip, the accounts database, and the on-chain configuration
 program. All peer information is authenticated meaning it can only be
 reported from the holder of the private key, however not all peer data
 is validated or checked for correctness. In particular, data from the
-gossip network and the config program is self reported by the validator
+gossip network and the config program is self-reported by the validator
 and could be empty, corrupt, filled with garbage, or malicious.
 
 Peer information is keyed by the validator identity key. Multiple vote
@@ -888,7 +888,7 @@ identity is no longer in these three data sources, it will be removed.
 | identity | `string` | Identity public key of the validator, encoded in base58 |
 | gossip   | `PeerUpdateGossip\|null` | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
 | vote     | `PeerUpdateVoteAccount[]` | Information about the vote account(s) associated with this identity key, if there are any. It is extremely unusual for multiple vote accounts to report the same identity key. Vote account information like stake and commission is derived from the accounts on chain and cannot be corrupt, invalid, or incorrect |
-| info     | `PeerUpdateInfo\|null` | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
+| info     | `PeerUpdateInfo\|null` | If the validator has published self-reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
 
 **`PeerRemove`**
 | Field    | Type   | Description |
