@@ -737,6 +737,7 @@ fd_topo_initialize( config_t * config ) {
   }
   /**/                 fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "replay_alpen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",   0UL,                       "replay_alpen", 0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "alpen",    0UL,          "metric_in", "net_alpen",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/             fd_topos_tile_in_net(  topo,                           "metric_in", "alpen_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_out( topo, "alpen",    0UL,                       "alpen_net",    0UL                                                  );
