@@ -9,7 +9,7 @@ API for consumers to subscribe to validator information. It primarily
 exists in the current form to support the Firedancer GUI.
 
 ::: warning WARNING
-The API is not currently stable, is not versioned, and may not exist for
+The API is not currently stable, is not versioned, may not exist for
 long, may break or start producing incorrect data at any moment, and
 should not generally be used for anything without extreme caution.
 :::
@@ -42,7 +42,7 @@ all connected clients.
 The server does not drop information, slow down, or stop publishing the
 stream of information if the client cannot keep up. A client that is
 reading too slow and cannot keep up with the incoming data stream will have
-its connection was forcibly closed by the server.
+its connection forcibly closed by the server.
 
 Most data updates are streamed in real time as the changes occur except
 certain updates (performance counters like packet counters) which would
