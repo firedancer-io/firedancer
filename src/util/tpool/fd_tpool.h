@@ -457,16 +457,21 @@
 
    End of high performance thread parallelism crash course ************/
 
-#include "../tile/fd_tile.h"
 #include "../scratch/fd_scratch.h"
 
-/* FD_TPOOL_WORKER_STATE_* are possible states a tpool worker thread
-   is in.  Users practically should never see BOOT or HALT. */
+/* FD_TPOOL_OPT_SLEEP specifies that tpool threads should sleep from the
+   operating systems point of view when idle.  Starting and stopping
+   jobs is ~5x-10x more overhead than the default of spinning the core
+   from the operating systems point of view while yieldig it from the
+   physical core's point of view. */
 
-#define FD_TPOOL_WORKER_STATE_BOOT (0) /* Tile is booting */
-#define FD_TPOOL_WORKER_STATE_IDLE (1) /* Tile is idle */
-#define FD_TPOOL_WORKER_STATE_EXEC (2) /* Tile is executing a task */
-#define FD_TPOOL_WORKER_STATE_HALT (3) /* Tile is halting */
+#define FD_TPOOL_OPT_SLEEP (1UL)
+
+/* FD_TPOOL_TASK_ARG_MAX specifies raw number of number of arguments
+   that can be passed to the task.  Different styles of task scheduling
+   may impose additional constraints on this. */
+
+#define FD_TPOOL_TASK_ARG_MAX (43UL)
 
 /* FD_TPOOL_PARTITION partitions tasks indexed [task0,task1) over
    worker_cnt worker threads.  On return, tasks indexed
@@ -505,6 +510,11 @@
     (worker_task1)              = _ftp_worker_task1;                                                                          \
   } while(0)
 
+/* A fd_tpool_t is an opaque handle of a thread pool */
+
+struct fd_tpool_private;
+typedef struct fd_tpool_private fd_tpool_t;
+
 /* A fd_tpool_task_t is the function signature used for the entry
    point of a task.  Users are free to repurpose these arguments however
    they see fit for an individual executions but the number of
@@ -524,10 +534,18 @@ typedef void
                     ulong  m0,     ulong m1,
                     ulong  n0,     ulong n1 );
 
-/* A fd_tpool_t is an opaque handle of a thread pool */
+/* A fd_tpool_task_v2_t is the function signature used for entry
+   point of a v2 task.  This allows passing a lot more args than the
+   original fd_tpool_task_t.  tpool on entry will be the calling tpool
+   and worker_idx will be the tpool worker running the task.  arg_cnt is
+   the number of user provided args (in [0,FD_TPOOL_TASK_ARG_MAX]) and
+   arg[i] for i in [0,arg_cnt) are the i-th user argument. */
 
-struct fd_tpool_private;
-typedef struct fd_tpool_private fd_tpool_t;
+typedef void
+(*fd_tpool_task_v2_t)( fd_tpool_t *  tpool,
+                       ulong         worker_idx,
+                       ulong         arg_cnt,
+                       ulong const * arg );
 
 /* Private APIs *******************************************************/
 
@@ -535,18 +553,15 @@ typedef struct fd_tpool_private fd_tpool_t;
    high performance contexts. */
 
 struct __attribute__((aligned(128))) fd_tpool_private_worker {
-  fd_tpool_task_t task;
-  void *          task_tpool;
-  ulong           task_t0;     ulong task_t1;
-  void *          task_args;
-  void *          task_reduce; ulong task_stride;
-  ulong           task_l0;     ulong task_l1;
-  ulong           task_m0;     ulong task_m1;
-  ulong           task_n0;     ulong task_n1;
-  int             state;
-  uint            tile_idx;
-  void *          scratch;
-  ulong           scratch_sz;
+  uint  seq0;                         /* Dispatch rd/wr (ideally wr-only), worker rd-only */
+  uint  arg_cnt;                      /* UINT_MAX for a v1 task, or arg count or a v2 task (in [0,FD_TPOOL_TASK_ARG_MAX]) */
+  ulong task;                         /* 0 to halt worker, fd_tpool_task_t if arg_cnt==UINT_MAX, fd_tpool_task_v2_t otherwise */
+  ulong arg[ FD_TPOOL_TASK_ARG_MAX ]; /* task arguments, indexed [0,arg_cnt) */
+  uint  seq1;                         /* Dispatch rd-only, worker wr-only (different cache line pair than seq0, arg_cnt,
+                                         task and the most commonly used leading parts of arg) */
+  uint  tile_idx;                     /* rd-only (after init) */
+  ulong lock;                         /* For use by sleep workers */
+  ulong wake;                         /* For use by sleep workers */
 };
 
 typedef struct fd_tpool_private_worker fd_tpool_private_worker_t;
@@ -555,8 +570,9 @@ struct fd_tpool_private {
 
   /* This point is 128 aligned and preceded by the worker0 sentinel */
 
-  ulong worker_max; /* Positive */
-  ulong worker_cnt; /* in [1,worker_max] */
+  ulong opt;        /* Bit-or of FD_TPOOL_OPTs */
+  uint  worker_max; /* Positive */
+  uint  worker_cnt; /* in [1,worker_max] */
 
   /* worker_max element fd_tpool_private_worker_t * array here, indexed
      [0,worker_cnt).  worker[0] points to worker0 above.  Note that we
@@ -568,7 +584,7 @@ struct fd_tpool_private {
 
 FD_PROTOTYPES_BEGIN
 
-FD_STATIC_ASSERT( FD_TILE_MAX<65536UL, update_implementation );
+FD_STATIC_ASSERT( FD_TILE_MAX<2048UL, update_implementation );
 
 /* fd_tpool_private_worker0 returns a pointer in the local address space
    to the worker0 sentinel */
@@ -605,6 +621,25 @@ fd_tpool_private_split( ulong n ) { /* Assumes n>1 */
 # endif
 }
 
+#if FD_HAS_THREADS
+
+/* fd_tpool_private_wake will wake worker.  Assumes worker is an idle
+   sleeper.  This implies among other things worker's tpool was created
+   with FD_TPOOL_OPT_SLEEP, the caller is not the worker and the worker
+   is not tpool worker 0. */
+
+void
+fd_tpool_private_wake( fd_tpool_private_worker_t * worker );
+
+#else
+
+static inline void
+fd_tpool_private_wake( fd_tpool_private_worker_t * worker ) {
+  (void)worker;
+}
+
+#endif
+
 FD_PROTOTYPES_END
 
 /* End of private APIs ************************************************/
@@ -623,11 +658,6 @@ FD_PROTOTYPES_END
                                            + ((ulong)(worker_max))*sizeof(fd_tpool_private_worker_t *) /* worker array     */ \
                                            + FD_TPOOL_ALIGN-1UL ) & (~(FD_TPOOL_ALIGN-1UL)) )
 
-/* FD_TPOOL_WORKER_SCRATCH_DEPTH is the maximum number of scratch
-   frames a worker thread scratch region can have. */
-
-#define FD_TPOOL_WORKER_SCRATCH_DEPTH (128UL)
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_tpool_align returns FD_TPOOL_ALIGN.  fd_tpool_footprint returns
@@ -640,20 +670,22 @@ FD_FN_CONST ulong fd_tpool_footprint( ulong worker_max );
 /* fd_tpool_init formats a memory region mem with the appropriate
    alignment and footprint as a thread pool that can support up to
    worker_max worker threads.  worker max must be in [1,FD_TILE_MAX].
-   Returns a handle for the tpool (this is not a simple cast of mem) on
-   success and NULL on failure (logs details).  On a success return,
-   worker 0 will already exist.  Many threads can temporarily assume the
-   identity of worker 0 as the situation merits.  Worker 0 is typically
-   the thread that starts dispatches to other worker threads in an
-   operation and can also flexibly participates in the tpool in bulk
-   operations.  This uses init/fini semantics instead of
-   new/join/leave/delete semantics because thread pools aren't
+   opt is a bit or of FD_TPOOL_OPT specifying additional behaviors of
+   this tpool.  Returns a handle for the tpool (this is not a simple
+   cast of mem) on success and NULL on failure (logs details).  On a
+   success return, worker 0 will already exist.  Many threads can
+   temporarily assume the identity of worker 0 as the situation merits.
+   Worker 0 is typically the thread that starts dispatches to other
+   worker threads in an operation and can also flexibly participates in
+   the tpool in bulk operations.  This uses init/fini semantics instead
+   of new/join/leave/delete semantics because thread pools aren't
    meaningfully sharable between processes / thread groups.  This
    function acts as a compiler memory fence. */
 
 fd_tpool_t *
 fd_tpool_init( void * mem,
-               ulong  worker_max );
+               ulong  worker_max,
+               ulong  opt );
 
 /* fd_tpool_fini pops all worker threads pushed into the tpool and
    unformats the underlying memory region.  This should be called at
@@ -673,27 +705,12 @@ fd_tpool_fini( fd_tpool_t * tpool );
    other tile operations should be done it while it is a part of the
    tpool.
 
-   If scratch_sz is non-zero, this will assume that tile tile_idx
-   currently has no scratch memory attached to it and configure tile
-   tile_idx to use the memory with appropriate alignment whose first byte
-   in the local address space is scratch and that has scratch_sz bytes
-   total for its scratch memory.  Otherwise, it will use whatever
-   scratch memory has already been configured for tile_idx (or leave it
-   unattached to a scratch memory).  Scratch memory used by a tile
-   should not be used for any other purposes while the tile is part of
-   the tpool.
-
-   IMPORTANT SAFETY TIP! Since worker 0 identity is flexible, it is the
-   caller's responsibility to attach/detach the scratch memory as
-   appropriate for a "worker 0 thread" that is not pushed into the
-   tpool.
-
    Returns tpool on success (tile tile_idx is part of the tpool and will
    be considered as executing from tile's point of view while a member
    of the tpool ... no tile operations can or should be done on it while
    it is part of the tpool) and NULL on failure (logs details).  Reasons
-   for failure include NULL tpool, bad tile_idx, tile was not idle, bad
-   scratch region specified, etc).
+   for failure include NULL tpool, bad tile_idx, tile was not idle,
+   etc).
 
    No other operations on tpool should be in process when this is called
    or started while this is running.  This function acts as a compiler
@@ -701,18 +718,15 @@ fd_tpool_fini( fd_tpool_t * tpool );
 
 fd_tpool_t *
 fd_tpool_worker_push( fd_tpool_t * tpool,
-                      ulong        tile_idx,
-                      void *       scratch,
-                      ulong        scratch_sz );
+                      ulong        tile_idx );
 
 /* fd_tpool_worker_pop pops the most recently pushed tpool worker
-   thread.  If the tile is attached to some scratch memory as part of
-   its push, it will be detached from it here.
+   thread.
 
    Returns tpool on success (the tile is no longer part of the tpool and
    considered idle from tile's POV and can be used for other purposes)
    and NULL on failure (logs details).  Reasons for failure include NULL
-   tpool, bad tile_idx, tile was not idle, bad scratch region, etc).
+   tpool, bad tile_idx, tile was not idle, etc).
 
    No other operations on the tpool should be in process when this is
    called or started while this is running.  This function acts as a
@@ -724,11 +738,11 @@ fd_tpool_worker_pop( fd_tpool_t * tpool );
 /* Accessors.  As these are used in high performance contexts, these do
    no input argument checking.  Specifically, they assume tpool is valid
    and (if applicable) worker_idx in [0,worker_cnt).  worker 0 is
-   special.  The tile_idx/scratch/scratch_sz for worker 0 are always
-   returned as 0/NULL/0 here. */
+   special.  The tile_idx for worker 0 is always returuned as 0. */
 
-FD_FN_PURE static inline ulong fd_tpool_worker_cnt( fd_tpool_t const * tpool ) { return tpool->worker_cnt; }
-FD_FN_PURE static inline ulong fd_tpool_worker_max( fd_tpool_t const * tpool ) { return tpool->worker_max; }
+FD_FN_PURE static inline ulong fd_tpool_opt       ( fd_tpool_t const * tpool ) { return tpool->opt;               }
+FD_FN_PURE static inline ulong fd_tpool_worker_cnt( fd_tpool_t const * tpool ) { return (ulong)tpool->worker_cnt; }
+FD_FN_PURE static inline ulong fd_tpool_worker_max( fd_tpool_t const * tpool ) { return (ulong)tpool->worker_max; }
 
 FD_FN_PURE static inline ulong
 fd_tpool_worker_tile_idx( fd_tpool_t const * tpool,
@@ -736,35 +750,43 @@ fd_tpool_worker_tile_idx( fd_tpool_t const * tpool,
   return (ulong)fd_tpool_private_worker( tpool )[ worker_idx ]->tile_idx;
 }
 
-FD_FN_PURE static inline void *
-fd_tpool_worker_scratch( fd_tpool_t const * tpool,
-                         ulong              worker_idx ) {
-  return fd_tpool_private_worker( tpool )[ worker_idx ]->scratch;
-}
-
-FD_FN_PURE static inline ulong
-fd_tpool_worker_scratch_sz( fd_tpool_t const * tpool,
-                            ulong              worker_idx ) {
-  return fd_tpool_private_worker( tpool )[ worker_idx ]->scratch_sz;
-}
-
-/* fd_tpool_worker_state atomically observes the state of tpool thread
+/* fd_tpool_worker_idle atomically observes the state of tpool thread
    worker_idx at some point in time between when the call was made and
    the call returns.  As this is used in high performance contexts, does
    no input argument checking.  Specifically, assumes tpool is valid and
-   worker_idx is in [0,worker_cnt).  Return value will be a
-   FD_TPOOL_WORKER_STATE value (and, in correct usage, either IDLE or
-   EXEC).  worker 0 is special.  The state here will always be EXEC.
-   This function acts as a compiler memory fence. */
+   worker_idx is in [0,worker_cnt).  Return value if 0/1 indicates the
+   worker was not idle / idle when observed.  worker 0 is special and is
+   never considered idle.  This function acts as a compiler memory
+   fence. */
 
 static inline int
-fd_tpool_worker_state( fd_tpool_t const * tpool,
-                       ulong              worker_idx ) {
-  int * _state = &fd_tpool_private_worker( tpool )[ worker_idx ]->state;
+fd_tpool_worker_idle( fd_tpool_t const * tpool,
+                      ulong              worker_idx ) {
+  fd_tpool_private_worker_t * worker = fd_tpool_private_worker( tpool )[ worker_idx ];
+  uint const * _seq0 = &worker->seq0;
+  uint const * _seq1 = &worker->seq1;
+
+  uint seq1;
+
   FD_COMPILER_MFENCE();
-  int state = *_state;
-  FD_COMPILER_MFENCE();
-  return state;
+  uint seq0 = *_seq0;
+  for(;;) {
+    FD_COMPILER_MFENCE();
+    /**/ seq1 = *_seq1;
+    FD_COMPILER_MFENCE();
+    uint seq2 = *_seq0;
+    FD_COMPILER_MFENCE();
+    if( FD_LIKELY( seq2==seq0 ) ) break;
+
+    /* Looks like another thread scheduled a task for the worker while
+       we were trying to observe the worker's state.  Try again after a
+       brief pause. */
+
+    FD_SPIN_PAUSE();
+    seq0 = seq2;
+  }
+
+  return seq0==seq1;
 }
 
 /* fd_tpool_exec calls
@@ -800,38 +822,44 @@ fd_tpool_exec( fd_tpool_t *    tpool,       ulong worker_idx,
                ulong           task_m0,     ulong task_m1,
                ulong           task_n0,     ulong task_n1 ) {
   fd_tpool_private_worker_t * worker = fd_tpool_private_worker( tpool )[ worker_idx ];
-  worker->task        = task;
-  worker->task_tpool  = task_tpool;
-  worker->task_t0     = task_t0;     worker->task_t1     = task_t1;
-  worker->task_args   = task_args;
-  worker->task_reduce = task_reduce; worker->task_stride = task_stride;
-  worker->task_l0     = task_l0;     worker->task_l1     = task_l1;
-  worker->task_m0     = task_m0;     worker->task_m1     = task_m1;
-  worker->task_n0     = task_n0;     worker->task_n1     = task_n1;
+  uint                        seq0   = worker->seq0 + 1U;
+  worker->arg_cnt = UINT_MAX; /* Signal fd_tpool_exec dispatch */
+  worker->task    = (ulong)task;
+  worker->arg[ 0] = (ulong)task_tpool;
+  worker->arg[ 1] =        task_t0;     worker->arg[ 2] = task_t1;
+  worker->arg[ 3] = (ulong)task_args;
+  worker->arg[ 4] = (ulong)task_reduce; worker->arg[ 5] = task_stride;
+  worker->arg[ 6] =        task_l0;     worker->arg[ 7] = task_l1;
+  worker->arg[ 8] =        task_m0;     worker->arg[ 9] = task_m1;
+  worker->arg[10] =        task_n0;     worker->arg[11] = task_n1;
   FD_COMPILER_MFENCE();
-  worker->state = FD_TPOOL_WORKER_STATE_EXEC;
+  worker->seq0 = seq0;
   FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( tpool->opt & FD_TPOOL_OPT_SLEEP ) ) fd_tpool_private_wake( worker );
 }
 
 /* fd_tpool_wait waits for the tpool thread worker_idx to leave the
-   EXEC state.  As this is used in high performance contexts, does no
-   input argument checking.  Specifically, assumes tpool is valid,
-   worker_idx in (0,worker_cnt) (yes, open on both ends) and caller is
-   not tpool thread worker_idx.  worker_idx 0 is considered to always be
-   in an exec state so we cannot call wait on it.  On return, the caller
-   atomically observed worker_idx was not in the EXEC state at some
-   point between when this was called and when this returned.  This
-   function acts as a compiler memory fence. */
+   EXEC state.  As this is used in high performance contexts, this does
+   no input argument checking.  Specifically, assumes tpool is valid,
+   worker_idx in (0,worker_cnt) (yes, open on both ends ... worker_idx 0
+   is considered to always be in an exec state so we should not call
+   wait on it), caller is not tpool thread worker_idx and no other
+   caller will attempt to schedule a task on worker_idx while waiting.
+   On return, the caller atomically observed worker_idx was not in the
+   EXEC state at some point between when this was called and when this
+   returned.  This function acts as a compiler memory fence. */
 
 static inline void
 fd_tpool_wait( fd_tpool_t const * tpool,
                ulong              worker_idx ) {
-  int * _state = &fd_tpool_private_worker( tpool )[ worker_idx ]->state;
+  fd_tpool_private_worker_t * worker = fd_tpool_private_worker( tpool )[ worker_idx ];
+  uint const * _seq1 = &worker->seq1;
+  uint          seq0 =  worker->seq0;
   for(;;) {
     FD_COMPILER_MFENCE();
-    int state = *_state;
+    uint seq1 = *_seq1;
     FD_COMPILER_MFENCE();
-    if( FD_LIKELY( state!=FD_TPOOL_WORKER_STATE_EXEC ) ) break;
+    if( FD_LIKELY( seq0==seq1 ) ) break;
     FD_SPIN_PAUSE();
   }
 }
@@ -959,338 +987,7 @@ fd_tpool_exec_all_taskq( fd_tpool_t *    tpool,
 
 #undef FD_TPOOL_EXEC_ALL_DECL
 
-/* FD_FOR_ALL provides some macros for writing CUDA-ish parallel-for
-   kernels executed via tpool threads.  Example usage:
-
-     In a header file:
-
-       // my_vec_op uses tpool threads [tpool_t0,tpool_t1) to do:
-       //
-       //   for( long i=i0; i<i1; i++ ) z[i] = my_scalar_op( x[i], y[i] );
-       //
-       // where x, y and z are pointers to non-overlapping my_ele_t
-       // arrays.  The caller is assumed to be thread tpool_t0, threads
-       // (tpool_t0,tpool_t1) are assumed to be idle and
-       // (block_i1-block_i0) in [0,LONG_MAX / FD_TILE_MAX].
-
-       FD_FOR_ALL_PROTO( my_vec_op );
-
-     In a source file that uses my_vec_op:
-
-       FD_FOR_ALL( my_vec_op, tpool, t0,t1, i0,i1, x,y,z );
-
-     In the source file that implements my_vec_op:
-
-       FD_FOR_ALL_BEGIN( my_vec_op, 1024L ) {
-
-         ... At this point:
-
-             - longs block_i0 and block_i1 give the range of elements
-               [block_i0,block_i1) for this thread to process.  Other
-               threads will process other approximately equally sized
-               disjoint ranges in parallel.
-
-             - long block_cnt = block_i1 - block_i0.
-
-             - long block_thresh is the parameter used to optimize
-               thread dispatch and was specified by the 1024L above.
-               Element ranges with more than this number of elements are
-               considered worth splitting over more than one thread if
-               possible.  An ultra high performance deterministic
-               parallelized tree dispatch is used for good scaling,
-               cache temporal locality and cache spatial locality.
-               Should be at least 1 and can be a run time evaluated
-               expression.  This can also be used to make sure different
-               kernel dispatches consistently partition elements such
-               that there is good cache reuse between different thread
-               parallel kernels.
-
-             - tpool is a handle of this thread's tpool and ulongs
-               tpool_t0 and tpool_t1 give the range of threads
-               [tpool_t0,tpool_t1) available to process this block.
-               This thread is tpool_t0 and threads (tpool_t0,tpool_t1)
-               are idle.
-
-             - Even if the range (tpool_t0,tpool_t1) not empty, it is
-               almost certainly optimal to just have this thread process
-               all elements in the block single threaded.  That is, when
-               processing many elements (>>block_thresh*(t1-t0)),
-               (tpool_t0,tpool_t1) will be empty.  When processing a
-               small numbers of elements, FD_FOR_ALL already concluded
-               there were too few elements to dispatch to
-               (tpool_t0,tpool_t1).
-
-             - In this example, ulongs _a0 = (ulong)x, _a1 = (ulong)y,
-               _a2 = (ulong)z.  ulongs _a3, _a4, _a5, and _a6 are zero.
-
-             - _tpool, _block_i0, _block_i1, _reduce_cnt, _reduce_stack
-               are reserved.
-
-             IMPORTANT SAFETY TIP!  DO NOT RETURN FROM THIS BLOCK.  (IF
-             ENDING A BLOCK EARLY, USE BREAK.)
-
-         my_ele_t const * restrict x = (my_ele_t const *)_a0;
-         my_ele_t const * restrict y = (my_ele_t const *)_a1;
-         my_ele_t       * restrict z = (my_ele_t       *)_a2;
-
-         for( long i=block_i0; i<block_i1; i++ ) z[i] = my_scalar_op( x[i], y[i] );
-
-       } FD_FOR_ALL_END
-
-  FD_FOR_ALL operations are a compiler memory fence. */
-
-#define FD_FOR_ALL_PROTO(op)                                                              \
-void                                                                                      \
-op( void * _tpool,                      /* Assumes valid */                               \
-    ulong   tpool_t0, ulong   tpool_t1, /* Assumes t0<=t1, caller is t0, (t0,t1) idle */  \
-    void * _block_i0, void * _block_i1, /* Assumes block_cnt in [0,LONG_MAX/tpool_cnt] */ \
-    ulong  _a0,       ulong  _a1,                                                         \
-    ulong  _a2,       ulong  _a3,                                                         \
-    ulong  _a4,       ulong  _a5,                                                         \
-    ulong  _a6 )
-
-#define FD_FOR_ALL_BEGIN(op,BLOCK_THRESH)                                                          \
-void                                                                                               \
-op( void * _tpool,                                                                                 \
-    ulong   tpool_t0, ulong   tpool_t1,                                                            \
-    void * _block_i0, void * _block_i1,                                                            \
-    ulong  _a0,       ulong  _a1,                                                                  \
-    ulong  _a2,       ulong  _a3,                                                                  \
-    ulong  _a4,       ulong  _a5,                                                                  \
-    ulong  _a6 ) {                                                                                 \
-  FD_COMPILER_MFENCE(); /* guarantees memory fence even if tpool_cnt==1 */                         \
-  long         block_thresh = (BLOCK_THRESH);                                                      \
-  fd_tpool_t * tpool        = (fd_tpool_t *)_tpool;                                                \
-  long         block_i0     = (long)_block_i0;                                                     \
-  long         block_i1     = (long)_block_i1;                                                     \
-  long         block_cnt;                                                                          \
-  ulong        _reduce_cnt = 0UL;                                                                  \
-  ushort       _reduce_stack[ 16 ]; /* Assumes TILE_MAX<=65536 */                                  \
-  for(;;) {                                                                                        \
-    ulong tpool_cnt = tpool_t1 - tpool_t0;                                                         \
-    /**/  block_cnt = block_i1 - block_i0;                                                         \
-    if( FD_LIKELY( (tpool_cnt<=1UL) | (block_cnt<=block_thresh) ) ) break;                         \
-    ulong tpool_left  = fd_tpool_private_split( tpool_cnt );                                       \
-    ulong tpool_right = tpool_cnt - tpool_left;                                                    \
-    ulong tpool_ts    = tpool_t0 + tpool_left;                                                     \
-    long  block_is    = block_i1 - (long)((tpool_right*(ulong)block_cnt)/tpool_cnt); /* No ovfl */ \
-    fd_tpool_exec( tpool,tpool_ts, op, tpool,tpool_ts,tpool_t1, (void *)block_is,(void *)block_i1, \
-                   _a0,_a1,_a2,_a3,_a4,_a5,_a6 );                                                  \
-    _reduce_stack[ _reduce_cnt++ ] = (ushort)tpool_ts;                                             \
-    tpool_t1 = tpool_ts;                                                                           \
-    block_i1 = block_is;                                                                           \
-  }                                                                                                \
-  do
-
-#define FD_FOR_ALL_END                                                                \
-  while(0);                                                                           \
-  while( _reduce_cnt ) fd_tpool_wait( tpool, (ulong)_reduce_stack[ --_reduce_cnt ] ); \
-}
-
-#define FD_FOR_ALL_PRIVATE_F(...)                                       too_few_arguments_passed_to_FD_FOR_ALL
-#define FD_FOR_ALL_PRIVATE_0(op,tpool,t0,t1,i0,i1                     ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), 0UL,         0UL,         0UL,         0UL,         0UL,         0UL,         0UL         )
-#define FD_FOR_ALL_PRIVATE_1(op,tpool,t0,t1,i0,i1,a0                  ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), 0UL,         0UL,         0UL,         0UL,         0UL,         0UL         )
-#define FD_FOR_ALL_PRIVATE_2(op,tpool,t0,t1,i0,i1,a0,a1               ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), 0UL,         0UL,         0UL,         0UL,         0UL         )
-#define FD_FOR_ALL_PRIVATE_3(op,tpool,t0,t1,i0,i1,a0,a1,a2            ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), 0UL,         0UL,         0UL,         0UL         )
-#define FD_FOR_ALL_PRIVATE_4(op,tpool,t0,t1,i0,i1,a0,a1,a2,a3         ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), (ulong)(a3), 0UL,         0UL,         0UL         )
-#define FD_FOR_ALL_PRIVATE_5(op,tpool,t0,t1,i0,i1,a0,a1,a2,a3,a4      ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), (ulong)(a3), (ulong)(a4), 0UL,         0UL         )
-#define FD_FOR_ALL_PRIVATE_6(op,tpool,t0,t1,i0,i1,a0,a1,a2,a3,a4,a5   ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), (ulong)(a3), (ulong)(a4), (ulong)(a5), 0UL         )
-#define FD_FOR_ALL_PRIVATE_7(op,tpool,t0,t1,i0,i1,a0,a1,a2,a3,a4,a5,a6) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), (ulong)(a3), (ulong)(a4), (ulong)(a5), (ulong)(a6) )
-#define FD_FOR_ALL_PRIVATE_M(...)                                       too_many_arguments_passed_to_FD_FOR_ALL
-#define FD_FOR_ALL(...) FD_EXPAND_THEN_CONCAT2(FD_FOR_ALL_PRIVATE_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,7,6,5,4,3,2,1,0,F,F,F,F,F))(__VA_ARGS__)
-
-/* FD_MAP_REDUCE extends to FD_FOR_ALL to reduce results back to thread
-   tpool_t0.
-
-   Example usage:
-
-     In a header file:
-
-       // my_hist_op uses tpool threads [tpool_t0,tpool_t1) to compute:
-       //
-       //   long h[4];
-       //   for( long j=0L; j<4L; j++ ) h[j] = 0L;
-       //   for( long i=i0; i<i1; i++ ) {
-       //     long j = my_map_op( x[i] );
-       //     h[j]++;
-       //   }
-       //
-       // where x is a pointer to a my_ele_t array.  The caller is
-       // assumed to be thread tpool_t0 and threads (tpool_t0,tpool_t1)
-       // are assumed to be idle.  Required stack
-       // is ~ O(1) + (8+REDUCE_FOOTPRINT) ceil lg (tpool_t1-tpool_t0)
-
-       FD_MAP_REDUCE_PROTO( my_hist_op );
-
-     In the source file that uses my_hist_op:
-
-       long h[4];
-       FD_MAP_REDUCE( my_hist_op, tpool,t0,t1, i0,i1, x, h );
-
-     In the source file that implements my_hist_op:
-
-       FD_MAP_REDUCE_BEGIN( my_hist_op, 1L, alignof(long), 4UL*sizeof(long) ) {
-
-         ... At this point:
-
-             - block_i0, block_i1, block_cnt, block_thresh, tpool,
-               tpool_t0, tpool_t1, _a0 through _a5 have the exact same
-               behaviors as FD_FOR_ALL.  _tpool, _block_i0, _block_i1,
-               _reduce_cnt, _reduce_stack are similarly reserved.
-
-             - Unlike FD_FOR_ALL, there is no _a6.  Instead ulong _r0
-               holds the location where this thread should store its
-               local reduction.
-
-             - ulong reduce_align and reduce_footprint give the alignment
-               and footprint of this region.  In this example, these are
-               alignof(long) and 4UL*sizeof(long).  This assumes that
-               the region passed by the caller for the final results has
-               a compatible alignment and footprint.
-
-             IMPORTANT SAFETY TIP!  DO NOT RETURN FROM THIS BLOCK.  (IF
-             ENDING A BLOCK EARLY, USE BREAK.)
-
-         my_ele_t const * restrict x = (my_ele_t const *)_a0;
-         long           * restrict h = (long           *)_r0;
-
-         for( long j=0L; j<4L; j++ ) h[j] = 0UL;
-
-         for( long i=block_i0; i<block_i1; i++ ) {
-           long j = my_map_op( x[i] );
-           h[j]++;
-         }
-
-       } FD_MAP_END {
-
-         ... At this point, the environment is as described above with
-             the following differences:
-
-             - There is at least one thread in [tpool_t0,tpool_ts) and
-               one thread in [tpool_ts,tpool_t1).
-
-             - On entry, _r0 points to the partial reduction (cast to a
-               ulong) of [block_i0,block_is).  This was computed by
-               threads [tpool_t0,tpool_ts).  Similarly, _r1 points to
-               the partial reduction (cast to a ulong) of
-               [block_is,block_i1).  This was computed by threads
-               [tpool_ts,tpool_t1).  These regions have the alignment
-               and footprint specified for the FD_MAP_REDUCE.
-
-             - On exit, _r1 has been reduced into _r0 such that _r0
-               points to the partial reduction of [block_i0,block_i1).
-               Threads [tpool_t0,tpool_t1) are available to compute this
-               reduction.  It is okay if _r1 is clobbered in this
-               process as _r1 will be discarded after this block exits.
-
-             IMPORTANT SAFETY TIP!  While this reduction is often
-             theoretically parallelizable and threads
-             [tpool_t0,tpool_t1) are available here for this,
-             parallelization of this can often be counterproductive when
-             the amount to reduce is small, the reduction operation is
-             cheap and/or the arrays to reduce have poor spatial
-             locality due to the mapping phase above.
-
-             IMPORTANT SAFETY TIP!  DO NOT RETURN FROM THIS BLOCK.  (IF
-             ENDING A BLOCK EARLY, USE BREAK.)
-
-         long       * restrict h0 = (long       *)_r0;
-         long const * restrict h1 = (long const *)_r1;
-
-         for( long j=0L; j<4L; j++ ) h0[j] += h1[j];
-
-       } FD_REDUCE_END
-
-  FD_MAP_REDUCE operations are a compiler memory fence. */
-
-#define FD_MAP_REDUCE_PROTO(op)                                                           \
-void                                                                                      \
-op( void * _tpool,                      /* Assumes valid */                               \
-    ulong   tpool_t0, ulong   tpool_t1, /* Assumes t0<=t1, caller is t0, (t0,t1) idle */  \
-    void * _block_i0, void * _block_i1, /* Assumes block_cnt in [0,LONG_MAX/tpool_cnt] */ \
-    ulong  _a0,       ulong  _a1,                                                         \
-    ulong  _a2,       ulong  _a3,                                                         \
-    ulong  _a4,       ulong  _a5,                                                         \
-    ulong  _r0 )
-
-#define FD_MAP_REDUCE_BEGIN(op,BLOCK_THRESH,REDUCE_ALIGN,REDUCE_FOOTPRINT)                          \
-void                                                                                                \
-op( void * _tpool,                                                                                  \
-    ulong   tpool_t0, ulong   tpool_t1,                                                             \
-    void * _block_i0, void * _block_i1,                                                             \
-    ulong  _a0,       ulong  _a1,                                                                   \
-    ulong  _a2,       ulong  _a3,                                                                   \
-    ulong  _a4,       ulong  _a5,                                                                   \
-    ulong  _r0 ) {                                                                                  \
-  FD_COMPILER_MFENCE(); /* guarantees memory fence even if tpool_cnt==1 */                          \
-  long            block_thresh     = (BLOCK_THRESH);                                                \
-  ulong           reduce_align     = (REDUCE_ALIGN);     (void)reduce_align;                        \
-  ulong           reduce_footprint = (REDUCE_FOOTPRINT); (void)reduce_footprint;                    \
-  fd_tpool_t *    tpool            = (fd_tpool_t *)_tpool;                                          \
-  long            block_i0         = (long)_block_i0;                                               \
-  long            block_i1         = (long)_block_i1;                                               \
-  long            block_cnt;                                                                        \
-  ulong           _reduce_cnt = 0UL;                                                                \
-  struct {                                                                                          \
-    uint  ts; /* ts is thread that needs to complete before reduction can proceed */                \
-    uint  t1; /* [t0,t1) is range of threads available for reduction */                             \
-    long  i1; /* [i0,i1) is range the reduction output covers */                                    \
-    uchar r1[ (REDUCE_FOOTPRINT) ] __attribute__((aligned((REDUCE_ALIGN))));                        \
-  } _reduce_stack[ 16 ]; /* Assumes TILE_MAX<65536 (yes strictly less) */                           \
-  for(;;) {                                                                                         \
-    ulong tpool_cnt = tpool_t1 - tpool_t0;                                                          \
-    /**/  block_cnt = block_i1 - block_i0;                                                          \
-    if( FD_LIKELY( (tpool_cnt<=1UL) | (block_cnt<=block_thresh) ) ) break;                          \
-    ulong tpool_left  = fd_tpool_private_split( tpool_cnt );                                        \
-    ulong tpool_right = tpool_cnt - tpool_left;                                                     \
-    ulong tpool_ts    = tpool_t0 + tpool_left;                                                      \
-    long  block_is    = block_i1 - (long)((tpool_right*(ulong)block_cnt)/tpool_cnt); /* No ovfl */  \
-    fd_tpool_exec( tpool, tpool_ts, op, tpool,tpool_ts,tpool_t1, (void *)block_is,(void *)block_i1, \
-                   _a0,_a1,_a2,_a3,_a4,_a5, (ulong)_reduce_stack[ _reduce_cnt ].r1 );               \
-    _reduce_stack[ _reduce_cnt ].ts = (uint)tpool_ts;                                               \
-    _reduce_stack[ _reduce_cnt ].t1 = (uint)tpool_t1;                                               \
-    _reduce_stack[ _reduce_cnt ].i1 = block_i1;                                                     \
-    _reduce_cnt++;                                                                                  \
-    tpool_t1 = tpool_ts;                                                                            \
-    block_i1 = block_is;                                                                            \
-  }                                                                                                 \
-  do
-
-#define FD_MAP_END                                                                  \
-  while(0);                                                                         \
-  while( _reduce_cnt ) {                                                            \
-    long  block_is  = block_i1;                               (void)block_is;       \
-    --_reduce_cnt;                                                                  \
-    ulong tpool_ts  = (ulong)_reduce_stack[ _reduce_cnt ].ts;                       \
-    /**/  tpool_t1  = (ulong)_reduce_stack[ _reduce_cnt ].t1;                       \
-    /**/  block_i1  =        _reduce_stack[ _reduce_cnt ].i1;                       \
-    ulong _r1       = (ulong)_reduce_stack[ _reduce_cnt ].r1; (void)_r0; (void)_r1; \
-    /**/  block_cnt = block_i1 - block_i0;                                          \
-    fd_tpool_wait( tpool, tpool_ts );                                               \
-    do
-
-#define FD_REDUCE_END \
-    while(0);         \
-  }                   \
-}
-
-#define FD_MAP_REDUCE_PRIVATE_F(...)                                        too_few_arguments_passed_to_FD_MAP_REDUCE
-#define FD_MAP_REDUCE_PRIVATE_0(op,tpool,t0,t1,i0,i1,                  r0 ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), 0UL,         0UL,         0UL,         0UL,         0UL,         0UL,         (ulong)(r0) )
-#define FD_MAP_REDUCE_PRIVATE_1(op,tpool,t0,t1,i0,i1,a0,               r0 ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), 0UL,         0UL,         0UL,         0UL,         0UL,         (ulong)(r0) )
-#define FD_MAP_REDUCE_PRIVATE_2(op,tpool,t0,t1,i0,i1,a0,a1,            r0 ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), 0UL,         0UL,         0UL,         0UL,         (ulong)(r0) )
-#define FD_MAP_REDUCE_PRIVATE_3(op,tpool,t0,t1,i0,i1,a0,a1,a2,         r0 ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), 0UL,         0UL,         0UL,         (ulong)(r0) )
-#define FD_MAP_REDUCE_PRIVATE_4(op,tpool,t0,t1,i0,i1,a0,a1,a2,a3,      r0 ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), (ulong)(a3), 0UL,         0UL,         (ulong)(r0) )
-#define FD_MAP_REDUCE_PRIVATE_5(op,tpool,t0,t1,i0,i1,a0,a1,a2,a3,a4,   r0 ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), (ulong)(a3), (ulong)(a4), 0UL,         (ulong)(r0) )
-#define FD_MAP_REDUCE_PRIVATE_6(op,tpool,t0,t1,i0,i1,a0,a1,a2,a3,a4,a5,r0 ) (op)( (tpool),(t0),(t1), (void *)(i0),(void *)(i1), (ulong)(a0), (ulong)(a1), (ulong)(a2), (ulong)(a3), (ulong)(a4), (ulong)(a5), (ulong)(r0) )
-#define FD_MAP_REDUCE_PRIVATE_M(...)                                        too_many_arguments_passed_to_FD_MAP_REDUCE
-#define FD_MAP_REDUCE(...) FD_EXPAND_THEN_CONCAT2(FD_MAP_REDUCE_PRIVATE_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,6,5,4,3,2,1,0,F,F,F,F,F,F))(__VA_ARGS__)
-
-/* fd_tpool_worker_state_cstr converts an FD_TPOOL_WORKER_STATE_* code
-   into a human readable cstr.  The lifetime of the returned pointer is
-   infinite.  The returned pointer is always to a non-NULL cstr. */
-
-FD_FN_CONST char const *
-fd_tpool_worker_state_cstr( int state );
+#include "fd_map_reduce.h"
 
 FD_PROTOTYPES_END
 

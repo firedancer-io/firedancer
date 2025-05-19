@@ -374,8 +374,8 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
   /* Initialize tpool and spad(s) */
   ulong        worker_max = FD_BLOCK_HARNESS_TPOOL_WORKER_CNT;
   void *       tpool_mem  = fd_spad_alloc( runner->spad, FD_TPOOL_ALIGN, FD_TPOOL_FOOTPRINT( worker_max ) );
-  fd_tpool_t * tpool      = fd_tpool_init( tpool_mem, worker_max );
-  fd_tpool_worker_push( tpool, 1UL, NULL, 0UL );
+  fd_tpool_t * tpool      = fd_tpool_init( tpool_mem, worker_max, 0UL );
+  fd_tpool_worker_push( tpool, 1UL );
 
   fd_spad_t * runtime_spad = runner->spad;
 
