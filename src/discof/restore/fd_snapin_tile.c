@@ -285,8 +285,8 @@ restore_file( void *                restore_,
 
 static uchar const *
 snapshot_read_buffered( fd_snapin_tile_t * restore,
-                        uchar const *           buf,
-                        ulong                   bufsz ) {
+                        uchar const *      buf,
+                        ulong              bufsz ) {
   /* Should not be called if read is complete */
   FD_TEST( restore->buf_ctr < restore->buf_sz );
 
@@ -363,7 +363,7 @@ snapshot_read_account_hdr_chunk( fd_snapin_tile_t * restore,
     peek_sz = fd_ulong_min( restore->acc_rem, bufsz );
   }
 
-  int eom = bufsz > restore->acc_rem;
+  int eom = bufsz >= restore->acc_rem;
 
   /* Publish header-only fragment or header+data fragment.
      If data was included, skip ahead.  (Combining header+data into the
@@ -805,7 +805,7 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
         FD_LOG_ERR(( "Failed to restore snapshot" ));
       }
     }
-    if( FD_UNLIKELY( ctx->out_seq >= ctx->out_seq_max ) ) {
+    if( FD_UNLIKELY( fd_seq_ge( ctx->out_seq, ctx->out_seq_max ) ) ) {
       consume_frag = 0; /* retry this frag */
       ulong consumed_sz = (uint)( cur-start );
       ctx->in_skip += consumed_sz;

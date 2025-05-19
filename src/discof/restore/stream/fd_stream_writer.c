@@ -37,8 +37,8 @@ fd_stream_writer_new( void *                  mem,
   writer->base     = (uchar *)fd_wksp_containing( dcache ); /* FIXME impure */
   writer->goff     = 0UL;
 
-  writer->cr_byte_avail = 0UL;
-  writer->cr_frag_avail = 0UL;
+  writer->cr_byte_avail = ULONG_MAX;
+  writer->cr_frag_avail = ULONG_MAX;
   writer->cons_seq      = cons_seq;
   writer->cons_fseq     = cons_fseq;
 
@@ -68,6 +68,8 @@ fd_stream_writer_register_consumer(
     FD_LOG_WARNING(( "Can't register consumer, cons_max %lu exceeded", writer->cons_max ));
     return NULL;
   }
+  writer->cr_byte_avail = 0UL;
+  writer->cr_frag_avail = 0UL;
 
   ulong const cons_idx = writer->cons_cnt++;
   ulong * seq = writer->cons_seq + ( cons_idx*FD_STREAM_WRITER_CONS_SEQ_STRIDE );
@@ -143,8 +145,11 @@ fd_stream_writer_copy( fd_stream_writer_t * writer,
   }
 
   ulong const frag_sz_max = writer->frag_sz_max;
+  if( FD_UNLIKELY( !frag_sz_max ) ) {
+    FD_LOG_ERR(( "zero frag_sz_max" ));
+  }
   int som = 1;
-  for(;;) {
+  while( data_sz ) {
     ulong const op_sz   = fd_ulong_min( data_sz, frag_sz_max );
     ulong const next_sz = data_sz-op_sz;
     int   const eom     = next_sz==0UL;

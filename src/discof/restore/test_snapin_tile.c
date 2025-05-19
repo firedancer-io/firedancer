@@ -58,15 +58,44 @@ test_account_frags( fd_wksp_t * wksp ) {
   FD_TEST( tile_scratch );
   fd_snapin_tile_t * ctx = scratch_init( tile_scratch, &topo_tile );
   FD_TEST( ctx );
-  ctx->state   = SNAP_STATE_ACCOUNT_HDR;
-  ctx->accv_sz = UINT_MAX;
+
+  void * out_mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( 128UL, 0UL ), 1UL );
+  ctx->out_mcache = fd_type_pun( fd_mcache_join( fd_mcache_new( out_mcache_mem, 128UL, 0UL, 0UL ) ) );
+  FD_TEST( ctx->out_mcache );
+  ctx->out_depth   = fd_mcache_depth( ctx->out_mcache->f );
+  ctx->out_seq_max = UINT_MAX;
+
+  ctx->tar_file_rem = ULONG_MAX;
+  ctx->accv_sz      = ULONG_MAX;
+  fd_snapshot_expect_account_hdr( ctx );
+  uchar scratch_buf[ 256 ];
+  ctx->buf     = scratch_buf;
+  ctx->buf_max = sizeof(scratch_buf);
 
   /* Create an input */
   void * in_stream_mem = fd_wksp_alloc_laddr( wksp, mock_stream_align(), mock_stream_footprint( 128UL, 4096UL ), 1UL );
   fd_stream_writer_t * in_stream = mock_stream_init( in_stream_mem, 128UL, 4096UL );
   FD_TEST( in_stream );
+  fd_snapin_in_t in = {
+    .mcache = in_stream->mcache,
+    .depth  = (uint)in_stream->depth,
+    .idx    = 0U,
+    .seq    = 0UL,
+    .goff   = 0UL,
+    .mline  = in_stream->mcache
+  };
+  ctx->in_base = (uchar *)wksp;
 
   /* An empty account */
+  fd_solana_account_hdr_t const acc1 = { .hash={ .uc={ 1,2,3 } } };
+  fd_stream_writer_copy( in_stream, &acc1, sizeof(fd_solana_account_hdr_t), fd_frag_meta_ctl( 0, 1, 1, 0 ) );
+  ulong read_sz;
+  FD_TEST( on_stream_frag( ctx, &in, in_stream->mcache+0, &read_sz )==1 );
+  FD_TEST( ctx->out_mcache[ 0 ].seq==0UL );
+  FD_TEST( ctx->out_mcache[ 0 ].sz==sizeof(fd_solana_account_hdr_t) );
+  FD_TEST( ctx->out_mcache[ 0 ].ctl==fd_frag_meta_ctl( 0, 1, 1, 0 ) );
+  FD_TEST( ctx->out_mcache[ 0 ].goff==0UL );
+  FD_TEST( fd_memeq( ctx->in_base+ctx->out_mcache[ 0 ].loff, &acc1, sizeof(fd_solana_account_hdr_t) ) );
 
   fd_wksp_free_laddr( mock_stream_delete( in_stream ) );
   fd_wksp_free_laddr( tile_scratch );
