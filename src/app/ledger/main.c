@@ -221,12 +221,12 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
 
   ulong start_idx = 1UL;
   if( tcnt>=1UL ) {
-    tpool = fd_tpool_init( ledger_args->tpool_mem, tcnt );
+    tpool = fd_tpool_init( ledger_args->tpool_mem, tcnt, 0UL );
     if( tpool == NULL ) {
       FD_LOG_ERR(( "failed to create thread pool" ));
     }
     for( ulong i=1UL; i<tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, start_idx++, NULL, 0UL ) == NULL ) {
+      if( fd_tpool_worker_push( tpool, start_idx++ ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
       else {
@@ -249,8 +249,8 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
     FD_LOG_ERR(( "This is an invalid value for the number of threads to use for snapshot creation" ));
   }
 
-  fd_tpool_t * snapshot_bg_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot_bg, snapshot_tcnt );
-  if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_bg_tpool, start_idx++, NULL, 0UL ) ) ) {
+  fd_tpool_t * snapshot_bg_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot_bg, snapshot_tcnt, 0UL );
+  if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_bg_tpool, start_idx++ ) ) ) {
       FD_LOG_ERR(( "failed to launch worker" ));
   } else {
     FD_LOG_NOTICE(( "launched snapshot bg worker %lu", start_idx - 1UL ));
@@ -258,16 +258,15 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
 
   ledger_args->snapshot_bg_tpool = snapshot_bg_tpool;
 
-
   if( snapshot_tcnt==2UL ) {
     return 0;
   }
 
   /* If a snapshot is being created, setup its own tpool. */
 
-  fd_tpool_t * snapshot_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot, snapshot_tcnt - 1UL );
+  fd_tpool_t * snapshot_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot, snapshot_tcnt - 1UL, 0UL );
   for( ulong i=1UL; i<snapshot_tcnt - 1UL; ++i ) {
-    if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_tpool, start_idx++, NULL, 0UL ) ) ) {
+    if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_tpool, start_idx++ ) ) ) {
       FD_LOG_ERR(( "failed to launch worker" ));
     } else {
       FD_LOG_NOTICE(( "launched snapshot hash worker %lu", start_idx - 1UL ));
@@ -1258,7 +1257,6 @@ replay( fd_ledger_args_t * args ) {
   fd_spad_t * spad = args->runtime_spad;
 
   FD_SPAD_FRAME_BEGIN( spad ) {
-
 
   /* Setup slot_ctx */
   fd_funk_t * funk = args->funk;

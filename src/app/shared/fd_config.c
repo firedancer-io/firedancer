@@ -445,6 +445,7 @@ fd_config_validateh( fd_configh_t const * config ) {
   CFG_HAS_NON_ZERO( snapshots.full_snapshot_interval_slots );
   CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
   CFG_HAS_NON_ZERO( snapshots.minimum_snapshot_download_speed );
+  CFG_HAS_NON_ZERO( snapshots.maximum_snapshot_download_abort );
 
   CFG_HAS_NON_EMPTY( layout.agave_affinity );
 }

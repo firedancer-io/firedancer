@@ -892,7 +892,7 @@ main( void ) {
 //   uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )]__attribute__((aligned(FD_TPOOL_ALIGN))) = { 0 };
 //   /* clang-format on */
 //   if( tile_cnt > 4 ) {
-//     tpool = fd_tpool_init( tpool_mem, tile_cnt );
+//     tpool = fd_tpool_init( tpool_mem, tile_cnt, 0UL );
 //     FD_TEST( tpool );
 //     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
 //     ulong   scratch_sz = fd_scratch_smem_footprint( 256 << 20 );

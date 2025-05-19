@@ -90,7 +90,7 @@ fd_funk_new( void * shmem,
 
   FD_TEST( _l == (ulong)funk + fd_funk_footprint( txn_max, rec_max ) );
 
-  fd_memset( funk, 0, sizeof(fd_funk_t) );
+  fd_memset( funk, 0, sizeof(fd_funk_shmem_t) );
 
   funk->funk_gaddr = fd_wksp_gaddr_fast( wksp, funk );
   funk->wksp_tag   = wksp_tag;

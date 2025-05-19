@@ -1,8 +1,6 @@
 #ifndef HEADER_fd_src_util_spad_fd_spad_h
 #define HEADER_fd_src_util_spad_fd_spad_h
 
-#include "../sanitize/fd_sanitize.h"
-
 /* APIs for high performance persistent inter-process shared scratch pad
    memories.  A spad as a scratch pad that behaves very much like a
    thread's stack:
@@ -296,7 +294,6 @@ FD_FN_PURE static inline ulong fd_spad_mem_wmark( fd_spad_t const * spad ) { ret
 
 FD_FN_PURE static inline int fd_spad_in_frame( fd_spad_t const * spad ) { return spad->frame_free<FD_SPAD_FRAME_MAX; }
 
-
 /* operations */
 /* fd_spad_alloc_max returns the maximum number of bytes with initial
    byte alignment of align that can currently be allocated / prepared
@@ -531,7 +528,6 @@ fd_spad_virtual( fd_spad_t * spad ) {
   fd_valloc_t valloc = { spad, &fd_spad_vtable };
   return valloc;
 }
-
 
 /* fn implementations */
 static inline void
