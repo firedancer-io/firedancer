@@ -3,7 +3,7 @@
 
 /* Bit manipulation APIs */
 
-#include "../sanitize/fd_msan.h"
+#include "../sanitize/fd_sanitize.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -1012,6 +1012,42 @@ fd_ulong_svw_dec_tail( uchar const * b,
     if( ok ) fd_scratch_publish( end );                                \
     ok;                                                                \
   }))
+
+/* fd_ulong_approx_sqrt( x ) returns an approximation to square root of
+   x that is accurate to +/- ~0.4% for all ulong x in fast O(1)
+   operations and is cross platform deterministic.
+
+   fd_ulong_floor_sqrt returns floor( sqrt( x ) ) exactly in fast-ish O(1)
+
+   fd_ulong_round_sqrt returns round( sqrt( x ) ) exactly in fast-ish O(1)
+
+   fd_ulong_ceil_sqrt  returns ceil ( sqrt( x ) ) exactly in fast-ish O(1)
+
+   fd_ulong_{approx,floor,round,ceil}_cbrt have similar behavior as
+   their sqrt variants above but compute the cube root instead of the
+   square root.  The approximate cube root accurate to +/- ~0.8%.
+
+   These are similar in spirit to the implementations in fd_sqrt.h and
+   fd_fxp.h but take generic 64-bit inputs, have a fast approximation
+   support, support all rounding modes for these inputs, are performance
+   optimized for the case of a call with a moderate magnitude input
+   getting called O(1) times (e.g.  computing the optimal number of
+   threads / cores needed for a parallel algorithm), support cube roots
+   in addition to square roots.
+
+   FIXME: Consider making a TG wrapper for these too?  (Limited benefit
+   in making custom approximations for narrower types given
+   implementations used under the hood.) */
+
+FD_FN_CONST ulong fd_ulong_approx_sqrt( ulong x );
+FD_FN_CONST ulong fd_ulong_floor_sqrt ( ulong x );
+FD_FN_CONST ulong fd_ulong_round_sqrt ( ulong x );
+FD_FN_CONST ulong fd_ulong_ceil_sqrt  ( ulong x );
+
+FD_FN_CONST ulong fd_ulong_approx_cbrt( ulong x );
+FD_FN_CONST ulong fd_ulong_floor_cbrt ( ulong x );
+FD_FN_CONST ulong fd_ulong_round_cbrt ( ulong x );
+FD_FN_CONST ulong fd_ulong_ceil_cbrt  ( ulong x );
 
 FD_PROTOTYPES_END
 

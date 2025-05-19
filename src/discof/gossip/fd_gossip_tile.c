@@ -39,11 +39,6 @@
 
 static volatile ulong * fd_shred_version;
 
-FD_FN_PURE static int
-fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
-  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
-}
-
 static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
   return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );

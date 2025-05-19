@@ -8,7 +8,7 @@
 #define fd_spad_frame_hi  fd_spad_frame_hi_debug
 #define fd_spad_push      fd_spad_push_debug
 #define fd_spad_pop       fd_spad_pop_debug
-#define fd_spad_alloc     fd_spad_alloc_debug
+#define fd_spad_alloc     fd_spad_alloc_check
 #define fd_spad_trim      fd_spad_trim_debug
 #define fd_spad_prepare   fd_spad_prepare_debug
 #define fd_spad_cancel    fd_spad_cancel_debug

@@ -4,11 +4,6 @@
 #include "../../util/fd_util.h"
 #include "json_lex.h"
 
-# define SMAX (1L<<20UL)
-# define FMAX (1UL)
-uchar scratch_mem [ SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
-ulong scratch_fmem[ FMAX ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-
 struct json_lex_state *lex_state = NULL;
 
 void free_lex_state( void ) { free(lex_state); }
@@ -30,8 +25,6 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
 int
 LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
-  fd_scratch_attach( scratch_mem, scratch_fmem, SMAX, FMAX );
-  fd_scratch_push();
   json_lex_state_new(lex_state, (const char *)data, size);
   for (;;) {
     long token_type = json_lex_next_token(lex_state);
@@ -54,7 +47,5 @@ LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
   }
 
   json_lex_state_delete(lex_state);
-  fd_scratch_pop();
-  fd_scratch_detach( NULL );
   return 0;
 }

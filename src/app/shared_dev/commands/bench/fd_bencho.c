@@ -73,7 +73,7 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     fd_rpc_client_response_t * response = fd_rpc_client_status( ctx->rpc, ctx->blockhash_request, 0 );
     if( FD_UNLIKELY( response->status==FD_RPC_CLIENT_PENDING ) ) {
       if( FD_UNLIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) )
-        FD_LOG_ERR(( "timed out waiting for RPC server to respond" ));
+        FD_LOG_WARNING(( "timed out waiting for RPC server to respond" ));
       return did_work;
     }
 

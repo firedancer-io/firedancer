@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_disco_gui_fd_gui_printf_h
+#define HEADER_fd_src_disco_gui_fd_gui_printf_h
+
 #include "fd_gui.h"
 
 /* These functions format the current state of the GUI as various JSON
@@ -105,3 +108,5 @@ void
 fd_gui_printf_live_tile_stats( fd_gui_t *                  gui,
                                fd_gui_tile_stats_t const * prev,
                                fd_gui_tile_stats_t const * cur );
+
+#endif /* HEADER_fd_src_disco_gui_fd_gui_printf_h */

@@ -356,13 +356,13 @@ func main() {
 	}
 
 	quic_limits := C.fd_quic_limits_t{
-		conn_cnt:         4,
-		handshake_cnt:    4,
-		conn_id_cnt:      4,
-		stream_id_cnt:    64,
-		inflight_pkt_cnt: 64,
-		tx_buf_sz:        1280,
-		stream_pool_cnt:  64,
+		conn_cnt:           4,
+		handshake_cnt:      4,
+		conn_id_cnt:        4,
+		stream_id_cnt:      64,
+		inflight_frame_cnt: 64,
+		tx_buf_sz:          1280,
+		stream_pool_cnt:    64,
 	}
 	quic_mem := C.aligned_alloc(C.fd_quic_align(), C.fd_quic_footprint(&quic_limits))
 	fdQuic := C.fd_quic_join(C.fd_quic_new(quic_mem, &quic_limits))

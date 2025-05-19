@@ -109,8 +109,10 @@ fuzzytypes = {
 
 class TypeNode:
     def __init__(self, json, **kwargs):
+        self.produce_global = False
         if json is not None:
             self.name = json["name"]
+            self.produce_global = bool(json["global"]) if "global" in json else None
         elif 'name' in kwargs:
             self.name = kwargs['name']
         else:
@@ -132,6 +134,11 @@ class TypeNode:
     def emitOffsetJoin(self, type_name):
         pass
 
+    def subTypes(self):
+        return iter(())
+
+    def subMembers(self):
+        return iter(())
 class PrimitiveMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
@@ -700,6 +707,15 @@ class VectorMember(TypeNode):
     }
 
     def emitWalk(self, inner, indent=''):
+        # The `serialize` function in Rust's `short_vec` (analagous to our `walk()` implementation) handles serializing
+        # the vector's length independently, rather than relying on the Serializer (i.e., the `walk` function callback)
+        # to do it. To remain consistent, we have to replicate this behavior here.
+        # Reference: https://docs.rs/solana-short-vec/latest/src/solana_short_vec/lib.rs.html#166-185
+        # Additionally, does this imply that `short_vec` encodes lengths twice? No, because it uses the `serialize_tuple`
+        # callback (which, in Bincode's implementation, does not encode the sequence length) rather than `serialize_seq`.
+        # Reference: https://docs.rs/bincode/latest/src/bincode/features/serde/ser.rs.html#226-228 (see the `serialize_seq` implementation above for comparison)
+        if self.compact:
+            print(f'{indent}  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body)
         if self.element == "uchar":
             print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
             print(f'{indent}    fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body)
@@ -1442,7 +1458,7 @@ class MapMember(TypeNode):
         print(f'  *alloc_mem = (uchar *)*alloc_mem + {mapname}_footprint( len );', file=header)
         print(f'  return {mapname}_join( {mapname}_new( map_mem, len ) );', file=header)
         print("}", file=header)
-        if self.element in flattypes:
+        if not self.produce_global or self.element in flattypes:
             return
         element_type = self.elem_type_global()
         mapname = element_type + "_map"
@@ -1491,6 +1507,8 @@ class MapMember(TypeNode):
             print(f'  return (long)( left->elem.{key} - right->elem.{key} );', file=body)
         print("}", file=body)
         if self.element in flattypes:
+            return
+        if not self.produce_global or self.element in flattypes:
             return
         element_type = self.elem_type_global()
         mapname = element_type + "_map"
@@ -2956,6 +2974,37 @@ class OpaqueType(TypeNode):
         pass
 
 
+# FIXME horrible code
+def extract_sub_type(member):
+    if isinstance(member, str):
+        return None
+    if isinstance(member, PrimitiveMember):
+        return None
+    if isinstance(member, OpaqueType):
+        return None
+    if isinstance(member, BitVectorMember):
+        return None
+    if hasattr(member, "element"):
+        return type_map[member.element] if member.element in type_map else None
+    if hasattr(member, "type"):
+        return type_map[member.type] if member.type in type_map else None
+    raise ValueError(f"Unknown type {member} in extract_sub_type")
+
+def extract_member_type(member):
+    if isinstance(member, str):
+        return None
+    if isinstance(member, PrimitiveMember):
+        return None
+    if isinstance(member, OpaqueType):
+        return None
+    if isinstance(member, BitVectorMember):
+        return None
+    if hasattr(member, "element"):
+        return member
+    if hasattr(member, "type"):
+        return member
+    raise ValueError(f"Unknown type {member} in extract_member_type")
+
 class StructType(TypeNode):
     def __init__(self, json):
         super().__init__(json)
@@ -2980,17 +3029,6 @@ class StructType(TypeNode):
         else:
             self.attribute = f''
             self.alignment = 0
-
-
-        # if a member is determined to be flat, then it should be
-        # added to the flattypes list.
-        self.produce_global = False
-        for f in self.fields:
-            if not f.isFlat():
-                self.produce_global = True
-
-        if not self.produce_global:
-            flattypes.add( self.name )
 
     def isFixedSize(self):
         for f in self.fields:
@@ -3017,6 +3055,18 @@ class StructType(TypeNode):
             if not f.isFuzzy():
                 return False
         return True
+
+    def subTypes(self):
+        for f in self.fields:
+            sub_type = extract_sub_type(f)
+            if sub_type is not None:
+                yield sub_type
+
+    def subMembers(self):
+        for f in self.fields:
+            sub_member = extract_member_type(f)
+            if sub_member is not None:
+                yield sub_member
 
     def emitHeader(self):
         for f in self.fields:
@@ -3045,9 +3095,7 @@ class StructType(TypeNode):
         print("", file=header)
 
         # Global type
-
-
-        if self.produce_global:
+        if self.produce_global and not self.isFlat():
             print(f'struct {self.attribute}{n}_global {{', file=header)
             for f in self.fields:
                 f.emitMemberGlobal()
@@ -3084,7 +3132,7 @@ class StructType(TypeNode):
         else:
             print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        if self.produce_global:
+        if self.produce_global and not self.isFlat():
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
             print(f"int {n}_encode_global( {n}_global_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
         print("", file=header)
@@ -3092,7 +3140,7 @@ class StructType(TypeNode):
     def emitEncodes(self):
         n = self.fullname
         self.emitEncode(n)
-        if self.produce_global:
+        if self.produce_global and not self.isFlat():
             self.emitEncodeGlobal(n)
 
     def emitEncode(self, n):
@@ -3169,7 +3217,7 @@ class StructType(TypeNode):
             print(f'  return self;', file=body)
             print(f'}}', file=body)
 
-            if self.produce_global:
+            if self.produce_global and not self.isFlat():
                 print(f'static void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
                 print(f'  {n}_global_t * self = ({n}_global_t *)struct_mem;', file=body)
                 for f in self.fields:
@@ -3249,15 +3297,16 @@ class EnumType(TypeNode):
             self.repr_codec_stem = "uint64"
             self.repr_max_val = "ULONG_MAX"
 
-        self.produce_global = False
+    def subTypes(self):
+        for v in self.variants:
+            sub_type = extract_sub_type(v)
+            if sub_type is not None:
+                yield sub_type
 
+    def subMembers(self):
         for v in self.variants:
             if not isinstance(v, str):
-                if not v.isFlat():
-                    self.produce_global = True
-
-        if not self.produce_global:
-            flattypes.add(self.name)
+                yield v
 
     def isFlat(self):
         for v in self.variants:
@@ -3301,7 +3350,7 @@ class EnumType(TypeNode):
             print("};", file=header)
             print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
 
-            if self.produce_global:
+            if self.produce_global and not self.isFlat():
                 print(f'union {self.attribute}{n}_inner_global {{', file=header)
                 empty = True
                 for v in self.variants:
@@ -3327,17 +3376,17 @@ class EnumType(TypeNode):
         else:
             print(f"#define {n.upper()}_ALIGN alignof({n}_t)", file=header)
 
-        if self.produce_global:
+        if self.produce_global and not self.isFlat():
             print(f"struct {self.attribute}{n}_global {{", file=header)
             print(f'  {self.repr} discriminant;', file=header)
             print(f'  {n}_inner_global_t inner;', file=header)
             print("};", file=header)
             print(f"typedef struct {n}_global {n}_global_t;", file=header)
 
-        if self.alignment > 0:
-            print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
-        else:
-            print(f"#define {n.upper()}_GLOBAL_ALIGN alignof({n}_global_t)", file=header)
+            if self.alignment > 0:
+                print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
+            else:
+                print(f"#define {n.upper()}_GLOBAL_ALIGN alignof({n}_global_t)", file=header)
         print("", file=header)
 
     def emitPrototypes(self):
@@ -3354,7 +3403,7 @@ class EnumType(TypeNode):
         print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        if self.produce_global:
+        if self.produce_global and not self.isFlat():
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
             print(f"int {n}_encode_global( {n}_global_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
         print("", file=header)
@@ -3429,7 +3478,7 @@ class EnumType(TypeNode):
             print("}", file=body)
 
 
-            if self.produce_global:
+            if self.produce_global and not self.isFlat():
                 print(f'static void {n}_inner_decode_inner_global( {n}_inner_global_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
                 print('  switch (discriminant) {', file=body)
                 for i, v in enumerate(self.variants):
@@ -3462,7 +3511,7 @@ class EnumType(TypeNode):
         print(f'  return self;', file=body)
         print(f'}}', file=body)
 
-        if self.produce_global:
+        if self.produce_global and not self.isFlat():
             print(f'static int {n}_inner_encode_global( {n}_inner_global_t const * self, {self.repr} discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
             first = True
             for i, v in enumerate(self.variants):
@@ -3607,6 +3656,8 @@ class EnumType(TypeNode):
             if not isinstance(v, str):
                 v.emitPostamble()
 
+type_map = {}
+
 def main():
     alltypes = []
     for entry in entries:
@@ -3616,6 +3667,26 @@ def main():
             alltypes.append(StructType(entry))
         if entry['type'] == 'enum':
             alltypes.append(EnumType(entry))
+
+    propagate = set()
+
+    global type_map
+    for t in alltypes:
+        if t.produce_global:
+            propagate.add(t)
+        type_map[t.name] = t
+
+    # We need to propagate the 'global' attribute recursively through
+    # all the types specified in fd_types.json to be global. We need
+    # to mark all of the submembers AND subtypes of these global types
+    # as global.
+    while len(propagate) > 0:
+        t = propagate.pop()
+        for sub in t.subTypes():
+            sub.produce_global = True
+            propagate.add(sub)
+        for sub in t.subMembers():
+            sub.produce_global = True
 
     nametypes = {}
     for t in alltypes:

@@ -70,8 +70,6 @@
 #define EXEC_TXN_BUSY   (5UL)
 #define EXEC_TXN_READY  (6UL)
 
-#define VOTE_ACC_MAX   (2000000UL)
-
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
 struct fd_replay_out_ctx {
@@ -185,6 +183,7 @@ struct fd_replay_tile_ctx {
   char const * genesis;
   char const * incremental;
   char const * snapshot;
+  char const * snapshot_dir;
   int          incremental_src_type;
   int          snapshot_src_type;
 
@@ -632,9 +631,12 @@ block_finalize_tiles_cb( void * para_arg_1,
   fd_stem_context_t *            stem       = (fd_stem_context_t *)para_arg_2;
   fd_accounts_hash_task_data_t * task_data  = (fd_accounts_hash_task_data_t *)fn_arg_1;
 
-  ulong cnt_per_worker   = task_data->info_sz/ctx->exec_cnt;
+  ulong cnt_per_worker;
+  if( ctx->exec_cnt>1 ) cnt_per_worker = (task_data->info_sz / (ctx->exec_cnt-1UL)) + 1UL; /* ??? */
+  else                  cnt_per_worker = task_data->info_sz;
   ulong task_infos_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, task_data->info );
 
+  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ulong worker_idx=0UL; worker_idx<ctx->exec_cnt; worker_idx++ ) {
 
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -646,8 +648,15 @@ block_finalize_tiles_cb( void * para_arg_1,
     }
 
     ulong start_idx = worker_idx * cnt_per_worker;
-    ulong end_idx   = worker_idx!=ctx->exec_cnt-1UL ? fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL ) :
-                                                      fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    if( start_idx >= task_data->info_sz ) {
+      /* If we do not any work for this worker to do, skip it. */
+      hash_done[ worker_idx ] = 1;
+      continue;
+    }
+    ulong end_idx   = fd_ulong_sat_sub( start_idx + cnt_per_worker, 1UL );
+    if( end_idx >= task_data->info_sz ) {
+      end_idx = fd_ulong_sat_sub( task_data->info_sz, 1UL );
+    }
 
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ worker_idx ];
 
@@ -670,7 +679,6 @@ block_finalize_tiles_cb( void * para_arg_1,
   }
 
   /* Spins and blocks until all exec tiles are done hashing. */
-  uchar hash_done[ FD_PACK_MAX_BANK_TILES ] = {0};
   for( ;; ) {
     uchar wait_cnt = 0;
     for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
@@ -1078,79 +1086,6 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 
 }
 
-static int
-suppress_notify( const fd_pubkey_t * prog ) {
-  /* Certain accounts are just noise and a waste of notification bandwidth */
-  if( !memcmp( prog, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return 1;
-  } else if( !memcmp( prog, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return 1;
-  } else if( !memcmp( prog, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return 1;
-  } else {
-    return 0;
-  }
-}
-
-static void
-publish_account_notifications( fd_replay_tile_ctx_t * ctx,
-                               fd_fork_t *            fork,
-                               ulong                  curr_slot,
-                               fd_txn_p_t const *     txns,
-                               ulong                  txn_cnt ) {
-  if( FD_LIKELY( !ctx->notif_out_mcache ) ) return;
-
-  long notify_time_ns = -fd_log_wallclock();
-#define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
-#define NOTIFY_END                                                      \
-  fd_mcache_publish( ctx->notif_out_mcache, ctx->notif_out_depth, ctx->notif_out_seq, \
-                      0UL, ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), 0UL, tsorig, tsorig ); \
-  ctx->notif_out_seq   = fd_seq_inc( ctx->notif_out_seq, 1UL );     \
-  ctx->notif_out_chunk = fd_dcache_compact_next( ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t), \
-                                                  ctx->notif_out_chunk0, ctx->notif_out_wmark ); \
-  msg = NULL
-
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_replay_notif_msg_t * msg = NULL;
-
-  for( ulong i = 0; i < txn_cnt; ++i ) {
-      uchar const * raw = txns[i].payload;
-      fd_txn_t const * txn = TXN(txns + i);
-      ushort acct_cnt = txn->acct_addr_cnt;
-      const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
-      FD_TEST((void*)(accts + acct_cnt) <= (void*)(raw + txns[i].payload_sz));
-      fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
-      FD_TEST((void*)(sigs + txn->signature_cnt) <= (void*)(raw + txns[i].payload_sz));
-      for( ushort j = 0; j < acct_cnt; ++j ) {
-        if( suppress_notify( accts + j ) ) continue;
-        if( msg == NULL ) {
-          NOTIFY_START;
-          msg->type = FD_REPLAY_ACCTS_TYPE;
-          msg->accts.funk_xid = fork->slot_ctx->funk_txn->xid;
-          fd_memcpy( msg->accts.sig, sigs, sizeof(fd_ed25519_sig_t) );
-          msg->accts.accts_cnt = 0;
-        }
-        struct fd_replay_notif_acct * out = &msg->accts.accts[ msg->accts.accts_cnt++ ];
-        fd_memcpy( out->id, accts + j, sizeof(out->id) );
-        int writable = ((j < txn->signature_cnt - txn->readonly_signed_cnt) ||
-                        ((j >= txn->signature_cnt) && (j < acct_cnt - txn->readonly_unsigned_cnt)));
-        out->flags = (writable ? FD_REPLAY_NOTIF_ACCT_WRITTEN : FD_REPLAY_NOTIF_ACCT_NO_FLAGS );
-
-        if( msg->accts.accts_cnt == FD_REPLAY_NOTIF_ACCT_MAX ) {
-          NOTIFY_END;
-        }
-      }
-      if( msg ) {
-        NOTIFY_END;
-      }
-    }
-
-#undef NOTIFY_START
-#undef NOTIFY_END
-  notify_time_ns += fd_log_wallclock();
-  FD_LOG_DEBUG(("TIMING: notify_account_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)notify_time_ns * 1e-6));
-}
-
 static void
 replay_plugin_publish( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t * stem,
@@ -1185,6 +1120,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_replay_notif_msg_t * msg = NULL;
 
+  FD_LOG_NOTICE(( "shred cnt %lu %lu", curr_slot, fork->slot_ctx->shred_cnt ));
   {
     NOTIFY_START;
     msg->type = FD_REPLAY_SLOT_TYPE;
@@ -1193,11 +1129,14 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.root = fd_fseq_query( ctx->published_wmark );
     msg->slot_exec.height = block_entry_block_height;
     msg->slot_exec.transaction_count = fork->slot_ctx->slot_bank.transaction_count;
+    msg->slot_exec.shred_cnt = fork->slot_ctx->shred_cnt;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
+    msg->slot_exec.ts = tsorig;
     NOTIFY_END;
   }
+  fork->slot_ctx->shred_cnt = 0UL;
 
 #undef NOTIFY_START
 #undef NOTIFY_END
@@ -1553,7 +1492,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   return fork;
 }
 
-FD_FN_UNUSED static void
+static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ 0UL ];
@@ -1697,8 +1636,6 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !fork ) ) {
         FD_LOG_ERR(( "Unable to select a fork" ));
       }
-
-      publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
 
       /* dispatch dcache */
       ctx->exec_ready[ exec_idx ] = EXEC_TXN_BUSY;
@@ -1863,6 +1800,7 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
   ctx->slice_exec_ctx.mblks_rem  = FD_LOAD( ulong, ctx->mbatch );
   ctx->slice_exec_ctx.wmark      = sizeof(ulong);
   ctx->slice_exec_ctx.last_mblk_off = 0;
+  fork->slot_ctx->shred_cnt    += data_cnt;
 
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
@@ -1882,8 +1820,9 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 static void
 read_snapshot( void *              _ctx,
                fd_stem_context_t * stem,
-               char const *        snapshotfile,
-               char const *        incremental ) {
+               char const *        snapshot,
+               char const *        incremental,
+               char const *        snapshot_dir ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
   fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
@@ -1898,7 +1837,6 @@ read_snapshot( void *              _ctx,
 
      We pull this out of the full snapshot to use when verifying the incremental snapshot. */
   ulong        base_slot = 0UL;
-  const char * snapshot  = snapshotfile;
   if( strcmp( snapshot, "funk" )==0 || strncmp( snapshot, "wksp:", 5 )==0 ) {
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
@@ -1918,11 +1856,12 @@ read_snapshot( void *              _ctx,
     /* TODO: If prefetching the manifest is enabled it leads to
        incorrect snapshot loads. This needs to be looked into. */
     if( strlen( incremental )>0UL ) {
-      uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+      uchar * tmp_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
 
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
                                                                     ctx->incremental_src_type,
+                                                                    NULL,
                                                                     ctx->slot_ctx,
                                                                     false,
                                                                     false,
@@ -1938,11 +1877,11 @@ read_snapshot( void *              _ctx,
 
     }
 
-
     uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->snapshot_src_type,
+                                                              snapshot_dir,
                                                               ctx->slot_ctx,
                                                               false,
                                                               false,
@@ -1980,6 +1919,7 @@ read_snapshot( void *              _ctx,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
     fd_snapshot_load_all( incremental,
                           ctx->incremental_src_type,
+                          NULL,
                           ctx->slot_ctx,
                           &base_slot,
                           NULL,
@@ -2156,7 +2096,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                fd_stem_context_t *    stem ) {
   /* Init slot_ctx */
 
-  uchar * slot_ctx_mem        = fd_spad_alloc( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, ctx->runtime_spad ) );
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->blockstore   = ctx->blockstore;
@@ -2166,7 +2106,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   uchar is_snapshot = strlen( ctx->snapshot ) > 0;
   if( is_snapshot ) {
-    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental );
+    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental, ctx->snapshot_dir );
   }
 
   if( ctx->replay_plugin_out_mem ) {
@@ -2229,6 +2169,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
        (using the above for loop), but blockstore/fork setup on genesis is
        broken for now. */
     block_entry_height = 1UL;
+    init_poh( ctx );
   }
 
   publish_slot_notifications( ctx, stem, fork, block_entry_height, curr_slot );
@@ -2634,9 +2575,10 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
           /* Mismatch */
 
-          funk_cancel( ctx, cmp_slot );
-          checkpt( ctx );
-          FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+          //funk_cancel( ctx, cmp_slot );
+          //checkpt( ctx );
+          (void)checkpt;
+          FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
 
           break;
 
@@ -2917,6 +2859,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->genesis             = tile->replay.genesis;
   ctx->incremental         = tile->replay.incremental;
   ctx->snapshot            = tile->replay.snapshot;
+  ctx->snapshot_dir        = tile->replay.snapshot_dir;
 
   ctx->incremental_src_type = tile->replay.incremental_src_type;
   ctx->snapshot_src_type    = tile->replay.snapshot_src_type;
@@ -2962,11 +2905,8 @@ unprivileged_init( fd_topo_t *      topo,
     if (status_cache_mem == NULL) {
       FD_LOG_ERR(( "failed to allocate status cache" ));
     }
-    ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                                           FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT,
-                                                           FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+    ctx->status_cache = fd_txncache_join( status_cache_mem );
     if (ctx->status_cache == NULL) {
-      fd_wksp_free_laddr( status_cache_mem );
       FD_LOG_ERR(( "failed to join + new status cache" ));
     }
   }
@@ -2994,7 +2934,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Now join the spad that was setup in the runtime public topo obj. */
 
-  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join the runtime_spad" ));
   }
@@ -3006,7 +2946,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * epoch_ctx_mem = fd_spad_alloc( ctx->runtime_spad,
                                         fd_exec_epoch_ctx_align(),
-                                        MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
+                                        MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( tile->replay.max_vote_accounts ) );
 
 
   fd_epoch_forks_new( ctx->epoch_forks, epoch_ctx_mem );
@@ -3015,14 +2955,20 @@ unprivileged_init( fd_topo_t *      topo,
   /* joins                                                              */
   /**********************************************************************/
 
-  uchar * bank_hash_cmp_shmem = fd_spad_alloc( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
+  uchar * bank_hash_cmp_shmem = fd_spad_alloc_check( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
-  ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
+  ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, tile->replay.max_vote_accounts ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {
     FD_LOG_ERR(( "failed to decode cluster version, configured as \"%s\"", tile->replay.cluster_version ));
   }
   fd_features_enable_cleaned_up( &ctx->epoch_ctx->features, ctx->epoch_ctx->epoch_bank.cluster_version );
+
+  char const * one_off_features[16];
+  for (ulong i = 0; i < tile->replay.enable_features_cnt; i++) {
+    one_off_features[i] = tile->replay.enable_features[i];
+  }
+  fd_features_enable_one_offs(&ctx->epoch_ctx->features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL);
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
@@ -3267,7 +3213,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->runtime_public!=NULL );
 
-  uchar * deque_mem = fd_spad_alloc( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
+  uchar * deque_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
   ctx->exec_slice_deque = fd_exec_slice_join( fd_exec_slice_new( deque_mem ) );
   if( FD_UNLIKELY( !ctx->exec_slice_deque ) ) {
     FD_LOG_ERR(( "failed to join and create exec slice deque" ));

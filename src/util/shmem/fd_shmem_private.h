@@ -14,10 +14,6 @@
 #define FD_SHMEM_PRIVATE_PATH_BUF_MAX (256UL)
 #define FD_SHMEM_PRIVATE_BASE_MAX     (FD_SHMEM_PRIVATE_PATH_BUF_MAX-FD_SHMEM_NAME_MAX-FD_SHMEM_PAGE_SZ_CSTR_MAX-1UL)
 
-#define FD_SHMEM_PRIVATE_MMAP_NORMAL_MASK 0x7ffffffff000
-#define FD_SHMEM_PRIVATE_MMAP_HUGE_MASK 0x7fffffc00000
-#define FD_SHMEM_PRIVATE_MMAP_GIGANTIC_MASK 0x7fffc0000000
-
 #if FD_HAS_THREADS
 #define FD_SHMEM_LOCK   pthread_mutex_lock(   fd_shmem_private_lock )
 #define FD_SHMEM_UNLOCK pthread_mutex_unlock( fd_shmem_private_lock )
@@ -143,6 +139,16 @@ fd_shmem_private_path( char const * name,    /* Valid name */
   return fd_cstr_printf( buf, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s",
                          fd_shmem_private_base, fd_shmem_page_sz_to_cstr( page_sz ), name );
 }
+
+/* fd_shmem_private_map_rand maps a private+anonymous pages of default
+   page size at a random virtual address.  align specifies the minimum
+   alignment of the first byte to map.  size is the minimum number of
+   bytes to map.  Returns a virtual address on success, and MAP_FAILED
+   on failure. */
+
+void *
+fd_shmem_private_map_rand( ulong size,
+                           ulong align );
 
 FD_PROTOTYPES_END
 

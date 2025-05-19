@@ -100,7 +100,7 @@ json_values_parse(json_lex_state_t* lex, struct json_values* values, struct json
     // Store the leaf value in values, indexed by the current path
     ulong str_sz;
     const char* str = json_lex_get_text(lex, &str_sz);
-    json_add_value(values, path, str, str_sz);
+    json_add_value(values, path, str, str_sz, lex->spad);
     break;
   }
 
@@ -109,7 +109,7 @@ json_values_parse(json_lex_state_t* lex, struct json_values* values, struct json
     *path_last = (JSON_TOKEN_INTEGER<<16);
     // Store the leaf value in values, indexed by the current path
     long val = json_lex_as_int(lex);
-    json_add_value(values, path, &val, sizeof(val));
+    json_add_value(values, path, &val, sizeof(val), lex->spad);
     break;
   }
 
@@ -118,7 +118,7 @@ json_values_parse(json_lex_state_t* lex, struct json_values* values, struct json
     *path_last = (JSON_TOKEN_FLOAT<<16);
     // Store the leaf value in values, indexed by the current path
     double val = json_lex_as_float(lex);
-    json_add_value(values, path, &val, sizeof(val));
+    json_add_value(values, path, &val, sizeof(val), lex->spad);
     break;
   }
 
@@ -126,14 +126,14 @@ json_values_parse(json_lex_state_t* lex, struct json_values* values, struct json
     // Append to the path
     *path_last = (JSON_TOKEN_BOOL<<16);
     // Store the leaf value in values, indexed by the current path
-    json_add_value(values, path, &lex->last_bool, sizeof(lex->last_bool));
+    json_add_value(values, path, &lex->last_bool, sizeof(lex->last_bool), lex->spad);
     break;
 
   case JSON_TOKEN_NULL:
     // Append to the path
     *path_last = (JSON_TOKEN_NULL<<16);
     // Store the leaf value in values, indexed by the current path
-    json_add_value(values, path, NULL, 0);
+    json_add_value(values, path, NULL, 0, lex->spad);
     break;
 
   case JSON_TOKEN_RBRACKET:
@@ -176,7 +176,7 @@ void json_values_delete(struct json_values* values) {
 }
 
 // Add a parsed value to a json_values
-void json_add_value(struct json_values* values, struct json_path* path, const void* data, ulong data_sz) {
+void json_add_value(struct json_values* values, struct json_path* path, const void* data, ulong data_sz, fd_spad_t * spad) {
   if (values->num_values == JSON_MAX_PATHS) {
     // Ignore when we have too many values. In the actual requests
     // that we expect to handle, the number of values is modest.
@@ -191,7 +191,7 @@ void json_add_value(struct json_values* values, struct json_path* path, const vo
     do {
       values->buf_alloc <<= 1;
     } while (new_buf_sz > values->buf_alloc);
-    char* newbuf = (char*)fd_scratch_alloc(1, values->buf_alloc);
+    char* newbuf = (char*)fd_spad_alloc( spad, 1, values->buf_alloc);
     fd_memcpy(newbuf, values->buf, values->buf_sz);
     values->buf = newbuf;
   }

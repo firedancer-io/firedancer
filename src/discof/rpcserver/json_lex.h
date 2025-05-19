@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_discof_rpcserver_json_lex_h
+#define HEADER_fd_src_discof_rpcserver_json_lex_h
+
 /*****
       Header file for a json lexical scanner
 *****/
@@ -38,13 +41,16 @@ struct json_lex_state {
     ulong last_str_sz;
     ulong last_str_alloc;
     char  last_str_firstbuf[512];
+
+    fd_spad_t * spad;
 };
 typedef struct json_lex_state json_lex_state_t;
 
 // Initialize a lexical state given some json text
 void json_lex_state_new(json_lex_state_t* state,
                         const char* json,
-                        ulong json_sz);
+                        ulong json_sz,
+                        fd_spad_t * spad);
 
 void json_lex_state_delete(json_lex_state_t* state);
 
@@ -64,3 +70,5 @@ double json_lex_as_float(json_lex_state_t* lex);
 // Replaces the string with the result of a formatted printf.
 void json_lex_sprintf(json_lex_state_t* lex, const char* format, ...)
   __attribute__ ((format (printf, 2, 3)));
+
+#endif /* HEADER_fd_src_discof_rpcserver_json_lex_h */

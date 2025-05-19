@@ -43,6 +43,7 @@ fd_txn_account_setup_common( fd_txn_account_t * acct ) {
   fd_account_meta_t const * meta = acct->private_state.const_meta ?
                                    acct->private_state.const_meta : acct->private_state.meta;
 
+  /* TODO: Why ULONG_MAX check here? */
   if( ULONG_MAX == acct->starting_dlen ) {
     acct->starting_dlen = meta->dlen;
   }
@@ -81,12 +82,12 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
   fd_account_meta_t * sentinel = fd_spad_alloc( spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) );
   fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
 
-  sentinel->magic                 = FD_ACCOUNT_META_MAGIC;
-  sentinel->info.rent_epoch       = ULONG_MAX;
+  sentinel->magic                = FD_ACCOUNT_META_MAGIC;
+  sentinel->info.rent_epoch      = ULONG_MAX;
   acct->private_state.const_meta = sentinel;
-  acct->starting_lamports         = 0UL;
-  acct->starting_dlen             = 0UL;
-  acct->private_state.meta_gaddr  = fd_wksp_gaddr( spad_wksp, sentinel );
+  acct->starting_lamports        = 0UL;
+  acct->starting_dlen            = 0UL;
+  acct->private_state.meta_gaddr = fd_wksp_gaddr( spad_wksp, sentinel );
 }
 
 void
@@ -298,12 +299,21 @@ fd_txn_account_save( fd_txn_account_t * acct,
   if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
 
   acct->private_state.rec = rec;
-  ulong reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if( fd_funk_val_truncate( rec, reclen, fd_funk_alloc( funk ), wksp, &err ) == NULL ) {
-    FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+  ulong       reclen = sizeof(fd_account_meta_t)+acct->private_state.const_meta->dlen;
+  fd_wksp_t * wksp   = fd_funk_wksp( funk );
+  if( fd_funk_val_truncate(
+      rec,
+      fd_funk_alloc( funk ),
+      wksp,
+      0UL,
+      reclen,
+      &err ) == NULL ) {
+    FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", reclen, err, fd_funk_strerror( err ) ));
   }
   err = fd_txn_account_save_internal( acct, funk );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "fd_txn_account_save_internal() failed (%i-%s)", err, fd_funk_strerror( err ) ));
+  }
 
   fd_funk_rec_publish( funk, prepare );
 

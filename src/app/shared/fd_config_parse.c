@@ -236,6 +236,18 @@ fdctl_pod_find_leftover( uchar * pod ) {
     fd_pod_remove( pod, key );                                         \
   } while(0)
 
+static void
+fd_config_check_configf( fd_config_t *  config,
+                         fd_configf_t * config_f ) {
+  (void)config_f;
+  if( FD_UNLIKELY( strlen( config->tiles.replay.snapshot_dir )>PATH_MAX-1UL ) ) {
+    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] is too long (max %lu)", PATH_MAX-1UL ));
+  }
+  if( FD_UNLIKELY( config->tiles.replay.snapshot_dir[ 0 ]!='\0' && config->tiles.replay.snapshot_dir[ 0 ]!='/' ) ) {
+    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] must be an absolute path and hence start with a '/'"));
+  }
+}
+
 fd_configh_t *
 fd_config_extract_podh( uchar *        pod,
                         fd_configh_t * config ) {
@@ -286,6 +298,7 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( uint,   snapshots.full_snapshot_interval_slots           );
   CFG_POP      ( uint,   snapshots.incremental_snapshot_interval_slots    );
   CFG_POP      ( uint,   snapshots.minimum_snapshot_download_speed        );
+  CFG_POP      ( uint,   snapshots.maximum_snapshot_download_abort        );
   CFG_POP      ( uint,   snapshots.maximum_full_snapshots_to_retain       );
   CFG_POP      ( uint,   snapshots.maximum_incremental_snapshots_to_retain);
   CFG_POP      ( cstr,   snapshots.path                                   );
@@ -310,6 +323,14 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   blockstore.restore                               );
 
   CFG_POP      ( bool,   consensus.vote                                   );
+
+  CFG_POP      ( ulong,  runtime.heap_size_gib                            );
+
+  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                  );
+  CFG_POP      ( ulong,  runtime.limits.max_live_slots                    );
+  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
+  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
+  CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
 
   return config;
 }
@@ -432,9 +453,11 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
   CFG_POP      ( cstr,   tiles.replay.snapshot_url                        );
+  CFG_POP      ( cstr,   tiles.replay.snapshot_dir                        );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
+  CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
@@ -445,11 +468,12 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.batch.incremental_interval                 );
   CFG_POP      ( cstr,   tiles.batch.out_dir                              );
 
-  CFG_POP      ( bool,   tiles.restart.in_wen_restart                     );
+  CFG_POP      ( bool,   tiles.restart.enabled                            );
   CFG_POP      ( cstr,   tiles.restart.wen_restart_coordinator            );
   CFG_POP      ( cstr,   tiles.restart.genesis_hash                       );
 
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
+  CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
 
   CFG_POP      ( bool,   development.sandbox                              );
@@ -489,6 +513,7 @@ fd_config_extract_pod( uchar *       pod,
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;
+    fd_config_check_configf( config, &config->firedancer );
   } else {
     if( FD_UNLIKELY( !fd_config_extract_podh( pod, &config->frankendancer ) ) ) return NULL;
   }

@@ -245,7 +245,7 @@ slot_ctx_restore( ulong                 slot,
       continue;
     }
 
-    fd_memcpy( &slot_ctx_out->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
+    slot_ctx_out->slot_bank = *slot_bank;
     FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out, runtime_spad ) );
 
     if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {

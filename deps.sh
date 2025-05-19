@@ -135,10 +135,11 @@ fetch () {
   fi
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.6"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
-  checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "efa579c"
+  checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "4d2e22a"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.6.0"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
+    checkout_repo blst      https://github.com/supranational/blst     "v0.3.14"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.7.4"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
   fi
@@ -351,9 +352,13 @@ install_libcxx () {
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR="lib" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
+    -DLLVM_DIR=".." \
+    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
     -DLLVM_USE_SANITIZER=Memory \
-    -DLLVM_ENABLE_PIC=ON
+    -DLLVM_ENABLE_PIC=ON \
+    -DLLVM_INCLUDE_TESTS=OFF \
+    -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
+    -DLIBCXXABI_USE_LLVM_UNWINDER=OFF
 
   echo "[+] Building libcxx"
   "${MAKE[@]}" cxx cxxabi
@@ -389,6 +394,22 @@ install_s2n () {
   echo "[+] Successfully installed s2n-bignum"
 }
 
+install_blst () {
+  cd "$PREFIX/git/blst"
+
+  echo "[+] Installing blst to $PREFIX"
+
+  # this is copied from ./build.sh:27
+  CFLAGS=${CFLAGS:--O2 -fno-builtin -fPIC -Wall -Wextra -Werror}
+  # this adds our flags, e.g. for MSAN
+  CFLAGS+=" $EXTRA_CFLAGS"
+
+  CFLAGS=$CFLAGS ./build.sh
+  cp libblst.a "$PREFIX/lib"
+  cp bindings/*.h "$PREFIX/include"
+  echo "[+] Successfully installed blst"
+}
+
 install_secp256k1 () {
   cd "$PREFIX/git/secp256k1"
 
@@ -396,6 +417,7 @@ install_secp256k1 () {
   rm -rf build
   mkdir build
   cd build
+  # https://github.com/bitcoin-core/secp256k1/blob/master/CMakeLists.txt#L59
   cmake .. \
     -G"Unix Makefiles" \
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
@@ -406,10 +428,13 @@ install_secp256k1 () {
     -DSECP256K1_BUILD_BENCHMARK=OFF \
     -DSECP256K1_DISABLE_SHARED=OFF \
     -DBUILD_SHARED_LIBS=OFF \
+    -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
     -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
     -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
     -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
     -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
+    -DSECP256K1_ENABLE_MODULE_MUSIG=OFF \
+    -DSECP256K1_ENABLE_MODULE_ELLSWIFT=OFF \
     -DCMAKE_C_FLAGS_RELEASE="-O3" \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_C_FLAGS="$EXTRA_CFLAGS" \
@@ -570,8 +595,9 @@ install () {
   ( install_lz4       )
   ( install_s2n       )
   #( install_openssl   )
+  ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_secp256k1 )
+    ( install_blst      )
     ( install_snappy    )
     ( install_rocksdb   )
   fi

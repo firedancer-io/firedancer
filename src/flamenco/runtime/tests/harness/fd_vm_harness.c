@@ -130,7 +130,7 @@ do{
     break;
   }
   ulong   rodata_sz = input->vm_ctx.rodata->size;
-  uchar * rodata = fd_spad_alloc_debug( spad, 8UL, rodata_sz );
+  uchar * rodata = fd_spad_alloc_check( spad, 8UL, rodata_sz );
   memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
   /* Enable direct_mapping for SBPF version >= v1 */
@@ -150,21 +150,32 @@ do{
   uchar *                  input_ptr      = NULL;
   uchar                    program_id_idx = instr_ctx->instr->program_id;
   fd_txn_account_t const * program_acc    = &instr_ctx->txn_ctx->accounts[program_id_idx];
+  uchar                    is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
+                                            ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
-  uchar   is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
-                           ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
+  int stack_push_err = fd_instr_stack_push( instr_ctx->txn_ctx, (fd_instr_info_t *)instr_ctx->instr );
+  if( FD_UNLIKELY( stack_push_err ) ) {
+    FD_LOG_WARNING(( "instr stack push err" ));
+    fd_runtime_fuzz_instr_ctx_destroy( runner, instr_ctx );
+    return 0;
+  }
 
-  /* TODO: Check for an error code. Probably unlikely during fuzzing though */
-  fd_bpf_loader_input_serialize_parameters( instr_ctx,
-                                            &input_sz,
-                                            pre_lens,
-                                            input_mem_regions,
-                                            &input_mem_regions_cnt,
-                                            acc_region_metas,
-                                            direct_mapping,
-                                            mask_out_rent_epoch_in_vm_serialization,
-                                            is_deprecated,
-                                            &input_ptr );
+  /* Serialize accounts into input memory region. */
+  int err = fd_bpf_loader_input_serialize_parameters( instr_ctx,
+                                                      &input_sz,
+                                                      pre_lens,
+                                                      input_mem_regions,
+                                                      &input_mem_regions_cnt,
+                                                      acc_region_metas,
+                                                      direct_mapping,
+                                                      mask_out_rent_epoch_in_vm_serialization,
+                                                      is_deprecated,
+                                                      &input_ptr );
+  if( FD_UNLIKELY( err ) ) {
+    fd_runtime_fuzz_instr_ctx_destroy( runner, instr_ctx );
+    return 0;
+  }
 
   if( input->vm_ctx.heap_max>FD_VM_HEAP_DEFAULT ) {
     break;
@@ -449,17 +460,28 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
   uchar              is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
                                       ( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
-  /* TODO: Check for an error code. Probably unlikely during fuzzing though */
-  fd_bpf_loader_input_serialize_parameters( ctx,
-                                            &input_sz,
-                                            pre_lens,
-                                            input_mem_regions,
-                                            &input_mem_regions_cnt,
-                                            acc_region_metas,
-                                            direct_mapping,
-                                            mask_out_rent_epoch_in_vm_serialization,
-                                            is_deprecated,
-                                            &input_ptr );
+  /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
+  int stack_push_err = fd_instr_stack_push( ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
+  if( FD_UNLIKELY( stack_push_err ) ) {
+      FD_LOG_WARNING(( "instr stack push err" ));
+      goto error;
+  }
+
+  /* Serialize accounts into input memory region. */
+  int err = fd_bpf_loader_input_serialize_parameters( ctx,
+                                                      &input_sz,
+                                                      pre_lens,
+                                                      input_mem_regions,
+                                                      &input_mem_regions_cnt,
+                                                      acc_region_metas,
+                                                      direct_mapping,
+                                                      mask_out_rent_epoch_in_vm_serialization,
+                                                      is_deprecated,
+                                                      &input_ptr );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "bpf loader input serialize parameters err" ));
+    goto error;
+  }
 
   fd_vm_init( vm,
               ctx,
@@ -517,12 +539,6 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
     goto error;
   }
 
-  /* Actually invoke the syscall */
-  int stack_push_err = fd_instr_stack_push( ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
-  if( FD_UNLIKELY( stack_push_err ) ) {
-      FD_LOG_WARNING(( "instr stack push err" ));
-      goto error;
-  }
   /* There's an instr ctx struct embedded in the txn ctx instr stack. */
   fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr_stack[ ctx->txn_ctx->instr_stack_sz - 1 ];
   *instr_ctx = (fd_exec_instr_ctx_t) {
@@ -535,6 +551,8 @@ fd_runtime_fuzz_vm_syscall_run( fd_runtime_fuzz_runner_t * runner,
     .depth     = 0U,
     .child_cnt = 0U,
   };
+
+  /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
   int stack_pop_err = fd_instr_stack_pop( ctx->txn_ctx, ctx->instr );
   if( FD_UNLIKELY( stack_pop_err ) ) {

@@ -426,7 +426,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
       fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      fd_memcpy( &ctx->txn, &txn->txn, sizeof(fd_txn_p_t) );
+      ctx->txn = txn->txn;
       execute_txn( ctx );
       return;
     } else if( sig==EXEC_NEW_SLOT_SIG ) {
@@ -611,7 +611,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join runtime public" ));
   }
 
-  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Failed to get and join runtime spad" ));
   }
@@ -667,7 +667,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_spad_push( ctx->exec_spad );
   // FIXME account for this in exec spad footprint
-  uchar * txn_ctx_mem   = fd_spad_alloc( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  uchar * txn_ctx_mem   = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
   *ctx->txn_ctx->funk   = *ctx->funk;
 

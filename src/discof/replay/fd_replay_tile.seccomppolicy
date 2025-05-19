@@ -22,3 +22,10 @@ read: (eq (arg 0) blockstore_fd)
 
 # blockstore: lseek archival file
 lseek: (eq (arg 0) blockstore_fd)
+
+# FIXME:
+# snapshot download needs
+# - open(O_RDONLY) or open(O_WRONLY|O_TRUNC) or open(O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR)
+# - write
+# - read
+# - close

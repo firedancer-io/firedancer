@@ -90,13 +90,19 @@ fd_zksdk_verify_proof_percentage_with_cap(
   uchar c[ 32 ];
   uchar w[ 32 ];
   fd_zksdk_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
+
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_max"), proof->percentage_max_proof.z_max );
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_x"), proof->percentage_equality_proof.z_x );
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_delta_real"), proof->percentage_equality_proof.z_delta );
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_claimed"), proof->percentage_equality_proof.z_claimed );
+
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
   uchar ww[ 32 ];
   fd_curve25519_scalar_mul( ww, w, w );
   uchar m[ 32 ];
   fd_curve25519_scalar_from_u64( m, max_value );
-  
+
   uchar const * c_max = proof->percentage_max_proof.c_max;
   uchar * c_eq = c;
   fd_curve25519_scalar_sub( c_eq, c, c_max );
@@ -120,7 +126,7 @@ fd_zksdk_verify_proof_percentage_with_cap(
   fd_curve25519_scalar_mul( &scalars[ 4*32 ], &scalars[ 3*32 ], c_eq ); //  w c_eq
   fd_curve25519_scalar_set( &scalars[ 5*32 ], ww );                     //  ww
   fd_curve25519_scalar_mul( &scalars[ 6*32 ], &scalars[ 5*32 ], c_eq ); //  ww c_eq
-  
+
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 7 );
 

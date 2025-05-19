@@ -120,7 +120,6 @@
    time to try to bound the amount of pre-allocation for small requests. */
 
 #include "../wksp/fd_wksp.h"
-#include "../valloc/fd_valloc.h"
 
 /* FD_ALLOC_{ALIGN,FOOTPRINT} give the required alignment and footprint
    needed for a wksp allocation to be suitable as a fd_alloc.  ALIGN is
@@ -633,4 +632,3 @@ fd_alloc_virtual( fd_alloc_t * alloc ) {
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_alloc_fd_alloc_h */
-

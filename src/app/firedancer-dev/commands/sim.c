@@ -17,7 +17,6 @@
    a notification for the previous frag from storei_notif.
  */
 
-#include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
@@ -37,26 +36,25 @@ setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_rooted_slots,
                      ulong        max_live_slots,
-                     ulong        max_txn_per_slot ) {
+                     ulong        max_txn_per_slot,
+                     ulong        max_constipated_slots ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "txncache", wksp_name );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_rooted_slots, "obj.%lu.max_rooted_slots", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,   "obj.%lu.max_live_slots",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot, "obj.%lu.max_txn_per_slot", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_constipated_slots, "obj.%lu.max_constipated_slots", obj->id ) );
 
   return obj;
 }
 
-#include "../../../flamenco/runtime/fd_runtime_public.h"
 static fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo, char const * wksp_name ) {
+setup_topo_runtime_pub( fd_topo_t *  topo,
+                        char const * wksp_name,
+                        ulong        mem_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "runtime_pub", wksp_name );
-
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,        "obj.%lu.wksp_tag",   obj->id ) );
-
-  ulong footprint = fd_runtime_public_footprint();
-  FD_TEST( fd_pod_insertf_ulong( topo->props, footprint,  "obj.%lu.loose", obj->id ) );
-
+  FD_TEST( fd_pod_insertf_ulong( topo->props, mem_max, "obj.%lu.mem_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,    "obj.%lu.wksp_tag", obj->id ) );
   return obj;
 }
 
@@ -150,6 +148,7 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", replay_cpu_idx, 0, 0 );
   replay_tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
+  replay_tile->replay.max_vote_accounts = config->firedancer.runtime.limits.max_vote_accounts;
 
   /* specified by [tiles.replay] */
   strncpy( replay_tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(replay_tile->replay.blockstore_file) );
@@ -265,8 +264,12 @@ sim_topo( config_t * config ) {
                                                           config->firedancer.blockstore.alloc_max );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub" );
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache", FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT );
+  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
+      config->firedancer.runtime.limits.max_rooted_slots,
+      config->firedancer.runtime.limits.max_live_slots,
+      config->firedancer.runtime.limits.max_transactions_per_slot,
+      fd_txncache_max_constipated_slots_est( config->firedancer.runtime.limits.snapshot_grace_period_seconds ) );
   fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
   fd_topo_obj_t * constipated_obj = fd_topob_obj( topo, "fseq", "constipate" );
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );

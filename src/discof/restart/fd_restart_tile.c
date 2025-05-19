@@ -1,5 +1,6 @@
 #include "fd_restart.h"
 
+#include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -13,8 +14,6 @@
 #define STORE_OUT_IDX  (1UL)
 
 struct fd_restart_tile_ctx {
-  int                   in_wen_restart;
-
   fd_restart_t *        restart;
   fd_funk_t             funk[1];
   fd_epoch_bank_t       epoch_bank;
@@ -69,13 +68,13 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
 
   /* Do not modify order! This is join-order in unprivileged_init. */
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->restart.heap_mem_max ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -83,9 +82,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 static void
 privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
                  fd_topo_tile_t * tile ) {
-  /* TODO: not launching the restart tile if in_wen_restart is false */
-  if( FD_LIKELY( !tile->restart.in_wen_restart ) ) return;
-
   /**********************************************************************/
   /* tower checkpoint                                                   */
   /**********************************************************************/
@@ -101,30 +97,18 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
 static void
 unprivileged_init( fd_topo_t      * topo,
                    fd_topo_tile_t * tile ) {
-  /* TODO: not launching the restart tile if in_wen_restart is false */
-  if( FD_LIKELY( !tile->restart.in_wen_restart ) ) {
-    void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-    FD_SCRATCH_ALLOC_INIT( l, scratch );
-    fd_restart_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
-    FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-
-    ctx->in_wen_restart = tile->restart.in_wen_restart;
-    return;
-  }
-
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_restart_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_restart_tile_ctx_t), sizeof(fd_restart_tile_ctx_t) );
   void * restart_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_restart_align(), fd_restart_footprint() );
-  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  void * spad_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->restart.heap_mem_max ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /**********************************************************************/
   /* restart                                                            */
   /**********************************************************************/
 
-  ctx->in_wen_restart = tile->restart.in_wen_restart;
-  ctx->restart        = fd_restart_join( fd_restart_new( restart_mem ) );
+  ctx->restart = fd_restart_join( fd_restart_new( restart_mem ) );
 
   /**********************************************************************/
   /* funk                                                               */
@@ -139,7 +123,7 @@ unprivileged_init( fd_topo_t      * topo,
   /* spad                                                               */
   /**********************************************************************/
 
-  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem, tile->restart.heap_mem_max ) );
   fd_spad_push( ctx->runtime_spad );
 
   /**********************************************************************/
@@ -207,15 +191,6 @@ unprivileged_init( fd_topo_t      * topo,
   ctx->store_in_chunk0      = fd_dcache_compact_chunk0( ctx->store_in_mem, store_in->dcache );
   ctx->store_in_wmark       = fd_dcache_compact_wmark( ctx->store_in_mem, store_in->dcache, store_in->mtu );
 
-}
-
-static inline int
-before_frag( fd_restart_tile_ctx_t * ctx,
-             ulong                   in_idx FD_PARAM_UNUSED,
-             ulong                   seq FD_PARAM_UNUSED,
-             ulong                   sig FD_PARAM_UNUSED ) {
-  /* TODO: not launching the restart tile if in_wen_restart is false */
-  return !ctx->in_wen_restart;
 }
 
 static void
@@ -323,20 +298,24 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     slot_bank->hard_forks.hard_forks_len = ctx->new_hard_forks_len;
 
     /* Write the slot bank back to funk, referencing fd_runtime_save_slot_bank */
-    int opt_err = 0;
+    int funk_err = 0;
     fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t * new_rec = fd_funk_rec_prepare( ctx->funk,
-                                                         funk_txn,
-                                                         &id,
-                                                         prepare,
-                                                         &opt_err );
+    fd_funk_rec_t * new_rec = fd_funk_rec_prepare(
+        ctx->funk, funk_txn, &id, prepare, &funk_err );
     if( FD_UNLIKELY( !new_rec ) ) {
-      FD_LOG_ERR(( "Wen-restart fails at inserting a hard fork in slot bank and save it in funk" ));
+      FD_LOG_ERR(( "fd_funk_rec_prepare() failed (%i-%s)", funk_err, fd_funk_strerror( funk_err ) ));
     }
 
-    ulong sz    = sizeof(uint) + fd_slot_bank_size( slot_bank );
-    uchar * buf = fd_funk_val_truncate( new_rec, sz, fd_funk_alloc( ctx->funk ), fd_funk_wksp( ctx->funk ), &opt_err );
-    *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
+    ulong   sz  = sizeof(uint) + fd_slot_bank_size( slot_bank );
+    uchar * buf = fd_funk_val_truncate(
+        new_rec,
+        fd_funk_alloc( ctx->funk ),
+        fd_funk_wksp( ctx->funk ),
+        0UL,
+        sz,
+        &funk_err );
+    if( FD_UNLIKELY( !buf ) ) FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) failed (%i-%s)", sz, funk_err, fd_funk_strerror( funk_err ) ));
+    FD_STORE( uint, buf, FD_RUNTIME_ENC_BINCODE );
     fd_bincode_encode_ctx_t slot_bank_encode_ctx = {
       .data    = buf + sizeof(uint),
       .dataend = buf + sz,
@@ -356,7 +335,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     fd_funk_txn_end_write( ctx->funk );
 
     /* Copy the bank hash of HeaviestForkSlot to fd_restart_t */
-    fd_memcpy( &ctx->restart->heaviest_fork_bank_hash, &slot_bank->banks_hash, sizeof(fd_hash_t) );
+    ctx->restart->heaviest_fork_bank_hash = slot_bank->banks_hash;
     ctx->restart->heaviest_fork_ready = 1;
   }
 }
@@ -366,9 +345,6 @@ after_credit( fd_restart_tile_ctx_t * ctx,
               fd_stem_context_t *     stem FD_PARAM_UNUSED,
               int *                   opt_poll_in FD_PARAM_UNUSED,
               int *                   charge_busy FD_PARAM_UNUSED ) {
-  /* TODO: not launching the restart tile if in_wen_restart is false */
-  if( FD_LIKELY( !ctx->in_wen_restart ) ) return;
-
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
@@ -512,7 +488,6 @@ after_credit( fd_restart_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE          fd_restart_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_restart_tile_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit

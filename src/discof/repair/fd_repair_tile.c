@@ -177,6 +177,9 @@ struct fd_repair_tile_ctx {
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
+
+  ulong * first_turbine_slot; /* first slot we see over turbine
+                                 used to approximate init poh_slot */
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -332,7 +335,7 @@ fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
   fd_gossip_ping_t * pong = &protocol.inner.pong;
 
-  fd_hash_copy( &pong->from, glob->public_key );
+  pong->from = *glob->public_key;
 
   /* Generate response hash token */
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
@@ -501,8 +504,8 @@ fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * g
         glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
         fd_repair_window_index_t * wi = &protocol.inner.window_index;
-        fd_hash_copy(&wi->header.sender, glob->public_key);
-        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.sender = *glob->public_key;
+        wi->header.recipient = active->key;
         wi->header.timestamp = (ulong)glob->now/1000000L;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
@@ -515,8 +518,8 @@ fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * g
         glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
         fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
-        fd_hash_copy(&wi->header.sender, glob->public_key);
-        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.sender = *glob->public_key;
+        wi->header.recipient = active->key;
         wi->header.timestamp = (ulong)glob->now/1000000L;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
@@ -529,8 +532,8 @@ fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * g
         glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
         fd_repair_orphan_t * wi = &protocol.inner.orphan;
-        fd_hash_copy(&wi->header.sender, glob->public_key);
-        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.sender = *glob->public_key;
+        wi->header.recipient = active->key;
         wi->header.timestamp = (ulong)glob->now/1000000L;
         wi->header.nonce = n;
         wi->slot = ele->dupkey.slot;
@@ -630,7 +633,7 @@ fd_repair_send_ping( fd_repair_tile_ctx_t        * repair_tile_ctx,
   fd_repair_response_t gmsg;
   fd_repair_response_new_disc( &gmsg, fd_repair_response_enum_ping );
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
-  fd_hash_copy( &ping->from, glob->public_key );
+  ping->from = *glob->public_key;
 
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
   memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
@@ -651,7 +654,7 @@ fd_repair_send_ping( fd_repair_tile_ctx_t        * repair_tile_ctx,
 static void
 fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip_peer_addr_t const * from) {
   fd_pinged_elem_t * val = fd_pinged_table_query(glob->pinged, from, NULL);
-  if( val == NULL || !fd_hash_eq( &val->id, &pong->from ) )
+  if( val == NULL || !fd_pubkey_eq( &val->id, &pong->from ) )
     return;
 
   /* Verify response hash token */
@@ -786,7 +789,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
       }
     }
 
-    if( FD_UNLIKELY( !fd_hash_eq( &header->recipient, glob->public_key ) ) ) {
+    if( FD_UNLIKELY( !fd_pubkey_eq( &header->recipient, glob->public_key ) ) ) {
       FD_LOG_WARNING(( "received repair request with wrong recipient, %s instead of %s", FD_BASE58_ENC_32_ALLOCA( header->recipient.uc ), FD_BASE58_ENC_32_ALLOCA( glob->public_key ) ));
       return 0;
     }
@@ -807,7 +810,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
     }
 
     fd_pinged_elem_t * val = fd_pinged_table_query( glob->pinged, peer_addr, NULL) ;
-    if( val == NULL || !val->good || !fd_hash_eq( &val->id, &header->sender ) ) {
+    if( val == NULL || !val->good || !fd_pubkey_eq( &val->id, &header->sender ) ) {
       /* Need to ping this client */
       if( val == NULL ) {
         if( fd_pinged_table_is_full( glob->pinged ) ) {
@@ -820,7 +823,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
         for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
           val->token.ul[i] = fd_rng_ulong(glob->rng);
       }
-      fd_hash_copy( &val->id, &header->sender );
+      val->id = header->sender;
       val->good = 0;
       uchar buf[1024];
       ulong buflen = fd_repair_send_ping( repair_tile_ctx, glob, val, buf, sizeof(buf) );
@@ -882,6 +885,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
+  ctx->stem = stem;
+
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_CONTACT ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
@@ -920,6 +925,11 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
+    /* FIXME: This is a hack to initialize the poh_slot fseq. This
+       should be removed when we use msg passing instead of fseq. */
+    if( fd_fseq_query( ctx->first_turbine_slot ) == ULONG_MAX ) {
+      fd_fseq_update( ctx->first_turbine_slot, shred->slot );
+    }
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) return; /* shred too old */
 
     // FD_LOG_NOTICE(( "shred %lu %u", shred->slot, shred->idx ));
@@ -1035,7 +1045,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
-  ctx->stem = stem;
   fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->buffer;
   fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
@@ -1438,6 +1447,18 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_repair_update_addr( ctx->repair, &ctx->repair_intake_addr, &ctx->repair_serve_addr );
+
+  /* TODO: this is a hack to set the first turbine slot so that replay
+     knows when we have caught up to a slot >= where we last voted. It
+    is assumed turbine has proceeded past the slot from which validator
+    stopped replaying and therefore also stopped voting (crashed,
+    shutdown, etc.). This is important for voting, because you need have
+    "read-back" your latest landed tower before you can vote. Using an
+    fseq is a temporary hack, and this will be replaced with the standard
+    frag-signaling pattern across tiles with a separate consensus tile. */
+  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
+  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
+  ctx->first_turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_start( ctx->repair );

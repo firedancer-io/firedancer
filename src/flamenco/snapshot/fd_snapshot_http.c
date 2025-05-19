@@ -11,12 +11,14 @@
 #include <netinet/ip.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /* fd_snapshot_http_set_path renders the 'GET /path' chunk of the HTTP
    request.  The chunk is right aligned and is followed immediately by
    'HTTP/1.1\r\n...' to form a contiguous message. */
 
-int
+void
 fd_snapshot_http_set_path( fd_snapshot_http_t * this,
                            char const *         path,
                            ulong                path_len,
@@ -28,8 +30,11 @@ fd_snapshot_http_set_path( fd_snapshot_http_t * this,
   }
 
   if( FD_UNLIKELY( path_len > FD_SNAPSHOT_HTTP_REQ_PATH_MAX ) ) {
-    FD_LOG_DEBUG(( "http: path too long (%lu chars)", path_len ));
-    return 0;
+    FD_LOG_CRIT(( "http: path too long (%lu chars)", path_len ));
+  }
+
+  if( FD_UNLIKELY( this->save_snapshot && this->snapshot_filename_max<path_len ) ) {
+    FD_LOG_CRIT(( "http: path too long (%lu chars)", path_len ));
   }
 
   ulong off = sizeof(this->path) - path_len - 4;
@@ -42,7 +47,11 @@ fd_snapshot_http_set_path( fd_snapshot_http_t * this,
   this->path_off = (ushort)off;
 
   this->base_slot = base_slot;
-  return 1;
+
+  if( FD_LIKELY( this->save_snapshot ) ) {
+    fd_memcpy( this->snapshot_path + this->snapshot_filename_off, path, path_len );
+    this->snapshot_path[ this->snapshot_filename_off + path_len ] = '\0';
+  }
 }
 
 fd_snapshot_http_t *
@@ -50,6 +59,7 @@ fd_snapshot_http_new( void *               mem,
                       const char *         dst_str,
                       uint                 dst_ipv4,
                       ushort               dst_port,
+                      const char *         snapshot_dir,
                       fd_snapshot_name_t * name_out ) {
 
   fd_snapshot_http_t * this = (fd_snapshot_http_t *)mem;
@@ -69,11 +79,25 @@ fd_snapshot_http_new( void *               mem,
   if( !this->name_out ) this->name_out = this->name_dummy;
   fd_memset( this->name_out, 0, sizeof(fd_snapshot_name_t) );
 
+  ulong snapshot_dir_len = snapshot_dir!=NULL ? strlen( snapshot_dir ) : 0UL;
+  if( FD_LIKELY( snapshot_dir_len && snapshot_dir_len<sizeof(this->snapshot_path) ) ) {
+    strcpy( this->snapshot_path, snapshot_dir );
+    this->snapshot_path[ snapshot_dir_len ]       = '/';
+    this->snapshot_path[ snapshot_dir_len + 1UL ] = '\0';
+
+    this->save_snapshot         = 1UL;
+    this->snapshot_filename_max = sizeof(this->snapshot_path) - snapshot_dir_len - 2UL;
+    this->snapshot_filename_off = snapshot_dir_len + 1UL;
+  } else {
+    this->save_snapshot         = 0UL;
+    this->snapshot_filename_max = 0UL;
+  }
+  this->snapshot_fd = -1;
+
   /* Right-aligned render the request path */
 
   static char const default_path[] = "/snapshot.tar.bz2";
-  int path_ok = fd_snapshot_http_set_path( this, default_path, sizeof(default_path)-1, 0UL );
-  assert( path_ok );
+  fd_snapshot_http_set_path( this, default_path, sizeof(default_path)-1, 0UL );
 
   /* Left-aligned render the headers, completing the message  */
 
@@ -98,13 +122,22 @@ fd_snapshot_http_new( void *               mem,
   return this;
 }
 
-void *
-fd_snapshot_http_delete( fd_snapshot_http_t * this ) {
-  if( FD_UNLIKELY( !this ) ) return NULL;
-  if( this->socket_fd>=0 ) {
+static void
+fd_snapshot_http_cleanup_fds( fd_snapshot_http_t * this ) {
+  if( this->snapshot_fd!=-1 ) {
+    close( this->snapshot_fd );
+    this->snapshot_fd = -1;
+  }
+  if( this->socket_fd!=-1 ) {
     close( this->socket_fd );
     this->socket_fd = -1;
   }
+}
+
+void *
+fd_snapshot_http_delete( fd_snapshot_http_t * this ) {
+  if( FD_UNLIKELY( !this ) ) return NULL;
+  fd_snapshot_http_cleanup_fds( this );
   return (void *)this;
 }
 
@@ -266,8 +299,7 @@ fd_snapshot_http_follow_redirect( fd_snapshot_http_t *      this,
     return EINVAL;
   }
 
-  int set_path_ok = fd_snapshot_http_set_path( this, loc, loc_len, this->base_slot );
-  assert( set_path_ok );
+  fd_snapshot_http_set_path( this, loc, loc_len, this->base_slot );
 
   this->req_deadline  = fd_log_wallclock() + this->req_timeout;
   this->state     = FD_SNAPSHOT_HTTP_STATE_REQ;
@@ -409,8 +441,58 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
     }
   }
 
-  this->state = FD_SNAPSHOT_HTTP_STATE_DL;
-  return 0;
+  if( FD_UNLIKELY( !this->save_snapshot ) ) {
+    FD_LOG_NOTICE(( "snapshot will be downloaded into in-memory buffer rather than file" ));
+    this->state = FD_SNAPSHOT_HTTP_STATE_DL;
+    return 0;
+  }
+
+  struct stat sb;
+  if ( FD_LIKELY( stat( this->snapshot_path, &sb )==0 ) ) {
+    ulong file_len = (ulong)sb.st_size;
+    if( FD_LIKELY( file_len==this->content_len ) ) {
+      FD_LOG_NOTICE(( "snapshot file %s size %lu is equal to response content-length %lu so skipping download; manually remove the snapshot file if it's corrupted", this->snapshot_path, file_len, this->content_len ));
+      this->snapshot_fd = open( this->snapshot_path, O_RDONLY );
+      if( FD_UNLIKELY( this->snapshot_fd<0 ) ) {
+        FD_LOG_WARNING(( "open(%s) failed (%d-%s)", this->snapshot_path, errno, fd_io_strerror( errno ) ));
+        this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+        return EACCES;
+      }
+      this->state = FD_SNAPSHOT_HTTP_STATE_READ;
+      return 0;
+    }
+    if( FD_UNLIKELY( file_len>this->content_len ) ) {
+      FD_LOG_WARNING(( "snapshot file %s size %lu is larger than response content-length %lu !?  Manually remove the snapshot file if it's corrupted", this->snapshot_path, file_len, this->content_len ));
+      this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+      return EINVAL;
+    }
+    if( FD_UNLIKELY( file_len<this->content_len ) ) {
+      FD_LOG_NOTICE(( "snapshot file %s size %lu is smaller than response content-length %lu likely due to partial download; attempting re-download", this->snapshot_path, file_len, this->content_len ));
+      this->snapshot_fd = open( this->snapshot_path, O_WRONLY|O_TRUNC );
+      if( FD_UNLIKELY( this->snapshot_fd<0 ) ) {
+        FD_LOG_WARNING(( "open(%s) failed (%d-%s)", this->snapshot_path, errno, fd_io_strerror( errno ) ));
+        this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+        return EACCES;
+      }
+      this->state = FD_SNAPSHOT_HTTP_STATE_DL;
+      return 0;
+    }
+    __builtin_unreachable();
+  } else if( FD_LIKELY( errno==ENOENT ) ) {
+    FD_LOG_NOTICE(( "snapshot will be downloaded into file %s", this->snapshot_path ));
+    this->snapshot_fd = open( this->snapshot_path, O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( this->snapshot_fd<0 ) ) {
+      FD_LOG_WARNING(( "open(%s) failed (%d-%s)", this->snapshot_path, errno, fd_io_strerror( errno ) ));
+      this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+      return EACCES;
+    }
+    this->state = FD_SNAPSHOT_HTTP_STATE_DL;
+    return 0;
+  } else {
+    FD_LOG_WARNING(( "cannot stat snapshot file %s: (%d-%s)", this->snapshot_path, errno, fd_io_strerror( errno ) ));
+    this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+    return EACCES;
+  }
 }
 
 /* fd_snapshot_http_dl downloads bytes and returns them to the caller.
@@ -422,6 +504,10 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
                      ulong                dst_max,
                      ulong *              dst_sz ) {
 
+  if( FD_UNLIKELY( this->state!=FD_SNAPSHOT_HTTP_STATE_DL ) ) {
+    FD_LOG_CRIT(( "invalid state %d", this->state ));
+  }
+
   if( this->resp_head == this->resp_tail ) {
     if( this->content_len == this->dl_total ) {
       FD_LOG_NOTICE(( "download already complete at %lu MB", this->dl_total>>20 ));
@@ -432,11 +518,12 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
                          fd_ulong_min( this->content_len - this->dl_total, FD_SNAPSHOT_HTTP_RESP_BUF_MAX ),
                          MSG_DONTWAIT );
     if( recv_sz<0L ) {
-      if( FD_UNLIKELY( errno!=EWOULDBLOCK ) ) {
+      if( FD_UNLIKELY( errno!=EWOULDBLOCK && errno!=EAGAIN ) ) {
         FD_LOG_WARNING(( "recv(%d,%p,%lu) failed while downloading response body (%d-%s)",
                         this->socket_fd, (void *)this->resp_buf, FD_SNAPSHOT_HTTP_RESP_BUF_MAX,
                         errno, fd_io_strerror( errno ) ));
         this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+        fd_snapshot_http_cleanup_fds( this );
         return errno;
       } else {
         return 0;
@@ -445,8 +532,7 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
     if( !recv_sz ) { /* Connection closed */
       FD_LOG_WARNING(( "connection closed at %lu MB", this->dl_total>>20 ));
       this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
-      close( this->socket_fd );
-      this->socket_fd = -1;
+      fd_snapshot_http_cleanup_fds( this );
       return -1;
     }
     this->resp_head = (uint)recv_sz;
@@ -479,15 +565,64 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
   }
 
   uint avail_sz = this->resp_head - this->resp_tail;
+  if( FD_UNLIKELY( this->dl_total==0UL ) ) {
+    this->dl_total = avail_sz;
+  }
   ulong write_sz = fd_ulong_min( avail_sz, dst_max );
   fd_memcpy( dst, this->resp_buf + this->resp_tail, write_sz );
   *dst_sz = write_sz;
-  this->resp_tail += (uint)write_sz;
+  if( this->snapshot_fd!=-1 ) {
+    ulong src_sz;
+    int err = fd_io_write( this->snapshot_fd, this->resp_buf + this->resp_tail, write_sz, write_sz, &src_sz );
+    if( FD_UNLIKELY( err!=0 ) ) {
+      FD_LOG_WARNING(( "fd_io_write() failed (%d-%s) requested %lu bytes and wrote %lu bytes", err, fd_io_strerror( err ), write_sz, src_sz ));
+      this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+      fd_snapshot_http_cleanup_fds( this );
+      return err;
+    }
+  }
+  this->resp_tail   += (uint)write_sz;
   this->write_total += write_sz;
   if( this->content_len == this->write_total ) {
     FD_LOG_NOTICE(( "wrote out all %lu MB", this->write_total>>20 ));
     this->state = FD_SNAPSHOT_HTTP_STATE_DONE;
+    fd_snapshot_http_cleanup_fds( this );
   }
+
+  return 0;
+}
+
+/* fd_snapshot_http_read reads bytes from a pre-existing snapshot file
+   and returns them to the caller. */
+
+static int
+fd_snapshot_http_read( fd_snapshot_http_t * this,
+                       void *               dst,
+                       ulong                dst_max,
+                       ulong *              dst_sz ) {
+
+  if( FD_UNLIKELY( this->state!=FD_SNAPSHOT_HTTP_STATE_READ ) ) {
+    FD_LOG_CRIT(( "invalid state %d", this->state ));
+  }
+
+  ulong src_sz;
+  ulong write_sz = fd_ulong_min( this->content_len-this->write_total, dst_max );
+  int   err      = fd_io_read( this->snapshot_fd, dst, write_sz, write_sz, &src_sz );
+  if( FD_UNLIKELY( err!=0 ) ) {
+    FD_LOG_WARNING(( "fd_io_read() failed (%d-%s) requested %lu bytes and read %lu bytes", err, fd_io_strerror( err ), write_sz, src_sz ));
+    this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+    fd_snapshot_http_cleanup_fds( this );
+    return err;
+  }
+  *dst_sz = write_sz;
+
+  this->write_total += write_sz;
+  if( this->content_len == this->write_total ) {
+    FD_LOG_NOTICE(( "wrote out all %lu MB", this->write_total>>20 ));
+    this->state = FD_SNAPSHOT_HTTP_STATE_DONE;
+    fd_snapshot_http_cleanup_fds( this );
+  }
+
   return 0;
 }
 
@@ -515,6 +650,8 @@ fd_io_istream_snapshot_http_read( void *  _this,
     break;
   case FD_SNAPSHOT_HTTP_STATE_DL:
     return fd_snapshot_http_dl( this, dst, dst_max, dst_sz );
+  case FD_SNAPSHOT_HTTP_STATE_READ:
+    return fd_snapshot_http_read( this, dst, dst_max, dst_sz );
   }
 
   /* Not yet ready to read at this point. */

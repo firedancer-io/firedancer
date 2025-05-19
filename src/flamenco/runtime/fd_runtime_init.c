@@ -24,11 +24,19 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp(funk), NULL);
-  *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
+  int funk_err = 0;
+  uchar * buf = fd_funk_val_truncate(
+      rec,
+      fd_funk_alloc( funk ),
+      fd_funk_wksp( funk ),
+      0UL,
+      sz,
+      &funk_err );
+  if( FD_UNLIKELY( !buf ) ) FD_LOG_ERR(( "fd_funk_val_truncate() failed (%i-%s)", funk_err, fd_funk_strerror( funk_err ) ));
+  FD_STORE( uint, buf, FD_RUNTIME_ENC_BINCODE );
   fd_bincode_encode_ctx_t ctx = {
-      .data = buf + sizeof(uint),
-      .dataend = buf + sz,
+    .data = buf + sizeof(uint),
+    .dataend = buf + sz,
   };
 
   if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
@@ -63,8 +71,16 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val_truncate(rec, sz, fd_funk_alloc( funk ), fd_funk_wksp( funk ), NULL);
-  *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
+  int funk_err = 0;
+  uchar * buf = fd_funk_val_truncate(
+      rec,
+      fd_funk_alloc( funk ),
+      fd_funk_wksp( funk ),
+      0UL,
+      sz,
+      &funk_err );
+  if( FD_UNLIKELY( !buf ) ) FD_LOG_ERR(( "fd_funk_val_truncate() failed (%i-%s)", funk_err, fd_funk_strerror( funk_err ) ));
+  FD_STORE( uint, buf, FD_RUNTIME_ENC_BINCODE );
   fd_bincode_encode_ctx_t ctx = {
       .data    = buf + sizeof(uint),
       .dataend = buf + sz,
@@ -213,6 +229,11 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
                     uchar const             acct[ static 32 ],
                     fd_spad_t *             runtime_spad ) {
 
+  /* Skip reverted features */
+  if( FD_UNLIKELY( id->reverted ) ) {
+    return;
+  }
+
   FD_TXN_ACCOUNT_DECL( acct_rec );
   int err = fd_txn_account_init_from_funk_readonly( acct_rec,
                                                     (fd_pubkey_t *)acct,
@@ -222,16 +243,20 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
     return;
   }
 
-  /* Skip accounts that are not owned by the feature program */
+  /* Skip accounts that are not owned by the feature program
+     https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */
   if( FD_UNLIKELY( memcmp( acct_rec->vt->get_owner( acct_rec ), fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return;
   }
 
-  /* Skip reverted features */
-  if( FD_UNLIKELY( id->reverted ) ) {
+  /* Account data size must be >= FD_FEATURE_SIZEOF (9 bytes)
+     https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L45-L47 */
+  if( FD_UNLIKELY( acct_rec->vt->get_data_len( acct_rec )<FD_FEATURE_SIZEOF ) ) {
     return;
   }
 
+  /* Deserialize the feature account data
+     https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L48-L50 */
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
     int decode_err;
     fd_feature_t * feature = fd_bincode_decode_spad(
@@ -240,7 +265,7 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
         acct_rec->vt->get_data_len( acct_rec ),
         &decode_err );
     if( FD_UNLIKELY( decode_err ) ) {
-      FD_LOG_ERR(( "Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
+      return;
     }
 
     if( feature->has_activated_at ) {

@@ -413,13 +413,26 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
   }
 
   /* TxnResult -> fee_details */
-  if( expected->fee_details.transaction_fee != actual->fee_details.transaction_fee ) {
-    FD_LOG_WARNING(( "Transaction fee mismatch: expected=%lu actual=%lu", expected->fee_details.transaction_fee, actual->fee_details.transaction_fee ));
+  if( expected->has_fee_details != actual->has_fee_details ) {
+    FD_LOG_WARNING(( "Has fee details mismatch: expected=%d actual=%d", expected->has_fee_details, actual->has_fee_details ));
     return 0;
   }
 
-  if( expected->fee_details.prioritization_fee != actual->fee_details.prioritization_fee ) {
-    FD_LOG_WARNING(( "Priority fee mismatch: expected=%lu actual=%lu", expected->fee_details.prioritization_fee, actual->fee_details.prioritization_fee ));
+  if( expected->has_fee_details ) {
+    if( expected->fee_details.transaction_fee != actual->fee_details.transaction_fee ) {
+      FD_LOG_WARNING(( "Transaction fee mismatch: expected=%lu actual=%lu", expected->fee_details.transaction_fee, actual->fee_details.transaction_fee ));
+      return 0;
+    }
+
+    if( expected->fee_details.prioritization_fee != actual->fee_details.prioritization_fee ) {
+      FD_LOG_WARNING(( "Priority fee mismatch: expected=%lu actual=%lu", expected->fee_details.prioritization_fee, actual->fee_details.prioritization_fee ));
+      return 0;
+    }
+  }
+
+  /* TxnResult -> loaded_accounts_data_size */
+  if( expected->loaded_accounts_data_size != actual->loaded_accounts_data_size ) {
+    FD_LOG_WARNING(( "Loaded accounts data size mismatch: expected=%lu actual=%lu", expected->loaded_accounts_data_size, actual->loaded_accounts_data_size ));
     return 0;
   }
 

@@ -1,17 +1,15 @@
 #include "fd_tpool.h"
 
+#if FD_HAS_THREADS
+#include <pthread.h>
+#endif
+
 struct fd_tpool_private_worker_cfg {
   fd_tpool_t * tpool;
   ulong        tile_idx;
-  void *       scratch;
-  ulong        scratch_sz;
 };
 
 typedef struct fd_tpool_private_worker_cfg fd_tpool_private_worker_cfg_t;
-
-/* This is not static to allow tile 0 to attach to this if desired. */
-
-FD_TL ulong fd_tpool_private_scratch_frame[ FD_TPOOL_WORKER_SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
 
 static int
 fd_tpool_private_worker( int     argc,
@@ -19,77 +17,122 @@ fd_tpool_private_worker( int     argc,
   ulong                           worker_idx = (ulong)(uint)argc;
   fd_tpool_private_worker_cfg_t * cfg        = (fd_tpool_private_worker_cfg_t *)argv;
 
-  fd_tpool_t * tpool      = cfg->tpool;
-  ulong        tile_idx   = cfg->tile_idx;
-  void *       scratch    = cfg->scratch;
-  ulong        scratch_sz = cfg->scratch_sz;
+  fd_tpool_t * tpool    = cfg->tpool;
+  ulong        tile_idx = cfg->tile_idx;
+
+  /* We are BOOT */
 
   fd_tpool_private_worker_t worker[1];
 
-  FD_COMPILER_MFENCE();
-  worker->state = FD_TPOOL_WORKER_STATE_BOOT;
-  FD_COMPILER_MFENCE();
+  memset( worker, 0, sizeof(fd_tpool_private_worker_t) );
 
-  worker->tile_idx   = (uint)tile_idx;
-  worker->scratch    = scratch;
-  worker->scratch_sz = scratch_sz;
+  worker->tile_idx = (uint) tile_idx;
 
-  if( scratch_sz ) fd_scratch_attach( scratch, fd_tpool_private_scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
+# if FD_HAS_THREADS
+  int sleeper = !!(tpool->opt & FD_TPOOL_OPT_SLEEP);
 
-  FD_COMPILER_MFENCE();
-  worker->state = FD_TPOOL_WORKER_STATE_IDLE;
+  pthread_mutex_t lock[1];
+  pthread_cond_t  wake[1];
+
+  if( FD_UNLIKELY( sleeper ) ) {
+    if( FD_UNLIKELY( pthread_mutex_init( lock, NULL ) ) ) FD_LOG_ERR(( "pthread_mutex_init failed" ));
+    if( FD_UNLIKELY( pthread_cond_init ( wake, NULL ) ) ) FD_LOG_ERR(( "pthread_cond_init failed"  ));
+    if( FD_UNLIKELY( pthread_mutex_lock( lock       ) ) ) FD_LOG_ERR(( "pthread_mutex_lock failed" ));
+  }
+
+  worker->lock = (ulong)lock;
+  worker->wake = (ulong)wake;
+# endif
+
   FD_COMPILER_MFENCE();
 
   fd_tpool_private_worker( tpool )[ worker_idx ] = worker;
+
+  ulong const * arg  = worker->arg;
+  uint          seq1 = worker->seq1;
 
   for(;;) {
 
     /* We are IDLE ... see what we should do next */
 
+#   if FD_HAS_THREADS
+    if( FD_UNLIKELY( sleeper ) && FD_UNLIKELY( pthread_cond_wait( wake, lock ) ) )
+      FD_LOG_WARNING(( "pthread_cond_wait failed; attempting to continue" ));
+#   endif
+
     FD_COMPILER_MFENCE();
-    int state = worker->state;
+    uint  seq0     = worker->seq0;
+    FD_COMPILER_MFENCE();
+    uint  _arg_cnt = worker->arg_cnt;
+    ulong _task    = worker->task;
     FD_COMPILER_MFENCE();
 
-    if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_EXEC ) ) {
-      if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_IDLE ) ) break;
+    if( FD_UNLIKELY( seq0==seq1 ) ) { /* Got idle */
       FD_SPIN_PAUSE();
       continue;
     }
 
+    if( FD_UNLIKELY( !_task ) ) break; /* Got halt */
+
     /* We are EXEC ... do the task and then transition to IDLE */
 
-    fd_tpool_task_t task = worker->task;
-
-    void * task_tpool  = worker->task_tpool;
-    ulong  task_t0     = worker->task_t0;     ulong task_t1     = worker->task_t1;
-    void * task_args   = worker->task_args;
-    void * task_reduce = worker->task_reduce; ulong task_stride = worker->task_stride;
-    ulong  task_l0     = worker->task_l0;     ulong task_l1     = worker->task_l1;
-    ulong  task_m0     = worker->task_m0;     ulong task_m1     = worker->task_m1;
-    ulong  task_n0     = worker->task_n0;     ulong task_n1     = worker->task_n1;
-
-    FD_COMPILER_MFENCE();
-
     try {
-      task( task_tpool,task_t0,task_t1, task_args, task_reduce,task_stride, task_l0,task_l1, task_m0,task_m1, task_n0,task_n1 );
+
+      if( _arg_cnt==UINT_MAX ) {
+
+        fd_tpool_task_t task = (fd_tpool_task_t)_task;
+
+        void * task_tpool  = (void *)arg[ 0];
+        ulong  task_t0     =         arg[ 1]; ulong task_t1     = arg[ 2];
+        void * task_args   = (void *)arg[ 3];
+        void * task_reduce = (void *)arg[ 4]; ulong task_stride = arg[ 5];
+        ulong  task_l0     =         arg[ 6]; ulong task_l1     = arg[ 7];
+        ulong  task_m0     =         arg[ 8]; ulong task_m1     = arg[ 9];
+        ulong  task_n0     =         arg[10]; ulong task_n1     = arg[11];
+
+        task( task_tpool,task_t0,task_t1, task_args, task_reduce,task_stride, task_l0,task_l1, task_m0,task_m1, task_n0,task_n1 );
+
+      } else {
+
+        fd_tpool_task_v2_t task = (fd_tpool_task_v2_t)_task;
+
+        task( tpool, worker_idx, (ulong)_arg_cnt, arg );
+
+      }
+
     } catch( ... ) {
       FD_LOG_WARNING(( "uncaught exception; attempting to continue" ));
     }
 
     FD_COMPILER_MFENCE();
-    worker->state = FD_TPOOL_WORKER_STATE_IDLE;
+
+    worker->seq1 = seq0;
+    seq1 = seq0;
   }
 
-  /* state is HALT, clean up and then reset back to BOOT */
+  /* We are HALT ... clean up and terminate */
 
-  if( scratch_sz ) fd_scratch_detach( NULL );
-
-  FD_COMPILER_MFENCE();
-  worker->state = FD_TPOOL_WORKER_STATE_BOOT;
-  FD_COMPILER_MFENCE();
+# if FD_HAS_THREADS
+  if( FD_UNLIKELY( sleeper ) ) {
+    if( FD_UNLIKELY( pthread_mutex_unlock ( lock ) ) ) FD_LOG_WARNING(( "pthread_mutex_unlock failed; attempting to continue" ));
+    if( FD_UNLIKELY( pthread_cond_destroy ( wake ) ) ) FD_LOG_WARNING(( "pthread_cond_destroy failed; attempting to continue" ));
+    if( FD_UNLIKELY( pthread_mutex_destroy( lock ) ) ) FD_LOG_WARNING(( "pthread_mutex_destroy failed; attempting to continue" ));
+  }
+# endif
 
   return 0;
 }
+
+#if FD_HAS_THREADS
+void
+fd_tpool_private_wake( fd_tpool_private_worker_t * worker ) {
+  pthread_mutex_t * lock = (pthread_mutex_t *)worker->lock;
+  pthread_cond_t *  wake = (pthread_cond_t  *)worker->wake;
+  if( FD_UNLIKELY( pthread_mutex_lock  ( lock ) ) ) FD_LOG_WARNING(( "pthread_mutex_lock failed; attempting to continue" ));
+  if( FD_UNLIKELY( pthread_cond_signal ( wake ) ) ) FD_LOG_WARNING(( "pthread_cond_signal failed; attempting to continue" ));
+  if( FD_UNLIKELY( pthread_mutex_unlock( lock ) ) ) FD_LOG_WARNING(( "pthread_mutex_unlock failed; attempting to continue" ));
+}
+#endif
 
 ulong
 fd_tpool_align( void ) {
@@ -105,7 +148,8 @@ fd_tpool_footprint( ulong worker_max ) {
 
 fd_tpool_t *
 fd_tpool_init( void * mem,
-               ulong  worker_max ) {
+               ulong  worker_max,
+               ulong  opt ) {
 
   FD_COMPILER_MFENCE();
 
@@ -129,13 +173,14 @@ fd_tpool_init( void * mem,
 
   fd_tpool_private_worker_t * worker0 = (fd_tpool_private_worker_t *)mem;
 
-  FD_COMPILER_MFENCE();
-  worker0->state = FD_TPOOL_WORKER_STATE_EXEC;
-  FD_COMPILER_MFENCE();
+  worker0->seq0 = 1U;
+  worker0->seq1 = 0U;
 
-  fd_tpool_t * tpool  = (fd_tpool_t *)(worker0+1);
-  tpool->worker_max = worker_max;
-  tpool->worker_cnt = 1UL;
+  fd_tpool_t * tpool = (fd_tpool_t *)(worker0+1);
+
+  tpool->opt        = opt;
+  tpool->worker_max = (uint)worker_max;
+  tpool->worker_cnt = 1U;
 
   FD_COMPILER_MFENCE();
   fd_tpool_private_worker( tpool )[0] = worker0;
@@ -166,9 +211,7 @@ fd_tpool_fini( fd_tpool_t * tpool ) {
 
 fd_tpool_t *
 fd_tpool_worker_push( fd_tpool_t * tpool,
-                      ulong        tile_idx,
-                      void *       scratch,
-                      ulong        scratch_sz ) {
+                      ulong        tile_idx ) {
 
   FD_COMPILER_MFENCE();
 
@@ -192,22 +235,10 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
     return NULL;
   }
 
-  if( FD_UNLIKELY( scratch_sz ) ) {
-    if( FD_UNLIKELY( !scratch ) ) {
-      FD_LOG_WARNING(( "NULL scratch" ));
-      return NULL;
-    }
-
-    if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, FD_SCRATCH_SMEM_ALIGN ) ) ) {
-      FD_LOG_WARNING(( "misaligned scratch" ));
-      return NULL;
-    }
-  }
-
   fd_tpool_private_worker_t ** worker     = fd_tpool_private_worker( tpool );
-  ulong                        worker_cnt = tpool->worker_cnt;
+  ulong                        worker_cnt = (ulong)tpool->worker_cnt;
 
-  if( FD_UNLIKELY( worker_cnt>=tpool->worker_max ) ) {
+  if( FD_UNLIKELY( worker_cnt>=(ulong)tpool->worker_max ) ) {
     FD_LOG_WARNING(( "too many workers" ));
     return NULL;
   }
@@ -220,10 +251,8 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
 
   fd_tpool_private_worker_cfg_t cfg[1];
 
-  cfg->tpool      = tpool;
-  cfg->tile_idx   = tile_idx;
-  cfg->scratch    = scratch;
-  cfg->scratch_sz = scratch_sz;
+  cfg->tpool    = tpool;
+  cfg->tile_idx = tile_idx;
 
   int     argc = (int)(uint)worker_cnt;
   char ** argv = (char **)fd_type_pun( cfg );
@@ -239,7 +268,7 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
 
   while( !FD_VOLATILE_CONST( worker[ worker_cnt ] ) ) FD_SPIN_PAUSE();
 
-  tpool->worker_cnt = worker_cnt + 1UL;
+  tpool->worker_cnt = (uint)(worker_cnt + 1UL);
   return tpool;
 }
 
@@ -253,49 +282,32 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
     return NULL;
   }
 
-  ulong worker_cnt = tpool->worker_cnt;
+  ulong worker_cnt = (ulong)tpool->worker_cnt;
   if( FD_UNLIKELY( worker_cnt<=1UL ) ) {
     FD_LOG_WARNING(( "no workers to pop" ));
     return NULL;
   }
 
-  fd_tpool_private_worker_t * worker   = fd_tpool_private_worker( tpool )[ worker_cnt-1UL ];
-  fd_tile_exec_t *            exec     = fd_tile_exec( worker->tile_idx );
-  int volatile *              vstate   = (int volatile *)&(worker->state);
-  int                         state;
-
   /* Testing for IDLE isn't strictly necessary given requirements to use
-     this but can help catch user errors.  Likewise, FD_ATOMIC_CAS isn't
-     strictly necessary given correct operation but can more robustly
-     catch such errors. */
+     this and this isn't being done atomically with the actually pop but
+     does help catch obvious user errors. */
 
-# if FD_HAS_ATOMIC
-
-  FD_COMPILER_MFENCE();
-  state = FD_ATOMIC_CAS( vstate, FD_TPOOL_WORKER_STATE_IDLE, FD_TPOOL_WORKER_STATE_HALT );
-  FD_COMPILER_MFENCE();
-
-  if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_IDLE ) ) {
-    FD_LOG_WARNING(( "worker to pop is not idle (%i-%s)", state, fd_tpool_worker_state_cstr( state ) ));
+  if( FD_UNLIKELY( !fd_tpool_worker_idle( tpool, worker_cnt-1UL ) ) ) {
+    FD_LOG_WARNING(( "worker to pop is not idle" ));
     return NULL;
   }
 
-# else
+  /* Send HALT to the worker */
 
-  FD_COMPILER_MFENCE();
-  state = *vstate;
-  FD_COMPILER_MFENCE();
+  fd_tpool_private_worker_t * worker = fd_tpool_private_worker( tpool )[ worker_cnt-1UL ];
+  uint                        seq0   = worker->seq0 + 1U;
+  fd_tile_exec_t *            exec   = fd_tile_exec( worker->tile_idx );
 
-  if( FD_UNLIKELY( state!=FD_TPOOL_WORKER_STATE_IDLE ) ) {
-    FD_LOG_WARNING(( "worker to pop is not idle (%i-%s)", state, fd_tpool_worker_state_cstr( state ) ));
-    return NULL;
-  }
-
+  worker->task = 0UL;
   FD_COMPILER_MFENCE();
-  *vstate = FD_TPOOL_WORKER_STATE_HALT;
+  worker->seq0 = seq0;
   FD_COMPILER_MFENCE();
-
-# endif
+  if( FD_UNLIKELY( tpool->opt & FD_TPOOL_OPT_SLEEP ) ) fd_tpool_private_wake( worker );
 
   /* Wait for the worker to shutdown */
 
@@ -304,7 +316,7 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
   if(      FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "tile err \"%s\" unexpected; attempting to continue", err ));
   else if( FD_UNLIKELY( ret ) ) FD_LOG_WARNING(( "tile ret %i unexpected; attempting to continue", ret ));
 
-  tpool->worker_cnt = worker_cnt-1UL;
+  tpool->worker_cnt = (uint)(worker_cnt - 1UL);
   return tpool;
 }
 
@@ -388,15 +400,3 @@ FD_TPOOL_EXEC_ALL_IMPL_FTR
 
 #undef FD_TPOOL_EXEC_ALL_IMPL_FTR
 #undef FD_TPOOL_EXEC_ALL_IMPL_HDR
-
-char const *
-fd_tpool_worker_state_cstr( int state ) {
-  switch( state ) {
-  case FD_TPOOL_WORKER_STATE_BOOT: return "boot";
-  case FD_TPOOL_WORKER_STATE_IDLE: return "idle";
-  case FD_TPOOL_WORKER_STATE_EXEC: return "exec";
-  case FD_TPOOL_WORKER_STATE_HALT: return "halt";
-  default: break;
-  }
-  return "unknown";
-}

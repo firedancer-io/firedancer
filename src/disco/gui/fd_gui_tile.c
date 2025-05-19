@@ -239,7 +239,8 @@ after_frag( fd_gui_ctx_t *      ctx,
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
     fd_gui_microblock_execution_end( ctx->gui,
                                      fd_frag_meta_ts_decomp( tspub, fd_tickcount() ),
-                                     ctx->in_bank_idx[ in_idx ], fd_disco_bank_sig_slot( sig ),
+                                     ctx->in_bank_idx[ in_idx ],
+                                     fd_disco_bank_sig_slot( sig ),
                                      (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
                                      (fd_txn_p_t *)ctx->buf,
                                      trailer->pack_txn_idx,
@@ -299,6 +300,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
 
       char const * cache_control = NULL;
       if( FD_LIKELY( !strncmp( request->path, "/assets", 7 ) ) ) cache_control = "public, max-age=31536000, immutable";
+      else if( FD_LIKELY( !strcmp( f->name, "/index.html" ) ) )  cache_control = "no-cache";
 
       const uchar * data = f->data;
       ulong data_len = *(f->data_len);

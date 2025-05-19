@@ -211,8 +211,18 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
       return -1;
     }
 
-    fd_wksp_t * wksp = fd_funk_wksp( funk );
-    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk ), wksp, NULL );;
+    ulong val_sz = fd_sbpf_validated_program_footprint( &elf_info );
+    void * val = fd_funk_val_truncate(
+        rec,
+        fd_funk_alloc( funk ),
+        fd_funk_wksp( funk ),
+        0UL,
+        val_sz,
+        &funk_err );
+    if( FD_UNLIKELY( funk_err ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", val_sz, funk_err, fd_funk_strerror( funk_err ) ));
+    }
+
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
@@ -450,12 +460,8 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_para( fd_exec_slot_ctx_t *    slo
       for( ; NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
         if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) continue;
         recs[ rec_cnt ] = rec;
-
-        if( rec_cnt==65536UL ) {
-          break;
-        }
-
         rec_cnt++;
+        if( FD_UNLIKELY( rec_cnt==65536UL ) ) break;
       }
 
       /* Pass in args */

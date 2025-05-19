@@ -76,6 +76,7 @@ struct fd_configh {
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
     uint minimum_snapshot_download_speed;
+    uint maximum_snapshot_download_abort;
     uint maximum_full_snapshots_to_retain;
     uint maximum_incremental_snapshots_to_retain;
     char path[ PATH_MAX ];
@@ -105,6 +106,18 @@ struct fd_configf {
     char  checkpt[PATH_MAX];
     char  restore[PATH_MAX];
   } blockstore;
+
+  struct {
+    ulong heap_size_gib;
+
+    struct {
+      ulong max_rooted_slots;
+      ulong max_live_slots;
+      ulong max_transactions_per_slot;
+      ulong snapshot_grace_period_seconds;
+      ulong max_vote_accounts;
+    } limits;
+  } runtime;
 
   struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
@@ -363,9 +376,12 @@ struct fd_config {
       char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  snapshot_url[ PATH_MAX ];
+      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
+      ulong enable_features_cnt;
+      char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
 
     struct {
@@ -382,13 +398,14 @@ struct fd_config {
     } batch;
 
     struct {
-      int   in_wen_restart;
+      int   enabled;
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } restart;
 
     struct {
       int   enabled;
+      ulong end_slot;
       char  archiver_path[ PATH_MAX ];
     } archiver;
 

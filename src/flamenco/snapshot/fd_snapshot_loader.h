@@ -42,6 +42,7 @@ struct fd_snapshot_src {
     } http;
 
   };
+  char const * snapshot_dir;
 };
 
 typedef struct fd_snapshot_src fd_snapshot_src_t;

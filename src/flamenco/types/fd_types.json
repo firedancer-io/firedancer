@@ -329,6 +329,7 @@
     {
       "name": "stakes",
       "type": "struct",
+      "global": true,
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
         { "name": "stake_delegations", "type": "map", "element": "delegation_pair", "key": "account" },
@@ -893,6 +894,7 @@
     {
       "name": "slot_history",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "bits", "type": "bitvec", "element": "ulong" },
           { "name": "next_slot", "type": "ulong" }
@@ -910,6 +912,7 @@
     {
       "name": "slot_hashes",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "hashes", "type": "deque", "element": "slot_hash", "min": 512 }
       ],
@@ -926,6 +929,7 @@
     {
       "name": "recent_block_hashes",
       "type": "struct",
+      "global": true,
       "fields": [
           { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "min": 151 }
       ]
@@ -2860,6 +2864,24 @@
         { "name": "secp256r1_instruction_signature_count", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79"
+    },
+    {
+      "name": "rent_paying",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports", "type": "ulong" },
+        { "name": "data_size", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "rent_state",
+      "type": "enum",
+      "variants": [
+        { "name": "uninitialized" },
+        { "name": "rent_paying", "type": "rent_paying" },
+        { "name": "rent_exempt" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15"
     }
   ]
 }

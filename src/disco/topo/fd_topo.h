@@ -74,7 +74,8 @@ typedef struct {
     void *           dcache; /* The dcache of this link, if it has one. */
   };
 
-  uint permit_unused : 1;  /* Permit a topology where this link has no consumers */
+  uint permit_no_consumers : 1;  /* Permit a topology where this link has no consumers */
+  uint permit_no_producers : 1;  /* Permit a topology where this link has no producers */
 } fd_topo_link_t;
 
 /* A tile is a unique process that is spawned by Firedancer to represent
@@ -268,7 +269,7 @@ typedef struct {
 
     struct {
       ulong fec_max;
-      ulong slice_max;
+      ulong max_vote_accounts;
 
       int   tx_metadata_storage;
       char  capture[ PATH_MAX ];
@@ -281,6 +282,7 @@ typedef struct {
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
+      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
@@ -303,6 +305,9 @@ typedef struct {
 
       int   incremental_src_type;
       int   snapshot_src_type;
+
+      ulong enable_features_cnt;
+      char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
 
     struct {
@@ -313,6 +318,7 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+      ulong heap_mem_max;
     } restart;
 
     struct {
@@ -421,8 +427,9 @@ typedef struct {
     } pktgen;
 
     struct {
-      int  enabled;
-      char archiver_path[ PATH_MAX ];
+      int   enabled;
+      ulong end_slot;
+      char  archiver_path[ PATH_MAX ];
 
       /* Set internally by the archiver tile */
       int archive_fd;
