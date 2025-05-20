@@ -251,8 +251,9 @@ fd_stream_writer_publish( fd_stream_writer_t * writer,
   writer->cr_frag_avail -= 1;
 
   /* Advance buffer */
-  writer->data_cur += frag_sz;
-  writer->goff     += frag_sz;
+  writer->data_cur      += frag_sz;
+  writer->goff          += frag_sz;
+  writer->cr_byte_avail -= frag_sz;
   if( FD_UNLIKELY( writer->data_cur > writer->data_max ) ) {
     FD_LOG_CRIT(( "Out-of-bounds data_cur (data_cur=%lu data_max=%lu)", writer->data_cur, writer->data_max ));
     return;
