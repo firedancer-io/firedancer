@@ -362,7 +362,7 @@ class Expr:
             for targ in targs:
                 tmap(targ)
 
-            # opcode and arg historgram
+            # opcode and arg histogram
             Expr.op_hist.setdefault(op, 0)
             Expr.op_hist[op] += 1
             Expr.op_args.setdefault(op, dict())
