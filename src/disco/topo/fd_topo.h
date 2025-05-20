@@ -191,9 +191,13 @@ typedef struct {
     } dedup;
 
     struct {
-      char url[ 256 ];
-      char tls_domain_name[ 256 ];
-      char identity_key_path[ PATH_MAX ];
+      char  url[ 256 ];
+      ulong url_len;
+      char  sni[ 256 ];
+      ulong sni_len;
+      char  identity_key_path[ PATH_MAX ];
+      char  key_log_path[ PATH_MAX ];
+      ulong buf_sz;
     } bundle;
 
     struct {
@@ -591,9 +595,9 @@ fd_topo_find_tile_in_link( fd_topo_t const *      topo,
 
 FD_FN_PURE static inline ulong
 fd_topo_find_tile_out_link( fd_topo_t const *      topo,
-                           fd_topo_tile_t const * tile,
-                           char const *           name,
-                           ulong                  kind_id ) {
+                            fd_topo_tile_t const * tile,
+                            char const *           name,
+                            ulong                  kind_id ) {
   for( ulong i=0; i<tile->out_cnt; i++ ) {
     if( FD_UNLIKELY( !strcmp( topo->links[ tile->out_link_id[ i ] ].name, name ) )
         && topo->links[ tile->out_link_id[ i ] ].kind_id == kind_id ) return i;

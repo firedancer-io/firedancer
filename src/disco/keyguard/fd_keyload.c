@@ -83,7 +83,7 @@ uchar * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path,
                  int          public_key_only ) {
   if( FD_UNLIKELY( !key_path || !key_path[0] ) ) {
-    FD_LOG_ERR(( "Invalid key_path" ));
+    FD_LOG_ERR(( "Missing key_path" ));
   }
 
   /* Load the signing key. Since this is key material, we load it into

@@ -9,6 +9,7 @@ $(call add-objs,boot/fd_dev_boot,fddev_shared)
 
 # fddev actions
 $(call add-objs,commands/bench/bench,fddev_shared)
+$(call add-objs,commands/bundle_client,fddev_shared)
 $(call add-objs,commands/dev,fddev_shared)
 $(call add-objs,commands/dump,fddev_shared)
 $(call add-objs,commands/flame,fddev_shared)
