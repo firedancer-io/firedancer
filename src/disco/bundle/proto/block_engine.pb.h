@@ -37,7 +37,7 @@ typedef struct _block_engine_BlockBuilderFeeInfoRequest {
 } block_engine_BlockBuilderFeeInfoRequest;
 
 typedef struct _block_engine_BlockBuilderFeeInfoResponse {
-    char pubkey[32];
+    char pubkey[45];
     /* commission (0-100) */
     uint64_t commission;
 } block_engine_BlockBuilderFeeInfoResponse;
@@ -123,7 +123,7 @@ extern const pb_msgdesc_t block_engine_BlockBuilderFeeInfoResponse_msg;
 /* block_engine_SubscribeBundlesResponse_size depends on runtime parameters */
 #define BLOCK_ENGINE_BLOCK_ENGINE_PB_H_MAX_SIZE  block_engine_BlockBuilderFeeInfoResponse_size
 #define block_engine_BlockBuilderFeeInfoRequest_size 0
-#define block_engine_BlockBuilderFeeInfoResponse_size 44
+#define block_engine_BlockBuilderFeeInfoResponse_size 57
 #define block_engine_SubscribeBundlesRequest_size 0
 #define block_engine_SubscribePacketsRequest_size 0
 #if defined(packet_PacketBatch_size)
