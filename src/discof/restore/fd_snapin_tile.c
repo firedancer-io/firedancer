@@ -57,6 +57,7 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 
 #define SNAP_FLAG_FAILED  1
 #define SNAP_FLAG_BLOCKED 2
+#define SNAP_FLAG_DONE    4
 
 struct fd_snapin_tile {
   uchar state;
@@ -68,6 +69,7 @@ struct fd_snapin_tile {
   uchar const * in_base;
   ulong         goff_translate;
   ulong         in_skip;
+  ulong const * in_sync;
 
   /* Frame buffer */
 
@@ -102,7 +104,6 @@ struct fd_snapin_tile {
   ulong out_cnt;
   ulong out_depth;
   ulong seq;
-  ulong const volatile * shutdown_signal;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -120,20 +121,19 @@ struct fd_snapin_in {
 
 typedef struct fd_snapin_in fd_snapin_in_t;
 
-__attribute__((noreturn)) static void
+static void
 fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
-  ulong in_seq_max = FD_VOLATILE_CONST( *ctx->shutdown_signal );
-  /* wait for zstd tile to set shutdown sequence number */
-  while ( in_seq_max == 0 ) {
-    in_seq_max = FD_VOLATILE_CONST( *ctx->shutdown_signal );
-    FD_SPIN_PAUSE();
-  }
+  ctx->flags = SNAP_FLAG_DONE;
 
-  /* FIXME set final sequence number */
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  FD_TEST( in_seq_max == ctx->seq+1 && in_seq_max != 0 );
-  FD_COMPILER_MFENCE();
   FD_LOG_WARNING(( "Finished parsing snapshot" ));
+
+  /* Send synchronization info */
+  ulong volatile * out_sync = fd_mcache_seq_laddr( ctx->out_mcache->f );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( out_sync[0] ) = ctx->out_seq;
+  FD_VOLATILE( out_sync[2] ) = 1;
+  FD_COMPILER_MFENCE();
 
   for(;;) pause();
 }
@@ -620,6 +620,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
   ctx->in_base = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->in_skip = 0UL;
+  ctx->in_sync = fd_mcache_seq_laddr_const( topo->links[ tile->in_link_id[ 0 ] ].mcache );
 
   /* Join frame buffer */
 
@@ -633,7 +634,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_seq_max = 0UL;
   ctx->out_seq     = 0UL;
   ctx->out_depth   = fd_mcache_depth( ctx->out_mcache->f );
-  ctx->shutdown_signal = fd_mcache_seq_laddr_const( topo->links[ tile->in_link_id[ 0 ] ].mcache ) + 2;
 
 }
 
@@ -782,6 +782,10 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
                 ulong *                       read_sz ) {
   if( FD_UNLIKELY( ctx->flags ) ) {
     if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_FAILED ) ) FD_LOG_ERR(( "Failed to restore snapshot" ));
+    if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_DONE ) ) {
+      *read_sz = frag->sz;
+      return 1;
+    }
     return 0;
   }
 

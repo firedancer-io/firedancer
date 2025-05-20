@@ -16,11 +16,11 @@ struct fd_stream_reader {
       uint                          accum[6];
     };
 
-    fd_frag_reader_t r[1];
+    fd_frag_reader_t r[1]; /* FIXME strict aliasing violation on mcache */
   } base;
 
   ulong                  goff;
-  ulong const volatile * shutdown_signal;
+  ulong const volatile * in_sync;
 };
 typedef struct fd_stream_reader fd_stream_reader_t;
 
@@ -43,8 +43,7 @@ fd_stream_reader_init( fd_stream_reader_t *   reader,
                        ulong                  in_idx  ) {
   fd_frag_reader_init( reader->base.r, mcache, fseq, in_idx );
   reader->goff = 0UL;
-  /* shutdown signal is located at fseq 2 */
-  reader->shutdown_signal = fd_mcache_seq_laddr_const( reader->base.mcache->f ) + 2;
+  reader->in_sync = fd_mcache_seq_laddr_const( reader->base.mcache->f );
 }
 
 static inline fd_stream_reader_t *
@@ -97,12 +96,6 @@ fd_stream_reader_consume_frag( fd_stream_reader_t *             reader,
   fd_frag_reader_consume_frag( reader->base.r, ctx );
 }
 
-static inline ulong
-fd_stream_reader_poll_shutdown( fd_stream_reader_t * reader ) {
-  ulong const in_seq_max = FD_VOLATILE_CONST( *reader->shutdown_signal );
-  return in_seq_max == reader->base.seq && in_seq_max != 0 ?
-         in_seq_max : 0UL;
-}
 
 static inline void *
 fd_stream_reader_delete( fd_stream_reader_t * reader ) {

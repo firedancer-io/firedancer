@@ -74,14 +74,14 @@ fd_unzstd_shutdown( fd_unzstd_tile_t * ctx ) {
 }
 
 static void
-fd_unzstd_poll_shutdown( fd_stream_ctx_t *      stream_ctx,
-                         fd_unzstd_tile_t *     ctx ) {
-  ulong shutdown_seq = fd_stream_reader_poll_shutdown( stream_ctx->in_ptrs[0] );
-  if( FD_UNLIKELY( shutdown_seq ) ) {
-    FD_LOG_WARNING(( "zstd shutting down! in_seq_max is %lu in[0].base.seq is %lu",
-                     shutdown_seq, stream_ctx->in[0].base.seq));
-    fd_unzstd_shutdown( ctx );
-  }
+fd_unzstd_poll_shutdown( fd_stream_ctx_t *  stream_ctx,
+                         fd_unzstd_tile_t * ctx ) {
+  ulong const volatile * in_sync = stream_ctx->in_ptrs[ 0 ]->in_sync;
+  if( FD_LIKELY( !FD_VOLATILE_CONST( in_sync[ 2 ] ) ) ) return;
+
+  FD_LOG_WARNING(( "zstd shutting down! in_seq_max is %lu in[0].base.seq is %lu",
+                    FD_VOLATILE_CONST( in_sync[ 0 ] ), stream_ctx->in[0].base.seq ));
+  fd_unzstd_shutdown( ctx );
 }
 
 static void
