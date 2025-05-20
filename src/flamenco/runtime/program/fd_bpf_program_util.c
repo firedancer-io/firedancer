@@ -16,6 +16,7 @@ fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info )
   /* calldests backing memory */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
   validated_prog->calldests_shmem = (uchar *)mem + l;
+  validated_prog->magic = FD_SBPF_VALIDATED_PROGRAM_MAGIC;
 
   /* rodata backing memory */
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
@@ -574,8 +575,6 @@ fd_bpf_load_cache_entry( fd_funk_t *                    funk,
 
     void const * data = fd_funk_val_const( rec, fd_funk_wksp(funk) );
 
-    /* TODO: magic check */
-
     *valid_prog = (fd_sbpf_validated_program_t *)data;
 
     /* This test is actually too early. It should happen after the
@@ -584,6 +583,7 @@ fd_bpf_load_cache_entry( fd_funk_t *                    funk,
        TODO: this is likely fine because nothing else is modifying the
        program cache records at the same time. */
     if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+      if( FD_UNLIKELY( (*valid_prog)->magic != FD_SBPF_VALIDATED_PROGRAM_MAGIC ) ) FD_LOG_ERR(( "invalid magic" ));
       return 0;
     }
 
