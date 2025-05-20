@@ -379,9 +379,12 @@ fd_topo_initialize( config_t * config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
       strncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
-      strncpy( tile->bundle.tls_domain_name, config->tiles.bundle.tls_domain_name, sizeof(tile->bundle.tls_domain_name) );
+      tile->bundle.url_len = strnlen( tile->bundle.url, 255 );
+      strncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
+      tile->bundle.sni_len = strnlen( tile->bundle.sni, 255 );
       strncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
-
+      strncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
+      tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
       tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
 

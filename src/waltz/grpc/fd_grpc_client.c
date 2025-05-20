@@ -81,6 +81,8 @@ fd_grpc_client_delete( fd_grpc_client_t * client ) {
   return client;
 }
 
+#if FD_HAS_OPENSSL
+
 static int
 fd_ossl_log_error( char const * str,
                    ulong        len,
@@ -89,8 +91,6 @@ fd_ossl_log_error( char const * str,
   FD_LOG_WARNING(( "%.*s", (int)len, str ));
   return 0;
 }
-
-#if FD_HAS_OPENSSL
 
 int
 fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
@@ -140,7 +140,7 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
   ulong frame_rx_0 = client->frame_rx->hi_off;
   int rx_err = fd_h2_rbuf_recvmsg( client->frame_rx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
   if( FD_UNLIKELY( rx_err ) ) {
-    FD_LOG_ERR(( "fd_h2_rbuf_recvmsg failed (%i-%s)", rx_err, fd_io_strerror( rx_err ) ));
+    FD_LOG_INFO(( "Disconnected: recvmsg error (%i-%s)", rx_err, fd_io_strerror( rx_err ) ));
     return 0;
   }
   ulong frame_rx_1 = client->frame_rx->hi_off;

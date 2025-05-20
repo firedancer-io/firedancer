@@ -79,6 +79,7 @@ extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
+extern fd_topo_run_tile_t fd_tile_bundle;
 
 extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
@@ -119,6 +120,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
+  &fd_tile_bundle,
   &fd_tile_gossip,
   &fd_tile_repair,
   &fd_tile_storei,
@@ -154,6 +156,7 @@ extern action_t fd_action_netconf;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_version;
 extern action_t fd_action_bench;
+extern action_t fd_action_bundle_client;
 extern action_t fd_action_dev;
 extern action_t fd_action_dump;
 extern action_t fd_action_flame;
@@ -180,6 +183,7 @@ action_t * ACTIONS[] = {
   &fd_action_help,
   &fd_action_version,
   &fd_action_bench,
+  &fd_action_bundle_client,
   &fd_action_dev,
   &fd_action_dump,
   &fd_action_flame,
