@@ -509,7 +509,7 @@ main( int     argc,
       meta->slot          =  9UL;
       fd_funk_rec_publish( funk, prepare );
       FD_TEST( fd_account_meta_exists( meta ) );
-      memcpy( (uchar *)meta + meta->hlen, "ABCD", 4UL );
+      memcpy( (uchar *)( meta+1 ), "ABCD", 4UL );
     } while(0);
 
     /* Restore the snapshot */
@@ -547,7 +547,7 @@ main( int     argc,
       FD_TEST( acc1->info.lamports   == 90UL );
       FD_TEST( acc1->info.rent_epoch ==  0UL );
       FD_TEST( acc1->info.executable ==  0   );
-      FD_TEST( 0==memcmp( (uchar const *)acc1 + acc1->hlen, "ABCD", 4UL ) );
+      FD_TEST( 0==memcmp( acc1+1, "ABCD", 4UL ) );
 
       /* Verify key 10 */
       fd_pubkey_t pubkey2[1]; memcpy( pubkey2, hdr2.meta.pubkey, 32 );
@@ -559,7 +559,7 @@ main( int     argc,
       FD_TEST( acc2->info.lamports   == hdr2.info.lamports   );
       FD_TEST( acc2->info.rent_epoch == hdr2.info.rent_epoch );
       FD_TEST( acc2->info.executable == hdr2.info.executable );
-      FD_TEST( 0==memcmp( (uchar const *)acc2 + acc2->hlen, "Hi :)", 4UL ) );
+      FD_TEST( 0==memcmp( acc2+1, "Hi :)", 4UL ) );
     } while(0);
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
@@ -665,7 +665,7 @@ main( int     argc,
       FD_TEST( 0==memcmp( acc->info.owner, hdr.info.owner, 32UL ) );
       FD_TEST( 0==memcmp( acc->hash,       hdr.hash.uc,    32UL ) );
 
-      uchar const * acc_data = (uchar const *)acc + acc->hlen;
+      uchar const * acc_data = (uchar const *)( acc+1 );
       FD_TEST( 0==memcmp( acc_data, "AB", 2UL ) );
     } while(0);
 

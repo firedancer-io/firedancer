@@ -5,7 +5,6 @@
 #include "fd_bincode.h"
 #include "../../ballet/utf8/fd_utf8.h"
 #include "fd_types_custom.h"
-#define FD_ACCOUNT_META_MAGIC 9823
 
 /* sdk/program/src/feature.rs#L22 */
 /* Encoded Size: Dynamic */
@@ -239,10 +238,8 @@ struct __attribute__((packed)) fd_solana_account_hdr {
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)
 
-/* Encoded Size: Fixed (104 bytes) */
-struct __attribute__((packed)) fd_account_meta {
-  ushort magic;
-  ushort hlen;
+/* Encoded Size: Fixed (100 bytes) */
+struct __attribute__((aligned(8))) fd_account_meta {
   ulong dlen;
   uchar hash[32];
   ulong slot;

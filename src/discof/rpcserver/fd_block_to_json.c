@@ -839,11 +839,12 @@ fd_account_to_json( fd_webserver_t * ws,
   fd_web_reply_sprintf(ws, "{\"data\":[\"");
 
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-  if (val_sz < sizeof(fd_account_meta_t) && val_sz < metadata->hlen) {
+  if( val_sz < sizeof(fd_account_meta_t) ) {
     return "failed to load account data";
   }
-  val = (uchar*)val + metadata->hlen;
-  val_sz = val_sz - metadata->hlen;
+  /* FIXME clean up this code */
+  val = val + sizeof(fd_account_meta_t);
+  val_sz = val_sz - sizeof(fd_account_meta_t);
   if (val_sz > metadata->dlen)
     val_sz = metadata->dlen;
 

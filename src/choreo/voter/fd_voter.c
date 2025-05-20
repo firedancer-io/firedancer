@@ -14,12 +14,12 @@ fd_voter_state( fd_funk_t * funk,
       return NULL;
     }
     fd_account_meta_t const * meta = fd_funk_val_const( rec, fd_funk_wksp(funk) );
-    if( FD_UNLIKELY( meta == NULL || meta->magic != FD_ACCOUNT_META_MAGIC ) ) {
+    if( FD_UNLIKELY( meta == NULL ) ) {
       FD_LOG_WARNING(( "bad account meta" ));
       continue;
     }
 
-    fd_voter_state_t const * state = fd_type_pun_const( (uchar const *)meta + meta->hlen );
+    fd_voter_state_t const * state = fd_type_pun_const( (uchar const *)( meta+1 ) );
     if( FD_UNLIKELY( state == NULL || state->discriminant > fd_vote_state_versioned_enum_current ) ) {
       FD_LOG_WARNING(( "bad account state" ));
       continue;

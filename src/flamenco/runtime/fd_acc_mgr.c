@@ -32,10 +32,6 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
     void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
 
     fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-    if( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) ) {
-      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
-      return NULL;
-    }
 
     if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
       return metadata;
@@ -63,6 +59,7 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
   fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, txn, &id, query );
 
   int funk_err = 0;
+  int is_new_account = 0;
 
   /* the record does not exist in the current funk transaction */
   if( !rec ) {
@@ -79,6 +76,7 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
             /* Irrecoverable funky internal error [[noreturn]] */
             FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funk_strerror( funk_err ) ));
           }
+          is_new_account = 1;
         } else {
           fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
           return NULL;
@@ -105,17 +103,13 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
     val = fd_funk_val( rec, wksp );
   }
 
-  if (NULL != opt_out_rec) {
+  if( opt_out_rec ) {
     *opt_out_rec = rec;
   }
 
   fd_account_meta_t * meta = val;
-  if( do_create && meta->magic==0UL ) {
+  if( is_new_account ) {
     fd_account_meta_init( meta );
-  }
-  if( meta->magic != FD_ACCOUNT_META_MAGIC ) {
-    fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
-    return NULL;
   }
 
   return meta;
@@ -132,8 +126,6 @@ fd_acc_mgr_strerror( int err ) {
     return "write failed";
   case FD_ACC_MGR_ERR_READ_FAILED:
     return "read failed";
-  case FD_ACC_MGR_ERR_WRONG_MAGIC:
-    return "wrong magic";
   default:
     return "unknown";
   }

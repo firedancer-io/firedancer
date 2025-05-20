@@ -241,8 +241,8 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
           const void * data = read_account_with_xid( ctx, &key, &msg->accts.funk_xid, &datalen );
           if( data ) {
             fd_account_meta_t const * meta = fd_type_pun_const( data );
-            if( datalen >= meta->hlen + meta->dlen ) {
-              (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );
+            if( datalen >= sizeof(fd_account_meta_t) + meta->dlen ) {
+              (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + sizeof(fd_account_meta_t), meta->dlen, ctx->fun_arg );
             }
           }
         } FD_SCRATCH_SCOPE_END;

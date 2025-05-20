@@ -18,12 +18,12 @@
 /* Internal helper for extracting data from account_meta */
 static inline void *
 fd_account_meta_get_data( fd_account_meta_t * m ) {
-  return ((uchar *) m) + m->hlen;
+  return m+1;
 }
 
 static inline void const *
 fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
-  return ((uchar const *) m) + m->hlen;
+  return m+1;
 }
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -545,7 +545,7 @@ fd_update_hash_bank_exec_hash( fd_exec_slot_ctx_t *           slot_ctx,
           continue;
         }
 
-        uchar const * acc_data = (uchar *)acc_meta + acc_meta->hlen;
+        uchar const * acc_data = (uchar const *)( acc_meta+1 );
 
         err = fd_solcap_write_account( capture_ctx->capture,
                                       acc_key->uc,

@@ -178,7 +178,6 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
 
   uchar const *             rec_val = fd_funk_val_const( rec, wksp );
   fd_account_meta_t const * meta    = (fd_account_meta_t const *)rec_val;
-  //uchar const *             data    = rec_val + meta->hlen;
 
   if( d->csv_fd>=0 ) {
     fd_snapshot_csv_rec_t csv_rec;

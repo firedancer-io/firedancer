@@ -103,7 +103,7 @@ typedef struct fd_poh_verifier fd_poh_verifier_t;
    the account's data. This struct encodes that layout and asserts that
    the alignment requirements of the constituents are satisfied. */
 // TODO: Use this struct at allocation sites so it's clear we use this layout
-struct __attribute__((packed)) fd_account_rec {
+struct fd_account_rec {
   fd_account_meta_t meta;
   uchar data[];
 };

@@ -4,8 +4,7 @@
   "extra_header": [
       "#include \"fd_bincode.h\"",
       "#include \"../../ballet/utf8/fd_utf8.h\"",
-      "#include \"fd_types_custom.h\"",
-      "#define FD_ACCOUNT_META_MAGIC 9823"
+      "#include \"fd_types_custom.h\""
   ],
   "entries": [
     {
@@ -232,10 +231,8 @@
     {
       "name": "account_meta",
       "type": "struct",
-      "attribute": "((packed))",
+      "attribute": "((aligned(8)))",
       "fields": [
-        { "name": "magic", "type": "ushort" },
-        { "name": "hlen",  "type": "ushort" },
         { "name": "dlen",  "type": "ulong" },
         { "name": "hash",  "type": "uchar[32]" },
         { "name": "slot",  "type": "ulong" },

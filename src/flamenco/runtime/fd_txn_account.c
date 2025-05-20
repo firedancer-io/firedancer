@@ -82,7 +82,6 @@ fd_txn_account_setup_sentinel_meta_readonly( fd_txn_account_t * acct,
   fd_account_meta_t * sentinel = fd_spad_alloc( spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) );
   fd_memset( sentinel, 0, sizeof(fd_account_meta_t) );
 
-  sentinel->magic                = FD_ACCOUNT_META_MAGIC;
   sentinel->info.rent_epoch      = ULONG_MAX;
   acct->private_state.const_meta = sentinel;
   acct->starting_lamports        = 0UL;
@@ -112,7 +111,7 @@ fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
      that we are holding read locks on the account, because we are inside
      a transaction. */
   acct->private_state.const_meta = meta;
-  acct->private_state.const_data = (uchar const *)meta + meta->hlen;
+  acct->private_state.const_data = (uchar const *)( meta+1 );
   acct->vt                       = &fd_txn_account_readonly_vtable;
 
   fd_txn_account_setup_common( acct );
@@ -126,7 +125,7 @@ fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
 
   acct->private_state.const_rec  = acct->private_state.rec;
   acct->private_state.const_meta = acct->private_state.meta = meta;
-  acct->private_state.const_data = acct->private_state.data = (uchar *)meta + meta->hlen;
+  acct->private_state.const_data = acct->private_state.data = (uchar *)( meta+1 );
   acct->vt                       = &fd_txn_account_writable_vtable;
 
   fd_txn_account_setup_common( acct );
@@ -199,10 +198,6 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  if( FD_UNLIKELY( acct->magic!=FD_TXN_ACCOUNT_MAGIC ) ) {
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-  }
-
   /* setup global addresses of meta and data for exec and replay tile sharing */
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
   acct->private_state.meta_gaddr = fd_wksp_gaddr( funk_wksp, acct->private_state.const_meta );
@@ -235,10 +230,6 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
 
   if( FD_UNLIKELY( !meta ) ) {
     return err;
-  }
-
-  if( FD_UNLIKELY( meta->magic!=FD_ACCOUNT_META_MAGIC ) ) {
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
   }
 
   /* exec tile should never call this function, so the global addresses of

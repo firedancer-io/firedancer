@@ -2,7 +2,6 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/zstd/fd_zstd.h"
 #include "../runtime/fd_hashes.h"
-#include "../runtime/fd_runtime.h"
 #include "../runtime/fd_cost_tracker.h"
 
 #include <errno.h>
@@ -14,7 +13,7 @@
 #include <zstd.h>
 
 static uchar             padding[ FD_SNAPSHOT_ACC_ALIGN ] = {0};
-static fd_account_meta_t default_meta = { .magic = FD_ACCOUNT_META_MAGIC };
+static fd_account_meta_t default_meta = {0};
 
 static inline fd_account_meta_t *
 fd_snapshot_create_get_default_meta( ulong slot ) {
@@ -85,10 +84,6 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
                                                       (fd_account_meta_t*)raw;
 
     if( !metadata ) {
-      continue;
-    }
-
-    if( metadata->magic!=FD_ACCOUNT_META_MAGIC ) {
       continue;
     }
 
@@ -307,17 +302,13 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
       continue;
     }
 
-    if( metadata->magic!=FD_ACCOUNT_META_MAGIC ) {
-      continue;
-    }
-
     /* Don't iterate through accounts that were touched before the last full
        snapshot. */
     if( snapshot_ctx->is_incremental && metadata->slot<=snapshot_ctx->last_snap_slot ) {
       continue;
     }
 
-    uchar const * acc_data = raw + metadata->hlen;
+    uchar const * acc_data = raw + sizeof(fd_account_meta_t);
 
     /* All accounts that were touched in the snapshot slot should be in
        a different append vec so that Agave can calculate the snapshot slot's
@@ -436,11 +427,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
       FD_LOG_ERR(( "Record should have non-NULL metadata" ));
     }
 
-    if( FD_UNLIKELY( metadata->magic!=FD_ACCOUNT_META_MAGIC ) ) {
-      FD_LOG_ERR(( "Record should have valid magic" ));
-    }
-
-    uchar const * acc_data = raw + metadata->hlen;
+    uchar const * acc_data = raw + sizeof(fd_account_meta_t);
 
     curr_accs->file_sz += sizeof(fd_solana_account_hdr_t) + fd_ulong_align_up( metadata->dlen, FD_SNAPSHOT_ACC_ALIGN );
 

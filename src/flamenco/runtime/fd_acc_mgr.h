@@ -18,7 +18,6 @@
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
 #define FD_ACC_MGR_ERR_WRITE_FAILED    (-2)
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
-#define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
@@ -44,8 +43,6 @@ FD_PROTOTYPES_BEGIN
 static inline void
 fd_account_meta_init( fd_account_meta_t * m ) {
   fd_memset( m, 0, sizeof(fd_account_meta_t) );
-  m->magic = FD_ACCOUNT_META_MAGIC;
-  m->hlen  = sizeof(fd_account_meta_t);
 }
 
 /* fd_account_meta_exists checks if the account in a funk record exists or was
@@ -121,7 +118,6 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    - notably, leaves *opt_err untouched, even if opt_err!=NULL
 
    First byte of returned pointer is first byte of fd_account_meta_t.
-   To find data region of account, add (fd_account_meta_t)->hlen.
 
    Lifetime of returned fd_funk_rec_t and account record pointers ends
    when user calls modify_data for same account, or tranasction ends.
