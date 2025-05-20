@@ -149,6 +149,11 @@
 | bundle_&#8203;transaction_&#8203;received | `counter` | Total count of transactions received, including transactions within bundles |
 | bundle_&#8203;packet_&#8203;received | `counter` | Total count of packets received |
 | bundle_&#8203;bundle_&#8203;received | `counter` | Total count of bundles received |
+| bundle_&#8203;errors_&#8203;protobuf | `counter` | Number of gRPC errors encountered (Protobuf decode/encode error) |
+| bundle_&#8203;errors_&#8203;transport | `counter` | Number of gRPC errors encountered (Transport error) |
+| bundle_&#8203;errors_&#8203;timeout | `counter` | Number of gRPC errors encountered (I/O timeout) |
+| bundle_&#8203;errors_&#8203;no_&#8203;fee_&#8203;info | `counter` | Number of gRPC errors encountered (Bundle dropped due to missing fee info) |
+| bundle_&#8203;shredstream_&#8203;heartbeats | `counter` | Number of ShredStream heartbeats successfully sent |
 
 ## Verify Tile
 | Metric | Type | Description |

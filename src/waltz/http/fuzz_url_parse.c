@@ -3,6 +3,7 @@
 #endif
 
 #include <assert.h>
+#include <stdlib.h>
 
 #include "fd_url.h"
 #include "../../util/fd_util.h"

@@ -136,14 +136,14 @@ impl AuthService for Auth {
     ) -> Result<Response<auth::GenerateAuthTokensResponse>, Status> {
         Ok(Response::new(auth::GenerateAuthTokensResponse {
             access_token: Some(Token {
-                value: "".to_string(),
+                value: "token".to_string(),
                 expires_at_utc: Some(Timestamp {
                     seconds: (Utc::now() + Duration::seconds(60)).timestamp(),
                     nanos: 0,
                 }),
             }),
             refresh_token: Some(Token {
-                value: "".to_string(),
+                value: "token".to_string(),
                 expires_at_utc: Some(Timestamp {
                     seconds: (Utc::now() + Duration::seconds(60)).timestamp(),
                     nanos: 0,

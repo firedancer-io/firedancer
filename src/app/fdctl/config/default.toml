@@ -1588,6 +1588,25 @@ dynamic_port_range = "8900-9000"
         # with this option enabled will always be leader.
         disable_status_cache = false
 
+    # Experimental options for the bundle tile.  These should not be
+    # changed on a production validator.
+    [development.bundle]
+        # Specify the maximum Protobuf message size in KiB.
+        #
+        # This affects the size of various gRPC-related buffers,
+        # including socket buffer sizes, the TLS buffer, the HTTP/2
+        # frame buffer, and a Protobuf encode buffer.
+        buffer_size_kib = 1024
+
+        # Log TLS encryption keys for block engine connection.  An empty
+        # string (the default) disables key logging.
+        #
+        # Keys are appended in NSS SSLKEYLOGFILE format to the given
+        # file path.  A file is created if none exists.  The resulting
+        # file can be used to decrypt packet captures of gRPC conns
+        # made by the bundle tile.
+        ssl_key_log_file = ""
+
     # The following options relate to the 'fddev pktgen' tool only.
     # pktgen tests net tile transmit throughput by generating a flood of
     # non-routable Ethernet frames.  Only use 'fddev pktgen' if you know
