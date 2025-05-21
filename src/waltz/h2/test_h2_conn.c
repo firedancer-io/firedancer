@@ -1,6 +1,7 @@
 #include "fd_h2_callback.h"
 #include "fd_h2_conn.h"
 #include "../../util/sanitize/fd_asan.h"
+#include "fd_h2_proto.h"
 
 struct test_h2_callback_rec {
   uint cb_established_cnt;
@@ -176,17 +177,82 @@ test_h2_client_handshake( void ) {
   FD_TEST( cb_rec.cb_established_cnt==1 );
 }
 
+static ulong test_h2_ping_tx_ack_cnt = 0UL;
+
 static void
-test_h2_rx_partial_suppress( void ) {
+test_h2_ping_ack( fd_h2_conn_t * conn ) {
+  (void)conn;
+  test_h2_ping_tx_ack_cnt++;
 }
 
 static void
-test_h2_rx_partial_incremental( void ) {
+test_h2_ping_tx( void ) {
+  fd_h2_conn_t conn[1];
+  FD_TEST( fd_h2_conn_init_client( conn )==conn );
+  uchar scratch[128];
+  conn->self_settings.max_frame_size = sizeof(scratch);
+
+  fd_h2_callbacks_t cb[1];
+  fd_h2_callbacks_init( cb );
+  cb->ping_ack = test_h2_ping_ack;
+
+  uchar rbuf_tx_b[128] = {0};
+  fd_h2_rbuf_t rbuf_tx[1];
+  fd_h2_rbuf_init( rbuf_tx, rbuf_tx_b, sizeof(rbuf_tx_b) );
+
+  /* Too many pending pings */
+  conn->ping_tx = UCHAR_MAX;
+  FD_TEST( fd_h2_tx_ping( conn, rbuf_tx )==0 );
+  conn->ping_tx = 0;
+
+  /* rbuf_tx is full */
+  fd_h2_rbuf_push( rbuf_tx, rbuf_tx_b, sizeof(rbuf_tx_b)-sizeof(fd_h2_ping_t)+1 );
+  FD_TEST( fd_h2_tx_ping( conn, rbuf_tx )==0 );
+
+  /* Exactly enough space for a ping */
+  fd_h2_rbuf_init( rbuf_tx, rbuf_tx_b, sizeof(rbuf_tx_b) );
+  fd_h2_rbuf_push( rbuf_tx, rbuf_tx_b, sizeof(rbuf_tx_b)-sizeof(fd_h2_ping_t) );
+  FD_TEST( fd_h2_tx_ping( conn, rbuf_tx )==1 );
+
+  /* Parse ping */
+  fd_h2_rbuf_skip( rbuf_tx, sizeof(rbuf_tx_b)-sizeof(fd_h2_ping_t) );
+  fd_h2_ping_t ping;
+  fd_h2_rbuf_pop_copy( rbuf_tx, &ping, sizeof(fd_h2_ping_t) );
+  FD_TEST( ping.hdr.typlen == fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ) );
+  FD_TEST( ping.hdr.flags == 0 );
+  FD_TEST( ping.hdr.r_stream_id == 0 );
+  FD_TEST( ping.payload == 0UL );
+
+  /* Acknowledge ping */
+  fd_h2_ping_t ping_ack = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ),
+      .flags       = FD_H2_FLAG_ACK,
+      .r_stream_id = 0
+    },
+    .payload = 0UL
+  };
+
+  /* Ensure PING ACK callback is triggered */
+  uchar rbuf_rx_b[128] = {0};
+  fd_h2_rbuf_t rbuf_rx[1];
+  fd_h2_rbuf_init( rbuf_rx, rbuf_rx_b, sizeof(rbuf_rx_b) );
+  fd_h2_rbuf_push( rbuf_rx, &ping_ack, sizeof(fd_h2_ping_t) );
+  FD_TEST( conn->ping_tx==1 );
+  FD_TEST( test_h2_ping_tx_ack_cnt==0UL );
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  FD_TEST( conn->ping_tx==0 );
+  FD_TEST( test_h2_ping_tx_ack_cnt==1UL );
+
+  /* Unsolicited PING ACKs should be ignored */
+  fd_h2_rbuf_push( rbuf_rx, &ping_ack, sizeof(fd_h2_ping_t) );
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  FD_TEST( conn->ping_tx==0 );
+  FD_TEST( test_h2_ping_tx_ack_cnt==1UL );
 }
 
 static void
 test_h2_conn( void ) {
   test_h2_client_handshake();
-  test_h2_rx_partial_suppress();
-  test_h2_rx_partial_incremental();
+  test_h2_ping_tx();
 }

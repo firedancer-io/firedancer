@@ -86,6 +86,12 @@ struct fd_h2_callbacks {
                             fd_h2_stream_t * stream,
                             uint             increment );
 
+  /* ping_ack delivers an acknowledgement of a PING that was previously
+     sent by fd_h2_tx_ping. */
+
+  void
+  (* ping_ack)( fd_h2_conn_t * conn );
+
 };
 
 FD_PROTOTYPES_BEGIN
@@ -143,6 +149,9 @@ void
 fd_h2_noop_stream_window_update( fd_h2_conn_t *   conn,
                                  fd_h2_stream_t * stream,
                                  uint             increment );
+
+void
+fd_h2_noop_ping_ack( fd_h2_conn_t * conn );
 
 FD_PROTOTYPES_END
 
