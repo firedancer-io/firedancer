@@ -2434,7 +2434,7 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
     if( bind(gctx->tpu_socket, (const struct sockaddr*)fd_type_pun_const(&addrLocal), sizeof(addrLocal)) == -1 ) {
       FD_LOG_ERR(( "bind failed (%i-%s)", errno, strerror( errno ) ));
     }
-    memcpy( &gctx->tpu_addr, &args->tpu_addr, sizeof(struct sockaddr_in) );
+    gctx->tpu_addr = args->tpu_addr;
 
     void * mem = fd_valloc_malloc( valloc, fd_rpc_acct_map_align(), fd_rpc_acct_map_footprint( FD_RPC_ACCT_MAP_POOL_SIZE/2 ) );
     gctx->acct_map = fd_rpc_acct_map_join( fd_rpc_acct_map_new( mem, FD_RPC_ACCT_MAP_POOL_SIZE/2, 0 ) );
