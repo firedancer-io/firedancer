@@ -29,6 +29,7 @@ struct fd_bundle_metrics {
   ulong bundle_received_cnt;
   ulong packet_received_cnt;
   ulong shredstream_heartbeat_cnt;
+  ulong ping_ack_cnt;
 
   ulong decode_fail_cnt;
   ulong transport_fail_cnt;
@@ -68,6 +69,12 @@ struct fd_bundle_tile {
   int  so_rcvbuf;
   uint tcp_sock_connected : 1;
   uint defer_reset : 1;
+
+  /* Keepalive via HTTP/2 PINGs (randomized) */
+  long  last_ping_tx_ts;       /* last TX tickcount */
+  long  last_ping_rx_ts;       /* last RX tickcount */
+  ulong ping_randomize;        /* random 64 bits */
+  ulong ping_threshold_ticks;  /* avg keepalive timeout in ticks, 2^n-1 */
 
   /* gRPC client */
   void *                   grpc_client_mem;

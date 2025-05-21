@@ -144,6 +144,12 @@ struct fd_grpc_client_callbacks {
               ulong                 request_ctx,
               fd_grpc_resp_hdrs_t * resp );
 
+  /* ping_ack delivers an acknowledgement of a PING that was previously
+     sent by fd_h2_tx_ping. */
+
+  void
+  (* ping_ack)( void * app_ctx );
+
 };
 
 typedef struct fd_grpc_client_callbacks fd_grpc_client_callbacks_t;

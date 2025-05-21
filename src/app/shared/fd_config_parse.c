@@ -55,6 +55,40 @@ fdctl_cfg_get_ulong( ulong *               out,
 }
 
 static int
+fdctl_cfg_get_float( float *               out,
+                     ulong                 out_sz FD_PARAM_UNUSED,
+                     fd_pod_info_t const * info,
+                     char const *          path ) {
+
+  ulong unum;
+  float num;
+  switch( info->val_type ) {
+  case FD_POD_VAL_TYPE_LONG:
+    fd_ulong_svw_dec( (uchar const *)info->val, &unum );
+    long snum = fd_long_zz_dec( unum );
+    if( snum < 0L ) {
+      FD_LOG_WARNING(( "`%s` cannot be negative", path ));
+      return 0;
+    }
+    num = (float)snum;
+    break;
+  case FD_POD_VAL_TYPE_ULONG:
+    fd_ulong_svw_dec( (uchar const *)info->val, &unum );
+    num = (float)unum;
+    break;
+  case FD_POD_VAL_TYPE_FLOAT:
+    num = FD_LOAD( float, info->val );
+    break;
+  default:
+    FD_LOG_WARNING(( "invalid value for `%s`", path ));
+    return 0;
+  }
+
+  *out = num;
+  return 1;
+}
+
+static int
 fdctl_cfg_get_uint( uint *                out,
                     ulong                 out_sz FD_PARAM_UNUSED,
                     fd_pod_info_t const * info,
@@ -416,6 +450,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.bundle.tip_payment_program_addr            );
   CFG_POP      ( cstr,   tiles.bundle.tip_distribution_authority          );
   CFG_POP      ( uint,   tiles.bundle.commission_bps                      );
+  CFG_POP      ( float,  tiles.bundle.keepalive_interval_seconds          );
+  CFG_POP      ( float,  tiles.bundle.request_timeout_seconds             );
 
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
