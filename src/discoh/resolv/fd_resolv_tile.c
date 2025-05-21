@@ -2,7 +2,6 @@
 
 #include "../../disco/tiles.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 

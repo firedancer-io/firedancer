@@ -3,7 +3,6 @@
 #include "generated/fd_plugin_tile_seccomp.h"
 
 #include "../plugin/fd_plugin.h"
-#include "../../flamenco/types/fd_types.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_GOSSIP (1)

@@ -3,8 +3,6 @@
 
 #include "../fd_disco_base.h"
 
-#include "../../flamenco/types/fd_types.h"
-
 /* A fd_keyswitch_public_t provides APIs for out-of-band switching of
    the key of a validator. */
 
