@@ -384,12 +384,13 @@ fd_h2_rx_push_promise( fd_h2_conn_t * conn ) {
 }
 
 static int
-fd_h2_rx_ping( fd_h2_conn_t * conn,
-               fd_h2_rbuf_t * rbuf_tx,
-               uchar const *  payload,
-               ulong          payload_sz,
-               uint           frame_flags,
-               uint           stream_id ) {
+fd_h2_rx_ping( fd_h2_conn_t *            conn,
+               fd_h2_rbuf_t *            rbuf_tx,
+               uchar const *             payload,
+               ulong                     payload_sz,
+               fd_h2_callbacks_t const * cb,
+               uint                      frame_flags,
+               uint                      stream_id ) {
   if( FD_UNLIKELY( payload_sz!=8UL ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
     return 0;
@@ -401,15 +402,14 @@ fd_h2_rx_ping( fd_h2_conn_t * conn,
 
   if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_ACK ) ) {
 
-    ///* Received an acknowledgement for a PING frame. */
-    ///* fd_h2 is unable to generate PING frames, so this is always a
-    //   protocol error. */
-    //fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
-    //return 0;
-
-    /* Note: Blindly ignoring ACK frames for now, since RFC 9113
-       technically doesn't forbid unsolicited PING ACK frames. */
-    return 1;
+    /* Received an acknowledgement for a PING frame. */
+    if( FD_UNLIKELY( conn->ping_tx==0 ) ) {
+      /* Unsolicited PING ACK ... Blindly ignore, since RFC 9113
+         technically doesn't forbid those. */
+      return 1;
+    }
+    cb->ping_ack( conn );
+    conn->ping_tx = (uchar)( conn->ping_tx-1 );
 
   } else {
 
@@ -430,6 +430,28 @@ fd_h2_rx_ping( fd_h2_conn_t * conn,
 
   }
 
+  return 1;
+}
+
+int
+fd_h2_tx_ping( fd_h2_conn_t * conn,
+               fd_h2_rbuf_t * rbuf_tx ) {
+  ulong ping_tx = conn->ping_tx;
+  if( FD_UNLIKELY( ( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(fd_h2_ping_t) ) |
+                   ( ping_tx>=UCHAR_MAX ) ) ) {
+    return 0; /* blocked */
+  }
+
+  fd_h2_ping_t ping = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ),
+      .flags       = 0U,
+      .r_stream_id = 0UL
+    },
+    .payload = 0UL
+  };
+  fd_h2_rbuf_push( rbuf_tx, &ping, sizeof(fd_h2_ping_t) );
+  conn->ping_tx = (uchar)( ping_tx+1 );
   return 1;
 }
 
@@ -545,7 +567,7 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
   case FD_H2_FRAME_TYPE_CONTINUATION:
     return fd_h2_rx_continuation( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_PING:
-    return fd_h2_rx_ping( conn, rbuf_tx, payload, payload_sz, frame_flags, stream_id );
+    return fd_h2_rx_ping( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_GOAWAY:
     return fd_h2_rx_goaway( conn, cb, payload, payload_sz, stream_id );
   case FD_H2_FRAME_TYPE_WINDOW_UPDATE:
