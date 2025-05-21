@@ -576,7 +576,8 @@ void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad );
+                         fd_spad_t *                  finalize_spad,
+                         fd_bank_mgr_t *              bank_mgr );
 
 /* Epoch Boundary *************************************************************/
 
@@ -630,6 +631,7 @@ fd_raw_block_txn_iter_ele( fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                             ulong                slot,
                              fd_block_t *         block,
                              fd_capture_ctx_t *   capture_ctx,
                              fd_tpool_t *         tpool,

@@ -608,48 +608,47 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
      As a note, the size is 300 but in fact is of size 301 due to a knwon bug
      in the agave client that is emulated by the firedancer client. */
 
-  bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
-  bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  *bank->blockhash_queue.last_hash      = *slot_bank->block_hash_queue.last_hash;
+  /* TODO: This needs to be converted to a global blockhash queue. */
+  // bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
+  // bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  // fd_memcpy( bank->blockhash_queue.last_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
 
-  bank->blockhash_queue.ages_len = fd_hash_hash_age_pair_t_map_size( slot_bank->block_hash_queue.ages_pool, slot_bank->block_hash_queue.ages_root);
-  bank->blockhash_queue.ages     = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
-  bank->blockhash_queue.max_age  = FD_BLOCKHASH_QUEUE_SIZE;
+  // bank->blockhash_queue.ages_len = fd_hash_hash_age_pair_t_map_size( slot_bank->block_hash_queue.ages_pool, slot_bank->block_hash_queue.ages_root);
+  // bank->blockhash_queue.ages     = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
+  // bank->blockhash_queue.max_age  = FD_BLOCKHASH_QUEUE_SIZE;
 
-  fd_block_hash_queue_t             * queue               = &slot_bank->block_hash_queue;
-  fd_hash_hash_age_pair_t_mapnode_t * nn                  = NULL;
-  ulong                               blockhash_queue_idx = 0UL;
-  for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
-    nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
-    bank->blockhash_queue.ages[ blockhash_queue_idx++ ] = n->elem;
-  }
-
-
+  // fd_block_hash_queue_t             * queue               = &slot_bank->block_hash_queue;
+  // fd_hash_hash_age_pair_t_mapnode_t * nn                  = NULL;
+  // ulong                               blockhash_queue_idx = 0UL;
+  // for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
+  //   nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+  //   fd_memcpy( &bank->blockhash_queue.ages[ blockhash_queue_idx++ ], &n->elem, sizeof(fd_hash_hash_age_pair_t) );
+  // }
 
   /* Ancestor can be omitted to boot off of for both clients */
 
   bank->ancestors_len                         = 0UL;
   bank->ancestors                             = NULL;
 
-  bank->hash                                  = slot_bank->banks_hash;
-  bank->parent_hash                           = slot_bank->prev_banks_hash;
-  bank->parent_slot                           = slot_bank->prev_slot;
-  bank->hard_forks                            = slot_bank->hard_forks;
-  bank->transaction_count                     = slot_bank->transaction_count;
-  bank->signature_count                       = slot_bank->parent_signature_cnt;
-  bank->capitalization                        = slot_bank->capitalization;
-  bank->tick_height                           = slot_bank->tick_height;
-  bank->max_tick_height                       = slot_bank->max_tick_height;
+  // bank->hash                                  = slot_bank->banks_hash;
+  // bank->parent_hash                           = slot_bank->prev_banks_hash;
+  // bank->parent_slot                           = slot_bank->prev_slot;
+  // bank->hard_forks                            = slot_bank->hard_forks;
+  // bank->transaction_count                     = slot_bank->transaction_count;
+  // bank->signature_count                       = slot_bank->parent_signature_cnt;
+  // bank->capitalization                        = slot_bank->capitalization;
+  // bank->tick_height                           = slot_bank->tick_height;
+  // bank->max_tick_height                       = slot_bank->max_tick_height;
 
   /* The hashes_per_tick needs to be copied over from the epoch bank because
      the pointer could go out of bounds during an epoch boundary. */
-  bank->hashes_per_tick                       = fd_spad_alloc( snapshot_ctx->spad, alignof(ulong), sizeof(ulong) );
-  *bank->hashes_per_tick                      = epoch_bank->hashes_per_tick;
+  // bank->hashes_per_tick                       = fd_spad_alloc( snapshot_ctx->spad, alignof(ulong), sizeof(ulong) );
+  // *bank->hashes_per_tick                      = epoch_bank->hashes_per_tick;
 
   bank->ticks_per_slot                        = FD_TICKS_PER_SLOT;
-  bank->ns_per_slot                           = epoch_bank->ns_per_slot;
-  bank->genesis_creation_time                 = epoch_bank->genesis_creation_time;
-  bank->slots_per_year                        = epoch_bank->slots_per_year;
+  // bank->ns_per_slot                           = epoch_bank->ns_per_slot;
+  // bank->genesis_creation_time                 = epoch_bank->genesis_creation_time;
+  // bank->slots_per_year                        = epoch_bank->slots_per_year;
 
   /* This value can be set to 0 because the Agave client recomputes this value
      and the firedancer client doesn't use it. */
@@ -658,24 +657,24 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
 
   bank->slot                                  = snapshot_ctx->slot;
   bank->epoch                                 = fd_slot_to_epoch( &epoch_bank->epoch_schedule, bank->slot, NULL );
-  bank->block_height                          = slot_bank->block_height;
+  // bank->block_height                          = slot_bank->block_height;
 
   /* Collector id can be left as null for both clients */
 
   fd_memset( &bank->collector_id, 0, sizeof(fd_pubkey_t) );
 
-  bank->collector_fees                        = slot_bank->collected_execution_fees + slot_bank->collected_priority_fees;
-  bank->fee_calculator.lamports_per_signature = slot_bank->lamports_per_signature;
-  bank->fee_rate_governor                     = slot_bank->fee_rate_governor;
-  bank->collected_rent                        = slot_bank->collected_rent;
+  // bank->collector_fees                        = slot_bank->collected_execution_fees + slot_bank->collected_priority_fees;
+  // bank->fee_calculator.lamports_per_signature = slot_bank->lamports_per_signature;
+  // bank->fee_rate_governor                     = slot_bank->fee_rate_governor;
+  bank->collected_rent                        = 0UL;
 
   bank->rent_collector.epoch                  = bank->epoch;
   bank->rent_collector.epoch_schedule         = epoch_bank->rent_epoch_schedule;
-  bank->rent_collector.slots_per_year         = epoch_bank->slots_per_year;
+  // bank->rent_collector.slots_per_year         = epoch_bank->slots_per_year;
   bank->rent_collector.rent                   = epoch_bank->rent;
 
   bank->epoch_schedule                        = epoch_bank->epoch_schedule;
-  bank->inflation                             = epoch_bank->inflation;
+  // bank->inflation                             = epoch_bank->inflation;
 
   /* Unused accounts can be left as NULL for both clients. */
 
@@ -786,10 +785,10 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
     FD_LOG_ERR(( "Snapshot directory is not set" ));
   }
 
-  if( FD_UNLIKELY( snapshot_ctx->slot>snapshot_ctx->slot_bank.slot ) ) {
-    FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu",
-                     snapshot_ctx->slot, snapshot_ctx->slot_bank.slot ));
-  }
+  // if( FD_UNLIKELY( snapshot_ctx->slot>snapshot_ctx->slot_bank.slot ) ) {
+  //   FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu",
+  //                    snapshot_ctx->slot, snapshot_ctx->slot_bank.slot ));
+  // }
 
   /* Truncate the two files used for snapshot creation and seek to its start. */
 
@@ -897,6 +896,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
                                                 fd_hash_t *         out_hash,
                                                 ulong *             out_capitalization ) {
 
+  (void)out_capitalization;
 
   fd_solana_manifest_t manifest = {0};
 
@@ -906,8 +906,8 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
 
   /* Populate the rest of the manifest, except for the append vec index. */
 
-  manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
-  manifest.epoch_account_hash                    = &snapshot_ctx->slot_bank.epoch_account_hash;
+  // manifest.lamports_per_signature                = snapshot_ctx->slot_bank.lamports_per_signature;
+  // manifest.epoch_account_hash                    = &snapshot_ctx->slot_bank.epoch_account_hash;
 
   /* FIXME: The versioned epoch stakes needs to be implemented. Right now if
      we try to create a snapshot on or near an epoch boundary, we will produce
@@ -933,7 +933,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
     manifest.bank_incremental_snapshot_persistence->incremental_capitalization = incr_capitalization;
   } else {
     *out_hash           = manifest.accounts_db.bank_hash_info.accounts_hash;
-    *out_capitalization = snapshot_ctx->slot_bank.capitalization;
+    //*out_capitalization = snapshot_ctx->slot_bank.capitalization;
   }
 
   /* At this point, all of the account files are written out and the append

@@ -16,7 +16,13 @@
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
+  ulong                       slot;
+
   fd_funk_txn_t *             funk_txn;
+
+  /* FIXME: Kind of a gross hack. */
+  uchar                       bank_mgr_mem[48]__attribute__((aligned(8UL)));
+  fd_bank_mgr_t *             bank_mgr;
 
   /* External joins, pointers to be set by caller */
 
@@ -34,9 +40,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       part_width;
 
   /* TODO remove this stuff */
-  ulong                       signature_cnt;
   fd_hash_t                   account_delta_hash;
-  ulong                       prev_lamports_per_signature;
   ulong                       parent_transaction_count;
   ulong                       txn_count;
   ulong                       nonvote_txn_count;
