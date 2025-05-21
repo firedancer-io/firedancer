@@ -62,6 +62,7 @@ struct fd_h2_conn {
   uchar  setting_tx;      /* no of sent SETTINGS frames pending their ACK */
   uchar  rx_frame_flags;  /* current RX frame: flags */
   uchar  rx_pad_rem;      /* current RX frame: pad bytes remaining */
+  uchar  ping_tx;         /* no of sent PING frames pending their ACK */
 };
 
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
@@ -236,6 +237,12 @@ fd_h2_tx( fd_h2_rbuf_t * rbuf_tx,
   fd_h2_rbuf_push( rbuf_tx, &hdr, sizeof(fd_h2_frame_hdr_t) );
   fd_h2_rbuf_push( rbuf_tx, payload, payload_sz );
 }
+
+/* fd_h2_tx_ping attempts to enqueue a PING frame for sending. */
+
+int
+fd_h2_tx_ping( fd_h2_conn_t * conn,
+               fd_h2_rbuf_t * rbuf_tx );
 
 static inline void
 fd_h2_conn_error( fd_h2_conn_t * conn,
