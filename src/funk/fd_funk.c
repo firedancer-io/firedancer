@@ -132,8 +132,8 @@ fd_funk_new( void * shmem,
 }
 
 fd_funk_t *
-fd_funk_join( void * ljoin,
-              void * shfunk ) {
+fd_funk_join( fd_funk_t * ljoin,
+              void *      shfunk ) {
   if( FD_UNLIKELY( !shfunk ) ) {
     FD_LOG_WARNING(( "NULL shfunk" ));
     return NULL;
