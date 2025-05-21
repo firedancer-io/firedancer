@@ -1154,6 +1154,20 @@ dynamic_port_range = "8900-9000"
         # portion.
         commission_bps = 0
 
+        # The validator keeps the gRPC connection to the bundle server
+        # alive indefinitely, even outside of leader slots.  This is
+        # done using HTTP/2 PING frames.  This option roughly configures
+        # the time between keepalives.  The actual timing is randomized
+        # to reduce burst loads on the network.  Must be within range
+        # [3,3600].
+        keepalive_interval_seconds = 5.0
+
+        # Consider a connection failed if the bundle server fails to
+        # respond to a request in the given time frame.  The validator
+        # will reconnect eventually, but with increasing delays if there
+        # are repeated failures.  Must be within range [0.5,60].
+        request_timeout_seconds = 3.0
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute
