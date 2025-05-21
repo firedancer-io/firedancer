@@ -6,6 +6,7 @@
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
 #include "../fd_txn_m_t.h"
+#include "../../waltz/h2/fd_h2_conn.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
@@ -16,11 +17,6 @@
 #include <poll.h> /* poll */
 #include <sys/socket.h> /* socket */
 #include <netinet/in.h> /* IPPROTO_TCP */
-#include "../../ballet/nanopb/pb_decode.h"
-#include "proto/block_engine.pb.h"
-#include "proto/bundle.pb.h"
-#include "proto/packet.pb.h"
-#include "../../util/net/fd_ip4.h"
 
 static void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
@@ -207,6 +203,30 @@ fd_bundle_client_subscribe_bundles( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_wait = 1;
 }
 
+static void
+fd_bundle_client_send_ping( fd_bundle_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->grpc_client ) ) return; /* no client */
+  fd_h2_conn_t * conn = fd_grpc_client_h2_conn( ctx->grpc_client );
+  if( FD_UNLIKELY( !conn ) ) return; /* no conn */
+  if( FD_UNLIKELY( conn->flags ) ) return; /* conn busy */
+  fd_h2_rbuf_t * rbuf_tx = fd_grpc_client_rbuf_tx( ctx->grpc_client );
+
+  if( FD_LIKELY( fd_h2_tx_ping( conn, rbuf_tx ) ) ) {
+    ctx->last_ping_tx_ts = fd_tickcount();
+    ctx->ping_randomize  = fd_rng_ulong( ctx->rng );
+  }
+}
+
+FD_FN_PURE static int
+fd_bundle_client_keepalive_due( fd_bundle_tile_t const * ctx,
+                                long                     now_ticks ) {
+  ulong delay_min = ctx->ping_threshold_ticks>>1;
+  ulong delay_rng = ctx->ping_threshold_ticks & ctx->ping_randomize;
+  ulong delay     = delay_min + delay_rng;
+  long  deadline  = ctx->last_ping_tx_ts + (long)delay;
+  return now_ticks >= deadline;
+}
+
 void
 fd_bundle_client_step( fd_bundle_tile_t * ctx,
                        int *              charge_busy ) {
@@ -263,7 +283,8 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
 
   /* Are we ready to issue a new request? */
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
-  if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, fd_tickcount() ) ) ) return;
+  long io_ts = fd_tickcount();
+  if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, io_ts ) ) ) return;
 
   /* Drive auth */
   if( FD_UNLIKELY( ctx->auther.needs_poll ) ) {
@@ -290,6 +311,12 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
   /* Subscribe to bundles */
   if( FD_UNLIKELY( !ctx->bundle_subscription_live && !ctx->bundle_subscription_wait ) ) {
     fd_bundle_client_subscribe_bundles( ctx );
+    return;
+  }
+
+  /* Send a PING */
+  if( FD_UNLIKELY( fd_bundle_client_keepalive_due( ctx, io_ts ) ) ) {
+    fd_bundle_client_send_ping( ctx );
     return;
   }
 
@@ -793,11 +820,19 @@ fd_bundle_client_grpc_rx_end(
   }
 }
 
+static void
+fd_bundle_client_grpc_ping_ack( void * app_ctx ) {
+  fd_bundle_tile_t * ctx = app_ctx;
+  ctx->last_ping_rx_ts = fd_tickcount();
+  ctx->metrics.ping_ack_cnt++;
+}
+
 fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
   .conn_established = fd_bundle_client_grpc_conn_established,
   .conn_dead        = fd_bundle_client_grpc_conn_dead,
   .tx_complete      = fd_bundle_client_grpc_tx_complete,
   .rx_start         = fd_bundle_client_grpc_rx_start,
   .rx_msg           = fd_bundle_client_grpc_rx_msg,
-  .rx_end           = fd_bundle_client_grpc_rx_end
+  .rx_end           = fd_bundle_client_grpc_rx_end,
+  .ping_ack         = fd_bundle_client_grpc_ping_ack,
 };

@@ -385,6 +385,8 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
       strncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
       tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
+      tile->bundle.keepalive_interval_nanos = (ulong)( config->tiles.bundle.keepalive_interval_seconds * 1e9f );
+      tile->bundle.request_timeout_nanos = (ulong)( config->tiles.bundle.request_timeout_seconds * 1e9f );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
       tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
 
