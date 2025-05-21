@@ -131,6 +131,8 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
 
 #endif /* FD_HAS_OPENSSL */
 
+#if FD_H2_HAS_SOCKETS
+
 int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
                             int                sock_fd,
@@ -160,6 +162,8 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
   if( frame_rx_0!=frame_rx_1 || frame_tx_0!=frame_tx_1 ) *charge_busy = 1;
   return 1;
 }
+
+#endif /* FD_H2_HAS_SOCKETS */
 
 /* fd_grpc_client_request continue attempts to write a request data
    frame. */
@@ -514,6 +518,27 @@ fd_grpc_h2_stream_window_update( fd_h2_conn_t *   conn,
   fd_grpc_client_request_continue( conn->ctx );
 }
 
+void
+fd_grpc_h2_ping_ack( fd_h2_conn_t * conn ) {
+  fd_grpc_client_t * client = conn->ctx;
+  client->callbacks->ping_ack( client->ctx );
+}
+
+fd_h2_rbuf_t *
+fd_grpc_client_rbuf_tx( fd_grpc_client_t * client ) {
+  return client->frame_tx;
+}
+
+fd_h2_rbuf_t *
+fd_grpc_client_rbuf_rx( fd_grpc_client_t * client ) {
+  return client->frame_rx;
+}
+
+fd_h2_conn_t *
+fd_grpc_client_h2_conn( fd_grpc_client_t * client ) {
+  return client->conn;
+}
+
 /* fd_grpc_client_h2_callbacks specifies h2->grpc_client callbacks.
    Stored in .rodata for security.  Must be kept in sync with fd_h2 to
    avoid NULL pointers. */
@@ -528,4 +553,5 @@ static fd_h2_callbacks_t const fd_grpc_client_h2_callbacks = {
   .rst_stream           = fd_grpc_h2_rst_stream,
   .window_update        = fd_grpc_h2_window_update,
   .stream_window_update = fd_grpc_h2_stream_window_update,
+  .ping_ack             = fd_grpc_h2_ping_ack,
 };

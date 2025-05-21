@@ -33,6 +33,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, BUNDLE_RECEIVED,        ctx->metrics.bundle_received_cnt       );
   FD_MCNT_SET( BUNDLE, PACKET_RECEIVED,        ctx->metrics.packet_received_cnt       );
   FD_MCNT_SET( BUNDLE, SHREDSTREAM_HEARTBEATS, ctx->metrics.shredstream_heartbeat_cnt );
+  FD_MCNT_SET( BUNDLE, KEEPALIVES,             ctx->metrics.ping_ack_cnt              );
   FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
   FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
   FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
@@ -333,6 +334,11 @@ unprivileged_init( fd_topo_t *      topo,
   ulong so_rcvbuf = tile->bundle.buf_sz + 65536UL;
   if( so_rcvbuf > INT_MAX ) FD_LOG_ERR(( "Invalid [development.bundle.buffer_size_kib]: too large" ));
   ctx->so_rcvbuf = (int)so_rcvbuf;
+
+  /* Set idle ping timer */
+  ctx->ping_threshold_ticks = fd_ulong_pow2_up( (ulong)
+      ( (double)tile->bundle.keepalive_interval_nanos * fd_tempo_tick_per_ns( NULL ) ) );
+  ctx->ping_randomize = fd_rng_ulong( ctx->rng );
 }
 
 static ulong
