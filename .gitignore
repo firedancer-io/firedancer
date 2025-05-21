@@ -20,7 +20,7 @@ perf.data.old
 
 # Clangd
 .cache
-.clangd
+/.clangd
 compile_commands.json
 
 # Rust
