@@ -97,7 +97,10 @@ fd_dev_main( int          argc,
     }
   }
 
-  if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
+  if( FD_UNLIKELY( !action ) ) {
+    fprintf( stderr, "unknown subcommand `%s`\n", action_name );
+    exit( 1 );
+  }
 
   fd_main_init( &argc, &argv, &config, is_firedancer, action->is_local_cluster, log_path, default_config, default_config_sz, topo_init );
 
