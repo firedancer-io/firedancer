@@ -32,3 +32,6 @@ run-runtime-test-nightly: $(OBJDIR)/bin/fd_ledger
 run-runtime-test-nightly-asan: $(OBJDIR)/bin/fd_ledger
 	# OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l v201-small        -s snapshot-100-38CM8ita1fT5SmSLUEeqQZffn2xsy9vKz3WJmsFSnhrJ.tar.zst       -p 100 -y 16  -m 500000    -e 120       -c 2.0.1
 	# OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l devnet-330914784  -s snapshot-330914783-BujhdWiXTfRPfFYMG3GZdEcNc18KyvCcAq9QL9e1i1Fk.tar.zst -p 100 -y 16  -m 500000    -e 330914785 -c 2.0.8
+
+run-runtime-test-nightly-txncache: $(OBJDIR)/unit-test/test_txncache
+	$(OBJDIR)/unit-test/test_txncache
