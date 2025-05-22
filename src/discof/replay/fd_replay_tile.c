@@ -703,7 +703,7 @@ block_finalize_tiles_cb( void * para_arg_1,
    happiness, in order, executable immediately as long as the mcache
    wasn't overrun. */
 static int
-before_frag( fd_replay_tile_ctx_t * ctx FD_PARAM_UNUSED,
+before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig ) {
