@@ -300,7 +300,7 @@ after_frag( fd_archiver_backtest_tile_ctx_t * ctx,
             ulong                             sz FD_PARAM_UNUSED,
             ulong                             tsorig FD_PARAM_UNUSED,
             ulong                             tspub FD_PARAM_UNUSED,
-            fd_stem_context_t *               stem FD_PARAM_UNUSED ) {
+            fd_stem_context_t *               stem ) {
   if( FD_LIKELY( ctx->replay_notification.type==FD_REPLAY_SLOT_TYPE ) ) {
     ulong slot            = ctx->replay_notification.slot_exec.slot;
     ulong slot_be         = fd_ulong_bswap(slot);

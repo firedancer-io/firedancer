@@ -235,11 +235,11 @@ static void
 after_frag( fd_store_tile_ctx_t * ctx,
             ulong                 in_idx,
             ulong                 seq    FD_PARAM_UNUSED,
-            ulong                 sig    FD_PARAM_UNUSED,
-            ulong                 sz     FD_PARAM_UNUSED,
-            ulong                 tsorig FD_PARAM_UNUSED,
-            ulong                 tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t *   stem   FD_PARAM_UNUSED ) {
+            ulong                 sig,
+            ulong                 sz,
+            ulong                 tsorig,
+            ulong                 tspub,
+            fd_stem_context_t *   stem ) {
   return;
 
   ulong const in_kind = ctx->in_kind[ in_idx ];
