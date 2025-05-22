@@ -42,8 +42,10 @@ fd_hpack_wr_varint(
       ( ( tail<<6 )&0x007f000000000000UL ) |
       ( ( tail<<7 )&0x7f00000000000000UL );
 #endif
-    int   msb  = fd_ulong_find_msb_w_default( enc, 0 );
-    ulong mask = 0x8080808080808080UL >> (64-(msb&0x38));
+    int   msb   = fd_ulong_find_msb_w_default( enc, 0 );
+    int   shift = 64-(msb&0x38);
+    ulong mask  = 0x8080808080808080UL >> shift;
+    if( shift==64 ) mask = 0UL;
     FD_STORE( ulong, code+1, enc|mask );
     sz = 2 + (ulong)( msb>>3 );
   }
@@ -63,14 +65,12 @@ static inline int
 fd_hpack_wr_private_name_indexed_0(
     fd_h2_rbuf_t * rbuf_tx,
     ulong          key,
-    void const *   value,
     ulong          value_len  /* in [0,128) */
 ) {
   uchar prefix[10] = { (uchar)key };
   if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx ) < sizeof(prefix)+value_len ) ) return 0;
   ulong prefix_len = 1+fd_hpack_wr_varint( prefix+1, 0x00, 0x7f, value_len );
   fd_h2_rbuf_push( rbuf_tx, prefix, prefix_len );
-  fd_h2_rbuf_push( rbuf_tx, value,  value_len  );
   return 1;
 }
 
@@ -96,7 +96,9 @@ static inline int
 fd_hpack_wr_path( fd_h2_rbuf_t * rbuf_tx,
                   char const *   path,
                   ulong          path_len ) {
-  return fd_hpack_wr_private_name_indexed_0( rbuf_tx, 0x04, path, path_len );
+  if( FD_UNLIKELY( !fd_hpack_wr_private_name_indexed_0( rbuf_tx, 0x04, path_len ) ) ) return 0;
+  fd_h2_rbuf_push( rbuf_tx, path, path_len );
+  return 1;
 }
 
 /* fd_hpack_wr_trailers writes the 'te: trailers' header. */
@@ -117,9 +119,8 @@ fd_hpack_wr_trailers( fd_h2_rbuf_t * rbuf_tx ) {
 
 static inline int
 fd_hpack_wr_user_agent( fd_h2_rbuf_t * rbuf_tx,
-                        char const *   user_agent,
                         ulong          user_agent_len ) {
-  return fd_hpack_wr_private_name_indexed_0( rbuf_tx, 0x7a, user_agent, user_agent_len );
+  return fd_hpack_wr_private_name_indexed_0( rbuf_tx, 0x7a, user_agent_len );
 }
 
 /* fd_hpack_wr_auth_bearer writes an 'authorization: Bearer xxx' header.

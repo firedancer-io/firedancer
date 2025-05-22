@@ -68,6 +68,9 @@ fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx ) {
   return errno;
 }
 
+/* Provided by fdctl/firedancer version.c */
+extern char const fdctl_version_string[];
+
 static void
 fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   fd_bundle_client_reset( ctx );
@@ -132,6 +135,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->grpc_client ) ) {
     FD_LOG_CRIT(( "fd_grpc_client_new failed" )); /* unreachable */
   }
+  fd_grpc_client_set_version( ctx->grpc_client, fdctl_version_string, strlen( fdctl_version_string ) );
 }
 
 static int
