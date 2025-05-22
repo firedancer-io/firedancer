@@ -29,7 +29,7 @@
    frequently as possible to service connections and make forward
    progress. */
 
-#include "../fd_ballet_base.h"
+#include "../../util/fd_util_base.h"
 
 #define FD_HTTP_SERVER_ALIGN       (128UL)
 

@@ -3,7 +3,7 @@
 
 #include "fd_gui_printf.h"
 
-#include "../../ballet/http/fd_http_server_private.h"
+#include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
 
 #ifdef __has_include

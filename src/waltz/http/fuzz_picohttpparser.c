@@ -219,8 +219,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     }
   }
 
-  
-
   FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

@@ -7,7 +7,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../ballet/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server.h"
 
 #include <netinet/in.h>
 
