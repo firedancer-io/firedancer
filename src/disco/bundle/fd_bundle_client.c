@@ -6,6 +6,7 @@
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
 #include "../fd_txn_m_t.h"
+#include "../plugin/fd_plugin.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/nanopb/pb_decode.h"
@@ -89,7 +90,10 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "fcntl(tcp_sock,F_SETFL,O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  char const * scheme = ctx->is_ssl ? "https" : "http";
+  char const * scheme = "http";
+# if FD_HAS_OPENSSL
+  if( ctx->is_ssl ) scheme = "https";
+# endif
 
   FD_LOG_INFO(( "Connecting to %s://" FD_IP4_ADDR_FMT ":%hu (%.*s)",
                 scheme,
@@ -698,11 +702,13 @@ fd_bundle_client_grpc_rx_msg(
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
     if( FD_UNLIKELY( !fd_bundle_auther_handle_challenge_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
+      ctx->metrics.decode_fail_cnt++;
       fd_bundle_tile_backoff( ctx, fd_tickcount() );
     }
     break;
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
     if( FD_UNLIKELY( !fd_bundle_auther_handle_tokens_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
+      ctx->metrics.decode_fail_cnt++;
       fd_bundle_tile_backoff( ctx, fd_tickcount() );
     }
     break;
@@ -840,3 +846,56 @@ fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
   .rx_end           = fd_bundle_client_grpc_rx_end,
   .ping_ack         = fd_bundle_client_grpc_ping_ack,
 };
+
+/* Decrease verbosity */
+#define DISCONNECTED FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED
+#define CONNECTING   FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTING
+#define CONNECTED    FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED
+
+int
+fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
+  if( FD_UNLIKELY( ( !ctx->tcp_sock_connected ) |
+                   ( !ctx->grpc_client        ) ) ) {
+    return DISCONNECTED;
+  }
+
+  fd_h2_conn_t * conn = fd_grpc_client_h2_conn( ctx->grpc_client );
+  if( FD_UNLIKELY( !conn ) ) {
+    return DISCONNECTED; /* no conn */
+  }
+  if( FD_UNLIKELY( conn->flags &
+      ( FD_H2_CONN_FLAGS_DEAD |
+        FD_H2_CONN_FLAGS_SEND_GOAWAY ) ) ) {
+    return DISCONNECTED;
+  }
+
+  if( FD_UNLIKELY( conn->flags &
+      ( FD_H2_CONN_FLAGS_CLIENT_INITIAL      |
+        FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 |
+        FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     |
+        FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) ) {
+    return CONNECTING; /* connection is not ready */
+  }
+
+  if( FD_UNLIKELY( ctx->auther.state != FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) {
+    return CONNECTING; /* not authenticated */
+  }
+
+  if( FD_UNLIKELY( ( !ctx->builder_info_avail       ) |
+                   ( !ctx->packet_subscription_live ) |
+                   ( !ctx->bundle_subscription_live ) ) ) {
+    return CONNECTING; /* not fully connected */
+  }
+
+  long ping_timeout = (long)( 3UL * ctx->ping_threshold_ticks );
+  if( FD_UNLIKELY( fd_tickcount() > ctx->last_ping_rx_ts + ping_timeout ) ) {
+    return DISCONNECTED; /* possible timeout */
+  }
+
+  /* As far as we know, the bundle connection is alive and well. */
+  return CONNECTED;
+}
+
+#undef DISCONNECTED
+#undef CONNECTING
+#undef CONNECTED
