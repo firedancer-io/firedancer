@@ -115,6 +115,10 @@ struct fd_bundle_tile {
 
   /* App metrics */
   fd_bundle_metrics_t metrics;
+
+  /* Check engine light */
+  uchar bundle_status_recent;  /* most recently observed 'check engine light' */
+  uchar bundle_status_plugin;  /* last 'plugin' update written */
 };
 
 typedef struct fd_bundle_tile fd_bundle_tile_t;
@@ -167,6 +171,25 @@ fd_bundle_client_grpc_rx_msg(
     ulong        protobuf_sz,
     ulong        request_ctx   /* FD_BUNDLE_CLIENT_REQ_{...} */
 );
+
+/* fd_bundle_client_status provides a "check engine light".
+
+   Returns 0 if the client has recently failed and is currently backing
+   off from a reconnect attempt.
+
+   Returns 1 if the client is currently reconnecting.
+
+   Returns 2 if all of the following conditions are met:
+   - TCP socket is alive
+   - SSL session is not in an error state
+   - HTTP/2 connection is established (SETTINGS exchange done)
+   - gRPC bundle and packet subscriptions are live
+   - HTTP/2 PING exchange was done recently
+
+   Return codes are compatible with FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_{...}. */
+
+int
+fd_bundle_client_status( fd_bundle_tile_t const * ctx );
 
 FD_PROTOTYPES_END
 
