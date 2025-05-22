@@ -1,4 +1,5 @@
 #include "fd_hpack_private.h"
+#include "fd_hpack_wr.h"
 #include "../../util/log/fd_log.h"
 
 static uchar const rfc7541_c31_bin[] = {
@@ -156,6 +157,7 @@ static test_hpack_case_t const test_hpack_cases[] = {
   { .bits=5, .prefix=0xff, .len=2, .res=1337UL, .enc={0x9a, 0x0a} },
   { .bits=5, .prefix=0x9f, .len=2, .res=1337UL, .enc={0x9a, 0x0a} },
   { .bits=5, .prefix=0xbf, .len=2, .res=1337UL, .enc={0x9a, 0x0a} },
+  { .bits=7, .prefix=0x7f, .len=1, .res= 179UL, .enc={0x34} },
   { .bits=0 }
 };
 
@@ -174,6 +176,19 @@ test_hpack_rd_varint( void ) {
   }
 }
 
+static void
+test_hpack_wr_varint( void ) {
+  for( test_hpack_case_t const * c=test_hpack_cases; c->bits; c++ ) {
+    uchar buf[ 16 ];
+    uint  addend = (1U<<(c->bits))-1U;
+    uint  prefix = c->prefix & ~addend;
+    ulong len    = fd_hpack_wr_varint( buf, prefix, addend, c->res );
+    FD_TEST( len == (ulong)c->len+1 );
+    FD_TEST( buf[0] == c->prefix );
+    FD_TEST( fd_memeq( buf+1, c->enc, c->len ) );
+  }
+}
+
 void
 test_hpack( void ) {
   test_hpack_rd( rfc7541_c31_bin, sizeof(rfc7541_c31_bin), rfc7541_c31_dec );
@@ -185,4 +200,5 @@ test_hpack( void ) {
   test_hpack_rd( rfc7541_c51_bin, sizeof(rfc7541_c51_bin), rfc7541_c51_dec );
   test_hpack_rd( rfc7541_c61_bin, sizeof(rfc7541_c61_bin), rfc7541_c51_dec );
   test_hpack_rd_varint();
+  test_hpack_wr_varint();
 }

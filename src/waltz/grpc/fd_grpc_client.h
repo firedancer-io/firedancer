@@ -174,6 +174,20 @@ fd_grpc_client_new( void *                             mem,
 void *
 fd_grpc_client_delete( fd_grpc_client_t * client );
 
+/* fd_grpc_client_set_version sets the gRPC client's version string
+   (relayed via user-agent header).  No reference to the provided string
+   is kept (the content is copied out to the client object).  version
+   does not have to be null-terminated.  version_len must be
+   FD_GRPC_CLIENT_VERSION_LEN_MAX or less, otherwise a warning is logged
+   and the client's version string remains unchanged. */
+
+#define FD_GRPC_CLIENT_VERSION_LEN_MAX (63UL)
+
+void
+fd_grpc_client_set_version( fd_grpc_client_t * client,
+                            char const *       version,
+                            ulong              version_len );
+
 #if FD_HAS_OPENSSL
 
 /* fd_grpc_client_rxtx_ossl drives I/O against the SSL object

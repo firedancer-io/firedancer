@@ -80,7 +80,9 @@ FD_PROTOTYPES_BEGIN
 
 int
 fd_grpc_h2_gen_request_hdrs( fd_grpc_req_hdrs_t const * req,
-                             fd_h2_rbuf_t *             rbuf_tx );
+                             fd_h2_rbuf_t *             rbuf_tx,
+                             char const *               version,
+                             ulong                      version_len );
 
 /* fd_grpc_h2_rec_response_hdrs consumes a HEADERS frame and recovers
    selected gRPC request headers.  Ignores unknown headers.  Returns
