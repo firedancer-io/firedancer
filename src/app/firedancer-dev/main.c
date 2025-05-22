@@ -134,7 +134,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_feeder,
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
+#if FD_HAS_ROCKSDB
   &fd_tile_archiver_backtest,
+#endif
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
