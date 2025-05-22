@@ -2,8 +2,8 @@
 #include "fd_http_server_private.h"
 
 #include "picohttpparser.h"
-#include "fd_sha1.h"
-#include "../base64/fd_base64.h"
+#include "../../ballet/sha1/fd_sha1.h"
+#include "../../ballet/base64/fd_base64.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <stdarg.h>

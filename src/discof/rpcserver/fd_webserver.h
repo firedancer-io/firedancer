@@ -2,7 +2,7 @@
 #define HEADER_fd_src_discof_rpcserver_fd_webserver_h
 
 #include "fd_methods.h"
-#include "../../ballet/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server.h"
 
 // #define FD_RPC_VERBOSE 1
 

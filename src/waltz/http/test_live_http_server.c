@@ -1,4 +1,5 @@
 #include "fd_http_server.h"
+#include "../../util/fd_util.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -19,8 +20,9 @@ install_signal_handler( void ) {
     .sa_handler = signal_handler,
     .sa_flags   = 0,
   };
-  if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
+  if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) ) {
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 struct test_http_server {
