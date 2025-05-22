@@ -232,6 +232,7 @@ metric introduced.
     <counter name="Errors" enum="BundleError" summary="Number of gRPC errors encountered" />
     <counter name="ShredstreamHeartbeats" summary="Number of ShredStream heartbeats successfully sent" />
     <counter name="Keepalives" summary="Number of HTTP/2 PINGs acknowledged by server" />
+    <gauge name="Connected" summary="1 if connected to the bundle server, 0 if not" />
 </tile>
 
 <tile name="verify">

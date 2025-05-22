@@ -2,9 +2,11 @@
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
+#include "../plugin/fd_plugin.h"
 #include "../../waltz/http/fd_url.h"
 
 #include <errno.h>
+#include <stdio.h> /* snprintf */
 #include <fcntl.h> /* F_SETFL */
 #include <sys/mman.h> /* PROT_READ (seccomp) */
 #include <sys/uio.h> /* writev */
@@ -37,6 +39,10 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
   FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
   FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
+
+  int bundle_status = fd_bundle_client_status( ctx );
+  FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
+  ctx->bundle_status_recent = (uchar)bundle_status;
 }
 
 static void
@@ -49,6 +55,39 @@ during_housekeeping( fd_bundle_tile_t * ctx ) {
 }
 
 static void
+fd_bundle_tile_publish_block_engine_update(
+    fd_bundle_tile_t *  ctx,
+    fd_stem_context_t * stem
+) {
+  fd_plugin_msg_block_engine_update_t * update =
+      fd_chunk_to_laddr( ctx->plugin_out.mem, ctx->plugin_out.chunk );
+  memset( update, 0, sizeof(fd_plugin_msg_block_engine_update_t) );
+
+  strncpy( update->name, "jito", sizeof(update->name) );
+
+  snprintf( update->url, sizeof(update->url), "%s://%.*s:%u",
+            ctx->is_ssl ? "https" : "http",
+            (int)ctx->server_fqdn_len,
+            ctx->server_fqdn,
+            ctx->server_tcp_port );
+
+  update->status = (uchar)ctx->bundle_status_recent;
+
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish(
+      stem,
+      ctx->plugin_out.idx,
+      FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE,
+      ctx->plugin_out.chunk,
+      sizeof(fd_plugin_msg_block_engine_update_t),
+      0UL, /* ctl */
+      0UL, /* seq */
+      tspub
+  );
+  ctx->plugin_out.chunk = fd_dcache_compact_next( ctx->plugin_out.chunk, sizeof(fd_plugin_msg_block_engine_update_t), ctx->plugin_out.chunk0, ctx->plugin_out.wmark );
+}
+
+static void
 after_credit( fd_bundle_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
@@ -56,6 +95,14 @@ after_credit( fd_bundle_tile_t *  ctx,
   (void)opt_poll_in;
   if( FD_UNLIKELY( !ctx->stem ) ) ctx->stem = stem;
   fd_bundle_client_step( ctx, charge_busy );
+
+  if( ctx->plugin_out.mem ) {
+    if( FD_UNLIKELY( ctx->bundle_status_recent != ctx->bundle_status_plugin ) ) {
+      fd_bundle_tile_publish_block_engine_update( ctx, stem );
+      ctx->bundle_status_plugin = (uchar)ctx->bundle_status_recent;
+      *charge_busy = 1;
+    }
+  }
 }
 
 static void
@@ -339,6 +386,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ping_threshold_ticks = fd_ulong_pow2_up( (ulong)
       ( (double)tile->bundle.keepalive_interval_nanos * fd_tempo_tick_per_ns( NULL ) ) );
   ctx->ping_randomize = fd_rng_ulong( ctx->rng );
+
+  /* Force tile to output a plugin message on startup */
+  ctx->bundle_status_plugin = 127;
+  ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
 }
 
 static ulong
