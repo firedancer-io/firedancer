@@ -81,6 +81,41 @@ fd_grpc_client_delete( fd_grpc_client_t * client ) {
   return client;
 }
 
+static void
+fd_grpc_client_send_stream_quota( fd_h2_rbuf_t *        rbuf_tx,
+                                  fd_grpc_h2_stream_t * stream,
+                                  uint                  bump ) {
+  fd_h2_window_update_t window_update = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_WINDOW_UPDATE, 4UL ),
+      .r_stream_id = fd_uint_bswap( stream->s.stream_id )
+    },
+    .increment = fd_uint_bswap( bump )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &window_update, sizeof(fd_h2_window_update_t) );
+  stream->s.rx_wnd += bump;
+}
+
+static void
+fd_grpc_client_send_stream_window_updates( fd_grpc_client_t * client ) {
+  /* FIXME poor algorithmic inefficiency.  Consider replenishing lazily
+     whenever data is received. */
+  fd_h2_conn_t * conn    = client->conn;
+  fd_h2_rbuf_t * rbuf_tx = client->frame_tx;
+  if( FD_UNLIKELY( conn->flags ) ) return;
+  uint  const wnd_max    = conn->self_settings.initial_window_size;
+  uint  const wnd_thres  = wnd_max / 2;
+  ulong const stream_cnt = client->stream_cnt;
+  for( ulong i=0UL; i<stream_cnt; i++ ) {
+    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(fd_h2_window_update_t) ) ) break;
+    fd_grpc_h2_stream_t * stream = client->streams[ i ];
+    if( FD_UNLIKELY( stream->s.rx_wnd < wnd_thres ) ) {
+      uint const bump = wnd_max - stream->s.rx_wnd;
+      fd_grpc_client_send_stream_quota( rbuf_tx, stream, bump );
+    }
+  }
+}
+
 #if FD_HAS_OPENSSL
 
 static int
@@ -123,6 +158,7 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   }
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, FD_GRPC_CLIENT_BUFSZ, &fd_grpc_client_h2_callbacks );
+  fd_grpc_client_send_stream_window_updates( client );
   ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
 
   if( read_sz!=0 || write_sz!=0 ) *charge_busy = 1;
@@ -150,6 +186,7 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
 
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, FD_GRPC_CLIENT_BUFSZ, &fd_grpc_client_h2_callbacks );
+  fd_grpc_client_send_stream_window_updates( client );
 
   ulong frame_tx_0 = client->frame_tx->lo_off;
   int tx_err = fd_h2_rbuf_sendmsg( client->frame_tx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );

@@ -12,6 +12,7 @@
 struct fd_h2_stream {
   uint stream_id;
   uint tx_wnd; /* transmit quota available */
+  uint rx_wnd; /* receive window bytes remaining */
 
   uchar state;
   uchar hdrs_seq;
@@ -48,6 +49,7 @@ fd_h2_stream_open( fd_h2_stream_t *     stream,
     .stream_id = stream_id,
     .state     = FD_H2_STREAM_STATE_OPEN,
     .tx_wnd    = conn->peer_settings.initial_window_size,
+    .rx_wnd    = conn->self_settings.initial_window_size,
     .hdrs_seq  = 0U
   };
   return stream;

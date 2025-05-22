@@ -74,13 +74,16 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
   fd_h2_setting_encode( buf+39, FD_H2_SETTINGS_MAX_HEADER_LIST_SIZE,   settings->max_header_list_size   );
 }
 
-/* fd_h2_rx1 handles one frame. */
+/* fd_h2_rx_data handles a partial DATA frame. */
 
 static void
 fd_h2_rx_data( fd_h2_conn_t *            conn,
                fd_h2_rbuf_t *            rbuf_rx,
                fd_h2_rbuf_t *            rbuf_tx,
                fd_h2_callbacks_t const * cb ) {
+  /* A receive might generate two WINDOW_UPDATE frames */
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx ) < 2*sizeof(fd_h2_window_update_t) ) ) return;
+
   ulong frame_rem  = conn->rx_frame_rem;
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
   uint  stream_id  = conn->rx_stream_id;
@@ -101,6 +104,12 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     return;
   }
   conn->rx_wnd -= chunk_sz;
+
+  if( FD_UNLIKELY( chunk_sz > stream->rx_wnd ) ) {
+    fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_FLOW_CONTROL );
+    goto skip_frame;
+  }
+  stream->rx_wnd -= chunk_sz;
 
   fd_h2_stream_rx_data( stream, conn, fin_flag ? FD_H2_FLAG_END_STREAM : 0U );
   if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
@@ -577,6 +586,8 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
   }
 }
 
+/* fd_h2_rx1 handles one frame. */
+
 static void
 fd_h2_rx1( fd_h2_conn_t *            conn,
            fd_h2_rbuf_t *            rbuf_rx,
@@ -771,6 +782,7 @@ goaway:
     };
     fd_h2_rbuf_push( rbuf_tx, &window_update, sizeof(fd_h2_window_update_t) );
     conn->rx_wnd = conn->rx_wnd_max;
+    conn->flags = (ushort)( (conn->flags) & (~FD_H2_CONN_FLAGS_WINDOW_UPDATE) );
     break;
   }
 
