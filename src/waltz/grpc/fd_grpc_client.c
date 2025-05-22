@@ -76,6 +76,9 @@ fd_grpc_client_new( void *                             mem,
   client->conn->rx_wnd_max   = (1U<<31)-1U;
   client->conn->rx_wnd_wmark = client->conn->rx_wnd_max - (1U<<20);
 
+  client->version_len = 5;
+  memcpy( client->version, "0.0.0", 5 );
+
   /* Don't memset bufs for better performance */
 
   return client;
@@ -84,6 +87,18 @@ fd_grpc_client_new( void *                             mem,
 void *
 fd_grpc_client_delete( fd_grpc_client_t * client ) {
   return client;
+}
+
+void
+fd_grpc_client_set_version( fd_grpc_client_t * client,
+                            char const *       version,
+                            ulong              version_len ) {
+  if( FD_UNLIKELY( version_len > FD_GRPC_CLIENT_VERSION_LEN_MAX ) ) {
+    FD_LOG_WARNING(( "Version string too long (%lu chars), ignoring", version_len ));
+    return;
+  }
+  client->version_len = (uchar)version_len;
+  memcpy( client->version, version, version_len );
 }
 
 static void
@@ -381,7 +396,12 @@ fd_grpc_client_request_start(
     .bearer_auth     = auth_token,
     .bearer_auth_len = auth_token_sz
   };
-  if( FD_UNLIKELY( !fd_grpc_h2_gen_request_hdrs( &req_meta, client->frame_tx ) ) ) {
+  if( FD_UNLIKELY( !fd_grpc_h2_gen_request_hdrs(
+      &req_meta,
+      client->frame_tx,
+      client->version,
+      client->version_len
+  ) ) ) {
     FD_LOG_WARNING(( "Failed to generate gRPC request headers (%.*s). This is a bug", (int)path_len, path ));
     return 0;
   }

@@ -121,6 +121,10 @@ struct fd_grpc_client_private {
   uchar * nanopb_tx;
   uchar * frame_scratch;
 
+  /* Version string */
+  uchar version_len;
+  char  version[ FD_GRPC_CLIENT_VERSION_LEN_MAX ];
+
   fd_grpc_client_metrics_t * metrics;
 };
 
