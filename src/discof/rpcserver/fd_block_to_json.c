@@ -881,6 +881,8 @@ fd_account_to_json( fd_webserver_t * ws,
     encstr = "base64+zstd";
     break;
   }
+# else
+  (void)spad;
 # endif /* FD_HAS_ZSTD */
   default:
     return "unsupported encoding";

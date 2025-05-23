@@ -24,18 +24,16 @@ jobs:
           - linux_clang_x86_64
           - linux_clang_icelake
           - native
+          - native-no-deps
         # Attach additional params to machine types
         include:
           - test-case: linux_gcc_noarch64
             machine: linux_gcc_noarch64
             label: X64
-            extras: "rpath handholding"
             deps-extras: "+dev"
-            targets: "all"
+            targets: "check"
             compiler: gcc
             compiler-version: 8.5.0
-            run-unit-tests: false
-            run-integration-tests: false
           - test-case: linux_gcc_x86_64
             machine: linux_gcc_x86_64
             label: X64
@@ -45,7 +43,6 @@ jobs:
             compiler: gcc
             compiler-version: 8.5.0
             run-unit-tests: true
-            run-integration-tests: false
           - test-case: linux_gcc_icelake
             machine: linux_gcc_icelake
             label: icelake
@@ -55,7 +52,6 @@ jobs:
             compiler: gcc
             compiler-version: 12.4.0
             run-unit-tests: true
-            run-integration-tests: false
           - test-case: linux_clang_x86_64
             machine: linux_clang_x86_64
             label: X64
@@ -65,7 +61,6 @@ jobs:
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
-            run-integration-tests: false
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
             label: icelake
@@ -75,7 +70,6 @@ jobs:
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
-            run-integration-tests: false
           - test-case: native
             machine: native
             label: 512G
@@ -86,6 +80,13 @@ jobs:
             compiler-version: 15.0.6
             run-unit-tests: true
             run-integration-tests: true
+          - test-case: native-no-deps
+            machine: native
+            label: X64
+            extras: no-deps
+            targets: check
+            compiler: clang
+            compiler-version: 15.0.6
     runs-on: ${{ matrix.label }}
     env:
       MACHINE: ${{ matrix.machine }}
@@ -102,6 +103,7 @@ jobs:
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
           extras: ${{ matrix.deps-extras || '' }}
+        if: ${{ !contains(matrix.extras, 'no-deps') }}
       - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/cpusonline
       - uses: dtolnay/rust-toolchain@1.84.1
