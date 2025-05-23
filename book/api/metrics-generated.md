@@ -588,3 +588,11 @@
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;window | `counter` | What types of client messages are we sending (Need Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;highest_&#8203;window | `counter` | What types of client messages are we sending (Need Highest Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;orphan | `counter` | What types of client messages are we sending (Need Orphans) |
+
+## Sender Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| sender_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader | `counter` | Total count of transactions sent to leader |
+| sender_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found | `counter` | Total count of times leader schedule not found |
+| sender_&#8203;leader_&#8203;not_&#8203;found | `counter` | Total count of times leader not found for given slot |
+| sender_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found | `counter` | Total count of times leader contact info not found |
