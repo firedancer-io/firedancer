@@ -1,3 +1,4 @@
+#include "fd_exec.h"
 #define _GNU_SOURCE
 #include "../../disco/tiles.h"
 #include "generated/fd_replay_tile_seccomp.h"
@@ -183,7 +184,16 @@ struct fd_replay_tile_ctx {
   /* Updated during execution */
 
   fd_exec_slot_ctx_t  * slot_ctx;
-  fd_slice_exec_ctx_t   slice_exec_ctx; /* Maintains microblock (entry) batch buffer and wmk for replay. */
+  struct {
+    uchar * mbatch;    /* Pointer to the memory region sized for max sz of a block. */
+    ulong   wmark;     /* Offset into slice where previous bytes have been executed, and following bytes have not. Will be on a transaction or microblock boundary. */
+    ulong   sz;        /* Total bytes this slice occupies in mbatch memory. New slices are placed at this offset */
+    ulong   mblks_rem; /* Number of microblocks remaining in the current batch iteration. */
+    ulong   txns_rem;  /* Number of txns remaining in current microblock iteration. */
+
+    ulong   last_mblk_off; /* Stored offset to the last microblock header seen. Updated during block execution. */
+    int     last_batch;    /* Signifies last batch execution. */
+  } slice_exec_ctx;
 
   /* Metadata updated during execution */
 
@@ -211,10 +221,10 @@ struct fd_replay_tile_ctx {
 
   /* TODO: Some of these arrays should be bitvecs that get masked into. */
   ulong                exec_cnt;
-  fd_replay_out_link_t exec_out  [ FD_PACK_MAX_BANK_TILES ];   /* Sending to exec unexecuted txns */
+  fd_replay_out_link_t exec_out  [ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
   uchar                exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
-  uint                 prev_ids  [ FD_PACK_MAX_BANK_TILES ];   /* Previous txn id if any */
-  ulong *              exec_fseq [ FD_PACK_MAX_BANK_TILES ];  /* fseq of the last executed txn */
+  uint                 prev_ids  [ FD_PACK_MAX_BANK_TILES ]; /* Previous txn id if any */
+  ulong *              exec_fseq [ FD_PACK_MAX_BANK_TILES ]; /* fseq of the last executed txn */
   int                  block_finalizing;
 
   ulong                writer_cnt;
@@ -239,7 +249,6 @@ struct fd_replay_tile_ctx {
   ulong * poh;  /* proof-of-history slot */
   uint poh_init_done;
   int  snapshot_init_done;
-  int  startup_init_done;
 
   int         tower_checkpt_fileno;
 
@@ -366,7 +375,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-static void FD_FN_UNUSED
+static void
 snap_hash_tiles_cb( void * para_arg_1,
                     void * para_arg_2,
                     void * fn_arg_1,
@@ -455,7 +464,7 @@ snap_hash_tiles_cb( void * para_arg_1,
 }
 
 
-static void FD_FN_UNUSED
+static void
 bpf_tiles_cb( void * para_arg_1,
               void * para_arg_2,
               void * fn_arg_1,
@@ -1161,33 +1170,11 @@ send_exec_epoch_msg( fd_replay_tile_ctx_t * ctx,
 
     fd_runtime_public_epoch_msg_t * epoch_msg = (fd_runtime_public_epoch_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
 
-    epoch_msg->features            = slot_ctx->epoch_ctx->features;
-    epoch_msg->total_epoch_stake   = slot_ctx->epoch_ctx->total_epoch_stake;
-    epoch_msg->epoch_schedule      = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
-    epoch_msg->rent                = slot_ctx->epoch_ctx->epoch_bank.rent;
-    epoch_msg->slots_per_year      = slot_ctx->epoch_ctx->epoch_bank.slots_per_year;
-    epoch_msg->bank_hash_cmp_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp,
-                                                         fd_bank_hash_cmp_leave( ctx->bank_hash_cmp ) );
-    if( FD_UNLIKELY( !epoch_msg->bank_hash_cmp_gaddr ) ) {
-      FD_LOG_ERR(( "Failed to get gaddr for bank hash cmp" ));
-    }
-
-    ulong   stakes_encode_sz  = fd_stakes_size( &slot_ctx->epoch_ctx->epoch_bank.stakes ) + 128UL;
-    uchar * stakes_encode_mem = fd_spad_alloc( ctx->runtime_spad,
-                                               fd_stakes_align(),
-                                               stakes_encode_sz );
-
-    fd_bincode_encode_ctx_t encode = {
-      .data    = stakes_encode_mem,
-      .dataend = stakes_encode_mem + stakes_encode_sz
-    };
-    int err = fd_stakes_encode( &slot_ctx->epoch_ctx->epoch_bank.stakes, &encode );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to encode stakes" ));
-    }
-
-    epoch_msg->stakes_encoded_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, stakes_encode_mem );
-    epoch_msg->stakes_encoded_sz    = stakes_encode_sz;
+    generate_replay_exec_epoch_msg( slot_ctx,
+                                    ctx->runtime_spad,
+                                    ctx->runtime_public_wksp,
+                                    ctx->bank_hash_cmp,
+                                    epoch_msg );
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem,
@@ -1211,37 +1198,13 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
      also mark the tile as not not being ready. */
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
-    ctx->exec_ready[ i ] = EXEC_SLOT_WAIT;
+    ctx->exec_ready[ i ]            = EXEC_SLOT_WAIT;
     fd_replay_out_link_t * exec_out = &ctx->exec_out[ i ];
 
     fd_runtime_public_slot_msg_t * slot_msg = (fd_runtime_public_slot_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-
-    slot_msg->slot                        = slot_ctx->slot_bank.slot;
-    slot_msg->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
-    slot_msg->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
-    slot_msg->enable_exec_recording       = slot_ctx->enable_exec_recording;
-
-    /* Save the gaddr of the sysvar cache */
-    slot_msg->sysvar_cache_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, slot_ctx->sysvar_cache );
-
-    /* Now encode the bhq */
-    ulong   bhq_encode_sz  = fd_block_hash_queue_size( &slot_ctx->slot_bank.block_hash_queue ) + 128UL;
-    uchar * bhq_encode_mem = fd_spad_alloc( ctx->runtime_spad,
-                                            fd_block_hash_queue_align(),
-                                            bhq_encode_sz );
-    fd_bincode_encode_ctx_t encode = {
-      .data    = bhq_encode_mem,
-      .dataend = bhq_encode_mem + bhq_encode_sz
-    };
-    int err = fd_block_hash_queue_encode( &slot_ctx->slot_bank.block_hash_queue, &encode );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to encode block hash queue" ));
-    }
-    slot_msg->block_hash_queue_encoded_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, bhq_encode_mem );
-    slot_msg->block_hash_queue_encoded_sz    = bhq_encode_sz;
+    generate_replay_exec_slot_msg( slot_ctx, ctx->runtime_spad, ctx->runtime_public_wksp, slot_msg );
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem,
@@ -1257,13 +1220,11 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
 
   /* Notify writer tiles as well. */
   for( ulong i=0UL; i<ctx->writer_cnt; i++ ) {
-
     ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
     fd_replay_out_link_t * writer_out = &ctx->writer_out[ i ];
 
     fd_runtime_public_replay_writer_slot_msg_t * slot_msg = (fd_runtime_public_replay_writer_slot_msg_t *)fd_chunk_to_laddr( writer_out->mem, writer_out->chunk );
-
     slot_msg->slot_ctx_gaddr = fd_wksp_gaddr_fast( ctx->runtime_public_wksp, slot_ctx );
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -1271,11 +1232,11 @@ send_exec_slot_msg( fd_replay_tile_ctx_t * ctx,
                      writer_out->idx,
                      FD_WRITER_SLOT_SIG,
                      writer_out->chunk,
-                     sizeof(*slot_msg),
+                     sizeof(fd_runtime_public_replay_writer_slot_msg_t),
                      0UL,
                      tsorig,
                      tspub );
-    writer_out->chunk = fd_dcache_compact_next( writer_out->chunk, sizeof(*slot_msg), writer_out->chunk0, writer_out->wmark );
+    writer_out->chunk = fd_dcache_compact_next( writer_out->chunk, sizeof(fd_runtime_public_replay_writer_slot_msg_t), writer_out->chunk0, writer_out->wmark );
   }
 }
 
@@ -1972,8 +1933,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   bank_hash_cmp->total_stake         = ctx->epoch->total_stake;
   bank_hash_cmp->watermark           = snapshot_slot;
 
-
-
   fd_epoch_fork_elem_t * curr_entry = &ctx->epoch_forks->forks[ 0 ];
 
   if( strlen( ctx->genesis ) > 0 ) {
@@ -2217,7 +2176,6 @@ join_txn_ctx( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-// TODO: move to exec.h
 static void
 handle_exec_state_updates( fd_replay_tile_ctx_t * ctx ) {
 
@@ -2948,7 +2906,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->poh_init_done      = 0U;
   ctx->snapshot_init_done = 0;
-  ctx->startup_init_done  = 0;
 
   /**********************************************************************/
   /* exec                                                               */
