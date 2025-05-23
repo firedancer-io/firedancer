@@ -51,6 +51,7 @@ bundle_client_topo( config_t *   config ) {
   strncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );
   strncpy( bundle_tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(bundle_tile->bundle.key_log_path) );
   bundle_tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
+  bundle_tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
   bundle_tile->bundle.keepalive_interval_nanos = (ulong)( config->tiles.bundle.keepalive_interval_seconds * 1e9f );
   bundle_tile->bundle.request_timeout_nanos = (ulong)( config->tiles.bundle.request_timeout_seconds * 1e9f );
 
