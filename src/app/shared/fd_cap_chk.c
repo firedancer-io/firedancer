@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_cap_chk.h"
 
-#include "fd_file_util.h"
+#include "../configutil/fd_file_util.h"
 #include "../../util/fd_util.h"
 
 #include <unistd.h>

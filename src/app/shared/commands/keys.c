@@ -1,7 +1,7 @@
 #include "../fd_config.h"
 #include "../fd_action.h"
 
-#include "../fd_file_util.h"
+#include "../../configutil/fd_file_util.h"
 #include "../../../disco/keyguard/fd_keyload.h"
 
 #include <errno.h>
