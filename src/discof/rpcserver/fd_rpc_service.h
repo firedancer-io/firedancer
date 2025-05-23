@@ -23,6 +23,10 @@ struct fd_rpcserver_args {
   ushort               port;
   fd_http_server_params_t params;
   struct sockaddr_in   tpu_addr;
+  uint                 block_index_max;
+  uint                 txn_index_max;
+  uint                 acct_index_max;
+  char                 history_file[ PATH_MAX ];
 
   /* Bump allocator */
   fd_spad_t *          spad;

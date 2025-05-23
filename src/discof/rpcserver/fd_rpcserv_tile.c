@@ -204,6 +204,11 @@ privileged_init( fd_topo_t *      topo,
 
   args->blockstore_fd = ctx->blockstore_fd;
 
+  args->block_index_max = tile->rpcserv.block_index_max;
+  args->txn_index_max = tile->rpcserv.txn_index_max;
+  args->acct_index_max = tile->rpcserv.acct_index_max;
+  strncpy( args->history_file, tile->rpcserv.history_file, sizeof(args->history_file) );
+
   fd_spad_push( args->spad ); /* We close this out when we stop the server */
   fd_rpc_create_ctx( args, &ctx->ctx );
 

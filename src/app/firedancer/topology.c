@@ -931,6 +931,10 @@ fd_topo_initialize( config_t * config ) {
       tile->rpcserv.rpc_port = config->rpc.port;
       tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
       tile->rpcserv.tpu_ip_addr = config->net.ip_addr;
+      tile->rpcserv.block_index_max = config->rpc.block_index_max;
+      tile->rpcserv.txn_index_max = config->rpc.txn_index_max;
+      tile->rpcserv.acct_index_max = config->rpc.acct_index_max;
+      strncpy( tile->rpcserv.history_file, config->rpc.history_file, sizeof(tile->rpcserv.history_file) );
       strncpy( tile->rpcserv.identity_key_path, config->paths.identity_key, sizeof(tile->rpcserv.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "batch" ) ) ) {
       tile->batch.full_interval        = config->tiles.batch.full_interval;
