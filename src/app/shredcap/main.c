@@ -81,12 +81,12 @@ main( int argc, char ** argv ) {
       FD_LOG_ERR(( "failed to join a blockstore" ));
     }
   } else {
-    shmem = fd_wksp_alloc_laddr( wksp, fd_blockstore_align(), fd_blockstore_footprint( shred_max, slot_history_max, 16, shred_max ), FD_BLOCKSTORE_MAGIC );
+    shmem = fd_wksp_alloc_laddr( wksp, fd_blockstore_align(), fd_blockstore_footprint( shred_max, slot_history_max, 16 ), FD_BLOCKSTORE_MAGIC );
     if ( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
 
-    blockstore = fd_blockstore_join( &blockstore_ljoin, fd_blockstore_new( shmem, 1, hashseed, shred_max, slot_history_max, 16, shred_max ) );
+    blockstore = fd_blockstore_join( &blockstore_ljoin, fd_blockstore_new( shmem, 1, hashseed, shred_max, slot_history_max, 16 ) );
     if ( blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a blockstore" ));

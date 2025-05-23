@@ -29,8 +29,6 @@ const char* fd_txn_to_json( fd_webserver_t * ws,
                             fd_spad_t * spad );
 
 const char* fd_block_to_json( fd_webserver_t * ws,
-                              fd_blockstore_t * blockstore,
-                              int blockstore_fd,
                               const char * call_id,
                               const uchar * blk_data,
                               ulong blk_sz,

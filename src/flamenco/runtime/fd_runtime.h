@@ -574,7 +574,6 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
-                         fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info,
                          fd_spad_t *                  finalize_spad );
 

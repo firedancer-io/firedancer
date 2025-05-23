@@ -245,18 +245,6 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
                                          ulong          start_slot,
                                          ulong          end_slot );
 
-/* fd_rocksdb_copy_over_txn_status_range copies over all transaction statuses
-   within a block range assuming the blockstore contains relevant pointers to
-   the transactions within the range. The blockstore object must be populated
-   with the relevant block range. */
-
-int
-fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
-                                       fd_rocksdb_t *    dst,
-                                       fd_blockstore_t * blockstore,
-                                       ulong             start_slot,
-                                       ulong             end_slot );
-
 /* fd_rocksdb_copy_over_txn_status constructs a key to query a transaction
    status and copies over the entry into another rocksdb. The index is used
    to specify which transaction. */
@@ -283,7 +271,6 @@ int
 fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
                                     fd_slot_meta_t *  m,
                                     fd_blockstore_t * blockstore,
-                                    int               txnstatus,
                                     const uchar *     hash_override,
                                     fd_valloc_t       valloc );
 
