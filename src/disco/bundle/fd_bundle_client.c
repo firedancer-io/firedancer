@@ -257,13 +257,13 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
       FD_LOG_INFO(( "Bundle gRPC connect attempt failed (%i-%s)", connect_err, fd_io_strerror( connect_err ) ));
       fd_bundle_client_reset( ctx );
       ctx->metrics.transport_fail_cnt++;
-      *charge_busy =1 ;
+      *charge_busy = 1;
       return;
     }
     if( pfds[0].revents & POLLOUT ) {
       FD_LOG_DEBUG(( "Bundle TCP socket connected" ));
       ctx->tcp_sock_connected = 1;
-      *charge_busy =1 ;
+      *charge_busy = 1;
       return;
     }
     return;
@@ -302,33 +302,34 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
   }
   if( FD_UNLIKELY( ctx->auther.state!=FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return;
 
-  *charge_busy = 1;
-
   /* Request block builder info */
   if( FD_UNLIKELY( !ctx->builder_info_live && !ctx->builder_info_wait ) ) {
     fd_bundle_client_request_builder_info( ctx );
-    return;
+    goto busy_exit;
   }
 
   /* Subscribe to packets */
   if( FD_UNLIKELY( !ctx->packet_subscription_live && !ctx->packet_subscription_wait ) ) {
     fd_bundle_client_subscribe_packets( ctx );
-    return;
+    goto busy_exit;
   }
 
   /* Subscribe to bundles */
   if( FD_UNLIKELY( !ctx->bundle_subscription_live && !ctx->bundle_subscription_wait ) ) {
     fd_bundle_client_subscribe_bundles( ctx );
-    return;
+    goto busy_exit;
   }
 
   /* Send a PING */
   if( FD_UNLIKELY( fd_bundle_client_keepalive_due( ctx, io_ts ) ) ) {
     fd_bundle_client_send_ping( ctx );
-    return;
+    goto busy_exit;
   }
 
-  *charge_busy = 0;
+  return;
+busy_exit:
+  *charge_busy = 1;
+  return;
 }
 
 void

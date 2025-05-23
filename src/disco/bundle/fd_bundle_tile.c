@@ -477,8 +477,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Set socket receive buffer size */
-  ulong so_rcvbuf = tile->bundle.buf_sz + 65536UL;
-  if( so_rcvbuf > INT_MAX ) FD_LOG_ERR(( "Invalid [development.bundle.buffer_size_kib]: too large" ));
+  ulong so_rcvbuf = tile->bundle.buf_sz;
+  if( FD_UNLIKELY( so_rcvbuf < 2048UL  ) ) FD_LOG_ERR(( "Invalid [development.bundle.buffer_size_kib]: too small" ));
+  if( FD_UNLIKELY( so_rcvbuf > INT_MAX ) ) FD_LOG_ERR(( "Invalid [development.bundle.buffer_size_kib]: too large" ));
   ctx->so_rcvbuf = (int)so_rcvbuf;
 
   /* Set idle ping timer */
