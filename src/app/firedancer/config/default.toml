@@ -1328,6 +1328,13 @@ user = ""
         # frame buffer, and a Protobuf encode buffer.
         buffer_size_kib = 1024
 
+        # SSL library heap size in MiB.
+        #
+        # When connecting to an HTTPS bundle endpoint, the SSL library
+        # dynamic allocations in a fixed size heap region.  This option
+        # controls the size of that region.
+        ssl_heap_size_mib = 64
+
         # Log TLS encryption keys for block engine connection.  An empty
         # string (the default) disables key logging.
         #

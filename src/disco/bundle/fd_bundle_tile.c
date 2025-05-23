@@ -26,7 +26,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)   );
   l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()       );
   return FD_LAYOUT_FINI( l, 32 );
+}
+
+FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  /* Leftover space for OpenSSL allocations */
+  return 1UL<<26; /* 64 MiB */
 }
 
 static inline void
@@ -39,6 +47,15 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
   FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
   FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
+
+  fd_wksp_t * wksp = fd_wksp_containing( ctx );
+  fd_wksp_usage_t usage[1];
+  ulong const free_tag = 0UL;
+  if( FD_UNLIKELY( !fd_wksp_usage( wksp, &free_tag, 1UL, usage ) ) ) {
+    FD_LOG_ERR(( "fd_wksp_usage failed" )); /* unreachable */
+  }
+  FD_MGAUGE_SET( BUNDLE, HEAP_SIZE,       usage->total_sz );
+  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->used_sz  );
 
   int bundle_status = fd_bundle_client_status( ctx );
   FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
@@ -207,6 +224,68 @@ fd_bundle_tile_resolve_endpoint( fd_bundle_tile_t *     ctx,
 
 #if FD_HAS_OPENSSL
 
+/* OpenSSL allows us to specify custom memory allocation functions,
+   which we want to point to an fd_alloc_t, but it does not let us use a
+   context object.  Instead we stash it in this thread local, which is
+   OK because the parent workspace exists for the duration of the SSL
+   context, and the process only has one thread.
+
+   Currently fd_alloc doesn't support realloc, so it's implemented on
+   top of malloc and free, and then also it doesn't support getting the
+   size of an allocation from the pointer, which we need for realloc, so
+   we pad each alloc by 8 bytes and stuff the size into the first 8
+   bytes. */
+static FD_TL fd_alloc_t * fd_quic_ssl_mem_function_ctx = NULL;
+
+static void *
+crypto_malloc( ulong        num,
+               char const * file,
+               int          line ) {
+  (void)file; (void)line;
+  void * result = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
+  if( FD_UNLIKELY( !result ) ) {
+    FD_MCNT_INC( BUNDLE, ERRORS_SSL_ALLOC, 1UL );
+    return NULL;
+  }
+  *(ulong *)result = num;
+  return (uchar *)result + 8UL;
+}
+
+static void
+crypto_free( void *       addr,
+             char const * file,
+             int          line ) {
+  (void)file;
+  (void)line;
+
+  if( FD_UNLIKELY( !addr ) ) return;
+  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
+}
+
+static void *
+crypto_realloc( void *       addr,
+                ulong        num,
+                char const * file,
+                int          line ) {
+  (void)file;
+  (void)line;
+
+  if( FD_UNLIKELY( !addr ) ) return crypto_malloc( num, file, line );
+  if( FD_UNLIKELY( !num ) ) {
+    crypto_free( addr, file, line );
+    return NULL;
+  }
+
+  void * new = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
+  if( FD_UNLIKELY( !new ) ) return NULL;
+
+  ulong old_num = *(ulong *)( (uchar *)addr - 8UL );
+  fd_memcpy( (uchar*)new + 8, (uchar*)addr, fd_ulong_min( old_num, num ) );
+  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
+  *(ulong *)new = num;
+  return (uchar*)new + 8UL;
+}
+
 static void
 fd_ossl_keylog_callback( SSL const *  ssl,
                          char const * line ) {
@@ -223,8 +302,25 @@ fd_ossl_keylog_callback( SSL const *  ssl,
 }
 
 static void
-fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx ) {
-  OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, NULL );
+fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
+                             void *             alloc_mem ) {
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
+  if( FD_UNLIKELY( !alloc ) ) {
+    FD_LOG_ERR(( "fd_alloc_new failed" ));
+  }
+  ctx->ssl_alloc               = alloc;
+  fd_quic_ssl_mem_function_ctx = alloc;
+
+  if( FD_UNLIKELY( !CRYPTO_set_mem_functions( crypto_malloc, crypto_realloc, crypto_free ) ) ) {
+    FD_LOG_ERR(( "CRYPTO_set_mem_functions failed" ));
+  }
+
+  OPENSSL_init_ssl(
+      OPENSSL_INIT_LOAD_SSL_STRINGS |
+      OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
+      OPENSSL_INIT_NO_LOAD_CONFIG,
+      NULL
+  );
 
   SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
   if( FD_UNLIKELY( !ssl_ctx ) ) {
@@ -262,9 +358,11 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t) );
-  void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(), fd_grpc_client_footprint()  );
+  fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)   );
+  void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint() );
+  void *             alloc_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()       );
   ulong              scratch_end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  (void)alloc_mem; /* potentially unused */
 
   if( FD_UNLIKELY( (ulong)ctx != (ulong)scratch ) ) {
     FD_LOG_CRIT(( "Invalid bundle tile scratch alignment" )); /* unreachable */
@@ -301,9 +399,10 @@ privileged_init( fd_topo_t *      topo,
     }
   }
 
-  /* OpenSSL initialization does arbitrary syscalls and system ops,
-     therefore has to be run outside the sandbox. */
-  fd_bundle_tile_init_openssl( ctx );
+  /* OpenSSL goes and tries to read files and allocate memory and
+     other dumb things on a thread local basis, so we need a special
+     initializer to do it before seccomp happens in the process. */
+  fd_bundle_tile_init_openssl( ctx, alloc_mem );
 
 # endif /* FD_HAS_OPENSSL */
 
@@ -436,6 +535,7 @@ fd_topo_run_tile_t fd_tile_bundle = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

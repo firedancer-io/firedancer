@@ -6,6 +6,7 @@
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../waltz/grpc/fd_grpc_client.h"
+#include "../../util/alloc/fd_alloc.h"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h> /* SSL_CTX */
@@ -52,10 +53,11 @@ struct fd_bundle_tile {
   uint      is_ssl : 1;
 # if FD_HAS_OPENSSL
   /* OpenSSL */
-  SSL_CTX * ssl_ctx;
-  SSL *     ssl;
-  uint      skip_cert_verify : 1;
-  int       keylog_fd;
+  SSL_CTX *    ssl_ctx;
+  SSL *        ssl;
+  fd_alloc_t * ssl_alloc;
+  uint         skip_cert_verify : 1;
+  int          keylog_fd;
 # endif /* FD_HAS_OPENSSL */
 
   /* Config */

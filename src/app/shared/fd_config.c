@@ -554,6 +554,8 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( development.bench.benchg_tile_count );
   CFG_HAS_NON_ZERO ( development.bench.benchs_tile_count );
   CFG_HAS_NON_EMPTY( development.bench.affinity );
+
+  CFG_HAS_NON_ZERO( development.bundle.ssl_heap_size_mib );
 }
 
 #undef CFG_HAS_NON_EMPTY
