@@ -12,6 +12,7 @@
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../choreo/fd_choreo_base.h"
 #include "../../util/net/fd_net_headers.h"
@@ -536,9 +537,9 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
     }
-    /*                */ dcache_entry  = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_stake_msg_hdr_t * hdr           = (fd_stake_msg_hdr_t *)(dcache_entry);
-    fd_stake_weight_t  * stake_weights = (fd_stake_weight_t  *)(hdr + 1);
+    /*                */    dcache_entry  = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_stake_weight_msg_t * hdr           = (fd_stake_weight_msg_t *)(dcache_entry);
+    fd_stake_weight_t     * stake_weights = (fd_stake_weight_t  *)(hdr + 1);
     fd_repair_set_stake_weights_init( ctx->repair, stake_weights, hdr->staked_cnt );
     return;
 

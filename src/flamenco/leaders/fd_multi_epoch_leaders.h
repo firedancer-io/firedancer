@@ -49,12 +49,12 @@ FD_PROTOTYPES_BEGIN
 #define FD_MULTI_EPOCH_LEADERS_FOOTPRINT \
   sizeof(fd_multi_epoch_leaders_t)
 
-FD_FN_CONST ulong
+FD_FN_CONST static inline ulong
 fd_multi_epoch_leaders_align( void ) {
   return FD_MULTI_EPOCH_LEADERS_ALIGN;
 }
 
-FD_FN_CONST ulong
+FD_FN_CONST static inline ulong
 fd_multi_epoch_leaders_footprint( void ) {
   return FD_MULTI_EPOCH_LEADERS_FOOTPRINT;
 }

@@ -1,4 +1,5 @@
 #include "fd_multi_epoch_leaders.h"
+#include "../../discof/replay/fd_exec.h"
 
 void *
 fd_multi_epoch_leaders_new( void * shmem ) {
@@ -87,7 +88,7 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * leaders,
 void
 fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t * leaders,
                                        uchar const *              new_message ) {
-  fd_stake_msg_hdr_t const * hdr = fd_type_pun_const( new_message );
+  fd_stake_weight_msg_t const * hdr = fd_type_pun_const( new_message );
 
   if( FD_UNLIKELY( hdr->staked_cnt > MAX_STAKED_LEADERS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
