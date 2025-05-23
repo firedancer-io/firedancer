@@ -194,29 +194,37 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
                             int                sock_fd,
                             int *              charge_busy ) {
   fd_h2_conn_t * conn = client->conn;
+  ulong const frame_rx_lo_0 = client->frame_rx->lo_off;
+  ulong const frame_rx_hi_0 = client->frame_rx->hi_off;
+  ulong const frame_tx_lo_1 = client->frame_tx->lo_off;
+  ulong const frame_tx_hi_1 = client->frame_tx->hi_off;
 
-  ulong frame_rx_0 = client->frame_rx->hi_off;
   int rx_err = fd_h2_rbuf_recvmsg( client->frame_rx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
   if( FD_UNLIKELY( rx_err ) ) {
     FD_LOG_INFO(( "Disconnected: recvmsg error (%i-%s)", rx_err, fd_io_strerror( rx_err ) ));
     return 0;
   }
-  ulong frame_rx_1 = client->frame_rx->hi_off;
-  if( frame_rx_0!=frame_rx_1 ) *charge_busy = 1;
 
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, FD_GRPC_CLIENT_BUFSZ, &fd_grpc_client_h2_callbacks );
   fd_grpc_client_send_stream_window_updates( client );
 
-  ulong frame_tx_0 = client->frame_tx->lo_off;
   int tx_err = fd_h2_rbuf_sendmsg( client->frame_tx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
   if( FD_UNLIKELY( tx_err ) ) {
     FD_LOG_WARNING(( "fd_h2_rbuf_sendmsg failed (%i-%s)", tx_err, fd_io_strerror( tx_err ) ));
     return 0;
   }
-  ulong frame_tx_1 = client->frame_tx->lo_off;
 
-  if( frame_rx_0!=frame_rx_1 || frame_tx_0!=frame_tx_1 ) *charge_busy = 1;
+  ulong const frame_rx_lo_1 = client->frame_rx->lo_off;
+  ulong const frame_rx_hi_1 = client->frame_rx->hi_off;
+  ulong const frame_tx_lo_0 = client->frame_tx->lo_off;
+  ulong const frame_tx_hi_0 = client->frame_tx->hi_off;
+
+  if( frame_rx_lo_0!=frame_rx_lo_1 || frame_rx_hi_0!=frame_rx_hi_1 ||
+      frame_tx_lo_0!=frame_tx_lo_1 || frame_tx_hi_0!=frame_tx_hi_1 ) {
+    *charge_busy = 1;
+  }
+
   return 1;
 }
 
