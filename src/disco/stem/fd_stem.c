@@ -456,8 +456,8 @@ STEM_(run1)( ulong                        in_cnt,
     };
 #endif
 
-#ifdef STEM_CALLBACK_BEFORE_CREDIT
     int charge_busy_before = 0;
+#ifdef STEM_CALLBACK_BEFORE_CREDIT
     STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem, &charge_busy_before );
 #endif
 
@@ -481,9 +481,9 @@ STEM_(run1)( ulong                        in_cnt,
     }
     metric_in_backp = 0UL;
 
+    int charge_busy_after = 0;
 #ifdef STEM_CALLBACK_AFTER_CREDIT
     int poll_in = 1;
-    int charge_busy_after = 0;
     STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after );
     if( FD_UNLIKELY( !poll_in ) ) {
       metric_regime_ticks[1] += housekeeping_ticks;
@@ -497,9 +497,12 @@ STEM_(run1)( ulong                        in_cnt,
     /* Select which in to poll next (randomized round robin) */
 
     if( FD_UNLIKELY( !in_cnt ) ) {
-      metric_regime_ticks[0] += housekeeping_ticks;
+      int was_busy = 0;
+      was_busy |= !!charge_busy_before;
+      was_busy |= !!charge_busy_after;
+      metric_regime_ticks[ 0+was_busy ] += housekeeping_ticks;
       long next = fd_tickcount();
-      metric_regime_ticks[3] += (ulong)(next - now);
+      metric_regime_ticks[ 3+was_busy ] += (ulong)(next - now);
       now = next;
       continue;
     }
