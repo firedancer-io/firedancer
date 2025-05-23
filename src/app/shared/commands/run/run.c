@@ -10,7 +10,7 @@
 #endif
 
 #include "../../fd_sys_util.h"
-#include "../../fd_file_util.h"
+#include "../../../configutil/fd_file_util.h"
 #include "../../fd_net_util.h"
 
 #include "../configure/configure.h"

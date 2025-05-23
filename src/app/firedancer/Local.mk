@@ -37,7 +37,7 @@ $(call add-objs,callbacks,fd_firedancer)
 $(call make-lib,firedancer_version)
 $(call add-objs,version,firedancer_version)
 
-$(call make-bin,firedancer,main,fd_firedancer fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version, $(SECP256K1_LIBS))
+$(call make-bin,firedancer,main,fd_firedancer fdctl_shared fd_configutil fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version, $(SECP256K1_LIBS))
 
 firedancer: $(OBJDIR)/bin/firedancer
 else

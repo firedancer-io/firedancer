@@ -3,7 +3,7 @@
 
 #include "../../../shared/genesis_hash.h"
 #include "../../../shared/fd_sys_util.h"
-#include "../../../shared/fd_file_util.h"
+#include "../../../configutil/fd_file_util.h"
 
 #include "../../../../ballet/shred/fd_shred.h"
 #include "../../../../disco/shred/fd_shredder.h"

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_shared_fd_config_private_h
 
 #include "fd_config.h"
+#include "../configutil/fd_config_parse.h"
 
 FD_PROTOTYPES_BEGIN
 
