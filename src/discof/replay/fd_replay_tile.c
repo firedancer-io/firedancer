@@ -14,7 +14,6 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
@@ -96,13 +95,14 @@ typedef struct fd_replay_tile_metrics fd_replay_tile_metrics_t;
 #define FD_REPLAY_TILE_METRICS_FOOTPRINT ( sizeof( fd_replay_tile_metrics_t ) )
 
 struct fd_slice_exec_ctx {
-  ulong wmark;     /* offset to start executing from. Will be on a transaction or microblock boundary. */
-  ulong sz;        /* total bytes occupied in the mbatch memory. Queried slices should be placed at this offset */
-  ulong mblks_rem; /* microblocks remaining in the current batch iteration. If 0, the next batch can be read. */
-  ulong txns_rem;  /* txns remaining in current microblock iteration. If 0, the next microblock can be read. */
+  uchar * mbatch;    /* Pointer to the memory region sized for max sz of a block. */
+  ulong   wmark;     /* Offset into slice where previous bytes have been executed, and following bytes have not. Will be on a transaction or microblock boundary. */
+  ulong   sz;        /* Total bytes this slice occupies in mbatch memory. New slices are placed at this offset */
+  ulong   mblks_rem; /* Number of microblocks remaining in the current batch iteration. */
+  ulong   txns_rem;  /* Number of txns remaining in current microblock iteration. */
 
-  ulong last_mblk_off; /* offset to the last microblock hdr seen */
-  int   last_batch;    /* signifies last batch execution for stopping condition */
+  ulong   last_mblk_off; /* Stored offset to the last microblock header seen. Updated during block execution. */
+  int     last_batch;    /* Signifies last batch execution. */
 };
 typedef struct fd_slice_exec_ctx fd_slice_exec_ctx_t;
 
@@ -156,14 +156,12 @@ struct fd_replay_tile_ctx {
 
   /* Do not modify order! This is join-order in unprivileged_init. */
 
-  fd_alloc_t *          alloc;
-  fd_valloc_t           valloc;
   fd_funk_t             funk[1];
   fd_exec_epoch_ctx_t * epoch_ctx;
-  fd_epoch_t *          epoch;
-  fd_forks_t *          forks;
-  fd_ghost_t *          ghost;
-  fd_tower_t *          tower;
+  fd_epoch_t          * epoch;
+  fd_forks_t          * forks;
+  fd_ghost_t          * ghost;
+  fd_tower_t          * tower;
 
   fd_pubkey_t validator_identity[1];
   fd_pubkey_t vote_authority[1];
@@ -173,15 +171,10 @@ struct fd_replay_tile_ctx {
      addresses (pubkeys) are valid for the epoch (the pubkey memory is
      owned by the epoch bank). */
 
-  fd_voter_t *          epoch_voters; /* map chain of slot->voter */
-  fd_bank_hash_cmp_t *  bank_hash_cmp;
+  fd_voter_t         * epoch_voters;  /* Map chain of slot->voter */
+  fd_bank_hash_cmp_t * bank_hash_cmp; /* Maintains bank hashes seen from votes */
 
-  /* Microblock (entry) batch buffer for replay. */
-
-  uchar * mbatch; /* TODO move mbatch to slice_exec_ctx or replay */
-  fd_slice_exec_ctx_t slice_exec_ctx;
-
-  /* Depends on store_int and is polled in after_credit */
+  /* Blockstore local join */
 
   fd_blockstore_t   blockstore_ljoin;
   int               blockstore_fd; /* file descriptor for archival file */
@@ -189,19 +182,20 @@ struct fd_replay_tile_ctx {
 
   /* Updated during execution */
 
-  fd_exec_slot_ctx_t *  slot_ctx;
+  fd_exec_slot_ctx_t  * slot_ctx;
+  fd_slice_exec_ctx_t   slice_exec_ctx; /* Maintains microblock (entry) batch buffer and wmk for replay. */
 
   /* Metadata updated during execution */
 
-  ulong     curr_slot;
-  ulong     parent_slot;
-  ulong     snapshot_slot;
-  ulong     last_completed_slot; /* questionable variable used for making sure we do post-block execution steps only once,
-                                    probably can remove this if after we rip out ctx->curr_slot (received from STORE) */
-  fd_hash_t blockhash;
-  ulong     flags;
-  ulong     txn_cnt;
-  ulong     bank_idx;
+  ulong   curr_slot;
+  ulong   parent_slot;
+  ulong   snapshot_slot;
+  ulong * curr_turbine_slot;
+  ulong   root; /* the root slot is the most recent slot to have reached
+                   max lockout in the tower  */
+  ulong   flags;
+  ulong   txn_cnt;
+  ulong   bank_idx;
 
   /* Other metadata */
 
@@ -211,29 +205,22 @@ struct fd_replay_tile_ctx {
   FILE *             capture_file;
   FILE *             slots_replayed_file;
 
-  int skip_frag;
-
-  ulong * curr_turbine_slot;
-
   ulong * bank_busy[ FD_PACK_MAX_BANK_TILES ];
   ulong   bank_cnt;
   fd_replay_out_link_t bank_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to PoH finished txns + a couple more tasks ??? */
 
   /* TODO: Some of these arrays should be bitvecs that get masked into. */
-  ulong               exec_cnt;
-  ulong               exec_out_idx;
-  fd_replay_out_link_t exec_out[ FD_PACK_MAX_BANK_TILES ];   /* Sending to exec unexecuted txns */
-  uchar               exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
-  uint                prev_ids[ FD_PACK_MAX_BANK_TILES ];   /* Previous txn id if any */
-  ulong *             exec_fseq[ FD_PACK_MAX_BANK_TILES ];  /* fseq of the last executed txn */
-  int                 block_finalizing;
+  ulong                exec_cnt;
+  fd_replay_out_link_t exec_out  [ FD_PACK_MAX_BANK_TILES ];   /* Sending to exec unexecuted txns */
+  uchar                exec_ready[ FD_PACK_MAX_BANK_TILES ]; /* Is tile ready */
+  uint                 prev_ids  [ FD_PACK_MAX_BANK_TILES ];   /* Previous txn id if any */
+  ulong *              exec_fseq [ FD_PACK_MAX_BANK_TILES ];  /* fseq of the last executed txn */
+  int                  block_finalizing;
 
-  ulong               writer_cnt;
-  ulong *             writer_fseq[ FD_PACK_MAX_BANK_TILES ];
-  fd_replay_out_link_t writer_out[ FD_PACK_MAX_BANK_TILES ];
+  ulong                writer_cnt;
+  ulong *              writer_fseq[ FD_PACK_MAX_BANK_TILES ];
+  fd_replay_out_link_t writer_out [ FD_PACK_MAX_BANK_TILES ];
 
-  ulong root; /* the root slot is the most recent slot to have reached
-                 max lockout in the tower  */
 
   ulong * published_wmark; /* publish watermark. The watermark is defined as the
                   minimum of the tower root (root above) and blockstore
@@ -318,7 +305,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
@@ -672,7 +658,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  sz  FD_PARAM_UNUSED,
              ulong                  ctl FD_PARAM_UNUSED ) {
 
-  ctx->skip_frag = 0;
   if( in_idx==BATCH_IN_IDX ) {
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
     fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
@@ -1075,7 +1060,6 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.transaction_count = fork->slot_ctx->slot_bank.transaction_count;
     msg->slot_exec.shred_cnt = fork->slot_ctx->shred_cnt;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
-    memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
     msg->slot_exec.ts = tsorig;
     NOTIFY_END;
@@ -1557,7 +1541,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       ulong                             pay_sz   = 0UL;
       fd_replay_out_link_t *             exec_out = &ctx->exec_out[ exec_idx ];
       fd_txn_p_t txn_p;
-      ulong txn_sz = fd_txn_parse_core( ctx->mbatch + ctx->slice_exec_ctx.wmark,
+      ulong txn_sz = fd_txn_parse_core( ctx->slice_exec_ctx.mbatch + ctx->slice_exec_ctx.wmark,
                                         fd_ulong_min( FD_TXN_MTU, ctx->slice_exec_ctx.sz - ctx->slice_exec_ctx.wmark ),
                                         TXN( &txn_p ),
                                         NULL,
@@ -1566,7 +1550,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU ) ) {
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
-      fd_memcpy( txn_p.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
+      fd_memcpy( txn_p.payload, ctx->slice_exec_ctx.mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
       txn_p.payload_sz           = pay_sz;
       ctx->slice_exec_ctx.wmark += pay_sz;
 
@@ -1597,7 +1581,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
        to read, then advance to the next microblock */
 
     if( ctx->slice_exec_ctx.txns_rem == 0 && ctx->slice_exec_ctx.mblks_rem > 0 ){
-      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.wmark );
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.mbatch + ctx->slice_exec_ctx.wmark );
       FD_LOG_DEBUG(( "[%s] reading microblock with %lu txns", __func__, hdr->txn_cnt ));
       ctx->blocked_on_mblock            = 1;
       ctx->slice_exec_ctx.txns_rem      = hdr->txn_cnt;
@@ -1633,7 +1617,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
        FD_LOG_ERR(( "Unable to select a fork" ));
      }
 
-     fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t*)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.last_mblk_off );
+     fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t*)fd_type_pun( ctx->slice_exec_ctx.mbatch + ctx->slice_exec_ctx.last_mblk_off );
 
      // Copy block hash to slot_bank poh for updating the sysvars
      fd_block_map_query_t query[1] = { 0 };
@@ -1735,13 +1719,13 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
                                         start_idx,
                                         start_idx + data_cnt - 1,
                                         FD_SLICE_MAX,
-                                        ctx->mbatch,
+                                        ctx->slice_exec_ctx.mbatch,
                                         &slice_sz );
   fork->end_idx += data_cnt;
   ctx->slice_exec_ctx.sz         = slice_sz;
   ctx->slice_exec_ctx.last_batch = slot_complete;
   ctx->slice_exec_ctx.txns_rem   = 0;
-  ctx->slice_exec_ctx.mblks_rem  = FD_LOAD( ulong, ctx->mbatch );
+  ctx->slice_exec_ctx.mblks_rem  = FD_LOAD( ulong, ctx->slice_exec_ctx.mbatch );
   ctx->slice_exec_ctx.wmark      = sizeof(ulong);
   ctx->slice_exec_ctx.last_mblk_off = 0;
   fork->slot_ctx->shred_cnt    += data_cnt;
@@ -1967,7 +1951,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   ctx->curr_slot     = snapshot_slot;
   ctx->parent_slot   = ctx->slot_ctx->slot_bank.prev_slot;
   ctx->snapshot_slot = snapshot_slot;
-  ctx->blockhash     = ( fd_hash_t ){ .hash = { 0 } };
   ctx->flags         = EXEC_FLAG_READY_NEW;
   ctx->txn_cnt       = 0UL;
 
@@ -2353,12 +2336,10 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
 
-    FD_LOG_NOTICE(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
+    FD_LOG_NOTICE(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu",
                     curr_slot,
                     ctx->parent_slot,
-                    fork->slot_ctx->txn_count,
-                    FD_BASE58_ENC_32_ALLOCA( ctx->blockhash.uc ) ));
-    ctx->last_completed_slot = curr_slot;
+                    fork->slot_ctx->txn_count ));
 
     /**************************************************************************************************/
     /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
@@ -2693,7 +2674,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  void * alloc_shmem         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   void * epoch_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) );
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
@@ -2811,18 +2791,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->snapshot_src_type    = tile->replay.snapshot_src_type;
 
   /**********************************************************************/
-  /* alloc                                                              */
-  /**********************************************************************/
-
-  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_new failed" ) ); }
-  ctx->alloc = fd_alloc_join( alloc_shalloc, 3UL );
-  if( FD_UNLIKELY( !ctx->alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) );
-  }
-
-  /**********************************************************************/
   /* status cache                                                       */
   /**********************************************************************/
 
@@ -2937,8 +2905,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* entry batch                                                        */
   /**********************************************************************/
 
-  ctx->mbatch = mbatch_mem;
   memset( &ctx->slice_exec_ctx, 0, sizeof(fd_slice_exec_ctx_t) );
+  ctx->slice_exec_ctx.mbatch = mbatch_mem;
 
   /**********************************************************************/
   /* capture                                                            */
