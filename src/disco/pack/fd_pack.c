@@ -51,6 +51,12 @@ struct fd_pack_private_ord_txn {
      expiration priority queue. */
   ulong expq_idx;
 
+  /* arrival_slot: The slot during which this transaction first arrived
+     to pack, if this validator was a leader at the time. Otherwise,
+     this is ULONG_MAX. This is used by monitoring tools to gauge if a
+     transaction.arrived in the same slot it was scheduled. */
+  ulong arrival_leader_slot;
+
   /* We want rewards*compute_est to fit in a ulong so that r1/c1 < r2/c2 can be
      computed as r1*c2 < r2*c1, with the product fitting in a ulong.
      compute_est has a small natural limit of mid-20 bits. rewards doesn't have
@@ -551,6 +557,7 @@ struct fd_pack_private {
   /* compressed_slot_number: a number in (FD_PACK_SKIP_CNT, USHORT_MAX]
      that advances each time we start packing for a new slot. */
   ushort     compressed_slot_number;
+  ulong      leader_slot;
 
   /* bitset_avail: a stack of which bits are not currently reserved and
      can be used to represent an account address.
@@ -1149,9 +1156,11 @@ populate_bitsets( fd_pack_t         * pack,
 int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_e_t * txne,
+                         ulong        leader_slot,
                          ulong        expires_at ) {
 
   fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
+  ord->arrival_leader_slot = leader_slot;
 
   fd_txn_t * txn   = TXN(txne->txnp);
   uchar * payload  = txne->txnp->payload;
@@ -1626,6 +1635,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 #   endif
 
     fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    cur->txn->flags &= fd_uint_if(cur->arrival_leader_slot == pack->leader_slot, cur->txn->flags | FD_TXN_P_FLAGS_SCHEDULED_WHILE_LEADER, cur->txn->flags & ~(FD_TXN_P_FLAGS_SCHEDULED_WHILE_LEADER));
 
     min_cus   = fd_ulong_min( min_cus,   cur->compute_est     );
     min_bytes = fd_ulong_min( min_bytes, cur->txn->payload_sz );
@@ -2044,6 +2054,8 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
   while( !(doesnt_fit | has_conflict) & !treap_rev_iter_done( _cur ) ) {
     fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    cur->txn->flags &= fd_uint_if(cur->arrival_leader_slot == pack->leader_slot, cur->txn->flags | FD_TXN_P_FLAGS_SCHEDULED_WHILE_LEADER, cur->txn->flags & ~(FD_TXN_P_FLAGS_SCHEDULED_WHILE_LEADER));
+
     ulong this_bundle_idx = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
     if( FD_UNLIKELY( this_bundle_idx!=bundle_idx ) ) break;
 
@@ -2404,6 +2416,11 @@ fd_pack_expire_before( fd_pack_t * pack,
 }
 
 void
+fd_pack_start_block( fd_pack_t * pack, ulong leader_slot ) {
+  pack->leader_slot = leader_slot;
+}
+
+void
 fd_pack_end_block( fd_pack_t * pack ) {
   /* rounded division */
   ulong pct_cus_per_block = (pack->cumulative_block_cost*100UL + (pack->lim->max_cost_per_block>>1))/pack->lim->max_cost_per_block;
@@ -2412,6 +2429,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   fd_histf_sample( pack->rebated_cus_per_block,   pack->cumulative_rebated_cus                               );
   fd_histf_sample( pack->scheduled_cus_per_block, pack->cumulative_rebated_cus + pack->cumulative_block_cost );
 
+  pack->leader_slot                 = ULONG_MAX;
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
   pack->cumulative_block_cost       = 0UL;
@@ -2493,6 +2511,7 @@ release_tree( treap_t           * treap,
 void
 fd_pack_clear_all( fd_pack_t * pack ) {
   pack->pending_txn_cnt        = 0UL;
+  pack->leader_slot            = ULONG_MAX;
   pack->microblock_cnt         = 0UL;
   pack->cumulative_block_cost  = 0UL;
   pack->cumulative_vote_cost   = 0UL;
