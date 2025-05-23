@@ -885,6 +885,9 @@ fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
+ulong
+fd_blockstore_block_height_query( fd_blockstore_t * blockstore, ulong slot );
+
 /* fd_blockstore_publish publishes all blocks until the current
    blockstore smr (`blockstore->smr`).  Publishing entails 1. pruning
    and 2. archiving.  Pruning removes any blocks that are not part of

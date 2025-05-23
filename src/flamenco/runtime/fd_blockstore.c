@@ -1045,6 +1045,21 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
   fd_block_map_publish( query );
 }
 
+ulong
+fd_blockstore_block_height_query( fd_blockstore_t * blockstore, ulong slot ) {
+  ulong block_entry_height = 0;
+  for(;;){
+    fd_block_map_query_t query[1] = { 0 };
+    int err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+    block_entry_height = block_info->block_height;
+    if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
+  }
+  return block_entry_height;
+}
+
 void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot ) {
   fd_block_map_query_t query[1] = { 0 };
