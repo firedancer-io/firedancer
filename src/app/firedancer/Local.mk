@@ -1,15 +1,4 @@
-ifdef FD_HAS_HOSTED
-ifdef FD_HAS_THREADS
-ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_DOUBLE
-ifdef FD_HAS_INT128
-ifdef FD_HAS_SSE
-ifdef FD_HAS_SECP256K1
-ifdef FD_HAS_ZSTD
 include src/app/firedancer/version.mk
-$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
-
-# Always generate a version file
 $(shell echo "#define FIREDANCER_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)"                          >  src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)"                          >> src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)"                          >> src/app/firedancer/version2.h)
@@ -21,6 +10,18 @@ ifneq ($(shell cmp -s src/app/firedancer/version.h src/app/firedancer/version2.h
 src/app/firedancer/version.h: src/app/firedancer/version2.h
 	cp -f src/app/firedancer/version2.h $@
 endif
+
+# Always generate a version file
+include src/app/firedancer/version.h
+
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_THREADS
+ifdef FD_HAS_ALLOCA
+ifdef FD_HAS_DOUBLE
+ifdef FD_HAS_INT128
+ifdef FD_HAS_SSE
+ifdef FD_HAS_SECP256K1
+ifdef FD_HAS_ZSTD
 
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/fdctl/config/default.toml
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/default.toml
