@@ -69,6 +69,17 @@ struct fd_grpc_client_metrics {
   /* streams_active is the number of streams not in 'closed' state. */
   long streams_active;
 
+  /* stream_rx_backp_cnt increments whenever an incoming DATA frame
+     causes a receive window to (almost) run out of space.  Tracks
+     across the conn receive window and all stream receive windows. */
+  ulong rx_backp_cnt;
+#define FD_GRPC_RX_BACKP_DETECT_TRESHOLD (2048UL)
+
+  /* stream_tx_backp_cnt increments whenever an outgoing DATA frame
+     causes our send quotas to run out entirely.  Tracks across the conn
+     send quota and all stream send quotas. */
+  ulong tx_backp_cnt;
+
   /* rx_wait_ticks_cum is the cumulative time in ticks that incoming
      gRPC messages were in a "waiting" state.  The waiting state begins
      when the first byte of a HTTP/2 frame is received, and ends when

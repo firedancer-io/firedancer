@@ -9,6 +9,7 @@ struct fd_h2_tx_op {
   void const * chunk;
   ulong        chunk_sz;
   ulong        fin : 1;
+  ulong        seq;
 };
 
 typedef struct fd_h2_tx_op fd_h2_tx_op_t;
