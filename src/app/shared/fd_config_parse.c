@@ -366,6 +366,12 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( ushort, rpc.port                                         );
   CFG_POP      ( bool,   rpc.extended_tx_metadata_storage                 );
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    CFG_POP      ( uint,   rpc.block_index_max                            );
+    CFG_POP      ( uint,   rpc.txn_index_max                              );
+    CFG_POP      ( uint,   rpc.acct_index_max                             );
+    CFG_POP      ( cstr,   rpc.history_file                               );
+  }
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( uint,   layout.net_tile_count                            );

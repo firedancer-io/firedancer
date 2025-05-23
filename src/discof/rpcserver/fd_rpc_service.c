@@ -10,6 +10,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
+#include "fd_rpc_history.h"
 #include "keywords.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -18,21 +19,9 @@
 #include <netinet/in.h>
 #include <stdarg.h>
 
-#ifdef __has_include
-#if __has_include("../../app/fdctl/version.h")
-#include "../../app/fdctl/version.h"
-#define FIREDANCER_VERSION FD_STRINGIFY(FIREDANCER_VERSION_MAJOR) "." FD_STRINGIFY(FIREDANCER_VERSION_MINOR) "." FD_STRINGIFY(FIREDANCER_VERSION_PATCH)
-#endif
-#endif
-#ifndef FIREDANCER_VERSION
-#define FIREDANCER_VERSION "dev"
-#endif
-
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
-
-#define MAX_RECENT_BLOCKHASHES (1U<<16)
 
 static const uint PATH_COMMITMENT[4] = { ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_PARAMS,
                                          ( JSON_TOKEN_LBRACKET << 16 ) | 1,
@@ -71,26 +60,6 @@ typedef struct fd_perf_sample fd_perf_sample_t;
 #define DEQUE_MAX  720UL /* MAX RPC PERF SAMPLES */
 #include "../../util/tmpl/fd_deque.c"
 
-struct fd_rpc_acct_map_elem {
-  fd_pubkey_t key;
-  ulong next;
-  ulong slot;
-  ulong age;
-  uchar sig[64U]; /* Transaction signature */
-};
-typedef struct fd_rpc_acct_map_elem fd_rpc_acct_map_elem_t;
-#define MAP_NAME fd_rpc_acct_map
-#define MAP_KEY_T fd_pubkey_t
-#define MAP_ELE_T fd_rpc_acct_map_elem_t
-#define MAP_KEY_HASH(key,seed) fd_hash( seed, key, sizeof(fd_pubkey_t) )
-#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_MULTI 1
-#include "../../util/tmpl/fd_map_chain.c"
-#define POOL_NAME fd_rpc_acct_map_pool
-#define POOL_T    fd_rpc_acct_map_elem_t
-#include "../../util/tmpl/fd_pool.c"
-#define FD_RPC_ACCT_MAP_POOL_SIZE (1U<<20)
-
 struct fd_rpc_global_ctx {
   fd_spad_t * spad;
   fd_webserver_t ws;
@@ -100,18 +69,14 @@ struct fd_rpc_global_ctx {
   struct fd_ws_subscription sub_list[FD_WS_MAX_SUBS];
   ulong sub_cnt;
   ulong last_subsc_id;
-  ulong first_slot;
-  ulong last_slot;
-  fd_replay_notif_msg_t slot_info[MAX_RECENT_BLOCKHASHES];
   int tpu_socket;
   struct sockaddr_in tpu_addr;
   fd_perf_sample_t * perf_samples;
   fd_perf_sample_t perf_sample_snapshot;
   long perf_sample_ts;
   fd_stake_ci_t * stake_ci;
-  fd_rpc_acct_map_t * acct_map;
-  fd_rpc_acct_map_elem_t * acct_pool;
   ulong acct_age;
+  fd_rpc_history_t * history;
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -156,7 +121,7 @@ get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx 
   ulong        commit_str_sz = 0;
   const void * commit_str    = json_get_value( values, PATH_COMMITMENT, 4, &commit_str_sz );
   if( commit_str == NULL ) {
-    return ctx->global->last_slot;
+    return fd_rpc_history_latest_slot( ctx->global->history );
   } else if( MATCH_STRING( commit_str, commit_str_sz, "confirmed" ) ) {
     return ctx->global->blockstore->shmem->hcs;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "processed" ) ) {
@@ -198,20 +163,12 @@ read_epoch_bank( fd_rpc_ctx_t * ctx ) {
   return epoch_bank;
 }
 
-static fd_replay_notif_msg_t * get_slot_info( fd_rpc_ctx_t * ctx, ulong slot ) {
-  fd_rpc_global_ctx_t * glob = ctx->global;
-  fd_replay_notif_msg_t * info = &glob->slot_info[ slot & (MAX_RECENT_BLOCKHASHES-1) ];
-  if( slot != info->slot_exec.slot )
-    return NULL;
-  return info;
-}
-
 static fd_slot_bank_t *
 read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_funk_rec_key_t recid = fd_runtime_slot_bank_key();
   ulong vallen;
 
-  fd_replay_notif_msg_t * info = get_slot_info( ctx, slot );
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
   if( FD_UNLIKELY( info == NULL ) ) {
     FD_LOG_WARNING( ( "get_slot_info failed" ) );
     return NULL;
@@ -245,6 +202,7 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   return slot_bank;
 }
 
+/*
 static const char *
 block_flags_to_confirmation_status( uchar flags ) {
   if( flags & (1U << FD_BLOCK_FLAG_FINALIZED) ) return "\"finalized\"";
@@ -252,6 +210,7 @@ block_flags_to_confirmation_status( uchar flags ) {
   if( flags & (1U << FD_BLOCK_FLAG_PROCESSED) ) return "\"processed\"";
   return "null";
 }
+*/
 
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
@@ -306,8 +265,8 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
-                           ctx->global->last_slot, ctx->call_id);
+      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
+                           fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
       return 0;
     }
 
@@ -332,8 +291,8 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     long off = (off_ptr ? *(long *)off_ptr : FD_LONG_UNSET);
     long len = (len_ptr ? *(long *)len_ptr : FD_LONG_UNSET);
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
-                         ctx->global->last_slot );
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":",
+                         fd_rpc_history_latest_slot( ctx->global->history ) );
     const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, off, len, ctx->global->spad );
     if( err ) {
       fd_method_error(ctx, -1, "%s", err);
@@ -374,13 +333,13 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
-                           ctx->global->last_slot, ctx->call_id);
+      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
+                           fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
       return 0;
     }
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
-                         ctx->global->last_slot, metadata->info.lamports, ctx->call_id);
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
+                         fd_rpc_history_latest_slot( ctx->global->history ), metadata->info.lamports, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }
@@ -466,26 +425,21 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
     return 0;
   }
 
-  fd_replay_notif_msg_t * info = get_slot_info( ctx, slotn );
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slotn );
   if( info == NULL ) {
     fd_method_error(ctx, -1, "unable to find slot info");
     return 0;
   }
-  fd_replay_notif_msg_t * parent_info = get_slot_info( ctx, info->slot_exec.parent );
+  fd_replay_notif_msg_t * parent_info = fd_rpc_history_get_block_info( ctx->global->history, info->slot_exec.parent );
 
-  fd_blockstore_t * blockstore = ctx->global->blockstore;
-
-  ulong blk_max = info->slot_exec.shred_cnt * FD_SHRED_MAX_SZ;
-  uchar * blk_data = fd_spad_alloc( ctx->global->spad, 1, blk_max );
   ulong blk_sz;
-  if( fd_blockstore_slice_query( blockstore, slotn, 0, (uint)(info->slot_exec.shred_cnt-1), blk_max, blk_data, &blk_sz) ) {
+  uchar * blk_data = fd_rpc_history_get_block( ctx->global->history, slotn, &blk_sz );
+  if( blk_data == NULL ) {
     fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
   }
 
   const char * err = fd_block_to_json(ws,
-                                      blockstore,
-                                      ctx->global->blockstore_fd,
                                       ctx->call_id,
                                       blk_data,
                                       blk_sz,
@@ -519,7 +473,7 @@ static int
 method_getBlockHeight(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
   ulong slot = get_slot_from_commitment_level( values, ctx );
-  fd_replay_notif_msg_t * info = get_slot_info(ctx, slot);
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info(ctx->global->history, slot);
   if( info == NULL ) {
     fd_method_error(ctx, -1, "block info not available");
     return 0;
@@ -584,15 +538,15 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
             product_rb_insert( pool, &root, nd );
           }
           nd->nleader++;
-          if( get_slot_info(ctx, i) ) {
+          if( fd_rpc_history_get_block_info(ctx->global->history, i) ) {
             nd->nproduced++;
           }
         }
       }
     }
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"byIdentity\":{",
-                         glob->last_slot);
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":{\"byIdentity\":{",
+                         fd_rpc_history_latest_slot( glob->history ) );
     int first=1;
     for ( product_rb_node_t* nd = product_rb_minimum(pool, root); nd; nd = product_rb_successor(pool, nd) ) {
       char str[50];
@@ -633,15 +587,15 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   const void* endslot = json_get_value(values, PATH_ENDSLOT, 3, &endslot_sz);
   ulong endslotn = (endslot == NULL ? ULONG_MAX : (ulong)(*(long*)endslot));
 
-  if (startslotn < ctx->global->first_slot)
-    startslotn = ctx->global->first_slot;
-  if (endslotn > ctx->global->last_slot)
-    endslotn = ctx->global->last_slot;
+  if (startslotn < fd_rpc_history_first_slot( ctx->global->history ))
+    startslotn = fd_rpc_history_first_slot( ctx->global->history );
+  if (endslotn > fd_rpc_history_latest_slot( ctx->global->history ))
+    endslotn = fd_rpc_history_latest_slot( ctx->global->history );
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
-    fd_replay_notif_msg_t * info = get_slot_info( ctx, i );
+    fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, i );
     if( info == NULL ) continue;
     fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
     ++cnt;
@@ -682,15 +636,15 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
   ulong limitn = (ulong)(*(long*)limit);
 
-  if (startslotn < ctx->global->first_slot)
-    startslotn = ctx->global->first_slot;
+  if (startslotn < fd_rpc_history_first_slot( ctx->global->history ))
+    startslotn = fd_rpc_history_first_slot( ctx->global->history );
   if (limitn > 500000)
     limitn = 500000;
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
-  for ( ulong i = startslotn; i <= ctx->global->last_slot && cnt < limitn; ++i ) {
-    fd_replay_notif_msg_t * info = get_slot_info( ctx, i );
+  for ( ulong i = startslotn; i <= fd_rpc_history_latest_slot( ctx->global->history ) && cnt < limitn; ++i ) {
+    fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, i );
     if( info == NULL ) continue;
     fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
     ++cnt;
@@ -719,7 +673,7 @@ method_getBlockTime(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
   ulong slotn = (ulong)(*(long*)slot);
 
-  fd_replay_notif_msg_t * info = get_slot_info( ctx, slotn );
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slotn );
   if( info == NULL ) {
     fd_method_error(ctx, -1, "invalid slot: %lu", slotn);
     return 0;
@@ -752,7 +706,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_webserver_t * ws   = &ctx->global->ws;
     ulong            slot = get_slot_from_commitment_level( values, ctx );
 
-    fd_replay_notif_msg_t * info = get_slot_info( ctx, slot );
+    fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
     if( info == NULL ) {
       fd_method_error(ctx, -1, "unable to find slot info");
       return 0;
@@ -830,8 +784,8 @@ method_getFeeForMessage(struct json_values* values, fd_rpc_ctx_t * ctx) {
   // TODO: implement this
   (void)data;
   (void)data_sz;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%s}" CRLF,
-                       ctx->global->last_slot, ctx->call_id);
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%s}" CRLF,
+                       fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
   return 0;
 }
 
@@ -843,7 +797,7 @@ method_getFirstAvailableBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       ctx->global->first_slot, ctx->call_id); /* FIXME archival file */
+                       fd_rpc_history_first_slot( ctx->global->history ), ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -893,7 +847,7 @@ static int
 method_getIdentity(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
   ulong slot = get_slot_from_commitment_level( values, ctx );
-  fd_replay_notif_msg_t * info = get_slot_info(ctx, slot);
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info(ctx->global->history, slot);
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
   fd_web_reply_encode_base58(ws, &info->slot_exec.identity, sizeof(fd_pubkey_t));
   fd_web_reply_sprintf(ws, "\"},\"id\":%s}" CRLF, ctx->call_id);
@@ -962,8 +916,8 @@ method_getLatestBlockhash(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_webserver_t * ws = &ctx->global->ws;
   ulong slot = get_slot_from_commitment_level( values, ctx );
-  fd_replay_notif_msg_t * info = get_slot_info(ctx, slot);
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info(ctx->global->history, slot);
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
                        info->slot_exec.slot);
   fd_web_reply_encode_base58(ws, &info->slot_exec.block_hash, sizeof(fd_hash_t));
   fd_web_reply_sprintf(ws, "\",\"lastValidBlockHeight\":%lu}},\"id\":%s}" CRLF,
@@ -1135,8 +1089,8 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
-                         ctx->global->last_slot);
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":[",
+                         fd_rpc_history_latest_slot( ctx->global->history ));
 
     // Iterate through account ids
     for ( ulong i = 0; ; ++i ) {
@@ -1276,21 +1230,22 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
     fd_rpc_global_ctx_t * gctx = ctx->global;
-    fd_rpc_acct_map_elem_t const * ele = fd_rpc_acct_map_ele_query_const( gctx->acct_map, &acct, NULL, gctx->acct_pool );
+    fd_rpc_txn_key_t sig;
+    ulong slot;
+    const void * iter = fd_rpc_history_first_txn_for_acct( gctx->history, &acct, &sig, &slot );
     ulong cnt = 0;
-    while( ele != NULL && cnt < limit ) {
+    while( iter != NULL && cnt < limit ) {
       if( cnt ) EMIT_SIMPLE(",");
 
-      fd_replay_notif_msg_t * info = get_slot_info( ctx, ele->slot );
-      if( info == NULL ) continue;
+      fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
       char buf64[FD_BASE58_ENCODED_64_SZ];
-      fd_base58_encode_64(ele->sig, NULL, buf64);
+      fd_base58_encode_64((uchar const*)&sig, NULL, buf64);
       fd_web_reply_sprintf(ws, "{\"blockTime\":%ld,\"confirmationStatus\":%s,\"err\":null,\"memo\":null,\"signature\":\"%s\",\"slot\":%lu}",
-                           (long)info->slot_exec.ts/(long)1e9, "confirmed", buf64, ele->slot);
+                           (long)info->slot_exec.ts/(long)1e9, "confirmed", buf64, slot);
 
       cnt++;
 
-      ele = fd_rpc_acct_map_ele_next_const( ele, NULL, gctx->acct_pool );
+      iter = fd_rpc_history_next_txn_for_acct( gctx->history, &sig, &slot, iter );
     }
     fd_web_reply_sprintf(ws, "],\"id\":%s}" CRLF, ctx->call_id);
 
@@ -1305,9 +1260,8 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_blockstore_t * blockstore = ctx->global->blockstore;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
-                       ctx->global->last_slot);
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":[",
+                       fd_rpc_history_latest_slot( ctx->global->history ));
 
   // Iterate through account ids
   for ( ulong i = 0; ; ++i ) {
@@ -1326,21 +1280,23 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
     if (i > 0)
       fd_web_reply_append(ws, ",", 1);
 
-    uchar key[FD_ED25519_SIG_SZ];
-    if ( fd_base58_decode_64( sig, key ) == NULL ) {
+    fd_rpc_txn_key_t key;
+    if ( fd_base58_decode_64( sig, (uchar*)&key) == NULL ) {
       fd_web_reply_sprintf(ws, "null");
       continue;
     }
-    fd_txn_map_t elem;
-    uchar flags;
-    if( fd_blockstore_txn_query_volatile( blockstore, ctx->global->blockstore_fd,  key, &elem, NULL, &flags, NULL ) ) {
+
+    ulong txn_sz;
+    ulong slot;
+    uchar * txn_data_raw = fd_rpc_history_get_txn( ctx->global->history, &key, &txn_sz, &slot );
+    if( txn_data_raw == NULL ) {
       fd_web_reply_sprintf(ws, "null");
       continue;
     }
 
     // TODO other fields
-    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":%s}",
-                         elem.slot, block_flags_to_confirmation_status(flags));
+    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":\"%s\"}",
+                         slot, "processed");
   }
 
   fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
@@ -1463,7 +1419,7 @@ method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_webserver_t * ws = &ctx->global->ws;
-    fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
+    fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
                           slot, slot_bank->capitalization, 0UL, slot_bank->capitalization, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
@@ -1581,41 +1537,31 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
   (void)need_blk_flags;
 
-  uchar key[FD_ED25519_SIG_SZ];
-  if ( fd_base58_decode_64( sig, key) == NULL ) {
+  fd_rpc_txn_key_t key;
+  if ( fd_base58_decode_64( sig, (uchar*)&key) == NULL ) {
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
   }
-  fd_txn_map_t elem;
-  long blk_ts;
-  uchar blk_flags;
-  uchar txn_data_raw[FD_TXN_MTU];
-  fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if( fd_blockstore_txn_query_volatile( blockstore, ctx->global->blockstore_fd,  key, &elem, &blk_ts, &blk_flags, txn_data_raw )
-      /* || ( blk_flags & need_blk_flags ) == (uchar)0 */ ) {
+  ulong txn_sz;
+  ulong slot;
+  uchar * txn_data_raw = fd_rpc_history_get_txn( ctx->global->history, &key, &txn_sz, &slot );
+  if( txn_data_raw == NULL ) {
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
   }
-
   uchar txn_out[FD_TXN_MAX_SZ];
   ulong pay_sz = 0;
-  ulong txn_sz = fd_txn_parse_core(txn_data_raw, elem.sz, txn_out, NULL, &pay_sz);
-  if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
+  ulong txn_sz2 = fd_txn_parse_core(txn_data_raw, txn_sz, txn_out, NULL, &pay_sz);
+  if ( txn_sz2 == 0 || txn_sz2 > FD_TXN_MAX_SZ || txn_sz != pay_sz ) {
     FD_LOG_ERR(("failed to parse transaction"));
-
-  void const * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), elem.meta_gaddr );
-
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
-                         ctx->global->last_slot, blk_ts/(long)1e9, elem.slot);
-
-  /* Emit meta, including the case for `meta:null` */
-  const char * err = fd_txn_meta_to_json( ws, meta, elem.meta_sz );
-  if( err ) {
-    fd_method_error(ctx, -1, "%s", err);
-    return 0;
   }
 
-  err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, ctx->global->spad );
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
+
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
+                       fd_rpc_history_latest_slot( ctx->global->history ), (long)info->slot_exec.ts/(long)1e9, slot);
+
+  const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, ctx->global->spad );
   if( err ) {
     fd_method_error(ctx, -1, "%s", err);
     return 0;
@@ -1633,7 +1579,7 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_webserver_t * ws = &ctx->global->ws;
 
     ulong                   slot = get_slot_from_commitment_level( values, ctx );
-    fd_replay_notif_msg_t * info = get_slot_info( ctx, slot );
+    fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
     if( FD_UNLIKELY( !info ) ) {
       fd_method_error( ctx, -1, "slot bank %lu not found", slot );
       return 0;
@@ -1654,7 +1600,7 @@ method_getVersion(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_webserver_t * ws = &ctx->global->ws;
   /* TODO Where does feature-set come from? */
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" FIREDANCER_VERSION "\"},\"id\":%s}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" RPC_VERSION "\"},\"id\":%s}" CRLF,
                        ctx->call_id);
   return 0;
 }
@@ -1779,16 +1725,10 @@ method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
     return 0;
   }
 
-  int res = 0;
-  for( ulong i = glob->first_slot; i <= glob->last_slot; ++i ) {
-    fd_replay_notif_msg_t * info = get_slot_info( ctx, i );
-    if( info != NULL && fd_hash_eq( &info->slot_exec.block_hash, &h ) ) {
-      res = 1;
-      break;
-    }
-  }
+  fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info_by_hash( ctx->global->history, &h );
+
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%s},\"id\":%s}" CRLF,
-                       ctx->global->last_slot, (res ? "true" : "false"), ctx->call_id);
+                       fd_rpc_history_latest_slot( ctx->global->history ), (info ? "true" : "false"), ctx->call_id);
 
   return 0;
 }
@@ -2289,7 +2229,7 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
       return 0;
     }
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":",
                          msg->slot_exec.slot);
     const char * err = fd_account_to_json( ws, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len, ctx->global->spad );
     if( err ) {
@@ -2436,11 +2376,6 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
     }
     memcpy( &gctx->tpu_addr, &args->tpu_addr, sizeof(struct sockaddr_in) );
 
-    void * mem = fd_valloc_malloc( valloc, fd_rpc_acct_map_align(), fd_rpc_acct_map_footprint( FD_RPC_ACCT_MAP_POOL_SIZE/2 ) );
-    gctx->acct_map = fd_rpc_acct_map_join( fd_rpc_acct_map_new( mem, FD_RPC_ACCT_MAP_POOL_SIZE/2, 0 ) );
-    mem = fd_valloc_malloc( valloc, fd_rpc_acct_map_pool_align(), fd_rpc_acct_map_pool_footprint( FD_RPC_ACCT_MAP_POOL_SIZE ) );
-    gctx->acct_pool = fd_rpc_acct_map_pool_join( fd_rpc_acct_map_pool_new( mem, FD_RPC_ACCT_MAP_POOL_SIZE ) );
-
   } else {
     gctx->tpu_socket = -1;
   }
@@ -2448,6 +2383,8 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   void * mem = fd_valloc_malloc( valloc, fd_perf_sample_deque_align(), fd_perf_sample_deque_footprint() );
   gctx->perf_samples = fd_perf_sample_deque_join( fd_perf_sample_deque_new( mem ) );
   FD_TEST( gctx->perf_samples );
+
+  gctx->history = fd_rpc_history_create(args);
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
   if (fd_webserver_start(args->port, args->params, gctx->spad, &gctx->ws, ctx))
@@ -2463,7 +2400,6 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
   gctx->funk = args->funk;
   memcpy( gctx->blockstore, args->blockstore, sizeof(fd_blockstore_t) );
   gctx->blockstore_fd = args->blockstore_fd;
-  gctx->first_slot = gctx->last_slot = ULONG_MAX;
 }
 
 int
@@ -2533,14 +2469,7 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 
     if( msg->slot_exec.shred_cnt == 0 ) return;
 
-    if( subs->first_slot == ULONG_MAX )
-      subs->first_slot = subs->last_slot = msg->slot_exec.slot;
-    else if ( subs->last_slot < msg->slot_exec.slot ) {
-      subs->last_slot = msg->slot_exec.slot;
-      if( subs->first_slot < subs->last_slot - MAX_RECENT_BLOCKHASHES )
-        subs->first_slot = subs->last_slot - MAX_RECENT_BLOCKHASHES; /* Truncate oldest entry */
-    }
-    subs->slot_info[msg->slot_exec.slot & (MAX_RECENT_BLOCKHASHES-1)] = *msg;
+    fd_rpc_history_save( subs->history, subs->blockstore, msg );
 
     for( ulong j = 0; j < subs->sub_cnt; ++j ) {
       struct fd_ws_subscription * sub = &subs->sub_list[ j ];
