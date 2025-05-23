@@ -146,19 +146,30 @@
 ## Bundle Tile
 | Metric | Type | Description |
 |--------|------|-------------|
+| bundle_&#8203;connection_&#8203;status | `gauge` | 0=disconnected 1=connecting 2=connected |
+| bundle_&#8203;connection_&#8203;attempts | `counter` | Total number of connection attempts |
+| bundle_&#8203;endpoint_&#8203;changed | `counter` | Number of times the bundle server IP changed |
 | bundle_&#8203;transaction_&#8203;received | `counter` | Total count of transactions received, including transactions within bundles |
 | bundle_&#8203;packet_&#8203;received | `counter` | Total count of packets received |
 | bundle_&#8203;bundle_&#8203;received | `counter` | Total count of bundles received |
-| bundle_&#8203;errors_&#8203;protobuf | `counter` | Number of gRPC errors encountered (Protobuf decode/encode error) |
-| bundle_&#8203;errors_&#8203;transport | `counter` | Number of gRPC errors encountered (Transport error) |
-| bundle_&#8203;errors_&#8203;timeout | `counter` | Number of gRPC errors encountered (I/O timeout) |
-| bundle_&#8203;errors_&#8203;no_&#8203;fee_&#8203;info | `counter` | Number of gRPC errors encountered (Bundle dropped due to missing fee info) |
-| bundle_&#8203;errors_&#8203;ssl_&#8203;alloc | `counter` | Number of gRPC errors encountered (OpenSSL alloc fail) |
+| bundle_&#8203;shredstream_&#8203;heartbeats | `counter` | Number of ShredStream heartbeats successfully sent |
+| bundle_&#8203;backpressure_&#8203;rx | `counter` | Increments when the HTTP/2 stream/conn receive window fills up |
+| bundle_&#8203;backpressure_&#8203;tx | `counter` | Increments when the HTTP/2 stream/conn send window fills up |
+| bundle_&#8203;congestion_&#8203;tx | `histogram` | Duration of a TX congestion period |
+| bundle_&#8203;grpc_&#8203;message_&#8203;received | `counter` | Total count of gRPC messages received |
+| bundle_&#8203;grpc_&#8203;message_&#8203;receive_&#8203;duration_&#8203;total | `counter` | Cumulative receive durations between first and last gRPC message byte (nanoseconds) |
+| bundle_&#8203;keepalives | `counter` | Number of HTTP/2 PINGs acknowledged by server (generate RTT samples) |
+| bundle_&#8203;rtt_&#8203;smoothed | `gauge` | Exponentially weighted moving average of RTT samples (nanoseconds) |
+| bundle_&#8203;rtt_&#8203;min | `gauge` | Lowest RTT sample observed for lifetime of connection (nanoseconds) |
+| bundle_&#8203;rtt_&#8203;variance | `gauge` | Variance of RTT samples observed for lifetime of connection (nanoseconds) |
+| bundle_&#8203;errors_&#8203;protobuf | `counter` | Error count (Protobuf decode/encode error) |
+| bundle_&#8203;errors_&#8203;grpc | `counter` | Error count (gRPC or HTTP/2 error) |
+| bundle_&#8203;errors_&#8203;tcp | `counter` | Error count (Disconnect or I/O timeout) |
+| bundle_&#8203;errors_&#8203;no_&#8203;fee_&#8203;info | `counter` | Error count (Bundle dropped due to missing fee info) |
+| bundle_&#8203;errors_&#8203;ssl | `counter` | Error count (OpenSSL transport failure (e.g. expired cert)) |
+| bundle_&#8203;errors_&#8203;ssl_&#8203;alloc | `counter` | Error count (OpenSSL alloc fail) |
 | bundle_&#8203;heap_&#8203;size | `gauge` | Workspace heap size |
 | bundle_&#8203;heap_&#8203;free_&#8203;bytes | `gauge` | Approx free space in workspace |
-| bundle_&#8203;shredstream_&#8203;heartbeats | `counter` | Number of ShredStream heartbeats successfully sent |
-| bundle_&#8203;keepalives | `counter` | Number of HTTP/2 PINGs acknowledged by server |
-| bundle_&#8203;connected | `gauge` | 1 if connected to the bundle server, 0 if not |
 
 ## Verify Tile
 | Metric | Type | Description |

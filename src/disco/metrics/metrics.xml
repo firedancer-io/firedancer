@@ -220,22 +220,40 @@ metric introduced.
 
 <enum name="BundleError">
     <int value="1" name="Protobuf" label="Protobuf decode/encode error" />
-    <int value="2" name="Transport" label="Transport error" />
-    <int value="3" name="Timeout" label="I/O timeout" />
+    <int value="2" name="Grpc" label="gRPC or HTTP/2 error" />
+    <int value="3" name="Tcp" label="Disconnect or I/O timeout" />
     <int value="4" name="NoFeeInfo" label="Bundle dropped due to missing fee info" />
+    <int value="5" name="Ssl" label="OpenSSL transport failure (e.g. expired cert)" />
     <int value="5" name="SslAlloc" label="OpenSSL alloc fail" />
 </enum>
 
 <tile name="bundle">
+    <!-- High-level stats -->
+    <gauge name="ConnectionStatus" summary="0=disconnected 1=connecting 2=connected" />
+    <counter name="ConnectionAttempts" summary="Total number of connection attempts" />
+    <counter name="EndpointChanged" summary="Number of times the bundle server IP changed" />
     <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
     <counter name="PacketReceived" summary="Total count of packets received" />
     <counter name="BundleReceived" summary="Total count of bundles received" />
-    <counter name="Errors" enum="BundleError" summary="Number of gRPC errors encountered" />
+    <counter name="ShredstreamHeartbeats" summary="Number of ShredStream heartbeats successfully sent" />
+
+    <!-- Performance metrics -->
+    <counter name="BackpressureRx" summary="Increments when the HTTP/2 stream/conn receive window fills up" />
+    <counter name="BackpressureTx" summary="Increments when the HTTP/2 stream/conn send window fills up" />
+    <histogram name="CongestionTx" min="0.00000001" max="0.1" converter="seconds">
+        <summary>Duration of a TX congestion period</summary>
+    </histogram>
+    <counter name="GrpcMessageReceived" summary="Total count of gRPC messages received" />
+    <counter name="GrpcMessageReceiveDurationTotal" summary="Cumulative receive durations between first and last gRPC message byte (nanoseconds)" />
+    <counter name="Keepalives" summary="Number of HTTP/2 PINGs acknowledged by server (generate RTT samples)" />
+    <gauge name="RttSmoothed" summary="Exponentially weighted moving average of RTT samples (nanoseconds)" />
+    <gauge name="RttMin" summary="Lowest RTT sample observed for lifetime of connection (nanoseconds)" />
+    <gauge name="RttVariance" summary="Variance of RTT samples observed for lifetime of connection (nanoseconds)" />
+
+    <!-- Firedancer specific -->
+    <counter name="Errors" enum="BundleError" summary="Error count" />
     <gauge name="HeapSize" summary="Workspace heap size" />
     <gauge name="HeapFreeBytes" summary="Approx free space in workspace" />
-    <counter name="ShredstreamHeartbeats" summary="Number of ShredStream heartbeats successfully sent" />
-    <counter name="Keepalives" summary="Number of HTTP/2 PINGs acknowledged by server" />
-    <gauge name="Connected" summary="1 if connected to the bundle server, 0 if not" />
 </tile>
 
 <tile name="verify">

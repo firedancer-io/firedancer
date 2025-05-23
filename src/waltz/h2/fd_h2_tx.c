@@ -38,6 +38,7 @@ fd_h2_tx_op_copy( fd_h2_conn_t *   conn,
     fd_h2_tx_prepare( conn, rbuf_tx, FD_H2_FRAME_TYPE_DATA, flags, stream->stream_id );
     fd_h2_rbuf_push( rbuf_tx, tx_op->chunk, (ulong)payload_sz );
     fd_h2_tx_commit( conn, rbuf_tx );
+    tx_op->seq++;
 
     tx_op->chunk        = (void *)( (ulong)tx_op->chunk + (ulong)payload_sz );
     tx_op->chunk_sz     = (ulong)next_rem_sz;

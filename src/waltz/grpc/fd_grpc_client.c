@@ -113,9 +113,18 @@ fd_grpc_client_send_stream_quota( fd_h2_rbuf_t *        rbuf_tx,
 
 static void
 fd_grpc_client_send_stream_window_updates( fd_grpc_client_t * client ) {
-  /* FIXME poor algorithmic inefficiency.  Consider replenishing lazily
+  fd_grpc_client_metrics_t * metrics = client->metrics;
+  fd_h2_conn_t * conn = client->conn;
+
+  /* Detect conn-level RX backpressure (only works if this is called
+     before fd_h2_tx_control, which replenishes the conn rcv window) */
+  if( FD_UNLIKELY( conn->rx_wnd < FD_GRPC_RX_BACKP_DETECT_TRESHOLD ) ) {
+    metrics->rx_backp_cnt++;
+  }
+
+  /* Walk all active streams and check for low RX quotas.
+     FIXME poor algorithmic inefficiency.  Consider replenishing lazily
      whenever data is received. */
-  fd_h2_conn_t * conn    = client->conn;
   fd_h2_rbuf_t * rbuf_tx = client->frame_tx;
   if( FD_UNLIKELY( conn->flags ) ) return;
   uint  const wnd_max    = conn->self_settings.initial_window_size;
@@ -124,6 +133,9 @@ fd_grpc_client_send_stream_window_updates( fd_grpc_client_t * client ) {
   for( ulong i=0UL; i<stream_cnt; i++ ) {
     if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(fd_h2_window_update_t) ) ) break;
     fd_grpc_h2_stream_t * stream = client->streams[ i ];
+    if( FD_UNLIKELY( stream->s.rx_wnd < FD_GRPC_RX_BACKP_DETECT_TRESHOLD ) ) {
+      client->metrics->rx_backp_cnt++;
+    }
     if( FD_UNLIKELY( stream->s.rx_wnd < wnd_thres ) ) {
       uint const bump = wnd_max - stream->s.rx_wnd;
       fd_grpc_client_send_stream_quota( rbuf_tx, stream, bump );
@@ -222,12 +234,21 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
 
 static int
 fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
-  fd_grpc_h2_stream_t * stream    = client->request_stream;
-  fd_h2_stream_t *      h2_stream = &stream->s;
+  fd_grpc_client_metrics_t * metrics   = client->metrics;
+  fd_grpc_h2_stream_t *      stream    = client->request_stream;
+  fd_h2_stream_t *           h2_stream = &stream->s;
+
+  ulong const seq0 = client->request_tx_op->seq;
   fd_h2_tx_op_copy( client->conn, h2_stream, client->frame_tx, client->request_tx_op );
+
+  /* Accumulate metrics */
+  metrics->stream_chunks_tx_cnt += ( client->request_tx_op->seq - seq0 );
+  if( FD_UNLIKELY( !client->conn->tx_wnd ) ) metrics->tx_backp_cnt++;
+  if( FD_UNLIKELY( !h2_stream->tx_wnd    ) ) metrics->tx_backp_cnt++;
+
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz ) ) return 0;
   if( FD_UNLIKELY( h2_stream->state != FD_H2_STREAM_STATE_CLOSING_TX ) ) return 0;
-  client->metrics->stream_chunks_tx_cnt++;
+
   /* Request finished */
   client->request_stream = NULL;
   client->callbacks->tx_complete( client->ctx, stream->request_ctx );
