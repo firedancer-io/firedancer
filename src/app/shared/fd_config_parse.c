@@ -284,6 +284,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   development.bundle.ssl_key_log_file              );
   CFG_POP      ( uint,   development.bundle.buffer_size_kib               );
+  CFG_POP      ( uint,   development.bundle.ssl_heap_size_mib             );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
