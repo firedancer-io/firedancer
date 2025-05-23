@@ -198,6 +198,7 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       char  key_log_path[ PATH_MAX ];
       ulong buf_sz;
+      ulong ssl_heap_sz;
       ulong keepalive_interval_nanos;
       ulong request_timeout_nanos;
     } bundle;
