@@ -19,6 +19,8 @@
 #include <netinet/in.h>
 #include <stdarg.h>
 
+#include "../../app/firedancer/version.h"
+
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
@@ -265,7 +267,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
+      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
                            fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
       return 0;
     }
@@ -291,7 +293,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     long off = (off_ptr ? *(long *)off_ptr : FD_LONG_UNSET);
     long len = (len_ptr ? *(long *)len_ptr : FD_LONG_UNSET);
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":",
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
                          fd_rpc_history_latest_slot( ctx->global->history ) );
     const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, off, len, ctx->global->spad );
     if( err ) {
@@ -333,12 +335,12 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
     const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
+      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
                            fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
       return 0;
     }
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
                          fd_rpc_history_latest_slot( ctx->global->history ), metadata->info.lamports, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
@@ -545,7 +547,7 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
     }
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":{\"byIdentity\":{",
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"byIdentity\":{",
                          fd_rpc_history_latest_slot( glob->history ) );
     int first=1;
     for ( product_rb_node_t* nd = product_rb_minimum(pool, root); nd; nd = product_rb_successor(pool, nd) ) {
@@ -784,7 +786,7 @@ method_getFeeForMessage(struct json_values* values, fd_rpc_ctx_t * ctx) {
   // TODO: implement this
   (void)data;
   (void)data_sz;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%s}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%s}" CRLF,
                        fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
   return 0;
 }
@@ -917,7 +919,7 @@ method_getLatestBlockhash(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
   ulong slot = get_slot_from_commitment_level( values, ctx );
   fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info(ctx->global->history, slot);
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
                        info->slot_exec.slot);
   fd_web_reply_encode_base58(ws, &info->slot_exec.block_hash, sizeof(fd_hash_t));
   fd_web_reply_sprintf(ws, "\",\"lastValidBlockHeight\":%lu}},\"id\":%s}" CRLF,
@@ -1089,7 +1091,7 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":[",
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
                          fd_rpc_history_latest_slot( ctx->global->history ));
 
     // Iterate through account ids
@@ -1260,7 +1262,7 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
 static int
 method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":[",
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
                        fd_rpc_history_latest_slot( ctx->global->history ));
 
   // Iterate through account ids
@@ -1419,7 +1421,7 @@ method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_webserver_t * ws = &ctx->global->ws;
-    fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
+    fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
                           slot, slot_bank->capitalization, 0UL, slot_bank->capitalization, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
@@ -1558,7 +1560,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
   fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
 
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
                        fd_rpc_history_latest_slot( ctx->global->history ), (long)info->slot_exec.ts/(long)1e9, slot);
 
   const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, ctx->global->spad );
@@ -1600,7 +1602,7 @@ method_getVersion(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_webserver_t * ws = &ctx->global->ws;
   /* TODO Where does feature-set come from? */
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" RPC_VERSION "\"},\"id\":%s}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" FIREDANCER_VERSION "\"},\"id\":%s}" CRLF,
                        ctx->call_id);
   return 0;
 }
@@ -2229,7 +2231,7 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
       return 0;
     }
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" RPC_VERSION "\",\"slot\":%lu},\"value\":",
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
                          msg->slot_exec.slot);
     const char * err = fd_account_to_json( ws, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len, ctx->global->spad );
     if( err ) {
