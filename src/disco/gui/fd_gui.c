@@ -1574,10 +1574,17 @@ static void
 fd_gui_handle_block_engine_update( fd_gui_t *    gui,
                                    uchar const * msg ) {
   fd_plugin_msg_block_engine_update_t const * update = (fd_plugin_msg_block_engine_update_t const *)msg;
+  fd_topo_t const *      topo   = gui->topo;
+  fd_topo_tile_t const * bundle = &topo->tiles[ fd_topo_find_tile( topo, "bundle", 0UL ) ];
+  ulong volatile * bundle_metrics = fd_metrics_tile( bundle->metrics );
 
   gui->block_engine.has_block_engine = 1;
   strncpy( gui->block_engine.name, update->name, sizeof(gui->block_engine.name) );
   strncpy( gui->block_engine.url, update->url, sizeof(gui->block_engine.url) );
+
+  /* Last status reported in metrics, or  */
+  ulong status    = bundle_metrics[ MIDX( GAUGE, BUNDLE, CONNECTION_STATUS ) ];
+  ulong heartbeat = bundle_metrics[ MIDX( GAUGE, TILE,   HEARTBEAT         ) ];
   gui->block_engine.status = update->status;
 
   fd_gui_printf_block_engine( gui );
