@@ -71,6 +71,11 @@ fd_grpc_client_new( void *                             mem,
   fd_h2_conn_init_client( client->conn );
   client->conn->ctx = client;
 
+  /* Disable RX flow control */
+  client->conn->self_settings.initial_window_size = (1U<<31)-1U;
+  client->conn->rx_wnd_max   = (1U<<31)-1U;
+  client->conn->rx_wnd_wmark = client->conn->rx_wnd_max - (1U<<20);
+
   client->version_len = 5;
   memcpy( client->version, "0.0.0", 5 );
 
