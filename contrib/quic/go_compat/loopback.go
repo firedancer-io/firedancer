@@ -73,9 +73,11 @@ func (ns *loopbackPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error
 	if ns.tx == nil {
 		return 0, net.ErrClosed
 	}
+	p2 := make([]byte, len(p))
+	copy(p2, p)
 	select {
-	case ns.tx <- p:
-		n = len(p)
+	case ns.tx <- p2:
+		n = len(p2)
 		if ns.log {
 			log.Printf("  net: %s -> %s: %4d bytes", ns.localAddr, addr, n)
 		}
