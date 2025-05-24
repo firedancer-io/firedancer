@@ -277,7 +277,6 @@ unsafe fn agave_to_fdquic_bench() {
                     "data={:.3} Gbps  net_rx=({:.3} Gbps {:.3} Mpps)",
                     net_rx_gbps, net_rx_mpps, stream_rx_gbps
                 );
-                println!("{}", metrics.pkt_no_conn_cnt);
             }
         });
 
