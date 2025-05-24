@@ -175,14 +175,14 @@ main( int argc, char ** argv ) {
 
   /* Allocate a large buffer upfront */
   fd_quic_limits_t limits = {
-    .inflight_frame_cnt = 10*max_conn,
-    .conn_cnt           = max_conn,
-    .conn_id_cnt        = max_conn,
-    .handshake_cnt      = 10,
-    .log_depth          = 1,
-    .tx_buf_sz          = 256,
-    .stream_pool_cnt    = 10,
-    .stream_id_cnt      = 10
+    .inflight_pkt_cnt = 10*max_conn,
+    .conn_cnt         = max_conn,
+    .conn_id_cnt      = max_conn,
+    .handshake_cnt    = 10,
+    .log_depth        = 1,
+    .tx_buf_sz        = 256,
+    .stream_pool_cnt  = 10,
+    .stream_id_cnt    = 10
   };
 
   FD_LOG_NOTICE(( "Starting fd_quic_svc_q tests" ));
