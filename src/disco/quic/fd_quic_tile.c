@@ -37,9 +37,9 @@ quic_limits( fd_topo_tile_t const * tile ) {
     /* fd_quic will not issue nor use any new connection IDs after
        completing a handshake.  Connection migration is not supported
        either. */
-    .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
-    .inflight_frame_cnt          = 64UL * tile->quic.max_concurrent_connections,
-    .min_inflight_frame_cnt_conn = 32UL
+    .conn_id_cnt      = FD_QUIC_MIN_CONN_ID_CNT,
+    .inflight_pkt_cnt = 16UL * tile->quic.max_concurrent_connections,
+    .min_inflight_pkt_cnt_conn = 8UL
   };
   if( FD_UNLIKELY( !fd_quic_footprint( &limits ) ) ) {
     FD_LOG_ERR(( "Invalid QUIC limits in config" ));

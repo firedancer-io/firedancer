@@ -180,7 +180,7 @@ main( int argc,
      .handshake_cnt      = num_conns,
      .conn_id_cnt        = 16UL,
      .stream_pool_cnt    = num_conns * 2,
-     .inflight_frame_cnt = num_conns * 64UL,
+     .inflight_pkt_cnt   = 64UL * num_conns,
      .tx_buf_sz          = 0
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
