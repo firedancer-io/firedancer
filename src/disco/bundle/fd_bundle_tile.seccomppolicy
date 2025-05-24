@@ -1,0 +1,67 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+unsigned int logfile_fd
+
+# bundle: Read from TCP connection (HTTPS)
+read
+
+# bundle: Read from TCP connection (HTTP)
+recvmsg: (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+
+# bundle: Write to TCP connection (HTTPS)
+#
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all
+# messages are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write
+
+# bundle: Write to TCP connection (HTTP)
+sendmsg: (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# bundle: TCP connection to the bundle server needs to be established.
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM|SOCK_CLOEXEC")
+             (eq (arg 2) "IPPROTO_TCP"))
+connect
+
+# bundle: TCP connection is closed if there is an error, and a new one
+#         is reopened
+shutdown: (eq (arg 1) "SHUT_WR")
+close
+
+# bundle: Make TCP connection non-blocking
+fcntl: (and (eq (arg 1) "F_SETFL")
+            (eq (arg 2) "O_NONBLOCK"))
+
+# bundle: Wait for TCP connection to be established
+poll: (and (eq (arg 1) 1)
+           (eq (arg 2) 0))
+
+# bundle: configure TCP socket
+setsockopt: (and (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_RCVBUF))
+
+# openssl: RAND_bytes requires getpid
+#
+# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
+# picking connection IDs.  The OpenSSL implementation calls getpid() as
+# an implementation detail, they save the PID in a global and reseed the
+# RNG if the PID ever changes (the process was forked).  We don't need
+# this logic since our process can't fork.
+getpid
+
+# openssl: RAND_bytes requires getrandom
+#
+# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
+# picking connection IDs.  The OpenSSL implementation calls getrandom
+# internally for periodically reseeding the RNG.
+getrandom

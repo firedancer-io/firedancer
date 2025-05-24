@@ -218,10 +218,24 @@ metric introduced.
     <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
+<enum name="BundleError">
+    <int value="1" name="Protobuf" label="Protobuf decode/encode error" />
+    <int value="2" name="Transport" label="Transport error" />
+    <int value="3" name="Timeout" label="I/O timeout" />
+    <int value="4" name="NoFeeInfo" label="Bundle dropped due to missing fee info" />
+    <int value="5" name="SslAlloc" label="OpenSSL alloc fail" />
+</enum>
+
 <tile name="bundle">
     <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
     <counter name="PacketReceived" summary="Total count of packets received" />
     <counter name="BundleReceived" summary="Total count of bundles received" />
+    <counter name="Errors" enum="BundleError" summary="Number of gRPC errors encountered" />
+    <gauge name="HeapSize" summary="Workspace heap size" />
+    <gauge name="HeapFreeBytes" summary="Approx free space in workspace" />
+    <counter name="ShredstreamHeartbeats" summary="Number of ShredStream heartbeats successfully sent" />
+    <counter name="Keepalives" summary="Number of HTTP/2 PINGs acknowledged by server" />
+    <gauge name="Connected" summary="1 if connected to the bundle server, 0 if not" />
 </tile>
 
 <tile name="verify">

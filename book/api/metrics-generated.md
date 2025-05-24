@@ -149,6 +149,16 @@
 | bundle_&#8203;transaction_&#8203;received | `counter` | Total count of transactions received, including transactions within bundles |
 | bundle_&#8203;packet_&#8203;received | `counter` | Total count of packets received |
 | bundle_&#8203;bundle_&#8203;received | `counter` | Total count of bundles received |
+| bundle_&#8203;errors_&#8203;protobuf | `counter` | Number of gRPC errors encountered (Protobuf decode/encode error) |
+| bundle_&#8203;errors_&#8203;transport | `counter` | Number of gRPC errors encountered (Transport error) |
+| bundle_&#8203;errors_&#8203;timeout | `counter` | Number of gRPC errors encountered (I/O timeout) |
+| bundle_&#8203;errors_&#8203;no_&#8203;fee_&#8203;info | `counter` | Number of gRPC errors encountered (Bundle dropped due to missing fee info) |
+| bundle_&#8203;errors_&#8203;ssl_&#8203;alloc | `counter` | Number of gRPC errors encountered (OpenSSL alloc fail) |
+| bundle_&#8203;heap_&#8203;size | `gauge` | Workspace heap size |
+| bundle_&#8203;heap_&#8203;free_&#8203;bytes | `gauge` | Approx free space in workspace |
+| bundle_&#8203;shredstream_&#8203;heartbeats | `counter` | Number of ShredStream heartbeats successfully sent |
+| bundle_&#8203;keepalives | `counter` | Number of HTTP/2 PINGs acknowledged by server |
+| bundle_&#8203;connected | `gauge` | 1 if connected to the bundle server, 0 if not |
 
 ## Verify Tile
 | Metric | Type | Description |

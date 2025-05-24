@@ -431,6 +431,19 @@ fd_config_fill( fd_config_t * config,
   }                                                    \
 } while(0)
 
+FD_FN_CONST static int
+fd_float_in_range( float value,
+                   float low,
+                   float high ) {
+  return value>=low && value<=high;
+}
+
+#define CFG_FLOAT_RANGE_CHECK( value, low, high ) do { \
+  if( FD_UNLIKELY( !fd_float_in_range( (config->value), (low), (high) ) ) ) { \
+    FD_LOG_ERR(( "`%s` must be in range [%f,%f]", #value, (double)(low), (double)(high) )); \
+  } \
+} while(0)
+
 static void
 fd_config_validatef( fd_configf_t const * config ) {
   (void)config;
@@ -523,6 +536,9 @@ fd_config_validate( fd_config_t const * config ) {
 
   CFG_HAS_NON_ZERO( tiles.gui.gui_listen_port );
 
+  CFG_FLOAT_RANGE_CHECK( tiles.bundle.keepalive_interval_seconds, 3.0f, 3600.f );
+  CFG_FLOAT_RANGE_CHECK( tiles.bundle.request_timeout_seconds,    0.5f,   60.f );
+
   CFG_HAS_NON_EMPTY( development.netns.interface0 );
   CFG_HAS_NON_EMPTY( development.netns.interface0_mac );
   CFG_HAS_NON_EMPTY( development.netns.interface0_addr );
@@ -538,6 +554,8 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( development.bench.benchg_tile_count );
   CFG_HAS_NON_ZERO ( development.bench.benchs_tile_count );
   CFG_HAS_NON_EMPTY( development.bench.affinity );
+
+  CFG_HAS_NON_ZERO( development.bundle.ssl_heap_size_mib );
 }
 
 #undef CFG_HAS_NON_EMPTY

@@ -859,6 +859,20 @@ user = ""
         # portion.
         commission_bps = 0
 
+        # The validator keeps the gRPC connection to the bundle server
+        # alive indefinitely, even outside of leader slots.  This is
+        # done using HTTP/2 PING frames.  This option roughly configures
+        # the time between keepalives.  The actual timing is randomized
+        # to reduce burst loads on the network.  Must be within range
+        # [3,3600].
+        keepalive_interval_seconds = 5.0
+
+        # Consider a connection failed if the bundle server fails to
+        # respond to a request in the given time frame.  The validator
+        # will reconnect eventually, but with increasing delays if there
+        # are repeated failures.  Must be within range [0.5,60].
+        request_timeout_seconds = 3.0
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute
@@ -1303,6 +1317,32 @@ user = ""
         # it would cause consensus violations between the validator and
         # the rest of the network.
         larger_shred_limits_per_block = false
+
+    # Experimental options for the bundle tile.  These should not be
+    # changed on a production validator.
+    [development.bundle]
+        # Specify the maximum Protobuf message size in KiB.
+        #
+        # This affects the size of various gRPC-related buffers,
+        # including socket buffer sizes, the TLS buffer, the HTTP/2
+        # frame buffer, and a Protobuf encode buffer.
+        buffer_size_kib = 1024
+
+        # SSL library heap size in MiB.
+        #
+        # When connecting to an HTTPS bundle endpoint, the SSL library
+        # dynamic allocations in a fixed size heap region.  This option
+        # controls the size of that region.
+        ssl_heap_size_mib = 64
+
+        # Log TLS encryption keys for block engine connection.  An empty
+        # string (the default) disables key logging.
+        #
+        # Keys are appended in NSS SSLKEYLOGFILE format to the given
+        # file path.  A file is created if none exists.  The resulting
+        # file can be used to decrypt packet captures of gRPC conns
+        # made by the bundle tile.
+        ssl_key_log_file = ""
 
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
