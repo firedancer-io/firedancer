@@ -71,12 +71,10 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
   ulong  stream_pool_cnt  = limits->stream_pool_cnt;
-  ulong  inflight_res_cnt = limits->min_inflight_pkt_cnt_conn * conn_cnt;
+
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
-
-  if( FD_UNLIKELY( inflight_res_cnt > inflight_pkt_cnt ) ) return 0UL;
 
   if( FD_UNLIKELY( conn_id_cnt < FD_QUIC_MIN_CONN_ID_CNT ))
     return 0UL;
@@ -127,17 +125,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
     offs                   += stream_pool_footprint;
   } else {
     layout->stream_pool_off = 0UL;
-  }
-
-  /* allocate space for pkt_meta_pool */
-  if( inflight_pkt_cnt ) {
-    offs                      = fd_ulong_align_up( offs, fd_quic_pkt_meta_pool_align() );
-    layout->pkt_meta_pool_off = offs;
-    ulong pkt_meta_footprint  = fd_quic_pkt_meta_pool_footprint( inflight_pkt_cnt );
-    if( FD_UNLIKELY( !pkt_meta_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_pkt_meta_pool_footprint" )); return 0UL; }
-    offs += pkt_meta_footprint;
-  } else {
-    layout->pkt_meta_pool_off = 0UL;
   }
 
   /* allocate space for quic_log_buf */
@@ -250,12 +237,12 @@ fd_quic_limits_from_env( int  *   pargc,
 
   if( FD_UNLIKELY( !limits ) ) return NULL;
 
-  limits->conn_cnt         = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conns",         "QUIC_CONN_CNT",           512UL    );
-  limits->conn_id_cnt      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conn-ids",      "QUIC_CONN_ID_CNT",         16UL    );
-  limits->stream_pool_cnt  = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",           8UL    );
-  limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",      512UL    );
-  limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 1280000UL );
-  limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",         4096UL    );
+  limits->conn_cnt         = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conns",         "QUIC_CONN_CNT",           512UL );
+  limits->conn_id_cnt      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conn-ids",      "QUIC_CONN_ID_CNT",         16UL );
+  limits->stream_pool_cnt  = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",           8UL );
+  limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",      512UL );
+  limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 2500UL );
+  limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",         4096UL );
 
   return limits;
 }
@@ -543,14 +530,6 @@ fd_quic_init( fd_quic_t * quic ) {
     state->stream_pool = fd_quic_stream_pool_new( (void*)stream_pool_laddr, stream_pool_cnt, tx_buf_sz );
   }
 
-  if( layout.pkt_meta_pool_off ) {
-    ulong pkt_meta_cnt                 = limits->inflight_pkt_cnt;
-    ulong pkt_meta_laddr               = (ulong)quic + layout.pkt_meta_pool_off;
-    fd_quic_pkt_meta_t * pkt_meta_pool = fd_quic_pkt_meta_pool_new( (void*)pkt_meta_laddr, pkt_meta_cnt );
-    state->pkt_meta_pool               = fd_quic_pkt_meta_pool_join( pkt_meta_pool );
-    fd_quic_pkt_meta_ds_init_pool( pkt_meta_pool, pkt_meta_cnt);
-  }
-
   /* generate a secure random number as seed for fd_rng */
   uint rng_seed = 0;
   int rng_seed_ok = !!fd_rng_secure( &rng_seed, sizeof(rng_seed) );
@@ -598,9 +577,6 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       max_ack_delay_ms_u       );
   /*                         */tp->disable_active_migration_present =   1;
-
-  /* Compute max inflight pkt cnt per conn */
-  state->max_inflight_pkt_cnt_conn = limits->inflight_pkt_cnt - limits->min_inflight_pkt_cnt_conn * (limits->conn_cnt-1);
 
   return quic;
 }
@@ -765,7 +741,7 @@ fd_quic_conn_error1( fd_quic_conn_t * conn,
                      uint             reason ) {
   if( FD_UNLIKELY( !conn || conn->state == FD_QUIC_CONN_STATE_DEAD ) ) return;
 
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ABORT );
+  conn->state  = FD_QUIC_CONN_STATE_ABORT;
   conn->reason = reason;
 
   /* set connection to be serviced ASAP */
@@ -1242,45 +1218,36 @@ fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
 /* fd_quic_abandon_enc_level frees all resources associated encryption
    levels less or equal to enc_level. */
 
-ulong
+void
 fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
                            uint             enc_level ) {
-  if( FD_LIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) return 0UL;
+  if( FD_LIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) return;
   FD_DEBUG( FD_LOG_DEBUG(( "conn=%p abandoning enc_level=%u", (void *)conn, enc_level )); )
-
-  ulong freed = 0UL;
 
   fd_quic_ack_gen_abandon_enc_level( conn->ack_gen, enc_level );
 
-  fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_t * pool = fd_quic_get_state(conn->quic)->pkt_meta_pool;
+  fd_quic_pkt_meta_pool_t * pool = &conn->pkt_meta_pool;
 
   for( uint j = 0; j <= enc_level; ++j ) {
     conn->keys_avail = fd_uint_clear_bit( conn->keys_avail, (int)j );
+
     /* treat all packets as ACKed (freeing handshake data, etc.) */
-    fd_quic_pkt_meta_ds_t * sent  =  &tracker->sent_pkt_metas[j];
+    fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[j];
+    fd_quic_pkt_meta_t *      pkt_meta = sent->head;
+    fd_quic_pkt_meta_t *      prior    = NULL; /* there is no prior, as this is the head */
+    while( pkt_meta ) {
+      fd_quic_reclaim_pkt_meta( conn, pkt_meta, j );
 
-    fd_quic_pkt_meta_t * prev = NULL;
-    for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_treap_fwd_iter_init( sent, pool );
-                                               !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
-                                               iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
-      fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-      if( FD_LIKELY( prev ) ) {
-        fd_quic_pkt_meta_pool_ele_release( pool, prev );
-      }
-      fd_quic_reclaim_pkt_meta( conn, e, j );
-      prev = e;
-    }
-    if( FD_LIKELY( prev ) ) {
-      fd_quic_pkt_meta_pool_ele_release( pool, prev );
-    }
+      /* remove from list */
+      fd_quic_pkt_meta_remove( sent, prior, pkt_meta );
 
-    freed               += fd_quic_pkt_meta_ds_ele_cnt( sent );
-    conn->used_pkt_meta -= fd_quic_pkt_meta_ds_ele_cnt( sent );
-    fd_quic_pkt_meta_ds_clear( tracker, j );
+      /* put pkt_meta back in free list */
+      fd_quic_pkt_meta_deallocate( pool, pkt_meta );
+
+      /* head should have been reclaimed, so fetch new head */
+      pkt_meta = pool->sent_pkt_meta[j].head;
+    }
   }
-
-  return freed;
 }
 
 static void
@@ -2194,6 +2161,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* initialize packet number to unused value */
     pkt->pkt_number = FD_QUIC_PKT_NUM_UNUSED;
 
+    /* long_packet_type is 2 bits, so only four possibilities */
     switch( long_packet_type ) {
       case FD_QUIC_PKT_TYPE_INITIAL:
         rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dcid, &scid, cur_ptr, cur_sz );
@@ -2721,7 +2689,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         return;
       }
       conn->handshake_complete = 1;
-      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE );
+      conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
       return;
 
     default:
@@ -2833,7 +2801,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
 
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_timeout_cnt++;
       }
     } else if( quic->config.keep_alive ) {
@@ -2845,7 +2813,6 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     }
   }
 
-  /* TODO - this should probs be inside conn_service */
   if( now > conn->last_ack + (ulong)conn->rtt->rtt_period_ticks ) {
     /* send PING */
     if( !( conn->flags & ( FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT ) )
@@ -3162,7 +3129,6 @@ fd_quic_gen_handshake_done_frame( fd_quic_conn_t *     conn,
                                   uchar *              payload_end,
                                   fd_quic_pkt_meta_t * pkt_meta,
                                   ulong                now ) {
-  FD_DTRACE_PROBE_1( quic_gen_handshake_done_frame, conn->our_conn_id );
   if( conn->handshake_done_send==0 ) return 0UL;
   conn->handshake_done_send = 0;
   if( FD_UNLIKELY( conn->handshake_done_ackd  ) ) return 0UL;
@@ -3450,14 +3416,12 @@ fd_quic_gen_frames( fd_quic_conn_t *     conn,
        ping
        stream data */
 static void
-fd_quic_conn_tx( fd_quic_t      * quic,
+fd_quic_conn_tx( fd_quic_t *      quic,
                  fd_quic_conn_t * conn ) {
 
   if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_DEAD ) ) return;
 
-  fd_quic_state_t            * state   = fd_quic_get_state( quic );
-  fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_t         * pool    = state->pkt_meta_pool;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
 
   /* used for encoding frames into before encrypting */
   uchar *  crypt_scratch    = state->crypt_scratch;
@@ -3509,16 +3473,14 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
     /* do we have space for pkt_meta? */
     if( !pkt_meta ) {
-      if( FD_UNLIKELY( !fd_quic_pkt_meta_pool_free( pool ) ||
-                        conn->used_pkt_meta >= state->max_inflight_pkt_cnt_conn) ) {
+      pkt_meta = fd_quic_pkt_meta_allocate( &conn->pkt_meta_pool );
+      if( FD_UNLIKELY( !pkt_meta ) ) {
         /* when there is no pkt_meta, it's best to keep processing acks
            until some pkt_meta are returned */
         FD_DEBUG( FD_LOG_DEBUG(( "Failed to alloc pkt_meta" )); )
         quic->metrics.pkt_tx_alloc_fail_cnt++;
         return;
       }
-      pkt_meta = fd_quic_pkt_meta_pool_ele_acquire( pool );
-      conn->used_pkt_meta++;
     } else {
       /* reuse packet number */
       conn->pkt_number[pkt_meta->pn_space] = pkt_meta->pkt_number;
@@ -3559,6 +3521,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
        Returned to pool if not sent as gaps are harmful for ACK frame
        compression. */
     ulong pkt_number = conn->pkt_number[pn_space]++;
+
 
     /* are we the client initial packet? */
     ulong hs_data_offset = conn->hs_sent_bytes[enc_level];
@@ -3606,7 +3569,6 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
         hdr_sz = fd_quic_encode_initial( cur_ptr, cur_sz, &initial );
         hdr_len_field = cur_ptr + hdr_sz - 6; /* 2 byte len, 4 byte packet number */
-        FD_DTRACE_PROBE_2( quic_encode_initial, initial.src_conn_id, initial.dst_conn_id );
         break;
       }
 
@@ -3628,7 +3590,6 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
         hdr_sz = fd_quic_encode_handshake( cur_ptr, cur_sz, &handshake );
         hdr_len_field = cur_ptr + hdr_sz - 6; /* 2 byte len, 4 byte packet number */
-        FD_DTRACE_PROBE_2( quic_encode_handshake, handshake.src_conn_id, handshake.dst_conn_id );
         break;
       }
 
@@ -3644,7 +3605,6 @@ fd_quic_conn_tx( fd_quic_t      * quic,
         one_rtt.pkt_num          = pkt_number;
 
         hdr_sz = fd_quic_encode_one_rtt( cur_ptr, cur_sz, &one_rtt );
-        FD_DTRACE_PROBE_2( quic_encode_one_rtt, one_rtt.dst_conn_id, one_rtt.pkt_num );
         break;
       }
 
@@ -3776,7 +3736,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
     /* add to sent list */
     if( pkt_meta->flags ) {
-      fd_quic_pkt_meta_insert( &tracker->sent_pkt_metas[enc_level], pkt_meta, pool );
+      fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent_pkt_meta[enc_level], pkt_meta );
 
       /* update rescheduling variable */
       fd_quic_svc_prep_schedule( conn, pkt_meta->expiry );
@@ -3817,8 +3777,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   /* unused pkt_meta? deallocate */
   if( FD_UNLIKELY( pkt_meta ) ) {
     conn->pkt_number[pkt_meta->pn_space] = pkt_meta->pkt_number;
-    fd_quic_pkt_meta_pool_ele_release( pool, pkt_meta );
-    conn->used_pkt_meta--;
+    fd_quic_pkt_meta_deallocate( &conn->pkt_meta_pool, pkt_meta );
     pkt_meta = NULL;
   }
 
@@ -3851,7 +3810,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
             conn->handshake_done_send = 1;
 
             /* move straight to ACTIVE */
-            fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
+            conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
             /* RFC 9001 4.9.2. Discarding Handshake Keys
                > An endpoint MUST discard its Handshake keys when the
@@ -3893,7 +3852,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         fd_quic_conn_tx( quic, conn );
 
         /* schedule another fd_quic_conn_service to free the conn */
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD ); /* TODO need draining state wait for 3 * TPO */
+        conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
         quic->metrics.conn_closed_cnt++;
 
         break;
@@ -3903,7 +3862,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         fd_quic_conn_tx( quic, conn );
 
         /* schedule another fd_quic_conn_service to free the conn */
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_aborted_cnt++;
 
         break;
@@ -3938,7 +3897,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
 
   FD_COMPILER_MFENCE();
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
+  conn->state = FD_QUIC_CONN_STATE_INVALID;
   FD_COMPILER_MFENCE();
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
@@ -4015,7 +3974,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
   /* put connection back in free list */
   conn->free_conn_next  = state->free_conn_list;
   state->free_conn_list = conn->conn_idx;
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
+  conn->state           = FD_QUIC_CONN_STATE_INVALID;
 
   quic->metrics.conn_active_cnt--;
 
@@ -4220,6 +4179,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   conn->keys_avail = fd_uint_set_bit( 0U, fd_quic_enc_level_initial_id );
 
+  /* initialize the pkt_meta pool with data */
+  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, conn->pkt_meta_mem, quic->limits.inflight_pkt_cnt );
+
   /* rfc9000: s12.3:
      Packet numbers in each packet space start at 0.
      Subsequent packets sent in the same packet number space
@@ -4241,7 +4203,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->key_phase            = 0;
   conn->key_update           = 0;
 
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_HANDSHAKE );
+  conn->state                = FD_QUIC_CONN_STATE_HANDSHAKE;
   conn->reason               = 0;
   conn->app_reason           = 0;
   conn->flags                = 0;
@@ -4368,21 +4330,21 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
   /* count of freed pkt_meta */
   ulong cnt_freed = 0u;
 
-  fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_t * pool = fd_quic_get_state( quic )->pkt_meta_pool;
+  /* obtain pointer to pkt_meta pool */
+  fd_quic_pkt_meta_pool_t * pool = &conn->pkt_meta_pool;
 
   while(1) {
-    /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
+    /* find earliest sent pkt_meta over all of the enc_levels */
     uint  enc_level      = arg_enc_level;
     uint  peer_enc_level = conn->peer_enc_level;
     ulong expiry         = ~0ul;
     if( arg_enc_level == ~0u ) {
       for( uint j = 0u; j < 4u; ++j ) {
-        /* TODO this only checks smallest pkt number,
-           assuming that pkt numbers are monotonically increasing
-           over time. So it checks in 'sent' time order, but not expiry time. */
+        /* TODO this only checks the head of each enc_level
+           assuming that pkt_meta is in time order. It IS
+           is time order, but not expiry time. */
 #if 1
-        fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[j], pool );
+        fd_quic_pkt_meta_t * pkt_meta = pool->sent_pkt_meta[j].head;
         if( !pkt_meta ) continue;
 
         if( enc_level == ~0u || pkt_meta->expiry < expiry ) {
@@ -4403,7 +4365,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 #endif
       }
     } else {
-      fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[enc_level], pool );
+      fd_quic_pkt_meta_t * pkt_meta = pool->sent_pkt_meta[enc_level].head;
       if( !pkt_meta ) {
         return;
       }
@@ -4429,11 +4391,27 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       return;
     };
 
-    fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[enc_level], pool );
+    fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[enc_level];
+    fd_quic_pkt_meta_t *      pkt_meta = sent->head;
+    fd_quic_pkt_meta_t *      prior    = NULL; /* prior is always null, since we always look at head */
 
     /* already moved to another enc_level */
     if( enc_level < peer_enc_level ) {
-      cnt_freed += fd_quic_abandon_enc_level( conn, peer_enc_level );
+      /* free pkt_meta */
+
+      /* treat the original packet as-if it were ack'ed */
+      fd_quic_reclaim_pkt_meta( conn,
+                                pkt_meta,
+                                enc_level );
+
+      /* remove from list */
+      fd_quic_pkt_meta_remove( sent, prior, pkt_meta );
+
+      /* put pkt_meta back in free list */
+      fd_quic_pkt_meta_deallocate( pool, pkt_meta );
+
+      cnt_freed++;
+
       continue;
     }
 
@@ -4535,12 +4513,13 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     fd_quic_svc_prep_schedule_now( conn );
 
     /* free pkt_meta */
-    fd_quic_pkt_meta_remove_range( &tracker->sent_pkt_metas[enc_level],
-                                    pool,
-                                    pkt_meta->pkt_number,
-                                    pkt_meta->pkt_number );
 
-    conn->used_pkt_meta -= 1;
+    /* remove from list */
+    fd_quic_pkt_meta_remove( sent, prior, pkt_meta );
+
+    /* put pkt_meta back in free list */
+    fd_quic_pkt_meta_deallocate( pool, pkt_meta );
+
     cnt_freed++;
   }
 }
@@ -4551,6 +4530,7 @@ void
 fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level ) {
+
   fd_quic_conn_stream_rx_t * srx = conn->srx;
 
   uint            flags = pkt_meta->flags;
@@ -4800,31 +4780,31 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 void
 fd_quic_process_lost( fd_quic_conn_t * conn, uint enc_level, ulong cnt ) {
   /* start at oldest sent */
-  fd_quic_pkt_meta_t         * pool     = fd_quic_get_state( conn->quic )->pkt_meta_pool;
-  fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_ds_t      * sent     = &tracker->sent_pkt_metas[enc_level];
-  ulong                        j        = 0;
+  fd_quic_pkt_meta_pool_t * pool     = &conn->pkt_meta_pool;
+  fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[enc_level];
+  fd_quic_pkt_meta_t *      pkt_meta = sent->head;
 
-  for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
-                                             !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
-                                             iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
-    fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
+  ulong j = 0;
+
+  while( FD_LIKELY( pkt_meta ) ) {
     if( FD_LIKELY( j < cnt ) ) {
       pkt_meta->expiry = 0; /* force expiry */
+      pkt_meta = pkt_meta->next;
     } else {
       break;
     }
+
     j++;
   }
 
-  /* trigger the retries */
+  /* do the processing */
   fd_quic_pkt_meta_retry( conn->quic, conn, 0 /* don't force */, enc_level );
 }
 
 /* process ack range
    applies to pkt_number in [largest_ack - ack_range, largest_ack] */
 void
-fd_quic_process_ack_range( fd_quic_conn_t      * conn,
+fd_quic_process_ack_range( fd_quic_conn_t *      conn,
                            fd_quic_frame_ctx_t * context,
                            uint                  enc_level,
                            ulong                 largest_ack,
@@ -4832,6 +4812,7 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
                            int                   is_largest,
                            ulong                 now,
                            ulong                 ack_delay ) {
+  /* FIXME: This would benefit from algorithmic improvements */
   /* FIXME: Close connection if peer ACKed a higher packet number than we sent */
 
   fd_quic_pkt_t * pkt = context->pkt;
@@ -4841,34 +4822,62 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
   ulong lo = largest_ack - ack_range;
   FD_DTRACE_PROBE_4( quic_process_ack_range, conn->our_conn_id, enc_level, lo, hi );
 
-  fd_quic_pkt_meta_t         * pool     =  fd_quic_get_state( conn->quic )->pkt_meta_pool;
-  fd_quic_pkt_meta_tracker_t * tracker  =  &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_ds_t      * sent     =  &tracker->sent_pkt_metas[enc_level];
-
   /* start at oldest sent */
-  for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_idx_ge( sent, lo, pool );
-                                             !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
-                                             iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
-    fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-    if( FD_UNLIKELY( e->pkt_number > hi ) ) break;
-    if( is_largest && e->pkt_number == hi && hi >= pkt->rtt_pkt_number ) {
-      pkt->rtt_pkt_number = hi;
-      pkt->rtt_ack_time   = now - e->tx_time; /* in ticks */
-      pkt->rtt_ack_delay  = ack_delay;               /* in peer units */
-    }
-    fd_quic_reclaim_pkt_meta( conn, e, enc_level );
-  }
+  fd_quic_pkt_meta_pool_t * pool     = &conn->pkt_meta_pool;
+  fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[enc_level];
+  fd_quic_pkt_meta_t *      pkt_meta = sent->head;
+  fd_quic_pkt_meta_t *      prior    = NULL;
 
-  conn->used_pkt_meta -= fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+  while( pkt_meta ) {
+    if( FD_UNLIKELY( pkt_meta->pkt_number < lo ) ) {
+      /* go to next, keeping track of prior */
+      prior    = pkt_meta;
+      pkt_meta = pkt_meta->next;
+      continue;
+    }
+
+    /* keep pkt_meta->next for later */
+    fd_quic_pkt_meta_t * pkt_meta_next = pkt_meta->next;
+
+    /* packet number is in range, so reclaim the resources */
+    if( pkt_meta->pkt_number <= hi ) {
+
+      /* note: rtt_pkt_number is zero when unused, so using >= for the test */
+      if( is_largest && pkt_meta->pkt_number == hi && hi >= pkt->rtt_pkt_number ) {
+        pkt->rtt_pkt_number = hi;
+        pkt->rtt_ack_time   = now - pkt_meta->tx_time; /* in ticks */
+        pkt->rtt_ack_delay  = ack_delay;               /* in peer units */
+      }
+
+      fd_quic_reclaim_pkt_meta( conn,
+                                pkt_meta,
+                                enc_level );
+
+      /* remove from list */
+      fd_quic_pkt_meta_remove( sent, prior, pkt_meta );
+
+      /* put pkt_meta back in free list */
+      fd_quic_pkt_meta_deallocate( pool, pkt_meta );
+
+      /* we removed one, so keep prior the same and move pkt_meta up */
+      pkt_meta = pkt_meta_next;
+
+      continue;
+    }
+
+    /* pkt_number > hi, so break */
+    break;
+  }
 }
 
 static ulong
-fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
-                          fd_quic_ack_frame_t * data,
-                          uchar const         * p,
-                          ulong                 p_sz ) {
-  fd_quic_conn_t * conn      = context->conn;
-  uint             enc_level = context->pkt->enc_level;
+fd_quic_handle_ack_frame(
+    fd_quic_frame_ctx_t * context,
+    fd_quic_ack_frame_t * data,
+    uchar const *         p,
+    ulong                 p_sz ) {
+  fd_quic_conn_t * conn = context->conn;
+  uint enc_level = context->pkt->enc_level;
 
   if( FD_UNLIKELY( data->first_ack_range > data->largest_ack ) ) {
     /* this is a protocol violation, so inform the peer */
@@ -4967,19 +4976,15 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   /* process lost packets */
   {
-    fd_quic_pkt_meta_t         * pool     = state->pkt_meta_pool;
-    fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
-    fd_quic_pkt_meta_ds_t      * sent     = &tracker->sent_pkt_metas[enc_level];
-    fd_quic_pkt_meta_t         * min_meta = fd_quic_pkt_meta_min( sent, pool );
+    fd_quic_pkt_meta_pool_t * pool     = &conn->pkt_meta_pool;
+    fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[enc_level];
+    fd_quic_pkt_meta_t *      pkt_meta = sent->head;
 
-    if( FD_UNLIKELY( min_meta && min_meta->pkt_number < low_ack_pkt_number ) ) {
-      ulong skipped = 0;
-      for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
-                                                 !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
-                                                 iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
-        fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-        if( FD_UNLIKELY( e->pkt_number >= low_ack_pkt_number ) ) break;
+    if( FD_UNLIKELY( pkt_meta && pkt_meta->pkt_number < low_ack_pkt_number ) ) {
+      ulong skipped = 0UL;
+      while( FD_LIKELY( pkt_meta && pkt_meta->pkt_number < low_ack_pkt_number  ) ) {
         skipped++;
+        pkt_meta = pkt_meta->next;
       }
 
       if( FD_UNLIKELY( skipped > 3 ) ) {
@@ -5323,7 +5328,7 @@ fd_quic_handle_conn_close_frame( fd_quic_conn_t * conn ) {
       return;
 
     default:
-      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_PEER_CLOSE );
+      conn->state = FD_QUIC_CONN_STATE_PEER_CLOSE;
   }
 
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
@@ -5449,7 +5454,7 @@ fd_quic_handle_handshake_done_frame(
   }
 
   /* we shouldn't be receiving this unless handshake is complete */
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
+  conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
   /* user callback */
   fd_quic_cb_conn_hs_complete( conn->quic, conn );
@@ -5481,7 +5486,7 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 
     default:
       {
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_CLOSE_PENDING );
+        conn->state      = FD_QUIC_CONN_STATE_CLOSE_PENDING;
         conn->app_reason = app_reason;
       }
   }
