@@ -39,6 +39,13 @@ struct fd_stateless_builtin_program {
 };
 typedef struct fd_stateless_builtin_program fd_stateless_builtin_program_t;
 
+struct fd_precompile_program {
+  fd_pubkey_t const * pubkey;
+  ulong               feature_offset;
+  int                 (*verify_fn)(fd_exec_instr_ctx_t*);
+};
+typedef struct fd_precompile_program fd_precompile_program_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* Initialize the builtin program accounts */
@@ -78,6 +85,12 @@ fd_is_migrating_builtin_program( fd_exec_txn_ctx_t const * txn_ctx,
 
 uchar
 fd_is_non_migrating_builtin_program( fd_pubkey_t const * pubkey );
+
+fd_precompile_program_t const *
+fd_precompiles( void );
+
+ulong
+fd_num_precompiles( void );
 
 FD_PROTOTYPES_END
 
