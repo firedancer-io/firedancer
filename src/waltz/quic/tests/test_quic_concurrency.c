@@ -47,7 +47,7 @@ main( int     argc,
     .conn_cnt         = conn_cnt,
     .handshake_cnt    =        1,
     .conn_id_cnt      =        4,
-    .inflight_pkt_cnt =        4 * conn_cnt,
+    .inflight_pkt_cnt =        4,
     .tx_buf_sz        =        0
   };
   quic_limits.stream_pool_cnt = quic_limits.conn_cnt;

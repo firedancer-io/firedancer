@@ -114,7 +114,6 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
   ulong  conn_id_cnt;               /* per-conn, max conn ID count (min 4UL)          */
   ulong  stream_id_cnt;             /* per-conn, max concurrent stream ID count       */
   ulong  inflight_pkt_cnt;          /* instance-wide, total max inflight packet count */
-  ulong  min_inflight_pkt_cnt_conn; /* per-conn, min inflight packet count            */
 
   ulong  tx_buf_sz;                 /* per-stream, tx buf sz in bytes                 */
   /* the user consumes rx directly from the network buffer */
@@ -136,7 +135,6 @@ struct fd_quic_layout {
   ulong hs_pool_off;       /* offset of the handshake pool     */
   ulong stream_pool_off;   /* offset of the stream pool        */
   ulong svc_timers_off;    /* offset of the service timers     */
-  ulong pkt_meta_pool_off; /* offset of the pkt_meta pool      */
 };
 
 typedef struct fd_quic_layout fd_quic_layout_t;

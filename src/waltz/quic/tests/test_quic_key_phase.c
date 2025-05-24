@@ -294,7 +294,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           =  2,
     .conn_id_cnt        =  4,
     .handshake_cnt      =  2,
-    .inflight_pkt_cnt   = 16 * 2
+    .inflight_pkt_cnt   = 16
   };
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );
@@ -304,7 +304,7 @@ main( int argc, char ** argv ) {
     .conn_cnt         =   2,
     .conn_id_cnt      =   4,
     .handshake_cnt    =   2,
-    .inflight_pkt_cnt = 530 * 2,
+    .inflight_pkt_cnt = 530,
     .stream_id_cnt    = 512,
     .stream_pool_cnt  = 512,
     .tx_buf_sz        =  32,

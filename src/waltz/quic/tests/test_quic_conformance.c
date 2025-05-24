@@ -492,69 +492,6 @@ test_quic_send_streams( fd_quic_sandbox_t * sandbox,
 
 }
 
-static void pretend_stream( fd_quic_stream_t * stream ) {
-  stream->stream_flags |= FD_QUIC_STREAM_FLAGS_UNSENT;
-  stream->tx_buf.head = 1;
-  stream->tx_sent = 0;
-}
-
-static __attribute__ ((noinline)) void
-test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
-                              fd_rng_t *          rng ) {
-
-  /* min_inflight reserved AND max enforced */
-  fd_quic_t * quic = sandbox->quic;
-  do {
-    fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
-    FD_TEST( conn );
-    FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-    FD_TEST( conn->used_pkt_meta == 0UL );
-
-    conn->tx_sup_stream_id = 4; /* we'll just use one stream */
-    fd_quic_stream_t * empty_stream = fd_quic_conn_new_stream( conn );
-
-    for( int i=0; i<12; i++ ) {
-      empty_stream->upd_pkt_number = ~0UL;
-
-      /* manually add to send_streams */
-      FD_QUIC_STREAM_LIST_REMOVE( empty_stream );
-      pretend_stream( empty_stream );
-      FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, empty_stream );
-      FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
-
-      ulong metrics_before = quic->metrics.pkt_tx_alloc_fail_cnt;
-      fd_quic_conn_service( quic, conn, 0 );
-      ulong metrics_after = quic->metrics.pkt_tx_alloc_fail_cnt;
-      if( i==11 ) {
-        /* 12th packet should fail */
-        FD_TEST( metrics_after == metrics_before + 1 );
-      } else {
-        /* 11th packet should succeed */
-        FD_TEST( metrics_after == metrics_before );
-      }
-    }
-
-  } while(0);
-
-
-  /* test conn_cnt*min_inflight_pkt_cnt_conn <= inflight_pkt_cnt */
-  do {
-    fd_quic_limits_t quic_limits = {
-      .conn_cnt         =   2UL,
-      .inflight_pkt_cnt =   8UL,
-      .handshake_cnt    =   1UL,
-      .conn_id_cnt      =   4UL,
-      .stream_id_cnt    =   8UL,
-      .tx_buf_sz        = 512UL,
-      .stream_pool_cnt  =  32UL,
-    };
-
-    quic_limits.min_inflight_pkt_cnt_conn = 5UL;
-    FD_TEST( !fd_quic_footprint( &quic_limits ) );
-  } while(0);
-
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -577,8 +514,7 @@ main( int     argc,
     .handshake_cnt    =   1UL,
     .conn_id_cnt      =   4UL,
     .stream_id_cnt    =   8UL,
-    .inflight_pkt_cnt =   8UL * 4,
-    .min_inflight_pkt_cnt_conn = 7UL, /* for test_quic_inflight_pkt_limit */
+    .inflight_pkt_cnt =   8UL,
     .tx_buf_sz        = 512UL,
     .stream_pool_cnt  =  32UL,
   };
@@ -613,7 +549,6 @@ main( int     argc,
   test_quic_rx_max_streams_frame         ( sandbox, rng );
   test_quic_small_pkt_ping               ( sandbox, rng );
   test_quic_send_streams                 ( sandbox, rng );
-  test_quic_inflight_pkt_limit           ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */
