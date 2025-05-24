@@ -142,7 +142,7 @@ check out a newer version, update dependencies, and rebuild binaries.
 
 ```sh [bash]
 git fetch --tags
-git checkout v0.404.20113 # replace version number here
+git checkout __FD_LATEST_VERSION__ # replace version number here
 git submodule update
 make -j fdctl solana
 ```
