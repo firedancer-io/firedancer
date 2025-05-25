@@ -28,6 +28,26 @@ struct fd_addrinfo {
 #define FD_EAI_MEMORY     -10
 #define FD_EAI_SYSTEM     -1000
 
+struct fd_netdb_fds {
+  int etc_hosts;
+  int etc_resolv_conf;
+};
+
+typedef struct fd_netdb_fds fd_netdb_fds_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_netdb_open opens the /etc/hosts and /etc/resolv.conf file
+   descriptors, and registers them globally.  This avoids open(2)
+   syscalls when running fd_getaddrinfo.  Terminates app if
+   open(/etc/resolv.conf) fails, and logs warning if open(/etc/hosts)
+   fails.  Thread-local. */
+
+fd_netdb_fds_t *
+fd_netdb_open_fds( fd_netdb_fds_t * fds );
+
+/* fd_getaddrinfo is derived from musl libc getaddrinfo. */
+
 int
 fd_getaddrinfo( char const * restrict          node,
                 fd_addrinfo_t const * restrict hints,
@@ -35,7 +55,12 @@ fd_getaddrinfo( char const * restrict          node,
                 void **                        out_mem,
                 ulong                          out_max );
 
+/* fd_gai_strerror returns a static lifetime cstr describing a return
+   value of fd_getaddrinfo. */
+
 char const *
 fd_gai_strerror( int );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_resolv_fd_netdb_h */
