@@ -49,7 +49,10 @@ start_tcp( struct pollfd * pfd,
     .msg_iovlen  = 2,
     .msg_iov = (struct iovec [2]){
       { .iov_base = (uint8_t[]){ ql>>8, ql }, .iov_len = 2 },
-      { .iov_base = (void *)q, .iov_len = ql } }
+      { .iov_base = (void *)q, .iov_len = ql } },
+    .msg_control    = NULL,
+    .msg_controllen = 0,
+    .msg_flags      = 0
   };
   int fd = socket( family, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0 );
   pfd->fd = fd;
@@ -206,7 +209,10 @@ fd_res_msend_rc( int                     nqueries,
         .msg_iov = (struct iovec []){
           { .iov_base = (void *)answers[next],
             .iov_len = asize }
-        }
+        },
+        .msg_control    = NULL,
+        .msg_controllen = 0,
+        .msg_flags      = 0
       };
       int rlen = recvmsg( fd, &mh, 0 );
       if( rlen < 0 ) break;
@@ -268,7 +274,10 @@ fd_res_msend_rc( int                     nqueries,
         .msg_iovlen = 2,
         .msg_iov = (struct iovec [2]){
           { .iov_base = (uint8_t[]){ qlens[i]>>8, qlens[i] }, .iov_len = 2 },
-          { .iov_base = (void *)queries[i], .iov_len = qlens[i] } }
+          { .iov_base = (void *)queries[i], .iov_len = qlens[i] } },
+        .msg_control    = NULL,
+        .msg_controllen = 0,
+        .msg_flags      = 0
       };
       step_mh( &mh, qpos[i] );
       int r = sendmsg( pfd[i].fd, &mh, MSG_NOSIGNAL );
@@ -283,7 +292,10 @@ fd_res_msend_rc( int                     nqueries,
         .msg_iovlen = 2,
         .msg_iov = (struct iovec [2]){
           { .iov_base = alen_buf[i], .iov_len = 2 },
-          { .iov_base = answers[i], .iov_len = asize } }
+          { .iov_base = answers[i], .iov_len = asize } },
+        .msg_control    = NULL,
+        .msg_controllen = 0,
+        .msg_flags      = 0
       };
       step_mh( &mh, apos[i] );
       int r = recvmsg( pfd[i].fd, &mh, 0 );
