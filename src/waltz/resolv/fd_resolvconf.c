@@ -1,11 +1,14 @@
 #include "fd_lookup.h"
-#include <stdio.h>
 #include <ctype.h>
-#include "../../util/cstr/fd_cstr.h"
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <netinet/in.h>
+#include "../../util/cstr/fd_cstr.h"
+#include "../../util/io/fd_io.h"
+#include "fd_io_readline.h"
 
 int
 fd_get_resolv_conf( fd_resolvconf_t * conf ) {
@@ -15,8 +18,8 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
   conf->timeout = 5;
   conf->attempts = 2;
 
-  FILE * f = fopen( "/etc/resolv.conf", "rb ");
-  if( !f ) switch( errno ) {
+  int f = open( "/etc/resolv.conf", O_RDONLY );
+  if( f<0 ) switch( errno ) {
   case ENOENT:
   case ENOTDIR:
   case EACCES:
@@ -25,15 +28,20 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
     return -1;
   }
 
+  uchar rbuf[256];
+  fd_io_buffered_istream_t istream[1];
+  fd_io_buffered_istream_init( istream, f, rbuf, sizeof(rbuf) );
+
   char line[256];
-  while( fgets( line, sizeof(line), f ) ) {
+  int err;
+  while( fd_io_fgets( line, sizeof(line), istream, &err ) ) {
     char * p, * z;
-    if( !strchr( line, '\n' ) && !feof( f ) ) {
+    if( !strchr( line, '\n' ) && err==0 ) {
       /* Ignore lines that get truncated rather than
        * potentially misinterpreting them. */
       int c;
-      do c = getc( f );
-      while( c != '\n' && c != EOF );
+      do c = fd_io_fgetc( istream, &err );
+      while( c!='\n' && c!=-1 );
       continue;
     }
     if( !strncmp( line, "options", 7 ) && fd_isspace( line[7] ) ) {
@@ -68,7 +76,7 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
     }
   }
 
-  fclose( f );
+  close( f );
 
 no_resolv_conf:
   if( !nns ) {
