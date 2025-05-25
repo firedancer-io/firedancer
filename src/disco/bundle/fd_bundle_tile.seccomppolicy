@@ -1,12 +1,21 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-unsigned int logfile_fd
+#
+# keylog_fd: Log HTTPS session keys to file (development option)
+#
+# etc_hosts_fd, etc_resolv_conf: Used to resolve DNS records.
+uint logfile_fd, uint keylog_fd, uint etc_hosts_fd, uint etc_resolv_conf
 
 # bundle: Read from TCP connection (HTTPS)
+#
+# resolv: Read DNS config
 read
 
 # bundle: Read from TCP connection (HTTP)
-recvmsg: (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+#
+# resolv: Receive DNS responses
+recvmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+             (eq (arg 2) 0))
 
 # bundle: Write to TCP connection (HTTPS)
 #
@@ -19,8 +28,19 @@ recvmsg: (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
 # that descriptor 2 is always STDERR.
 write
 
+# OpenSSL: SSLKEYLOGFILE
+writev: (and (eq (arg 0) keylog_fd)
+             (eq (arg 2) 2))
+
 # bundle: Write to TCP connection (HTTP)
-sendmsg: (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+#
+# resolv: Send DNS queries via UDP or TCP
+sendmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+             (eq (arg 2) "MSG_FASTOPEN|MSG_NOSIGNAL")
+             (eq (arg 2) "MSG_NOSIGNAL"))
+
+# resolv: Send DNS queries via UDP or TCP
+sendto: (eq (arg 3) "MSG_NOSIGNAL")
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
@@ -28,27 +48,53 @@ sendmsg: (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
 fsync: (eq (arg 0) logfile_fd)
 
 # bundle: TCP connection to the bundle server needs to be established.
-socket: (and (eq (arg 0) "AF_INET")
-             (eq (arg 1) "SOCK_STREAM|SOCK_CLOEXEC")
-             (eq (arg 2) "IPPROTO_TCP"))
+#
+# resolv: Send DNS queries via UDP or TCP
+socket: (and (or (eq (arg 0) "AF_INET")
+                 (eq (arg 0) "AF_INET6"))
+             (or (and (or (eq (arg 1) "SOCK_STREAM|SOCK_CLOEXEC")
+                          (eq (arg 1) "SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK"))
+                      (eq (arg 2) 0))
+                 (and (eq (arg 1) "SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK")
+                      (eq (arg 2) 0))
+                 (and (eq (arg 1) "SOCK_DGRAM|SOCK_CLOEXEC")
+                      (eq (arg 2) "IPPROTO_UDP"))))
 connect
 
 # bundle: TCP connection is closed if there is an error, and a new one
 #         is reopened
 shutdown: (eq (arg 1) "SHUT_WR")
+
+# bundle: TCP connection is closed if there is an error, and a new one
+#         is reopened
+# resolv: Close UDP/TCP sockets once done querying DNS
 close
 
 # bundle: Make TCP connection non-blocking
 fcntl: (and (eq (arg 1) "F_SETFL")
             (eq (arg 2) "O_NONBLOCK"))
 
-# bundle: Wait for TCP connection to be established
-poll: (and (eq (arg 1) 1)
-           (eq (arg 2) 0))
+# resolv: Bind DNS request socket
+bind: (or (eq (arg 2) "sizeof(struct sockaddr_in)")
+          (eq (arg 2) "sizeof(struct sockaddr_in6)"))
 
-# bundle: configure TCP socket
-setsockopt: (and (eq (arg 1) SOL_SOCKET)
-                 (eq (arg 2) SO_RCVBUF))
+# bundle: Wait for TCP connection to be established
+#
+# resolv: Wait for DNS responses
+poll
+
+# bundle: configure TCP socket (for gRPC connection)
+#
+# resolv: configure UDP or TCP socket (for DNS queries)
+setsockopt: (or (and (eq (arg 1) SOL_SOCKET)
+                     (eq (arg 2) SO_RCVBUF))
+                (and (eq (arg 1) IPPROTO_TCP)
+                     (eq (arg 2) TCP_FASTOPEN_CONNECT))
+                (and (eq (arg 1) IPPROTO_IPV6)
+                     (eq (arg 2) IPV6_V6ONLY)))
+
+# resolv: check if DNS queries use IPv6
+getsockname
 
 # openssl: RAND_bytes requires getpid
 #
@@ -65,3 +111,9 @@ getpid
 # picking connection IDs.  The OpenSSL implementation calls getrandom
 # internally for periodically reseeding the RNG.
 getrandom
+
+# resolv: Read DNS config
+lseek: (and (or (eq (arg 0) etc_resolv_conf)
+                (eq (arg 0) etc_hosts_fd))
+            (eq (arg 1) 0)
+            (eq (arg 2) "SEEK_SET"))

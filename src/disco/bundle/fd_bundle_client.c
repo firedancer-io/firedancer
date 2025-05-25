@@ -17,7 +17,7 @@
 #include <unistd.h> /* close */
 #include <poll.h> /* poll */
 #include <sys/socket.h> /* socket */
-#include <netinet/in.h> /* IPPROTO_TCP */
+#include <netinet/in.h>
 
 static void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
@@ -58,10 +58,11 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
 }
 
 static int
-fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx ) {
+fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
+                             uint                     ip4_addr ) {
   struct sockaddr_in addr = {
     .sin_family      = AF_INET,
-    .sin_addr.s_addr = ctx->server_ip4_addr,
+    .sin_addr.s_addr = ip4_addr,
     .sin_port        = fd_ushort_bswap( ctx->server_tcp_port )
   };
   errno = 0;
@@ -76,9 +77,24 @@ static void
 fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   fd_bundle_client_reset( ctx );
 
-  int tcp_sock = socket( AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_TCP );
+  /* FIXME IPv6 support */
+  fd_addrinfo_t hints = {0};
+  hints.ai_family = AF_INET;
+  fd_addrinfo_t * res = NULL;
+  uchar scratch[ 4096 ];
+  void * pscratch = scratch;
+  int err = fd_getaddrinfo( ctx->server_fqdn, &hints, &res, &pscratch, sizeof(scratch) );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_getaddrinfo `%s` failed (%d-%s)", ctx->server_fqdn, err, fd_gai_strerror( err ) ));
+    fd_bundle_client_reset( ctx );
+    ctx->metrics.transport_fail_cnt++;
+    return;
+  }
+  uint const ip4_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+
+  int tcp_sock = socket( AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0 );
   if( FD_UNLIKELY( tcp_sock<0 ) ) {
-    FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   ctx->tcp_sock = tcp_sock;
 
@@ -97,14 +113,14 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
   FD_LOG_INFO(( "Connecting to %s://" FD_IP4_ADDR_FMT ":%hu (%.*s)",
                 scheme,
-                FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ), ctx->server_tcp_port,
-                (int)ctx->server_fqdn_len, ctx->server_fqdn ));
+                FD_IP4_ADDR_FMT_ARGS( ip4_addr ), ctx->server_tcp_port,
+                (int)ctx->server_sni_len, ctx->server_sni ));
 
-  int connect_err = fd_bundle_client_do_connect( ctx );
+  int connect_err = fd_bundle_client_do_connect( ctx, ip4_addr );
   if( FD_UNLIKELY( connect_err ) ) {
     if( FD_UNLIKELY( connect_err!=EINPROGRESS ) ) {
       FD_LOG_WARNING(( "connect(tcp_sock," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
-                      FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ), ctx->server_tcp_port,
+                      FD_IP4_ADDR_FMT_ARGS( ip4_addr ), ctx->server_tcp_port,
                       connect_err, fd_io_strerror( connect_err ) ));
       fd_bundle_client_reset( ctx );
       ctx->metrics.transport_fail_cnt++;
@@ -127,7 +143,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
     SSL_set_connect_state( ssl );
 
-    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, ctx->server_fqdn ) ) ) {
+    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, ctx->server_sni ) ) ) {
       FD_LOG_ERR(( "SSL_set_tlsext_host_name failed" ));
     }
 
@@ -162,7 +178,7 @@ fd_bundle_client_request_builder_info( fd_bundle_tile_t * ctx ) {
   static char const path[] = "/block_engine.BlockEngineValidator/GetBlockBuilderFeeInfo";
   int req_ok = fd_grpc_client_request_start(
       ctx->grpc_client,
-      ctx->server_fqdn, ctx->server_fqdn_len, ctx->server_tcp_port,
+      ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo,
       &block_engine_BlockBuilderFeeInfoRequest_msg, &req,
@@ -181,7 +197,7 @@ fd_bundle_client_subscribe_packets( fd_bundle_tile_t * ctx ) {
   static char const path[] = "/block_engine.BlockEngineValidator/SubscribePackets";
   int req_ok = fd_grpc_client_request_start(
       ctx->grpc_client,
-      ctx->server_fqdn, ctx->server_fqdn_len, ctx->server_tcp_port,
+      ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets,
       &block_engine_SubscribePacketsRequest_msg, &req,
@@ -200,7 +216,7 @@ fd_bundle_client_subscribe_bundles( fd_bundle_tile_t * ctx ) {
   static char const path[] = "/block_engine.BlockEngineValidator/SubscribeBundles";
   int req_ok = fd_grpc_client_request_start(
       ctx->grpc_client,
-      ctx->server_fqdn, ctx->server_fqdn_len, ctx->server_tcp_port,
+      ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles,
       &block_engine_SubscribeBundlesRequest_msg, &req,
@@ -253,7 +269,7 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
     if( poll_res==0 ) return;
 
     if( pfds[0].revents & (POLLERR|POLLHUP) ) {
-      int connect_err = fd_bundle_client_do_connect( ctx );
+      int connect_err = fd_bundle_client_do_connect( ctx, 0 );
       FD_LOG_INFO(( "Bundle gRPC connect attempt failed (%i-%s)", connect_err, fd_io_strerror( connect_err ) ));
       fd_bundle_client_reset( ctx );
       ctx->metrics.transport_fail_cnt++;
@@ -296,7 +312,7 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
 
   /* Drive auth */
   if( FD_UNLIKELY( ctx->auther.needs_poll ) ) {
-    fd_bundle_auther_poll( &ctx->auther, ctx->grpc_client, ctx->keyguard_client, ctx->server_fqdn, ctx->server_fqdn_len, ctx->server_tcp_port );
+    fd_bundle_auther_poll( &ctx->auther, ctx->grpc_client, ctx->keyguard_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
     *charge_busy = 1;
     return;
   }
