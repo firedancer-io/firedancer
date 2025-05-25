@@ -42,6 +42,7 @@ test_gai( char const * host ) {
 int
 main( int     argc,
       char ** argv ) {
+  fd_netdb_open_fds( NULL );
   for( int i=1; i<argc; i++ ) {
     test_gai( argv[i] );
   }

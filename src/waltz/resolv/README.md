@@ -21,6 +21,8 @@ musl libc.  It was imported circa 2025-May.
 - Removed support for search domains
 - Removed unused code incurred by keeping API compatibility.
 - Replaced stdio.h (fopen, fgets, etc) with fd_io`
+- Reuses /etc/hosts and /etc/resolv.conf file descriptors for better
+  sandboxing.
 
 ## Copyright
 

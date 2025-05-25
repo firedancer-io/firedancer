@@ -74,4 +74,9 @@ fd_dns_parse( uchar const *,
                        int ),
               void * );
 
+/* Firedancer extension: pre-opened file descriptors */
+
+extern FD_TL int fd_etc_hosts_fd;
+extern FD_TL int fd_etc_resolv_conf_fd;
+
 #endif /* HEADER_fd_src_waltz_resolv_fd_lookup_h */

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <netinet/in.h>
 #include "../../util/cstr/fd_cstr.h"
+#include "../../util/log/fd_log.h"
 #include "../../util/io/fd_io.h"
 #include "fd_io_readline.h"
 
@@ -18,19 +19,15 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
   conf->timeout = 5;
   conf->attempts = 2;
 
-  int f = open( "/etc/resolv.conf", O_RDONLY );
-  if( f<0 ) switch( errno ) {
-  case ENOENT:
-  case ENOTDIR:
-  case EACCES:
-    goto no_resolv_conf;
-  default:
-    return -1;
+  if( fd_etc_resolv_conf_fd<0 ) goto no_resolv_conf;
+
+  if( FD_UNLIKELY( -1==lseek( fd_etc_resolv_conf_fd, 0, SEEK_SET ) ) ) {
+    FD_LOG_ERR(( "lseek(/etc/resolv.conf,0,SEEK_SET) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   uchar rbuf[256];
   fd_io_buffered_istream_t istream[1];
-  fd_io_buffered_istream_init( istream, f, rbuf, sizeof(rbuf) );
+  fd_io_buffered_istream_init( istream, fd_etc_resolv_conf_fd, rbuf, sizeof(rbuf) );
 
   char line[256];
   int err;
@@ -75,8 +72,6 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
       continue;
     }
   }
-
-  close( f );
 
 no_resolv_conf:
   if( !nns ) {

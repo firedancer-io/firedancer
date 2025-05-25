@@ -14,6 +14,7 @@
 #include "fd_lookup.h"
 #include "fd_io_readline.h"
 #include "../../util/cstr/fd_cstr.h"
+#include "../../util/log/fd_log.h"
 #include "../../util/io/fd_io.h"
 
 static int
@@ -60,19 +61,15 @@ name_from_hosts( struct address buf[ static MAXADDRS ],
   ulong l = strlen( name );
   int cnt = 0, badfam = 0, have_canon = 0;
 
-  int f = open( "/etc/hosts", O_RDONLY );
-  if( f<0 ) switch( errno ) {
-  case ENOENT:
-  case ENOTDIR:
-  case EACCES:
-    return 0;
-  default:
-    return FD_EAI_SYSTEM-errno;
+  if( fd_etc_hosts_fd<0 ) return 0;
+
+  if( FD_UNLIKELY( -1==lseek( fd_etc_hosts_fd, 0, SEEK_SET ) ) ) {
+    FD_LOG_ERR(( "lseek(/etc/hosts,0,SEEK_SET) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   uchar rbuf[1032];
   fd_io_buffered_istream_t istream[1];
-  fd_io_buffered_istream_init( istream, f, rbuf, sizeof(rbuf) );
+  fd_io_buffered_istream_init( istream, fd_etc_hosts_fd, rbuf, sizeof(rbuf) );
 
   char line[512];
   while( cnt < MAXADDRS ) {
@@ -111,7 +108,6 @@ name_from_hosts( struct address buf[ static MAXADDRS ],
       memcpy( canon, p, (ulong)( z-p+1 ) );
     }
   }
-  close( f );
   return cnt ? cnt : badfam;
 }
 
