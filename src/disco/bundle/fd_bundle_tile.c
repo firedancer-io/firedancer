@@ -11,7 +11,8 @@
 #include <sys/mman.h> /* PROT_READ (seccomp) */
 #include <sys/uio.h> /* writev */
 #include <netinet/in.h> /* AF_INET */
-#include <netdb.h> /* getaddrinfo */
+#include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
+#include "../../waltz/resolv/fd_netdb.h"
 
 #include "generated/fd_bundle_tile_seccomp.h"
 
@@ -123,12 +124,11 @@ after_credit( fd_bundle_tile_t *  ctx,
 }
 
 static void
-resolve_url( fd_url_t *   url_,
-             char const * url_str,
-             ulong        url_str_len,
-             uint *       ip4_addr,
-             ushort *     tcp_port,
-             _Bool *      is_ssl ) {
+parse_url( fd_url_t *   url_,
+           char const * url_str,
+           ulong        url_str_len,
+           ushort *     tcp_port,
+           _Bool *      is_ssl ) {
 
   /* Parse URL */
 
@@ -182,29 +182,16 @@ resolve_url( fd_url_t *   url_,
   }
   char host_cstr[ 256 ];
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( host_cstr ), url->host, url->host_len ) );
-
-  struct addrinfo hints, *res;
-  memset( &hints, 0, sizeof(hints) );
-  hints.ai_family = AF_INET;
-
-  int err = getaddrinfo( host_cstr, NULL, &hints, &res );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "getaddrinfo `%s` failed (%d-%s)", host_cstr, err, gai_strerror( err ) ));
-  }
-
-  *ip4_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
-  freeaddrinfo( res );
 }
 
 static void
-fd_bundle_tile_resolve_endpoint( fd_bundle_tile_t *     ctx,
-                                 fd_topo_tile_t const * tile ) {
+fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
+                               fd_topo_tile_t const * tile ) {
   fd_url_t url[1];
   _Bool is_ssl = 0;
-  resolve_url(
+  parse_url(
       url,
       tile->bundle.url, tile->bundle.url_len,
-      &ctx->server_ip4_addr,
       &ctx->server_tcp_port,
       &is_ssl
   );
@@ -213,6 +200,14 @@ fd_bundle_tile_resolve_endpoint( fd_bundle_tile_t *     ctx,
   }
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_fqdn ), url->host, url->host_len ) );
   ctx->server_fqdn_len = url->host_len;
+
+  if( FD_UNLIKELY( tile->bundle.sni_len ) ) {
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_sni ), tile->bundle.sni, tile->bundle.sni_len ) );
+    ctx->server_sni_len = tile->bundle.sni_len;
+  } else {
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_sni ), url->host, url->host_len ) );
+    ctx->server_sni_len = url->host_len;
+  }
 
   ctx->is_ssl = !!is_ssl;
 #if !FD_HAS_OPENSSL
@@ -379,19 +374,10 @@ privileged_init( fd_topo_t *      topo,
   uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
   fd_memcpy( ctx->auther.pubkey, public_key, 32UL );
 
-  /* DNS resolution does arbitrary syscalls and system ops, therefore
-     has to be run outside the sandbox. */
-  fd_bundle_tile_resolve_endpoint( ctx, tile );
-
-  /* Override server name indication */
-  if( FD_UNLIKELY( tile->bundle.sni_len ) ) {
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_fqdn ), tile->bundle.sni, tile->bundle.sni_len ) );
-    ctx->server_fqdn_len = tile->bundle.sni_len;
-  }
+  ctx->keylog_fd = -1;
 
 # if FD_HAS_OPENSSL
 
-  ctx->keylog_fd = -1;
   if( FD_UNLIKELY( tile->bundle.key_log_path[0] ) ) {
     ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0644 );
     if( FD_UNLIKELY( ctx->keylog_fd < 0 ) ) {
@@ -405,6 +391,11 @@ privileged_init( fd_topo_t *      topo,
   fd_bundle_tile_init_openssl( ctx, alloc_mem );
 
 # endif /* FD_HAS_OPENSSL */
+
+  /* Init resolver */
+  if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
+    FD_LOG_ERR(( "fd_netdb_open_fds failed" ));
+  }
 
   /* Random seed for header hashmap */
   if( FD_UNLIKELY( !fd_rng_secure( &ctx->map_seed, sizeof(ulong) ) ) ) {
@@ -490,6 +481,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* Force tile to output a plugin message on startup */
   ctx->bundle_status_plugin = 127;
   ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
+
+  fd_bundle_tile_parse_endpoint( ctx, tile );
 }
 
 static ulong
@@ -497,9 +490,14 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo; (void)tile;
+  fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   populate_sock_filter_policy_fd_bundle_tile(
-      out_cnt, out, (uint)fd_log_private_logfile_fd() );
+      out_cnt, out,
+      (uint)fd_log_private_logfile_fd(),
+      (uint)ctx->keylog_fd,
+      (uint)ctx->netdb_fds->etc_hosts,
+      (uint)ctx->netdb_fds->etc_resolv_conf
+  );
   return sock_filter_policy_fd_bundle_tile_instr_cnt;
 }
 
@@ -508,14 +506,19 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
+  fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY( ctx->netdb_fds->etc_hosts >= 0 ) )
+    out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_hosts;
+  out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
+  if( FD_UNLIKELY( ctx->keylog_fd>=0 ) )
+    out_fds[ out_cnt++ ] = ctx->keylog_fd;
   return out_cnt;
 }
 

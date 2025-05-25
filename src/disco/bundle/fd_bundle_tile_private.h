@@ -6,6 +6,7 @@
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../waltz/grpc/fd_grpc_client.h"
+#include "../../waltz/resolv/fd_netdb.h"
 #include "../../util/alloc/fd_alloc.h"
 
 #if FD_HAS_OPENSSL
@@ -50,20 +51,21 @@ struct fd_bundle_tile {
   /* Key guard */
   fd_keyguard_client_t keyguard_client[1];
 
-  uint      is_ssl : 1;
+  uint is_ssl : 1;
+  int  keylog_fd;
 # if FD_HAS_OPENSSL
   /* OpenSSL */
   SSL_CTX *    ssl_ctx;
   SSL *        ssl;
   fd_alloc_t * ssl_alloc;
   uint         skip_cert_verify : 1;
-  int          keylog_fd;
 # endif /* FD_HAS_OPENSSL */
 
   /* Config */
   char   server_fqdn[ 256 ]; /* cstr */
   ulong  server_fqdn_len;
-  uint   server_ip4_addr;
+  char   server_sni[ 256 ]; /* cstr */
+  ulong  server_sni_len;
   ushort server_tcp_port;
 
   /* TCP socket */
@@ -71,6 +73,9 @@ struct fd_bundle_tile {
   int  so_rcvbuf;
   uint tcp_sock_connected : 1;
   uint defer_reset : 1;
+
+  /* Resolver */
+  fd_netdb_fds_t netdb_fds[1];
 
   /* Keepalive via HTTP/2 PINGs (randomized) */
   long  last_ping_tx_ts;       /* last TX tickcount */
