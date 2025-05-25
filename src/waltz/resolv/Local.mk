@@ -5,6 +5,8 @@ $(call add-hdrs,fd_netdb.h)
 $(call add-objs,fd_getaddrinfo,fd_waltz)
 
 # Config
+$(call add-hdrs,fd_io_readline.h)
+$(call add-objs,fd_io_readline,fd_waltz)
 $(call add-hdrs,fd_lookup.h)
 $(call add-objs,fd_resolvconf,fd_waltz)
 $(call add-objs,fd_lookup_name fd_lookup_ipliteral,fd_waltz)

@@ -10,10 +10,11 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
-#include <stdio.h>
 #include "fd_resolv.h"
 #include "fd_lookup.h"
+#include "fd_io_readline.h"
 #include "../../util/cstr/fd_cstr.h"
+#include "../../util/io/fd_io.h"
 
 static int
 is_valid_hostname( char const * host ) {
@@ -58,8 +59,9 @@ name_from_hosts( struct address buf[ static MAXADDRS ],
                  int            family ) {
   ulong l = strlen( name );
   int cnt = 0, badfam = 0, have_canon = 0;
-  FILE * f = fopen( "/etc/hosts", "rb" );
-  if( !f ) switch( errno ) {
+
+  int f = open( "/etc/hosts", O_RDONLY );
+  if( f<0 ) switch( errno ) {
   case ENOENT:
   case ENOTDIR:
   case EACCES:
@@ -67,8 +69,16 @@ name_from_hosts( struct address buf[ static MAXADDRS ],
   default:
     return FD_EAI_SYSTEM-errno;
   }
+
+  uchar rbuf[1032];
+  fd_io_buffered_istream_t istream[1];
+  fd_io_buffered_istream_init( istream, f, rbuf, sizeof(rbuf) );
+
   char line[512];
-  while( fgets( line, sizeof line, f ) && cnt < MAXADDRS ) {
+  while( cnt < MAXADDRS ) {
+    int err;
+    if( !fd_io_fgets( line, sizeof(line), istream, &err ) ) break;
+
     char *p, *z;
 
     if( (p=strchr( line, '#' )) ) *p++='\n', *p=0;
@@ -101,7 +111,7 @@ name_from_hosts( struct address buf[ static MAXADDRS ],
       memcpy( canon, p, (ulong)( z-p+1 ) );
     }
   }
-  fclose( f );
+  close( f );
   return cnt ? cnt : badfam;
 }
 
