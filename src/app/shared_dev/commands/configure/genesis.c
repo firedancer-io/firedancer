@@ -2,7 +2,7 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../../shared/commands/configure/configure.h"
 
-#include "../../../shared/fd_file_util.h"
+#include "../../../platform/fd_file_util.h"
 #include "../../../shared/genesis_hash.h"
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/keyguard/fd_keyload.h"

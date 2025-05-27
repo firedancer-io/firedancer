@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <linux/unistd.h>
 #include <sys/socket.h>
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../discof/replay/fd_replay_notif.h"
 

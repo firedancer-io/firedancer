@@ -1,7 +1,7 @@
 #include "fd_topo.h"
 
-#include "fd_pod_format.h"
 #include "../metrics/fd_metrics.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
 

@@ -7,7 +7,7 @@
 #include "../store/fd_epoch_forks.h"
 
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"

@@ -1,7 +1,7 @@
 #include "configure.h"
 
-#include "../../../shared/fd_file_util.h"
-#include "../../../shared/fd_sys_util.h"
+#include "../../../platform/fd_file_util.h"
+#include "../../../platform/fd_sys_util.h"
 
 #include <unistd.h>
 #include <errno.h>

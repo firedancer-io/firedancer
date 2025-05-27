@@ -1,6 +1,6 @@
 #include "../../../shared/commands/configure/configure.h"
 
-#include "../../../shared/fd_file_util.h"
+#include "../../../platform/fd_file_util.h"
 
 #include <errno.h>
 #include <unistd.h>

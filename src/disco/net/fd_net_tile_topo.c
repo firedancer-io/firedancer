@@ -2,9 +2,9 @@
 
 #include "fd_net_tile.h"
 #include "../topo/fd_topob.h"
-#include "../topo/fd_pod_format.h"
 #include "../netlink/fd_netlink_tile.h"
 #include "../../app/shared/fd_config.h" /* FIXME layering violation */
+#include "../../util/pod/fd_pod_format.h"
 
 #include <net/if.h>
 

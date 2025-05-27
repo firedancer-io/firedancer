@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_topo_fd_pod_format_h
-#define HEADER_fd_src_disco_topo_fd_pod_format_h
+#ifndef HEADER_fd_src_util_pod_fd_pod_format_h
+#define HEADER_fd_src_util_pod_fd_pod_format_h
 
 #include "../../util/pod/fd_pod.h"
 
@@ -176,4 +176,4 @@ fd_pod_queryf_cstr( uchar const * FD_RESTRICT pod,
   return fd_pod_query_cstr( pod, buf, def );
 }
 
-#endif /* HEADER_fd_src_disco_topo_fd_pod_format_h */
+#endif /* HEADER_fd_src_util_pod_fd_pod_format_h */

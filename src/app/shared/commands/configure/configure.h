@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_app_shared_commands_configure_configure_h
 #define HEADER_fd_src_app_shared_commands_configure_configure_h
 
-#include "../../fd_cap_chk.h"
+#include "../../../platform/fd_cap_chk.h"
 #include "../../fd_config.h"
 #include "../../fd_action.h"
 

@@ -1,5 +1,5 @@
 #include "../../disco/topo/fd_topo.h"
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/runtime/fd_hashes.h"

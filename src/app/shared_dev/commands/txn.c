@@ -1,8 +1,8 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 
-#include "../../shared/fd_sys_util.h"
-#include "../../shared/fd_net_util.h"
+#include "../../platform/fd_sys_util.h"
+#include "../../platform/fd_net_util.h"
 #include "../../shared/commands/ready.h"
 #include "../../../ballet/base64/fd_base64.h"
 #include "../../../waltz/quic/fd_quic.h"

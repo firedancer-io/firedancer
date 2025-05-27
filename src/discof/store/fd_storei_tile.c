@@ -13,7 +13,7 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../disco/archiver/fd_archiver.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../disco/metrics/fd_metrics.h"

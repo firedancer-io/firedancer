@@ -5,8 +5,8 @@
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
-#include "../../disco/topo/fd_pod_format.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
 

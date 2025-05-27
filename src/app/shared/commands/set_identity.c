@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "run/run.h"
 
-#include "../fd_cap_chk.h"
+#include "../../platform/fd_cap_chk.h"
 #include "../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../disco/keyguard/fd_keyload.h"
 #include "../../../tango/fd_tango.h"

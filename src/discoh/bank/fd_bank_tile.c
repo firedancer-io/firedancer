@@ -6,7 +6,7 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_bank.h"
 

@@ -3,7 +3,7 @@
 #include "../../disco/tiles.h"
 #include "generated/fd_exec_tile_seccomp.h"
 
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
