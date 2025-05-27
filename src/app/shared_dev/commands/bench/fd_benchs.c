@@ -3,6 +3,7 @@
 
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../waltz/quic/fd_quic.h"
+#include "../../../../waltz/quic/tests/fd_quic_test_helpers.h"
 #include "../../../../waltz/tls/test_tls_helper.h"
 
 #include <errno.h>
@@ -22,42 +23,12 @@
 /* max number of buffers batched for receive */
 #define IO_VEC_CNT 128
 
-
-struct signer_ctx {
-  fd_sha512_t sha512[ 1 ];
-
-  uchar public_key[ 32UL ];
-  uchar private_key[ 32UL ];
-};
-typedef struct signer_ctx signer_ctx_t;
-
-
-static void
-signer( void *        _ctx,
-        uchar         signature[ static 64 ],
-        uchar const   payload[ static 130 ] ) {
-  fd_tls_test_sign_ctx_t * ctx = (fd_tls_test_sign_ctx_t *)_ctx;
-  fd_ed25519_sign( signature, payload, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-}
-
-static FD_FN_UNUSED
-signer_ctx_t
-signer_ctx( fd_rng_t * rng ) {
-  signer_ctx_t ctx[1];
-  FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
-  for( ulong b=0; b<32UL; b++ ) ctx->private_key[b] = fd_rng_uchar( rng );
-  fd_ed25519_public_from_private( ctx->public_key, ctx->private_key, ctx->sha512 );
-
-  return *ctx;
-}
-
 static int
 quic_tx_aio_send( void *                    _ctx,
                   fd_aio_pkt_info_t const * batch,
                   ulong                     batch_cnt,
                   ulong *                   opt_batch_idx,
                   int                       flush );
-
 
 /* quic_now is called by the QUIC engine to get the current timestamp in
    UNIX time.  */
@@ -78,13 +49,14 @@ typedef struct {
   int           conn_fd[ 128UL ];
   struct pollfd poll_fd[ 128UL ];
 
-  signer_ctx_t     signer_ctx;
+  fd_tls_test_sign_ctx_t test_signer[1];
   int              no_quic;
   fd_quic_t *      quic;
   ushort           quic_port;
   fd_quic_conn_t * quic_conn;
   ulong            no_stream;
   uint             service_ratio_idx;
+  fd_aio_t         tx_aio;
 
   // vector receive members
   struct mmsghdr rx_msgs[IO_VEC_CNT];
@@ -95,8 +67,6 @@ typedef struct {
   uchar          tx_bufs[IO_VEC_CNT][2048];
 
   ulong tx_idx;
-
-  fd_quic_stream_t * stream;
 
   fd_wksp_t * mem;
 } fd_benchs_ctx_t;
@@ -165,22 +135,6 @@ service_quic( fd_benchs_ctx_t * ctx ) {
   }
 }
 
-static void
-quic_stream_notify( fd_quic_stream_t * stream,
-                    void *             stream_ctx,
-                    int                type ) {
-  (void)type;
-
-  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t*)stream_ctx;
-  if( FD_LIKELY( ctx ) ) {
-    if( FD_LIKELY( ctx->stream == stream ) ) {
-      ctx->stream = NULL;
-    }
-  } else {
-    FD_LOG_ERR(( "quic_stream_notify - no context" ));
-  }
-}
-
 /* quic_conn_new is invoked by the QUIC engine whenever a new connection
    is being established. */
 static void
@@ -199,12 +153,6 @@ handshake_complete( fd_quic_conn_t * conn,
   FD_LOG_NOTICE(( "client handshake complete" ));
 }
 
-
-static void
-quic_stream_notify( fd_quic_stream_t * stream,
-                    void *             stream_ctx,
-                    int                type );
-
 static void
 conn_final( fd_quic_conn_t * conn,
             void *           _ctx ) {
@@ -214,7 +162,6 @@ conn_final( fd_quic_conn_t * conn,
 
   if( ctx ) {
     ctx->quic_conn = NULL;
-    ctx->stream    = NULL;
   }
 }
 
@@ -225,10 +172,6 @@ scratch_align( void ) {
 
 static void
 populate_quic_limits( fd_quic_limits_t * limits ) {
-  //int    argc = 0;
-  //char * args[] = { NULL };
-  //char ** argv = args;
-  //fd_quic_limits_from_env( &argc, &argv, limits );
   limits->conn_cnt = 2;
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
@@ -254,8 +197,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     fd_quic_limits_t quic_limits = {0};
     populate_quic_limits( &quic_limits );
     ulong quic_fp = fd_quic_footprint( &quic_limits );
-    l = FD_LAYOUT_APPEND( l, fd_quic_align(),          quic_fp );
-    l = FD_LAYOUT_APPEND( l, fd_aio_align(),           fd_aio_footprint() );
+    l = FD_LAYOUT_APPEND( l, fd_quic_align(), quic_fp );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -326,14 +268,7 @@ during_frag( fd_benchs_ctx_t * ctx,
       return;
     }
 
-    fd_quic_stream_t * stream = ctx->stream;
-    if( FD_UNLIKELY( !stream ) ) {
-      ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn );
-      if( FD_LIKELY( stream ) ) {
-        fd_quic_stream_set_context( stream, ctx );
-      }
-    }
-
+    fd_quic_stream_t * stream = fd_quic_conn_new_stream( ctx->quic_conn );
     if( FD_UNLIKELY( !stream ) ) {
       ctx->no_stream++;
       service_quic( ctx );
@@ -347,15 +282,7 @@ during_frag( fd_benchs_ctx_t * ctx,
       int rtn = fd_quic_stream_send( stream, fd_chunk_to_laddr( ctx->mem, chunk ), sz, fin );
       ctx->packet_cnt++;
 
-      if( FD_LIKELY( rtn == FD_QUIC_SUCCESS ) ) {
-        /* after using, fetch a new stream */
-        ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn );
-        if( FD_LIKELY( stream ) ) {
-          fd_quic_stream_set_context( stream, ctx );
-        }
-      } else if( FD_UNLIKELY( rtn == 0 ) ) {
-        FD_LOG_NOTICE(( "fd_quic_stream_send returned zero" ));
-      } else {
+      if( FD_UNLIKELY( rtn != FD_QUIC_SUCCESS ) ) {
         /* this can happen dring handshaking */
         if( rtn != FD_QUIC_SEND_ERR_INVAL_CONN ) {
           FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", rtn ));
@@ -370,44 +297,15 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  /* call wallclock so glibc loads VDSO, which requires calling mmap while
+     privileged */
+  fd_log_wallclock();
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_benchs_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_benchs_ctx_t ), sizeof( fd_benchs_ctx_t ) );
+  fd_memset( ctx, 0, sizeof(fd_benchs_ctx_t) );
 
   int no_quic = ctx->no_quic = tile->benchs.no_quic;
-
-  if( !no_quic ) {
-    fd_quic_limits_t quic_limits = {0};
-    populate_quic_limits( &quic_limits );
-    ulong quic_fp = fd_quic_footprint( &quic_limits );
-    if( FD_UNLIKELY( !quic_fp ) ) FD_LOG_ERR(( "invalid QUIC parameters" ));
-    void * quic_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), quic_fp );
-    fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &quic_limits ) );
-
-    populate_quic_config( &quic->config );
-
-    /* Signer */
-    fd_rng_t   _rng[1];
-    uint       seed = 4242424242;
-    fd_rng_t * rng  = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
-
-    ctx->signer_ctx = signer_ctx( rng );
-
-    quic->config.sign_ctx = &ctx->signer_ctx;
-    quic->config.sign     = signer;
-
-    fd_memcpy( quic->config.identity_public_key, ctx->signer_ctx.public_key, 32UL );
-
-    /* store the pointer to quic and quic_rx_aio for later use */
-    ctx->quic      = quic;
-    ctx->quic_conn = NULL;
-    ctx->stream    = NULL;
-    ctx->tx_idx    = 0UL;
-
-    /* call wallclock so glibc loads VDSO, which requires calling mmap while
-       privileged */
-    fd_log_wallclock();
-  }
-
   ushort port = 12000;
 
   ctx->conn_cnt = tile->benchs.conn_cnt;
@@ -422,12 +320,12 @@ privileged_init( fd_topo_t *      topo,
 
     // Set the buffer size
     if( setsockopt( conn_fd, SOL_SOCKET, SO_RCVBUF, &recvbuff, sizeof(recvbuff) ) < 0 ) {
-	FD_LOG_ERR(( "Error setting receive buffer size. Error: %d %s", errno, strerror( errno ) ));
+	    FD_LOG_ERR(( "Error setting receive buffer size. Error: %d %s", errno, strerror( errno ) ));
     }
 
     int sendbuff = 8<<20;
     if( setsockopt( conn_fd, SOL_SOCKET, SO_SNDBUF, &sendbuff, sizeof(sendbuff) ) < 0 ) {
-	FD_LOG_ERR(( "Error setting transmit buffer size. Error: %d %s", errno, strerror( errno ) ));
+	    FD_LOG_ERR(( "Error setting transmit buffer size. Error: %d %s", errno, strerror( errno ) ));
     }
 
     ushort found_port = 0;
@@ -477,18 +375,27 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0UL ] ].dcache_obj_id ].wksp_id ].wksp;
 
-  void * aio_mem  = NULL;
-
   if( !ctx->no_quic ) {
     fd_quic_limits_t quic_limits = {0};
     populate_quic_limits( &quic_limits );
+
     ulong quic_fp = fd_quic_footprint( &quic_limits );
-    FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), quic_fp );
+    if( FD_UNLIKELY( !quic_fp ) ) FD_LOG_ERR(( "invalid QUIC parameters" ));
+    void * quic_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), quic_fp );
+    fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &quic_limits ) );
 
-    fd_quic_t * quic = ctx->quic;
-    aio_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() );
-    fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( aio_mem, ctx, quic_tx_aio_send ) );
+    populate_quic_config( &quic->config );
 
+    /* FIXME this always results in the same private key */
+    fd_rng_t _rng[1];
+    fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 4242424242, 0UL ) );
+    fd_tls_test_sign_ctx( ctx->test_signer, rng );
+    fd_quic_config_test_signer( quic, ctx->test_signer );
+
+    ctx->quic      = quic;
+    ctx->tx_idx    = 0UL;
+
+    fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( &ctx->tx_aio, ctx, quic_tx_aio_send ) );
     if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
     ulong quic_idle_timeout_millis = 10000;  /* idle timeout in milliseconds */
@@ -500,7 +407,6 @@ unprivileged_init( fd_topo_t *      topo,
     quic->cb.conn_new         = quic_conn_new;
     quic->cb.conn_hs_complete = handshake_complete;
     quic->cb.conn_final       = conn_final;
-    quic->cb.stream_notify    = quic_stream_notify;
     quic->cb.now              = quic_now;
     quic->cb.now_ctx          = NULL;
     quic->cb.quic_ctx         = ctx;
@@ -511,10 +417,16 @@ unprivileged_init( fd_topo_t *      topo,
     ulong hdr_sz = 20 + 8;
     for( ulong i = 0; i < IO_VEC_CNT; i++ ) {
       /* leave space for headers */
-      ctx->rx_iovecs[i].iov_base         = ctx->rx_bufs[i]         + hdr_sz;
-      ctx->rx_iovecs[i].iov_len          = sizeof(ctx->rx_bufs[i]) - hdr_sz;
-      ctx->rx_msgs[i].msg_hdr.msg_iov    = &ctx->rx_iovecs[i];
-      ctx->rx_msgs[i].msg_hdr.msg_iovlen = 1;
+      ctx->rx_iovecs[i] = (struct iovec) {
+        .iov_base = ctx->rx_bufs[i]         + hdr_sz,
+        .iov_len  = sizeof(ctx->rx_bufs[i]) - hdr_sz
+      };
+      ctx->rx_msgs[i] = (struct mmsghdr) {
+        .msg_hdr = {
+          .msg_iov    = &ctx->rx_iovecs[i],
+          .msg_iovlen = 1
+        }
+      };
     }
   }
 
@@ -569,10 +481,16 @@ quic_tx_aio_send( void *                    _ctx,
       /* copy, stripping the header */
       fd_memcpy( tx_buf, (uchar*)batch[j].buf + hdr_sz, batch[j].buf_sz - hdr_sz );
 
-      ctx->tx_iovecs[tx_idx].iov_base         = tx_buf;
-      ctx->tx_iovecs[tx_idx].iov_len          = batch[j].buf_sz - hdr_sz;
-      ctx->tx_msgs[tx_idx].msg_hdr.msg_iov    = &ctx->tx_iovecs[tx_idx];
-      ctx->tx_msgs[tx_idx].msg_hdr.msg_iovlen = 1;
+      ctx->tx_iovecs[tx_idx] = (struct iovec) {
+        .iov_base = tx_buf,
+        .iov_len  = batch[j].buf_sz - hdr_sz
+      };
+      ctx->tx_msgs[tx_idx] = (struct mmsghdr) {
+        .msg_hdr = {
+          .msg_iov    = &ctx->tx_iovecs[tx_idx],
+          .msg_iovlen = 1,
+        }
+      };
 
       tx_idx++;
     }
