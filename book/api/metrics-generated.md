@@ -588,3 +588,11 @@
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;window | `counter` | What types of client messages are we sending (Need Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;highest_&#8203;window | `counter` | What types of client messages are we sending (Need Highest Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;orphan | `counter` | What types of client messages are we sending (Need Orphans) |
+
+## Dns Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| dns_&#8203;address_&#8203;lookups | `counter` | Number of getaddrinfo calls dispatched |
+| dns_&#8203;address_&#8203;lookup_&#8203;fails | `counter` | Number of getaddrinfo calls that failed |
+| dns_&#8203;address_&#8203;changes | `counter` | Number of times the set of IPs changed for a monitored DNS record |
+| dns_&#8203;last_&#8203;refresh | `gauge` | Unix timestamp in seconds when the last DNS refresh was started |

@@ -340,6 +340,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
 
   char const * FLOATING[] = {
     "netlnk",
+    "dns",
     "metric",
     "cswtch",
     "bencho",

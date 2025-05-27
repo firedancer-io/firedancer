@@ -6,6 +6,7 @@
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../tango/fseq/fd_fseq.h"
+#include "../../waltz/dns/fd_dns_cache.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
@@ -249,6 +250,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_fib4 = {
   .footprint = fib4_footprint,
   .align     = fib4_align,
   .new       = fib4_new,
+};
+
+static ulong
+dns_cache_footprint( fd_topo_t const *     topo,
+                     fd_topo_obj_t const * obj ) {
+  return fd_dns_cache_footprint( VAL("name_max"), VAL("addr_max") );
+}
+
+static ulong
+dns_cache_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_dns_cache_align();
+}
+
+static void
+dns_cache_new( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_dns_cache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("name_max"), VAL("addr_max"), VAL("seed") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_dns_cache = {
+  .name      = "dns_cache",
+  .footprint = dns_cache_footprint,
+  .align     = dns_cache_align,
+  .new       = dns_cache_new,
 };
 
 static ulong

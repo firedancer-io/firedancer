@@ -1,0 +1,73 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# etc_hosts_fd, etc_resolv_conf: Used to resolve DNS records.
+uint logfile_fd, uint etc_hosts_fd, uint etc_resolv_conf
+
+# resolv: Read DNS config
+read
+
+# resolv: Receive DNS responses
+recvmsg: (eq (arg 2) 0)
+
+# resolv: Send DNS queries via UDP or TCP
+sendmsg: (or (eq (arg 2) "MSG_FASTOPEN|MSG_NOSIGNAL")
+             (eq (arg 2) "MSG_NOSIGNAL"))
+
+# resolv: Send DNS queries via UDP or TCP
+sendto: (eq (arg 3) "MSG_NOSIGNAL")
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# resolv: Send DNS queries via UDP or TCP
+socket: (and (or (eq (arg 0) "AF_INET")
+                 (eq (arg 0) "AF_INET6"))
+             (or (and (eq (arg 1) "SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK")
+                      (eq (arg 2) 0))
+                 (and (eq (arg 1) "SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK")
+                      (eq (arg 2) 0))
+                 (and (eq (arg 1) "SOCK_DGRAM|SOCK_CLOEXEC")
+                      (eq (arg 2) "IPPROTO_UDP"))))
+connect
+
+# resolv: Close UDP/TCP sockets once done querying DNS
+close
+
+# resolv: Bind DNS request socket
+bind: (or (eq (arg 2) "sizeof(struct sockaddr_in)")
+          (eq (arg 2) "sizeof(struct sockaddr_in6)"))
+
+# resolv: Wait for DNS responses
+poll
+
+# resolv: configure UDP or TCP socket (for DNS queries)
+setsockopt: (or (and (eq (arg 1) IPPROTO_TCP)
+                     (eq (arg 2) TCP_FASTOPEN_CONNECT))
+                (and (eq (arg 1) IPPROTO_IPV6)
+                     (eq (arg 2) IPV6_V6ONLY)))
+
+# resolv: check if DNS queries use IPv6
+getsockname
+
+# resolv: Read DNS config
+lseek: (and (or (eq (arg 0) etc_resolv_conf)
+                (eq (arg 0) etc_hosts_fd))
+            (eq (arg 1) 0)
+            (eq (arg 2) "SEEK_SET"))
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all
+# messages are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+#
+# This is commented out because the bundle code uses write in an
+# unrestricted way.
+#
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
