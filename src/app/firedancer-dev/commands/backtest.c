@@ -21,7 +21,7 @@
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
-#include "../../../disco/topo/fd_pod_format.h"
+#include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_notif.h"
 #include "../../../flamenco/runtime/fd_runtime.h"
 #include "../../../flamenco/runtime/fd_txncache.h"

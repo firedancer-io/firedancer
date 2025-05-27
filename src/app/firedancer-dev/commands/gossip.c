@@ -3,8 +3,8 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
-#include "../../../disco/topo/fd_pod_format.h"
 #include "../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
+#include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/net/fd_ip4.h" /* fd_cstr_to_ip4_addr */
 
 #include <stdio.h> /* printf */

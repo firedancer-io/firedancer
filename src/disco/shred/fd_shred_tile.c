@@ -1,7 +1,7 @@
 #include "../tiles.h"
 
 #include "generated/fd_shred_tile_seccomp.h"
-#include "../topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../shred/fd_shredder.h"
 #include "../shred/fd_shred_dest.h"
 #include "../shred/fd_fec_resolver.h"

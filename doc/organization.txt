@@ -29,6 +29,13 @@ Firedancer source tree
   └── src/             The main Firedancer source tree
       │
       ├── app/         Main binaries
+      │   ├── fdctl/            Frankendancer
+      │   ├── fddev/            Frankendancer (development)
+      │   ├── firedancer/       Firedancer
+      │   ├── firedancer-dev/   Firedancer (development)
+      │   ├── shared/           Shared Frank/FD
+      │   ├── shared-dev/       Shared Frank/FD (development)
+      │   └── platform/         Base utils for binaries
       │
       ├── ballet/      Standalone implementations of various standards
       │                needed for interoperability with the Solana ecosystem

@@ -2,8 +2,8 @@
 #include "../../../shared/commands/configure/configure.h"
 
 #include "../../../shared/genesis_hash.h"
-#include "../../../shared/fd_sys_util.h"
-#include "../../../shared/fd_file_util.h"
+#include "../../../platform/fd_sys_util.h"
+#include "../../../platform/fd_file_util.h"
 
 #include "../../../../ballet/shred/fd_shred.h"
 #include "../../../../disco/shred/fd_shredder.h"

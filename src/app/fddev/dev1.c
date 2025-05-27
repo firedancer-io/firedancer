@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "../shared/fd_sys_util.h"
+#include "../platform/fd_sys_util.h"
 #include "../shared/commands/configure/configure.h"
 #include "../shared/commands/run/run.h"
 #include "../shared_dev/commands/dev.h"

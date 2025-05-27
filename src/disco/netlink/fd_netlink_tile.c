@@ -1,11 +1,11 @@
 #include "fd_netlink_tile_private.h"
 #include "../topo/fd_topo.h"
 #include "../topo/fd_topob.h"
-#include "../topo/fd_pod_format.h"
 #include "../metrics/fd_metrics.h"
 #include "../../waltz/ip/fd_fib4_netlink.h"
 #include "../../waltz/mib/fd_netdev_netlink.h"
 #include "../../waltz/neigh/fd_neigh4_netlink.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../util/log/fd_dtrace.h"
 
 #include <errno.h>

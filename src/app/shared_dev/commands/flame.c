@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
-#include "../../shared/fd_sys_util.h"
+#include "../../platform/fd_sys_util.h"
 #include "../../../disco/metrics/fd_metrics.h"
 
 #include <errno.h>

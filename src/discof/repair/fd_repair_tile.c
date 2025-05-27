@@ -15,7 +15,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/shred/fd_stake_ci.h"
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../choreo/fd_choreo_base.h"
 #include "../../util/net/fd_net_headers.h"
 

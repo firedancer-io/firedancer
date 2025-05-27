@@ -3,7 +3,7 @@
 
 #include "../fd_config.h"
 #include "../fd_action.h"
-#include "../fd_file_util.h"
+#include "../../platform/fd_file_util.h"
 #include "../../../disco/topo/fd_topo.h"
 
 #include <errno.h>

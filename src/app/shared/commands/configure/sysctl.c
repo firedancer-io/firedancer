@@ -2,7 +2,7 @@
 
 #define NAME "sysctl"
 
-#include "../../../shared/fd_file_util.h"
+#include "../../../platform/fd_file_util.h"
 
 #include <errno.h>
 #include <stdio.h>

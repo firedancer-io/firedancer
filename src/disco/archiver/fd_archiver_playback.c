@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 #include <linux/if_xdp.h>
 #include "generated/archiver_playback_seccomp.h"
-#include "../../disco/topo/fd_pod_format.h"
+#include "../../util/pod/fd_pod_format.h"
 /* The archiver playback tile consumes from the archive file, adds artificial delay
 to reproduce exactly the timing from the capture, and forwards these fragments to the
 receiver tiles (shred/quic/gossip/repair).

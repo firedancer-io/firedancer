@@ -4,7 +4,7 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 #include "../../shared/boot/fd_boot.h"
-#include "../../shared/fd_file_util.h"
+#include "../../platform/fd_file_util.h"
 
 #include <errno.h>
 #include <unistd.h>

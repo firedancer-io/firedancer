@@ -2,8 +2,8 @@
 #include "fd_config.h"
 #include "fd_config_private.h"
 
-#include "fd_net_util.h"
-#include "fd_sys_util.h"
+#include "../platform/fd_net_util.h"
+#include "../platform/fd_sys_util.h"
 #include "genesis_hash.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"

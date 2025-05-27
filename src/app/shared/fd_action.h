@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_app_shared_fd_action_h
 #define HEADER_fd_src_app_shared_fd_action_h
 
-#include "fd_cap_chk.h"
+#include "../platform/fd_cap_chk.h"
 
 union fdctl_args {
   struct {

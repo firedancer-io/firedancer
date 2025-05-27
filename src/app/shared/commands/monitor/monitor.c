@@ -2,9 +2,8 @@
 /* TODO: Layering violation */
 #include "../../../shared_dev/commands/bench/bench.h"
 
-#include "../../fd_sys_util.h"
 #include "../../fd_config.h"
-#include "../../fd_cap_chk.h"
+#include "../../../platform/fd_cap_chk.h"
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 

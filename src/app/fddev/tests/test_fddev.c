@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "../main.h"
 
-#include "../../shared/fd_sys_util.h"
+#include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/ready.h"
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
