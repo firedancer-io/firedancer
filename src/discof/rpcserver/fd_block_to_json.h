@@ -5,7 +5,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../discof/geyser/fd_replay_notif.h"
+#include "../../discof/replay/fd_replay_notif.h"
 
 typedef struct fd_webserver fd_webserver_t;
 

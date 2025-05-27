@@ -11,7 +11,7 @@
 #include <sys/socket.h>
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
-#include "../../discof/geyser/fd_replay_notif.h"
+#include "../../discof/replay/fd_replay_notif.h"
 
 #define REPLAY_IN_IDX                 (0UL)
 #define REPLAY_OUT_IDX                (0UL)

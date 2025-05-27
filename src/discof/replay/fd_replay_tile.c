@@ -2,7 +2,7 @@
 #include "../../disco/tiles.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
-#include "../geyser/fd_replay_notif.h"
+#include "fd_replay_notif.h"
 #include "../restart/fd_restart.h"
 #include "../store/fd_epoch_forks.h"
 

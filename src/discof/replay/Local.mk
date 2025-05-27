@@ -1,5 +1,5 @@
 ifdef FD_HAS_INT128
-$(call add-hdrs,fd_replay.h)
+$(call add-hdrs,fd_replay.h fd_replay_notif.h)
 $(call add-objs,fd_replay,fd_discof)
 ifdef FD_HAS_SSE
 ifdef FD_HAS_ZSTD # required to load snapshot

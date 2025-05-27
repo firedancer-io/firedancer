@@ -2,7 +2,7 @@
 #define HEADER_fd_src_discof_rpcserver_fd_rpc_service_h
 
 #include "fd_block_to_json.h"
-#include "../geyser/fd_replay_notif.h"
+#include "../replay/fd_replay_notif.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/shred/fd_stake_ci.h"

@@ -1,6 +1,6 @@
 #include "../shared/fd_config.h"
 
-#include "../../discof/geyser/fd_replay_notif.h"
+#include "../../discof/replay/fd_replay_notif.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/tiles.h"
