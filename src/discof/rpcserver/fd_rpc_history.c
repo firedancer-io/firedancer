@@ -115,6 +115,16 @@ fd_rpc_history_save(fd_rpc_history_t * hist, fd_blockstore_t * blockstore, fd_re
   FD_SPAD_FRAME_BEGIN( hist->spad ) {
     if( fd_rpc_block_map_is_full( hist->block_map ) ) return; /* Out of space */
 
+    ulong blk_max = info->slot_exec.shred_cnt * FD_SHRED_MAX_SZ;
+    uchar * blk_data = fd_spad_alloc( hist->spad, 1, blk_max );
+    ulong blk_sz;
+    if( fd_blockstore_slice_query( blockstore, info->slot_exec.slot, 0, (uint)(info->slot_exec.shred_cnt-1), blk_max, blk_data, &blk_sz) ) {
+      FD_LOG_WARNING(( "unable to read slot %lu block", info->slot_exec.slot ));
+      return;
+    }
+
+    FD_LOG_NOTICE(( "saving slot %lu block", info->slot_exec.slot ));
+
     if( hist->first_slot == ULONG_MAX ) hist->first_slot = info->slot_exec.slot;
     hist->latest_slot = info->slot_exec.slot;
 
@@ -124,14 +134,6 @@ fd_rpc_history_save(fd_rpc_history_t * hist, fd_blockstore_t * blockstore, fd_re
       return;
     }
     blk->info = *info;
-
-    ulong blk_max = info->slot_exec.shred_cnt * FD_SHRED_MAX_SZ;
-    uchar * blk_data = fd_spad_alloc( hist->spad, 1, blk_max );
-    ulong blk_sz;
-    if( fd_blockstore_slice_query( blockstore, info->slot_exec.slot, 0, (uint)(info->slot_exec.shred_cnt-1), blk_max, blk_data, &blk_sz) ) {
-      FD_LOG_ERR(( "unable to read slot %lu block", info->slot_exec.slot ));
-      return;
-    }
 
     if( pwrite( hist->file_fd, blk_data, blk_sz, (long)hist->file_totsz ) != (ssize_t)blk_sz ) {
       FD_LOG_ERR(( "unable to write to rpc history file" ));

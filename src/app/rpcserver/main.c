@@ -73,6 +73,10 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 1<<16 );
   args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
   args->params.outgoing_buffer_sz    = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf",          NULL, 100U<<20U );
+  args->block_index_max              = fd_env_strip_cmdline_uint ( argc, argv, "--max-block_idx",         NULL, 65536 );
+  args->txn_index_max                = fd_env_strip_cmdline_uint ( argc, argv, "--max-txn-idx",           NULL, 1048576 );
+  args->acct_index_max               = fd_env_strip_cmdline_uint ( argc, argv, "--max-acct-idx",          NULL, 1048576 );
+  strncpy(args->history_file,          fd_env_strip_cmdline_cstr ( argc, argv, "--rpc-history-file",      NULL, "rpc_history" ), sizeof(args->history_file)-1 );
 
   const char * tpu_host = fd_env_strip_cmdline_cstr ( argc, argv, "--local-tpu-host", NULL, "127.0.0.1" );
   ulong tpu_port = fd_env_strip_cmdline_ulong( argc, argv, "--local-tpu-port", NULL, 9001U );
@@ -150,6 +154,10 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
   args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
   args->params.outgoing_buffer_sz    = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf",          NULL, 100U<<20U );
+  args->block_index_max              = fd_env_strip_cmdline_uint ( argc, argv, "--max-block_idx",         NULL, 65536 );
+  args->txn_index_max                = fd_env_strip_cmdline_uint ( argc, argv, "--max-txn-idx",           NULL, 1048576 );
+  args->acct_index_max               = fd_env_strip_cmdline_uint ( argc, argv, "--max-acct-idx",          NULL, 1048576 );
+  strncpy(args->history_file,          fd_env_strip_cmdline_cstr ( argc, argv, "--rpc-history-file",      NULL, "rpc_history" ), sizeof(args->history_file)-1 );
 }
 
 static int stopflag = 0;
@@ -162,12 +170,6 @@ signal1( int sig ) {
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rpcserver_args_t args;
-
-#define SMAX 1LU<<28
-  uchar * smem = aligned_alloc( FD_SCRATCH_SMEM_ALIGN,
-                                fd_ulong_align_up( fd_scratch_smem_footprint( SMAX  ), FD_SCRATCH_SMEM_ALIGN ) );
-  ulong fmem[16U];
-  fd_scratch_attach( smem, fmem, SMAX, 16U );
 
   replay_sham_link_t * rep_notify = NULL;
   stake_sham_link_t * stake_notify = NULL;
@@ -185,6 +187,11 @@ int main( int argc, char ** argv ) {
   } else {
     init_args_offline( &argc, &argv, &args );
   }
+
+#define SMAX 1LU<<30
+  uchar * smem = aligned_alloc( FD_SPAD_ALIGN, SMAX );
+  args.spad = fd_spad_join( fd_spad_new( smem, SMAX ) );
+  fd_spad_push( args.spad );
 
   struct sigaction sa = {
     .sa_handler = signal1,
