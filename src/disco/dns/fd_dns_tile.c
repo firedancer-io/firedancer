@@ -1,29 +1,35 @@
 #include "fd_dns_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../../tango/tempo/fd_tempo.h"
+#include "../../waltz/resolv/fd_netdb.h"
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <unistd.h>
 
+#include "generated/fd_dns_tile_seccomp.h"
+
 static void
 resolve_domain( fd_dns_tile_t *      ctx,
                 fd_dns_tile_task_t * task ) {
-  struct addrinfo hints;
+  fd_addrinfo_t hints;
   memset( &hints, 0, sizeof(hints) );
-  hints.ai_family   = AF_INET6;
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags    = AI_V4MAPPED|AI_ALL;
+  hints.ai_family = AF_INET6;
+  hints.ai_flags  = FD_AI_V4MAPPED|FD_AI_ALL;
 
-  struct addrinfo * res = NULL;
-  int err = getaddrinfo( task->name, NULL, &hints, &res );
+  uchar out_mem[ 4096 ];
+  void * pout = out_mem;
+
+  fd_addrinfo_t * res = NULL;
+  int err = fd_getaddrinfo( task->name, &hints, &res, &pout, sizeof(out_mem) );
   ctx->metrics.gai_cnt++;
   if( FD_UNLIKELY( err ) ) {
     if( FD_UNLIKELY( err!=task->gai_err_cache ) ) {
-      FD_LOG_WARNING(( "getaddrinfo(%s %d) failed for (%i-%s)", task->name, task->name_len, err, gai_strerror( err ) ) );
+      FD_LOG_WARNING(( "fd_getaddrinfo(%s) failed for (%i-%s)", task->name, err, fd_gai_strerror( err ) ) );
     }
     ctx->metrics.gai_err_cnt++;
     return;
@@ -34,7 +40,7 @@ resolve_domain( fd_dns_tile_t *      ctx,
   uchar * ip6_scratch_end = ctx->ip6_scratch + sizeof(ctx->ip6_scratch);
   ulong hash = 0UL;
   for(
-      struct addrinfo * rp=res;
+      fd_addrinfo_t * rp=res;
       rp && ip6_cur+16<=ip6_scratch_end;
       rp=rp->ai_next
   ) {
@@ -54,8 +60,6 @@ resolve_domain( fd_dns_tile_t *      ctx,
 
   long resolve_time_nanos = fd_log_wallclock();
   fd_dns_cache_put( ctx->cache, task->name, task->name_len, resolve_time_nanos, ctx->ip6_scratch, ip6_addr_cnt );
-
-  freeaddrinfo( res );
 }
 
 static void
@@ -79,6 +83,11 @@ privileged_init( fd_topo_t *      topo,
   uint rng_seed;
   if( FD_UNLIKELY( !fd_rng_secure( &rng_seed, sizeof(uint) ) ) ) FD_LOG_ERR(( "fd_rng_secure failed" ));
   fd_rng_new( ctx->rng, rng_seed, 0UL );
+
+  /* Init resolver */
+  if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
+    FD_LOG_ERR(( "fd_netdb_open_fds failed" ));
+  }
 }
 
 static void
@@ -130,17 +139,36 @@ metrics_write( fd_dns_tile_t * ctx ) {
 }
 
 static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  fd_dns_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_dns_tile(
+      out_cnt, out,
+      (uint)fd_log_private_logfile_fd(),
+      (uint)ctx->netdb_fds->etc_hosts,
+      (uint)ctx->netdb_fds->etc_resolv_conf
+  );
+  return sock_filter_policy_fd_dns_tile_instr_cnt;
+}
+
+static ulong
 populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_dns_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY( ctx->netdb_fds->etc_hosts >= 0 ) )
+    out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_hosts;
+  out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
   return out_cnt;
 }
 
@@ -154,6 +182,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_dns = {
   .name                     = "dns",
+  .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,

@@ -13,6 +13,7 @@
 
 #include "../topo/fd_topo.h"
 #include "../../waltz/dns/fd_dns_cache.h"
+#include "../../waltz/resolv/fd_netdb.h"
 
 struct fd_dns_tile_task {
   ulong val_hash;
@@ -25,6 +26,9 @@ typedef struct fd_dns_tile_task fd_dns_tile_task_t;
 
 struct fd_dns_tile {
   fd_dns_cache_join_t cache[1];
+
+  /* Resolver */
+  fd_netdb_fds_t netdb_fds[1];
 
   /* tempo async_reload timer */
   fd_rng_t rng[1];
