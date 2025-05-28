@@ -113,10 +113,10 @@ rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx ) {
 
   ctx->rocksdb_end_slot=end_slot;
   if( FD_UNLIKELY( ctx->rocksdb_end_slot<ctx->playback_end_slot ) ) {
-    FD_LOG_ERR(( "Rocksdb only has shreds up to slot=%lu, so it cannot playback to end_slot=%lu",
+    FD_LOG_ERR(( "RocksDB only has shreds up to slot=%lu, so it cannot playback to end_slot=%lu",
                  ctx->rocksdb_end_slot, ctx->playback_end_slot ));
   }
-  FD_LOG_WARNING(( "rocksdb contains %lu shreds from slot %lu to %lu", shred_cnt, start_slot, end_slot ));
+  FD_LOG_NOTICE(( "RocksDB contains %lu shreds from slot %lu to %lu", shred_cnt, start_slot, end_slot ));
   FD_TEST( shred_cnt>0 );
 }
 
@@ -187,7 +187,7 @@ notify_one_slot( fd_archiver_backtest_tile_ctx_t * ctx,
         FD_LOG_DEBUG(( "%lu:[%u, %u] notifies replay", shred->slot, entry_batch_start_idx, shred->idx ));
         uint  cnt             = shred->idx+1-entry_batch_start_idx;
         entry_batch_start_idx = shred->idx+1;
-        ulong sig             = fd_disco_repair_replay_sig( shred->slot, (ushort)(shred->slot-ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
+        ulong sig             = fd_disco_repair_replay_sig( shred->slot, (ushort)(shred->slot - ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
         ulong tspub           = fd_frag_meta_ts_comp( fd_tickcount() );
         fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
       }

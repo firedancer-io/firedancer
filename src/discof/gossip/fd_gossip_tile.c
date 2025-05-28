@@ -4,7 +4,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "generated/fd_gossip_tile_seccomp.h"
 
-#include "../store/util.h"
 #include "../restart/fd_restart.h"
 
 #include "../../disco/fd_disco.h"
@@ -43,6 +42,13 @@ static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
   return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
 }
+
+struct fd_contact_info_elem {
+  fd_pubkey_t key;
+  ulong next;
+  fd_gossip_contact_info_v1_t contact_info;
+};
+typedef struct fd_contact_info_elem fd_contact_info_elem_t;
 
 /* Contact info table */
 #define MAP_NAME     fd_contact_info_table
