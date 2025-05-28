@@ -224,12 +224,84 @@ metric introduced.
     <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
+
+<enum name="NewContactOutcome">
+    <int value="0" name="Connect" label="Initiated connection" />
+    <int value="1" name="Unroutable" label="Skipped (unroutable)" />
+    <int value="2" name="Unstaked" label="Skipped (unstaked)" />
+    <int value="3" name="Changed" label="Contact info changed" />
+    <int value="4" name="NoChange" label="Contact info unchanged" />
+</enum>
+
+<enum name="TxnQuicSendResult">
+    <int value="0" name="Success" label="Success" />
+    <int value="1" name="NoConn" label="No QUIC connection" />
+    <int value="2" name="NoStream" label="No QUIC stream" />
+</enum>
+
 <tile name="send">
-    <counter name="TxnsSentToLeader" summary="Total count of transactions sent to leader" />
-    <counter name="LeaderSchedNotFound" summary="Total count of times leader schedule not found" />
-    <counter name="LeaderNotFound" summary="Total count of times leader not found for given slot" />
-    <counter name="LeaderContactNotFound" summary="Total count of times leader contact info not found" />
-    <counter name="LeaderContactNonroutable" summary="Total count of times leader contact is nonroutable" />
+
+    <counter name="LeaderNotFound" summary="Total number of times slot leader not found" />
+    <counter name="NewContactInfo" enum="NewContactOutcome" summary="Total number of contact infos received and handled" />
+    <counter name="ContactStale" summary="Total number of reconnects skipped due to stale contact info" />
+    <counter name="QuicSendResult" enum="TxnQuicSendResult" summary="Total number of transactions we attempted to send via QUIC" />
+    <counter name="QuicConnCreateFailed" summary="Total number of QUIC connection creation failures" />
+
+    <!-- QUIC packet metrics -->
+    <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />
+    <counter name="ReceivedBytes" summary="Total bytes received via QUIC" />
+    <counter name="SentPackets" summary="Total count of QUIC packets sent" />
+    <counter name="SentBytes" summary="Total bytes sent via QUIC" />
+    <counter name="RetrySent" summary="Total count of QUIC retry packets sent" />
+
+    <!-- QUIC connection metrics -->
+    <gauge name="ConnectionsActive" summary="Number of active QUIC connections" />
+    <counter name="ConnectionsCreated" summary="Total count of QUIC connections created" />
+    <counter name="ConnectionsClosed" summary="Total count of QUIC connections closed" />
+    <counter name="ConnectionsAborted" summary="Total count of QUIC connections aborted" />
+    <counter name="ConnectionsTimedOut" summary="Total count of QUIC connections timed out" />
+    <counter name="ConnectionsRetried" summary="Total count of QUIC connections retried" />
+
+    <!-- QUIC connection error metrics -->
+    <counter name="ConnectionErrorNoSlots" summary="Total count of connection errors due to no slots" />
+    <counter name="ConnectionErrorRetryFail" summary="Total count of connection retry failures" />
+
+    <!-- QUIC packet error metrics -->
+    <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Total count of packets with crypto failures" />
+    <counter name="PktNoKey" enum="QuicEncLevel" summary="Total count of packets with no key" />
+    <counter name="PktNoConn" summary="Total count of packets with no connection" />
+    <counter name="PktTxAllocFail" summary="Total count of packet TX allocation failures" />
+    <counter name="PktNetHeaderInvalid" summary="Total count of packets with invalid network headers" />
+    <counter name="PktQuicHeaderInvalid" summary="Total count of packets with invalid QUIC headers" />
+    <counter name="PktUndersz" summary="Total count of undersized packets" />
+    <counter name="PktOversz" summary="Total count of oversized packets" />
+    <counter name="PktVerneg" summary="Total count of version negotiation packets" />
+    <counter name="PktRetransmissions" summary="Total count of packet retransmissions" />
+
+    <!-- QUIC handshake metrics -->
+    <counter name="HandshakesCreated" summary="Total count of QUIC handshakes created" />
+    <counter name="HandshakeErrorAllocFail" summary="Total count of handshake allocation failures" />
+    <counter name="HandshakeEvicted" summary="Total count of handshakes evicted" />
+
+    <!-- QUIC stream metrics -->
+    <counter name="StreamReceivedEvents" summary="Total count of stream events received" />
+    <counter name="StreamReceivedBytes" summary="Total bytes received via streams" />
+
+    <!-- QUIC frame metrics -->
+    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Total count of QUIC frames received" />
+    <counter name="FrameFailParse" summary="Total count of frame parse failures" />
+    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
+
+    <!-- QUIC ACK metrics -->
+    <counter name="AckTx" enum="QuicAckTx" summary="Total count of ACK frames transmitted" />
+
+    <!-- QUIC timing metrics -->
+    <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent in service</summary>
+    </histogram>
+    <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+      <summary>Duration spent receiving packets</summary>
+    </histogram>
 </tile>
 
 <enum name="BundleError">

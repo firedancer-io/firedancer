@@ -442,6 +442,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
+  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_send",   i, config->net.ingress_buffer_size );
 
   /*                                              topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_keyswitch */
   FOR(quic_tile_cnt)               fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
@@ -650,7 +651,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "gossip_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "send_net",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "send_net",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -722,6 +723,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "stake_out",     0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "gossip_send",   0UL,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "tower_send",    0UL,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "net_send",      0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "send",   0UL,                      "send_net",      0UL                                            );
   /**/                 fd_topob_tile_out( topo, "send",   0UL,                      "send_txns",     0UL                                            );
   /**/                 fd_topob_tile_out( topo, "send",   0UL,                      "send_sign",     0UL                                            );
@@ -873,6 +875,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->net.gossip_listen_port             = config->gossip.port;
       tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
       tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
+      tile->net.send_src_port                  = config->tiles.send.send_src_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -989,9 +992,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
       tile->poh.bank_cnt = config->layout.bank_tile_count;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "send" ) ) ) {
-      tile->send.tpu_listen_port = config->tiles.quic.regular_transaction_listen_port;
+      tile->send.send_src_port = config->tiles.send.send_src_port;
       tile->send.ip_addr = config->net.ip_addr;
-
       strncpy( tile->send.identity_key_path, config->paths.identity_key, sizeof(tile->send.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
       tile->tower.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );

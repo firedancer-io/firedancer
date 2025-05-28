@@ -184,6 +184,7 @@ privileged_init( fd_topo_t *      topo,
     (ushort)tile->sock.net.gossip_listen_port,
     (ushort)tile->sock.net.repair_intake_listen_port,
     (ushort)tile->sock.net.repair_serve_listen_port,
+    (ushort)tile->sock.net.send_src_port
   };
   static char const * udp_port_links[] = {
     "net_quic",   /* legacy_transaction_listen_port */
@@ -191,7 +192,8 @@ privileged_init( fd_topo_t *      topo,
     "net_shred",  /* shred_listen_port (turbine) */
     "net_gossip", /* gossip_listen_port */
     "net_shred",  /* shred_listen_port (repair) */
-    "net_repair"  /* repair_serve_listen_port */
+    "net_repair", /* repair_serve_listen_port */
+    "net_send"    /* send_src_port */
   };
   static uchar const udp_port_protos[] = {
     DST_PROTO_TPU_UDP,  /* legacy_transaction_listen_port */
