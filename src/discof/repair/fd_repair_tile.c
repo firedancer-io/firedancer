@@ -5,8 +5,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "generated/fd_repair_tile_seccomp.h"
 
-#include "../store/util.h"
-
 #include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../disco/fd_disco.h"
@@ -28,16 +26,14 @@
 #define IN_KIND_NET     (0)
 #define IN_KIND_CONTACT (1)
 #define IN_KIND_STAKE   (2)
-#define IN_KIND_STORE   (3)
-#define IN_KIND_SHRED   (4)
-#define IN_KIND_SIGN    (5)
+#define IN_KIND_SHRED   (3)
+#define IN_KIND_SIGN    (4)
 #define MAX_IN_LINKS    (16)
 
-#define STORE_OUT_IDX  (0)
-#define NET_OUT_IDX    (1)
-#define SIGN_OUT_IDX   (2)
-#define REPLAY_OUT_IDX (3)
-#define REPAIR_OUT_IDX (4)
+#define NET_OUT_IDX     (0)
+#define SIGN_OUT_IDX    (1)
+#define REPLAY_OUT_IDX  (2)
+#define ARCHIVE_OUT_IDX (3)
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -143,16 +139,6 @@ struct fd_repair_tile_ctx {
   ulong       net_out_chunk0;
   ulong       net_out_wmark;
   ulong       net_out_chunk;
-
-  fd_frag_meta_t * store_out_mcache;
-  ulong *          store_out_sync;
-  ulong            store_out_depth;
-  ulong            store_out_seq;
-
-  fd_wksp_t * store_out_mem;
-  ulong       store_out_chunk0;
-  ulong       store_out_wmark;
-  ulong       store_out_chunk;
 
   fd_wksp_t * replay_out_mem;
   ulong       replay_out_chunk0;
@@ -276,39 +262,6 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
 
     fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
   }
-}
-
-FD_FN_UNUSED static inline void
-handle_new_repair_requests( fd_repair_tile_ctx_t * ctx,
-                            uchar const *          buf,
-                            ulong                  buf_sz ) {
-
-  fd_repair_request_t const * repair_reqs = (fd_repair_request_t const *) buf;
-  ulong repair_req_cnt = buf_sz / sizeof(fd_repair_request_t);
-
-  for( ulong i=0UL; i<repair_req_cnt; i++ ) {
-    fd_repair_request_t const * repair_req = &repair_reqs[i];
-    int rc = 0;
-    switch(repair_req->type) {
-      case FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX: {
-        rc = fd_repair_need_window_index( ctx->repair, repair_req->slot, repair_req->shred_index );
-        break;
-      }
-      case FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX: {
-        rc = fd_repair_need_highest_window_index( ctx->repair, repair_req->slot, repair_req->shred_index );
-        break;
-      }
-      case FD_REPAIR_REQ_TYPE_NEED_ORPHAN: {
-        rc = fd_repair_need_orphan( ctx->repair, repair_req->slot );
-        break;
-      }
-    }
-
-    if( rc < 0 ) {
-      FD_LOG_DEBUG(( "failed to issue repair request" ));
-    }
-  }
-
 }
 
 static inline void
@@ -603,13 +556,6 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
     return;
 
-  } else if( FD_UNLIKELY( in_kind==IN_KIND_STORE ) ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
-    dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    dcache_entry_sz = sz;
-
   } else if( FD_LIKELY( in_kind==IN_KIND_SHRED ) ) {
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
@@ -899,11 +845,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_STORE ) ) {
-    // handle_new_repair_requests( ctx, ctx->buffer, sz );
-    return;
-  }
-
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
 
     /* Initialize the forest, which requires the root to be ready.  This
@@ -945,7 +886,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
     if( FD_UNLIKELY( !fec_sig ) ) {
-      // FD_LOG_NOTICE(( "inserting FEC %lu %lu %u", (shred->slot << 32) | shred->fec_set_idx, shred->slot, shred->fec_set_idx ));
       fec_sig = fd_fec_sig_insert( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx );
       memcpy( fec_sig->sig, shred->signature, sizeof(fd_ed25519_sig_t) );
     }
@@ -968,6 +908,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       int     slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
 
       FD_TEST( fd_fec_pool_free( ctx->fec_chainer->pool ) );
+      FD_TEST( !fd_fec_chainer_query( ctx->fec_chainer, shred->slot, shred->fec_set_idx ) );
       FD_TEST( fd_fec_chainer_insert( ctx->fec_chainer, shred->slot, shred->fec_set_idx, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, shred->data.parent_off, merkle, merkle /* FIXME */ ) );
 
       while( FD_LIKELY( !fd_fec_out_empty( ctx->fec_chainer->out ) ) ) {
@@ -1009,18 +950,18 @@ after_frag( fd_repair_tile_ctx_t * ctx,
          then we know we can force complete the FEC set interval [i, j)
          (assuming it wasn't already completed based on `cmpl`). */
 
-      uint i = 0;
-      for( ulong i = 0; i < ele->buffered_idx + 1; i++ ) {
-        if ( fd_forest_ele_idxs_test( ele->fecs, i ) ) {
-          // FD_LOG_WARNING(( "fec %lu", i ));
+      if( FD_UNLIKELY( ele->buffered_idx == ele->complete_idx && ele->complete_idx != UINT_MAX ) ) {
+        ele->buffered_idx = ele->complete_idx;
+        for( uint i = 0; i < ele->buffered_idx; i++ ) {
+          fd_forest_ele_idxs_insert( ele->cmpl, i );
         }
       }
+
+      uint i = 0;
       for( uint j = 1; j < ele->buffered_idx + 1; j++ ) { /* TODO iterate by word */
         if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->cmpl, i ) && fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
-          // FD_LOG_WARNING(( "skipping %lu %u", ele->slot, i ));
           i = j;
         } else if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) || j == ele->complete_idx ) ) {
-          // FD_LOG_WARNING(( "force completing %lu %u", ele->slot, i ));
           if ( j == ele->complete_idx ) j++;
           fd_forest_ele_idxs_insert( ele->cmpl, i );
 
@@ -1274,8 +1215,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ in_idx ] = IN_KIND_CONTACT;
     } else if( 0==strcmp( link->name, "stake_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
-    } else if( 0==strcmp( link->name, "store_repair" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_STORE;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     } else if( 0==strcmp( link->name, "sign_repair" ) ) {
@@ -1299,19 +1238,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ out_idx ] ];
 
-    if( 0==strcmp( link->name, "repair_store" ) ) {
-
-      if( FD_UNLIKELY( ctx->store_out_mcache ) ) FD_LOG_ERR(( "repair tile has multiple repair_store out links" ));
-      ctx->store_out_mcache = link->mcache;
-      ctx->store_out_sync   = fd_mcache_seq_laddr( ctx->store_out_mcache );
-      ctx->store_out_depth  = fd_mcache_depth( ctx->store_out_mcache );
-      ctx->store_out_seq    = fd_mcache_seq_query( ctx->store_out_sync );
-      ctx->store_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, link->dcache );
-      ctx->store_out_wmark  = fd_dcache_compact_wmark( ctx->store_out_mem, link->dcache, link->mtu );
-      ctx->store_out_chunk  = ctx->store_out_chunk0;
-
-    } else if( 0==strcmp( link->name, "repair_net" ) ) {
+    if( 0==strcmp( link->name, "repair_net" ) ) {
 
       if( FD_UNLIKELY( ctx->net_out_mcache ) ) FD_LOG_ERR(( "repair tile has multiple repair_net out links" ));
       ctx->net_out_mcache = link->mcache;
@@ -1335,12 +1262,14 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
     } else if ( 0==strcmp( link->name, "repair_shred" ) ) {
+
       fd_repair_out_ctx_t * shred_out = &ctx->shred_out_ctx[ shred_tile_idx++ ];
-      shred_out->idx              = out_idx;
-      shred_out->mem              = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      shred_out->chunk0           = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
-      shred_out->wmark            = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
-      shred_out->chunk            = shred_out->chunk0;
+      shred_out->idx                  = out_idx;
+      shred_out->mem                  = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      shred_out->chunk0               = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
+      shred_out->wmark                = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
+      shred_out->chunk                = shred_out->chunk0;
+
     } else {
       FD_LOG_ERR(( "repair tile has unexpected output link %s", link->name ));
     }

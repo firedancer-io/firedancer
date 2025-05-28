@@ -4,7 +4,7 @@
 
 #include "fd_replay_notif.h"
 #include "../restart/fd_restart.h"
-#include "../store/fd_epoch_forks.h"
+#include "fd_epoch_forks.h"
 
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -52,11 +52,10 @@
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
-#define STORE_IN_IDX   (0UL)
-#define REPAIR_IN_IDX  (1UL)
-#define PACK_IN_IDX    (2UL)
-#define BATCH_IN_IDX   (3UL)
-#define SHRED_IN_IDX   (4UL)
+#define REPAIR_IN_IDX  (0UL)
+#define PACK_IN_IDX    (1UL)
+#define BATCH_IN_IDX   (2UL)
+#define SHRED_IN_IDX   (3UL)
 
 #define STAKE_OUT_IDX  (0UL)
 #define SENDER_OUT_IDX (1UL)
@@ -2730,8 +2729,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(("Starting unprivileged init"));
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt < 4 ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX  ] ].name, "store_replay" ) ||
+  if( FD_UNLIKELY( tile->in_cnt < 3 ||
                    strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
                    strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX  ] ].name, "batch_replay" ) ||
                    strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX  ] ].name, "repair_repla" ) ) ) {

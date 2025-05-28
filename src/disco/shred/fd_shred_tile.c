@@ -98,10 +98,8 @@
 #define IN_KIND_SIGN    (4UL)
 #define IN_KIND_REPAIR  (5UL)
 
-#define STORE_OUT_IDX   0
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
-#define REPAIR_OUT_IDX  3
 
 #define MAX_SLOTS_PER_EPOCH 432000UL
 
@@ -198,16 +196,17 @@ typedef struct {
   ulong       net_out_wmark;
   ulong       net_out_chunk;
 
+  ulong       store_out_idx;
   fd_wksp_t * store_out_mem;
   ulong       store_out_chunk0;
   ulong       store_out_wmark;
   ulong       store_out_chunk;
 
+  ulong       repair_out_idx;
   fd_wksp_t * repair_out_mem;
   ulong       repair_out_chunk0;
   ulong       repair_out_wmark;
   ulong       repair_out_chunk;
-  ulong       repair_out_idx;
 
   fd_blockstore_t   blockstore_ljoin;
   fd_blockstore_t * blockstore;
@@ -715,7 +714,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_fec_set_t const * out_fec_set[1];
     rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
     if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) ){
-      FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx ));
+      FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u %s", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( shred_sig ) ));
       FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
       return;
     }
@@ -832,10 +831,9 @@ after_frag( fd_shred_ctx_t *    ctx,
     /* We know we didn't get overrun, so advance the index */
     ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
   }
-  /* If this was the shred that completed an FEC set or this was a
-     microblock we shredded ourself, we now have a full FEC set that we
-     need to send to the blockstore and on the network (skipping any
-     shreds we already sent). */
+  /* If this shred completes a FEC set or is part of a microblock from
+     pack (ie. we're leader), we now have a full FEC set: so we notify
+     repair and insert into the blockstore, as well as retransmit. */
 
   fd_fec_set_t * set = ctx->fec_sets + ctx->send_fec_set_idx;
   fd_shred34_t * s34 = ctx->shred34 + 4UL*ctx->send_fec_set_idx;
@@ -860,29 +858,31 @@ after_frag( fd_shred_ctx_t *    ctx,
   ulong sz2 = sizeof(fd_shred34_t) - (34UL - s34[ 2 ].shred_cnt)*FD_SHRED_MAX_SZ;
   ulong sz3 = sizeof(fd_shred34_t) - (34UL - s34[ 3 ].shred_cnt)*FD_SHRED_MAX_SZ;
 
-  if( FD_LIKELY( ctx->blockstore ) ) {
+  if( FD_LIKELY( ctx->blockstore ) ) { /* firedancer-only */
 
     /* Insert shreds into the blockstore. Note we do this regardless of
        whether the shreds are for one of our leader slots or not. Even
        though there is a separate link that directly connects pack and
        replay when we are leader, we still need the shreds in the
-       blockstore to, for example, serve repair requests. */
+       blockstore to serve repair requests. */
+
     for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
       fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ i ] );
       fd_blockstore_shred_insert( ctx->blockstore, data_shred );
     }
   }
 
-  if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer topo compiler hint */
+  if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
 
-  /* Additionally, publish a frag to notify repair that the FEC set is
-     complete. Note the ordering wrt blockstore shred insertion above is
-     intentional: shreds are inserted into the blockstore before
-     notifying repair. This is because the replay tile is downstream of
-     repair, and replay assumes the shreds are already in the blockstore
-     when repair notifies it that the FEC set is complete, and we don't
-     know whether shred will finish inserting into blockstore first or
-     repair will finish validating the FEC set first. */
+    /* Additionally, publish a frag to notify repair that the FEC set is
+       complete. Note the ordering wrt blockstore shred insertion above
+       is intentional: shreds are inserted into the blockstore before
+       notifying repair. This is because the replay tile is downstream
+       of repair, and replay assumes the shreds are already in the
+       blockstore when repair notifies it that the FEC set is complete,
+       and we don't know whether shred will finish inserting into
+       blockstore first or repair will finish validating the FEC set
+       first. */
 
     fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ set->data_shred_cnt - 1 ] );
 
@@ -895,18 +895,20 @@ after_frag( fd_shred_ctx_t *    ctx,
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, sz, 0UL, ctx->tsorig, tspub );
     ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
-  }
+  } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
 
-  /* Send to the blockstore, skipping any empty shred34_t s. */
-  ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
-  if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
-    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, ctx->tsorig, tspub );
-  if( FD_UNLIKELY( s34[ 2 ].shred_cnt ) )
-    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
-  if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
-    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
+    /* Send to the blockstore, skipping any empty shred34_t s. */
+
+    ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
+    if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
+      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, ctx->tsorig, tspub );
+    if( FD_UNLIKELY( s34[ 2 ].shred_cnt ) )
+      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
+    if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
+      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
+  }
 
   /* Compute all the destinations for all the new shreds */
 
@@ -969,8 +971,6 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
-  char * store_out_name = topo->links[tile->out_link_id[ STORE_OUT_IDX ]].name;
-  FD_TEST( 0==strcmp( store_out_name, "shred_store" ) || 0==strcmp( store_out_name, "shred_storei" ) );
   FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ NET_OUT_IDX   ]].name, "shred_net"   ) );
   FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ SIGN_OUT_IDX  ]].name, "shred_sign"  ) );
 
@@ -997,14 +997,34 @@ unprivileged_init( fd_topo_t *      topo,
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, shred_store_mcache_depth,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt            = shred_store_mcache_depth + tile->shred.fec_resolver_depth + 4UL;
+  ulong fec_sets_required_sz   = fec_set_cnt*DCACHE_ENTRIES_PER_FEC_SET*sizeof(fd_shred34_t);
 
-  void * store_out_dcache = topo->links[ tile->out_link_id[ 0 ] ].dcache;
-
-  ulong required_dcache_sz = fec_set_cnt*DCACHE_ENTRIES_PER_FEC_SET*sizeof(fd_shred34_t);
-  if( fd_dcache_data_sz( store_out_dcache )<required_dcache_sz ) {
-    FD_LOG_ERR(( "shred->store dcache too small. It is %lu bytes but must be at least %lu bytes.",
-                 fd_dcache_data_sz( store_out_dcache ),
-                 required_dcache_sz ));
+  void * fec_sets_shmem = NULL;
+  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", ctx->round_robin_id );
+  if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
+    fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
+    ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->repair_out_chunk0 = fd_dcache_compact_chunk0( ctx->repair_out_mem, repair_out->dcache );
+    ctx->repair_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu );
+    ctx->repair_out_chunk  = ctx->repair_out_chunk0;
+    FD_TEST( fd_dcache_compact_is_safe( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu, repair_out->depth ) );
+    ulong fec_sets_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "fec_sets" );
+    if( FD_UNLIKELY( fec_sets_obj_id == ULONG_MAX ) ) FD_LOG_ERR(( "invalid firedancer topo" ));
+    fd_topo_obj_t const * obj = &topo->objs[ fec_sets_obj_id ];
+    if( FD_UNLIKELY( obj->footprint<(fec_sets_required_sz*ctx->round_robin_cnt) ) ) {
+      FD_LOG_ERR(( "fec_sets wksp obj too small. It is %lu bytes but must be at least %lu bytes. ",
+                   obj->footprint,
+                   fec_sets_required_sz ));
+    }
+    fec_sets_shmem = (uchar *)fd_topo_obj_laddr( topo, fec_sets_obj_id ) + (ctx->round_robin_id * fec_sets_required_sz);
+  } else if ( FD_LIKELY( ctx->store_out_idx!=ULONG_MAX ) ) { /* frankendancer-only */
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ ctx->store_out_idx ]].name, "shred_store" ) );
+    fec_sets_shmem = topo->links[ tile->out_link_id[ ctx->store_out_idx ] ].dcache;
+    if( FD_UNLIKELY( fd_dcache_data_sz( fec_sets_shmem )<fec_sets_required_sz ) ) {
+      FD_LOG_ERR(( "shred_store dcache too small. It is %lu bytes but must be at least %lu bytes. ",
+                  fd_dcache_data_sz( fec_sets_shmem ),
+                  fec_sets_required_sz ));
+    }
   }
 
   if( FD_UNLIKELY( !tile->shred.fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
@@ -1022,7 +1042,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt   );
 
   fd_fec_set_t * fec_sets = (fd_fec_set_t *)_fec_sets;
-  fd_shred34_t * shred34  = (fd_shred34_t *)store_out_dcache;
+  fd_shred34_t * shred34  = (fd_shred34_t *)fec_sets_shmem;
 
   for( ulong i=0UL; i<fec_set_cnt; i++ ) {
     fd_shred34_t * p34_base = shred34 + i*DCACHE_ENTRIES_PER_FEC_SET;
@@ -1101,11 +1121,11 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "net_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
-    else if( FD_LIKELY( !strcmp( link->name, "sign_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    if( FD_LIKELY(      !strcmp( link->name, "net_shred"    ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_shred"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
@@ -1125,28 +1145,31 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ];
-
-  ctx->store_out_mem    = topo->workspaces[ topo->objs[ store_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out->dcache );
-  ctx->store_out_wmark  = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
-  ctx->store_out_chunk  = ctx->store_out_chunk0;
+  ctx->blockstore = NULL;
+  ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
+  if( FD_LIKELY( blockstore_obj_id!=ULONG_MAX ) ) { /* firedancer-only */
+    ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+    FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
+  }
 
   ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", ctx->round_robin_id );
-  if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer topo compiler hint */
+  if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
     fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
-    ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
-    ctx->repair_out_chunk0 = fd_dcache_compact_chunk0( ctx->repair_out_mem, repair_out->dcache );
-    ctx->repair_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu );
-    ctx->repair_out_chunk  = ctx->repair_out_chunk0;
+    ctx->repair_out_mem         = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->repair_out_chunk0      = fd_dcache_compact_chunk0( ctx->repair_out_mem, repair_out->dcache );
+    ctx->repair_out_wmark       = fd_dcache_compact_wmark ( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu );
+    ctx->repair_out_chunk       = ctx->repair_out_chunk0;
     FD_TEST( fd_dcache_compact_is_safe( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu, repair_out->depth ) );
   }
 
-  ctx->blockstore = NULL;
-  ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
-  if (FD_LIKELY( blockstore_obj_id!=ULONG_MAX )) {
-    ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
-    FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
+  ctx->store_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_store", ctx->round_robin_id );
+  if( FD_LIKELY( ctx->store_out_idx!=ULONG_MAX ) ) { /* frankendancer-only */
+    fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ ctx->store_out_idx ] ];
+    ctx->store_out_mem         = topo->workspaces[ topo->objs[ store_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->store_out_chunk0      = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out->dcache );
+    ctx->store_out_wmark       = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
+    ctx->store_out_chunk       = ctx->store_out_chunk0;
+    FD_TEST( fd_dcache_compact_is_safe( ctx->store_out_mem, store_out->dcache, store_out->mtu, store_out->depth ) );
   }
 
   ctx->poh_in_expect_seq = 0UL;

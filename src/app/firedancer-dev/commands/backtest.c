@@ -249,14 +249,6 @@ backtest_topo( config_t * config ) {
   FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  writer_idx_start+i, 0, 0 );
 
   /**********************************************************************/
-  /* Setup store->replay link in topo w/o a producer                    */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "store_replay" );
-  fd_topob_link( topo, "store_replay", "store_replay", 32768UL, sizeof(ulong), 64UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "store_replay", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "store_replay", 0 ) ] ].permit_no_producers = 1;
-
-  /**********************************************************************/
   /* Setup backtest->replay link (repair_repla) in topo                 */
   /**********************************************************************/
   fd_topob_wksp( topo, "repair_repla" );
@@ -338,9 +330,9 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
 
   /* blockstore_obj shared by replay and backtest tiles */
-  fd_topob_wksp( topo, "bstore"      );
+  fd_topob_wksp( topo, "blockstore"      );
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
-                                                          "bstore",
+                                                          "blockstore",
                                                           config->firedancer.blockstore.shred_max,
                                                           config->firedancer.blockstore.block_max,
                                                           config->firedancer.blockstore.idx_max,

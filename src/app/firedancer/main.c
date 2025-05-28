@@ -19,6 +19,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub;
 extern fd_topo_obj_callbacks_t fd_obj_cb_blockstore;
+extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_exec_spad;
 
@@ -36,6 +37,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_tile,
   &fd_obj_cb_runtime_pub,
   &fd_obj_cb_blockstore,
+  &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
   &fd_obj_cb_exec_spad,
   NULL,
@@ -69,7 +71,6 @@ extern fd_topo_run_tile_t fd_tile_plugin;
 
 extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
-extern fd_topo_run_tile_t fd_tile_storei;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
 extern fd_topo_run_tile_t fd_tile_writer;
@@ -97,7 +98,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_plugin,
   &fd_tile_gossip,
   &fd_tile_repair,
-  &fd_tile_storei,
   &fd_tile_replay,
   &fd_tile_execor,
   &fd_tile_writer,
