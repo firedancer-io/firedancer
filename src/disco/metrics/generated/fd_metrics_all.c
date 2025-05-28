@@ -53,7 +53,7 @@ const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT] = {
     "netlnk",
     "sock",
     "repair",
-    "sender",
+    "send",
 };
 
 const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT] = {

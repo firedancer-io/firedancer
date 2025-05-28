@@ -312,6 +312,10 @@ struct fd_config {
     } quic;
 
     struct {
+      ushort send_src_port;
+    } send;
+
+    struct {
       uint signature_cache_size;
       uint receive_buffer_size;
       uint mtu;
