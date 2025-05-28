@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 #include "fd_methods.h"
 #include "fd_webserver.h"
-#include "../../ballet/http/fd_http_server_private.h"
+#include "../../waltz/http/fd_http_server_private.h"
 
 struct fd_websocket_ctx {
   fd_webserver_t * ws;

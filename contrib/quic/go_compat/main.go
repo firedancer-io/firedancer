@@ -266,6 +266,7 @@ func serverTest(fdQuic *C.fd_quic_t) {
 
 	C.fd_quic_config_anonymous(fdQuic, C.FD_QUIC_ROLE_SERVER)
 	fdQuic.config.retry = 1
+	fdQuic.config.idle_timeout = 1e9
 	C.fd_quic_init(fdQuic)
 
 	netFdToGo := make(chan []byte, 128)
@@ -294,12 +295,16 @@ func serverTest(fdQuic *C.fd_quic_t) {
 					return
 				}
 				buf := wrapDatagram(pkt, addrGo, addrFd, &seq)
+				var pin runtime.Pinner
+				pin.Pin(&buf[0])
 				if C.fd_quic_test_pcap != nil {
 					C.fd_pcapng_fwrite_pkt(C.fd_log_wallclock(), unsafe.Pointer(unsafe.SliceData(buf)), C.ulong(len(buf)), unsafe.Pointer(C.fd_quic_test_pcap))
 				}
 				C.fd_quic_process_packet(fdQuic, (*C.uchar)(unsafe.SliceData(buf)), C.ulong(len(buf)))
+				pin.Unpin()
 			case <-ctx.Done():
 				return
+			default:
 			}
 
 			C.fd_quic_service(fdQuic)
@@ -350,6 +355,21 @@ func main() {
 	pcapPath := flag.String("pcap", "", "write pcap file")
 	flag.Parse()
 
+	// Call fd_boot
+	var argc C.int = 1
+	argv0 := C.CString("hello")
+	defer C.free(unsafe.Pointer(argv0))
+	var argvArr = []*C.char{argv0, nil}
+	var argv **C.char = (**C.char)(unsafe.Pointer(&argvArr[0]))
+	var pinner runtime.Pinner
+	defer pinner.Unpin()
+	pinner.Pin(&argc)
+	pinner.Pin(&argvArr[0])
+	pinner.Pin(&argv)
+	C.fd_boot(&argc, &argv)
+	C.fd_log_level_logfile_set(0)
+	C.fd_log_level_stderr_set(0)
+
 	rng := &C.fd_rng_t{
 		idx: 0,
 		seq: 0x172046447c516741,
@@ -376,9 +396,6 @@ func main() {
 	aio_tx := &C.fd_aio_t{
 		send_func: (C.fd_aio_send_func_t)(C.fdSendCallback),
 	}
-
-	var pinner runtime.Pinner
-	defer pinner.Unpin()
 
 	pinner.Pin(aio_tx)
 	C.fd_quic_set_aio_net_tx(fdQuic, aio_tx)

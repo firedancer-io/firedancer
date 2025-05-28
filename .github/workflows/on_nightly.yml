@@ -5,10 +5,6 @@ on:
     - cron: 30 11 * * *
     - cron: 0 3 * * *
 jobs:
-  tests:
-    uses: ./.github/workflows/coverage_report_clusterfuzz.yml
-    secrets: inherit
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '30 11 * * *' }}
   coverage-report:
     uses: ./.github/workflows/coverage_report.yml
     secrets: inherit

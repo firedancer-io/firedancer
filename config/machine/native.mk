@@ -55,7 +55,6 @@ FD_HAS_DOUBLE:=1
 CPPFLAGS+=-DFD_HAS_DOUBLE=1
 $(call map-define,FD_HAS_ALLOCA, __linux__)
 $(call map-define,FD_HAS_THREADS, __linux__)
-$(call map-define,FD_HAS_OPENSSL, __linux__)
 $(call map-define,FD_HAS_X86, __x86_64__)
 $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)

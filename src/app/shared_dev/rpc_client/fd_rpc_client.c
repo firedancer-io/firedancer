@@ -1,7 +1,7 @@
 #include "fd_rpc_client.h"
 #include "fd_rpc_client_private.h"
 
-#include "../../../ballet/http/picohttpparser.h"
+#include "../../../waltz/http/picohttpparser.h"
 #include "../../../ballet/json/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
 

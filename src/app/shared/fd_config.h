@@ -218,6 +218,10 @@ struct fd_config {
   struct {
     ushort port;
     int    extended_tx_metadata_storage;
+    uint   block_index_max;
+    uint   txn_index_max;
+    uint   acct_index_max;
+    char   history_file[ PATH_MAX ];
   } rpc;
 
   struct {

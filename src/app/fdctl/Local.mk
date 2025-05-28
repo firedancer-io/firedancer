@@ -1,21 +1,5 @@
-ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_DOUBLE
-ifdef FD_HAS_INT128
-
-$(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
-
-# fdctl core
-$(call add-objs,topology,fd_fdctl)
-$(call add-objs,config,fd_fdctl)
-
-ifdef FD_HAS_HOSTED
-ifdef FD_HAS_THREADS
-ifdef FD_HAS_SSE
-
 include src/app/fdctl/with-version.mk
 $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
-
-# Always generate a version file
 $(shell echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)"                          >  src/app/fdctl/version2.h)
 $(shell echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)"                          >> src/app/fdctl/version2.h)
 $(shell echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)"                          >> src/app/fdctl/version2.h)
@@ -30,6 +14,23 @@ endif
 
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
+# Always generate a version file
+include src/app/fdctl/version.h
+
+ifdef FD_HAS_ALLOCA
+ifdef FD_HAS_DOUBLE
+ifdef FD_HAS_INT128
+
+$(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
+
+# fdctl core
+$(call add-objs,topology,fd_fdctl)
+$(call add-objs,config,fd_fdctl)
+
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_THREADS
+ifdef FD_HAS_SSE
+
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash
 
 # fdctl comands
@@ -39,7 +40,7 @@ $(call add-objs,commands/run_agave,fd_fdctl)
 $(call make-lib,fdctl_version)
 $(call add-objs,version,fdctl_version)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco agave_validator firedancer_plugin_bundle fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco agave_validator firedancer_plugin_bundle fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))

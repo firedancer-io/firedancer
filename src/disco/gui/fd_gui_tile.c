@@ -26,7 +26,7 @@ extern uint  const fdctl_commit_ref;
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui.h"
 #include "../../disco/plugin/fd_plugin.h"
-#include "../../ballet/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server.h"
 #include "../../ballet/json/cJSON.h"
 
 #include <sys/types.h>

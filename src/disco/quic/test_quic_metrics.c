@@ -1,7 +1,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../metrics/fd_prometheus.h"
 #include "../metrics/generated/fd_metrics_quic.h"
-#include "../../ballet/http/fd_http_server_private.h"
+#include "../../waltz/http/fd_http_server_private.h"
 #include <stdio.h> /* puts, fwrite */
 #include <stdlib.h> /* aligned_alloc, free */
 

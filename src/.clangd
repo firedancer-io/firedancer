@@ -1,0 +1,25 @@
+CompileFlags:
+  Add:
+  - -D_XOPEN_SOURCE=700
+  - -DFD_HAS_ALLOCA=1
+  - -DFD_HAS_HOSTED=1
+  - -DFD_HAS_ATOMIC=1
+  - -DFD_HAS_DOUBLE=1
+  - -DFD_HAS_INT128=1
+  - -DFD_HAS_ZSTD=1
+  - -DFD_HAS_SSE=1
+  - -DFD_USING_CLANG=1
+---
+If:
+  PathMatch: .*\.[hc]
+CompileFlags:
+  Add:
+  - -std=c17
+  - -Wall
+  - -Wextra
+  - -Wpedantic
+  - -Wstrict-aliasing=2
+  - -Wconversion
+  - -Wdouble-promotion
+  - -Wformat-security
+  - -Wimplicit-fallthrough

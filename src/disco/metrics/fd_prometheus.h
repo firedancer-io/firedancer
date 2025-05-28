@@ -2,7 +2,7 @@
 #define HEADER_fd_src_disco_metrics_fd_prometheus_h
 
 #include "fd_metrics_base.h"
-#include "../../ballet/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
 
 FD_PROTOTYPES_BEGIN

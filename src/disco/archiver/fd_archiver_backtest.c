@@ -11,7 +11,7 @@
 #include <sys/socket.h>
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
-#include "../../discof/geyser/fd_replay_notif.h"
+#include "../../discof/replay/fd_replay_notif.h"
 
 #define REPLAY_IN_IDX                 (0UL)
 #define REPLAY_OUT_IDX                (0UL)
@@ -300,7 +300,7 @@ after_frag( fd_archiver_backtest_tile_ctx_t * ctx,
             ulong                             sz FD_PARAM_UNUSED,
             ulong                             tsorig FD_PARAM_UNUSED,
             ulong                             tspub FD_PARAM_UNUSED,
-            fd_stem_context_t *               stem FD_PARAM_UNUSED ) {
+            fd_stem_context_t *               stem ) {
   if( FD_LIKELY( ctx->replay_notification.type==FD_REPLAY_SLOT_TYPE ) ) {
     ulong slot            = ctx->replay_notification.slot_exec.slot;
     ulong slot_be         = fd_ulong_bswap(slot);

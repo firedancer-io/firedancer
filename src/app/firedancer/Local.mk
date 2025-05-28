@@ -1,18 +1,8 @@
-ifdef FD_HAS_HOSTED
-ifdef FD_HAS_THREADS
-ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_DOUBLE
-ifdef FD_HAS_INT128
-ifdef FD_HAS_SSE
-ifdef FD_HAS_SECP256K1
-ifdef FD_HAS_ZSTD
 include src/app/firedancer/version.mk
-$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
-
-# Always generate a version file
 $(shell echo "#define FIREDANCER_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)"                          >  src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)"                          >> src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)"                          >> src/app/firedancer/version2.h)
+$(shell echo "#define FIREDANCER_VERSION \"$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH)\"" >> src/app/firedancer/version2.h)
 $(shell echo '#define FIREDANCER_COMMIT_REF_CSTR "$(FIREDANCER_CI_COMMIT)"'                          >> src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_COMMIT_REF_U32 0x$(shell echo $(FIREDANCER_CI_COMMIT) | cut -c -8)" >> src/app/firedancer/version2.h)
 
@@ -21,6 +11,18 @@ ifneq ($(shell cmp -s src/app/firedancer/version.h src/app/firedancer/version2.h
 src/app/firedancer/version.h: src/app/firedancer/version2.h
 	cp -f src/app/firedancer/version2.h $@
 endif
+
+# Always generate a version file
+include src/app/firedancer/version.h
+
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_THREADS
+ifdef FD_HAS_ALLOCA
+ifdef FD_HAS_DOUBLE
+ifdef FD_HAS_INT128
+ifdef FD_HAS_SSE
+ifdef FD_HAS_SECP256K1
+ifdef FD_HAS_ZSTD
 
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/fdctl/config/default.toml
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/default.toml
@@ -37,7 +39,7 @@ $(call add-objs,callbacks,fd_firedancer)
 $(call make-lib,firedancer_version)
 $(call add-objs,version,firedancer_version)
 
-$(call make-bin,firedancer,main,fd_firedancer fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util firedancer_version, $(SECP256K1_LIBS))
+$(call make-bin,firedancer,main,fd_firedancer fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version, $(SECP256K1_LIBS))
 
 firedancer: $(OBJDIR)/bin/firedancer
 else

@@ -2,12 +2,12 @@
 #define HEADER_fd_src_discof_rpcserver_fd_rpc_service_h
 
 #include "fd_block_to_json.h"
-#include "../geyser/fd_replay_notif.h"
+#include "../replay/fd_replay_notif.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../ballet/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server.h"
 
 #include <netinet/in.h>
 
@@ -23,6 +23,10 @@ struct fd_rpcserver_args {
   ushort               port;
   fd_http_server_params_t params;
   struct sockaddr_in   tpu_addr;
+  uint                 block_index_max;
+  uint                 txn_index_max;
+  uint                 acct_index_max;
+  char                 history_file[ PATH_MAX ];
 
   /* Bump allocator */
   fd_spad_t *          spad;

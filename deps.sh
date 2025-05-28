@@ -136,7 +136,7 @@ fetch () {
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.6"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "4d2e22a"
-  #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
+  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.5.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.6.0"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo blst      https://github.com/supranational/blst     "v0.3.14"
@@ -491,7 +491,6 @@ install_openssl () {
     no-dtls \
     no-dtls1-method \
     no-dtls1_2-method \
-    no-ecdsa \
     no-fips \
     no-gost \
     no-idea \
@@ -512,7 +511,6 @@ install_openssl () {
     no-sm4 \
     no-srp \
     no-srtp \
-    no-sock \
     no-ts \
     no-whirlpool
   echo "[+] Configured OpenSSL"
@@ -594,7 +592,7 @@ install () {
   ( install_zstd      )
   ( install_lz4       )
   ( install_s2n       )
-  #( install_openssl   )
+  ( install_openssl   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
     ( install_blst      )

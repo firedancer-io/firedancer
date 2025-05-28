@@ -3,7 +3,7 @@
 
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_ip4.h"
-#include "../../../ballet/http/picohttpparser.h"
+#include "../../../waltz/http/picohttpparser.h"
 #include "../../../ballet/json/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
 

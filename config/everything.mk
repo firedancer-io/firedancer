@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report frontend
 .SECONDARY:
@@ -13,7 +13,10 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help show-deps run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend
+AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend
+
+# Dry rules that should set up dependency targets, but not generate them
+DRY_RULES:=check show-deps
 
 all: info bin include lib unit-test fuzz-test
 
@@ -48,6 +51,7 @@ help:
 	# Explicit goals are: all bin include lib unit-test integration-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test fuzz-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
+	# "make check" quickly checks for obvious compile errors
 	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
@@ -356,6 +360,12 @@ $(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -E $< -o $@
 
+$(OBJDIR)/obj/%.check : src/%.c
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
+
+$(OBJDIR)/obj/%.check : src/%.cxx
+	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
+
 $(OBJDIR)/lib/%.a :
 	#######################################################################
 	# Creating library $@ from $^
@@ -402,7 +412,15 @@ $(foreach mk,$(shell $(FIND) -L src -type f -name Local.mk),$(eval $(call _inclu
 show-deps:
 	@for d in $(DEPFILES); do echo $$d; done
 
+# Define the check target.  Must be after the make fragments include so that
+# DEPFILES is fully populated
+
+check: $(DEPFILES:.d=.check)
+
+ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES) $(DRY_RULES)),)
+# Generate dependency files
 include $(DEPFILES)
+endif
 
 # Define the asm target.  Must be after the make fragments include so that
 # DEPFILES is fully populated

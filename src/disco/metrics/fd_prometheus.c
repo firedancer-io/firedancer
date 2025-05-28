@@ -3,7 +3,7 @@
 #include "fd_metrics.h"
 
 #include "../topo/fd_topo.h"
-#include "../../ballet/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server.h"
 
 struct fd_prom_render {
   fd_http_server_t * http;

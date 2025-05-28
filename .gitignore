@@ -10,6 +10,7 @@ genhtml/
 target/
 *.lcov
 *.profraw
+*.profdata
 /report
 flamegraph.html
 perf.data
@@ -20,7 +21,7 @@ perf.data.old
 
 # Clangd
 .cache
-.clangd
+/.clangd
 compile_commands.json
 
 # Rust

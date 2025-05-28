@@ -5,3 +5,7 @@ validator only!
 
 Also note that this service is still under active development. APIs
 may change without prior notice.
+
+Sample command line:
+
+build/native/gcc/bin/fd_rpcserver --funk-file /data/asiegel/testnet.funk --blockstore-file /data/asiegel/testnet.blockstore

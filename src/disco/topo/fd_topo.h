@@ -410,6 +410,10 @@ typedef struct {
       ushort  tpu_port;
       uint    tpu_ip_addr;
       char    identity_key_path[ PATH_MAX ];
+      uint    block_index_max;
+      uint    txn_index_max;
+      uint    acct_index_max;
+      char    history_file[ PATH_MAX ];
     } rpcserv;
 
     struct {

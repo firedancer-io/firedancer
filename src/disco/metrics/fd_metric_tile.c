@@ -1,5 +1,5 @@
 #include "fd_prometheus.h"
-#include "../../ballet/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <sys/types.h>

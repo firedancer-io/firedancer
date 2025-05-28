@@ -72,7 +72,7 @@ fd_topob_tile_uses( fd_topo_t *      topo,
    can have no backing data buffer, a dcache, or a reassembly buffer
    behind it. */
 
-void
+fd_topo_link_t *
 fd_topob_link( fd_topo_t *  topo,
                char const * link_name,
                char const * wksp_name,

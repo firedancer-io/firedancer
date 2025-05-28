@@ -1,5 +1,5 @@
 #include "fd_snapshot_http.h"
-#include "../../ballet/http/picohttpparser.h"
+#include "../../waltz/http/picohttpparser.h"
 #include "fd_snapshot.h"
 
 #include <assert.h>

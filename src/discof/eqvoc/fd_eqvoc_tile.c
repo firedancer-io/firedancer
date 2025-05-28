@@ -131,8 +131,7 @@ during_frag( fd_eqvoc_tile_ctx_t * ctx,
     }
 
     uchar const * packet = fd_chunk_to_laddr_const( ctx->shred_net_in_mem, chunk );
-    fd_shred_t * shred = (fd_shred_t *)( packet + fd_disco_netmux_sig_hdr_sz( sig ) );
-    memcpy( &ctx->shred, shred, sizeof(fd_shred_t) );
+    memcpy( &ctx->shred, packet + fd_disco_netmux_sig_hdr_sz( sig ), sizeof(fd_shred_t) );
   }
 }
 

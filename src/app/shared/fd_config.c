@@ -59,7 +59,7 @@ fd_config_load_buf( fd_config_t * out,
                     char const *  buf,
                     ulong         sz,
                     char const *  path ) {
-  static uchar pod_mem[ 1UL<<30 ];
+  static uchar pod_mem[ 1UL<<26 ];
   uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
 
   fd_toml_err_info_t toml_err[1];

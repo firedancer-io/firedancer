@@ -1,6 +1,6 @@
 #include "../shared/fd_config.h"
 
-#include "../../discof/geyser/fd_replay_notif.h"
+#include "../../discof/replay/fd_replay_notif.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/tiles.h"
@@ -734,11 +734,12 @@ fd_topo_initialize( config_t * config ) {
     /**/ fd_topob_tile_in( topo, "arch_w", 0UL, "metric_in", "arch_f2w", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
-  if( enable_rpc ) {
-    fd_topob_wksp( topo, "replay_notif" );
-    /**/                 fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH,                    FD_REPLAY_NOTIF_MTU,           1UL   );
-    /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_notif",  0UL                                                  );
+  fd_topob_wksp( topo, "replay_notif" );
+  /* We may be notifying an external service, so always publish on this link. */
+  /**/ fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH, FD_REPLAY_NOTIF_MTU, 1UL )->permit_no_consumers = 1;
+  /**/ fd_topob_tile_out( topo, "replay",  0UL, "replay_notif", 0UL );
 
+  if( enable_rpc ) {
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   }
@@ -931,6 +932,10 @@ fd_topo_initialize( config_t * config ) {
       tile->rpcserv.rpc_port = config->rpc.port;
       tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
       tile->rpcserv.tpu_ip_addr = config->net.ip_addr;
+      tile->rpcserv.block_index_max = config->rpc.block_index_max;
+      tile->rpcserv.txn_index_max = config->rpc.txn_index_max;
+      tile->rpcserv.acct_index_max = config->rpc.acct_index_max;
+      strncpy( tile->rpcserv.history_file, config->rpc.history_file, sizeof(tile->rpcserv.history_file) );
       strncpy( tile->rpcserv.identity_key_path, config->paths.identity_key, sizeof(tile->rpcserv.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "batch" ) ) ) {
       tile->batch.full_interval        = config->tiles.batch.full_interval;
