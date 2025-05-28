@@ -335,8 +335,8 @@ struct fd_config {
       char tip_payment_program_addr[ FD_BASE58_ENCODED_32_SZ ];
       char tip_distribution_authority[ FD_BASE58_ENCODED_32_SZ ];
       uint commission_bps;
-      float keepalive_interval_seconds;
-      float request_timeout_seconds;
+      ulong keepalive_interval_millis;
+      ulong request_timeout_millis;
     } bundle;
 
     struct {

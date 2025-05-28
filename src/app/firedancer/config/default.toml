@@ -864,14 +864,14 @@ user = ""
         # done using HTTP/2 PING frames.  This option roughly configures
         # the time between keepalives.  The actual timing is randomized
         # to reduce burst loads on the network.  Must be within range
-        # [3,3600].
-        keepalive_interval_seconds = 5.0
+        # [3e3,3600e3]
+        keepalive_interval_millis = 5000
 
         # Consider a connection failed if the bundle server fails to
         # respond to a request in the given time frame.  The validator
         # will reconnect eventually, but with increasing delays if there
-        # are repeated failures.  Must be within range [0.5,60].
-        request_timeout_seconds = 3.0
+        # are repeated failures.  Must be within range [500,60000].
+        request_timeout_millis = 3000
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
