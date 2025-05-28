@@ -234,9 +234,9 @@ typedef struct {
       int    larger_shred_limits_per_block;
       ulong  expected_shred_version;
       struct {
-        uint   ip;
-        ushort port;
-      } adtl_dest;
+        uint   ip;   /* in network byte order */
+        ushort port; /* in host byte order */
+      } adtl_dest; /* be careful ip and host are in different byte order */
     } shred;
 
     struct {
