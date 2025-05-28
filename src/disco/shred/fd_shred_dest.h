@@ -30,9 +30,9 @@ typedef uint fd_shred_dest_idx_t;
 struct fd_shred_dest_weighted {
   fd_pubkey_t  pubkey;   /* The validator's identity key */
   ulong  stake_lamports; /* Stake, measured in lamports, or 0 for an unstaked validator */
-  uint   ip4;            /* The validator's IP address, in host byte order */
+  uint   ip4;            /* The validator's IP address, in network byte order */
   ushort port;           /* The TVU port, in host byte order */
-};
+}; /* be careful ip and host are in different byte order */
 typedef struct fd_shred_dest_weighted fd_shred_dest_weighted_t;
 
 /* Internal type, forward declared to be able to declare the struct
