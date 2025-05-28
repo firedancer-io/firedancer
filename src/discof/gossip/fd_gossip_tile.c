@@ -821,7 +821,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     } else if( 0==strcmp( link->name, "gossip_send" ) ) {
 
-      if( FD_UNLIKELY( ctx->sender_contact_out_mcache ) ) FD_LOG_ERR(( "gossip tile has multiple gossip_sender out links" ));
+      if( FD_UNLIKELY( ctx->sender_contact_out_mcache ) ) FD_LOG_ERR(( "gossip tile has multiple gossip_send out links" ));
       ctx->sender_contact_out_mcache = link->mcache;
       ctx->sender_contact_out_sync   = fd_mcache_seq_laddr( ctx->sender_contact_out_mcache );
       ctx->sender_contact_out_depth  = fd_mcache_depth( ctx->sender_contact_out_mcache );
@@ -904,7 +904,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
-  ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
+  ctx->gossip_config.my_addr    = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v3_t){
     .major = 42U,
     .minor = 42U,
