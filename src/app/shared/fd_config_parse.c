@@ -189,7 +189,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.bundle.tip_distribution_authority          );
   CFG_POP      ( uint,   tiles.bundle.commission_bps                      );
   CFG_POP      ( ulong,  tiles.bundle.keepalive_interval_millis           );
-  CFG_POP      ( ulong,  tiles.bundle.request_timeout_millis              );
 
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );

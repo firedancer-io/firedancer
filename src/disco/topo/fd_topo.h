@@ -200,7 +200,6 @@ typedef struct {
       ulong buf_sz;
       ulong ssl_heap_sz;
       ulong keepalive_interval_nanos;
-      ulong request_timeout_nanos;
     } bundle;
 
     struct {

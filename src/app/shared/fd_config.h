@@ -336,7 +336,6 @@ struct fd_config {
       char tip_distribution_authority[ FD_BASE58_ENCODED_32_SZ ];
       uint commission_bps;
       ulong keepalive_interval_millis;
-      ulong request_timeout_millis;
     } bundle;
 
     struct {
