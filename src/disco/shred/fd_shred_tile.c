@@ -655,7 +655,6 @@ after_frag( fd_shred_ctx_t *    ctx,
             ulong               _tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
-  (void)sig;
   (void)sz;
   (void)tsorig;
   (void)_tspub;
