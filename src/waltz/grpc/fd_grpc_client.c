@@ -10,10 +10,6 @@
 #include "../h2/fd_h2_rbuf_ossl.h"
 #endif
 
-/* Forward declarations */
-
-static fd_h2_callbacks_t const fd_grpc_client_h2_callbacks;
-
 ulong
 fd_grpc_client_align( void ) {
   return alignof(fd_grpc_client_t);
@@ -116,7 +112,7 @@ fd_grpc_client_send_stream_quota( fd_h2_rbuf_t *        rbuf_tx,
   stream->s.rx_wnd += bump;
 }
 
-static void
+FD_FN_UNUSED static void
 fd_grpc_client_send_stream_window_updates( fd_grpc_client_t * client ) {
   /* FIXME poor algorithmic inefficiency.  Consider replenishing lazily
      whenever data is received. */
@@ -613,7 +609,7 @@ fd_grpc_client_h2_conn( fd_grpc_client_t * client ) {
    Stored in .rodata for security.  Must be kept in sync with fd_h2 to
    avoid NULL pointers. */
 
-static fd_h2_callbacks_t const fd_grpc_client_h2_callbacks = {
+fd_h2_callbacks_t const fd_grpc_client_h2_callbacks = {
   .stream_create        = fd_h2_noop_stream_create,
   .stream_query         = fd_grpc_h2_stream_query,
   .conn_established     = fd_grpc_h2_conn_established,
