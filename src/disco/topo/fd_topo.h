@@ -88,6 +88,7 @@ struct fd_topo_net_tile {
   ushort gossip_listen_port;
   ushort repair_intake_listen_port;
   ushort repair_serve_listen_port;
+  ushort send_src_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 
@@ -406,7 +407,7 @@ struct fd_topo_tile {
     } store_int;
 
     struct {
-      ushort  tpu_listen_port;
+      ushort  send_src_port;
 
       /* non-config */
 

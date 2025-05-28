@@ -242,6 +242,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.batch.incremental_interval                 );
   CFG_POP      ( cstr,   tiles.batch.out_dir                              );
 
+  CFG_POP      ( ushort, tiles.send.send_src_port                         );
+
   CFG_POP      ( bool,   tiles.restart.enabled                            );
   CFG_POP      ( cstr,   tiles.restart.wen_restart_coordinator            );
   CFG_POP      ( cstr,   tiles.restart.genesis_hash                       );

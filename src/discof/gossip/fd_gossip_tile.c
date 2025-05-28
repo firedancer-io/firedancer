@@ -890,7 +890,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
-  ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
+  ctx->gossip_config.my_addr    = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v3_t){
     .major = 42U,
     .minor = 42U,

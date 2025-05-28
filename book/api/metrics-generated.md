@@ -711,10 +711,83 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">send_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader</span> | counter | Total count of transactions sent to leader |
-| <span class="metrics-name">send_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found</span> | counter | Total count of times leader schedule not found |
-| <span class="metrics-name">send_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total count of times leader not found for given slot |
-| <span class="metrics-name">send_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found</span> | counter | Total count of times leader contact info not found |
-| <span class="metrics-name">send_&#8203;leader_&#8203;contact_&#8203;nonroutable</span> | counter | Total count of times leader contact is nonroutable |
+| <span class="metrics-name">send_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total number of times slot leader not found |
+| <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">connect</span>"} | counter | Total number of contact infos received and handled (Initiated connection) |
+| <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">unroutable</span>"} | counter | Total number of contact infos received and handled (Skipped (unroutable)) |
+| <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">unstaked</span>"} | counter | Total number of contact infos received and handled (Skipped (unstaked)) |
+| <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">changed</span>"} | counter | Total number of contact infos received and handled (Contact info changed) |
+| <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">no_&#8203;change</span>"} | counter | Total number of contact infos received and handled (Contact info unchanged) |
+| <span class="metrics-name">send_&#8203;contact_&#8203;stale</span> | counter | Total number of reconnects skipped due to stale contact info |
+| <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Total number of transactions we attempted to send via QUIC (Success) |
+| <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">no_&#8203;conn</span>"} | counter | Total number of transactions we attempted to send via QUIC (No QUIC connection) |
+| <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">no_&#8203;stream</span>"} | counter | Total number of transactions we attempted to send via QUIC (No QUIC stream) |
+| <span class="metrics-name">send_&#8203;quic_&#8203;conn_&#8203;create_&#8203;failed</span> | counter | Total number of QUIC connection creation failures |
+| <span class="metrics-name">send_&#8203;received_&#8203;packets</span> | counter | Total count of QUIC packets received |
+| <span class="metrics-name">send_&#8203;received_&#8203;bytes</span> | counter | Total bytes received via QUIC |
+| <span class="metrics-name">send_&#8203;sent_&#8203;packets</span> | counter | Total count of QUIC packets sent |
+| <span class="metrics-name">send_&#8203;sent_&#8203;bytes</span> | counter | Total bytes sent via QUIC |
+| <span class="metrics-name">send_&#8203;retry_&#8203;sent</span> | counter | Total count of QUIC retry packets sent |
+| <span class="metrics-name">send_&#8203;connections_&#8203;active</span> | gauge | Number of active QUIC connections |
+| <span class="metrics-name">send_&#8203;connections_&#8203;created</span> | counter | Total count of QUIC connections created |
+| <span class="metrics-name">send_&#8203;connections_&#8203;closed</span> | counter | Total count of QUIC connections closed |
+| <span class="metrics-name">send_&#8203;connections_&#8203;aborted</span> | counter | Total count of QUIC connections aborted |
+| <span class="metrics-name">send_&#8203;connections_&#8203;timed_&#8203;out</span> | counter | Total count of QUIC connections timed out |
+| <span class="metrics-name">send_&#8203;connections_&#8203;retried</span> | counter | Total count of QUIC connections retried |
+| <span class="metrics-name">send_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Total count of connection errors due to no slots |
+| <span class="metrics-name">send_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Total count of connection retry failures |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Total count of packets with crypto failures (initial) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Total count of packets with crypto failures (early data) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Total count of packets with crypto failures (handshake) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Total count of packets with crypto failures (app data) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Total count of packets with no key (initial) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Total count of packets with no key (early data) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Total count of packets with no key (handshake) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Total count of packets with no key (app data) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span> | counter | Total count of packets with no connection |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail</span> | counter | Total count of packet TX allocation failures |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;net_&#8203;header_&#8203;invalid</span> | counter | Total count of packets with invalid network headers |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;quic_&#8203;header_&#8203;invalid</span> | counter | Total count of packets with invalid QUIC headers |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;undersz</span> | counter | Total count of undersized packets |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;oversz</span> | counter | Total count of oversized packets |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;verneg</span> | counter | Total count of version negotiation packets |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span> | counter | Total count of packet retransmissions |
+| <span class="metrics-name">send_&#8203;handshakes_&#8203;created</span> | counter | Total count of QUIC handshakes created |
+| <span class="metrics-name">send_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail</span> | counter | Total count of handshake allocation failures |
+| <span class="metrics-name">send_&#8203;handshake_&#8203;evicted</span> | counter | Total count of handshakes evicted |
+| <span class="metrics-name">send_&#8203;stream_&#8203;received_&#8203;events</span> | counter | Total count of stream events received |
+| <span class="metrics-name">send_&#8203;stream_&#8203;received_&#8203;bytes</span> | counter | Total bytes received via streams |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">unknown</span>"} | counter | Total count of QUIC frames received (Unknown frame type) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ack</span>"} | counter | Total count of QUIC frames received (ACK frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">reset_&#8203;stream</span>"} | counter | Total count of QUIC frames received (RESET_STREAM frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">stop_&#8203;sending</span>"} | counter | Total count of QUIC frames received (STOP_SENDING frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">crypto</span>"} | counter | Total count of QUIC frames received (CRYPTO frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">new_&#8203;token</span>"} | counter | Total count of QUIC frames received (NEW_TOKEN frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">stream</span>"} | counter | Total count of QUIC frames received (STREAM frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">max_&#8203;data</span>"} | counter | Total count of QUIC frames received (MAX_DATA frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">max_&#8203;stream_&#8203;data</span>"} | counter | Total count of QUIC frames received (MAX_STREAM_DATA frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">max_&#8203;streams</span>"} | counter | Total count of QUIC frames received (MAX_STREAMS frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">data_&#8203;blocked</span>"} | counter | Total count of QUIC frames received (DATA_BLOCKED frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">stream_&#8203;data_&#8203;blocked</span>"} | counter | Total count of QUIC frames received (STREAM_DATA_BLOCKED frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">streams_&#8203;blocked</span>"} | counter | Total count of QUIC frames received (STREAMS_BLOCKED(bidi) frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">new_&#8203;conn_&#8203;id</span>"} | counter | Total count of QUIC frames received (NEW_CONN_ID frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">retire_&#8203;conn_&#8203;id</span>"} | counter | Total count of QUIC frames received (RETIRE_CONN_ID frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">path_&#8203;challenge</span>"} | counter | Total count of QUIC frames received (PATH_CHALLENGE frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">path_&#8203;response</span>"} | counter | Total count of QUIC frames received (PATH_RESPONSE frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">conn_&#8203;close_&#8203;quic</span>"} | counter | Total count of QUIC frames received (CONN_CLOSE(transport) frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">conn_&#8203;close_&#8203;app</span>"} | counter | Total count of QUIC frames received (CONN_CLOSE(app) frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">handshake_&#8203;done</span>"} | counter | Total count of QUIC frames received (HANDSHAKE_DONE frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ping</span>"} | counter | Total count of QUIC frames received (PING frame) |
+| <span class="metrics-name">send_&#8203;received_&#8203;frames</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">padding</span>"} | counter | Total count of QUIC frames received (PADDING frame) |
+| <span class="metrics-name">send_&#8203;frame_&#8203;fail_&#8203;parse</span> | counter | Total count of frame parse failures |
+| <span class="metrics-name">send_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (Success) |
+| <span class="metrics-name">send_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (PktMetaPoolEmpty) |
+| <span class="metrics-name">send_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;conn_&#8203;max</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (ConnMaxedInflightFrames) |
+| <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">noop</span>"} | counter | Total count of ACK frames transmitted (non-ACK-eliciting packet) |
+| <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">new</span>"} | counter | Total count of ACK frames transmitted (new ACK range) |
+| <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">merged</span>"} | counter | Total count of ACK frames transmitted (merged into existing ACK range) |
+| <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">drop</span>"} | counter | Total count of ACK frames transmitted (out of buffers) |
+| <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">cancel</span>"} | counter | Total count of ACK frames transmitted (ACK suppressed by handler) |
+| <span class="metrics-name">send_&#8203;service_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in service |
+| <span class="metrics-name">send_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent receiving packets |
 
 </div>
