@@ -10,6 +10,7 @@
 #include "../keyguard/fd_keyguard.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../fd_disco.h"
+#include "../net/fd_net_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../util/net/fd_net_headers.h"
@@ -125,10 +126,13 @@ FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL, poh_shred_mtu );
    to test if ctx->blockstore is enabled. */
 #define IS_FIREDANCER ( ctx->blockstore!=NULL )
 
-typedef struct {
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
+typedef union {
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  };
+  fd_net_rx_bounds_t net_rx;
 } fd_shred_in_ctx_t;
 
 typedef struct {
@@ -349,7 +353,7 @@ before_frag( fd_shred_ctx_t * ctx,
     return (fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) & (fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT);
   }
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-    return (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) && (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
+    return (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
   }
   return 0;
 }
@@ -561,9 +565,7 @@ during_frag( fd_shred_ctx_t * ctx,
        the local copy, we could end up storing and retransmitting
        garbage.  Instead we copy it locally, sadly, and only give it to
        the FEC resolver when we know it won't be overrun anymore. */
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    uchar const * dcache_entry = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) + ctl;
+    uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
@@ -1121,7 +1123,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "net_shred"    ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
+    if( FD_LIKELY(      !strcmp( link->name, "net_shred"    ) ) ) { ctx->in_kind[ i ] = IN_KIND_NET;
+      fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
+      continue; /* only net_rx needs to be set in this case. */ }
     else if( FD_LIKELY( !strcmp( link->name, "poh_shred"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
