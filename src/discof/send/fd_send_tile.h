@@ -9,7 +9,7 @@
 
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
-#include "generated/fd_sender_tile_seccomp.h"
+#include "generated/fd_send_tile_seccomp.h"
 
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_net_headers.h"
@@ -62,9 +62,8 @@ typedef struct fd_send_link_out fd_send_link_out_t;
 
 struct fd_send_conn_entry {
   ulong key;    // Combined ip4 + port as key
-  uint  hash;   // Hash of the key
+  uint hash;   // Hash of the key
   fd_quic_conn_t * conn;
-  ulong  last_used;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 

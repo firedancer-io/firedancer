@@ -589,10 +589,55 @@
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;highest_&#8203;window | `counter` | What types of client messages are we sending (Need Highest Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;orphan | `counter` | What types of client messages are we sending (Need Orphans) |
 
-## Sender Tile
+## Send Tile
 | Metric | Type | Description |
 |--------|------|-------------|
-| sender_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader | `counter` | Total count of transactions sent to leader |
-| sender_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found | `counter` | Total count of times leader schedule not found |
-| sender_&#8203;leader_&#8203;not_&#8203;found | `counter` | Total count of times leader not found for given slot |
-| sender_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found | `counter` | Total count of times leader contact info not found |
+| send_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader | `counter` | Total count of transactions sent to leader |
+| send_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found | `counter` | Total count of times leader schedule not found |
+| send_&#8203;leader_&#8203;not_&#8203;found | `counter` | Total count of times leader not found for given slot |
+| send_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found | `counter` | Total count of times leader contact info not found |
+| send_&#8203;received_&#8203;packets | `counter` | Total count of QUIC packets received |
+| send_&#8203;received_&#8203;bytes | `counter` | Total bytes received via QUIC |
+| send_&#8203;sent_&#8203;packets | `counter` | Total count of QUIC packets sent |
+| send_&#8203;sent_&#8203;bytes | `counter` | Total bytes sent via QUIC |
+| send_&#8203;retry_&#8203;sent | `counter` | Total count of QUIC retry packets sent |
+| send_&#8203;connections_&#8203;active | `gauge` | Number of active QUIC connections |
+| send_&#8203;connections_&#8203;created | `counter` | Total count of QUIC connections created |
+| send_&#8203;connections_&#8203;closed | `counter` | Total count of QUIC connections closed |
+| send_&#8203;connections_&#8203;aborted | `counter` | Total count of QUIC connections aborted |
+| send_&#8203;connections_&#8203;timed_&#8203;out | `counter` | Total count of QUIC connections timed out |
+| send_&#8203;connections_&#8203;retried | `counter` | Total count of QUIC connections retried |
+| send_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots | `counter` | Total count of connection errors due to no slots |
+| send_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail | `counter` | Total count of connection retry failures |
+| send_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;initial | `counter` | Total count of packets with crypto failures (initial) |
+| send_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;early | `counter` | Total count of packets with crypto failures (early data) |
+| send_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;handshake | `counter` | Total count of packets with crypto failures (handshake) |
+| send_&#8203;pkt_&#8203;crypto_&#8203;failed_&#8203;app | `counter` | Total count of packets with crypto failures (app data) |
+| send_&#8203;pkt_&#8203;no_&#8203;key_&#8203;initial | `counter` | Total count of packets with no key (initial) |
+| send_&#8203;pkt_&#8203;no_&#8203;key_&#8203;early | `counter` | Total count of packets with no key (early data) |
+| send_&#8203;pkt_&#8203;no_&#8203;key_&#8203;handshake | `counter` | Total count of packets with no key (handshake) |
+| send_&#8203;pkt_&#8203;no_&#8203;key_&#8203;app | `counter` | Total count of packets with no key (app data) |
+| send_&#8203;pkt_&#8203;no_&#8203;conn | `counter` | Total count of packets with no connection |
+| send_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail | `counter` | Total count of packet TX allocation failures |
+| send_&#8203;pkt_&#8203;net_&#8203;header_&#8203;invalid | `counter` | Total count of packets with invalid network headers |
+| send_&#8203;pkt_&#8203;quic_&#8203;header_&#8203;invalid | `counter` | Total count of packets with invalid QUIC headers |
+| send_&#8203;pkt_&#8203;undersz | `counter` | Total count of undersized packets |
+| send_&#8203;pkt_&#8203;oversz | `counter` | Total count of oversized packets |
+| send_&#8203;pkt_&#8203;verneg | `counter` | Total count of version negotiation packets |
+| send_&#8203;pkt_&#8203;retransmissions | `counter` | Total count of packet retransmissions |
+| send_&#8203;handshakes_&#8203;created | `counter` | Total count of QUIC handshakes created |
+| send_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail | `counter` | Total count of handshake allocation failures |
+| send_&#8203;handshake_&#8203;evicted | `counter` | Total count of handshakes evicted |
+| send_&#8203;stream_&#8203;received_&#8203;events | `counter` | Total count of stream events received |
+| send_&#8203;stream_&#8203;received_&#8203;bytes | `counter` | Total bytes received via streams |
+| send_&#8203;received_&#8203;frames_&#8203;initial | `counter` | Total count of QUIC frames received (initial) |
+| send_&#8203;received_&#8203;frames_&#8203;early | `counter` | Total count of QUIC frames received (early data) |
+| send_&#8203;received_&#8203;frames_&#8203;handshake | `counter` | Total count of QUIC frames received (handshake) |
+| send_&#8203;received_&#8203;frames_&#8203;app | `counter` | Total count of QUIC frames received (app data) |
+| send_&#8203;frame_&#8203;fail_&#8203;parse | `counter` | Total count of frame parse failures |
+| send_&#8203;ack_&#8203;tx_&#8203;initial | `counter` | Total count of ACK frames transmitted (initial) |
+| send_&#8203;ack_&#8203;tx_&#8203;early | `counter` | Total count of ACK frames transmitted (early data) |
+| send_&#8203;ack_&#8203;tx_&#8203;handshake | `counter` | Total count of ACK frames transmitted (handshake) |
+| send_&#8203;ack_&#8203;tx_&#8203;app | `counter` | Total count of ACK frames transmitted (app data) |
+| send_&#8203;service_&#8203;duration_&#8203;seconds | `histogram` | Duration spent in service |
+| send_&#8203;receive_&#8203;duration_&#8203;seconds | `histogram` | Duration spent receiving packets |

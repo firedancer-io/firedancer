@@ -1,9 +1,9 @@
-#include "fd_sender_tile.h"
+#include "fd_send_tile.h"
 
 #include <errno.h>
 #include <sys/random.h>
 
-// Include fd_map template for connection management
+/* map ip/port to quic conn */
 #define MAP_NAME        fd_send_conn_map
 #define MAP_T           fd_send_conn_entry_t
 #define MAP_LG_SLOT_CNT 16
@@ -540,8 +540,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_sender_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_sender_tile_instr_cnt;
+  populate_sock_filter_policy_fd_send_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_send_tile_instr_cnt;
 }
 
 static ulong
@@ -574,12 +574,55 @@ before_credit( fd_send_tile_ctx_t * ctx,
 static void
 metrics_write( fd_send_tile_ctx_t * ctx ) {
   /* Transaction metrics */
-  FD_MCNT_SET( SENDER, TXNS_SENT_TO_LEADER,   ctx->metrics.txns_sent_to_leader );
+  FD_MCNT_SET( SEND, TXNS_SENT_TO_LEADER,   ctx->metrics.txns_sent_to_leader );
 
   /* Leader metrics */
-  FD_MCNT_SET( SENDER, LEADER_SCHED_NOT_FOUND,   ctx->metrics.leader_sched_not_found );
-  FD_MCNT_SET( SENDER, LEADER_NOT_FOUND,         ctx->metrics.leader_not_found );
-  FD_MCNT_SET( SENDER, LEADER_CONTACT_NOT_FOUND, ctx->metrics.leader_contact_not_found );
+  FD_MCNT_SET( SEND, LEADER_SCHED_NOT_FOUND,   ctx->metrics.leader_sched_not_found );
+  FD_MCNT_SET( SEND, LEADER_NOT_FOUND,         ctx->metrics.leader_not_found );
+  FD_MCNT_SET( SEND, LEADER_CONTACT_NOT_FOUND, ctx->metrics.leader_contact_not_found );
+
+  /* QUIC metrics */
+  FD_MCNT_SET(   SEND, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
+  FD_MCNT_SET(   SEND, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
+  FD_MCNT_SET(   SEND, SENT_PACKETS,     ctx->quic->metrics.net_tx_pkt_cnt );
+  FD_MCNT_SET(   SEND, SENT_BYTES,       ctx->quic->metrics.net_tx_byte_cnt );
+  FD_MCNT_SET(   SEND, RETRY_SENT,       ctx->quic->metrics.retry_tx_cnt );
+
+  FD_MGAUGE_SET( SEND, CONNECTIONS_ACTIVE,  ctx->quic->metrics.conn_active_cnt );
+  FD_MCNT_SET(   SEND, CONNECTIONS_CREATED, ctx->quic->metrics.conn_created_cnt );
+  FD_MCNT_SET(   SEND, CONNECTIONS_CLOSED,  ctx->quic->metrics.conn_closed_cnt );
+  FD_MCNT_SET(   SEND, CONNECTIONS_ABORTED, ctx->quic->metrics.conn_aborted_cnt );
+  FD_MCNT_SET(   SEND, CONNECTIONS_TIMED_OUT, ctx->quic->metrics.conn_timeout_cnt );
+  FD_MCNT_SET(   SEND, CONNECTIONS_RETRIED, ctx->quic->metrics.conn_retry_cnt );
+
+  FD_MCNT_SET(   SEND, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
+  FD_MCNT_SET(   SEND, CONNECTION_ERROR_RETRY_FAIL, ctx->quic->metrics.conn_err_retry_fail_cnt );
+
+  FD_MCNT_ENUM_COPY( SEND, PKT_CRYPTO_FAILED,   ctx->quic->metrics.pkt_decrypt_fail_cnt );
+  FD_MCNT_ENUM_COPY( SEND, PKT_NO_KEY,          ctx->quic->metrics.pkt_no_key_cnt );
+  FD_MCNT_SET(       SEND, PKT_NO_CONN,         ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_SET(       SEND, PKT_TX_ALLOC_FAIL,   ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
+  FD_MCNT_SET(       SEND, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
+  FD_MCNT_SET(       SEND, PKT_QUIC_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
+  FD_MCNT_SET(       SEND, PKT_UNDERSZ,         ctx->quic->metrics.pkt_undersz_cnt );
+  FD_MCNT_SET(       SEND, PKT_OVERSZ,          ctx->quic->metrics.pkt_oversz_cnt );
+  FD_MCNT_SET(       SEND, PKT_VERNEG,          ctx->quic->metrics.pkt_verneg_cnt );
+  FD_MCNT_SET(       SEND, PKT_RETRANSMISSIONS, ctx->quic->metrics.pkt_retransmissions_cnt );
+
+  FD_MCNT_SET(   SEND, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
+  FD_MCNT_SET(   SEND, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
+  FD_MCNT_SET(   SEND, HANDSHAKE_EVICTED,          ctx->quic->metrics.hs_evicted_cnt );
+
+  FD_MCNT_SET(  SEND, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
+  FD_MCNT_SET(  SEND, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );
+
+  FD_MCNT_ENUM_COPY( SEND, RECEIVED_FRAMES,  ctx->quic->metrics.frame_rx_cnt );
+  FD_MCNT_SET      ( SEND, FRAME_FAIL_PARSE, ctx->quic->metrics.frame_rx_err_cnt );
+
+  FD_MCNT_ENUM_COPY( SEND, ACK_TX, ctx->quic->metrics.ack_tx );
+
+  FD_MHIST_COPY( SEND, SERVICE_DURATION_SECONDS, ctx->quic->metrics.service_duration );
+  FD_MHIST_COPY( SEND, RECEIVE_DURATION_SECONDS, ctx->quic->metrics.receive_duration );
 }
 
 
