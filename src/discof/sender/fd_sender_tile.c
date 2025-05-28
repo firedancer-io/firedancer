@@ -78,16 +78,17 @@ find_quic_conn( fd_send_tile_ctx_t * ctx,
 }
 
 static void
-create_quic_conn_for_dest( fd_send_tile_ctx_t * ctx,
-                           uint                 dst_ip,
-                           ushort               dst_port ) {
+quic_connect( fd_send_tile_ctx_t * ctx,
+              uint                 dst_ip,
+              ushort               dst_port ) {
   ulong key = conn_key( dst_ip, dst_port );
 
   if( fd_send_conn_map_query( ctx->conn_map, key, NULL ) ) {
     return;
   }
 
-  FD_LOG_NOTICE(("Creating new QUIC connection for destination %u:%hu", dst_ip, dst_port));
+  FD_LOG_NOTICE(("Creating new QUIC connection for destination %u.%u.%u.%u:%hu",
+  dst_ip&0xff, (dst_ip>>8)&0xff, (dst_ip>>16)&0xff, (dst_ip>>24)&0xff, dst_port));
 
   // Create new connection
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port );
@@ -266,7 +267,7 @@ static inline void
 finalize_new_cluster_contact_info( fd_send_tile_ctx_t * ctx ) {
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
   for( ulong i=0UL; i<ctx->new_dest_cnt; i++ ) {
-    create_quic_conn_for_dest( ctx, ctx->new_dest_ptr[i].ip4, ctx->new_dest_ptr[i].port );
+    quic_connect( ctx, ctx->new_dest_ptr[i].ip4, ctx->new_dest_ptr[i].port );
   }
 }
 
@@ -560,6 +561,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static inline void
+before_credit( fd_send_tile_ctx_t * ctx,
+               fd_stem_context_t  * stem,
+               int *                charge_busy ) {
+  ctx->stem = stem;
+
+  /* Publishes to mcache via callbacks */
+  *charge_busy = fd_quic_service( ctx->quic );
+}
+
 static void
 metrics_write( fd_send_tile_ctx_t * ctx ) {
   /* Transaction metrics */
@@ -580,7 +591,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
-
+#define STEM_CALLBACK_BEFORE_CREDIT before_credit
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_send = {
