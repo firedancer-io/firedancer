@@ -1,7 +1,9 @@
 #include "../../util/fd_util.h"
 
 #include "test_hpack.c"
+#if FD_HAS_HOSTED
 #include "test_h2_rbuf.c"
+#endif
 #include "test_h2_hdr_match.c"
 #include "test_h2_conn.c"
 #include "test_h2_proto.c"
@@ -16,8 +18,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing hpack" ));
   test_hpack();
 
+#if FD_HAS_HOSTED
   FD_LOG_NOTICE(( "Testing h2_buf" ));
   test_h2_rbuf( rng );
+#endif
 
   FD_LOG_NOTICE(( "Testing h2_hdr_match" ));
   test_h2_hdr_match();

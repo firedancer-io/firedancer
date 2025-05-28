@@ -275,6 +275,8 @@ fd_grpc_client_rbuf_rx( fd_grpc_client_t * client );
 fd_h2_conn_t *
 fd_grpc_client_h2_conn( fd_grpc_client_t * client );
 
+extern fd_h2_callbacks_t const fd_grpc_client_h2_callbacks;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_grpc_fd_grpc_client_h */
