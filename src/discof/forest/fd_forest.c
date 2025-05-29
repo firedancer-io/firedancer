@@ -297,7 +297,6 @@ acquire( fd_forest_t * forest, ulong slot ) {
   ele->buffered_idx = UINT_MAX;
   ele->complete_idx = UINT_MAX;
 
-  fd_forest_fec_idxs_null( ele->cmpl );
   fd_forest_ele_idxs_null( ele->idxs ); /* FIXME expensive */
 
   return ele;
@@ -343,7 +342,7 @@ fd_forest_query( fd_forest_t * forest, ulong slot ) {
 }
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, FD_PARAM_UNUSED uint fec_set_idx, FD_PARAM_UNUSED int data_complete, int slot_complete ) {
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int slot_complete ) {
 # if FD_FOREST_USE_HANDHOLDING
   FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
 # endif

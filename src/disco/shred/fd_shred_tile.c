@@ -90,7 +90,6 @@
 #define IN_KIND_POH     (2UL)
 #define IN_KIND_NET     (3UL)
 #define IN_KIND_SIGN    (4UL)
-#define IN_KIND_REPAIR  (5UL)
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -342,16 +341,6 @@ during_frag( fd_shred_ctx_t * ctx,
   ctx->skip_frag = 0;
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    fd_memcpy( ctx->shred_buffer, dcache_entry, sz );
-    return;
-  }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
@@ -703,56 +692,6 @@ after_frag( fd_shred_ctx_t *    ctx,
   if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_POH) & (ctx->send_fec_set_cnt==0UL) ) ) {
     /* Entry from PoH that didn't trigger a new FEC set to be made */
     return;
-  }
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
-    FD_MCNT_INC( SHRED, FORCE_COMPLETE_REQUEST, 1UL );
-    fd_ed25519_sig_t const * shred_sig = (fd_ed25519_sig_t const *)fd_type_pun( ctx->shred_buffer );
-    if( FD_UNLIKELY( fd_fec_resolver_done_contains( ctx->resolver, shred_sig ) ) ) {
-      /* This is a FEC completion message from the repair tile.  We need
-         to make sure that we don't force complete something that's just
-         been completed. */
-      FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
-      return;
-    }
-
-    uint last_idx = fd_disco_repair_shred_sig_last_shred_idx( sig );
-    uchar buf_last_shred[FD_SHRED_MIN_SZ];
-    int rv = fd_fec_resolver_shred_query( ctx->resolver, shred_sig, last_idx, buf_last_shred );
-    if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_OKAY ) ) {
-
-      /* We will hit this case if FEC is no longer in curr_map, or if
-         the shred signature is invalid, which is okay.
-
-         There's something of a race condition here.  It's possible (but
-         very unlikely) that between when the repair tile observed the
-         FEC set needed to be force completed and now, the FEC set was
-         completed, and then so many additional FEC sets were completed
-         that it fell off the end of the done list.  In that case
-         fd_fec_resolver_done_contains would have returned false, but
-         fd_fec_resolver_shred_query will not return OKAY, which means
-         we'll end up in this block of code.  If the FEC set was
-         completed, then there's nothing we need to do.  If it was
-         spilled, then we'll need to re-repair all the shreds in the FEC
-         set, but it's not fatal. */
-
-      FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
-      return;
-    }
-    fd_shred_t * out_last_shred = (fd_shred_t *)fd_type_pun( buf_last_shred );
-
-    fd_fec_set_t const * out_fec_set[1];
-    rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
-    if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) ){
-      FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u %s", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( shred_sig ) ));
-      FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
-      return;
-    }
-    FD_MCNT_INC( SHRED, FORCE_COMPLETE_SUCCESS, 1UL );
-    FD_TEST( ctx->fec_sets <= *out_fec_set );
-    ctx->send_fec_set_idx[ 0UL ] = (ulong)(*out_fec_set - ctx->fec_sets);
-    ctx->send_fec_set_cnt = 1UL;
-    ctx->shredded_txn_cnt = 0UL;
   }
 
   ulong fanout = 200UL; /* Default Agave's DATA_PLANE_FANOUT = 200UL */
@@ -1166,7 +1105,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
-    else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

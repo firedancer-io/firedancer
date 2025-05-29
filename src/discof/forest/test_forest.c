@@ -18,12 +18,12 @@
 fd_forest_t *
 setup_preorder( fd_forest_t * forest ) {
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 5, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 6, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 1, 1, 0, 0 );
+  fd_forest_data_shred_insert( forest, 2, 1, 0, 0 );
+  fd_forest_data_shred_insert( forest, 4, 2, 0, 0 );
+  fd_forest_data_shred_insert( forest, 3, 2, 0, 0 );
+  fd_forest_data_shred_insert( forest, 5, 2, 0, 0 );
+  fd_forest_data_shred_insert( forest, 6, 1, 0, 0 );
   FD_TEST( !fd_forest_verify( forest ) );
   // fd_forest_print( forest );
   return forest;
@@ -219,11 +219,11 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
-  fd_forest_data_shred_insert( forest, 6, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 5, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 6, 1, 0, 0 );
+  fd_forest_data_shred_insert( forest, 5, 2, 0, 0 );
+  fd_forest_data_shred_insert( forest, 2, 1, 0, 0 );
+  fd_forest_data_shred_insert( forest, 1, 1, 0, 0 );
+  fd_forest_data_shred_insert( forest, 3, 2, 0, 0 );
 
   // fd_forest_print( forest );
   ulong * arr = frontier_arr( wksp, forest );
@@ -232,7 +232,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 1, 1, 1, 1 );
   // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
@@ -241,7 +241,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 3, 2, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 3, 2, 1, 1 );
   // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
@@ -250,7 +250,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 5, 2, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 5, 2, 1, 1 );
   // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 2 );
@@ -259,8 +259,8 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
-  fd_forest_data_shred_insert( forest, 2, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 4, 2, 0, 0 );
+  fd_forest_data_shred_insert( forest, 2, 1, 1, 1 );
   // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
@@ -269,7 +269,7 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 6, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 6, 1, 1, 1 );
   // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
@@ -278,8 +278,8 @@ void test_out_of_order( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   fd_wksp_free_laddr( arr );
 
-  fd_forest_data_shred_insert( forest, 4, 2, 1, 0, 0, 0 ); /* shred complete arrives before */
-  fd_forest_data_shred_insert( forest, 4, 2, 2, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 4, 2, 1, 0 ); /* shred complete arrives before */
+  fd_forest_data_shred_insert( forest, 4, 2, 2, 1 );
   // fd_forest_print( forest );
   arr = frontier_arr( wksp, forest );
   FD_TEST( arr[0] == 4 );
@@ -377,19 +377,19 @@ test_print_tree( fd_wksp_t *wksp ){
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 1568376 );
-  fd_forest_data_shred_insert( forest, 1568377, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568378, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568379, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568380, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568381, 2, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568382, 1, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568383, 4, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568384, 5, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568385, 5, 0, 0, 1, 1 );
-  fd_forest_data_shred_insert( forest, 1568386, 6, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 1568377, 1, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568378, 1, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568379, 1, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568380, 1, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568381, 2, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568382, 1, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568383, 4, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568384, 5, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568385, 5, 0, 1 );
+  fd_forest_data_shred_insert( forest, 1568386, 6, 0, 1 );
 
   for( ulong i = 1568387; i < 1568400; i++ ){
-    FD_TEST( fd_forest_data_shred_insert( forest, i, 1, 0, 0, 1, 1) );
+    FD_TEST( fd_forest_data_shred_insert( forest, i, 1, 0, 1) );
     //fd_forest_shred_complete( forest, i, 0 );
   }
 
@@ -426,37 +426,37 @@ test_large_print_tree( fd_wksp_t * wksp ){
   fd_forest_init( forest, 330090532 );
 
   for( ulong slot = 330090533; slot <= 330090539; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_data_shred_insert( forest, slot, 1, 0, 1 );
     //fd_forest_shred_complete( forest, slot, 0 );
   }
 
-  fd_forest_data_shred_insert( forest, 330090544, 5, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 330090544, 5, 0, 1 );
 
   for( ulong slot = 330090545; slot <= 330090583; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_data_shred_insert( forest, slot, 1, 0, 1 );
     //fd_forest_shred_complete( forest, slot, 0 );
   }
 
-  fd_forest_data_shred_insert( forest, 330090588, 5, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 330090588, 5, 0, 1 );
   for( ulong slot = 330090589; slot <= 330090855; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_data_shred_insert( forest, slot, 1, 0, 1 );
     //fd_forest_shred_complete( forest, slot, 0 );
   }
-  fd_forest_data_shred_insert( forest, 330090856, 5, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 330090856, 5, 0, 1 );
   for( ulong slot = 330090857; slot <= 330090859; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_data_shred_insert( forest, slot, 1, 0, 1 );
     //fd_forest_shred_complete( forest, slot, 0 );
   }
-  fd_forest_data_shred_insert( forest, 330090864, 5, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 330090864, 5, 0, 1 );
   for( ulong slot = 330090865; slot <= 330091007; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_data_shred_insert( forest, slot, 1, 0, 1 );
     //fd_forest_shred_complete( forest, slot, 0 );
   }
-  fd_forest_data_shred_insert( forest, 330091008, 5, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 330091008, 5, 0, 1 );
 
-  fd_forest_data_shred_insert( forest, 330091010, 3, 0, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 330091010, 3, 0, 1 );
   for( ulong slot = 330091011; slot <= 330091048; slot++ ){
-    fd_forest_data_shred_insert( forest, slot, 1, 0, 0, 1, 1 );
+    fd_forest_data_shred_insert( forest, slot, 1, 0, 1 );
     //fd_forest_shred_complete( forest, slot, 0 );
   }
 

@@ -34,11 +34,6 @@
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
-//TODO remove with removal of force complete
-#define SET_NAME fd_forest_fec_idxs
-#define SET_MAX  (1UL << 10) // max SHRED_BLK_MAX / SHREDS_PER_FEC = 1024 FEC sets per block
-#include "../../util/tmpl/fd_set.c"
-
 /* fd_forest_ele_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
    (`child_idx`), its immediate-right sibling (`sibling_idx`), and its
@@ -57,7 +52,6 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_fec_idxs_t cmpl[fd_forest_fec_idxs_word_cnt]; /* complete fec idxs */
   fd_forest_ele_idxs_t idxs[fd_forest_ele_idxs_word_cnt]; /* data shred idxs */
 };
 typedef struct fd_forest_ele fd_forest_ele_t;
@@ -311,32 +305,7 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
    Returns the inserted forest ele. */
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, int data_complete, int slot_complete );
-
-// TODO: remove the below with removal of force complete
-
-/* fd_forest_complete_fec_insert marks the fec_set_idx as already
-   completed by the fec_resolver. */
-
-static inline fd_forest_fec_idxs_t *
-fd_forest_complete_fec_insert( fd_forest_fec_idxs_t * cmpl,
-                               uint fec_set_idx ) {
-  FD_TEST( fec_set_idx % FD_FEC_SHRED_CNT == 0 ); /* fec_set_idx must be a multiple of 32 */
-  uint idx = fec_set_idx / FD_FEC_SHRED_CNT;
-  fd_forest_fec_idxs_insert( cmpl, idx );
-  return cmpl;
-}
-
-/* fd_forest_complete_fec_test checks if fec_set_idx was already
-   completed by the fec_resolver. */
-
-static inline int
-fd_forest_complete_fec_test( fd_forest_fec_idxs_t const * cmpl,
-                             uint fec_set_idx ) {
-  FD_TEST( fec_set_idx % FD_FEC_SHRED_CNT == 0 ); /* fec_set_idx must be a multiple of 32 */
-  uint idx = fec_set_idx / FD_FEC_SHRED_CNT;
-  return fd_forest_fec_idxs_test( cmpl, idx );
-}
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int slot_complete );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot
