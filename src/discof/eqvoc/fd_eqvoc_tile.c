@@ -7,7 +7,6 @@
 
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../disco/shred/fd_stake_ci.h"
 
 #define SCRATCH_MAX   ( 4UL /*KiB*/ << 10 )
 #define SCRATCH_DEPTH ( 4UL ) /* 4 scratch frames */
@@ -15,10 +14,6 @@
 
 struct fd_eqvoc_tile_ctx {
   fd_pubkey_t identity_key[1];
-
-  fd_stake_ci_t *            stake_ci;
-  fd_shred_dest_weighted_t * new_dest_ptr;
-  ulong                      new_dest_cnt;
 
   ulong       contact_in_idx;
   fd_wksp_t * contact_in_mem;
@@ -60,39 +55,19 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* clang-format off */
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_eqvoc_tile_ctx_t), sizeof(fd_eqvoc_tile_ctx_t) );
-  l       = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),          fd_stake_ci_footprint() );
   l       = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),             fd_eqvoc_footprint( 1 << 10, 1 << 10 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
   /* clang-format on */
 }
 
 static inline void
-handle_new_cluster_contact_info( fd_eqvoc_tile_ctx_t * ctx, uchar const * buf, ulong buf_sz ) {
-  ulong const * header = (ulong const *)fd_type_pun_const( buf );
-
-  ulong dest_cnt = buf_sz;
-
-  if( dest_cnt >= MAX_SHRED_DESTS )
-    FD_LOG_ERR(( "Cluster nodes had %lu destinations, which was more than the max of %lu",
-                  dest_cnt,
-                  MAX_SHRED_DESTS ));
-
-  fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header );
-  fd_shred_dest_weighted_t *   dests    = fd_stake_ci_dest_add_init( ctx->stake_ci );
-
-  ctx->new_dest_ptr = dests;
-  ctx->new_dest_cnt = dest_cnt;
-
-  for( ulong i = 0UL; i < dest_cnt; i++ ) {
-    memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
-    dests[i].ip4  = in_dests[i].ip4_addr;
-    dests[i].port = in_dests[i].udp_port;
-  }
+handle_new_cluster_contact_info( fd_eqvoc_tile_ctx_t * ctx FD_PARAM_UNUSED, uchar const * buf FD_PARAM_UNUSED, ulong buf_sz FD_PARAM_UNUSED ) {
+  /* FIXME - do something useful */
 }
 
 static inline void
-finalize_new_cluster_contact_info( fd_eqvoc_tile_ctx_t * ctx ) {
-  fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
+finalize_new_cluster_contact_info( fd_eqvoc_tile_ctx_t * ctx FD_PARAM_UNUSED ) {
+  /* FIXME - do something useful */
 }
 
 static void
@@ -138,18 +113,12 @@ during_frag( fd_eqvoc_tile_ctx_t * ctx,
 static void
 after_frag( fd_eqvoc_tile_ctx_t * ctx,
             ulong                 in_idx,
-            ulong                 seq,
-            ulong                 sig,
-            ulong                 sz,
-            ulong                 tsorig,
-            ulong                 tspub,
-            fd_stem_context_t *   stem ) {
-  (void)seq;
-  (void)sig;
-  (void)sz;
-  (void)tsorig;
-  (void)tspub;
-  (void)stem;
+            ulong                 seq FD_PARAM_UNUSED,
+            ulong                 sig FD_PARAM_UNUSED,
+            ulong                 chunk FD_PARAM_UNUSED,
+            ulong                 sz FD_PARAM_UNUSED,
+            ulong                 tsorig FD_PARAM_UNUSED,
+            fd_stem_context_t *   stem FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( in_idx == ctx->contact_in_idx ) ) {
     finalize_new_cluster_contact_info( ctx );
@@ -215,7 +184,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_eqvoc_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_eqvoc_tile_ctx_t ), sizeof( fd_eqvoc_tile_ctx_t ) );
-  void * stake_ci_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   void * eqvoc_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_align(), fd_eqvoc_footprint( 1 << 10, 1 << 10 ) );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
@@ -225,7 +193,6 @@ unprivileged_init( fd_topo_t *      topo,
                   (ulong)scratch + scratch_footprint( tile )) );
   }
 
-  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( stake_ci_mem, ctx->identity_key ) );
   ctx->eqvoc    = fd_eqvoc_join( fd_eqvoc_new( eqvoc_mem, 1 << 10, 1 << 10, 0 ) );
 
   ctx->contact_in_idx = fd_topo_find_tile_in_link( topo, tile, "gossip_voter", 0 );
