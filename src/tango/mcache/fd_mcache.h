@@ -340,9 +340,9 @@ fd_mcache_publish_sse( fd_frag_meta_t * mcache,   /* Assumed a current local joi
   __m128i meta_sse0 = fd_frag_meta_sse0( fd_seq_dec( seq, 1UL ), sig );
   __m128i meta_sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
   FD_COMPILER_MFENCE();
-  _mm_store_si128( &meta->sse0, meta_sse0 );
+  FD_VOLATILE( meta->sse0 ) = meta_sse0;
   FD_COMPILER_MFENCE();
-  _mm_store_si128( &meta->sse1, meta_sse1 );
+  FD_VOLATILE( meta->sse1 ) = meta_sse1;
   FD_COMPILER_MFENCE();
   meta->seq = seq;
   FD_COMPILER_MFENCE();
@@ -371,7 +371,11 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
   __m256i meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
   FD_COMPILER_MFENCE();
-  _mm256_store_si256( &meta->avx, meta_avx );
+  /* _mm256_store_si256( &meta->avx, meta_avx );
+     Some versions of Clang break up a 256-bit store intrinsic into two
+     128-bit stores, which is not atomic.  Use a volatile 256-bit store
+     as a workaround. */
+  FD_VOLATILE( meta->avx ) = meta_avx;
   FD_COMPILER_MFENCE();
 }
 
