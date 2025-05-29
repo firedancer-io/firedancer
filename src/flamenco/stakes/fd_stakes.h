@@ -93,6 +93,18 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           ulong                      exec_spad_cnt,
                           fd_spad_t *                runtime_spad );
 
+/* A workaround to mimic Agave function get_epoch_reward_calculate_param_info
+   https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L299 */
+void
+fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+                          fd_stake_history_t const * history,
+                          ulong *                    new_rate_activation_epoch,
+                          fd_epoch_info_t *          temp_info,
+                          fd_tpool_t *               tpool,
+                          fd_spad_t * *              exec_spads,
+                          ulong                      exec_spad_cnt,
+                          fd_spad_t *                runtime_spad );
+
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_stakes_t const *        stakes,

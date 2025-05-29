@@ -745,18 +745,15 @@ get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
 }
 
 static void
-hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_ctx,
-                              fd_stake_reward_calculation_t *             stake_reward_calculation,
+hash_rewards_into_partitions( fd_stake_reward_calculation_t *             stake_reward_calculation,
                               fd_hash_t const *                           parent_blockhash,
+                              ulong                                       num_partitions,
                               fd_stake_reward_calculation_partitioned_t * result,
                               fd_spad_t *                                 runtime_spad ) {
 
   /* Initialize a dlist for every partition.
       These will all use the same pool - we do not re-allocate the stake rewards, only move them into partitions. */
   result->partitioned_stake_rewards.pool = stake_reward_calculation->pool;
-  ulong num_partitions = get_reward_distribution_num_blocks( &fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx )->epoch_schedule,
-                                                              slot_ctx->slot_bank.slot,
-                                                              stake_reward_calculation->stake_rewards_len );
   result->partitioned_stake_rewards.partitions_len = num_partitions;
   result->partitioned_stake_rewards.partitions     = fd_spad_alloc( runtime_spad,
                                                                     fd_partitioned_stake_rewards_dlist_align(),
@@ -833,9 +830,13 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
                                exec_spad_cnt,
                                runtime_spad );
 
-  hash_rewards_into_partitions( slot_ctx,
-                                &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation,
+  fd_stake_reward_calculation_t * stake_reward_calculation = &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation;
+  ulong num_partitions = get_reward_distribution_num_blocks( &fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx )->epoch_schedule,
+                                                              slot_ctx->slot_bank.slot,
+                                                              stake_reward_calculation->stake_rewards_len );
+  hash_rewards_into_partitions( stake_reward_calculation,
                                 parent_blockhash,
+                                num_partitions,
                                 &result->stake_rewards_by_partition,
                                 runtime_spad );
 
@@ -931,7 +932,6 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_pubkey_t *        stake_pubkey,
                                       ulong                reward_lamports,
                                       ulong                new_credits_observed ) {
-
   FD_TXN_ACCOUNT_DECL( stake_acc_rec );
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( stake_acc_rec,
                                                           stake_pubkey,
@@ -1170,7 +1170,7 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     Re-calculates partitioned stake rewards.
     This updates the slot context's epoch reward status with the recalculated partitioned rewards.
 
-    https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L536 */
+    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_tpool_t *         tpool,
@@ -1249,15 +1249,16 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                exec_spads,
                                exec_spad_cnt,
                                runtime_spad );
-    fd_refresh_vote_accounts( slot_ctx,
-                              stake_history,
-                              new_warmup_cooldown_rate_epoch,
-                              &epoch_info,
-                              tpool,
-                              exec_spads,
-                              exec_spad_cnt,
-                              runtime_spad );
 
+    /* NOTE: this is just a workaround for now to correctly populate epoch_info. */
+    fd_populate_vote_accounts( slot_ctx,
+                               stake_history,
+                               new_warmup_cooldown_rate_epoch,
+                               &epoch_info,
+                               tpool,
+                               exec_spads,
+                               exec_spad_cnt,
+                               runtime_spad );
     /* In future, the calculation will be cached in the snapshot, but for now we just re-calculate it
         (as Agave does). */
     fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result[1];
@@ -1275,10 +1276,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     /* The vote reward map isn't actually used in this code path and will only
        be freed after rewards have been distributed. */
 
+
+    /* Use the epoch rewards sysvar parent_blockhash and num_partitions.
+       https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L579 */
     fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition[1];
-    hash_rewards_into_partitions( slot_ctx,
-                                  &calculate_stake_vote_rewards_result->stake_reward_calculation,
+    hash_rewards_into_partitions( &calculate_stake_vote_rewards_result->stake_reward_calculation,
                                   &epoch_rewards->parent_blockhash,
+                                  epoch_rewards->num_partitions,
                                   stake_rewards_by_partition,
                                   runtime_spad );
 
