@@ -7,12 +7,12 @@
 
 #include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
-#include "../../disco/shred/fd_stake_ci.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../choreo/fd_choreo_base.h"
 #include "../../util/net/fd_net_headers.h"
@@ -141,8 +141,6 @@ struct fd_repair_tile_ctx {
   fd_ip4_udp_hdrs_t intake_hdr[1];
   fd_ip4_udp_hdrs_t serve_hdr [1];
 
-  fd_stake_ci_t * stake_ci;
-
   fd_stem_context_t * stem;
 
   fd_wksp_t  *      blockstore_wksp;
@@ -179,7 +177,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(),       fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(),       fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),           fd_stake_ci_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -250,18 +247,6 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
     };
     fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
   }
-}
-
-static inline void
-handle_new_stake_weights( fd_repair_tile_ctx_t * ctx ) {
-  ulong stakes_cnt = ctx->stake_ci->scratch->staked_cnt;
-
-  if( stakes_cnt >= MAX_REPAIR_PEERS ) {
-    FD_LOG_ERR(( "Cluster nodes had %lu stake weights, which was more than the max of %lu", stakes_cnt, MAX_REPAIR_PEERS ));
-  }
-
-  fd_stake_weight_t const * in_stake_weights = ctx->stake_ci->stake_weight;
-  fd_repair_set_stake_weights( ctx->repair, in_stake_weights, stakes_cnt );
 }
 
 ulong
@@ -475,8 +460,10 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
     }
-    dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
+    /*                */ dcache_entry  = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_stake_msg_hdr_t * hdr           = (fd_stake_msg_hdr_t *)(dcache_entry);
+    fd_stake_weight_t  * stake_weights = (fd_stake_weight_t  *)(hdr + 1);
+    fd_repair_set_stake_weights_init( ctx->repair, stake_weights, hdr->staked_cnt );
     return;
 
   } else if( FD_LIKELY( in_kind==IN_KIND_SHRED ) ) {
@@ -764,8 +751,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_STAKE ) ) {
-    fd_stake_ci_stake_msg_fini( ctx->stake_ci );
-    handle_new_stake_weights( ctx );
+    fd_repair_set_stake_weights_fini( ctx->repair );
     return;
   }
 
@@ -1205,9 +1191,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->repair_intake_listen_port = tile->repair.repair_intake_listen_port;
   ctx->repair_serve_listen_port = tile->repair.repair_serve_listen_port;
-
-  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
-  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci , &ctx->identity_public_key ) );
 
   ctx->net_id = (ushort)0;
 

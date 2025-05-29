@@ -26,6 +26,8 @@ fd_repair_new ( void * shmem, ulong seed ) {
   shm = FD_SCRATCH_ALLOC_APPEND( l, fd_pinged_table_align(), fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
   glob->pinged = fd_pinged_table_join(fd_pinged_table_new(shm, FD_REPAIR_PINGED_MAX, seed));
   glob->stake_weights = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
+  glob->stake_weights_temp = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
+  glob->stake_weights_temp_cnt = 0;
   glob->stake_weights_cnt = 0;
   glob->last_decay = 0;
   glob->last_print = 0;
@@ -497,9 +499,9 @@ void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id ) {
 }
 
 void
-fd_repair_set_stake_weights( fd_repair_t * repair,
-                             fd_stake_weight_t const * stake_weights,
-                             ulong stake_weights_cnt ) {
+fd_repair_set_stake_weights_init( fd_repair_t * repair,
+                                  fd_stake_weight_t const * stake_weights,
+                                  ulong stake_weights_cnt ) {
   if( stake_weights == NULL ) {
     FD_LOG_ERR(( "stake weights NULL" ));
   }
@@ -507,9 +509,14 @@ fd_repair_set_stake_weights( fd_repair_t * repair,
     FD_LOG_ERR(( "too many stake weights" ));
   }
 
-  fd_memset( repair->stake_weights, 0, FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
-  fd_memcpy( repair->stake_weights, stake_weights, stake_weights_cnt * sizeof(fd_stake_weight_t) );
-  repair->stake_weights_cnt = stake_weights_cnt;
+  fd_memcpy( repair->stake_weights_temp, stake_weights, stake_weights_cnt * sizeof(fd_stake_weight_t) );
+  repair->stake_weights_temp_cnt = stake_weights_cnt;
+}
+
+void
+fd_repair_set_stake_weights_fini( fd_repair_t * repair ) {
+  fd_swap( repair->stake_weights, repair->stake_weights_temp );
+  repair->stake_weights_cnt = repair->stake_weights_temp_cnt;
 }
 
 
