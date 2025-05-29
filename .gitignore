@@ -14,7 +14,7 @@ target/
 flamegraph.html
 perf.data
 perf.data.old
-
+corpus/**
 # GDB
 .gdb_history
 

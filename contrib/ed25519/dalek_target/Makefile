@@ -6,14 +6,12 @@ RUSTFLAGS+=-Cllvm-args=-sanitizer-coverage-pc-table
 RUSTFLAGS+=-Clink-dead-code
 RUSTFLAGS+=-Cforce-frame-pointers=yes
 
-RUST_VERSION:=1.76.0
-
 CARGO?=cargo
 
 .PHONY: clean build
 
 build:
-	RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) +$(RUST_VERSION) build --target x86_64-unknown-linux-gnu --release
+	RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) +nightly build --target x86_64-unknown-linux-gnu --release
 
 clean:
 	$(CARGO) clean
