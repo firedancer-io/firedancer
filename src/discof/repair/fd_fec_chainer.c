@@ -110,8 +110,7 @@ fd_fec_chainer_init( fd_fec_chainer_t * chainer, ulong slot, uchar merkle_root[s
   FD_TEST( root );
   root->key           = slot << 32 | ( 0 ); // maintain invariant that no fec_set_idx=UINT_MAX lives in pool_ele
   root->slot          = slot;
-  root->fec_set_idx   = 0;
-  root->data_cnt      = 0;
+  root->fec_set_idx   = UINT_MAX-1;
   root->data_complete = 1;
   root->slot_complete = 1;
   root->parent_off    = 0;
@@ -221,7 +220,7 @@ link_orphans( fd_fec_chainer_t * chainer ) {
 
     fd_fec_frontier_ele_insert( chainer->frontier, ele, chainer->pool );
     // FD_LOG_NOTICE(( "pushing tail %lu %u %u %d %d", ele->slot, ele->fec_set_idx, ele->data_cnt, ele->data_complete, ele->slot_complete ));
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_SUCCESS } );
 
     /* Check whether any of ele's children are orphaned and can be
        chained into the frontier. */
@@ -242,7 +241,7 @@ link_orphans( fd_fec_chainer_t * chainer ) {
         }
       }
     } else {
-      ulong child_key = (ele->slot << 32) | (ele->key + ele->data_cnt);
+      ulong child_key = (ele->slot << 32) | (ele->key + FD_FEC_SHRED_CNT);
       fd_fec_queue_push_tail( chainer->queue, child_key );
     }
   }
@@ -252,7 +251,7 @@ fd_fec_ele_t *
 fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
                        ulong              slot,
                        uint               fec_set_idx,
-                       ushort             data_cnt,
+                       ushort             data_cnt FD_PARAM_UNUSED,
                        int                data_complete,
                        int                slot_complete,
                        ushort             parent_off,
@@ -262,7 +261,7 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   // FD_LOG_NOTICE(( "inserting %lu %u %u %d %d", slot, fec_set_idx, data_cnt, data_complete, slot_complete ));
 
   if( FD_UNLIKELY( fd_fec_chainer_query( chainer, slot, fec_set_idx ) ) ) {
-    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, parent_off, fec_set_idx, data_cnt, data_complete, slot_complete, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
+    fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ slot, parent_off, fec_set_idx, data_complete, slot_complete, .err = FD_FEC_CHAINER_ERR_UNIQUE } );
     return NULL;
   }
 
@@ -276,7 +275,6 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
   ele->key           = key;
   ele->slot          = slot;
   ele->fec_set_idx   = fec_set_idx;
-  ele->data_cnt      = data_cnt;
   ele->data_complete = data_complete;
   ele->slot_complete = slot_complete;
   ele->parent_off    = parent_off;
@@ -302,7 +300,7 @@ fd_fec_chainer_insert( fd_fec_chainer_t * chainer,
 
   /* Derive and insert the child_key->key into the parents map. */
 
-  ulong child_key = ( slot << 32 ) | ( fec_set_idx + data_cnt );
+  ulong child_key = ( slot << 32 ) | ( fec_set_idx + FD_FEC_SHRED_CNT );
   if( FD_UNLIKELY( slot_complete ) ) {
 
     /* This is the last FEC set. There is a special case to add
@@ -352,7 +350,6 @@ fd_fec_chainer_publish( fd_fec_chainer_t * chainer, ulong new_root_slot ) {
     new_root->key           = new_root_slot << 32; /* fec_set_idx 0, similar to chainer_init */
     new_root->slot          = new_root_slot;
     new_root->fec_set_idx   = 0;
-    new_root->data_cnt      = 0;
     new_root->data_complete = 1;
     new_root->slot_complete = 1;
     new_root->parent_off    = 0;
@@ -387,7 +384,7 @@ fd_fec_chainer_publish( fd_fec_chainer_t * chainer, ulong new_root_slot ) {
         }
       }
     } else {
-      ulong child_key = (ele->slot << 32) | (ele->key + ele->data_cnt);
+      ulong child_key = (ele->slot << 32) | (ele->key + FD_FEC_SHRED_CNT);
       fd_fec_queue_push_tail( chainer->queue, child_key );
     }
 
