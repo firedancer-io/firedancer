@@ -338,7 +338,6 @@ acquire( fd_forest_t * forest, ulong slot ) {
   ele->buffered_idx = UINT_MAX;
   ele->complete_idx = UINT_MAX;
 
-  fd_forest_fec_idxs_null( ele->cmpl );
   fd_forest_ele_idxs_null( ele->idxs ); /* FIXME expensive */
 
   return ele;
