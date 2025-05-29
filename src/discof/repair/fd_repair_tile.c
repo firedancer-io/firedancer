@@ -950,13 +950,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
          then we know we can force complete the FEC set interval [i, j)
          (assuming it wasn't already completed based on `cmpl`). */
 
-      if( FD_UNLIKELY( ele->buffered_idx == ele->complete_idx && ele->complete_idx != UINT_MAX ) ) {
-        ele->buffered_idx = ele->complete_idx;
-        for( uint i = 0; i < ele->buffered_idx; i++ ) {
-          fd_forest_ele_idxs_insert( ele->cmpl, i );
-        }
-      }
-
       uint i = 0;
       for( uint j = 1; j < ele->buffered_idx + 1; j++ ) { /* TODO iterate by word */
         if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->cmpl, i ) && fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
