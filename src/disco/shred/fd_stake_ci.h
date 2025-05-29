@@ -13,7 +13,7 @@
    need to do any adjustment. */
 
 #include "fd_shred_dest.h"
-#include "../../flamenco/leaders/fd_leaders.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 
 #define MAX_SHRED_DESTS             MAX_STAKED_LEADERS
 /* staked+unstaked <= MAX_SHRED_DESTS implies
@@ -36,12 +36,8 @@ struct fd_per_epoch_info_private {
   ulong slot_cnt;
   ulong excluded_stake;
 
-  /* Invariant: These are always joined and use the memory below for
-     their footprint. */
-  fd_epoch_leaders_t * lsched;
+  /* Invariant: sdest is always joined, using memory below for footprint */
   fd_shred_dest_t    * sdest;
-
-  uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_SHRED_DESTS, MAX_SLOTS_PER_EPOCH) ];
   uchar __attribute__((aligned(FD_SHRED_DEST_ALIGN   ))) _sdest [ MAX_SHRED_DEST_FOOTPRINT ];
 };
 typedef struct fd_per_epoch_info_private fd_per_epoch_info_t;
@@ -68,6 +64,11 @@ struct fd_stake_ci {
   /* The information to be used for epoch i can be found at
      epoch_info[ i%2 ] if it is known. */
   fd_per_epoch_info_t epoch_info[ 2 ];
+
+  /* Tracks leader schedule for 2 consec epochs
+     Uses the memory below for its footprint */
+  fd_multi_epoch_leaders_t * mleaders;
+  uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 };
 typedef struct fd_stake_ci fd_stake_ci_t;
 
@@ -157,20 +158,30 @@ void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulo
 void fd_stake_ci_set_identity( fd_stake_ci_t *     info,
                                fd_pubkey_t const * identity_key );
 
-/* fd_stake_ci_get_{sdest, lsched}_for_slot respectively return a
-   pointer to the fd_shred_dest_t and fd_epoch_leaders_t containing
-   information about the specified slot, if it is available.  These
-   functions are the primary query functions for fd_stake_ci.  They
-   return NULL if we don't have information for that slot.
+/* fd_stake_ci_get_sdest_for_slot returns a pointer to the fd_shred_dest_t
+   containing information about the specified slot, if it is available.
+   It returns NULL if we don't have information for that slot. */
+fd_shred_dest_t *
+fd_stake_ci_get_sdest_for_slot ( fd_stake_ci_t const * info,
+                                 ulong                 slot );
 
-   The fact these take a slot perhaps makes it more clear, but, it's
-   worth mentioning again there's nothing like the adjustment performed
-   by Solana's get_leader_schedule_epoch going on here.  If you want to
-   know the leader in slot X, just pass slot X.  The returned leader
-   schedule will not be based on the stake weights active during slot X,
-   but rather the stake weights offset in time by an appropriate amount
-   so they apply to slot X. */
-fd_shred_dest_t *    fd_stake_ci_get_sdest_for_slot ( fd_stake_ci_t const * info, ulong slot );
-fd_epoch_leaders_t * fd_stake_ci_get_lsched_for_slot( fd_stake_ci_t const * info, ulong slot );
+/* FIXME: deprecate this, leaving it in for now to continue
+   supporting rpc_service and other services undergoing changes */
+fd_epoch_leaders_t *
+fd_stake_ci_get_lsched_for_slot( fd_stake_ci_t const * info,
+                                 ulong                 slot );
+
+/* fd_stake_ci_get_leader_for_slot returns a pointer to the pubkey of the
+   leader for the specified slot, if available. It returns NULL if
+   we don't know the leader for that slot.  The fact it takes a slot
+   perhaps makes it more clear, but, it's worth mentioning again there's
+   nothing like the adjustment performed by Solana's get_leader_schedule_epoch
+   going on here.  If you want to know the leader in slot X, just pass slot X.
+   The returned leader will not be based on the stake weights active
+   during slot X, but rather the stake weights offset in time by an appropriate
+   amount so they apply to slot X. */
+fd_pubkey_t const *
+fd_stake_ci_get_leader_for_slot( fd_stake_ci_t const * info,
+                                 ulong                 slot );
 
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_fd_stake_ci_h */

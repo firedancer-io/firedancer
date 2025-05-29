@@ -731,11 +731,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
 
-    fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
-    if( FD_UNLIKELY( !lsched      ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; }
-
-    fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, shred->slot );
-    if( FD_UNLIKELY( !slot_leader ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; } /* Count this as bad slot too */
+    fd_pubkey_t const * slot_leader = fd_stake_ci_get_leader_for_slot( ctx->stake_ci, shred->slot );
+    if( FD_UNLIKELY( !slot_leader ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; } /* Count this as bad slot */
 
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];

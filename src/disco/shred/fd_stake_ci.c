@@ -19,6 +19,8 @@ fd_stake_ci_new( void             * mem,
   fd_stake_weight_t dummy_stakes[ 1 ] = {{ .key = {{0}}, .stake = 1UL }};
   fd_shred_dest_weighted_t dummy_dests[ 1 ] = {{ .pubkey = *identity_key, .ip4 = SELF_DUMMY_IP }};
 
+  info->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( info->mleaders_mem ) );
+
   /* Initialize first 2 to satisfy invariants */
   info->stake_weight[ 0 ] = dummy_stakes[ 0 ];
   info->shred_dest  [ 0 ] = dummy_dests [ 0 ];
@@ -29,8 +31,9 @@ fd_stake_ci_new( void             * mem,
     ei->slot_cnt       = 0UL;
     ei->excluded_stake = 0UL;
 
-    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->stake_weight,       0UL ) );
-    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key, 0UL ) );
+    fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_epoch_leaders( info->mleaders, i );
+
+    ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, lsched, identity_key, 0UL ) );
   }
   info->identity_key[ 0 ] = *identity_key;
 
@@ -150,7 +153,6 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   /* Clear the existing info */
   fd_per_epoch_info_t * new_ei = info->epoch_info + (epoch % 2UL);
   fd_shred_dest_delete   ( fd_shred_dest_leave   ( new_ei->sdest  ) );
-  fd_epoch_leaders_delete( fd_epoch_leaders_leave( new_ei->lsched ) );
 
   /* And create the new one */
   ulong excluded_stake = info->scratch->excluded_stake;
@@ -160,10 +162,10 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->slot_cnt       = info->scratch->slot_cnt;
   new_ei->excluded_stake = excluded_stake;
 
-  new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
-                                                                staked_cnt, info->stake_weight,     excluded_stake ) );
+  fd_multi_epoch_leaders_set_epoch_leaders( info->mleaders, epoch, new_ei->start_slot, new_ei->slot_cnt, staked_cnt, info->stake_weight, excluded_stake );
+  fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_epoch_leaders( info->mleaders, epoch );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
-                                                                new_ei->lsched, info->identity_key, excluded_stake ) );
+                                                                lsched, info->identity_key, excluded_stake ) );
   log_summary( "stake update", info );
 }
 
@@ -234,7 +236,8 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
-  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched, info->identity_key,
+  fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_epoch_leaders( info->mleaders, ei->epoch );
+  ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, lsched, info->identity_key,
                                                       ei->excluded_stake ) );
 
   if( FD_UNLIKELY( ei->sdest==NULL ) ) {
@@ -330,7 +333,8 @@ fd_stake_ci_set_identity( fd_stake_ci_t *     info,
 
       fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
-      ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j+1UL, ei->lsched, identity_key,
+      fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_epoch_leaders( info->mleaders, ei->epoch );
+      ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j+1UL, lsched, identity_key,
                                                           ei->excluded_stake ) );
       FD_TEST( ei->sdest );
     }
@@ -347,9 +351,22 @@ fd_stake_ci_get_sdest_for_slot( fd_stake_ci_t const * info,
   return idx!=ULONG_MAX ? info->epoch_info[ idx ].sdest : NULL;
 }
 
+/* this function is transient and should die ASAP (see decl for context)
+   so it's ok that impl uses private fields in mleaders */
 fd_epoch_leaders_t *
 fd_stake_ci_get_lsched_for_slot( fd_stake_ci_t const * info,
+                                ulong                 slot ) {
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_epoch_leaders_t * lsched = info->mleaders->lsched[ i ];
+    if( lsched && lsched->slot0<=slot && slot<lsched->slot0+lsched->slot_cnt ) {
+      return lsched;
+    }
+  }
+  return NULL;
+}
+
+fd_pubkey_t const *
+fd_stake_ci_get_leader_for_slot( fd_stake_ci_t const * info,
                                  ulong                 slot ) {
-  ulong idx = fd_stake_ci_get_idx_for_slot( info, slot );
-  return idx!=ULONG_MAX ? info->epoch_info[ idx ].lsched : NULL;
+  return fd_multi_epoch_leaders_get_slot_leader( info->mleaders, slot );
 }
