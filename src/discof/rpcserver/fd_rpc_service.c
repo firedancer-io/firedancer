@@ -76,7 +76,7 @@ struct fd_rpc_global_ctx {
   fd_perf_sample_t * perf_samples;
   fd_perf_sample_t perf_sample_snapshot;
   long perf_sample_ts;
-  fd_stake_ci_t * stake_ci;
+  fd_multi_epoch_leaders_t * ml;
   ulong acct_age;
   fd_rpc_history_t * history;
 };
@@ -517,15 +517,15 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     ulong startslot = blockstore->shmem->wmk;
     ulong endslot = blockstore->shmem->lps;
-    fd_per_epoch_info_t const * ei = glob->stake_ci->epoch_info;
-    startslot = fd_ulong_max( startslot, fd_ulong_min( ei[0].start_slot, ei[1].start_slot ) );
+    ulong mleaders_start_slot = fd_multi_epoch_leaders_get_start_slot( glob->ml );
+    startslot = fd_ulong_max( startslot, mleaders_start_slot );
 
     ulong n = (endslot - startslot)/4U + 1U;
     void * shmem = fd_spad_alloc( glob->spad, product_rb_align(), product_rb_footprint( n ) );
     product_rb_node_t * pool = product_rb_join( product_rb_new( shmem, n ) );
     product_rb_node_t * root = NULL;
 
-    fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( glob->stake_ci, startslot );
+    fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( glob->ml, startslot );
     if( lsched ) {
       for ( ulong i = startslot; i <= endslot; ++i ) {
         fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, i );
@@ -963,9 +963,12 @@ method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error(ctx, -1, "unable to read epoch_bank");
       return 0;
     }
-    ulong slot_index;
-    ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
-    fd_epoch_leaders_t * leaders = ctx->global->stake_ci->epoch_info[epoch%2].lsched;
+
+    fd_epoch_leaders_t const * leaders = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->ml, slot );
+    if( FD_UNLIKELY( !leaders ) ) {
+      fd_method_error(ctx, -1, "unable to get leaders for slot %lu", slot);
+      return 0;
+    }
 
     /* Reorganize the map to index on sorted leader key */
     void * shmem = fd_spad_alloc( ctx->global->spad, leader_rb_align(), leader_rb_footprint( leaders->pub_cnt ) );
@@ -1325,8 +1328,7 @@ method_getSlotLeader(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":");
   ulong slot = get_slot_from_commitment_level( values, ctx );
-  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->global->stake_ci, slot );
-  fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, slot );
+  fd_pubkey_t const * slot_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->global->ml, slot );
   if( slot_leader ) {
     char str[50];
     fd_base58_encode_32(slot_leader->uc, 0, str);
@@ -1370,7 +1372,7 @@ method_getSlotLeaders(struct json_values* values, fd_rpc_ctx_t * ctx) {
     limitn = 5000;
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
-  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->global->stake_ci, startslotn );
+  fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->ml, startslotn );
   if( lsched ) {
     for ( ulong i = startslotn; i < startslotn + limitn; ++i ) {
       if( i > startslotn ) EMIT_SIMPLE(",");
@@ -2363,7 +2365,7 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
 
   ctx->global = gctx;
   gctx->spad = args->spad;
-  gctx->stake_ci = args->stake_ci;
+  gctx->ml = args->ml;
 
   if( !args->offline ) {
     gctx->tpu_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -2488,13 +2490,13 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 }
 
 void
-fd_rpc_stake_during_frag( fd_rpc_ctx_t * ctx, fd_stake_ci_t * state, void const * msg, int sz ) {
+fd_rpc_stake_during_frag( fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state, void const * msg, int sz ) {
   (void)ctx; (void)sz;
-  fd_stake_ci_stake_msg_init( state, msg );
+  fd_multi_epoch_leaders_stake_msg_init( state, msg );
 }
 
 void
-fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state) {
+fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state) {
   (void)ctx;
-  fd_stake_ci_stake_msg_fini( state );
+  fd_multi_epoch_leaders_stake_msg_fini( state );
 }
