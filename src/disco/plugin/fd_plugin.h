@@ -100,6 +100,7 @@ FD_STATIC_ASSERT( sizeof(fd_vote_update_msg_t) <= FD_GOSSIP_LINK_MSG_SIZE, fd_vo
 typedef struct {
   char name[ 16 ];
   char url[ 256 ];
+  char ip_cstr[ 40 ]; /* IPv4 or IPv6 cstr */
   int status;
 } fd_plugin_msg_block_engine_update_t;
 

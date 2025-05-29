@@ -356,6 +356,7 @@ struct fd_gui {
     int has_block_engine;
     char name[ 16 ];
     char url[ 256 ];
+    char ip_cstr[ 40 ]; /* IPv4 or IPv6 cstr */
     int status;
   } block_engine;
 

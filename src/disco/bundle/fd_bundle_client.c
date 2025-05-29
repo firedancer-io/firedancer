@@ -91,6 +91,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     return;
   }
   uint const ip4_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+  ctx->server_ip4_addr = ip4_addr;
 
   int tcp_sock = socket( AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0 );
   if( FD_UNLIKELY( tcp_sock<0 ) ) {

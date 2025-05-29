@@ -68,14 +68,15 @@ struct fd_bundle_tile {
   ulong  server_sni_len;
   ushort server_tcp_port;
 
+  /* Resolver */
+  fd_netdb_fds_t netdb_fds[1];
+  uint server_ip4_addr; /* last DNS lookup result */
+
   /* TCP socket */
   int  tcp_sock;
   int  so_rcvbuf;
   uint tcp_sock_connected : 1;
   uint defer_reset : 1;
-
-  /* Resolver */
-  fd_netdb_fds_t netdb_fds[1];
 
   /* Keepalive via HTTP/2 PINGs (randomized) */
   long  last_ping_tx_ts;       /* last TX tickcount */
