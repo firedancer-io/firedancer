@@ -83,11 +83,17 @@ fd_bundle_tile_publish_block_engine_update(
 
   strncpy( update->name, "jito", sizeof(update->name) );
 
+  /* Deliberately silently truncates */
   snprintf( update->url, sizeof(update->url), "%s://%.*s:%u",
             ctx->is_ssl ? "https" : "http",
             (int)ctx->server_fqdn_len,
             ctx->server_fqdn,
             ctx->server_tcp_port );
+
+  /* Format IPv4 string */
+  snprintf( update->ip_cstr, sizeof(update->ip_cstr),
+            FD_IP4_ADDR_FMT,
+            FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ) );
 
   update->status = (uchar)ctx->bundle_status_recent;
 

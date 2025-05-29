@@ -399,6 +399,7 @@ fd_gui_printf_block_engine( fd_gui_t * gui ) {
     jsonp_open_object( gui, "value" );
       jsonp_string( gui, "name",   gui->block_engine.name );
       jsonp_string( gui, "url",    gui->block_engine.url );
+      jsonp_string( gui, "ip",     gui->block_engine.ip_cstr );
       if( FD_LIKELY( gui->block_engine.status==1 ) )      jsonp_string( gui, "status", "connecting" );
       else if( FD_LIKELY( gui->block_engine.status==2 ) ) jsonp_string( gui, "status", "connected" );
       else                                                jsonp_string( gui, "status", "disconnected" );
