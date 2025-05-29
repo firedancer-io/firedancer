@@ -64,3 +64,5 @@ Firedancer is available under the [Apache 2
 license](https://www.apache.org/licenses/LICENSE-2.0). Firedancer also
 includes external libraries that are available under a variety of
 licenses. See [LICENSE](LICENSE) for the full license text.
+### Badges
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/firedancer-io/firedancer)
