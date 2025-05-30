@@ -649,18 +649,16 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
-    int allow_regular    = ((ctx->last_bundle + ctx->bundle_rush_duration/8L)<now) & (now<(ctx->first_bundle + ctx->bundle_rush_duration));
-    int regular_pacing   = (0<pacing_bank_cnt) | (ctx->slot_end_ns - ctx->approx_wallclock_ns<50000000L); /* bypass pacing at the end */
-    int pause_votes_okay = (bank_cnt>1UL) & (ctx->crank->enabled) && fd_pack_peek_bundle_meta( ctx->pack );
-    int vote_only_period = (now>(ctx->first_bundle + ctx->bundle_rush_duration));
+    int allow_regular    = (ctx->slot_end_ns - ctx->approx_wallclock_ns<50000000L);
     /* We want to exempt votes from pacing, so we always allow
        scheduling votes.  It doesn't really make much sense to pace
        bundles, because they get scheduled in FIFO order.  However, we
        keep pacing for normal transactions.  For example, if
        pacing_bank_cnt is 0, then pack won't schedule normal
        transactions to any bank tile. */
-    int flags = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( (!pause_votes_okay) | vote_only_period, FD_PACK_SCHEDULE_VOTE, 0 ) |
-                                          fd_int_if( allow_regular & regular_pacing,         FD_PACK_SCHEDULE_TXN,  0 );
+    int flags = FD_PACK_SCHEDULE_BUNDLE | FD_PACK_SCHEDULE_VOTE | 
+                                          fd_int_if( allow_regular, FD_PACK_SCHEDULE_TXN,  0 );
+	(void)pacing_bank_cnt;
 
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
