@@ -2,18 +2,15 @@ name: On Nightly
 on:
   workflow_dispatch:
   schedule:
-    - cron: 30 11 * * *
-    - cron: 0 3 * * *
+    - cron: 0 4 * * *
 jobs:
   coverage-report:
     uses: ./.github/workflows/coverage_report.yml
     secrets: inherit
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '30 11 * * *' }}
   codeql:
     uses: ./.github/workflows/codeql.yml
     permissions:
       security-events: write
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '30 11 * * *' }}
   builds:
     uses: ./.github/workflows/builds.yml
     with:
@@ -30,4 +27,3 @@ jobs:
         ALL,linux_gcc_riscv,ALL
       verbose: false
       build_arm: true
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 3 * * *' }}
