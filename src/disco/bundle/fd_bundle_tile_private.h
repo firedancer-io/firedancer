@@ -9,8 +9,11 @@
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../util/alloc/fd_alloc.h"
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h> /* SSL_CTX */
+#if FD_HAS_MBEDTLS
+#include <mbedtls/entropy.h>
+#include "mbedtls/ctr_drbg.h"
+#include <mbedtls/net_sockets.h>
+#include <mbedtls/ssl.h>
 #endif
 
 struct fd_bundle_out_ctx {
@@ -51,15 +54,19 @@ struct fd_bundle_tile {
   /* Key guard */
   fd_keyguard_client_t keyguard_client[1];
 
-  uint is_ssl : 1;
-  int  keylog_fd;
-# if FD_HAS_OPENSSL
-  /* OpenSSL */
-  SSL_CTX *    ssl_ctx;
-  SSL *        ssl;
+  uint         is_ssl : 1;
+  int          keylog_fd;
   fd_alloc_t * ssl_alloc;
-  uint         skip_cert_verify : 1;
-# endif /* FD_HAS_OPENSSL */
+
+# if FD_HAS_MBEDTLS
+  mbedtls_entropy_context  tls_entropy;  /* getrandom(2) */
+  mbedtls_ctr_drbg_context tls_ctr_drbg; /* PRNG */
+  mbedtls_net_context      tls_net;
+  mbedtls_ssl_context      tls_ssl;
+  mbedtls_ssl_config       tls_config;
+  mbedtls_x509_crt         tls_ca_certs;
+  uint                     skip_cert_verify : 1;
+# endif /* FD_HAS_MBEDTLS */
 
   /* Config */
   char   server_fqdn[ 256 ]; /* cstr */

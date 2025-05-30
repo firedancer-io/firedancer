@@ -13,8 +13,7 @@ set -e
 # Then, run this script to create deps-bundle.tar.zst which contains
 # only static libraries and includes.
 #
-# The resulting bundle is in the order of 13 MB compressed (as of June
-# 2023, including OpenSSL and RocksDB).
+# The resulting bundle is about 3 MB compressed (as of May 2025).
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"/..
 

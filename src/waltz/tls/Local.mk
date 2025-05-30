@@ -12,7 +12,5 @@ endif
 
 # Uncomment this to test against quictls.  Upstream OpenSSL does not
 # support this test.
-#ifdef FD_HAS_OPENSSL
 #$(call make-unit-test,test_tls_openssl,test_tls_openssl,fd_quic fd_tls fd_ballet fd_util,-lssl -lcrypto)
 #$(call run-unit-test,test_tls_openssl)
-#endif

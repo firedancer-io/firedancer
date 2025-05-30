@@ -8,6 +8,7 @@
 #include "../fd_txn_m_t.h"
 #include "../plugin/fd_plugin.h"
 #include "../../waltz/h2/fd_h2_conn.h"
+#include "../../waltz/mbedtls/fd_mbedtls.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
@@ -42,11 +43,10 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_live = 0;
   ctx->bundle_subscription_wait = 0;
 
-# if FD_HAS_OPENSSL
-  if( FD_UNLIKELY( ctx->ssl ) ) {
-    SSL_free( ctx->ssl );
-    ctx->ssl = NULL;
-  }
+# if FD_HAS_MBEDTLS
+  mbedtls_ssl_close_notify( &ctx->tls_ssl );
+  /* mbedtls_net_free: skipping to avoid a double close(2) */
+  mbedtls_ssl_free( &ctx->tls_ssl );
 # endif
 
   /* No need to free, self-contained object */
@@ -107,10 +107,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "fcntl(tcp_sock,F_SETFL,O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  char const * scheme = "http";
-# if FD_HAS_OPENSSL
-  if( ctx->is_ssl ) scheme = "https";
-# endif
+  char const * scheme = (ctx->is_ssl) ? "https" : "http";
 
   FD_LOG_INFO(( "Connecting to %s://" FD_IP4_ADDR_FMT ":%hu (%.*s)",
                 scheme,
@@ -129,28 +126,32 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     }
   }
 
-# if FD_HAS_OPENSSL
+# if FD_HAS_MBEDTLS
   if( ctx->is_ssl ) {
-    BIO * bio = BIO_new_socket( ctx->tcp_sock, BIO_NOCLOSE );
-    if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_ERR(( "BIO_new_socket failed" ));
+    FD_LOG_DEBUG(( "Setting up mbedtls_net" ));
+    mbedtls_net_init( &ctx->tls_net );
+    ctx->tls_net.fd = ctx->tcp_sock;
+
+    FD_LOG_DEBUG(( "Setting up mbedtls_ssl" ));
+    mbedtls_ssl_context * ssl = &ctx->tls_ssl;
+    mbedtls_ssl_init( ssl );
+    int ssl_err = mbedtls_ssl_setup( ssl, &ctx->tls_config );
+    if( FD_UNLIKELY( ssl_err ) ) {
+      FD_LOG_ERR(( "mbedtls_ssl_setup failed (%i-%s)", ssl_err, fd_mbedtls_strerror( ssl_err ) ));
+    }
+    mbedtls_ssl_set_bio( ssl, &ctx->tls_net, mbedtls_net_send, mbedtls_net_recv, NULL );
+
+    int sni_err = mbedtls_ssl_set_hostname( ssl, ctx->server_sni );
+    if( FD_UNLIKELY( sni_err ) ) {
+      FD_LOG_ERR(( "mbedtls_ssl_set_hostname(%s) failed (%i-%s)", ctx->server_sni,
+                   sni_err, fd_mbedtls_strerror( sni_err ) ));
     }
 
-    SSL * ssl = SSL_new( ctx->ssl_ctx );
-    if( FD_UNLIKELY( !ssl ) ) {
-      FD_LOG_ERR(( "SSL_new failed" ));
+    if( ctx->keylog_fd>=0 ) {
+      fd_mbedtls_set_nss_keylog_export( ssl, ctx->keylog_fd );
     }
-
-    SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
-    SSL_set_connect_state( ssl );
-
-    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, ctx->server_sni ) ) ) {
-      FD_LOG_ERR(( "SSL_set_tlsext_host_name failed" ));
-    }
-
-    ctx->ssl = ssl;
   }
-# endif /* FD_HAS_OPENSSL */
+# endif /* FD_HAS_MBEDTLS */
 
   ctx->grpc_client = fd_grpc_client_new( ctx->grpc_client_mem, &fd_bundle_client_grpc_callbacks, ctx->grpc_metrics, ctx, ctx->map_seed );
   if( FD_UNLIKELY( !ctx->grpc_client ) ) {
@@ -162,11 +163,11 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 static int
 fd_bundle_client_drive_io( fd_bundle_tile_t * ctx,
                            int *              charge_busy ) {
-# if FD_HAS_OPENSSL
+# if FD_HAS_MBEDTLS
   if( ctx->is_ssl ) {
-    return fd_grpc_client_rxtx_ossl( ctx->grpc_client, ctx->ssl, charge_busy );
+    return fd_grpc_client_rxtx_tls( ctx->grpc_client, &ctx->tls_ssl, charge_busy );
   }
-# endif /* FD_HAS_OPENSSL */
+# endif /* FD_HAS_MBEDTLS */
 
   return fd_grpc_client_rxtx_socket( ctx->grpc_client, ctx->tcp_sock, charge_busy );
 }

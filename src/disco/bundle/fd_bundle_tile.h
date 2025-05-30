@@ -5,7 +5,7 @@
 
    - Requires HTTP/2 over TLS connections
    - Uses TCP sockets
-   - Uses OpenSSL to drive socket I/O, and provide handshake and record
+   - Uses MbedTLS to drive socket I/O, and provide handshake and record
      layers.
    - Uses Firedancer's fd_h2 and fd_grpc for HTTP/2 and gRPC logic.
    - Does busy polling (no power saving features) */

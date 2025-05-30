@@ -223,7 +223,7 @@ metric introduced.
     <int value="2" name="Transport" label="Transport error" />
     <int value="3" name="Timeout" label="I/O timeout" />
     <int value="4" name="NoFeeInfo" label="Bundle dropped due to missing fee info" />
-    <int value="5" name="SslAlloc" label="OpenSSL alloc fail" />
+    <int value="5" name="SslAlloc" label="MbedTLS alloc fail" />
 </enum>
 
 <tile name="bundle">

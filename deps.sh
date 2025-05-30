@@ -136,7 +136,7 @@ fetch () {
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.6"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "4d2e22a"
-  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.5.0"
+  checkout_repo mbedtls   https://github.com/Mbed-TLS/mbedtls       "v3.6.3.1"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.6.0"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo blst      https://github.com/supranational/blst     "v0.3.14"
@@ -158,7 +158,6 @@ check_fedora_pkgs () {
     cmake              # Agave (RocksDB)
     clang-devel        # Agave (bindgen)
     systemd-devel      # Agave
-    perl               # Agave (OpenSSL)
     protobuf-compiler  # Agave, solfuzz
   )
   if [[ $DEVMODE == 1 ]]; then
@@ -449,79 +448,36 @@ install_secp256k1 () {
   echo "[+] Successfully installed secp256k1"
 }
 
-install_openssl () {
-  cd "$PREFIX/git/openssl"
+install_mbedtls () {
+  cd "$PREFIX/git/mbedtls"
 
-  echo "[+] Configuring OpenSSL"
-  ./config \
-    -static \
-    -fPIC \
-    --prefix="$PREFIX" \
-    --libdir=lib \
-    no-engine \
-    no-static-engine \
-    no-weak-ssl-ciphers \
-    no-autoload-config \
-    no-tls1 \
-    no-tls1-method \
-    no-tls1_1 \
-    no-tls1_1-method \
-    no-tls1_2 \
-    no-tls1_2-method \
-    enable-tls1_3 \
-    no-shared \
-    no-legacy \
-    no-tests \
-    no-ui-console \
-    no-sctp \
-    no-ssl3 \
-    no-aria \
-    no-argon2 \
-    no-bf \
-    no-blake2 \
-    no-camellia \
-    no-cast \
-    no-cmac \
-    no-cmp \
-    no-cms \
-    no-comp \
-    no-ct \
-    no-des \
-    no-dsa \
-    no-dtls \
-    no-dtls1-method \
-    no-dtls1_2-method \
-    no-fips \
-    no-gost \
-    no-idea \
-    no-ktls \
-    no-md4 \
-    no-nextprotoneg \
-    no-ocb \
-    no-ocsp \
-    no-rc2 \
-    no-rc4 \
-    no-rc5 \
-    no-rmd160 \
-    no-scrypt \
-    no-seed \
-    no-siphash \
-    no-siv \
-    no-sm3 \
-    no-sm4 \
-    no-srp \
-    no-srtp \
-    no-ts \
-    no-whirlpool
-  echo "[+] Configured OpenSSL"
+  echo "[+] Configuring mbedtls"
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_C_FLAGS="$EXTRA_CFLAGS" \
+    -DCMAKE_EXE_LINKER_FLAGS="$EXTRA_LDFLAGS" \
+    -DENABLE_PROGRAMS=OFF \
+    -DENABLE_TESTING=OFF \
+    -DLINK_WITH_PTHREAD=OFF \
+    -DLINK_WITH_TRUSTED_STORAGE=OFF \
+    -DUSE_SHARED_MBEDTLS_LIBRARY=OFF \
+    -DUSE_STATIC_MBEDTLS_LIBRARY=ON \
+    -DMBEDTLS_CONFIG_FILE="$(pwd)/../../../../src/waltz/mbedtls/fd_mbedtls_config.h"
+  echo "[+] Configured mbedtls"
 
-  echo "[+] Building OpenSSL"
-  "${MAKE[@]}" build_libs
-  echo "[+] Successfully built OpenSSL"
+  echo "[+] Building mbedtls"
+  "${MAKE[@]}"
+  echo "[+] Successfully built mbedtls"
 
-  echo "[+] Installing OpenSSL to $PREFIX"
-  "${MAKE[@]}" install_dev
-  echo "[+] Successfully installed OpenSSL"
+  echo "[+] Installing mbedtls to $PREFIX"
+  "${MAKE[@]}" install
+  echo "[+] Successfully installed mbedtls"
 }
 
 install_rocksdb () {
@@ -592,7 +548,7 @@ install () {
   ( install_zstd      )
   ( install_lz4       )
   ( install_s2n       )
-  ( install_openssl   )
+  ( install_mbedtls   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
     ( install_blst      )
