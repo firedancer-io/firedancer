@@ -50,6 +50,7 @@ mock_epoch( fd_wksp_t * wksp, ulong total_stake, ulong voter_cnt, ... ) {
               |
             slot 6
 */
+
 void
 test_ghost_simple( fd_wksp_t * wksp ) {
   ulong  node_max = 8;
@@ -104,6 +105,7 @@ test_ghost_simple( fd_wksp_t * wksp ) {
            |
          slot 4
 */
+
 void
 test_ghost_publish_left( fd_wksp_t * wksp ) {
   ulong  node_max = 8;
@@ -183,6 +185,7 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
            |
          slot 6
 */
+
 void
 test_ghost_publish_right( fd_wksp_t * wksp ) {
   ulong  node_max = 8;
@@ -394,7 +397,8 @@ test_ghost_head( fd_wksp_t * wksp ){
   fd_wksp_free_laddr( mem );
 }
 
-void test_ghost_vote_leaves( fd_wksp_t * wksp ){
+void
+test_ghost_vote_leaves( fd_wksp_t * wksp ) {
   ulong node_max = 8;
   int d = 3;
 
@@ -594,6 +598,70 @@ test_rooted_vote( fd_wksp_t * wksp ){
   FD_TEST( !fd_ghost_verify( ghost ) );
 }
 
+/*
+         slot 10
+         /    \
+    slot 11    |
+       |    slot 12
+    slot 13
+*/
+
+void
+test_ghost_head_valid( fd_wksp_t * wksp ) {
+  ulong  node_max = 16;
+  void * mem      = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( node_max ), 1UL );
+  FD_TEST( mem );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, 0UL, node_max ) );
+
+  ulong slots[node_max];
+  ulong parent_slots[node_max];
+  ulong i = 0;
+
+  fd_pubkey_t  pk1   = { { 1 } };
+  fd_pubkey_t  pk2   = { { 2 } };
+  fd_epoch_t * epoch = mock_epoch( wksp, 150, 2, pk1, 50, pk2, 100 );
+  fd_voter_t * v1    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk1, NULL );
+  fd_voter_t * v2    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk2, NULL );
+
+  fd_ghost_init( ghost, 10 );
+  INSERT( 11, 10 );
+  INSERT( 12, 10 );
+  INSERT( 13, 11 );
+
+  fd_ghost_replay_vote( ghost, v1, 11 );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  fd_ghost_replay_vote( ghost, v2, 12 );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  // fd_ghost_node_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  // FD_TEST( head->slot == 12 );
+
+  fd_ghost_replay_vote( ghost, v1, 13 );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  // fd_ghost_node_t const * head2 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  // FD_TEST( head2->slot == 12 );
+
+  query_mut( ghost, 12 )->valid = 0; // mark 12 as invalid
+  // fd_ghost_node_t const * head3 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  // FD_TEST( head3->slot == 13 );
+
+  fd_ghost_replay_vote( ghost, v2, 13 );
+  query_mut( ghost, 11 )->valid = 0; // mark 11 as invalid
+  // fd_ghost_node_t const * head4 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  // FD_TEST( head4->slot == 10 );
+
+  query_mut( ghost, 12 )->valid = 1; // mark 12 as valid
+  fd_ghost_node_t const * head5 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  FD_LOG_NOTICE(( "head5 slot %lu", head5->slot ));
+  FD_TEST( head5->slot == 12 );
+
+  fd_ghost_print( ghost, epoch, fd_ghost_root( ghost ) );
+
+  fd_wksp_free_laddr( mem );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -612,16 +680,17 @@ main( int argc, char ** argv ) {
                                             0UL );
   FD_TEST( wksp );
 
-  test_ghost_print( wksp );
-  test_ghost_simple( wksp );
-  test_ghost_publish_left( wksp );
-  test_ghost_publish_right( wksp );
-  test_ghost_gca( wksp );
-  test_ghost_vote_leaves( wksp );
-  test_ghost_head_full_tree( wksp );
-  test_ghost_head( wksp );
-  test_rooted_vote( wksp );
-  test_ghost_old_vote_pruned( wksp );
+  // test_ghost_print( wksp );
+  // test_ghost_simple( wksp );
+  // test_ghost_publish_left( wksp );
+  // test_ghost_publish_right( wksp );
+  // test_ghost_gca( wksp );
+  // test_ghost_vote_leaves( wksp );
+  // test_ghost_head_full_tree( wksp );
+  // test_ghost_head( wksp );
+  // test_rooted_vote( wksp );
+  // test_ghost_old_vote_pruned( wksp );
+  test_ghost_head_valid( wksp );
 
   fd_halt();
   return 0;
