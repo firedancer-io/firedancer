@@ -41,7 +41,7 @@ during_frag( void * _ctx   FD_PARAM_UNUSED,
              ulong  sz,
              ulong  ctl ) {
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
-  fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz ), sz );
+  fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds[ 0 ], chunk, ctl, sz ), sz );
 }
 
 static int
