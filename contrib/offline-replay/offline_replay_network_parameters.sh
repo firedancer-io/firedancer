@@ -14,7 +14,7 @@ case $network in
     export BUCKET_ENDPOINT="gs://mainnet-beta-ledger-us-ny5"
     export GENESIS_FILE="https://api.mainnet-beta.solana.com/genesis.tar.bz2"
     export FUNK_PAGES=900
-    export INDEX_MAX=950000000
+    export INDEX_MAX=1000000000
     export PAGES=250
     export AGAVE_TAG=v2.1.21
     export FD_CLUSTER_VERSION=2.1.21
@@ -25,8 +25,8 @@ case $network in
     export FUNK_PAGES=500
     export INDEX_MAX=200000000
     export PAGES=250
-    export AGAVE_TAG=v2.2.11
-    export FD_CLUSTER_VERSION=2.2.11
+    export AGAVE_TAG=v2.2.14
+    export FD_CLUSTER_VERSION=2.2.14
     ;;
   "devnet")
     export BUCKET_ENDPOINT="gs://solana-devnet-ledger-us-ny5"
