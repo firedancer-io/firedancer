@@ -270,14 +270,14 @@ fd_ghost_child( fd_ghost_t const * ghost, fd_ghost_node_t const * parent ) {
   return fd_ghost_node_pool_ele_const( fd_ghost_node_pool_const( ghost ), parent->child_idx );
 }
 
-/* fd_ghost_head greedily traverses the ghost beginning from `node`,
-   returning the ending leaf of the traversal (see top-level
-   documentation for traversal details). Assumes ghost is a current
-   local join and has been initialized with fd_ghost_init and is
-   therefore non-empty. */
+/* fd_ghost_head greedily traverses the ghost beginning from `root` (not
+   necessarily the root of the ghost tree) and returns the heaviest leaf
+   of the traversal (see top-level documentation for traversal details).
+   Assumes ghost is a current local join and has been initialized with
+   fd_ghost_init and is therefore non-empty. */
 
 fd_ghost_node_t const *
-fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_node_t const * node );
+fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_node_t const * root );
 
 /* fd_ghost_query returns the node keyed by `slot` or NULL if not
    found. */
