@@ -882,17 +882,11 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
   fd_funk_txn_start_write( ctx->funk );
 
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
   fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
 
   /* Try to publish into Funk */
   if( is_constipated ) {
     FD_LOG_NOTICE(( "Publishing slot=%lu while constipated", wmk ));
-
-    /* Sanity-check that we are not constipated and the EHA has not been calculated */
-    if( FD_UNLIKELY( wmk>=epoch_bank->eah_start_slot ) ) {
-      FD_LOG_ERR(( "trying to publish into a constipated funk whilst in front of the EHA start slot - we should never get here" ));
-    }
 
     /* At this point, first collapse the current transaction that should be
        published into the oldest child transaction. */
@@ -907,74 +901,41 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
     }
 
   } else {
-
     /* This is the case where we are not in the constipated case. We only need
        to do special handling in the case where the epoch account hash is about
        to be calculated. */
-
     FD_LOG_NOTICE(( "Publishing slot=%lu xid=%lu", wmk, to_root_txn->xid.ul[0] ));
 
-    if( FD_UNLIKELY( wmk>=epoch_bank->eah_start_slot ) ) {
+    /* This is the standard case. Publish all transactions up to and
+       including the watermark. This will publish any in-prep ancestors
+       of root_txn as well. */
+    if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
+      FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
+    }
+  }
+  fd_funk_txn_end_write( ctx->funk );
 
-      FD_LOG_NOTICE(( "EAH is ready to be calculated" ));
+  if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, epoch_accounts_hash ) && !FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) ) {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
+    if( wmk>=epoch_bank->eah_start_slot ) {
+      fd_exec_para_cb_ctx_t exec_para_ctx = {
+        .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
+        .para_arg_1 = NULL,
+        .para_arg_2 = NULL
+      };
 
-      /* This condition means that we want to start producing an epoch account
-         hash at a slot that is in the set of transactions we are about to
-         publish. We only want to publish all slots that are <= the slot that
-         we will calculate the epoch account hash for. */
-
-      fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_pool );
-      while( parent_txn ) {
-        /* We need to be careful here because the eah start slot may be skipped
-           so the actual slot that we calculate the eah for may be greater than
-           the eah start slot. The transaction must correspond to a slot greater
-           than or equal to the eah start slot, but its parent transaction must
-           either have been published already or must be less than the eah start
-           slot. */
-
-        int is_curr_gteq_eah_start = txn->xid.ul[0] >= epoch_bank->eah_start_slot;
-        int is_prev_lt_eah_start   = parent_txn->xid.ul[0] < epoch_bank->eah_start_slot;
-        if( is_curr_gteq_eah_start && is_prev_lt_eah_start ) {
-          break;
-        }
-        txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, txn_pool );
-      }
-
-      /* At this point, we know txn is the funk txn that we will want to
-         calculate the eah for since it's the minimum slot that is >=
-         eah_start_slot. */
-
-      FD_LOG_NOTICE(( "The eah has an expected start slot of %lu and is being created for slot %lu", epoch_bank->eah_start_slot, txn->xid.ul[0] ));
-
-      if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, txn, 1 ) ) ) {
-        FD_LOG_ERR(( "failed to funk publish" ));
-      }
-
-      /* At this point, we have the root for which we want to calculate the
-         epoch account hash for. The other children that are > eah_start_slot
-         but <= wmk will be published into the constipated root during the next
-         invocation of funk_and_txncache_publish.
-
-         Notify the batch tile that an eah should be computed. */
-
-      ulong updated_fseq = fd_batch_fseq_pack( 0UL, 0UL, txn->xid.ul[0] );
-      fd_fseq_update( ctx->is_constipated, updated_fseq );
+      fd_accounts_hash( ctx->slot_ctx->funk,
+                        &ctx->slot_ctx->slot_bank,
+                        &ctx->slot_ctx->slot_bank.epoch_account_hash,
+                        ctx->runtime_spad,
+                        &ctx->slot_ctx->epoch_ctx->features,
+                        &exec_para_ctx,
+                        NULL );
+      FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &ctx->slot_ctx->slot_bank.epoch_account_hash ) ));
       epoch_bank->eah_start_slot = FD_SLOT_NULL;
-
-    } else {
-      /* This is the standard case. Publish all transactions up to and
-         including the watermark. This will publish any in-prep ancestors
-         of root_txn as well. */
-
-      if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
-        FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
-      }
     }
   }
 
-  fd_funk_txn_end_write( ctx->funk );
 }
 
 static fd_funk_txn_t*

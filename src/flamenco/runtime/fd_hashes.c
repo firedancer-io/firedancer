@@ -855,7 +855,9 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
 
   *num_pairs_out = num_pairs;
 
-  fd_lthash_add( lthash_value_out, &accum  );
+  if (lthash_value_out) {
+    fd_lthash_add( lthash_value_out, &accum  );
+  }
 }
 
 static void
