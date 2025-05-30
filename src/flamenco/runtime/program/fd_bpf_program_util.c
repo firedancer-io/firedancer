@@ -184,7 +184,7 @@ fd_bpf_get_programdata_from_account( fd_exec_slot_ctx_t * slot_ctx,
   } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     res = fd_bpf_get_executable_program_content_for_v4_loader( program_acc, out_program_data, out_program_data_len );
   } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
-              !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
+             !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
     res = fd_bpf_get_executable_program_content_for_v1_v2_loaders( program_acc, out_program_data, out_program_data_len );
   } else {
     return -1;
@@ -194,10 +194,10 @@ fd_bpf_get_programdata_from_account( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Parse ELF info from programdata. */
 static int
-fd_bpf_parse_elf_info( fd_exec_slot_ctx_t * slot_ctx,
-                       fd_sbpf_elf_info_t * elf_info,
-                       uchar const *        program_data,
-                       ulong                program_data_len ) {
+fd_bpf_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
+                       uchar const *              program_data,
+                       ulong                      program_data_len,
+                       fd_exec_slot_ctx_t const * slot_ctx ) {
   uint min_sbpf_version, max_sbpf_version;
   fd_bpf_get_sbpf_versions( &min_sbpf_version,
                             &max_sbpf_version,
@@ -316,7 +316,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
-    if( FD_UNLIKELY( fd_bpf_parse_elf_info( slot_ctx, &elf_info, program_data, program_data_len ) ) ) {
+    if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
       return -1;
     }
 
@@ -662,7 +662,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
      we should evict the program from the cache. */
   fd_sbpf_elf_info_t elf_info = {0};
 
-  if( FD_UNLIKELY( fd_bpf_parse_elf_info( slot_ctx, &elf_info, program_data, program_data_len ) ) ) {
+  if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
     fd_funk_rec_remove( slot_ctx->funk, slot_ctx->funk_txn, &id, NULL, 0UL );
     return;
   }
@@ -675,6 +675,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->funk, slot_ctx->funk_txn, &id, query );
   if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never happen since this function is called in a single-threaded context. */
+    FD_LOG_WARNING(( "Failed to modify the BPF program cache record. Perhaps there is a race condition?" ));
     return;
   }
 
