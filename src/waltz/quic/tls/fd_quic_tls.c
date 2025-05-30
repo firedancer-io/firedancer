@@ -177,9 +177,8 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
     self->hs_data_pend_end_idx[j] = FD_QUIC_TLS_HS_DATA_UNUSED;
   }
 
-  /* set head and tail of used hs_data */
-  self->hs_data_buf_head = 0;
-  self->hs_data_buf_tail = 0;
+  /* clear hs_data_buf */
+  self->hs_data_buf_ptr = 0;
 
   /* all handshake offsets start at zero */
   fd_memset( self->hs_data_offset, 0, sizeof( self->hs_data_offset ) );
@@ -289,60 +288,29 @@ fd_quic_tls_sendmsg( void const * handshake,
   }
 
   /* allocate enough space from hs data buffer */
-  uint head       = hs->hs_data_buf_head;
-  uint tail       = hs->hs_data_buf_tail;
-  uint alloc_head = 0; /* to be determined */
-
+  uint ptr           = hs->hs_data_buf_ptr;
   uint alloc_data_sz = fd_uint_align_up( (uint)data_sz, FD_QUIC_TLS_HS_DATA_ALIGN );
-  uint free_data_sz  = alloc_data_sz; /* the number of bytes to free */
-
-  /* we need contiguous bytes
-     head >= buf_sz implies wrap around */
-  if( head >= buf_sz ) {
-    /* wrap around implies entire unused block is contiguous */
-    /* head - tail is bytes used */
-    if( buf_sz - (head - tail) < alloc_data_sz ) {
-      /* not enough free */
-      return 0;
-    } else {
-      alloc_head = head;
-    }
-  } else {
-    /* available data split */
-    if( buf_sz - head >= alloc_data_sz ) {
-      alloc_head = head;
-    } else {
-      /* not enough at head, try front */
-      if( tail < alloc_data_sz ) {
-        /* not enough here either */
-        return 0;
-      }
-
-      /* since we're skipping some free space at end of buffer,
-         we need to free that also, upon pop */
-      alloc_head   = buf_sz; /* maintain head >= tail */
-      free_data_sz = alloc_data_sz + buf_sz - head;
-    }
+  if( ptr + alloc_data_sz > FD_QUIC_TLS_HS_DATA_SZ ) {
+    /* not enough space */
+    return 0;
   }
 
   /* success */
 
-  uint                    buf_mask = (uint)( buf_sz - 1u );
   fd_quic_tls_hs_data_t * hs_data = &hs->hs_data[hs_data_idx];
-  uchar *                 buf     = &hs->hs_data_buf[alloc_head & buf_mask];
+  uchar *                 buf     = &hs->hs_data_buf[ptr];
 
   /* update free list */
   hs->hs_data_free_idx = hs_data->next_idx;
 
-  /* update buffer pointers */
-  hs->hs_data_buf_head = alloc_head + alloc_data_sz;
+  /* write back new buf ptr */
+  hs->hs_data_buf_ptr = ptr + alloc_data_sz;
 
   /* copy data into buffer, and update metadata in hs_data */
   fd_memcpy( buf, data, data_sz );
   hs_data->enc_level    = enc_level;
   hs_data->data         = buf;
   hs_data->data_sz      = (uint)data_sz;
-  hs_data->free_data_sz = free_data_sz;
   hs_data->offset       = hs->hs_data_offset[enc_level];
 
   /* offset adjusted ready for more data */
@@ -403,30 +371,6 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level ) {
 
   fd_quic_tls_hs_data_t * hs_data = &self->hs_data[idx];
 
-  uint buf_sz       = FD_QUIC_TLS_HS_DATA_SZ;
-  uint free_data_sz = hs_data->free_data_sz; /* amount of data to free */
-
-  /* move tail pointer */
-  uint head = self->hs_data_buf_head;
-  uint tail = self->hs_data_buf_tail;
-
-  tail += free_data_sz;
-  if( tail > head ) {
-    /* logic error - tried to free more than was allocated */
-    FD_LOG_ERR(( "fd_quic_tls_pop_hs_data: tried to free more than was allocated" ));
-    return;
-  }
-
-  /* adjust to maintain invariants */
-  if( tail >= buf_sz ) {
-    tail -= buf_sz;
-    head -= buf_sz;
-  }
-
-  /* write back head and tail */
-  self->hs_data_buf_head = head;
-  self->hs_data_buf_tail = tail;
-
   /* pop from pending list */
   self->hs_data_pend_idx[enc_level] = hs_data->next_idx;
 
@@ -434,7 +378,12 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level ) {
   if( hs_data->next_idx == FD_QUIC_TLS_HS_DATA_UNUSED ) {
     self->hs_data_pend_end_idx[enc_level] = FD_QUIC_TLS_HS_DATA_UNUSED;
   }
+}
 
+void
+fd_quic_tls_clear_hs_data( fd_quic_tls_hs_t * self, uint enc_level ) {
+  self->hs_data_pend_idx[enc_level] = FD_QUIC_TLS_HS_DATA_UNUSED;
+  self->hs_data_pend_end_idx[enc_level] = FD_QUIC_TLS_HS_DATA_UNUSED;
 }
 
 void *
