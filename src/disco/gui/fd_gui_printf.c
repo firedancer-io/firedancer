@@ -1267,6 +1267,9 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
           jsonp_open_array( gui, "txn_landed" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK );
           jsonp_close_array( gui );
+          jsonp_open_array( gui, "txn_arrived_while_leader" );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_ARRIVED_WHILE_LEADER);
+          jsonp_close_array( gui );
         jsonp_close_object( gui );
       } else {
         jsonp_null( gui, "compute_units" );
