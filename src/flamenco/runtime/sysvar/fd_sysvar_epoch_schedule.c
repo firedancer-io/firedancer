@@ -48,7 +48,7 @@ write_epoch_schedule( fd_exec_slot_ctx_t *  slot_ctx,
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
   }
 
-  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->slot_bank.slot );
+  fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->slot );
 }
 
 fd_epoch_schedule_t *

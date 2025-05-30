@@ -817,7 +817,7 @@ method_getGenesisHash(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     fd_webserver_t * ws = &ctx->global->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-    fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
+    // fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
     fd_web_reply_sprintf(ws, "\",\"id\":%s}" CRLF, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
@@ -1421,8 +1421,9 @@ method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_webserver_t * ws = &ctx->global->ws;
+    ulong capitalization = ULONG_MAX; /* FIXME: This is broken */
     fd_web_reply_sprintf( ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"nonCirculatingAccounts\":[],\"total\":%lu}},\"id\":%s}",
-                          slot, slot_bank->capitalization, 0UL, slot_bank->capitalization, ctx->call_id);
+                          slot, capitalization, 0UL, capitalization, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }
@@ -1586,9 +1587,10 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error( ctx, -1, "slot bank %lu not found", slot );
       return 0;
     }
+    /* FIXME: should be the transaction count here */
     fd_web_reply_sprintf( ws,
                           "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                          info->slot_exec.transaction_count,
+                          0UL,
                           ctx->call_id );
   } FD_SPAD_FRAME_END;
   return 0;
@@ -1632,8 +1634,8 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
     int needcomma = 0;
 
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_bank->timestamp_votes.votes_root;
-    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = slot_bank->timestamp_votes.votes_pool;
+    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = NULL;
+    fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = NULL;
     fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = slot_bank->epoch_stakes.vote_accounts_root;
     fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = slot_bank->epoch_stakes.vote_accounts_pool;
     for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);

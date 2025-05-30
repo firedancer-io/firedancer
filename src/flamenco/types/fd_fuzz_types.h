@@ -1564,8 +1564,6 @@ void *fd_firedancer_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng )
   self->slot = fd_rng_ulong( rng );
   self->prev_slot = fd_rng_ulong( rng );
   fd_hash_generate( &self->poh, alloc_mem, rng );
-  fd_hash_generate( &self->banks_hash, alloc_mem, rng );
-  fd_fee_rate_governor_generate( &self->fee_rate_governor, alloc_mem, rng );
   self->capitalization = fd_rng_ulong( rng );
   self->block_height = fd_rng_ulong( rng );
   self->lamports_per_signature = fd_rng_ulong( rng );
@@ -1622,26 +1620,23 @@ void *fd_rent_fresh_accounts_generate( void *mem, void **alloc_mem, fd_rng_t * r
   return mem;
 }
 
+void *fd_cluster_version_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_cluster_version_t *self = (fd_cluster_version_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_cluster_version_t);
+  fd_cluster_version_new(mem);
+  self->major = fd_rng_uint( rng );
+  self->minor = fd_rng_uint( rng );
+  self->patch = fd_rng_uint( rng );
+  return mem;
+}
+
 void *fd_epoch_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_epoch_bank_t *self = (fd_epoch_bank_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_bank_t);
   fd_epoch_bank_new(mem);
   fd_stakes_generate( &self->stakes, alloc_mem, rng );
-  self->hashes_per_tick = fd_rng_ulong( rng );
-  self->ticks_per_slot = fd_rng_ulong( rng );
-  self->ns_per_slot = fd_rng_uint128( rng );
-  self->genesis_creation_time = fd_rng_ulong( rng );
-  self->slots_per_year = fd_rng_double_o( rng );
-  self->max_tick_height = fd_rng_ulong( rng );
-  fd_inflation_generate( &self->inflation, alloc_mem, rng );
   fd_epoch_schedule_generate( &self->epoch_schedule, alloc_mem, rng );
   fd_rent_generate( &self->rent, alloc_mem, rng );
-  self->eah_start_slot = fd_rng_ulong( rng );
-  self->eah_stop_slot = fd_rng_ulong( rng );
-  self->eah_interval = fd_rng_ulong( rng );
-  fd_hash_generate( &self->genesis_hash, alloc_mem, rng );
-  self->cluster_type = fd_rng_uint( rng );
-    LLVMFuzzerMutate( (uchar *)self->cluster_version, sizeof(uint)*3, sizeof(uint)*3 );
   fd_vote_accounts_generate( &self->next_epoch_stakes, alloc_mem, rng );
   fd_epoch_schedule_generate( &self->rent_epoch_schedule, alloc_mem, rng );
   return mem;
@@ -1829,38 +1824,8 @@ void *fd_slot_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_slot_bank_t *self = (fd_slot_bank_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_slot_bank_t);
   fd_slot_bank_new(mem);
-  fd_clock_timestamp_votes_generate( &self->timestamp_votes, alloc_mem, rng );
-  self->slot = fd_rng_ulong( rng );
-  self->prev_slot = fd_rng_ulong( rng );
-  fd_hash_generate( &self->poh, alloc_mem, rng );
-  fd_hash_generate( &self->banks_hash, alloc_mem, rng );
-  fd_hash_generate( &self->epoch_account_hash, alloc_mem, rng );
-  fd_fee_rate_governor_generate( &self->fee_rate_governor, alloc_mem, rng );
-  self->capitalization = fd_rng_ulong( rng );
-  self->block_height = fd_rng_ulong( rng );
-  self->max_tick_height = fd_rng_ulong( rng );
-  self->collected_execution_fees = fd_rng_ulong( rng );
-  self->collected_priority_fees = fd_rng_ulong( rng );
-  self->collected_rent = fd_rng_ulong( rng );
   fd_vote_accounts_generate( &self->epoch_stakes, alloc_mem, rng );
-  fd_sol_sysvar_last_restart_slot_generate( &self->last_restart_slot, alloc_mem, rng );
-  fd_account_keys_generate( &self->stake_account_keys, alloc_mem, rng );
-  fd_account_keys_generate( &self->vote_account_keys, alloc_mem, rng );
-  self->lamports_per_signature = fd_rng_ulong( rng );
-  self->transaction_count = fd_rng_ulong( rng );
   fd_slot_lthash_generate( &self->lthash, alloc_mem, rng );
-  fd_block_hash_queue_generate( &self->block_hash_queue, alloc_mem, rng );
-  fd_hash_generate( &self->prev_banks_hash, alloc_mem, rng );
-  self->parent_signature_cnt = fd_rng_ulong( rng );
-  self->tick_height = fd_rng_ulong( rng );
-  {
-    self->has_use_preceeding_epoch_stakes = fd_rng_uchar( rng ) % 2;
-    if( self->has_use_preceeding_epoch_stakes ) {
-      LLVMFuzzerMutate( (uchar *)&(self->use_preceeding_epoch_stakes), sizeof(ulong), sizeof(ulong) );
-    }
-  }
-  fd_hard_forks_generate( &self->hard_forks, alloc_mem, rng );
-  fd_rent_fresh_accounts_generate( &self->rent_fresh_accounts, alloc_mem, rng );
   fd_epoch_reward_status_generate( &self->epoch_reward_status, alloc_mem, rng );
   return mem;
 }

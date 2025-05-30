@@ -2,6 +2,7 @@
 #include <assert.h>
 #include "../sysvar/fd_sysvar_stake_history.h"
 #include "../fd_runtime_public.h"
+#include "../fd_bank_mgr.h"
 
 /* TODO remove this */
 #define MAX_LG_SLOT_CNT   10UL
@@ -64,11 +65,11 @@ fd_exec_epoch_ctx_new( void * mem,
 
   fd_exec_epoch_ctx_bank_mem_setup( self );
 
-  fd_features_disable_all( &self->features );
-  self->epoch_bank.cluster_version[0] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR;
-  self->epoch_bank.cluster_version[1] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR;
-  self->epoch_bank.cluster_version[2] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH;
-  fd_features_enable_cleaned_up( &self->features, self->epoch_bank.cluster_version );
+  // fd_features_disable_all( &self->features );
+  // self->epoch_bank.cluster_version.major = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR;
+  // self->epoch_bank.cluster_version.minor = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR;
+  // self->epoch_bank.cluster_version.patch = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH;
+  // fd_features_enable_cleaned_up( &self->features, &self->epoch_bank.cluster_version );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
@@ -233,7 +234,6 @@ fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
 
   self->bank_hash_cmp     = prev->bank_hash_cmp;
   self->runtime_public    = prev->runtime_public;
-  self->total_epoch_stake = 0UL;
 
   self->runtime_public->features = prev->features; /* large memcpy */
 

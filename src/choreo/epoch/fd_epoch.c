@@ -1,5 +1,5 @@
 #include "fd_epoch.h"
-
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 void *
 fd_epoch_new( void * shmem, ulong voter_max ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -103,12 +103,15 @@ fd_epoch_delete( void * epoch ) {
 }
 
 void
-fd_epoch_init( fd_epoch_t * epoch, fd_epoch_bank_t const * epoch_bank ) {
-  epoch->first_slot = epoch_bank->eah_start_slot;
-  epoch->last_slot  = epoch_bank->eah_stop_slot;
+fd_epoch_init( fd_epoch_t *               epoch,
+               ulong                      eah_start_slot,
+               ulong                      eah_stop_slot,
+               fd_vote_accounts_t const * vote_accounts ) {
 
-  fd_voter_t *               epoch_voters  = fd_epoch_voters( epoch );
-  fd_vote_accounts_t const * vote_accounts = &epoch_bank->stakes.vote_accounts;
+  epoch->first_slot = eah_start_slot;
+  epoch->last_slot  = eah_stop_slot;
+
+  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
 
   for( fd_vote_accounts_pair_t_mapnode_t * curr = fd_vote_accounts_pair_t_map_minimum(
            vote_accounts->vote_accounts_pool,

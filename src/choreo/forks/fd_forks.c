@@ -6,7 +6,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
-
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
@@ -115,7 +115,7 @@ fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool );
-  fork->slot       = slot_ctx->slot_bank.slot;
+  fork->slot       = slot_ctx->slot;
   fork->prev       = fd_fork_pool_idx_null( forks->pool );
   fork->lock       = 0;
   fork->end_idx    = UINT_MAX;
@@ -167,8 +167,8 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //   // fork is advancing
 //   FD_LOG_DEBUG(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot ));
 
-//   fork->slot_ctx->slot_bank.prev_slot = fork->slot_ctx->slot_bank.slot;
-//   fork->slot_ctx->slot_bank.slot      = curr_slot;
+//   fork->slot_ctx->slot_bank.prev_slot = fork->slot_ctx->slot;
+//   fork->slot_ctx->slot      = curr_slot;
 
 //   fork->slot_ctx.status_cache = status_cache;
 //   fd_funk_txn_xid_t xid;
@@ -245,6 +245,7 @@ slot_ctx_restore( ulong                 slot,
       continue;
     }
 
+    slot_ctx_out->slot      = slot;
     slot_ctx_out->slot_bank = *slot_bank;
     FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out, runtime_spad ) );
 
@@ -258,21 +259,17 @@ slot_ctx_restore( ulong                 slot,
 
   // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks
   // hash calculation and not needed when restoring parent
-
-  FD_LOG_NOTICE( ( "recovered slot_bank for slot=%lu banks_hash=%s poh_hash %s",
-                   slot_ctx_out->slot_bank.slot,
-                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.banks_hash.hash ),
-                   FD_BASE58_ENC_32_ALLOCA( slot_ctx_out->slot_bank.poh.hash ) ) );
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( slot_ctx_out->bank_mgr );
+  FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%s",
+                   slot_ctx_out->slot,
+                   FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
 
   /* Prepare bank for next slot */
-  slot_ctx_out->slot_bank.slot                     = slot;
-  slot_ctx_out->slot_bank.collected_execution_fees = 0;
-  slot_ctx_out->slot_bank.collected_priority_fees  = 0;
-  slot_ctx_out->slot_bank.collected_rent           = 0;
+  slot_ctx_out->slot = slot;
 
   /* FIXME epoch boundary stuff when replaying */
   // fd_features_restore( slot_ctx );
-  // fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
+  // fd_runtime_update_leaders( slot_ctx, slot_ctx->slot );
   // fd_calculate_epoch_accounts_hash_values( slot_ctx );
 }
 

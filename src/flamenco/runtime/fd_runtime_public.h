@@ -200,10 +200,8 @@ fd_writer_fseq_is_not_joined( ulong fseq ) {
    bincode serialized/deserialized. */
 struct fd_runtime_public_epoch_msg {
   fd_features_t       features;
-  ulong               total_epoch_stake;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t           rent;
-  double              slots_per_year;
   ulong               stakes_encoded_gaddr;
   ulong               stakes_encoded_sz;
   ulong               bank_hash_cmp_gaddr;
@@ -211,13 +209,9 @@ struct fd_runtime_public_epoch_msg {
 typedef struct fd_runtime_public_epoch_msg fd_runtime_public_epoch_msg_t;
 
 struct fd_runtime_public_slot_msg {
-  ulong                  slot;
-  ulong                  prev_lamports_per_signature;
-  fd_fee_rate_governor_t fee_rate_governor;
-  ulong                  sysvar_cache_gaddr;
-  ulong                  block_hash_queue_encoded_gaddr;
-  ulong                  block_hash_queue_encoded_sz;
-  int                    enable_exec_recording;
+  ulong slot;
+  ulong sysvar_cache_gaddr;
+  int   enable_exec_recording;
 };
 typedef struct fd_runtime_public_slot_msg fd_runtime_public_slot_msg_t;
 

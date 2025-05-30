@@ -17,6 +17,7 @@
 
 #define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
+#define FD_FUNK_KEY_TYPE_BANK_MGR  ((uchar)3)
 #define FD_FUNK_KEY_SLOT_BANK      ((uchar)6)
 #define FD_FUNK_KEY_EPOCH_BANK     ((uchar)7)
 
@@ -94,6 +95,9 @@ typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
 
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
+
+struct fd_bank_mgr;
+typedef struct fd_bank_mgr fd_bank_mgr_t;
 
 struct fd_capture_ctx;
 typedef struct fd_capture_ctx fd_capture_ctx_t;

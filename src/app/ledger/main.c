@@ -7,6 +7,7 @@
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -290,7 +291,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
 
-  fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad );
+  fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot, ledger_args->runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
 
@@ -299,8 +300,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ulong             slot_cnt    = 0;
   fd_blockstore_t * blockstore  = ledger_args->slot_ctx->blockstore;
 
-  ulong prev_slot  = ledger_args->slot_ctx->slot_bank.slot;
-  ulong start_slot = ledger_args->slot_ctx->slot_bank.slot + 1;
+  ulong prev_slot  = ledger_args->slot_ctx->slot;
+  ulong start_slot = ledger_args->slot_ctx->slot + 1;
 
   ledger_args->slot_ctx->root_slot = prev_slot;
 
@@ -348,8 +349,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   for( ulong slot = start_slot; slot<=ledger_args->end_slot && !aborted; ++slot ) {
 
-    ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
-    ledger_args->slot_ctx->slot_bank.slot      = slot;
+    ulong * prev_slot_bm = fd_bank_mgr_prev_slot_modify( ledger_args->slot_ctx->bank_mgr );
+    *prev_slot_bm = prev_slot;
+    fd_bank_mgr_prev_slot_save( ledger_args->slot_ctx->bank_mgr );
 
     FD_LOG_DEBUG(( "reading slot %lu", slot ));
 
@@ -404,10 +406,18 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       continue;
     }
 
-    ledger_args->slot_ctx->slot_bank.tick_height = ledger_args->slot_ctx->slot_bank.max_tick_height;
-    if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ledger_args->epoch_ctx->epoch_bank.ticks_per_slot, slot, &ledger_args->slot_ctx->slot_bank.max_tick_height ) ) ) {
-      FD_LOG_ERR(( "couldn't compute max tick height slot %lu ticks_per_slot %lu", slot, ledger_args->epoch_ctx->epoch_bank.ticks_per_slot ));
+    ulong * max_tick_height = fd_bank_mgr_max_tick_height_query( ledger_args->slot_ctx->bank_mgr );
+    ulong * ticks_per_slot = fd_bank_mgr_ticks_per_slot_query( ledger_args->slot_ctx->bank_mgr );
+    ulong * tick_height = fd_bank_mgr_tick_height_modify( ledger_args->slot_ctx->bank_mgr );
+    *tick_height = *max_tick_height;
+    fd_bank_mgr_tick_height_save( ledger_args->slot_ctx->bank_mgr );
+
+    max_tick_height = fd_bank_mgr_max_tick_height_modify( ledger_args->slot_ctx->bank_mgr );
+
+    if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( *ticks_per_slot, slot, max_tick_height ) ) ) {
+      FD_LOG_ERR(( "couldn't compute max tick height slot %lu ticks_per_slot %lu", slot, *ticks_per_slot ));
     }
+    fd_bank_mgr_max_tick_height_save( ledger_args->slot_ctx->bank_mgr );
 
     if( ledger_args->slot_ctx->root_slot%ledger_args->snapshot_freq==0UL && !ledger_args->is_snapshotting ) {
 
@@ -454,8 +464,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
 
     ulong blk_txn_cnt = 0UL;
-    FD_LOG_NOTICE(( "Used memory in spad before slot=%lu %lu", ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad->mem_used ));
+    FD_LOG_NOTICE(( "Used memory in spad before slot=%lu %lu", slot, ledger_args->runtime_spad->mem_used ));
     FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx,
+                                          slot,
                                           blk,
                                           ledger_args->capture_ctx,
                                           ledger_args->tpool,
@@ -470,11 +481,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     fd_hash_t expected;
     int err = fd_blockstore_block_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
-    else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
+    else if( FD_UNLIKELY( 0 != memcmp( fd_bank_mgr_poh_query( ledger_args->slot_ctx->bank_mgr )->hash, expected.hash, sizeof(fd_hash_t) ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( expected_hash, expected.hash );
       char poh_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( poh_hash, ledger_args->slot_ctx->slot_bank.poh.hash );
+      fd_acct_addr_cstr( poh_hash, fd_bank_mgr_poh_query( ledger_args->slot_ctx->bank_mgr )->hash );
       FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
                         expected_hash,
@@ -502,17 +513,18 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
     }
 
+    fd_hash_t * bank_hash_bm = fd_bank_mgr_bank_hash_query( ledger_args->slot_ctx->bank_mgr );
     err = fd_blockstore_bank_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
-    } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
+    } else if( FD_UNLIKELY( 0 != memcmp( bank_hash_bm,
                                          expected.hash,
                                          32UL ) ) ) {
 
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( expected_hash, expected.hash );
       char bank_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( bank_hash, ledger_args->slot_ctx->slot_bank.banks_hash.hash );
+      fd_acct_addr_cstr( bank_hash, bank_hash_bm->hash );
 
       FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
                         slot,
@@ -717,7 +729,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
-  fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot, args->runtime_spad );
+  fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
   fd_exec_para_cb_ctx_t exec_para_ctx = {
@@ -1155,11 +1167,11 @@ ingest( fd_ledger_args_t * args ) {
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
   if( args->start_slot == 0 ) {
-    args->start_slot = slot_ctx->slot_bank.slot + 1;
+    args->start_slot = slot_ctx->slot + 1;
   }
   fd_blockstore_t * blockstore = args->blockstore;
   if( blockstore ) {
-    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->wmk = slot_ctx->slot_bank.slot;
+    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->wmk = slot_ctx->slot;
   }
 
   if( args->funk_only ) {
@@ -1168,8 +1180,8 @@ ingest( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "using shredcap" ));
     fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
   } else if( args->rocksdb_list[ 0UL ] ) {
-    if( args->end_slot >= slot_ctx->slot_bank.slot + args->slot_history_max ) {
-      args->end_slot = slot_ctx->slot_bank.slot + args->slot_history_max - 1;
+    if( args->end_slot >= slot_ctx->slot + args->slot_history_max ) {
+      args->end_slot = slot_ctx->slot + args->slot_history_max - 1;
     }
     ingest_rocksdb( args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot,
                     blockstore, args->copy_txn_status, args->trash_hash, args->valloc );
@@ -1267,23 +1279,30 @@ replay( fd_ledger_args_t * args ) {
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
 
   /* TODO: This is very hacky, needs to be cleaned up */
-  args->epoch_ctx->epoch_bank.cluster_version[0] = args->cluster_version[0];
-  args->epoch_ctx->epoch_bank.cluster_version[1] = args->cluster_version[1];
-  args->epoch_ctx->epoch_bank.cluster_version[2] = args->cluster_version[2];
-
-  args->epoch_ctx->runtime_public = runtime_public;
-
-  fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
-  fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
-
-  // activate them
-  fd_memcpy( &args->epoch_ctx->runtime_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
   void * slot_ctx_mem        = fd_spad_alloc_check( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
   args->slot_ctx->epoch_ctx  = args->epoch_ctx;
   args->slot_ctx->funk       = funk;
   args->slot_ctx->blockstore = args->blockstore;
+
+  FD_TEST( args->slot_ctx->bank_mgr_mem );
+  args->slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( args->slot_ctx->bank_mgr_mem ), funk, NULL );
+
+  fd_cluster_version_t * cluster_version = fd_bank_mgr_cluster_version_modify( args->slot_ctx->bank_mgr );
+
+  cluster_version->major = args->cluster_version[0];
+  cluster_version->minor = args->cluster_version[1];
+  cluster_version->patch = args->cluster_version[2];
+  fd_bank_mgr_cluster_version_save( args->slot_ctx->bank_mgr );
+
+  args->epoch_ctx->runtime_public = runtime_public;
+
+  fd_features_enable_cleaned_up( &args->epoch_ctx->features, cluster_version );
+  fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
+
+  // activate them
+  fd_memcpy( &args->epoch_ctx->runtime_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
   void * status_cache_mem = fd_spad_alloc_check( spad,
       FD_TXNCACHE_ALIGN,
@@ -1345,7 +1364,11 @@ replay( fd_ledger_args_t * args ) {
 
   fd_ledger_main_setup( args );
 
-  fd_blockstore_init( args->blockstore, -1, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &args->slot_ctx->slot_bank );
+  fd_blockstore_init( args->blockstore,
+                      -1,
+                      FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
+                      &args->slot_ctx->slot_bank,
+                      args->slot_ctx->slot );
   fd_buf_shred_pool_reset( args->blockstore->shred_pool, 0 );
 
   FD_LOG_WARNING(( "setup done" ));

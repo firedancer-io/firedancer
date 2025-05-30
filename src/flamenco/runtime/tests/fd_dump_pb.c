@@ -4,6 +4,7 @@
 #include "harness/generated/vm.pb.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
+#include "../fd_bank_mgr.h"
 #include "../program/fd_address_lookup_table_program.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 #include "../../../ballet/nanopb/pb_encode.h"
@@ -340,16 +341,19 @@ dump_sanitized_transaction( fd_funk_t *                            funk,
 /** BLOCKHASH QUEUE DUMPING **/
 
 static void
-dump_blockhash_queue( fd_block_hash_queue_t const * queue,
-                      fd_spad_t *                   spad,
-                      pb_bytes_array_t **           output_blockhash_queue,
-                      pb_size_t *                   output_blockhash_queue_count ) {
+dump_blockhash_queue( fd_block_hash_queue_global_t const * queue,
+                      fd_spad_t *                          spad,
+                      pb_bytes_array_t **                  output_blockhash_queue,
+                      pb_size_t *                          output_blockhash_queue_count ) {
   pb_size_t cnt = 0;
   fd_hash_hash_age_pair_t_mapnode_t * nn;
 
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( queue );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( queue );
+
   // Iterate over all block hashes in the queue and save them in the output
-  for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
-    nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+  for( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( ages_pool, ages_root ); n; n = nn ) {
+    nn = fd_hash_hash_age_pair_t_map_successor( ages_pool, n );
 
     /* Get the index in the blockhash queue
        - Lower index = newer
@@ -420,8 +424,15 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
-  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-                                                                 slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+  fd_bank_mgr_t                  bank_mgr_obj;
+  fd_bank_mgr_t *                bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+
+  fd_account_keys_global_t *         stake_account_keys      = fd_bank_mgr_stake_account_keys_query( bank_mgr );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
+  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
+
+
+  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( stake_account_keys_pool, stake_account_keys_root );
   ulong stake_account_cnt     = fd_delegation_pair_t_map_size( epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
                                                                epoch_ctx->epoch_bank.stakes.stake_delegations_root );
 
@@ -460,36 +471,42 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                               alignof(pb_bytes_array_t *),
                                                               PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   block_context->blockhash_queue = output_blockhash_queue;
-  dump_blockhash_queue( &slot_ctx->slot_bank.block_hash_queue, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
+
+  fd_block_hash_queue_global_t * bhq      = fd_bank_mgr_block_hash_queue_query( bank_mgr );
+  dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
 
   /* BlockContext -> SlotContext */
   block_context->has_slot_ctx                       = true;
-  block_context->slot_ctx.slot                      = slot_ctx->slot_bank.slot;
+  block_context->slot_ctx.slot                      = slot_ctx->slot;
   // HACK FOR NOW: block height gets incremented in process_new_epoch, so we should dump block height + 1
-  block_context->slot_ctx.block_height              = slot_ctx->slot_bank.block_height + 1UL;
+  block_context->slot_ctx.block_height              = *(fd_bank_mgr_block_height_query( bank_mgr )) + 1UL;
   // fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) ); // TODO: dump here when process epoch happens after poh verification
-  fd_memcpy( block_context->slot_ctx.parent_bank_hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_pubkey_t) );
+  fd_hash_t * bank_hash = fd_bank_mgr_bank_hash_query( bank_mgr );
+  fd_memcpy( block_context->slot_ctx.parent_bank_hash, bank_hash, sizeof(fd_pubkey_t) );
   fd_memcpy( block_context->slot_ctx.parent_lt_hash, &slot_ctx->slot_bank.lthash.lthash, FD_LTHASH_LEN_BYTES );
-  block_context->slot_ctx.prev_slot                 = slot_ctx->slot_bank.prev_slot;
-  block_context->slot_ctx.prev_lps                  = slot_ctx->prev_lamports_per_signature;
-  block_context->slot_ctx.prev_epoch_capitalization = slot_ctx->slot_bank.capitalization;
+  block_context->slot_ctx.prev_slot                 = *(fd_bank_mgr_prev_slot_query( bank_mgr ));
+  block_context->slot_ctx.prev_lps                  = *(fd_bank_mgr_prev_lamports_per_signature_query( bank_mgr ));
+  block_context->slot_ctx.prev_epoch_capitalization = *(fd_bank_mgr_capitalization_query( bank_mgr ));
 
   /* BlockContext -> EpochContext */
   block_context->has_epoch_ctx                        = true;
   block_context->epoch_ctx.has_features               = true;
   dump_sorted_features( &epoch_ctx->features, &block_context->epoch_ctx.features, spad );
-  block_context->epoch_ctx.hashes_per_tick            = epoch_ctx->epoch_bank.hashes_per_tick;
-  block_context->epoch_ctx.ticks_per_slot             = epoch_ctx->epoch_bank.ticks_per_slot;
-  block_context->epoch_ctx.slots_per_year             = epoch_ctx->epoch_bank.slots_per_year;
+  block_context->epoch_ctx.hashes_per_tick            = *(fd_bank_mgr_hashes_per_tick_query( bank_mgr ));
+  block_context->epoch_ctx.ticks_per_slot             = *(fd_bank_mgr_ticks_per_slot_query( bank_mgr ));
+  block_context->epoch_ctx.slots_per_year             = *(fd_bank_mgr_slots_per_year_query( bank_mgr ));
   block_context->epoch_ctx.has_inflation              = true;
+
+  fd_inflation_t * inflation = fd_bank_mgr_inflation_query( bank_mgr );
+
   block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
-    .initial         = epoch_ctx->epoch_bank.inflation.initial,
-    .terminal        = epoch_ctx->epoch_bank.inflation.terminal,
-    .taper           = epoch_ctx->epoch_bank.inflation.taper,
-    .foundation      = epoch_ctx->epoch_bank.inflation.foundation,
-    .foundation_term = epoch_ctx->epoch_bank.inflation.foundation_term,
+    .initial         = inflation->initial,
+    .terminal        = inflation->terminal,
+    .taper           = inflation->taper,
+    .foundation      = inflation->foundation,
+    .foundation_term = inflation->foundation_term,
   };
-  block_context->epoch_ctx.genesis_creation_time      = epoch_ctx->epoch_bank.genesis_creation_time;
+  block_context->epoch_ctx.genesis_creation_time      = *(fd_bank_mgr_genesis_creation_time_query( bank_mgr ));
 
   /* Dumping stake accounts */
 
@@ -500,10 +517,10 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                                                                      new_stake_account_cnt * sizeof(pb_bytes_array_t *) );
 
   for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-          slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+          stake_account_keys_pool,
+          stake_account_keys_root );
        curr;
-       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, curr ) ) {
+       curr = fd_account_keys_pair_t_map_successor_const( stake_account_keys_pool, curr ) ) {
 
     // Verify the stake state before dumping
     FD_TXN_ACCOUNT_DECL( account );
@@ -554,18 +571,24 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   /* Dumping vote accounts */
 
   // BlockContext -> EpochContext -> new_vote_accounts (vote accounts for the current running epoch)
-  ulong new_vote_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
-                                                                slot_ctx->slot_bank.vote_account_keys.account_keys_root );
+
+  fd_account_keys_global_t * vote_account_keys = fd_bank_mgr_vote_account_keys_query( bank_mgr );
+  fd_account_keys_pair_t_mapnode_t * vote_account_keys_pool = fd_account_keys_account_keys_pool_join( vote_account_keys );
+  fd_account_keys_pair_t_mapnode_t * vote_account_keys_root = fd_account_keys_account_keys_root_join( vote_account_keys );
+
+  /* FIXME: if the map doesn't exist this will crash */
+
+  ulong new_vote_account_cnt = fd_account_keys_pair_t_map_size( vote_account_keys_pool, vote_account_keys_root );
   block_context->epoch_ctx.new_vote_accounts_count = 0UL;
   block_context->epoch_ctx.new_vote_accounts       = fd_spad_alloc( spad,
                                                                    alignof(fd_exec_test_vote_account_t),
                                                                    new_vote_account_cnt * sizeof(fd_exec_test_vote_account_t) );
 
   for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
-          slot_ctx->slot_bank.vote_account_keys.account_keys_root );
+          vote_account_keys_pool,
+          vote_account_keys_root );
        curr;
-       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, curr ) ) {
+       curr = fd_account_keys_pair_t_map_successor_const( vote_account_keys_pool, curr ) ) {
 
     // Verify the vote account before dumping
     FD_TXN_ACCOUNT_DECL( account );
@@ -635,7 +658,10 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
 
   /* BlockContext -> slot_ctx -> poh
      This currently needs to be done because POH verification is done after epoch boundary processing. That should probably be changed */
-  fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) );
+  fd_bank_mgr_t bank_mgr_obj;
+  fd_bank_mgr_t * bank_mgr = fd_bank_mgr_join( &bank_mgr_obj, slot_ctx->funk, slot_ctx->funk_txn );
+  fd_hash_t * poh = fd_bank_mgr_poh_query( bank_mgr );
+  fd_memcpy( block_context->slot_ctx.poh, poh->hash, sizeof(fd_pubkey_t) );
 
   /* When iterating over microblocks batches and microblocks, we flatten the batches for the output block context (essentially just one big batch with several microblocks) */
   for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
@@ -822,7 +848,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                       alignof(pb_bytes_array_t *),
                                                       PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue = output_blockhash_queue;
-  dump_blockhash_queue( &txn_ctx->block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
+  dump_blockhash_queue( txn_ctx->block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
 
   /* Transaction Context -> epoch_ctx */
   txn_context_msg->has_epoch_ctx = true;
@@ -1071,7 +1097,7 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
     if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
       char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
       char * position = fd_cstr_init( output_filepath );
-      position = fd_cstr_append_printf( position, "%s/block-%lu.bin", capture_ctx->dump_proto_output_dir, slot_ctx->slot_bank.slot );
+      position = fd_cstr_append_printf( position, "%s/block-%lu.bin", capture_ctx->dump_proto_output_dir, slot_ctx->slot );
       fd_cstr_fini( position );
 
       FILE * file = fopen(output_filepath, "wb");

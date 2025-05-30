@@ -287,15 +287,15 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     FD_TEST( !fd_funk_rec_query_test( query ) );
 
     /* Add a hard fork into the slot bank */
-    ulong old_len           = slot_bank->hard_forks.hard_forks_len;
-    ctx->new_hard_forks_len = old_len + 1;
-    ctx->new_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->new_hard_forks_len*sizeof(fd_slot_pair_t) );
-    fd_memcpy( ctx->new_hard_forks, slot_bank->hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
+    // ulong old_len           = slot_bank->hard_forks.hard_forks_len;
+    // ctx->new_hard_forks_len = old_len + 1;
+    // ctx->new_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->new_hard_forks_len*sizeof(fd_slot_pair_t) );
+    // fd_memcpy( ctx->new_hard_forks, slot_bank->hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
 
-    ctx->new_hard_forks[ old_len ].slot  = ctx->restart->heaviest_fork_slot;
-    ctx->new_hard_forks[ old_len ].val   = 1;
-    slot_bank->hard_forks.hard_forks     = ctx->new_hard_forks;
-    slot_bank->hard_forks.hard_forks_len = ctx->new_hard_forks_len;
+    // ctx->new_hard_forks[ old_len ].slot  = ctx->restart->heaviest_fork_slot;
+    // ctx->new_hard_forks[ old_len ].val   = 1;
+    // slot_bank->hard_forks.hard_forks     = ctx->new_hard_forks;
+    // slot_bank->hard_forks.hard_forks_len = ctx->new_hard_forks_len;
 
     /* Write the slot bank back to funk, referencing fd_runtime_save_slot_bank */
     int funk_err = 0;
@@ -335,7 +335,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     fd_funk_txn_end_write( ctx->funk );
 
     /* Copy the bank hash of HeaviestForkSlot to fd_restart_t */
-    ctx->restart->heaviest_fork_bank_hash = slot_bank->banks_hash;
+    // ctx->restart->heaviest_fork_bank_hash = slot_bank->banks_hash;
     ctx->restart->heaviest_fork_ready = 1;
   }
 }
@@ -360,6 +360,7 @@ after_credit( fd_restart_tile_ctx_t * ctx,
 
     /* Decode the slot bank from funk, referencing fd_runtime_recover_banks() in fd_runtime_init.c */
     fd_slot_bank_t * slot_bank = NULL;
+    (void)slot_bank;
     {
       fd_funk_rec_key_t     id  = fd_runtime_slot_bank_key();
       fd_funk_rec_query_t   query[1];
@@ -440,9 +441,10 @@ after_credit( fd_restart_tile_ctx_t * ctx,
     ulong buf_len = 0;
     uchar * buf   = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
 
+    /* FIXME: this has an invalid slot number. */
     fd_restart_init( ctx->restart,
-                     slot_bank->slot,
-                     &slot_bank->banks_hash,
+                     0UL,
+                     NULL,
                      epoch_stakes,
                      &ctx->epoch_bank.epoch_schedule,
                      ctx->tower_checkpt_fileno,

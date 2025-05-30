@@ -3,16 +3,19 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
-
+#include "../fd_bank_mgr.h"
 void
 fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) {
     FD_LOG_INFO(( "sysvar LastRestartSlot not supported by this ledger version!" ));
     return;
   }
 
-  fd_sol_sysvar_last_restart_slot_t const * sysvar = &slot_ctx->slot_bank.last_restart_slot;
+  fd_sol_sysvar_last_restart_slot_t const * sysvar = fd_bank_mgr_last_restart_slot_query( slot_ctx->bank_mgr );
+
+  fd_sol_sysvar_last_restart_slot_t sysvar_default = {0};
+  sysvar = !!sysvar ? sysvar : &sysvar_default;
 
   ulong sz = fd_sol_sysvar_last_restart_slot_size( sysvar );
   uchar enc[ sz ];
@@ -29,7 +32,7 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
                  &fd_sysvar_owner_id,
                  &fd_sysvar_last_restart_slot_id,
                  enc, sz,
-                 slot_ctx->slot_bank.slot );
+                 slot_ctx->slot );
 }
 
 fd_sol_sysvar_last_restart_slot_t *
@@ -55,7 +58,7 @@ void
 fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) return;
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) return;
 
   int   has_current_last_restart_slot = 0;
   ulong current_last_restart_slot     = 0UL;
@@ -70,7 +73,7 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * r
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2108-L2120 */
   /* FIXME: Query hard forks list */
-  ulong last_restart_slot = slot_ctx->slot_bank.last_restart_slot.slot;
+  ulong last_restart_slot = fd_bank_mgr_last_restart_slot_query( slot_ctx->bank_mgr )->slot;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
   if( !has_current_last_restart_slot || current_last_restart_slot != last_restart_slot ) {
@@ -78,6 +81,6 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * r
         slot_ctx, &fd_sysvar_owner_id,
         &fd_sysvar_last_restart_slot_id,
         &last_restart_slot, sizeof(ulong),
-        slot_ctx->slot_bank.slot );
+        slot_ctx->slot );
   }
 }
