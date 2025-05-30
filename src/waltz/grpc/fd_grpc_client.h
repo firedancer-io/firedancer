@@ -6,8 +6,8 @@
 
 #include "fd_grpc_codec.h"
 #include "../../ballet/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
-#if FD_HAS_OPENSSL
-#include <openssl/types.h> /* SSL */
+#if FD_HAS_MBEDTLS
+#include <mbedtls/ssl.h>
 #endif
 
 struct fd_grpc_client_private;
@@ -187,25 +187,23 @@ void
 fd_grpc_client_set_version( fd_grpc_client_t * client,
                             char const *       version,
                             ulong              version_len );
+#if FD_HAS_MBEDTLS
 
-#if FD_HAS_OPENSSL
+/* fd_grpc_client_rxtx_tls drives I/O against the MbedTLS context.
 
-/* fd_grpc_client_rxtx_ossl drives I/O against the SSL object
-   (SSL_read_ex and SSL_write_ex).
-
-   This function currently copies back-and-forth between SSL and
+   This function currently copies back-and-forth between MbedTLS and
    fd_h2 rbuf.  This could be improved by adding an interface to allow
-   OpenSSL->h2 or h2->OpenSSL writes to directly place data into the
+   MbedTLS->h2 or h2->MbedTLS writes to directly place data into the
    target buffer.
 
-   Returns 1 on success and 0 if there is an unrecoverable SSL error. */
+   Returns 1 on success and 0 if there is an unrecoverable TLS error. */
 
 int
-fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
-                          SSL *              ssl,
-                          int *              charge_busy );
+fd_grpc_client_rxtx_tls( fd_grpc_client_t *    client,
+                         mbedtls_ssl_context * ssl,
+                         int *                 charge_busy );
 
-#endif /* FD_HAS_OPENSSL */
+#endif /* FD_HAS_MBEDTLS */
 
 /* fd_grpc_client_rxtx_socket drives I/O against a TCP socket.
    (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags. */

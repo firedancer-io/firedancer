@@ -1,8 +1,5 @@
 #include "fd_tls.h"
 #include "fd_tls_proto.h"
-#if !FD_HAS_OPENSSL
-#error "This test requires OpenSSL"
-#endif
 
 /* Test OpenSSL client to fd_tls server handshake. */
 

@@ -16,6 +16,11 @@
 
 #include "generated/fd_bundle_tile_seccomp.h"
 
+#if FD_HAS_MBEDTLS
+#include "../../waltz/mbedtls/fd_mbedtls.h"
+#include <mbedtls/ssl.h>
+#endif
+
 FD_FN_CONST static ulong
 scratch_align( void ) {
   return alignof(fd_bundle_tile_t);
@@ -34,7 +39,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  /* Leftover space for OpenSSL allocations */
+  /* Leftover space for MbedTLS allocations */
   return 1UL<<26; /* 64 MiB */
 }
 
@@ -216,165 +221,85 @@ fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
   }
 
   ctx->is_ssl = !!is_ssl;
-#if !FD_HAS_OPENSSL
+#if !FD_HAS_MBEDTLS
   if( FD_UNLIKELY( is_ssl ) ) {
-    FD_LOG_ERR(( "This build does not include OpenSSL. To install OpenSSL, re-run ./deps.sh and do a clean re build." ));
+    FD_LOG_ERR(( "This build does not include MbedTLS. To install MbedTLS, re-run ./deps.sh and do a clean re build." ));
   }
 #endif
 }
 
-#if FD_HAS_OPENSSL
-
-/* OpenSSL allows us to specify custom memory allocation functions,
-   which we want to point to an fd_alloc_t, but it does not let us use a
-   context object.  Instead we stash it in this thread local, which is
-   OK because the parent workspace exists for the duration of the SSL
-   context, and the process only has one thread.
-
-   Currently fd_alloc doesn't support realloc, so it's implemented on
-   top of malloc and free, and then also it doesn't support getting the
-   size of an allocation from the pointer, which we need for realloc, so
-   we pad each alloc by 8 bytes and stuff the size into the first 8
-   bytes. */
-static FD_TL fd_alloc_t * fd_quic_ssl_mem_function_ctx = NULL;
-
-static void *
-crypto_malloc( ulong        num,
-               char const * file,
-               int          line ) {
-  (void)file; (void)line;
-  void * result = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
-  if( FD_UNLIKELY( !result ) ) {
-    FD_MCNT_INC( BUNDLE, ERRORS_SSL_ALLOC, 1UL );
-    return NULL;
-  }
-  *(ulong *)result = num;
-  return (uchar *)result + 8UL;
-}
+#if FD_HAS_MBEDTLS
 
 static void
-crypto_free( void *       addr,
-             char const * file,
-             int          line ) {
-  (void)file;
-  (void)line;
+unprivileged_init_mbedtls( fd_bundle_tile_t * ctx ) {
+  FD_LOG_DEBUG(( "Setting up mbedtls_entropy" ));
+  mbedtls_entropy_init( &ctx->tls_entropy );
 
-  if( FD_UNLIKELY( !addr ) ) return;
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
+  FD_LOG_DEBUG(( "Setting up mbedtls_ctr_drbg" ));
+  mbedtls_ctr_drbg_init( &ctx->tls_ctr_drbg );
+  if( FD_UNLIKELY( 0!=mbedtls_ctr_drbg_seed(
+      &ctx->tls_ctr_drbg,
+      mbedtls_entropy_func,
+      &ctx->tls_entropy,
+      (uchar const *)"bundle", /* entropy "personalization" string */
+      sizeof("bundle")
+  ) ) ) {
+    FD_LOG_ERR(( "mbedtls_ctr_drbg_seed failed" ));
+  }
+
+  FD_LOG_DEBUG(( "Setting up mbedtls_ssl_config" ));
+  mbedtls_ssl_config * ssl_conf = &ctx->tls_config;
+  mbedtls_ssl_config_init( ssl_conf );
+  if( FD_UNLIKELY( 0!=mbedtls_ssl_config_defaults(
+      ssl_conf,
+      MBEDTLS_SSL_IS_CLIENT,
+      MBEDTLS_SSL_TRANSPORT_STREAM,
+      MBEDTLS_SSL_PRESET_DEFAULT
+  ) ) ) {
+    FD_LOG_ERR(( "mbedtls_ssl_config_defaults failed" ));
+  }
+  mbedtls_ssl_conf_min_tls_version( ssl_conf, MBEDTLS_SSL_VERSION_TLS1_3 );
+  mbedtls_ssl_conf_max_tls_version( ssl_conf, MBEDTLS_SSL_VERSION_TLS1_3 );
+  mbedtls_ssl_conf_rng            ( ssl_conf, mbedtls_ctr_drbg_random, &ctx->tls_ctr_drbg );
+  mbedtls_ssl_conf_authmode       ( ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED );
+  mbedtls_ssl_conf_ca_chain       ( ssl_conf, &ctx->tls_ca_certs, NULL );
+
+  static char const * alpn_protos[] = { "h2", NULL };
+  if( FD_UNLIKELY( 0!=mbedtls_ssl_conf_alpn_protocols( &ctx->tls_config, alpn_protos ) ) ) {
+    FD_LOG_ERR(( "mbedtls_ssl_conf_alpn_protocols failed" ));
+  }
+
+  FD_LOG_DEBUG(( "MbedTLS initialized" ));
 }
 
-static void *
-crypto_realloc( void *       addr,
-                ulong        num,
-                char const * file,
-                int          line ) {
-  (void)file;
-  (void)line;
-
-  if( FD_UNLIKELY( !addr ) ) return crypto_malloc( num, file, line );
-  if( FD_UNLIKELY( !num ) ) {
-    crypto_free( addr, file, line );
-    return NULL;
-  }
-
-  void * new = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
-  if( FD_UNLIKELY( !new ) ) return NULL;
-
-  ulong old_num = *(ulong *)( (uchar *)addr - 8UL );
-  fd_memcpy( (uchar*)new + 8, (uchar*)addr, fd_ulong_min( old_num, num ) );
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
-  *(ulong *)new = num;
-  return (uchar*)new + 8UL;
-}
-
-static void
-fd_ossl_keylog_callback( SSL const *  ssl,
-                         char const * line ) {
-  SSL_CTX * ssl_ctx = SSL_get_SSL_CTX( ssl );
-  fd_bundle_tile_t * ctx = SSL_CTX_get_ex_data( ssl_ctx, 0 );
-  ulong line_len = strlen( line );
-  struct iovec iovs[2] = {
-    { .iov_base=(void *)line, .iov_len=line_len },
-    { .iov_base=(void *)"\n", .iov_len=1UL }
-  };
-  if( FD_UNLIKELY( writev( ctx->keylog_fd, iovs, 2 )!=(long)line_len+1 ) ) {
-    FD_LOG_WARNING(( "write(keylog) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-}
-
-static void
-fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
-                             void *             alloc_mem ) {
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
-  if( FD_UNLIKELY( !alloc ) ) {
-    FD_LOG_ERR(( "fd_alloc_new failed" ));
-  }
-  ctx->ssl_alloc               = alloc;
-  fd_quic_ssl_mem_function_ctx = alloc;
-
-  if( FD_UNLIKELY( !CRYPTO_set_mem_functions( crypto_malloc, crypto_realloc, crypto_free ) ) ) {
-    FD_LOG_ERR(( "CRYPTO_set_mem_functions failed" ));
-  }
-
-  OPENSSL_init_ssl(
-      OPENSSL_INIT_LOAD_SSL_STRINGS |
-      OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
-      OPENSSL_INIT_NO_LOAD_CONFIG,
-      NULL
-  );
-
-  SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
-  if( FD_UNLIKELY( !ssl_ctx ) ) {
-    FD_LOG_ERR(( "SSL_CTX_new failed" ));
-  }
-
-  if( FD_UNLIKELY( !SSL_CTX_set_ex_data( ssl_ctx, 0, ctx ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_ex_data failed" ));
-  }
-
-  if( FD_UNLIKELY( !SSL_CTX_set_mode( ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_AUTO_RETRY ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_mode failed" ));
-  }
-
-  if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
-  }
-
-  if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (const unsigned char *)"\x02h2", 3 ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
-  }
-
-  if( FD_LIKELY( ctx->keylog_fd >= 0 ) ) {
-    SSL_CTX_set_keylog_callback( ssl_ctx, fd_ossl_keylog_callback );
-  }
-
-  ctx->ssl_ctx = ssl_ctx;
-}
-
-#endif /* FD_HAS_OPENSSL */
+#endif /* FD_HAS_MBEDTLS */
 
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)   );
   void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint() );
   void *             alloc_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()       );
   ulong              scratch_end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  (void)alloc_mem; /* potentially unused */
-
-  if( FD_UNLIKELY( (ulong)ctx != (ulong)scratch ) ) {
-    FD_LOG_CRIT(( "Invalid bundle tile scratch alignment" )); /* unreachable */
-  }
   if( FD_UNLIKELY( scratch_end - (ulong)scratch > scratch_footprint( tile ) ) ) {
     FD_LOG_CRIT(( "Bundle tile scratch overflow" )); /* unreachable */
   }
-
+  if( FD_UNLIKELY( (ulong)ctx != (ulong)scratch ) ) {
+    FD_LOG_CRIT(( "Invalid bundle tile scratch alignment" )); /* unreachable */
+  }
   memset( ctx, 0, sizeof(fd_bundle_tile_t) );
   ctx->grpc_client_mem = grpc_mem;
-  ctx->tcp_sock        = -1;
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
+  if( FD_UNLIKELY( !alloc ) ) {
+    FD_LOG_ERR(( "fd_alloc_new failed" ));
+  }
+  ctx->ssl_alloc = alloc;
+  fd_mbedtls_set_alloc( ctx->ssl_alloc );
+
+  ctx->tcp_sock = -1;
 
   fd_bundle_auther_init( &ctx->auther );
   uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
@@ -382,7 +307,7 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->keylog_fd = -1;
 
-# if FD_HAS_OPENSSL
+# if FD_HAS_MBEDTLS
 
   if( FD_UNLIKELY( tile->bundle.key_log_path[0] ) ) {
     ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0644 );
@@ -391,12 +316,10 @@ privileged_init( fd_topo_t *      topo,
     }
   }
 
-  /* OpenSSL goes and tries to read files and allocate memory and
-     other dumb things on a thread local basis, so we need a special
-     initializer to do it before seccomp happens in the process. */
-  fd_bundle_tile_init_openssl( ctx, alloc_mem );
+  mbedtls_x509_crt_init( &ctx->tls_ca_certs );
+  mbedtls_x509_crt_parse_path( &ctx->tls_ca_certs, "/etc/ssl/certs/" );
 
-# endif /* FD_HAS_OPENSSL */
+# endif /* FD_HAS_MBEDTLS */
 
   /* Init resolver */
   if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
@@ -434,10 +357,11 @@ bundle_out_link( fd_topo_t const *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   if( FD_UNLIKELY( tile->kind_id!=0 ) ) {
     FD_LOG_ERR(( "There can only be one bundle tile" ));
   }
+
+  fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_bundle", tile->kind_id );
   if( FD_UNLIKELY( sign_in_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing sign_bundle link" ));
@@ -460,7 +384,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->identity_switched = 0;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-
 
   ulong verify_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_verif", tile->kind_id );
   if( FD_UNLIKELY( verify_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing bundle_verif link" ));
@@ -489,6 +412,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
+
+# if FD_HAS_MBEDTLS
+  unprivileged_init_mbedtls( ctx );
+# endif
 }
 
 static ulong

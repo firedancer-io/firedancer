@@ -28,7 +28,7 @@ recvmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
 # that descriptor 2 is always STDERR.
 write
 
-# OpenSSL: SSLKEYLOGFILE
+# MbedTLS: SSLKEYLOGFILE
 writev: (and (eq (arg 0) keylog_fd)
              (eq (arg 2) 2))
 
@@ -96,20 +96,7 @@ setsockopt: (or (and (eq (arg 1) SOL_SOCKET)
 # resolv: check if DNS queries use IPv6
 getsockname
 
-# openssl: RAND_bytes requires getpid
-#
-# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
-# picking connection IDs.  The OpenSSL implementation calls getpid() as
-# an implementation detail, they save the PID in a global and reseed the
-# RNG if the PID ever changes (the process was forked).  We don't need
-# this logic since our process can't fork.
-getpid
-
-# openssl: RAND_bytes requires getrandom
-#
-# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
-# picking connection IDs.  The OpenSSL implementation calls getrandom
-# internally for periodically reseeding the RNG.
+# MbedTLS: RAND_bytes requires getrandom
 getrandom
 
 # resolv: Read DNS config

@@ -8,5 +8,4 @@ fi
 module purge
 module load gcc-12.2.0
 module load Python-3.9
-module load openssl-1.1.1s+quic1
 module list

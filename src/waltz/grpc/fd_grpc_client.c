@@ -3,11 +3,10 @@
 #include "../../ballet/nanopb/pb_encode.h" /* pb_msgdesc_t */
 #include <sys/socket.h>
 #include "../h2/fd_h2_rbuf_sock.h"
-#if FD_HAS_OPENSSL
-#include "../openssl/fd_openssl.h"
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include "../h2/fd_h2_rbuf_ossl.h"
+
+#if FD_HAS_MBEDTLS
+#include "../mbedtls/fd_mbedtls.h"
+#include <mbedtls/ssl.h>
 #endif
 
 ulong
@@ -132,29 +131,22 @@ fd_grpc_client_send_stream_window_updates( fd_grpc_client_t * client ) {
   }
 }
 
-#if FD_HAS_OPENSSL
-
-static int
-fd_ossl_log_error( char const * str,
-                   ulong        len,
-                   void *       ctx ) {
-  (void)ctx;
-  FD_LOG_WARNING(( "%.*s", (int)len, str ));
-  return 0;
-}
+#if FD_HAS_MBEDTLS
 
 int
-fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
-                          SSL *              ssl,
-                          int *              charge_busy ) {
+fd_grpc_client_rxtx_tls( fd_grpc_client_t *    client,
+                         mbedtls_ssl_context * ssl,
+                         int *                 charge_busy ) {
   if( FD_UNLIKELY( !client->ssl_hs_done ) ) {
-    int res = SSL_do_handshake( ssl );
-    if( res<=0 ) {
-      int error = SSL_get_error( ssl, res );
-      if( FD_LIKELY( error==SSL_ERROR_WANT_READ || error==SSL_ERROR_WANT_WRITE ) ) return 1;
-      FD_LOG_WARNING(( "SSL_do_handshake failed (%i-%s)", error, fd_openssl_ssl_strerror( error ) ));
-      ERR_print_errors_cb( fd_ossl_log_error, NULL );
-      return 0;
+    int ssl_err = mbedtls_ssl_handshake( ssl );
+    if( ssl_err<0 ) {
+      if( FD_UNLIKELY(
+            ssl_err!=MBEDTLS_ERR_SSL_WANT_READ &&
+            ssl_err!=MBEDTLS_ERR_SSL_WANT_WRITE ) ) {
+        FD_LOG_WARNING(( "mbedtls_ssl_handshake failed (%i-%s)", ssl_err, fd_mbedtls_strerror( ssl_err ) ));
+        return 0;
+      }
+      return 1;
     } else {
       client->ssl_hs_done = 1;
     }
@@ -163,25 +155,33 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   fd_h2_conn_t * conn = client->conn;
   int ssl_err = 0;
   ulong read_sz = fd_h2_rbuf_ssl_read( client->frame_rx, ssl, &ssl_err );
-  if( FD_UNLIKELY( ssl_err && ssl_err!=SSL_ERROR_WANT_READ ) ) {
-    if( ssl_err==SSL_ERROR_ZERO_RETURN ) {
+  if( FD_UNLIKELY( ssl_err &&
+                   ssl_err!=MBEDTLS_ERR_SSL_WANT_READ &&
+                   ssl_err!=MBEDTLS_ERR_SSL_WANT_WRITE ) ) {
+    if( ssl_err==MBEDTLS_ERR_SSL_CONN_EOF ) {
       FD_LOG_WARNING(( "gRPC server closed connection" ));
       return 0;
     }
-    FD_LOG_WARNING(( "SSL_read_ex failed (%i-%s)", ssl_err, fd_openssl_ssl_strerror( ssl_err ) ));
-    ERR_print_errors_cb( fd_ossl_log_error, NULL );
+    FD_LOG_WARNING(( "mbedtls_ssl_read failed (%i-%s)", ssl_err, fd_mbedtls_strerror( ssl_err ) ));
     return 0;
   }
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, FD_GRPC_CLIENT_BUFSZ, &fd_grpc_client_h2_callbacks );
   fd_grpc_client_send_stream_window_updates( client );
-  ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
+
+  ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl, &ssl_err );
+  if( FD_UNLIKELY( ssl_err &&
+                   ssl_err!=MBEDTLS_ERR_SSL_WANT_READ &&
+                   ssl_err!=MBEDTLS_ERR_SSL_WANT_WRITE ) ) {
+    FD_LOG_WARNING(( "mbedtls_ssl_write failed (%i-%s)", ssl_err, fd_mbedtls_strerror( ssl_err ) ));
+    return 0;
+  }
 
   if( read_sz!=0 || write_sz!=0 ) *charge_busy = 1;
   return 1;
 }
 
-#endif /* FD_HAS_OPENSSL */
+#endif /* FD_HAS_MBEDTLS */
 
 #if FD_H2_HAS_SOCKETS
 

@@ -54,7 +54,7 @@ fd_grpc_h2_stream_upcast( fd_h2_stream_t * stream ) {
    - calls SSL_write_ex
    - calls send(2) */
 
-#include "../../waltz/h2/fd_h2_rbuf_ossl.h"
+#include "../../waltz/h2/fd_h2_rbuf_mbedtls.h"
 
 /* gRPC client internal state.  Quick overview:
 
