@@ -158,6 +158,7 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
     uint  name_mask = (b0&0xc0)==0x40 ? 0x3f : 0x0f;
     ulong name_idx  = fd_hpack_rd_varint( rd, b0, name_mask );
 
+    if( FD_UNLIKELY( rd->src >= end ) ) return FD_H2_ERR_COMPRESSION;
     uint  value_word = *(rd->src++);
     ulong value_len  = fd_hpack_rd_varint( rd, value_word, 0x7f );
     if( FD_UNLIKELY( value_len==ULONG_MAX    ) ) return FD_H2_ERR_COMPRESSION;
