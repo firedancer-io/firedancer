@@ -63,6 +63,9 @@ quic_trace_cmd_fn( args_t *   args,
     }
   }
   if( !quic_tile ) FD_LOG_ERR(( "QUIC tile not found in topology" ));
+  if( FD_UNLIKELY( quic_tile->in_cnt!=1UL ) ) { /* FIXME */
+    FD_LOG_ERR(( "Sorry, fd_quic_trace does not support multiple net tiles yet" ));
+  }
 
   /* Ugly: fd_quic_ctx_t uses non-relocatable object addressing.
      We need to rebase pointers.  foreign_{...} refer to the original
@@ -86,7 +89,7 @@ quic_trace_cmd_fn( args_t *   args,
   quic_ctx->quic  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->quic  - ctx_raddr );
 
   fd_topo_link_t * net_quic = &topo->links[ quic_tile->in_link_id[ 0 ] ];
-  fd_net_rx_bounds_init( &quic_ctx->net_in_bounds, net_quic->dcache );
+  fd_net_rx_bounds_init( &quic_ctx->net_in_bounds[ 0 ], net_quic->dcache );
   FD_LOG_INFO(( "net->quic dcache at %p", (void *)net_quic->dcache ));
 
   /* Join shared memory objects

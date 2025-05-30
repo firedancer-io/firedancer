@@ -195,13 +195,13 @@ before_frag( fd_quic_ctx_t * ctx,
 
 static void
 during_frag( fd_quic_ctx_t * ctx,
-             ulong           in_idx FD_PARAM_UNUSED,
+             ulong           in_idx,
              ulong           seq    FD_PARAM_UNUSED,
              ulong           sig    FD_PARAM_UNUSED,
              ulong           chunk,
              ulong           sz,
              ulong           ctl ) {
-  void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
+  void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
 
   /* FIXME this copy could be eliminated by combining it with the decrypt operation */
   fd_memcpy( ctx->buffer, src, sz );
@@ -471,11 +471,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt==0 ) ) {
     FD_LOG_ERR(( "quic tile has no input links" ));
   }
-  for( ulong i=0; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_UNLIKELY( 0!=strcmp( link->name, "net_quic" ) ) ) {
-      FD_LOG_ERR(( "unexpected input link %s", link->name ));
-    }
+  if( FD_UNLIKELY( tile->in_cnt > FD_QUIC_TILE_IN_MAX ) ) {
+    FD_LOG_ERR(( "quic tile has too many input links (%lu), max %lu",
+                 tile->in_cnt, FD_QUIC_TILE_IN_MAX ));
   }
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||
@@ -495,6 +493,14 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
   fd_memset( ctx, 0, sizeof(fd_quic_ctx_t) );
+
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_UNLIKELY( 0!=strcmp( link->name, "net_quic" ) ) ) {
+      FD_LOG_ERR(( "unexpected input link %s", link->name ));
+    }
+    fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
+  }
 
   if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
     FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -542,9 +548,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
   fd_quic_set_clock_tickcount( quic );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
-
-  fd_topo_link_t * net_in = &topo->links[ tile->in_link_id[ 0 ] ];
-  fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
 

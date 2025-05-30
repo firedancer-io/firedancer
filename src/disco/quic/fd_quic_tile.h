@@ -7,6 +7,8 @@
 #include "../net/fd_net_tile.h"
 #include "../../waltz/quic/fd_quic.h"
 
+#define FD_QUIC_TILE_IN_MAX (8UL)
+
 extern fd_topo_run_tile_t fd_tile_quic;
 
 typedef struct {
@@ -28,7 +30,7 @@ typedef struct {
   ulong round_robin_cnt;
   ulong round_robin_id;
 
-  fd_net_rx_bounds_t net_in_bounds;
+  fd_net_rx_bounds_t net_in_bounds[ FD_QUIC_TILE_IN_MAX ];
 
   fd_frag_meta_t * net_out_mcache;
   ulong *          net_out_sync;
