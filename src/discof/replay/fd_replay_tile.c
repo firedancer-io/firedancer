@@ -1434,15 +1434,18 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
     if( fd_slice_exec_microblock_ready( &ctx->slice_exec_ctx ) ) {
       ctx->blocked_on_mblock = 1;
       fd_slice_exec_microblock_parse( &ctx->slice_exec_ctx );
-      break; /* synchronize & wait for exec tiles to finish the prev microblock */
     }
 
-    if( fd_slice_exec_slice_ready( &ctx->slice_exec_ctx) ){
-      /* If we reach this point, we have finished executing all the
-         microblocks in the slice. */
+    /* Under this condition, we have finished executing all the
+       microblocks in the slice, and are ready to load another slice.
+       However, if just completed the last batch in the slot, we want
+       to be sure to finalize block execution (below). */
+
+    if( fd_slice_exec_slice_ready( &ctx->slice_exec_ctx )
+        && !ctx->slice_exec_ctx.last_batch ){
       ctx->flags = EXEC_FLAG_READY_NEW;
-      break;
     }
+    break; /* block on microblock / batch */
   }
 
   if( fd_slice_exec_slot_complete( &ctx->slice_exec_ctx ) ) {
@@ -1463,7 +1466,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
       FD_LOG_ERR(( "Unable to select a fork" ));
     }
 
-    fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t*)fd_type_pun( ctx->slice_exec_ctx.mbatch + ctx->slice_exec_ctx.last_mblk_off );
+    fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.mbatch + ctx->slice_exec_ctx.last_mblk_off );
 
     // Copy block hash to slot_bank poh for updating the sysvars
     fd_block_map_query_t query[1] = { 0 };
@@ -1527,7 +1530,7 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( slot != ctx->curr_slot && ctx->slice_exec_ctx.wmark == 0 ) ) { /* FIXME: not mid execution */
+  if( FD_UNLIKELY( slot != ctx->curr_slot ) ) {
 
     /* We need to switch forks and execution contexts. Either we
         completed execution of the previous slot and are now executing
