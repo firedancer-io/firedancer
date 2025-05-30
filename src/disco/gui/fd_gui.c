@@ -1732,6 +1732,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     txn_entry->flags                      |= (uchar)FD_GUI_TXN_FLAGS_STARTED;
     txn_entry->flags                      |= (uchar)fd_uint_if(txn_payload->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE, 0U);
     txn_entry->flags                      |= (uchar)fd_uint_if((txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE) || (txn_payload->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE), FD_GUI_TXN_FLAGS_FROM_BUNDLE, 0U);
+    txn_entry->flags                      |= (uchar)fd_uint_if(txn_payload->flags & FD_TXN_P_FLAGS_ARRIVED_WHILE_LEADER, FD_GUI_TXN_FLAGS_ARRIVED_WHILE_LEADER, 0U);
   }
 
   /* At the moment, bank publishes at most 1 transaction per microblock,
