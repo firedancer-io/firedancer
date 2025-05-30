@@ -40,11 +40,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   ctx->txn_ctx = txn_ctx;
 
-  /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  epoch_bank->rent.lamports_per_uint8_year = 3480;
-  epoch_bank->rent.exemption_threshold = 2;
-  epoch_bank->rent.burn_percent = 50;
 
   /* Set up slot context */
 
@@ -64,11 +59,34 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
+  /* Bank manager */
+
+  slot_ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( slot_ctx->bank_mgr_mem ), slot_ctx->funk, funk_txn );
+
+  /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
+
+  fd_rent_t * rent_bm = fd_bank_mgr_rent_modify( slot_ctx->bank_mgr );
+  rent_bm->lamports_per_uint8_year = 3480;
+  rent_bm->exemption_threshold = 2;
+  rent_bm->burn_percent = 50;
+  fd_bank_mgr_rent_save( slot_ctx->bank_mgr );
+
   /* Blockhash queue init */
-  fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
-  blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  blockhash_queue->last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
-  fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
+
+  fd_block_hash_queue_global_t * block_hash_queue = fd_bank_mgr_block_hash_queue_modify( slot_ctx->bank_mgr );
+
+  uchar * last_hash_mem = (uchar *)fd_ulong_align_up( (ulong)block_hash_queue + sizeof(fd_block_hash_queue_global_t), alignof(fd_hash_t) );
+  uchar * ages_pool_mem = (uchar *)fd_ulong_align_up( (ulong)last_hash_mem + sizeof(fd_hash_t), fd_hash_hash_age_pair_t_map_align() );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( ages_pool_mem, 400 ) );
+
+  block_hash_queue->max_age          = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  block_hash_queue->ages_root_offset = 0UL;
+  block_hash_queue->ages_pool_offset = (ulong)fd_hash_hash_age_pair_t_map_leave( ages_pool ) - (ulong)block_hash_queue;
+  block_hash_queue->last_hash_index  = 0UL;
+  block_hash_queue->last_hash_offset = (ulong)last_hash_mem - (ulong)block_hash_queue;
+
+  memset( last_hash_mem, 0, sizeof(fd_hash_t) );
+  fd_bank_mgr_block_hash_queue_save( slot_ctx->bank_mgr );
 
   /* Set up txn context */
 
@@ -275,14 +293,20 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   }
 
   /* Set slot bank variables */
-  slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache, runner->wksp )->slot;
+  slot_ctx->slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache, runner->wksp )->slot;
+
+  ulong * slot = fd_bank_mgr_slot_modify( slot_ctx->bank_mgr );
+  *slot = slot_ctx->slot;
+  fd_bank_mgr_slot_save( slot_ctx->bank_mgr );
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* Override epoch bank rent setting */
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache, runner->wksp );
   if( rent ) {
-    epoch_bank->rent = *rent;
+    fd_rent_t * rent_bm = fd_bank_mgr_rent_modify( slot_ctx->bank_mgr );
+    *rent_bm = *rent;
+    fd_bank_mgr_rent_save( slot_ctx->bank_mgr );
   }
 
   /* Override most recent blockhash if given */
@@ -295,9 +319,16 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      *blockhash_queue->last_hash                = last->blockhash;
-      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
+      block_hash_queue = fd_bank_mgr_block_hash_queue_modify( slot_ctx->bank_mgr );
+      fd_hash_t * last_hash = fd_block_hash_queue_last_hash_join( block_hash_queue );
+      fd_memcpy( last_hash, &last->blockhash, sizeof(fd_hash_t) );
+      fd_bank_mgr_block_hash_queue_save( slot_ctx->bank_mgr );
+      ulong * lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( slot_ctx->bank_mgr );
+      *lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_lamports_per_signature_save( slot_ctx->bank_mgr );
+      ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( slot_ctx->bank_mgr );
+      *prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      fd_bank_mgr_prev_lamports_per_signature_save( slot_ctx->bank_mgr );
     }
   }
 

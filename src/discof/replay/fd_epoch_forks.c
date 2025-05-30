@@ -79,9 +79,8 @@ fd_epoch_forks_prepare( fd_epoch_forks_t *      epoch_forks,
 
 ulong
 fd_epoch_forks_get_epoch_ctx( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost, ulong curr_slot, ulong * opt_prev_slot ) {
-  fd_exec_epoch_ctx_t * epoch_ctx = epoch_forks->forks[ epoch_forks->curr_epoch_idx ].epoch_ctx;
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, curr_slot, NULL );
+  // ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, curr_slot, NULL );
+  ulong epoch = 0UL;
   if( FD_LIKELY( epoch == epoch_forks->forks[ epoch_forks->curr_epoch_idx ].epoch ) ) return epoch_forks->curr_epoch_idx;
 
   ulong max_parent_root = 0UL;
