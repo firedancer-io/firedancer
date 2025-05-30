@@ -473,12 +473,13 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   }
   ulong current_slot = clock->slot;
 
-  /* `current_slot == 0` indicates that the program hasn't been deployed yet, so a cooldown check
-      is not needed. Otherwise, a cooldown of 1 slot is applied before being able to
-      redeploy or retract the program.
+  /* `state->slot == 0` indicates that the program hasn't been deployed
+     yet, so a cooldown check is not needed. Otherwise, a cooldown of 1
+     slot is applied before being able to redeploy or retract the
+     program.
 
       https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L293-L299 */
-  if( FD_UNLIKELY( current_slot>0UL && fd_ulong_sat_add( state->slot, LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS )>current_slot ) ) {
+  if( FD_UNLIKELY( state->slot!=0UL && fd_ulong_sat_add( state->slot, LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS )>current_slot ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Program was deployed recently, cooldown still in effect" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
