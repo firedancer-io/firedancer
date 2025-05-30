@@ -142,7 +142,7 @@ check out a newer version, update dependencies, and rebuild binaries.
 
 ```sh [bash]
 git fetch --tags
-git checkout v0.404.20113 # replace version number here
+git checkout __FD_LATEST_VERSION__
 git submodule update
 make -j fdctl solana
 ```
@@ -192,8 +192,9 @@ user = "firedancer"
 
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
-be Agave style keys, which can be generated using `solana-keygen`.
-`solana-keygen` is part of the [Solana CLI](https://docs.anza.xyz/cli/install).
+be Agave style keys, which can be generated using the [`fdctl keys`.
+subcommand](../api/cli.md#keys-new-path). The `vote_account_path` can
+also be the public key of an existing vote account.
 
 This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
 To customize this path, refer to the [configuration
