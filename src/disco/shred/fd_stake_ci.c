@@ -1,5 +1,6 @@
 #include "fd_stake_ci.h"
 #include "../../util/net/fd_ip4.h" /* Just for debug */
+#include "../../discof/replay/fd_exec.h"
 
 #define SORT_NAME sort_pubkey
 #define SORT_KEY_T fd_shred_dest_weighted_t
@@ -46,25 +47,19 @@ void * fd_stake_ci_delete( void          * mem  ) { return mem;          }
 void
 fd_stake_ci_stake_msg_init( fd_stake_ci_t * info,
                             uchar const   * new_message ) {
-  ulong const * hdr = fd_type_pun_const( new_message );
+  fd_stake_weight_msg_t const * hdr = fd_type_pun_const( new_message );
 
-  ulong epoch               = hdr[ 0 ];
-  ulong staked_cnt          = hdr[ 1 ];
-  ulong start_slot          = hdr[ 2 ];
-  ulong slot_cnt            = hdr[ 3 ];
-  ulong excluded_stake      = hdr[ 4 ];
-
-  if( FD_UNLIKELY( staked_cnt > MAX_SHRED_DESTS ) )
+  if( FD_UNLIKELY( hdr->staked_cnt > MAX_SHRED_DESTS ) )
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
+                 " but the maximum allowed is %lu", hdr->staked_cnt, MAX_SHRED_DESTS ));
 
-  info->scratch->epoch          = epoch;
-  info->scratch->start_slot     = start_slot;
-  info->scratch->slot_cnt       = slot_cnt;
-  info->scratch->staked_cnt     = staked_cnt;
-  info->scratch->excluded_stake = excluded_stake;
+  info->scratch->epoch          = hdr->epoch;
+  info->scratch->start_slot     = hdr->start_slot;
+  info->scratch->slot_cnt       = hdr->slot_cnt;
+  info->scratch->staked_cnt     = hdr->staked_cnt;
+  info->scratch->excluded_stake = hdr->excluded_stake;
 
-  fd_memcpy( info->stake_weight, hdr+5UL, sizeof(fd_stake_weight_t)*staked_cnt );
+  fd_memcpy( info->stake_weight, hdr+1UL, sizeof(fd_stake_weight_t)*hdr->staked_cnt );
 }
 
 static inline void

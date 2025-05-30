@@ -1,5 +1,4 @@
 #include "fd_stake_ci.h"
-
 #define SLOTS_PER_EPOCH 1000 /* Just for testing */
 
 fd_stake_ci_t _info[1];
@@ -8,26 +7,23 @@ uchar stake_msg[ FD_STAKE_CI_STAKE_MSG_SZ ];
 
 fd_pubkey_t identity_key[1];
 
+#include "../../discof/replay/fd_exec.h"
 typedef struct {
-    ulong epoch;
-    ulong staked_cnt;
-    ulong start_slot;
-    ulong slot_cnt;
-    ulong excluded_stake;
-    fd_stake_weight_t weights[];
-  } stake_msg_hdr_t;
+    fd_stake_weight_msg_t hdr;
+    fd_stake_weight_t     weights[];
+  } stake_msg_t;
 
 static uchar *
 generate_stake_msg( uchar *      _buf,
                     ulong        epoch,
                     char const * stakers ) {
-  stake_msg_hdr_t *buf = (stake_msg_hdr_t *)_buf;
+  stake_msg_t *buf = (stake_msg_t *)_buf;
 
-  buf->epoch          = epoch;
-  buf->start_slot     = epoch * SLOTS_PER_EPOCH;
-  buf->slot_cnt       = SLOTS_PER_EPOCH;
-  buf->staked_cnt     = strlen(stakers);
-  buf->excluded_stake = 0UL;
+  buf->hdr.epoch          = epoch;
+  buf->hdr.start_slot     = epoch * SLOTS_PER_EPOCH;
+  buf->hdr.slot_cnt       = SLOTS_PER_EPOCH;
+  buf->hdr.staked_cnt     = strlen(stakers);
+  buf->hdr.excluded_stake = 0UL;
 
   ulong i = 0UL;
   for(; *stakers; stakers++, i++ ) {
@@ -346,12 +342,12 @@ test_limits( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   for( ulong stake_weight_cnt=40198UL; stake_weight_cnt<=40201UL; stake_weight_cnt++ ) {
-    stake_msg_hdr_t * buf = (stake_msg_hdr_t *)stake_msg;
-    buf->epoch          = stake_weight_cnt;
-    buf->start_slot     = stake_weight_cnt * SLOTS_PER_EPOCH;
-    buf->slot_cnt       = SLOTS_PER_EPOCH;
-    buf->staked_cnt     = 0UL;
-    buf->excluded_stake = 0UL;
+    stake_msg_t * buf = (stake_msg_t *)stake_msg;
+    buf->hdr.epoch          = stake_weight_cnt;
+    buf->hdr.start_slot     = stake_weight_cnt * SLOTS_PER_EPOCH;
+    buf->hdr.slot_cnt       = SLOTS_PER_EPOCH;
+    buf->hdr.staked_cnt     = 0UL;
+    buf->hdr.excluded_stake = 0UL;
 
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
@@ -359,9 +355,9 @@ test_limits( void ) {
         memset( buf->weights[i].key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
         if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) FD_STORE( ulong, buf->weights[i].key.uc, fd_ulong_bswap( i ) );
         buf->weights[i].stake = stake;
-        buf->staked_cnt++;
+        buf->hdr.staked_cnt++;
       } else {
-        buf->excluded_stake += stake;
+        buf->hdr.excluded_stake += stake;
       }
     }
     fd_stake_ci_stake_msg_init( info, stake_msg );

@@ -23,7 +23,7 @@ fd_exec_epoch_ctx_footprint_ext( fd_exec_epoch_ctx_layout_t * layout,
   ulong stake_votes_sz         = fd_vote_accounts_pair_t_map_footprint( vote_acc_max );           if( !stake_votes_sz         ) return 0UL;
   ulong stake_delegations_sz   = fd_delegation_pair_t_map_footprint   ( vote_acc_max );           if( !stake_delegations_sz   ) return 0UL;
   ulong next_epoch_stakes_sz   = fd_vote_accounts_pair_t_map_footprint( vote_acc_max );           if( !next_epoch_stakes_sz   ) return 0UL;
-  ulong leaders_sz             = fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT );        if( !leaders_sz             ) FD_LOG_CRIT(( "invalid fd_epoch_leaders footprint" ));
+  ulong leaders_sz             = fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_PER_EPOCH );  if( !leaders_sz             ) FD_LOG_CRIT(( "invalid fd_epoch_leaders footprint" ));
 
   FD_SCRATCH_ALLOC_INIT( l, 0 );
   FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_epoch_ctx_t), sizeof(fd_exec_epoch_ctx_t) );
@@ -220,7 +220,7 @@ fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * self ) {
     fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   layout->vote_acc_max        ) );
 
   //TODO support separate epoch leaders new and init
-  //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
+  //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_PER_EPOCH );
 
   return epoch_bank;
 }
@@ -247,7 +247,7 @@ fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
     fd_bincode_encode_ctx_t encode = {.data = buf, .dataend = buf + sz };
     fd_epoch_bank_encode( old_epoch_bank, &encode );
 
-    sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT ), fd_epoch_leaders_align() );
+    sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_PER_EPOCH ), fd_epoch_leaders_align() );
     fd_memcpy( fd_exec_epoch_ctx_leaders( self ), fd_exec_epoch_ctx_leaders( prev ), sz );
 
   } FD_SPAD_FRAME_END;
