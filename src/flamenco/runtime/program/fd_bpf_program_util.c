@@ -1,6 +1,7 @@
 #include "fd_bpf_program_util.h"
 #include "fd_bpf_loader_program.h"
 #include "fd_loader_v4_program.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
@@ -24,6 +25,9 @@ fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info )
 
   /* SBPF version */
   validated_prog->sbpf_version = elf_info->sbpf_version;
+
+  /* Last verified epoch */
+  validated_prog->last_verified_epoch = 0UL;
 
   return (fd_sbpf_validated_program_t *)mem;
 }
@@ -163,51 +167,167 @@ fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
   }
 }
 
+/* Parses the programdata from a program account.*/
 static int
-fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
-                                       fd_txn_account_t *      program_acc,
-                                       fd_spad_t *             runtime_spad ) {
+fd_bpf_get_programdata_from_account( fd_exec_slot_ctx_t * slot_ctx,
+                                     fd_txn_account_t *   program_acc,
+                                     uchar const **       out_program_data,
+                                     ulong *              out_program_data_len,
+                                     fd_spad_t *          runtime_spad ) {
+  /* v1/v2 loaders: Programdata is just the account data.
+     v3 loader: Programdata lives in a separate account. Deserialize the program account
+                and lookup the programdata account. Deserialize the programdata account.
+     v4 loader: Programdata lives in the program account, offset by LOADER_V4_PROGRAM_DATA_OFFSET. */
+  int res;
+  if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    res = fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_acc, out_program_data, out_program_data_len, runtime_spad );
+  } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    res = fd_bpf_get_executable_program_content_for_v4_loader( program_acc, out_program_data, out_program_data_len );
+  } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
+             !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    res = fd_bpf_get_executable_program_content_for_v1_v2_loaders( program_acc, out_program_data, out_program_data_len );
+  } else {
+    return -1;
+  }
+  return res;
+}
+
+/* Parse ELF info from programdata. */
+static int
+fd_bpf_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
+                       uchar const *              program_data,
+                       ulong                      program_data_len,
+                       fd_exec_slot_ctx_t const * slot_ctx ) {
+  uint min_sbpf_version, max_sbpf_version;
+  fd_bpf_get_sbpf_versions( &min_sbpf_version,
+                            &max_sbpf_version,
+                            slot_ctx->slot_bank.slot,
+                            &slot_ctx->epoch_ctx->features );
+  if( FD_UNLIKELY( !fd_sbpf_elf_peek( elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) ) ) {
+    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
+    return -1;
+  }
+  return 0;
+}
+
+static int
+fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_sbpf_elf_info_t * elf_info,
+                              void *               validated_prog_mem,
+                              uchar const *        program_data,
+                              ulong                program_data_len,
+                              fd_spad_t *          runtime_spad ) {
+  fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( validated_prog_mem, elf_info );
+
+  ulong               prog_align     = fd_sbpf_program_align();
+  ulong               prog_footprint = fd_sbpf_program_footprint( elf_info );
+  fd_sbpf_program_t * prog           = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), elf_info, validated_prog->rodata );
+  if( FD_UNLIKELY( !prog ) ) {
+    return -1;
+  }
+
+  /* Allocate syscalls */
+
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( runtime_spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  if( FD_UNLIKELY( !syscalls ) ) {
+    FD_LOG_CRIT(( "Call to fd_sbpf_syscalls_new() failed" ));
+  }
+
+  fd_vm_syscall_register_slot( syscalls,
+                                slot_ctx->slot_bank.slot,
+                                &slot_ctx->epoch_ctx->features,
+                                0 );
+
+  /* Load program. */
+
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
+    /* Remove pending funk record */
+    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+    return -1;
+  }
+
+  /* Validate the program. */
+
+  fd_vm_t _vm[ 1UL ];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  if( FD_UNLIKELY( !vm ) ) {
+    FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
+  }
+
+  fd_exec_instr_ctx_t dummy_instr_ctx; /* UNUSED in fd_vm_validate() */
+  vm = fd_vm_init( vm,
+                   &dummy_instr_ctx,
+                   0UL,
+                   0UL,
+                   prog->rodata,
+                   prog->rodata_sz,
+                   prog->text,
+                   prog->text_cnt,
+                   prog->text_off,
+                   prog->text_sz,
+                   prog->entry_pc,
+                   prog->calldests,
+                   elf_info->sbpf_version,
+                   syscalls,
+                   NULL,
+                   NULL,
+                   NULL,
+                   0U,
+                   NULL,
+                   0,
+                   FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, bpf_account_data_direct_mapping ) );
+
+  if( FD_UNLIKELY( !vm ) ) {
+    FD_LOG_CRIT(( "fd_vm_init() failed" ));
+  }
+
+  int res = fd_vm_validate( vm );
+  if( FD_UNLIKELY( res ) ) {
+    FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
+    return -1;
+  }
+
+  fd_memcpy( validated_prog->calldests_shmem, prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
+
+  validated_prog->calldests           = fd_sbpf_calldests_join( validated_prog->calldests_shmem );
+  validated_prog->entry_pc            = prog->entry_pc;
+  validated_prog->last_updated_slot   = slot_ctx->slot_bank.slot;
+  validated_prog->text_off            = prog->text_off;
+  validated_prog->text_cnt            = prog->text_cnt;
+  validated_prog->text_sz             = prog->text_sz;
+  validated_prog->rodata_sz           = prog->rodata_sz;
+  validated_prog->last_verified_epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule,
+                                                          slot_ctx->slot_bank.slot,
+                                                          NULL );
+  return 0;
+}
+
+static int
+fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
+                                       fd_txn_account_t *   program_acc,
+                                       fd_spad_t *          runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-    fd_pubkey_t * program_pubkey = program_acc->pubkey;
+    uchar const * program_data     = NULL;
+    ulong         program_data_len = 0UL;
 
-    fd_funk_t     *   funk             = slot_ctx->funk;
-    fd_funk_txn_t *   funk_txn         = slot_ctx->funk_txn;
-    fd_funk_rec_key_t id               = fd_acc_mgr_cache_key( program_pubkey );
-
-    uchar const *     program_data     = NULL;
-    ulong             program_data_len = 0UL;
-
-    /* For v3 loaders, deserialize the program account and lookup the
-       programdata account. Deserialize the programdata account. */
-
-    int res;
-    if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      res = fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_acc, &program_data, &program_data_len, runtime_spad );
-    } else if( !memcmp( program_acc->vt->get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      res = fd_bpf_get_executable_program_content_for_v4_loader( program_acc, &program_data, &program_data_len );
-    } else {
-      res = fd_bpf_get_executable_program_content_for_v1_v2_loaders( program_acc, &program_data, &program_data_len );
-    }
-
-    if( res ) {
+    if( FD_UNLIKELY( fd_bpf_get_programdata_from_account( slot_ctx, program_acc, &program_data, &program_data_len, runtime_spad ) ) ) {
       return -1;
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
-    uint min_sbpf_version, max_sbpf_version;
-    fd_bpf_get_sbpf_versions( &min_sbpf_version,
-                              &max_sbpf_version,
-                              slot_ctx->slot_bank.slot,
-                              &slot_ctx->epoch_ctx->features );
-    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) == NULL ) {
-      FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
+      return -1;
     }
+
+    fd_pubkey_t *     program_pubkey = program_acc->pubkey;
+    fd_funk_t     *   funk           = slot_ctx->funk;
+    fd_funk_txn_t *   funk_txn       = slot_ctx->funk_txn;
+    fd_funk_rec_key_t id             = fd_acc_mgr_cache_key( program_pubkey );
 
     int funk_err = FD_FUNK_SUCCESS;
     fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, funk_txn, &id, prepare, NULL );
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, funk_txn, &id, prepare, &funk_err );
     if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
       return -1;
     }
@@ -224,92 +344,11 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
       FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", val_sz, funk_err, fd_funk_strerror( funk_err ) ));
     }
 
-    fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
-
-    ulong  prog_align     = fd_sbpf_program_align();
-    ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
-    fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
-    if( FD_UNLIKELY( !prog ) ) {
-      fd_funk_rec_cancel( funk, prepare );
-      return -1;
-    }
-
-    /* Allocate syscalls */
-
-    fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( runtime_spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-    if( FD_UNLIKELY( !syscalls ) ) {
-      FD_LOG_ERR(( "Call to fd_sbpf_syscalls_new() failed" ));
-    }
-
-    fd_vm_syscall_register_slot( syscalls,
-                                 slot_ctx->slot_bank.slot,
-                                 &slot_ctx->epoch_ctx->features,
-                                 0 );
-
-    /* Load program. */
-
-    if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
-      /* Remove pending funk record */
-      FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_cancel( funk, prepare );
-      return -1;
-    }
-
-    /* Validate the program. */
-
-    fd_vm_t _vm[ 1UL ];
-    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
-    if( FD_UNLIKELY( !vm ) ) {
-      FD_LOG_ERR(( "fd_vm_new() or fd_vm_join() failed" ));
-    }
-    fd_exec_instr_ctx_t dummy_instr_ctx = {0};
-    fd_exec_txn_ctx_t   dummy_txn_ctx   = {0};
-    dummy_txn_ctx.slot      = slot_ctx->slot_bank.slot;
-    dummy_txn_ctx.features  = slot_ctx->epoch_ctx->features;
-    dummy_instr_ctx.txn_ctx = &dummy_txn_ctx;
-    vm = fd_vm_init( vm,
-                     &dummy_instr_ctx,
-                     0UL,
-                     0UL,
-                     prog->rodata,
-                     prog->rodata_sz,
-                     prog->text,
-                     prog->text_cnt,
-                     prog->text_off,
-                     prog->text_sz,
-                     prog->entry_pc,
-                     prog->calldests,
-                     elf_info.sbpf_version,
-                     syscalls,
-                     NULL,
-                     NULL,
-                     NULL,
-                     0U,
-                     NULL,
-                     0,
-                     FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, bpf_account_data_direct_mapping ) );
-
-    if( FD_UNLIKELY( !vm ) ) {
-      FD_LOG_ERR(( "fd_vm_init() failed" ));
-    }
-
-    res = fd_vm_validate( vm );
+    int res = fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, val, program_data, program_data_len, runtime_spad );
     if( FD_UNLIKELY( res ) ) {
-      /* Remove pending funk record */
-      FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
       fd_funk_rec_cancel( funk, prepare );
       return -1;
     }
-
-    fd_memcpy( validated_prog->calldests_shmem, prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
-    validated_prog->calldests = fd_sbpf_calldests_join( validated_prog->calldests_shmem );
-
-    validated_prog->entry_pc = prog->entry_pc;
-    validated_prog->last_updated_slot = slot_ctx->slot_bank.slot;
-    validated_prog->text_off = prog->text_off;
-    validated_prog->text_cnt = prog->text_cnt;
-    validated_prog->text_sz = prog->text_sz;
-    validated_prog->rodata_sz = prog->rodata_sz;
 
     fd_funk_rec_publish( funk, prepare );
 
@@ -323,13 +362,6 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_spad_t *          runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( exec_rec );
   if( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) != FD_ACC_MGR_SUCCESS ) {
-    return -1;
-  }
-
-  if( memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-      memcmp( exec_rec->vt->get_owner( exec_rec ), fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
     return -1;
   }
 
@@ -353,12 +385,9 @@ fd_bpf_is_bpf_program( fd_funk_rec_t const * rec,
   void const * raw = fd_funk_val( rec, funk_wksp );
 
   fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+  fd_pubkey_t const *       owner    = fd_type_pun_const( metadata->info.owner );
 
-  if( metadata &&
-      memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) &&
-      memcmp( metadata->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) &&
-      memcmp( metadata->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) &&
-      memcmp( metadata->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) ) ) {
+  if( metadata && !fd_executor_pubkey_is_bpf_loader( owner ) ) {
     *is_bpf_program = 0;
   } else {
     *is_bpf_program = 1;
@@ -573,7 +602,7 @@ fd_bpf_load_cache_entry( fd_funk_t *                    funk,
       }
     }
 
-    void const * data = fd_funk_val_const( rec, fd_funk_wksp(funk) );
+    void const * data = fd_funk_val( rec, fd_funk_wksp(funk) );
 
     *valid_prog = (fd_sbpf_validated_program_t *)data;
 
@@ -589,4 +618,78 @@ fd_bpf_load_cache_entry( fd_funk_t *                    funk,
 
     /* Try again */
   }
+}
+
+void
+fd_bpf_program_reverify( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_pubkey_t const *  program_pubkey,
+                         fd_spad_t *          runtime_spad ) {
+FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
+  fd_sbpf_validated_program_t * prog = NULL;
+  fd_funk_rec_key_t             id   = fd_acc_mgr_cache_key( program_pubkey );
+
+  /* First check if the program is in the BPF cache */
+  int err = fd_bpf_load_cache_entry( slot_ctx->funk, slot_ctx->funk_txn, program_pubkey, &prog );
+  if( err ) {
+    return;
+  }
+
+  /* If the program is cached, check if it's already been reverified for the current epoch */
+  ulong current_epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, NULL );
+  if( FD_LIKELY( prog->last_verified_epoch==current_epoch ) ) {
+    return;
+  }
+
+  /* Program needs to be reverified with the new feature set. If the program fails verification,
+     remove it from the program cache. */
+  FD_TXN_ACCOUNT_DECL( exec_rec );
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( exec_rec,
+                                                           program_pubkey,
+                                                           slot_ctx->funk,
+                                                           slot_ctx->funk_txn ) ) ) {
+    return;
+  }
+
+  /* Get the program data from the account */
+  uchar const * program_data     = NULL;
+  ulong         program_data_len = 0UL;
+  if( FD_UNLIKELY( fd_bpf_get_programdata_from_account( slot_ctx, exec_rec, &program_data, &program_data_len, runtime_spad ) ) ) {
+    return;
+  }
+
+  /* From here on, we know the program exists in the cache and is due for reverification. If any of the following checks fail,
+     we should evict the program from the cache. */
+  fd_sbpf_elf_info_t elf_info = {0};
+
+  if( FD_UNLIKELY( fd_bpf_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
+    fd_funk_rec_remove( slot_ctx->funk, slot_ctx->funk_txn, &id, NULL, 0UL );
+    return;
+  }
+
+  /* Copy the record (if needed) into the current funk txn */
+  fd_funk_rec_try_clone_safe( slot_ctx->funk, slot_ctx->funk_txn, &id, 0UL, program_data_len );
+
+  /* Modify the record within the current funk txn */
+  fd_funk_rec_query_t query[1];
+  fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->funk, slot_ctx->funk_txn, &id, query );
+  if( FD_UNLIKELY( !rec ) ) {
+    /* The record does not exist (somehow). Ideally this should never happen since this function is called in a single-threaded context. */
+    FD_LOG_WARNING(( "Failed to modify the BPF program cache record. Perhaps there is a race condition?" ));
+    return;
+  }
+
+  void * data = fd_funk_val( rec, fd_funk_wksp( slot_ctx->funk ) );
+
+  /* Validate the program */
+  if( FD_UNLIKELY( fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, data, program_data, program_data_len, runtime_spad ) ) ) {
+    fd_funk_rec_modify_publish( query );
+    fd_funk_rec_remove( slot_ctx->funk, slot_ctx->funk_txn, &id, NULL, 0UL );
+    return;
+  }
+
+  /* Finish modifying and release lock */
+  fd_funk_rec_modify_publish( query );
+
+} FD_SPAD_FRAME_END;
 }
