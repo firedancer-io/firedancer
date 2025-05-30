@@ -772,8 +772,8 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
 
   ulong removed_cnt = 0UL;
   /* Unlike gossip or vote account updates, validator info messages come
-     in as info is disovered, and may contain as little as 1 validator
-     per message.  Therefore it doesn't make sense to use the remove
+     in as info is discovered, and may contain as little as 1 validator
+     per message.  Therefore, it doesn't make sense to use the remove
      mechanism.  */
 
   ulong before_peer_cnt = gui->validator_info.info_cnt;
@@ -1409,7 +1409,7 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     if( FD_UNLIKELY( slot->slot>parent_slot ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
     } else if( FD_UNLIKELY( slot->slot<parent_slot ) ) {
-      /* Slot not even replayed yet ... will come out as optmistically confirmed */
+      /* Slot not even replayed yet ... will come out as optimistically confirmed */
       continue;
     }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
@@ -1748,7 +1748,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
 
   /* At the moment, bank publishes at most 1 transaction per microblock,
      even if it received microblocks with multiple transactions
-     (i.e. a bundle). This means that we need to calulate microblock
+     (i.e. a bundle). This means that we need to calculate microblock
      count here based on the transaction count. */
   slot->txs.begin_microblocks = (ushort)(slot->txs.begin_microblocks + txn_cnt);
 }
