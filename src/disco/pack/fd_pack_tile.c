@@ -992,6 +992,10 @@ static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   if( FD_LIKELY( !tile->pack.bundle.enabled ) ) return;
+  if( FD_UNLIKELY( !tile->pack.bundle.vote_account_path[0] ) ) {
+    FD_LOG_WARNING(( "Disabling bundle crank because no vote account was specified" ));
+    return;
+  }
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
