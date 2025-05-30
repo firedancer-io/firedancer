@@ -204,20 +204,20 @@ $ fdctl keys pubkey ~/.firedancer/fd1/identity.json
 Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF
 ```
 
-### `keys new <identity|vote>`
+### `keys new <PATH>`
 Creates a new keypair from the kernel random number generator and writes
-it to the identity key path, or vote key path. The key path is retrieved
-from the configuration TOML file
+it to the file specified at `<PATH>`. The default user for the operation
+is the user running the command and should have write access to `<PATH>`.
+The user can be changed by specifying it in the TOML configuration file.
 
 | Arguments  | Description |
 |------------|-------------|
-| `--config` | Path to a configuration TOML file which determines where the key is written. Either `[consensus.identity_path]` or `[consensus.vote_account_path]` for `identity` or `vote` arguments respectively
+| `--config` | Path to a configuration TOML file which determines the user creating the file.
 
 ::: code-group
 
 ```toml [config.toml]
-[consensus]
-    identity_path = "/home/{user}/.fd/keys/identity.json"
+user = "firedancer"
 ```
 
 :::
