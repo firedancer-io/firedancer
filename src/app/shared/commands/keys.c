@@ -11,8 +11,7 @@
 #include <sys/random.h>
 
 typedef enum {
-  CMD_NEW_IDENTITY,
-  CMD_NEW_VOTE_ACCOUNT,
+  CMD_NEW_KEY,
   CMD_PUBKEY,
 } cmd_type_t;
 
@@ -25,8 +24,9 @@ keys_cmd_args( int *    pargc,
   if( FD_LIKELY( !strcmp( *pargv[ 0 ], "new" ) ) ) {
     (*pargc)--;
     (*pargv)++;
-    if( FD_LIKELY( !strcmp( *pargv[ 0 ], "identity" ) ) )   args->keys.cmd = CMD_NEW_IDENTITY;
-    else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "vote"  ) ) ) args->keys.cmd = CMD_NEW_VOTE_ACCOUNT;
+    if( FD_UNLIKELY( *pargc < 1 ) ) goto err;
+    args->keys.cmd = CMD_NEW_KEY;
+    fd_memcpy( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) );
   }
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pubkey"  ) ) ) {
     (*pargc)--;
@@ -44,8 +44,7 @@ keys_cmd_args( int *    pargc,
 
 err:
     FD_LOG_ERR(( "unrecognized subcommand `%s`\nusage:\n"
-                 "  keys new identity\n"
-                 "  keys new vote\n"
+                 "  keys new key <path-to-keyfile>\n"
                  "  keys pubkey <path-to-keyfile>\n",
                  *pargv[0] ));
 }
@@ -129,14 +128,8 @@ keys_pubkey( const char * file_path ) {
 void
 keys_cmd_fn( args_t *   args,
              config_t * config ) {
-  if( FD_LIKELY( args->keys.cmd == CMD_NEW_IDENTITY ) ) {
-    generate_keypair( config->paths.identity_key, config->uid, config->gid, 1 );
-  } else if( FD_LIKELY( args->keys.cmd==CMD_NEW_VOTE_ACCOUNT ) ) {
-    if( FD_UNLIKELY( !strcmp( config->paths.vote_account, "" ) ) )
-      FD_LOG_ERR(( "Cannot create a vote account keypair because your validator is not configured "
-                   "to vote. Please set [paths.vote_account_path] in your configuration file." ));
-
-    generate_keypair( config->paths.vote_account, config->uid, config->gid, 1 );
+  if( FD_LIKELY( args->keys.cmd == CMD_NEW_KEY ) ) {
+    generate_keypair( args->keys.file_path, config->uid, config->gid, 1 );
   } else if( FD_LIKELY( args->keys.cmd==CMD_PUBKEY ) ) {
     keys_pubkey( args->keys.file_path );
   } else {
