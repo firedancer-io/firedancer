@@ -591,7 +591,9 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
-  ( install_s2n       )
+  if [[ "$(uname -m)" == x86_64 ]]; then
+    ( install_s2n )
+  fi
   ( install_openssl   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
