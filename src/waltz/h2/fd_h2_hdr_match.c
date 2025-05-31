@@ -83,7 +83,7 @@ fd_h2_hdr_matcher_insert( fd_h2_hdr_matcher_t * matcher,
   matcher->entry_cnt++;
 }
 
-char const __attribute__((aligned(16)))
+schar const __attribute__((aligned(16)))
 fd_h2_hpack_matcher[ 62 ] = {
   [  1 ] = FD_H2_HDR_AUTHORITY,
   [  2 ] = FD_H2_HDR_METHOD,
