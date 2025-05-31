@@ -6,6 +6,10 @@
 #include "fd_aes_base.h"
 #include "fd_aes_gcm.h"
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 /* Key expansion tests ************************************************/
 
 static uchar const __attribute__((aligned(16UL)))

@@ -122,7 +122,8 @@ test_h2_hdr_match( void ) {
   FD_TEST( fd_h2_hdr_match( matcher, "foo", 4UL, 0U )==0 );
 
   /* Hash collision */
-  static char const collision[8] = "\xae\x73\x65\x0d\x01\x00\x00\x00";
+  static uchar const collision_u[8] = { 0xae, 0x73, 0x65, 0x0d, 0x01, 0x00, 0x00, 0x00 };
+  char const * collision = (char const *)collision_u;
   fd_h2_hdr_matcher_insert( matcher, 2, collision, 8UL );
   fd_h2_hdr_match_entry_t const * entry1 = fd_h2_hdr_map_query_const( matcher->entry, (fd_h2_hdr_match_key_t){ .hdr="foo",     .hdr_len=3 }, NULL );
   fd_h2_hdr_match_entry_t const * entry2 = fd_h2_hdr_map_query_const( matcher->entry, (fd_h2_hdr_match_key_t){ .hdr=collision, .hdr_len=8 }, NULL );

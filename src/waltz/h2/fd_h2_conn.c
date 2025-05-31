@@ -5,6 +5,10 @@
 #include "fd_h2_stream.h"
 #include <float.h>
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 char const fd_h2_client_preface[24] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 static fd_h2_settings_t const fd_h2_settings_initial = {

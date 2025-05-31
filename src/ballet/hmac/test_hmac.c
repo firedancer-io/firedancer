@@ -3,6 +3,10 @@
 #include "../sha256/fd_sha256.h"
 #include "../sha512/fd_sha512.h"
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 struct fd_hmac_test_vector {
   char const * key;
   ulong        key_sz;

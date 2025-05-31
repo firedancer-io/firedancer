@@ -2,6 +2,10 @@
 
 #include <stddef.h>
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 /* Sanity checks for ELF */
 
 #if defined(__linux__)

@@ -5,6 +5,10 @@
 #include "../hex/fd_hex.h"
 #include "fd_ristretto255.h"
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 /* base_point_multiples was imported from
    draft-irtf-cfrg-ristretto255-decaf448-08 Appendix A.1 */
 

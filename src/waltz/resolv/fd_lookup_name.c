@@ -16,6 +16,7 @@
 #include "../../util/cstr/fd_cstr.h"
 #include "../../util/log/fd_log.h"
 #include "../../util/io/fd_io.h"
+#include "../../util/net/fd_ip6.h"
 
 static int
 is_valid_hostname( char const * host ) {
@@ -246,11 +247,13 @@ static const struct policy {
   uchar len, mask;
   uchar prec, label;
 } defpolicy[] = {
-  { "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\1", 15, 0xff, 50, 0 },
-  { "\0\0\0\0\0\0\0\0\0\0\xff\xff", 11, 0xff, 35, 4 },
-  { "\x20\2", 1, 0xff, 30, 2 },
-  { "\x20\1", 3, 0xff, 5, 5 },
-  { "\xfc", 0, 0xfe, 3, 13 },
+  { {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01},
+                15, 0xff, 50, 0 },
+  { {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff},
+                11, 0xff, 35, 4 },
+  { {0x20,0x02}, 1, 0xff, 30, 2 },
+  { {0x20,0x01}, 3, 0xff, 5,  5 },
+  { {0xfc},      0, 0xfe, 3, 13 },
 #if 0
   /* These are deprecated and/or returned to the address
    * pool, so despite the RFC, treating them as special
@@ -366,8 +369,8 @@ fd_lookup_name( struct address buf[ static MAXADDRS ],
     /* Translate any remaining v4 results to v6 */
     for( int i=0; i<cnt; i++ ) {
       if( buf[i].family != AF_INET ) continue;
-      memcpy( buf[i].addr+12, buf[i].addr, 4 );
-      memcpy( buf[i].addr, "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12 );
+      uint ip4_addr = FD_LOAD( uint, buf[i].addr );
+      fd_ip6_addr_ip4_mapped( buf[i].addr, ip4_addr );
       buf[i].family = AF_INET6;
     }
   }
@@ -402,11 +405,10 @@ fd_lookup_name( struct address buf[ static MAXADDRS ],
       da = &da6; dalen = sizeof da6;
       sa = &sa6; salen = sizeof sa6;
     } else {
-      memcpy( sa6.sin6_addr.s6_addr,    "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12 );
-      memcpy( da6.sin6_addr.s6_addr+12, buf[i].addr, 4 );
-      memcpy( da6.sin6_addr.s6_addr,    "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12 );
-      memcpy( da6.sin6_addr.s6_addr+12, buf[i].addr, 4 );
-      memcpy( &da4.sin_addr,            buf[i].addr, 4 );
+      uint ip4_addr = FD_LOAD( uint, buf[i].addr );
+      fd_ip6_addr_ip4_mapped( sa6.sin6_addr.s6_addr, ip4_addr );
+      fd_ip6_addr_ip4_mapped( da6.sin6_addr.s6_addr, ip4_addr );
+      memcpy( &da4.sin_addr, buf[i].addr, 4 );
       da = &da4; dalen = sizeof da4;
       sa = &sa4; salen = sizeof sa4;
     }

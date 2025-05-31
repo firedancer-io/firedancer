@@ -32,6 +32,11 @@ def generate(feature_map_path, header_path, body_path):
 #ifndef HEADER_fd_src_flamenco_features_fd_features_h
 #error "Include fd_features.h instead of this file."
 #endif
+
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 /* FEATURE_ID_CNT is the number of features in ids */
 #define FD_FEATURE_ID_CNT ({len(fm)}UL)
 union fd_features {{
