@@ -2089,6 +2089,9 @@ privileged_init( fd_topo_t *      topo,
   const uchar * identity_key = fd_keyload_load( tile->poh.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
 
+  if( FD_UNLIKELY( !tile->poh.bundle.vote_account_path[0] ) ) {
+    tile->poh.bundle.enabled = 0;
+  }
   if( FD_UNLIKELY( tile->poh.bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_base58_decode_32( tile->poh.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
       const uchar * vote_key = fd_keyload_load( tile->poh.bundle.vote_account_path, /* pubkey only: */ 1 );
