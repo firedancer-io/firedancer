@@ -21,8 +21,6 @@ struct fd_ping_peer {
 
   uchar state;
 
-  ulong stake;
-
   long  next_ping_nanos;
   long  valid_until_nanos;
   long  last_rx_nanos;
@@ -32,8 +30,17 @@ struct fd_ping_peer {
   ulong lru_prev;
   ulong lru_next;
 
-  ulong map_next;
-  ulong map_prev;
+  union {
+    struct {
+      ulong map_next;
+      ulong map_prev;
+    };
+
+    struct {
+      ulong entrypt_prev;
+      ulong entrypt_next;
+    };
+  };
 
   union {
     struct {
@@ -84,6 +91,12 @@ typedef struct fd_ping_peer fd_ping_peer_t;
 #define DLIST_NEXT  refreshing_next
 #include "../../util/tmpl/fd_dlist.c"
 
+#define DLIST_NAME  entrypt_list
+#define DLIST_ELE_T fd_ping_peer_t
+#define DLIST_PREV  entrypt_prev
+#define DLIST_NEXT  entrypt_next
+#include "../../util/tmpl/fd_dlist.c"
+
 #define MAP_NAME  peer_map
 #define MAP_ELE_T fd_ping_peer_t
 #define MAP_KEY_T pubkey_private_t
@@ -105,6 +118,7 @@ struct __attribute__((aligned(FD_PING_TRACKER_ALIGN))) fd_ping_tracker_private {
   invalid_list_t *    invalid;
   waiting_list_t *    waiting;
   refreshing_list_t * refreshing;
+  entrypt_list_t *    entrypt;
   peer_map_t *        peers;
 
   ulong magic; /* ==FD_PING_TRACKER_MAGIC */
@@ -125,6 +139,7 @@ fd_ping_tracker_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, invalid_list_align(),    invalid_list_footprint()     );
   l = FD_LAYOUT_APPEND( l, waiting_list_align(),    waiting_list_footprint()     );
   l = FD_LAYOUT_APPEND( l, refreshing_list_align(), refreshing_list_footprint()  );
+  l = FD_LAYOUT_APPEND( l, entrypt_list_align(),    entrypt_list_footprint()     );
   l = FD_LAYOUT_APPEND( l, peer_map_align(),        peer_map_footprint( 8192UL ) );
   return FD_LAYOUT_FINI( l, FD_PING_TRACKER_ALIGN );
 }
@@ -154,6 +169,7 @@ fd_ping_tracker_new( void *     shmem,
   void * _invalid                  = FD_SCRATCH_ALLOC_APPEND( l, invalid_list_align(),    invalid_list_footprint()     );
   void * _waiting                  = FD_SCRATCH_ALLOC_APPEND( l, waiting_list_align(),    waiting_list_footprint()     );
   void * _refreshing               = FD_SCRATCH_ALLOC_APPEND( l, refreshing_list_align(), refreshing_list_footprint()  );
+  void * _entrypt                  = FD_SCRATCH_ALLOC_APPEND( l, entrypt_list_align(),    entrypt_list_footprint()     );
   void * _peers                    = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),        peer_map_footprint( 8192UL ) );
 
   ping_tracker->rng = rng;
@@ -167,6 +183,8 @@ fd_ping_tracker_new( void *     shmem,
   FD_TEST( ping_tracker->waiting );
   ping_tracker->refreshing = refreshing_list_join( refreshing_list_new( _refreshing ) );
   FD_TEST( ping_tracker->refreshing );
+  ping_tracker->entrypt = entrypt_list_join( entrypt_list_new( _entrypt ) );
+  FD_TEST( ping_tracker->entrypt );
   ping_tracker->peers = peer_map_join( peer_map_new( _peers, 8192UL, fd_rng_ulong( rng ) ) );
   FD_TEST( ping_tracker->peers );
 
@@ -201,12 +219,57 @@ fd_ping_tracker_join( void * shpt ) {
   return ping_tracker;
 }
 
+static inline void
+hash_ping_token( uchar const *         ping_token,
+                 uchar                 expected_pong_token[ static 32UL ],
+                 fd_sha256_t * sha ) {
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, ping_token, 32UL );
+  fd_sha256_fini( sha, expected_pong_token );
+}
+
 static void
 remove_tracking( fd_ping_tracker_t * ping_tracker,
                  fd_ping_peer_t *    peer ) {
   if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_INVALID ) )         invalid_list_ele_remove( ping_tracker->invalid, peer, ping_tracker->pool );
   else if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_REFRESHING ) ) refreshing_list_ele_remove( ping_tracker->refreshing, peer, ping_tracker->pool );
   else if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_VALID ) )      waiting_list_ele_remove( ping_tracker->waiting, peer, ping_tracker->pool );
+}
+
+static entrypt_list_iter_t
+find_entrypoint( fd_ping_tracker_t const * ping_tracker,
+                 fd_ip4_port_t const *     peer_address ) {
+  entrypt_list_iter_t it = entrypt_list_iter_fwd_init( ping_tracker->entrypt, ping_tracker->pool );
+  for( ; !entrypt_list_iter_done( it, ping_tracker->entrypt, ping_tracker->pool );
+         entrypt_list_iter_fwd_next( it, ping_tracker->entrypt, ping_tracker->pool ) ) {
+    ulong peer_idx        = entrypt_list_iter_idx( it, ping_tracker->entrypt,  ping_tracker->pool );
+    fd_ping_peer_t * peer = &ping_tracker->pool[ peer_idx ];
+    if( FD_UNLIKELY( peer->address.l==peer_address->l ) ) break;
+  }
+  return it;
+}
+
+/* promote_entrypoint promotes an entrypoint to a
+   regular ping tracker entry once we acquire the pubkey of the
+   entrypoint.  This should be called when a pong message is received
+   from the entrypoint, or when the entrypoint's contact info is received
+   (ie., fd_ping_tracker_register and fd_ping_tracker_track respectively).
+
+   The entrypoint must have been previously tracked with
+   fd_ping_tracker_entrypoint_track before this function can be called. */
+static void
+promote_entrypoint( fd_ping_tracker_t * ping_tracker,
+                    fd_ping_peer_t *    peer,
+                    uchar const *       pubkey ) {
+  fd_memcpy( peer->identity_pubkey.b, pubkey, 32UL );
+
+  /* TODO: Might be worth keeping this list to quickly access entrypoints,
+           regardless if resolved or not. */
+  entrypt_list_ele_remove( ping_tracker->entrypt, peer, ping_tracker->pool );
+
+  peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
+  lru_list_ele_push_tail( ping_tracker->lru, peer, ping_tracker->pool );
 }
 
 void
@@ -216,6 +279,14 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
                        fd_ip4_port_t const * peer_address,
                        long                  now ) {
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
+  if( FD_UNLIKELY( !peer ) ) {
+    entrypt_list_iter_t it = find_entrypoint( ping_tracker, peer_address );
+    if( FD_UNLIKELY( !entrypt_list_iter_done( it, ping_tracker->entrypt, ping_tracker->pool ) ) ) {
+      ulong idx = entrypt_list_iter_idx( it, ping_tracker->entrypt, ping_tracker->pool );
+      peer      = &ping_tracker->pool[ idx ];
+      promote_entrypoint( ping_tracker, peer, peer_pubkey );
+    }
+  }
 
   if( FD_UNLIKELY( !peer ) ) {
     if( FD_LIKELY( peer_stake>=1000000000UL ) ) return;
@@ -235,10 +306,7 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
     peer->state             = FD_PING_TRACKER_STATE_INVALID;
 
     for( ulong i=0UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( ping_tracker->rng );
-    fd_sha256_init( ping_tracker->sha );
-    fd_sha256_append( ping_tracker->sha, "SOLANA_PING_PONG", 16UL );
-    fd_sha256_append( ping_tracker->sha, peer->ping_token, 32UL );
-    fd_sha256_fini( ping_tracker->sha, peer->expected_pong_token );
+    hash_ping_token( peer->ping_token, peer->expected_pong_token, ping_tracker->sha );
 
     invalid_list_ele_push_head( ping_tracker->invalid, peer, ping_tracker->pool );
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
@@ -253,7 +321,7 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
       pool_ele_release( ping_tracker->pool, peer );
       return;
     }
-    
+
     if( FD_UNLIKELY( peer_address->addr!=peer->address.addr || peer_address->port!=peer->address.port ) ) {
       /* Node changed address, update the address.  Any existing pongs
          are no longer valid. */
@@ -263,18 +331,48 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
       peer->next_ping_nanos = now;
       peer->state           = FD_PING_TRACKER_STATE_INVALID;
       for( ulong i=0UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( ping_tracker->rng );
-      fd_sha256_init( ping_tracker->sha );
-      fd_sha256_append( ping_tracker->sha, "SOLANA_PING_PONG", 16UL );
-      fd_sha256_append( ping_tracker->sha, peer->ping_token, 32UL );
-      fd_sha256_fini( ping_tracker->sha, peer->expected_pong_token );
+      hash_ping_token( peer->ping_token, peer->expected_pong_token, ping_tracker->sha );
       invalid_list_ele_push_head( ping_tracker->invalid, peer, ping_tracker->pool );
     }
   }
-
-  peer->stake         = peer_stake;
   peer->last_rx_nanos = now;
   lru_list_ele_remove( ping_tracker->lru, peer, ping_tracker->pool );
   lru_list_ele_push_tail( ping_tracker->lru, peer, ping_tracker->pool );
+}
+
+void
+fd_ping_tracker_entrypoint_track( fd_ping_tracker_t *   ping_tracker,
+                                  long                  now,
+                                  fd_ip4_port_t const*  peer_address ) {
+  entrypt_list_iter_t it = find_entrypoint( ping_tracker, peer_address );
+
+  /* TODO: also need a way to check for promoted entrypoints (see todo in promote_entrypoint) */
+  if( FD_UNLIKELY( !entrypt_list_iter_done( it, ping_tracker->entrypt, ping_tracker->pool ) ) ) return;
+
+  fd_ping_peer_t * peer = NULL;
+
+  if( FD_UNLIKELY( !pool_free( ping_tracker->pool ) ) ) {
+    peer = lru_list_ele_pop_head( ping_tracker->lru, ping_tracker->pool );
+    remove_tracking( ping_tracker, peer );
+    peer_map_ele_remove_fast( ping_tracker->peers, peer, ping_tracker->pool );
+  } else {
+    peer = pool_ele_acquire( ping_tracker->pool );
+  }
+
+  peer->address           = *peer_address;
+  peer->valid_until_nanos = 0L;
+  peer->next_ping_nanos   = now;
+  peer->state             = FD_PING_TRACKER_STATE_INVALID;
+
+  for( ulong i=0UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( ping_tracker->rng );
+  hash_ping_token( peer->ping_token, peer->expected_pong_token, ping_tracker->sha );
+
+  invalid_list_ele_push_head( ping_tracker->invalid, peer, ping_tracker->pool );
+  entrypt_list_ele_push_head( ping_tracker->entrypt, peer, ping_tracker->pool );
+
+  /* We do not want unresolved entrypoints to be removed via lru, so
+     we do not push into the lru list here. See promote_entrypoint.*/
+
 }
 
 void
@@ -284,10 +382,25 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
                           fd_ip4_port_t const * peer_address,
                           uchar const *         pong_token,
                           long                  now ) {
-  if( FD_UNLIKELY( peer_stake>=1000000000UL ) ) return;
+  if( FD_UNLIKELY( peer_stake>=1000000000UL ) ) {
+    /* NOTE: unlike fd_ping_tracker_track, fd_ping_tracker_register
+       does not update peer stake information so there is no need to check if
+       a peer was previously below this stake threshold.
+
+       FIXME: Should we update? */
+    return;
+  };
 
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
-  if( FD_UNLIKELY( !peer ) ) return;
+  if( FD_UNLIKELY( !peer ) ) {
+    entrypt_list_iter_t it = find_entrypoint( ping_tracker, peer_address );
+    if( FD_LIKELY( entrypt_list_iter_done( it, ping_tracker->entrypt, ping_tracker->pool ) ) ) {
+      return;
+    }
+    ulong peer_idx = entrypt_list_iter_idx( it, ping_tracker->entrypt,  ping_tracker->pool );
+    peer = &ping_tracker->pool[ peer_idx ];
+    promote_entrypoint( ping_tracker, peer, peer_pubkey );
+  };
 
   if( FD_UNLIKELY( peer_address->addr!=peer->address.addr || peer_address->port!=peer->address.port ) ) return;
   if( FD_UNLIKELY( memcmp( pong_token, peer->expected_pong_token, 32UL ) ) ) return;
@@ -297,10 +410,6 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
   remove_tracking( ping_tracker, peer );
   peer->state = FD_PING_TRACKER_STATE_VALID;
   for( ulong i=0UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( ping_tracker->rng );
-  fd_sha256_init( ping_tracker->sha );
-  fd_sha256_append( ping_tracker->sha, "SOLANA_PING_PONG", 16UL );
-  fd_sha256_append( ping_tracker->sha, peer->ping_token, 32UL );
-  fd_sha256_fini( ping_tracker->sha, peer->expected_pong_token );
   waiting_list_ele_push_tail( ping_tracker->waiting, peer, ping_tracker->pool );
 }
 
@@ -344,7 +453,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     else if( FD_LIKELY( peer_invalid->next_ping_nanos<peer_refreshing->next_ping_nanos && peer_invalid->next_ping_nanos<peer_waiting->next_ping_nanos ) ) next = peer_invalid;
     else if( FD_LIKELY( peer_refreshing->next_ping_nanos<peer_waiting->next_ping_nanos && peer_refreshing->next_ping_nanos<peer_invalid->next_ping_nanos ) ) next = peer_refreshing;
     else next = peer_waiting;
-  
+
     if( FD_UNLIKELY( next->last_rx_nanos<now-20L*1000L*1000L*1000L ) ) {
       /* The peer is no longer sending us contact information, no need
          to ping it and instead remove it from the table. */
@@ -374,4 +483,11 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     *out_token            = next->ping_token;
     return 1;
   }
+}
+
+void
+fd_ping_tracker_hash_ping_token(  uchar const * token,
+                                  uchar *       out_hash ) {
+  fd_sha256_t sha[1];
+  hash_ping_token( token, out_hash, sha );
 }

@@ -2,9 +2,10 @@
 #define HEADER_fd_src_flamenco_gossip_fd_crds_h
 
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_net_headers.h"
 
-struct fd_crds_value_private;
-typedef struct fd_crds_value_private fd_crds_value_t;
+struct fd_crds_entry_private;
+typedef struct fd_crds_entry_private fd_crds_entry_t;
 
 struct fd_crds_private;
 typedef struct fd_crds_private fd_crds_t;
@@ -14,25 +15,25 @@ typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* Returns the timestamp when the node received the CRDS value associated
+   with table entry `entry`.
+
+   To get the wallclock attached by the originator of the CRDS value,
+   use fd_crds_value_wallclock( entry->value ) instead. */
 long
-fd_crds_value_wallclock( fd_crds_value_t const * value );
-
-uchar const *
-fd_crds_value_pubkey( fd_crds_value_t const * value );
-
-uchar const *
-fd_crds_value_hash( fd_crds_value_t const * value );
+fd_crds_entry_wallclock( fd_crds_entry_t const * entry );
 
 FD_FN_CONST ulong
 fd_crds_align( void );
 
 FD_FN_CONST ulong
-fd_crds_footprint( ulong ele_max );
+fd_crds_footprint( ulong ele_max, ulong purged_max );
 
 void *
 fd_crds_new( void *     shmem,
              fd_rng_t * rng,
-             ulong      ele_max );
+             ulong      ele_max,
+             ulong      purged_max );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
@@ -41,7 +42,7 @@ fd_crds_join( void * shcrds );
    store.  CRDS values from staked nodes expire roughly an epoch after
    they are created, and values from non-staked nodes expire after 15
    seconds.
-   
+
    There is one exception, when the node is first bootstrapping, and
    has not yet seen any staked nodes, values do not expire at all. */
 
@@ -60,7 +61,7 @@ fd_crds_expire( fd_crds_t * crds,
    are also excluded from the sampling.  Peers with a different shred
    version than us, or with an invalid gossip socket address are also
    excluded from the sampling.
-   
+
    If no valid peer can be found, the returned fd_ip4_port_t will be
    zeroed out.  The caller should check for this case and handle it
    appropriately.  On success, the returned fd_ip4_port_t is a socket
@@ -85,7 +86,7 @@ fd_crds_sample_peer( fd_crds_t const * crds );
    does this by evicting an existing value from the pool and structures
    if there is no free space. */
 
-fd_crds_value_t *
+fd_crds_entry_t *
 fd_crds_acquire( fd_crds_t * crds );
 
 /* fd_crds_release releases a CRDS value back to the storage pool.  The
@@ -96,14 +97,14 @@ fd_crds_acquire( fd_crds_t * crds );
 
 void
 fd_crds_release( fd_crds_t *       crds,
-                 fd_crds_value_t * value );
+                 fd_crds_entry_t * value );
 
 /* fd_crds_upserts checks if inserting the value into the CRDS would
    succeed.  An insert will fail if the value is already present in the
    CRDS with a newer timestamp, or if the value is not present. */
-
+int
 fd_crds_upserts( fd_crds_t *       crds,
-                 fd_crds_value_t * value );
+                 fd_crds_entry_t * value );
 
 /* fd_crds_insert inserts and indexes a previously acquired CRDS value
    into the data store, so that it can be returned by future queries.
@@ -113,9 +114,10 @@ fd_crds_upserts( fd_crds_t *       crds,
    release the value when it expires, or when it must be evicted to
    make room for a new value. */
 
-void
+int
 fd_crds_insert( fd_crds_t *       crds,
-                fd_crds_value_t * value );
+                fd_crds_entry_t * value,
+                int               from_push_msg );
 
 ulong
 fd_crds_purged_len( fd_crds_t * crds );
@@ -135,7 +137,7 @@ fd_crds_mask_iter_next( fd_crds_mask_iter_t it );
 int
 fd_crds_mask_iter_done( fd_crds_mask_iter_t it );
 
-fd_crds_value_t const *
+fd_crds_entry_t const *
 fd_crds_mask_iter_value( fd_crds_mask_iter_t it );
 
 ulong

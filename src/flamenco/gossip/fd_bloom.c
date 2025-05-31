@@ -49,7 +49,7 @@ fd_bloom_new( void *     shmem,
   if( FD_UNLIKELY( false_positive_rate>=1.0 ) ) return NULL;
 
   if( FD_UNLIKELY( max_bits<1UL || max_bits>32768UL ) ) return NULL;
-  
+
   if( FD_UNLIKELY( !rng ) ) return NULL;
 
   ulong num_keys = (ulong)( (double)max_bits*FD_BLOOM_LN_2 );

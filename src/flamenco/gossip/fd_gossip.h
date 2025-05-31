@@ -4,6 +4,15 @@
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
 
+#define FD_GOSSIP_RX_OK                         (0)
+
+#define FD_GOSSIP_RX_PARSE_ERR                  (1)
+
+#define FD_GOSSIP_RX_VERIFY_NO_SIGNABLE_DATA    (1)
+
+#define FD_GOSSIP_RX_PRUNE_ERR_STALE            (1)
+#define FD_GOSSIP_RX_PRUNE_ERR_DESTINATION      (2)
+
 /* TODO: When we get a pull request, respond with ContactInfos first if
    we have any available that are responsive. */
 
@@ -64,6 +73,16 @@ struct fd_gossip_metrics {
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;
 
+typedef void (*fd_gossip_send_fn)( void *                 ctx,
+                                   uchar const *          data,
+                                   ulong                  sz,
+                                   fd_ip4_port_t const *  peer_address,
+                                   ulong                  now );
+typedef void (*fd_gossip_sign_fn)( void *         ctx,
+                                   uchar const *  data,
+                                   ulong          sz,
+                                   uchar *        signature );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -80,7 +99,12 @@ fd_gossip_new( void *                shmem,
                ushort                expected_shred_version,
                ulong                 entrypoints_cnt,
                fd_ip4_port_t const * entrypoints,
-               uchar const *         identity_pubkey );
+               uchar const *         identity_pubkey,
+               fd_gossip_send_fn     send_fn,
+               void *                send_ctx,
+               fd_gossip_sign_fn     sign_fn,
+               void *                sign_ctx,
+               long                  now );
 
 fd_gossip_t *
 fd_gossip_join( void * shgossip );
@@ -121,6 +145,8 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
       periodically rotated, with one new peer entering and one old peer
       leaving, based on stake weights.
 
+   now is the current time in nanoseconds.
+
    Only actions which are necessary and useful will be performed, and
    the function is idempotent and fast otherwise.  advance should be
    called as often as possible. */
@@ -133,6 +159,10 @@ fd_gossip_advance( fd_gossip_t * gossip,
    from the network.  It is expected that the packet is a UDP packet but
    otherwise no assumptions are made about the contents of the packet,
    in particular it might be malformed, corrupted, malicious, and so on.
+
+   now is the current time in nanoseconds, and is used to determine
+   whether the packet is stale or not, and to update the internal state
+   of the gossip protocol.
 
    Receiving a packet might cause response packets to need to be sent
    back to the gossip network.  The response packets are queued for
