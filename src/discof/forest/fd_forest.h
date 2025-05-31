@@ -34,7 +34,6 @@
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
-
 /* fd_forest_ele_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
    (`child_idx`), its immediate-right sibling (`sibling_idx`), and its
@@ -54,8 +53,6 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_ele_idxs_t cmpl[fd_forest_ele_idxs_word_cnt]; /* fec complete idxs */
-  fd_forest_ele_idxs_t fecs[fd_forest_ele_idxs_word_cnt]; /* fec set idxs */
   fd_forest_ele_idxs_t idxs[fd_forest_ele_idxs_word_cnt]; /* data shred idxs */
 };
 typedef struct fd_forest_ele fd_forest_ele_t;

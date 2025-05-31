@@ -146,7 +146,6 @@ struct fd_repair_tile_ctx {
   ulong       replay_out_chunk;
 
   uint                shred_tile_cnt;
-  fd_repair_out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
 
   ushort net_id;
   /* Includes Ethernet, IP, UDP headers */
@@ -277,12 +276,12 @@ handle_new_stake_weights( fd_repair_tile_ctx_t * ctx ) {
 }
 
 ulong
-fd_repair_handle_ping( fd_repair_tile_ctx_t *  repair_tile_ctx,
+fd_repair_handle_ping( fd_repair_tile_ctx_t        * repair_tile_ctx,
                        fd_repair_t *                 glob,
-                       fd_gossip_ping_t const *      ping,
+                       fd_gossip_ping_t const      * ping,
                        fd_gossip_peer_addr_t const * peer_addr FD_PARAM_UNUSED,
                        uint                          self_ip4_addr FD_PARAM_UNUSED,
-                       uchar *                       msg_buf,
+                       uchar                       * msg_buf,
                        ulong                         msg_buf_sz ) {
   fd_repair_protocol_t protocol;
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
@@ -819,6 +818,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
   } FD_SCRATCH_SCOPE_END;
   return 0;
 }
+
 static void
 after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  in_idx,
@@ -901,7 +901,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
         ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, shred->fec_set_idx, 0, 0 );
       }
       FD_TEST( ele ); /* must be non-empty */
-      fd_forest_ele_idxs_insert( ele->cmpl, shred->fec_set_idx );
 
       uchar * merkle        = ctx->buffer + FD_SHRED_DATA_HEADER_SZ;
       int     data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
@@ -920,10 +919,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           reasm->cnt = 0;
         }
         if( FD_UNLIKELY( out.data_complete ) ) {
-          uint  cnt   = out.fec_set_idx + out.data_cnt - reasm->cnt;
+          uint  cnt   = out.fec_set_idx + FD_FEC_SHRED_CNT - reasm->cnt;
           ulong sig   = fd_disco_repair_replay_sig( out.slot, out.parent_off, cnt, out.slot_complete );
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-          reasm->cnt = out.fec_set_idx + out.data_cnt;
+          reasm->cnt = out.fec_set_idx + FD_FEC_SHRED_CNT;
           fd_stem_publish( ctx->stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tsorig, tspub );
           if( FD_UNLIKELY( out.slot_complete ) ) {
             fd_reasm_remove( ctx->reasm, reasm );
@@ -943,38 +942,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
       int               data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-      fd_forest_ele_t * ele           = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, data_complete, slot_complete );
-
-      /* Check if there are FECs to force complete. Algorithm: window
-         through the idxs in interval [i, j). If j = next fec_set_idx
-         then we know we can force complete the FEC set interval [i, j)
-         (assuming it wasn't already completed based on `cmpl`). */
-
-      uint i = 0;
-      for( uint j = 1; j < ele->buffered_idx + 1; j++ ) { /* TODO iterate by word */
-        if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->cmpl, i ) && fd_forest_ele_idxs_test( ele->fecs, j ) ) ) {
-          i = j;
-        } else if( FD_UNLIKELY( fd_forest_ele_idxs_test( ele->fecs, j ) || j == ele->complete_idx ) ) {
-          if ( j == ele->complete_idx ) j++;
-          fd_forest_ele_idxs_insert( ele->cmpl, i );
-
-          /* Find the shred tile owning this FEC set. */
-
-          fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-
-          ulong sig      = fd_ulong_load_8( fec_sig->sig );
-          ulong tile_idx = sig % ctx->shred_tile_cnt;
-          uint  last_idx = j - i - 1;
-
-          uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-          memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-          fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-          ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-          i = j;
-        } else {
-          // FD_LOG_NOTICE(( "not a fec boundary %lu %u", ele->slot, j ));
-        }
-      }
+      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, shred->idx, shred->fec_set_idx, data_complete, slot_complete );
     }
     return;
   }
@@ -1120,46 +1088,6 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
     return;
   }
 
-  // /* Note: just running Testnet, without repairs routed through shred
-  //    yet, this loop almost never catches blind complete messages.
-  //    After repairs route through shred, could be worth adding some way
-  //    to handle the below case w/out constantly looping for it. */
-
-  // fd_fec_intra_map_t * fec_intra_map  = ctx->fec_repair->intra_map;
-  // fd_fec_intra_t     * fec_intra_pool = ctx->fec_repair->intra_pool;
-
-  // fd_fec_intra_pool_private_t const * meta = fd_fec_intra_pool_private_meta_const( fec_intra_pool );
-  // FD_TEST( meta->magic == 0xF17EDA2CE7900100UL );
-
-  // for( fd_fec_intra_map_iter_t iter = fd_fec_intra_map_iter_init( fec_intra_map, fec_intra_pool );
-  //       !fd_fec_intra_map_iter_done( iter, fec_intra_map, fec_intra_pool );
-  //       iter = fd_fec_intra_map_iter_next( iter, fec_intra_map, fec_intra_pool ) ) {
-
-  //   fd_fec_intra_t const * fec = fd_fec_intra_map_iter_ele_const( iter, fec_intra_map, fec_intra_pool );
-  //   if( FD_UNLIKELY( fec->completes_idx != UINT_MAX ) ) continue; // already completed, or being taken care of
-  //   if( FD_UNLIKELY( fec->buffered_idx  == UINT_MAX ) ) continue; // nothing buffered
-
-  //   /* This occurs when fec_1 completes fully with only data shreds
-  //      before any shred of fec_2 arrives, and thus fec_1 may never know
-  //      what it's completes_idx is. We catch these cases here. */
-
-  //   if( FD_UNLIKELY( check_blind_fec_completed( ctx->fec_repair, ctx->fec_chainer, fec->slot, fec->fec_set_idx ) ) ){
-  //     /* find the shred tile owning this FEC set */
-  //     fd_ed25519_sig_t null_sig = { 0 };
-  //     FD_TEST( memcmp( fec->sig, null_sig, sizeof(fd_ed25519_sig_t)) != 0 );
-
-  //     ulong shred_sig = fd_ulong_load_8( &fec->sig );
-  //     int   tile_idx  = (int) ( shred_sig % (ulong)ctx->shred_tile_cnt );
-  //     uint  last_idx  = fec->buffered_idx;
-  //     ulong sig       = fd_disco_repair_shred_sig( last_idx );
-
-  //     FD_LOG_WARNING(("[%s] sending blind force_complete message to shred tile %d, with sig %lu", __func__, tile_idx, shred_sig ));
-  //     uchar * shed_out_buf = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-  //     fd_memcpy( shed_out_buf, &fec->sig, sizeof( fd_ed25519_sig_t ) );
-  //     fd_stem_publish( ctx->stem, ctx->shred_out_ctx[tile_idx].idx, sig, ctx->shred_out_ctx[tile_idx].chunk, sizeof( fd_ed25519_sig_t ), 0UL, 0UL, 0UL );
-  //     ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-  //   }
-  // }
 }
 static void
 privileged_init( fd_topo_t *      topo,
@@ -1227,7 +1155,6 @@ unprivileged_init( fd_topo_t *      topo,
 
 
   uint sign_link_out_idx = UINT_MAX;
-  uint shred_tile_idx    = 0;
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ out_idx ] ];
 
@@ -1254,32 +1181,22 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );
       ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
-    } else if ( 0==strcmp( link->name, "repair_shred" ) ) {
-
-      fd_repair_out_ctx_t * shred_out = &ctx->shred_out_ctx[ shred_tile_idx++ ];
-      shred_out->idx                  = out_idx;
-      shred_out->mem                  = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      shred_out->chunk0               = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
-      shred_out->wmark                = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
-      shred_out->chunk                = shred_out->chunk0;
-
     } else {
       FD_LOG_ERR(( "repair tile has unexpected output link %s", link->name ));
     }
 
   }
   if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing gossip_sign link" ));
-  ctx->shred_tile_cnt = shred_tile_idx;
-  FD_TEST( ctx->shred_tile_cnt == tile->repair.shred_tile_cnt );
+  ctx->shred_tile_cnt = tile->repair.shred_tile_cnt;
 
   /* Scratch mem setup */
 
   ctx->blockstore = &ctx->blockstore_ljoin;
-  ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
-  ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( FD_FOREST_ELE_MAX ) );
+  ctx->repair   = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+  ctx->forest   = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( FD_FOREST_ELE_MAX ) );
   ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
-  ctx->recent = FD_SCRATCH_ALLOC_APPEND( l, fd_recent_align(), fd_recent_footprint( 20 ) );
-  ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );
+  ctx->recent   = FD_SCRATCH_ALLOC_APPEND( l, fd_recent_align(), fd_recent_footprint( 20 ) );
+  ctx->reasm    = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );
   // ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
 

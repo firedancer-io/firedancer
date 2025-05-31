@@ -151,6 +151,7 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
 #define FD_SHRED_BLK_MAX (1 << 15UL) /* 32,768 shreds */
 #define FD_SHRED_IDX_MAX (FD_SHRED_BLK_MAX - 1)
+#define FD_FEC_SHRED_CNT 32
 
 /* Many static bounds are specified around the assumption that this is a
    protocol limit on the max number of shreds in a slot. If this limit
