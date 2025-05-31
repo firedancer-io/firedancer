@@ -44,7 +44,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
         .opts = {
           .name     = "eth0",
           .ip4_addr = {(uchar)127, (uchar)0, (uchar)0, (uchar)1},
-          .mac_addr = "\x06\x00\xde\xad\xbe\xef",
+          .mac_addr = { 0x06, 0x00, 0xde, 0xad, 0xbe, 0xef },
           .tsresol  = FD_PCAPNG_TSRESOL_NS,
           .hardware = "fake interface"
         } }

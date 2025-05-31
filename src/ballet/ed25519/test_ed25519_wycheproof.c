@@ -3,6 +3,10 @@
 
 #include "../fd_ballet_base.h"
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 struct fd_ed25519_verify_wycheproof {
   char const *  comment;
   uchar const * msg;
