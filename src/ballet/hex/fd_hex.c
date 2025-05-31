@@ -34,7 +34,9 @@ fd_hex_encode( char *       dst,
                void const * _src,
                ulong        sz ) {
   uchar const * src = (uchar const *)_src;
-  static char const lut[ 16 ] = "0123456789abcdef";
+  static char const lut[ 16 ] = {
+    '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
+  };
   for( ulong j=0UL; j<sz; j++ ) {
     ulong c = src[j];
     *dst++ = lut[ c >> 4UL ];

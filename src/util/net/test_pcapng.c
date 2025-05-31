@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
 
 FD_STATIC_ASSERT( offsetof( fd_pcapng_shb_t, block_type       )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_pcapng_shb_t, block_sz         )== 4UL, layout );

@@ -17,6 +17,10 @@
 #define SOLCAP_FILE_NAME_LEN (13UL)
 #define SOLCAP_SUFFIX_LEN    (7UL) /* .solcap */
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 static const uchar
 _vote_program_address[ 32 ] =
   "\x07\x61\x48\x1d\x35\x74\x74\xbb\x7c\x4d\x76\x24\xeb\xd3\xbd\xb3"
