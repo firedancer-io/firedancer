@@ -92,7 +92,7 @@ FD_PROTOTYPES_BEGIN
    name by a table index instead of a literal string to save space.
    Indices in range [1,61] are predefined. */
 
-extern char const __attribute__((aligned(16)))
+extern schar const __attribute__((aligned(16)))
 fd_h2_hpack_matcher[ 62 ];
 
 /* fd_h2_hdr_matcher_init initializes a new matcher object.  mem points
