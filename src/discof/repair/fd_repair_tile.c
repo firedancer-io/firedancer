@@ -40,7 +40,6 @@
 #define MAX_SHRED_TILE_CNT (16UL)
 
 #define FD_FOREST_ELE_MAX  (2048) /* FIXME */
-#define MAX_SHRED_TILE_CNT (16UL)
 typedef union {
   struct {
     fd_wksp_t * mem;
