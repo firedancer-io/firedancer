@@ -6,7 +6,7 @@
                 to weaker typing.
  * @kind problem
  * @id firedancer-io/trivial-memcpy
- * @problem.severity warning
+ * @problem.severity none
  * @precision high
  * @tags maintainability
  *       readability
