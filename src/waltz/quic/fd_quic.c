@@ -673,6 +673,7 @@ static inline void
 fd_quic_svc_schedule1( fd_quic_conn_t * conn ) {
   fd_quic_svc_schedule( fd_quic_get_state(conn->quic)->svc_timers, conn );
 }
+
 /* validates the free conn list doesn't cycle, point nowhere, leak, or point to live conn */
 static void
 fd_quic_conn_free_validate( fd_quic_t * quic ) {
@@ -713,21 +714,6 @@ fd_quic_state_validate( fd_quic_t * quic ) {
   FD_TEST( fd_quic_svc_timers_validate( state->svc_timers, quic ) );
 
   fd_quic_conn_free_validate( quic );
-}
-
-fd_quic_conn_t *
-fd_quic_conn_query( fd_quic_conn_map_t * map,
-                    ulong                conn_id ) {
-  fd_quic_conn_map_t sentinel = {0};
-  if( !conn_id ) return NULL;
-  fd_quic_conn_map_t * entry = fd_quic_conn_map_query( map, conn_id, &sentinel );
-  fd_quic_conn_t *     conn  = entry->conn;
-  if( conn ) {
-    if( FD_UNLIKELY( conn->state==FD_QUIC_CONN_STATE_INVALID ) ) {
-      FD_LOG_ERR(( "Conn ID %016lx at %p is in map but in free state", conn_id, (void *)conn ));
-    }
-  }
-  return conn;
 }
 
 /* Helpers for generating fd_quic_log entries */
@@ -1379,6 +1365,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            uchar *                   cur_ptr,
                            ulong                     cur_sz ) {
   fd_quic_conn_t * conn = *p_conn;
+  if( FD_UNLIKELY( conn &&
+                   ( conn->state==FD_QUIC_CONN_STATE_INVALID ||
+                     !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_initial_id ) ) ) ) {
+    quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_initial_id ]++;
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
@@ -1629,11 +1621,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     }
   }
 
-  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_initial_id ) ) ) {
-    quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_initial_id ]++;
-    return FD_QUIC_PARSE_FAIL;
-  }
-
   /* Decrypt incoming packet */
 
   /* header protection needs the offset to the packet number */
@@ -1756,7 +1743,8 @@ fd_quic_handle_v1_handshake(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_handshake_id ) ) ) {
+  if( FD_UNLIKELY( conn->state==FD_QUIC_CONN_STATE_INVALID ||
+                   !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_handshake_id ) ) ) {
     quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_handshake_id ]++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2035,6 +2023,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     quic->metrics.pkt_no_conn_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
+  if( FD_UNLIKELY( conn->state==FD_QUIC_CONN_STATE_INVALID ||
+                   !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) {
+    quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_appdata_id ]++;
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   if( FD_UNLIKELY( tot_sz < (1+FD_QUIC_CONN_ID_SZ+1) ) ) {
     /* One-RTT header: 1 byte
@@ -2046,10 +2039,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   ulong pn_offset = 1UL + FD_QUIC_CONN_ID_SZ;
 
   pkt->enc_level = fd_quic_enc_level_appdata_id;
-  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) {
-    quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_appdata_id ]++;
-    return FD_QUIC_PARSE_FAIL;
-  }
 
 # if !FD_QUIC_DISABLE_CRYPTO
   if( FD_UNLIKELY(
@@ -2231,12 +2220,6 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
-    if( FD_UNLIKELY( !conn ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )) );
-      quic->metrics.pkt_no_conn_cnt++;
-      return FD_QUIC_PARSE_FAIL;
-    }
-
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
@@ -3927,11 +3910,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  /* remove connection id from conn_map */
-
-  fd_quic_conn_map_t * entry = fd_quic_conn_map_query( state->conn_map, conn->our_conn_id, NULL );
-  if( FD_LIKELY( entry ) ) fd_quic_conn_map_remove( state->conn_map, entry );
-
   /* no need to remove this connection from the events queue
      free is called from two places:
        fini    - service will never be called again. All events are destroyed
@@ -4132,8 +4110,16 @@ fd_quic_conn_create( fd_quic_t *               quic,
     return NULL;
   }
   fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, conn_idx );
+  if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_INVALID ) ) {
+    FD_LOG_ERR(( "conn %p not free, this is a bug", (void *)conn ));
+    return NULL;
+  }
 
-  /* insert into connection map */
+  /* prune previous conn map entry */
+  fd_quic_conn_map_t * entry = fd_quic_conn_query1( state->conn_map, conn->our_conn_id, NULL );
+  if( entry ) fd_quic_conn_map_remove( state->conn_map, entry );
+
+  /* insert into conn map */
   fd_quic_conn_map_t * insert_entry = fd_quic_conn_map_insert( state->conn_map, our_conn_id );
 
   /* if insert failed (should be impossible) fail, and do not remove connection
@@ -4151,12 +4137,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* remove from free list */
   state->free_conn_list = conn->free_conn_next;
   conn->free_conn_next        = UINT_MAX;
-
-  /* if conn not marked free, skip */
-  if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_INVALID ) ) {
-    FD_LOG_ERR(( "conn %p not free, this is a bug", (void *)conn ));
-    return NULL;
-  }
 
   /* initialize connection members */
   conn->quic                = quic;
