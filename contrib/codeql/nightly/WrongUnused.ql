@@ -4,7 +4,7 @@
  * @id asymmetric-research/used-unused-param
  * @kind problem
  * @precision high
- * @problem.severity warning
+ * @problem.severity none
  */
 
 import cpp
