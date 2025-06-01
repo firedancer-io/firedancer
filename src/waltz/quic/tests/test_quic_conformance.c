@@ -554,6 +554,80 @@ test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
 
 }
 
+static __attribute__((noinline)) void
+test_quic_conn_free( fd_quic_sandbox_t * sandbox,
+                     fd_rng_t *          rng ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_t *       quic     = sandbox->quic;
+  fd_quic_state_t * state    = fd_quic_get_state( quic );
+  ulong             conn_max = quic->limits.conn_cnt;
+
+  /* If no CIDs are cached, our_conn_id must be initialized to zero
+     (zero acts as the conn_map key sentinel) */
+  for( ulong j=0UL; j<conn_max; j++ ) {
+    FD_TEST( fd_quic_conn_at_idx( state, j )->our_conn_id == 0UL );
+  }
+  fd_quic_state_validate( quic );
+
+  /* Create a bunch of conns */
+  for( ulong j=0UL; j<conn_max; j++ ) {
+    FD_TEST( fd_quic_sandbox_new_conn_established( sandbox, rng ) );
+  }
+  fd_quic_state_validate( quic );
+
+  /* Ensure each conn is in conn_id_map */
+  static fd_quic_conn_map_t sentinel[1] = {0};
+  for( ulong j=0UL; j<conn_max; j++ ) {
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
+    ulong const cid = conn->our_conn_id;
+    FD_TEST( fd_quic_conn_query( state->conn_map, cid )==conn );
+
+    /* Free conn */
+    fd_quic_conn_free( quic, conn );
+    FD_TEST( conn->state == FD_QUIC_CONN_STATE_INVALID );
+    FD_TEST( conn->our_conn_id == cid ); /* CID is kept */
+    FD_TEST( fd_quic_conn_query1( state->conn_map, cid, sentinel )->conn==conn );
+  }
+  fd_quic_state_validate( quic );
+
+  /* Now, allocate new conns.  CIDs should be replaced one by one. */
+  for( ulong i=0UL; i<conn_max; i++ ) {
+    /* LIFO allocation policy */
+    ulong j = conn_max - 1UL - i;
+
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
+    ulong const old_cid = conn->our_conn_id;
+    FD_TEST( fd_quic_conn_query1( state->conn_map, old_cid, sentinel )->conn==conn );
+
+    FD_TEST( fd_quic_sandbox_new_conn_established( sandbox, rng )==conn );
+    FD_TEST( fd_quic_conn_query1( state->conn_map, old_cid, sentinel )->conn==NULL );
+    ulong const new_cid = conn->our_conn_id;
+    FD_TEST( fd_quic_conn_query1( state->conn_map, new_cid, sentinel )->conn==conn );
+  }
+  fd_quic_state_validate( quic );
+
+  /* Finally, validate that packet handlers count freed conns as
+     "keys not available" in metrics.  (Logically, for the receiver
+     side, a dead conn is comparable to a conn where all receive keys
+     were discarded) */
+  fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, 0UL );
+  ulong const old_cid = conn->our_conn_id;
+  fd_quic_conn_free( quic, conn );
+  conn->keys_avail = UINT_MAX;
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_INVALID );
+  FD_TEST( fd_quic_conn_query1( state->conn_map, old_cid, sentinel )->conn==conn );
+
+  FD_TEST( quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_initial_id   ]==0 );
+  FD_TEST( quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_handshake_id ]==0 );
+  FD_TEST( quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_appdata_id   ]==0 );
+  fd_quic_handle_v1_initial( quic, &conn, NULL, NULL, NULL, NULL, 0UL );
+  FD_TEST( quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_initial_id   ]==1 );
+  fd_quic_handle_v1_handshake( quic, conn, NULL, NULL, 0UL );
+  FD_TEST( quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_handshake_id ]==1 );
+  fd_quic_handle_v1_one_rtt( quic, conn, NULL, NULL, 0UL );
+  FD_TEST( quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_appdata_id   ]==1 );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -614,6 +688,7 @@ main( int     argc,
   test_quic_send_streams                 ( sandbox, rng );
   test_quic_inflight_pkt_limit           ( sandbox, rng );
   test_quic_parse_path_challenge();
+  test_quic_conn_free                    ( sandbox, rng );
 
   /* Wind down */
 
