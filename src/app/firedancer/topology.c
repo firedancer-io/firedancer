@@ -772,6 +772,18 @@ fd_topo_initialize( config_t * config ) {
     /**/ fd_topob_tile_in( topo, "arch_w", 0UL, "metric_in", "arch_f2w", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
+  if( config->tiles.shredcap.enabled ) {
+    fd_topob_wksp( topo, "shredcap" );
+    fd_topob_tile( topo, "shrdcp", "shredcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    for( ulong j=0UL; j<net_tile_cnt; j++ ) {
+      fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "net_shred", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    }
+    for( ulong j=0UL; j<shred_tile_cnt; j++ ) {
+      fd_topob_tile_in(  topo, "shrdcp", 0UL, "metric_in", "shred_repair", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    }
+  }
+
   fd_topob_wksp( topo, "replay_notif" );
   /* We may be notifying an external service, so always publish on this link. */
   /**/ fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH, FD_REPLAY_NOTIF_MTU, 1UL )->permit_no_consumers = 1;
@@ -1033,6 +1045,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         if( FD_UNLIKELY( 0==strlen( tile->archiver.archiver_path ) ) ) {
           FD_LOG_ERR(( "`archiver.archiver_path` not specified in toml" ));
         }
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "shrdcp" ) ) ) {
+      tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
+      strncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(config->tiles.shredcap.folder_path) );
+      tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
     } else {
       return 0;
     }

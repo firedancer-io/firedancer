@@ -250,6 +250,12 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
   CFG_POP      ( cstr,   tiles.archiver.archiver_path                     );
 
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    CFG_POP      ( bool,    tiles.shredcap.enabled                           );
+    CFG_POP      ( cstr,    tiles.shredcap.folder_path                       );
+    CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size                  );
+  }
+
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
   CFG_POP      ( bool,   development.core_dump                            );
