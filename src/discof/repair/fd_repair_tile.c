@@ -23,6 +23,11 @@
 
 #include <errno.h>
 
+#ifdef FD_HAS_REPAIR_ANALYSIS
+#include <unistd.h>
+#include <time.h>
+#endif
+
 #define IN_KIND_NET     (0)
 #define IN_KIND_CONTACT (1)
 #define IN_KIND_STAKE   (2)
@@ -153,6 +158,9 @@ struct fd_repair_tile_ctx {
 
   ulong * first_turbine_slot; /* first slot we see over turbine
                                  used to approximate init poh_slot */
+#ifdef FD_HAS_REPAIR_ANALYSIS
+  int request_data_fd; /* file descriptor for repair data */
+#endif
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -221,7 +229,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   hdr->udp->check = 0U;
 
   ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t), 0 );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
@@ -405,6 +413,18 @@ fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
 
   active->avg_reqs++;
   glob->metrics.send_pkt_cnt++;
+
+#ifdef FD_HAS_REPAIR_ANALYSIS
+  uint nonce = protocol.inner.window_index.header.nonce;
+  char repair_data_buf[1024];
+  snprintf( repair_data_buf, sizeof(repair_data_buf),
+          "%lu,%s,%ld,%u,%lu,%u\n",
+            0xfffffUL & (ulong)active->addr.addr, FD_BASE58_ENC_32_ALLOCA( &active->key ), fd_log_wallclock(), nonce, slot, shred_index );
+
+  ulong wsz;
+  int err = fd_io_write( repair_tile_ctx->request_data_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
+  FD_TEST( err==0 );
+#endif
 
   uchar buf[1024];
   ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf) );
@@ -794,6 +814,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
        should be removed when we use msg passing instead of fseq. */
     if( fd_fseq_query( ctx->first_turbine_slot ) == ULONG_MAX ) {
       fd_fseq_update( ctx->first_turbine_slot, shred->slot );
+      FD_LOG_NOTICE(("First turbine slot %lu", shred->slot));
     }
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) return; /* shred too old */
 
@@ -935,7 +956,6 @@ after_credit( fd_repair_tile_ctx_t * ctx,
      // TODO definitely need to limit this to a certain number of rq per iteration.
      // we dont refresh actives at most once per iter, and agave clients only accept until 1024 rq per iter annway
   *charge_busy = 1;
-  // FD_LOG_NOTICE(("after credit"));
 
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsrepair < (long)20e6 ) ) return; /* space to after_frag, honestly */
@@ -1012,6 +1032,9 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
   fd_repair_continue( ctx->repair );
+
+  long after_credit_duration = fd_log_wallclock() - now;
+  FD_LOG_INFO(("after_credit duration %ld", after_credit_duration / 1000));
 }
 
 static inline void
@@ -1090,6 +1113,14 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_WARNING(( "Failed to open the good peer cache file (%s) (%i-%s)", tile->repair.good_peer_cache_file, errno, fd_io_strerror( errno ) ));
   }
   ctx->repair_config.good_peer_cache_file_fd = tile->repair.good_peer_cache_file_fd;
+
+#ifdef FD_HAS_REPAIR_ANALYSIS
+  ctx->request_data_fd = open( "/data/emwang/repair_request.csv", O_WRONLY|O_CREAT|O_APPEND, 0644 );
+  FD_TEST( ctx->request_data_fd>=0 );
+  FD_TEST( ftruncate( ctx->request_data_fd, 0 ) == 0 );
+  ulong sz = 0;
+  fd_io_write( ctx->request_data_fd, "ip4_addr,pubkey,timestamp,nonce,slot,idx\n", 41UL, 41UL, &sz );
+#endif
 
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );
 }
