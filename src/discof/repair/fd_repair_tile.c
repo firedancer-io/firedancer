@@ -245,7 +245,11 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
       .addr = in_dests[i].ip4_addr,
       .port = fd_ushort_bswap( in_dests[i].udp_port ),
     };
-    fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
+    int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
+    if( !dup ) {
+      ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
+      FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
+    }
   }
 }
 
@@ -347,7 +351,7 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
      ^                ^             ^
      0                4             68 */
 
-  /* https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L874 */
+  /* https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1258 */
 
   fd_memcpy( buf+64, buf, 4 );
   buf    += 64UL;
@@ -357,7 +361,7 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
      [ discriminant ] [ payload ]
      ^                ^
-     0                4 */
+     buf              buf+4 */
 
   fd_signature_t sig;
   repair_signer( repair_tile_ctx, sig.uc, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
