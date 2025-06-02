@@ -1003,6 +1003,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * fec_sets_shmem = NULL;
   ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", ctx->round_robin_id );
+  ctx->store_out_idx  = fd_topo_find_tile_out_link( topo, tile, "shred_store",  ctx->round_robin_id );
   if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
     fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
     ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
@@ -1156,7 +1157,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
   }
 
-  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", ctx->round_robin_id );
   if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
     fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
     ctx->repair_out_mem         = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
@@ -1166,7 +1166,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( fd_dcache_compact_is_safe( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu, repair_out->depth ) );
   }
 
-  ctx->store_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_store", ctx->round_robin_id );
   if( FD_LIKELY( ctx->store_out_idx!=ULONG_MAX ) ) { /* frankendancer-only */
     fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ ctx->store_out_idx ] ];
     ctx->store_out_mem         = topo->workspaces[ topo->objs[ store_out->dcache_obj_id ].wksp_id ].wksp;
