@@ -54,72 +54,6 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return 2UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
-static void
-rocksdb_inspect( fd_archiver_backtest_tile_ctx_t * ctx ) {
-  ulong start_slot = 0;
-  ulong end_slot   = 0;
-  ulong shred_cnt  = 0;
-  do {
-    if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &ctx->rocksdb_root_iter, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) break;
-    if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) break;
-    if( FD_UNLIKELY( ctx->rocksdb_slot_meta.slot>ctx->playback_end_slot ) ) break;
-    ulong slot = ctx->rocksdb_slot_meta.slot;
-    ulong start_idx = 0;
-    ulong end_idx = ctx->rocksdb_slot_meta.received;
-
-    rocksdb_iterator_t * iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
-
-    char k[16];
-    *((ulong *) &k[0]) = fd_ulong_bswap(slot);
-    *((ulong *) &k[8]) = fd_ulong_bswap(start_idx);
-
-    rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
-
-    for (ulong i = start_idx; i < end_idx; i++) {
-      ulong cur_slot, index;
-      uchar valid = rocksdb_iter_valid(iter);
-
-      if (valid) {
-        size_t klen = 0;
-        const char* key = rocksdb_iter_key(iter, &klen); // There is no need to free key
-            if (klen != 16)  // invalid key
-              FD_LOG_ERR(( "rocksdb has invalid key length" ));
-            cur_slot = fd_ulong_bswap(*((ulong *) &key[0]));
-            index = fd_ulong_bswap(*((ulong *) &key[8]));
-      }
-
-      if (!valid || cur_slot != slot)
-        FD_LOG_ERR(("missing shreds for slot %lu, valid=%u", slot, valid));
-
-      if (index != i)
-        FD_LOG_ERR(("missing shred %lu at index %lu for slot %lu", i, index, slot));
-
-      size_t dlen = 0;
-      // Data was first copied from disk into memory to make it available to this API
-      const unsigned char *data = (const unsigned char *) rocksdb_iter_value(iter, &dlen);
-      if (data == NULL)
-        FD_LOG_ERR(("failed to read shred %lu/%lu", slot, i));
-
-      // This just correctly selects from inside the data pointer to the
-      // actual data without a memory copy
-      fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
-      if( start_slot==0 ) start_slot = shred->slot;
-      end_slot = shred->slot;
-      shred_cnt++;
-
-      rocksdb_iter_next(iter);
-    }
-  } while(1);
-
-  ctx->rocksdb_end_slot=end_slot;
-  if( FD_UNLIKELY( ctx->rocksdb_end_slot<ctx->playback_end_slot ) ) {
-    FD_LOG_ERR(( "RocksDB only has shreds up to slot=%lu, so it cannot playback to end_slot=%lu",
-                 ctx->rocksdb_end_slot, ctx->playback_end_slot ));
-  }
-  FD_LOG_NOTICE(( "RocksDB contains %lu shreds from slot %lu to %lu", shred_cnt, start_slot, end_slot ));
-  FD_TEST( shred_cnt>0 );
-}
-
 static fd_shred_t const *
 rocksdb_get_shred( fd_archiver_backtest_tile_ctx_t * ctx,
                    ulong                           * out_sz ) {
@@ -233,6 +167,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->playback_start_slot        = ULONG_MAX;
   if( FD_UNLIKELY( 0==ctx->playback_end_slot ) ) FD_LOG_ERR(( "end_slot is required for rocksdb playback" ));
 
+  char * err = NULL;
+  ulong rocksdb_end_slot = fd_rocksdb_last_slot( &ctx->rocksdb, &err );
+  if( FD_UNLIKELY( err!=NULL ) ) {
+    FD_LOG_ERR(( "fd_rocksdb_last_slot returned %s", err ));
+  }
+  if( FD_UNLIKELY( rocksdb_end_slot<ctx->playback_end_slot ) ) {
+    FD_LOG_ERR(( "RocksDB only has shreds up to slot=%lu, so it cannot playback to end_slot=%lu",
+                 rocksdb_end_slot, ctx->playback_end_slot ));
+  }
+  ctx->rocksdb_end_slot=rocksdb_end_slot;
+
   /* Setup the blockstore */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
@@ -268,7 +213,6 @@ after_credit( fd_archiver_backtest_tile_ctx_t * ctx,
     fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
     if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta, ctx->valloc ) ) )
         FD_LOG_ERR(( "Failed at seeking rocksdb root iter for slot=%lu", wmark ));
-    rocksdb_inspect( ctx );
 
     fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
     if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, wmark, &ctx->rocksdb_slot_meta, ctx->valloc ) ) )
