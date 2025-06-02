@@ -169,7 +169,7 @@ fd_stream_ctx_process_backpressure( fd_stream_ctx_t * ctx ) {
 
 static inline int
 fd_stream_ctx_is_backpressured( fd_stream_ctx_t * ctx ) {
-  int backpressured = 1UL;
+  int backpressured = ctx->out_cnt > 0UL ? 1UL : 0UL;
   for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
     backpressured &= !fd_stream_writer_publish_sz_max( ctx->writers[i] );
   }

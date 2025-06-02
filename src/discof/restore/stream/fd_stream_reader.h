@@ -69,6 +69,26 @@ fd_stream_reader_new( void *                 mem,
   return self;
 }
 
+static inline void
+fd_stream_reader_update_upstream( fd_stream_reader_t * reader ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( reader->base.fseq[0] ) = reader->base.seq;
+  FD_VOLATILE( reader->base.fseq[1] ) = reader->goff;
+  FD_COMPILER_MFENCE();
+
+  ulong volatile * metrics = fd_metrics_link_in( fd_metrics_base_tl, reader->base.idx );
+
+  uint * accum = reader->base.accum;
+  ulong a0 = accum[0]; ulong a1 = accum[1]; ulong a2 = accum[2];
+  ulong a3 = accum[3]; ulong a4 = accum[4]; ulong a5 = accum[5];
+  FD_COMPILER_MFENCE();
+  metrics[0] += a0;    metrics[1] += a1;    metrics[2] += a2;
+  metrics[3] += a3;    metrics[4] += a4;    metrics[5] += a5;
+  FD_COMPILER_MFENCE();
+  accum[0] = 0U;       accum[1] = 0U;       accum[2] = 0U;
+  accum[3] = 0U;       accum[4] = 0U;       accum[5] = 0U;
+}
+
 static inline long
 fd_stream_reader_poll_frag( fd_stream_reader_t *             reader,
                             ulong                            in_idx,

@@ -2,6 +2,7 @@
 #include "../../ballet/zstd/fd_zstd.h"
 #include "fd_restore_base.h"
 #include "stream/fd_stream_ctx.h"
+#include "stream/fd_stream_reader.h"
 #include "stream/fd_stream_writer.h"
 #include <unistd.h> /* pause */
 
@@ -140,22 +141,7 @@ on_stream_frag( void *                        _ctx,
 
 static void
 fd_unzstd_in_update( fd_stream_reader_t * in ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( in->base.fseq[0] ) = in->base.seq;
-  FD_VOLATILE( in->base.fseq[1] ) = in->goff;
-  FD_COMPILER_MFENCE();
-
-  ulong volatile * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->base.idx );
-
-  uint * accum = in->base.accum;
-  ulong a0 = accum[0]; ulong a1 = accum[1]; ulong a2 = accum[2];
-  ulong a3 = accum[3]; ulong a4 = accum[4]; ulong a5 = accum[5];
-  FD_COMPILER_MFENCE();
-  metrics[0] += a0;    metrics[1] += a1;    metrics[2] += a2;
-  metrics[3] += a3;    metrics[4] += a4;    metrics[5] += a5;
-  FD_COMPILER_MFENCE();
-  accum[0] = 0U;       accum[1] = 0U;       accum[2] = 0U;
-  accum[3] = 0U;       accum[4] = 0U;       accum[5] = 0U;
+  fd_stream_reader_update_upstream( in );
 }
 
 __attribute__((noinline)) static void
