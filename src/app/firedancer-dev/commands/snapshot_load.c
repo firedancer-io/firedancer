@@ -167,35 +167,8 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
   fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
-  /* snapin tile -> account frags */
-  // fd_topob_wksp( topo, "snap_frags" );
-  // fd_topo_link_t * snap_frags_link = fd_topob_link( topo, "snap_frags", "snap_frags", 512UL, 0UL, 0UL );
-  // snap_frags_link->dcache_obj_id = snapin_dcache->id;
-  // fd_topob_tile_out( topo, "SnapIn", 0UL, "snap_frags", 0UL );
-
-  // /* "ActAlc": Account allocator tile */
-  // fd_topob_wksp( topo, "ActAlc" );
-  // fd_topo_tile_t * actalc_tile = fd_topob_tile( topo, "ActAlc", "ActAlc", "ActAlc", tile_to_cpu[4], 0, 0 );
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  // actalc_tile->actalc.funk_obj_id = funk_obj->id;
   snapin_tile->snapin.funk_obj_id = funk_obj->id;
-
-  /* account frags -> actalc tile */
-  // fd_topob_tile_in( topo, "ActAlc", 0UL, "metric_in", "snap_frags", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  // fd_topob_tile_uses( topo, actalc_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
-
-  /* actalc tile -> record pointers */
-  // fd_topob_wksp( topo, "snap_descs" );
-  // fd_topob_link( topo, "snap_descs", "snap_descs", 512UL, 0UL, 0UL )->permit_no_consumers = 1;
-  // fd_topob_tile_out( topo, "ActAlc", 0UL, "snap_descs", 0UL );
-
-  /* "ActIdx": Account indexer tile */
-  // fd_topob_wksp( topo, "ActIdx" );
-  // fd_topo_tile_t * actidx_tile = fd_topob_tile( topo, "ActIdx", "ActIdx", "ActIdx", tile_to_cpu[5], 0, 0 );
-  // actidx_tile->actidx.funk_obj_id = funk_obj->id;
-
-  /* record pointers -> actidx tile */
-  // fd_topob_tile_in( topo, "ActIdx", 0UL, "metric_in", "snap_descs", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
