@@ -3,10 +3,36 @@
 #include <errno.h>
 #include <sys/random.h>
 
-/* map ip/port to quic conn */
-#define MAP_NAME        fd_send_conn_map
-#define MAP_T           fd_send_conn_entry_t
-#define MAP_LG_SLOT_CNT 16
+/* map leader pubkey to quic conn
+   an entry can be in 3 states:
+   - UNSTAKED: no element in map
+   - NO_CONN: pubkey maps to null conn. staked, no contact info yet
+   - CONN: pubkey maps to conn. staked, connection initiated
+
+For a given peer, state machine works as follows:
+
+receive stake msg including pubkey:
+  - if UNSTAKED, create new entry in NO_CONN state
+  - touch last_touched
+
+receive contact info:
+  - if NO_CONN, start quic connection and transition to CONN state. Touch last_touched
+  - else no-op
+
+housekeeping:
+- if last_touched too old, transition to UNSTAKED
+
+*/
+#define MAP_NAME               fd_send_conn_map
+#define MAP_T                  fd_send_conn_entry_t
+#define MAP_LG_SLOT_CNT        17
+#define MAP_KEY                pubkey
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY_NULL           (fd_pubkey_t){0}
+#define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
+#define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_HASH(key)      ((key).ui[3])
 #include "../../util/tmpl/fd_map.c"
 
 // Helper function to create connection key from ip+port
@@ -51,8 +77,9 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
 }
 
 static ulong
-quic_now( void * ctx FD_PARAM_UNUSED ) {
-  return (ulong)fd_tickcount();
+quic_now( void * _ctx ) {
+  fd_send_tile_ctx_t * ctx = (fd_send_tile_ctx_t *)_ctx;
+  return (ulong)ctx->now;
 }
 
 static void
@@ -67,41 +94,27 @@ quic_tls_cv_sign( void *      signer_ctx,
 
 static fd_quic_conn_t *
 find_quic_conn( fd_send_tile_ctx_t * ctx,
-                uint                 dst_ip,
-                ushort               dst_port ) {
-  ulong key = conn_key( dst_ip, dst_port );
-  fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, key, NULL );
+                fd_pubkey_t const *  pubkey ) {
+  fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, *pubkey, NULL );
   if( FD_LIKELY( entry ) ) {
     return entry->conn;
   }
   return NULL;
 }
 
-static void
+static fd_quic_conn_t *
 quic_connect( fd_send_tile_ctx_t * ctx,
               uint                 dst_ip,
               ushort               dst_port ) {
-  ulong key = conn_key( dst_ip, dst_port );
-
-  if( fd_send_conn_map_query( ctx->conn_map, key, NULL ) ) {
-    return;
-  }
-
-  FD_LOG_NOTICE(("Creating new QUIC connection for destination %u.%u.%u.%u:%hu",
-  dst_ip&0xff, (dst_ip>>8)&0xff, (dst_ip>>16)&0xff, (dst_ip>>24)&0xff, dst_port));
-
-  // Create new connection
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port );
-  if( FD_LIKELY( conn ) ) {
-    fd_send_conn_entry_t * entry = fd_send_conn_map_insert( ctx->conn_map, key );
-    if( FD_LIKELY( entry ) ) {
-      entry->conn = conn;
-      ctx->metrics.quic_conns_created++;
-    } else {
-      // Map is full, close the connection
-      fd_quic_conn_close( conn, 0UL );
-    }
+  if( FD_UNLIKELY( !conn ) ) {
+    /* AMANTODO - add a metric for this */
+    FD_LOG_WARNING(( "Failed to create QUIC connection" ));
+    return NULL;
   }
+  ctx->metrics.quic_conns_created++;
+
+  return conn;
 }
 
 
@@ -113,7 +126,7 @@ quic_conn_final( fd_quic_conn_t * conn,
   // Remove from connection map - need to iterate to find by conn pointer
   for( ulong slot_idx=0UL; slot_idx<fd_send_conn_map_slot_cnt(); slot_idx++ ) {
     fd_send_conn_entry_t * entry = &ctx->conn_map[slot_idx];
-    if( !fd_send_conn_map_key_inval( entry->key ) && entry->conn == conn ) {
+    if( !fd_send_conn_map_key_inval( entry->pubkey ) && entry->conn == conn ) {
       fd_send_conn_map_remove( ctx->conn_map, entry );
       ctx->metrics.quic_conns_closed++;
       break;
@@ -148,7 +161,7 @@ quic_tx_aio_send( void *                    _ctx,
        just indicate where they came from so they don't bounce back */
     ulong sig = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
-    ulong tspub = (ulong)fd_tickcount();
+    ulong tspub = (ulong)ctx->now;
 
     fd_stem_publish( ctx->stem, net_out_link->idx, sig, net_out_link->chunk, sz_l2, 0UL, 0, tspub );
     net_out_link->chunk = fd_dcache_compact_next( net_out_link->chunk, sz_l2, net_out_link->chunk0, net_out_link->wmark );
@@ -162,15 +175,12 @@ quic_tx_aio_send( void *                    _ctx,
 }
 
 static void
-send_packet( fd_send_tile_ctx_t *  ctx,
-             fd_stem_context_t   *  stem FD_PARAM_UNUSED,
-             uint                   dst_ip_addr,
-             ushort                 dst_port,
+send_packet( fd_send_tile_ctx_t  *  ctx,
+             fd_pubkey_t const   *  pubkey,
              uchar const         *  payload,
-             ulong                  payload_sz,
-             ulong                  tsorig FD_PARAM_UNUSED ) {
+             ulong                  payload_sz ) {
 
-  fd_quic_conn_t * conn = find_quic_conn( ctx, dst_ip_addr, dst_port );
+  fd_quic_conn_t * conn = find_quic_conn( ctx, pubkey );
   if( FD_UNLIKELY( !conn ) ) {
     ctx->metrics.quic_conn_not_found++;
     FD_LOG_NOTICE(("Quic conn not found when trying to send to leader"));
@@ -221,28 +231,60 @@ static inline void
 handle_new_cluster_contact_info( fd_send_tile_ctx_t * ctx,
                                  uchar const *        buf,
                                  ulong                buf_sz ) {
-  ulong const * header = (ulong const *)fd_type_pun_const( buf );
 
-  ulong dest_cnt = buf_sz / sizeof(fd_shred_dest_wire_t);
-
-  fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header );
-  fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( ctx->stake_ci );
-
-  ctx->new_dest_ptr = dests;
-  ctx->new_dest_cnt = dest_cnt;
-
-  for( ulong i=0UL; i<dest_cnt; i++ ) {
-    memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
-    dests[i].ip4  = in_dests[i].ip4_addr;
-    dests[i].port = in_dests[i].udp_port;
-  }
+  ctx->contact_cnt = buf_sz / sizeof(fd_shred_dest_wire_t);
+  fd_memcpy( ctx->contact_buf, buf, buf_sz );
 }
 
 static inline void
 finalize_new_cluster_contact_info( fd_send_tile_ctx_t * ctx ) {
-  fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
-  for( ulong i=0UL; i<ctx->new_dest_cnt; i++ ) {
-    quic_connect( ctx, ctx->new_dest_ptr[i].ip4, ctx->new_dest_ptr[i].port );
+  /* Implement state machine on the contact info */
+  for( ulong i=0UL; i<ctx->contact_cnt; i++ ) {
+    /* Look up the pubkey in our connection map */
+    fd_shred_dest_wire_t * contact = &ctx->contact_buf[i];
+    fd_send_conn_entry_t * entry   = fd_send_conn_map_query( ctx->conn_map, *contact->pubkey, NULL );
+
+    if( FD_LIKELY( entry ) ) {
+      if( FD_UNLIKELY( !entry->conn ) ) {
+        /* NO_CONN state: start quic connection and transition to CONN state */
+        entry->conn = quic_connect( ctx, contact->ip4_addr, contact->udp_port );
+      }
+      /* If already in CONN state, this is a no-op */
+      entry->last_touched = ctx->now;
+    }
+    /* If UNSTAKED (no entry in map), ignore the contact info */
+  }
+}
+
+static void
+finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
+
+  fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+
+  /* Get the current stake destinations from stake_ci */
+  fd_stake_weight_t const * stakes = ctx->stake_ci->stake_weight;
+  ulong                 staked_cnt = ctx->stake_ci->scratch->staked_cnt;
+  if( FD_UNLIKELY( !stakes ) ) {
+    FD_LOG_WARNING(( "No stake destinations available for current slot" ));
+    return;
+  }
+
+  /* populate staked validators in connection map */
+  for( ulong i=0UL; i<staked_cnt; i++ ) {
+    fd_stake_weight_t const * stake_info = &stakes[i];
+    fd_pubkey_t       const   pubkey     = stake_info->key;
+
+    /* Already in map? */
+    fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, pubkey, NULL );
+
+    if( FD_UNLIKELY( !entry ) ) {
+      /* UNSTAKED -> NO_CONN: create new entry in NO_CONN state */
+      entry = fd_send_conn_map_insert( ctx->conn_map, pubkey );
+      entry->conn = NULL; /* NO_CONN state */
+    }
+
+    /* entry non-null guaranteed by 'continue' above */
+    entry->last_touched = ctx->now;
   }
 }
 
@@ -332,19 +374,19 @@ after_frag( fd_send_tile_ctx_t * ctx,
     fd_shred_dest_weighted_t * leader_dest = NULL;
     int res = get_current_leader_tpu_vote_contact( ctx, poh_slot, &leader_dest );
     if( res==0 ) {
-      send_packet( ctx, stem, leader_dest->ip4, leader_dest->port, txn->payload, txn->payload_sz, 0UL );
+      send_packet( ctx, &leader_dest->pubkey, txn->payload, txn->payload_sz );
       ctx->metrics.txns_sent_to_leader++;
     } else {
       FD_LOG_ERR(("Failed to get leader contact"));
     }
 
     /* send to gossip and dedup */
-    fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
-    uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
-    fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
-    fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
-    gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
-        gossip_verify_out->wmark );
+    // fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
+    // uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
+    // fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
+    // fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
+    // gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
+    //     gossip_verify_out->wmark );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
@@ -353,7 +395,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_STAKE ) ) {
-    fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+    finalize_stake_msg( ctx );
     return;
   }
 
@@ -422,7 +464,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_send_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_send_tile_ctx_t), sizeof(fd_send_tile_ctx_t) );
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
 
-  // Initialize QUIC
   if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
     FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -462,8 +503,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
   ctx->quic = quic;
-
-  ctx->net_id   = (ushort)0;
 
   ctx->src_ip_addr = tile->send.ip_addr;
   ctx->src_port    = tile->send.send_src_port;
@@ -542,8 +581,36 @@ before_credit( fd_send_tile_ctx_t * ctx,
                int *                charge_busy ) {
   ctx->stem = stem;
 
+  ctx->now = fd_tickcount();
+
   /* Publishes to mcache via callbacks */
   *charge_busy = fd_quic_service( ctx->quic );
+}
+
+static inline void
+during_housekeeping( fd_send_tile_ctx_t * ctx ) {
+  #define SENDER_CONN_STALE_TIMEOUT (10e9) /* 10 seconds */
+
+  /* Iterate through all slots in the connection map */
+  for( ulong slot_idx=0UL; slot_idx<fd_send_conn_map_slot_cnt(); slot_idx++ ) {
+    fd_send_conn_entry_t * entry = &ctx->conn_map[slot_idx];
+
+    /* Skip empty slots */
+    if( FD_LIKELY( fd_send_conn_map_key_inval( entry->pubkey ) ) ) continue;
+
+    /* Check if entry is stale */
+    if( FD_UNLIKELY( (ctx->now - entry->last_touched) > SENDER_CONN_STALE_TIMEOUT ) ) {
+      /* Close connection if it exists */
+      if( FD_LIKELY( entry->conn ) ) {
+        fd_quic_conn_close( entry->conn, 0UL );
+        /* AMANTODO - fix this metric */
+        ctx->metrics.quic_conns_closed++;
+      }
+
+      /* Remove entry from map (transition to UNSTAKED) */
+      fd_send_conn_map_remove( ctx->conn_map, entry );
+    }
+  }
 }
 
 static void

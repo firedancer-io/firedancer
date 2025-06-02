@@ -61,9 +61,10 @@ struct fd_send_link_out {
 typedef struct fd_send_link_out fd_send_link_out_t;
 
 struct fd_send_conn_entry {
-  ulong key;    // Combined ip4 + port as key
-  uint hash;   // Hash of the key
+  fd_pubkey_t      pubkey;
+  uint             hash;
   fd_quic_conn_t * conn;
+  long             last_touched;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 
@@ -73,15 +74,14 @@ struct fd_send_tile_ctx {
   fd_pubkey_t vote_acct_addr[ 1 ];
 
   fd_stake_ci_t            * stake_ci;
-  fd_shred_dest_weighted_t * new_dest_ptr;
-  ulong                      new_dest_cnt;
+  fd_shred_dest_wire_t       contact_buf[ MAX_LEADER_CNT ];
+  ulong                      contact_cnt;
 
   uchar txn_buf[ sizeof(fd_txn_p_t) ] __attribute__((aligned(alignof(fd_txn_p_t))));
 
   uint                  src_ip_addr;
   ushort                src_port;
   fd_ip4_udp_hdrs_t     packet_hdr[1];
-  ushort                net_id;
 
   #define fd_send_MAX_IN_LINK_CNT 32UL
   fd_send_link_in_t in_links[ fd_send_MAX_IN_LINK_CNT ];
@@ -109,6 +109,7 @@ struct fd_send_tile_ctx {
   fd_send_conn_entry_t * conn_map;
 
   fd_stem_context_t * stem;
+  long                now;
 
   struct {
     /* Transaction metrics          */
