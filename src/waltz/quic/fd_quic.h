@@ -169,13 +169,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   ulong idle_timeout;
 # define FD_QUIC_DEFAULT_IDLE_TIMEOUT (ulong)(1e9) /* 1s */
 
-/* keep_alive
- * whether the fd_quic should use QUIC PING frames to keep connections alive
- * Set to 1 to keep connections alive
- * Set to 0 to allow connections to close on idle
- * default is 0 */
-  int keep_alive;
-
   /* ack_delay: median delay on outgoing ACKs.  Greater delays allow
      fd_quic to coalesce packet ACKs. */
   ulong ack_delay;

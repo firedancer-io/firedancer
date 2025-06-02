@@ -39,6 +39,14 @@
 #define MAP_QUERY_OPT         1
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+/* FD_QUIC_KEEP_ALIVE
+ *
+ * This compile time option specifies whether the server should use
+ * QUIC PING frames to keep connections alive
+ *
+ * Set to 1 to keep connections alive
+ * Set to 0 to allow connections to close on idle */
+# define FD_QUIC_KEEP_ALIVE 0
 
 /* FD_QUIC_MAX_STREAMS_ALWAYS_UNLESS_ACKED  */
 /* Defines whether a MAX_STREAMS frame is sent even if it was just */
@@ -2824,6 +2832,8 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     return 1;
   }
 
+  //FD_DEBUG( FD_LOG_DEBUG(( "svc_poll conn=%p svc_type=%u", (void *)conn, conn->svc_type )); )
+
   if( FD_UNLIKELY( now >= conn->last_activity + ( conn->idle_timeout / 2 ) ) ) {
     if( FD_UNLIKELY( now >= conn->last_activity + conn->idle_timeout ) ) {
       if( FD_LIKELY( conn->state != FD_QUIC_CONN_STATE_DEAD ) ) {
@@ -2831,14 +2841,14 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             "... the connection is silently closed and its state is discarded
             when it remains idle for longer than the minimum of the
             max_idle_timeout value advertised by both endpoints." */
-        FD_DEBUG( FD_LOG_WARNING(("%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
+        FD_DEBUG( FD_LOG_WARNING(( "%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
 
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_timeout_cnt++;
       }
-    } else if( quic->config.keep_alive ) {
+    } else if( FD_QUIC_KEEP_ALIVE ) {
       /* send PING */
       if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
         conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
@@ -2866,8 +2876,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     fd_quic_conn_free( quic, conn );
     break;
   default:
-    /* prep idle timeout or keep alive at idle timeout/2 */
-    fd_quic_svc_prep_schedule( conn, state->now + (conn->idle_timeout>>(quic->config.keep_alive)) );
+    fd_quic_svc_prep_schedule( conn, state->now + quic->config.idle_timeout );
     fd_quic_svc_schedule( state->svc_timers, conn );
     break;
   }
@@ -4283,9 +4292,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   fd_quic_svc_timers_init_conn( conn );
 
-  /* prep idle timeout or keep alive at idle timeout/2 */
-  ulong delay = quic->config.idle_timeout>>(quic->config.keep_alive);
-  fd_quic_svc_prep_schedule( conn, state->now+delay );
+  /* prep idle timeout */
+  fd_quic_svc_prep_schedule( conn, state->now+quic->config.idle_timeout );
 
   /* return connection */
   return conn;
