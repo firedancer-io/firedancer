@@ -197,8 +197,14 @@ link_orphans( fd_fec_chainer_t * chainer ) {
     uchar zeros[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 }; /* FIXME */
     if ( FD_UNLIKELY( memcmp( ele->chained_merkle_root, parent->merkle_root, FD_SHRED_MERKLE_ROOT_SZ ) ) &&
                     ( memcmp( ele->chained_merkle_root, zeros,               FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
-      fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_ERR_MERKLE } );
-      continue;
+      /* FIXME this requires a lot of changes to shred tile without
+         fixed-32 fec sets, so disabled until then (impending agave 2.3
+         release). */
+
+      // FD_LOG_NOTICE(( "actual %lu %u %s", ele->slot, ele->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( ele->chained_merkle_root ) ));
+      // FD_LOG_NOTICE(( "expected %lu %u %s", parent->slot, parent->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( parent->merkle_root ) ));
+      // fd_fec_out_push_tail( chainer->out, (fd_fec_out_t){ .slot = ele->slot, .parent_off = ele->parent_off, .fec_set_idx = ele->fec_set_idx, .data_cnt = ele->data_cnt, .data_complete = ele->data_complete, .slot_complete = ele->slot_complete, .err = FD_FEC_CHAINER_ERR_MERKLE } );
+      // continue;
     }
 
     /* Insert into frontier (ele is either advancing a fork or starting
