@@ -4,6 +4,7 @@
 #include "../../util/archive/fd_tar.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
 #include "../../flamenco/types/fd_types.h"
+#include "../../funk/fd_funk.h"
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
@@ -69,7 +70,7 @@ struct fd_snapin_tile {
   uchar const * in_base;
   ulong         goff_translate;
   ulong         in_skip;
-  ulong const * in_sync;
+  ulong *       in_sync;
 
   /* Frame buffer */
 
@@ -104,6 +105,11 @@ struct fd_snapin_tile {
   ulong out_cnt;
   ulong out_depth;
   ulong seq;
+
+  fd_funk_t       funk[1];
+  fd_funk_txn_t * funk_txn;
+  uchar *         acc_data;
+  ulong           inserted_accounts;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -129,11 +135,11 @@ fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
   FD_LOG_WARNING(( "Finished parsing snapshot" ));
 
   /* Send synchronization info */
-  ulong volatile * out_sync = fd_mcache_seq_laddr( ctx->out_mcache->f );
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( out_sync[0] ) = ctx->out_seq;
-  FD_VOLATILE( out_sync[2] ) = 1;
-  FD_COMPILER_MFENCE();
+  // ulong volatile * out_sync = fd_mcache_seq_laddr( ctx->out_mcache->f );
+  // FD_COMPILER_MFENCE();
+  // FD_VOLATILE( out_sync[0] ) = ctx->out_seq;
+  // FD_VOLATILE( out_sync[2] ) = 1;
+  // FD_COMPILER_MFENCE();
 
   for(;;) pause();
 }
@@ -307,6 +313,41 @@ snapshot_read_is_complete( fd_snapin_tile_t const * restore ) {
 }
 
 static int
+snapshot_is_duplicate_account( fd_snapin_tile_t *  restore,
+                               fd_pubkey_t const * account_key ) {
+  /* Check if account exists */
+  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( restore->funk, restore->funk_txn, account_key, NULL, NULL, NULL );
+  if( rec_meta )
+    if( rec_meta->slot > restore->accv_slot ) 
+      return 1;
+  return 0;
+}
+
+static int
+snapshot_insert_account( fd_snapin_tile_t *              restore,
+                         fd_pubkey_t const *             account_key,
+                         fd_solana_account_hdr_t const * hdr ) {
+  char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
+  FD_TXN_ACCOUNT_DECL( rec );
+
+  int write_result = fd_txn_account_init_from_funk_mutable( rec, account_key, restore->funk, restore->funk_txn, /* do_create */ 1, hdr->meta.data_len );
+  if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_txn_account_init_from_funk_mutable(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, account_key->uc ), write_result ));
+    return ENOMEM;
+  }
+  rec->vt->set_data_len( rec, hdr->meta.data_len );
+  rec->vt->set_slot( rec, restore->accv_slot );
+  rec->vt->set_hash( rec, &hdr->hash );
+  rec->vt->set_info( rec, &hdr->info );
+  /* TODO: do we still need rent logic here? see fd_snapshot_restore_account_hdr */
+  restore->acc_data = rec->vt->get_data_mut( rec );
+
+  fd_txn_account_mutable_fini( rec, restore->funk, restore->funk_txn );
+  restore->inserted_accounts++;
+  return 0;
+}
+
+static int
 snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->buf );
   if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
@@ -320,6 +361,11 @@ snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
 
   if( FD_UNLIKELY( data_sz>(10UL<<20) ) ) {
     FD_LOG_ERR(( "Oversize account found (%lu bytes)", data_sz ));
+  }
+  
+  fd_pubkey_t const * account_key = fd_type_pun_const( hdr->meta.pubkey );
+  if( !snapshot_is_duplicate_account( restore, account_key ) ) {
+    snapshot_insert_account( restore, account_key, hdr );
   }
 
   /* Next step */
@@ -347,9 +393,6 @@ snapshot_read_account_hdr_chunk( fd_snapin_tile_t * restore,
 
   int som = restore->buf_ctr == 0UL;
 
-  ulong frag_goff = (ulong)buf - restore->goff_translate;
-  ulong frag_loff = (ulong)buf - (ulong)restore->in_base;
-
   uchar const * buf_next = snapshot_read_buffered( restore, buf, bufsz );
   ulong hdr_read = (ulong)(buf_next-buf);
   restore->accv_sz -= hdr_read;
@@ -363,22 +406,6 @@ snapshot_read_account_hdr_chunk( fd_snapin_tile_t * restore,
     peek_sz = fd_ulong_min( restore->acc_rem, bufsz );
   }
 
-  int eom = bufsz >= restore->acc_rem;
-
-  /* Publish header-only fragment or header+data fragment.
-     If data was included, skip ahead.  (Combining header+data into the
-     same fragment reduces the amount of descriptor frags published.) */
-
-  ulong const frag_sz = hdr_read + peek_sz;
-  fd_mcache_publish_stream(
-      restore->out_mcache,
-      restore->out_depth,
-      restore->out_seq,
-      frag_goff,
-      frag_loff,
-      frag_sz,
-      fd_frag_meta_ctl( 0UL, som, eom, 0 )
-  );
   restore->out_seq  = fd_seq_inc( restore->out_seq, 1UL );
   restore->out_cnt += !!som;
   restore->acc_rem -= peek_sz;
@@ -394,24 +421,28 @@ snapshot_read_account_chunk( fd_snapin_tile_t * restore,
                              ulong              bufsz ) {
 
   ulong chunk_sz = fd_ulong_min( restore->acc_rem, bufsz );
+  if( FD_LIKELY( restore->acc_data ) ) {
+    fd_memcpy( restore->acc_data, buf, chunk_sz );
+    restore->acc_data += chunk_sz;
+  }
   if( FD_UNLIKELY( chunk_sz > restore->accv_sz ) )
     FD_LOG_CRIT(( "OOB account vec read: chunk_sz=%lu accv_sz=%lu", chunk_sz, restore->accv_sz ));
 
   if( FD_LIKELY( chunk_sz ) ) {
 
-    int eom = restore->acc_rem == chunk_sz;
+    // int eom = restore->acc_rem == chunk_sz;
 
-    fd_mcache_publish_stream(
-        restore->out_mcache,
-        restore->out_depth,
-        restore->out_seq,
-        (ulong)buf - restore->goff_translate,
-        (ulong)buf - (ulong)restore->in_base,
-        chunk_sz,
-        fd_frag_meta_ctl( 0UL, 0, eom, 0 )
-    );
+    // fd_mcache_publish_stream(
+    //     restore->out_mcache,
+    //     restore->out_depth,
+    //     restore->out_seq,
+    //     (ulong)buf - restore->goff_translate,
+    //     (ulong)buf - (ulong)restore->in_base,
+    //     chunk_sz,
+    //     fd_frag_meta_ctl( 0UL, 0, eom, 0 )
+    // );
 
-    restore->out_seq  = fd_seq_inc( restore->out_seq, 1UL );
+    // restore->out_seq  = fd_seq_inc( restore->out_seq, 1UL );
     restore->acc_rem -= chunk_sz;
     restore->accv_sz -= chunk_sz;
     buf              += chunk_sz;
@@ -601,7 +632,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
 
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
+  // if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
   /* FIXME check link names */
 
   if( FD_UNLIKELY( !tile->snapin.scratch_sz ) ) FD_LOG_ERR(( "scratch_sz param not set" ));
@@ -620,7 +651,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
   ctx->in_base = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->in_skip = 0UL;
-  ctx->in_sync = fd_mcache_seq_laddr_const( topo->links[ tile->in_link_id[ 0 ] ].mcache );
+  ctx->in_sync = fd_mcache_seq_laddr( topo->links[ tile->in_link_id[ 0 ] ].mcache );
 
   /* Join frame buffer */
 
@@ -630,10 +661,19 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Join account output */
 
-  ctx->out_mcache  = fd_type_pun( topo->links[ tile->out_link_id[ 0 ] ].mcache );
-  ctx->out_seq_max = 0UL;
-  ctx->out_seq     = 0UL;
-  ctx->out_depth   = fd_mcache_depth( ctx->out_mcache->f );
+  // ctx->out_mcache  = fd_type_pun( topo->links[ tile->out_link_id[ 0 ] ].mcache );
+  // ctx->out_seq_max = 0UL;
+  // ctx->out_seq     = 0UL;
+  // ctx->out_depth   = fd_mcache_depth( ctx->out_mcache->f );
+
+  /* join funk */
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
+
+  /* IDK what to put here right now */
+  ctx->funk_txn = NULL;
+  ctx->inserted_accounts = 0UL;
 
 }
 
@@ -780,6 +820,7 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
                 fd_snapin_in_t *              in,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       read_sz ) {
+  // FD_LOG_WARNING(("snapin: in on stream frag"));
   if( FD_UNLIKELY( ctx->flags ) ) {
     if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_FAILED ) ) FD_LOG_ERR(( "Failed to restore snapshot" ));
     if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_DONE ) ) {
@@ -809,17 +850,21 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
         FD_LOG_ERR(( "Failed to restore snapshot" ));
       }
     }
-    if( FD_UNLIKELY( fd_seq_ge( ctx->out_seq, ctx->out_seq_max ) ) ) {
-      consume_frag = 0; /* retry this frag */
-      ulong consumed_sz = (uint)( cur-start );
-      ctx->in_skip += consumed_sz;
-      break;
-    }
+    // if( FD_UNLIKELY( fd_seq_ge( ctx->out_seq, ctx->out_seq_max ) ) ) {
+    //   consume_frag = 0; /* retry this frag */
+    //   ulong consumed_sz = (uint)( cur-start );
+    //   ctx->in_skip += consumed_sz;
+    //   break;
+    // }
   }
 
   ulong consumed_sz = (ulong)( cur-start );
   in->goff += consumed_sz;
   *read_sz  = consumed_sz;
+
+  FD_COMPILER_MFENCE();
+  ctx->in_sync[3] = ctx->inserted_accounts;
+  FD_COMPILER_MFENCE();
   return consume_frag;
 }
 
@@ -827,30 +872,11 @@ on_stream_frag( fd_snapin_tile_t *            ctx,
    credits back to the stream producer.  Also updates link in metrics. */
 
 static void
-fd_snapin_in_update( fd_snapin_tile_t *     ctx,
-                     fd_snapin_in_t *       in,
-                     ulong const * restrict cons_seq ) {
-  int   const downstream_active = !!ctx->manifest_done;
-  ulong const downstream_seq    = cons_seq[ 0 ];
-  ulong const downstream_goff   = cons_seq[ 1 ];
-
-  /* Defend against buggy consumer */
-  if( FD_UNLIKELY( fd_seq_gt( downstream_seq,  ctx->out_seq  ) |
-                   fd_seq_gt( downstream_goff, in->goff ) ) ) {
-    FD_LOG_CRIT(( "Consumer skipped ahead of me: self=(%lu,%lu) consumer=(%lu,%lu)",
-                  ctx->out_seq,   in->goff,
-                  downstream_seq, downstream_goff ));
-  }
-
+fd_snapin_in_update( fd_snapin_tile_t *     ctx FD_PARAM_UNUSED,
+                     fd_snapin_in_t *       in ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( in->fseq[0] ) = in->seq;
-  if( !downstream_active ) {
-    /* Initially, just send this tile's progress */
-    FD_VOLATILE( in->fseq[1] ) = in->goff;
-  } else {
-    /* Once downstream tiles are active, forward backpressure signals */
-    FD_VOLATILE( in->fseq[1] ) = downstream_goff;
-  }
+  FD_VOLATILE( in->fseq[1] ) = in->goff;
   FD_COMPILER_MFENCE();
 
   ulong volatile * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
@@ -885,9 +911,6 @@ fd_snapin_run1(
   /* in frag stream state */
   ulong in_seq;
 
-  /* out flow control state */
-  ulong cr_avail;
-
   /* housekeeping state */
   ulong event_cnt;
   ulong event_seq;
@@ -917,10 +940,6 @@ fd_snapin_run1(
 
   /* out frag stream init */
 
-  cr_avail = 0UL;
-
-  ulong const burst = BURST;
-
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
 
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
@@ -938,7 +957,7 @@ fd_snapin_run1(
     cons_seq [ 2*cons_idx+1 ] = FD_VOLATILE_CONST( cons_fseq[ cons_idx ][1] );
   }
 
-  ulong * out_sync = fd_mcache_seq_laddr( out_mcache[0] );
+  // ulong * out_sync = fd_mcache_seq_laddr( out_mcache[0] );
 
   /* housekeeping init */
 
@@ -986,15 +1005,15 @@ fd_snapin_run1(
 
         /* Send flow control credits and drain flow control diagnostics. */
         ulong in_idx = event_idx - cons_cnt - 1UL;
-        fd_snapin_in_update( ctx, &in[ in_idx ], cons_seq );
+        fd_snapin_in_update( ctx, &in[ in_idx ] );
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
         /* Send synchronization info */
-        FD_COMPILER_MFENCE();
-        FD_VOLATILE( out_sync[0] ) = ctx->out_seq;
-        FD_VOLATILE( out_sync[1] ) = ctx->out_cnt;
-        FD_COMPILER_MFENCE();
+        // FD_COMPILER_MFENCE();
+        // FD_VOLATILE( out_sync[0] ) = ctx->out_seq;
+        // FD_VOLATILE( out_sync[1] ) = ctx->out_cnt;
+        // FD_COMPILER_MFENCE();
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
@@ -1007,22 +1026,22 @@ fd_snapin_run1(
         metric_backp_cnt = 0UL;
 
         /* Receive flow control credits */
-        if( FD_LIKELY( cr_avail<cr_max ) ) {
-          ulong slowest_cons = ULONG_MAX;
-          cr_avail = cr_max;
-          for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
-            ulong cons_cr_avail = (ulong)fd_long_max( (long)cr_max-fd_long_max( fd_seq_diff( ctx->out_seq, cons_seq[ cons_idx ] ), 0L ), 0L );
-            slowest_cons = fd_ulong_if( cons_cr_avail<cr_avail, cons_idx, slowest_cons );
-            cr_avail     = fd_ulong_min( cons_cr_avail, cr_avail );
-          }
-          ctx->out_seq_max = ctx->out_seq + cr_avail;
+        // if( FD_LIKELY( cr_avail<cr_max ) ) {
+        //   ulong slowest_cons = ULONG_MAX;
+        //   cr_avail = cr_max;
+        //   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
+        //     ulong cons_cr_avail = (ulong)fd_long_max( (long)cr_max-fd_long_max( fd_seq_diff( ctx->out_seq, cons_seq[ cons_idx ] ), 0L ), 0L );
+        //     slowest_cons = fd_ulong_if( cons_cr_avail<cr_avail, cons_idx, slowest_cons );
+        //     cr_avail     = fd_ulong_min( cons_cr_avail, cr_avail );
+        //   }
+        //   ctx->out_seq_max = ctx->out_seq + cr_avail;
 
-          if( FD_LIKELY( slowest_cons!=ULONG_MAX ) ) {
-            FD_COMPILER_MFENCE();
-            (*cons_slow[ slowest_cons ]) += metric_in_backp;
-            FD_COMPILER_MFENCE();
-          }
-        }
+        //   if( FD_LIKELY( slowest_cons!=ULONG_MAX ) ) {
+        //     FD_COMPILER_MFENCE();
+        //     (*cons_slow[ slowest_cons ]) += metric_in_backp;
+        //     FD_COMPILER_MFENCE();
+        //   }
+        // }
 
         during_housekeeping( ctx );
 
@@ -1056,18 +1075,6 @@ fd_snapin_run1(
       now = next;
     }
 
-    /* Check if we are backpressured. */
-
-    if( FD_UNLIKELY( cr_avail<burst ) ) {
-      metric_backp_cnt += (ulong)!metric_in_backp;
-      metric_in_backp   = 1UL;
-      FD_SPIN_PAUSE();
-      metric_regime_ticks[2] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[5] += (ulong)(next - now);
-      now = next;
-      continue;
-    }
     metric_in_backp = 0UL;
 
     /* Select which in to poll next (randomized round robin) */
@@ -1119,13 +1126,7 @@ fd_snapin_run1(
     FD_COMPILER_MFENCE();
     fd_stream_frag_meta_t meta = FD_VOLATILE_CONST( *this_in_mline );
     ulong sz = 0U;
-
-    ulong const out_seq0 = ctx->out_seq;
     int consumed_frag = on_stream_frag( ctx, this_in, &meta, &sz );
-    ulong const out_seq1 = ctx->out_seq;
-    ulong const frags_published = out_seq1-out_seq0;
-    if( FD_UNLIKELY( frags_published>cr_avail ) ) FD_LOG_CRIT(( "frags_published (%lu) > cr_avail (%lu)", frags_published, cr_avail ));
-    cr_avail -= frags_published;
 
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
 

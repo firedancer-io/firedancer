@@ -444,6 +444,7 @@ struct fd_topo_tile {
 
     struct {
       ulong scratch_sz;
+      ulong funk_obj_id;
     } snapin;
 
     struct {
