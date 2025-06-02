@@ -200,7 +200,10 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                   +  ctx->instr->data_sz
                   +  sizeof(fd_pubkey_t); // program id
 
-  uchar * serialized_params            = fd_spad_alloc( ctx->txn_ctx->spad, FD_BPF_ALIGN_OF_U128, fd_ulong_align_up( serialized_size, FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) );
+  /* 16-byte aligned buffer:
+     https://github.com/anza-xyz/agave/blob/v2.2.13/programs/bpf_loader/src/serialization.rs#L32
+   */
+  uchar * serialized_params            = fd_spad_alloc( ctx->txn_ctx->spad, FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP, fd_ulong_align_up( serialized_size, FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) );
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -494,7 +497,10 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                    + ctx->instr->data_sz  // instruction data
                    + sizeof(fd_pubkey_t); // program id
 
-  uchar * serialized_params            = fd_spad_alloc( ctx->txn_ctx->spad, 1UL, serialized_size );
+  /* 16-byte aligned buffer:
+     https://github.com/anza-xyz/agave/blob/v2.2.13/programs/bpf_loader/src/serialization.rs#L32
+   */
+  uchar * serialized_params            = fd_spad_alloc( ctx->txn_ctx->spad, FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP, serialized_size );
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
