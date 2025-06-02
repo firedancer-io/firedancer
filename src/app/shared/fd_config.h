@@ -422,6 +422,12 @@ struct fd_config {
       char  archiver_path[ PATH_MAX ];
     } archiver;
 
+    struct {
+      int   enabled;
+      char  folder_path[ PATH_MAX ];
+      ulong write_buffer_size;
+    } shredcap;
+
   } tiles;
 };
 
