@@ -409,7 +409,7 @@ quic_tx_aio_send( void *                    _ctx,
 
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+    ulong sig = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ, 0 );
 
     long tspub = fd_tickcount();
     fd_mcache_publish( ctx->net_out_mcache,

@@ -699,6 +699,13 @@ fd_repair_set_stake_weights( fd_repair_t * repair,
   fd_memset( repair->stake_weights, 0, FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
   fd_memcpy( repair->stake_weights, stake_weights, stake_weights_cnt * sizeof(fd_stake_weight_t) );
   repair->stake_weights_cnt = stake_weights_cnt;
+
+  FD_LOG_NOTICE(( "repair set stake weights, count %lu", repair->stake_weights_cnt ));
+  for( ulong i = 0UL; i < repair->stake_weights_cnt; i++ ) {
+    fd_stake_weight_t const * stake_weight = &repair->stake_weights[i];
+    fd_pubkey_t const * key = &stake_weight->key;
+    FD_LOG_NOTICE(( "repair set stake weight %lu: %s, stake %lu", i, FD_BASE58_ENC_32_ALLOCA( key ), stake_weight->stake ));
+  }
 }
 
 

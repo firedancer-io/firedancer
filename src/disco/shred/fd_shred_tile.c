@@ -17,6 +17,10 @@
 
 #include <linux/unistd.h>
 
+#if FD_HAS_REPAIR_ANALYSIS
+#include <unistd.h>
+#include <time.h>
+#endif
 /* The shred tile handles shreds from two data sources: shreds
    generated from microblocks from the banking tile, and shreds
    retransmitted from the network.
@@ -247,6 +251,11 @@ typedef struct {
   fd_shred_dest_idx_t scratchpad_dests[ FD_SHRED_DEST_MAX_FANOUT*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
   uchar chained_merkle_root[ FD_SHRED_MERKLE_ROOT_SZ ];
+
+#ifdef FD_HAS_REPAIR_ANALYSIS
+  int repair_data_fd; /* file descriptor for repair data */
+  int fec_complete_fd; /* file descriptor for fec completes */
+#endif
 } fd_shred_ctx_t;
 
 /* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
@@ -640,7 +649,7 @@ send_shred( fd_shred_ctx_t                 * ctx,
 
   ulong pkt_sz = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t), 0 );
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, pkt_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
@@ -677,6 +686,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
+  long first_shred_ts_on_complete = 0;
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
     FD_MCNT_INC( SHRED, FORCE_COMPLETE_REQUEST, 1UL );
     fd_ed25519_sig_t const * shred_sig = (fd_ed25519_sig_t const *)fd_type_pun( ctx->shred_buffer );
@@ -714,7 +724,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_shred_t * out_last_shred = (fd_shred_t *)fd_type_pun( buf_last_shred );
 
     fd_fec_set_t const * out_fec_set[1];
-    rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set );
+    rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set, &first_shred_ts_on_complete );
     if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) ){
       FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u %s", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( shred_sig ) ));
       FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
@@ -746,8 +756,25 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];
 
+#ifdef FD_HAS_REPAIR_ANALYSIS
+    int   is_turbine = fd_disco_netmux_sig_proto( sig ) == DST_PROTO_SHRED;
+    uint  nonce      = is_turbine ? 0 : FD_LOAD(uint, shred_buffer + fd_shred_sz( shred ) );
+    ulong ip4_addr   = fd_disco_netmux_sig_hash( sig );
+    int   is_data    = fd_shred_is_data( fd_shred_type( shred->variant ) );
+    ulong slot       = shred->slot;
+    uint  idx        = shred->idx;
+
+    char repair_data_buf[1024];
+    snprintf( repair_data_buf, sizeof(repair_data_buf),
+             "%lu,%ld,%lu,%u,%d,%d,%u\n",
+             ip4_addr, fd_log_wallclock(), slot, idx, is_turbine, is_data, nonce );
+    ulong wsz = 0;
+    int err = fd_io_write( ctx->repair_data_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
+    FD_TEST( err==0 );
+#endif
+
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &out_merkle_root );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &out_merkle_root, &first_shred_ts_on_complete );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
@@ -833,12 +860,27 @@ after_frag( fd_shred_ctx_t *    ctx,
     /* We know we didn't get overrun, so advance the index */
     ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
   }
+
   /* If this shred completes a FEC set or is part of a microblock from
      pack (ie. we're leader), we now have a full FEC set: so we notify
      repair and insert into the blockstore, as well as retransmit. */
 
   fd_fec_set_t * set = ctx->fec_sets + ctx->send_fec_set_idx;
   fd_shred34_t * s34 = ctx->shred34 + 4UL*ctx->send_fec_set_idx;
+
+#if FD_HAS_REPAIR_ANALYSIS
+    ulong slot        = ((fd_shred_t const *)fd_type_pun_const(set->data_shreds[0]))->slot;
+    uint  fec_set_idx = ((fd_shred_t const *)fd_type_pun_const(set->data_shreds[0]))->fec_set_idx;
+
+    char repair_data_buf[1024];
+    snprintf( repair_data_buf, sizeof(repair_data_buf),
+             "%ld,%ld,%lu,%u\n",
+              fd_log_wallclock(), first_shred_ts_on_complete, slot, fec_set_idx );
+    ulong wsz = 0;
+    int err = fd_io_write( ctx->fec_complete_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
+    FD_TEST( err==0 );
+#endif
+
 
   s34[ 0 ].shred_cnt =                         fd_ulong_min( set->data_shred_cnt,   34UL );
   s34[ 1 ].shred_cnt = set->data_shred_cnt   - fd_ulong_min( set->data_shred_cnt,   34UL );
@@ -955,7 +997,18 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+#ifdef FD_HAS_REPAIR_ANALYSIS
+  ctx->repair_data_fd = open( "/data/emwang/repair_data.csv", O_WRONLY|O_CREAT|O_APPEND, 0644 );
+  FD_TEST( ctx->repair_data_fd>=0 );
+  FD_TEST( ftruncate( ctx->repair_data_fd, 0 ) == 0 );
+  ulong sz = 0;
+  fd_io_write( ctx->repair_data_fd, "ip4_addr,timestamp,slot,idx,is_turbine,is_data,nonce\n", 53UL, 53UL, &sz );
 
+  ctx->fec_complete_fd = open( "/data/emwang/fec_complete.csv", O_WRONLY|O_CREAT|O_APPEND, 0644 );
+  FD_TEST( ctx->fec_complete_fd>=0 );
+  FD_TEST( ftruncate( ctx->fec_complete_fd, 0 ) == 0 );
+  fd_io_write( ctx->fec_complete_fd, "timestamp,first_shred_ts,slot,fec_set_idx\n", 42UL, 42UL, &sz );
+#endif
   if( FD_UNLIKELY( !strcmp( tile->shred.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
