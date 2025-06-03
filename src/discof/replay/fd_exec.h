@@ -96,9 +96,6 @@ generate_replay_exec_slot_msg( fd_exec_slot_ctx_t * slot_ctx,
   slot_msg_out->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
   slot_msg_out->enable_exec_recording       = slot_ctx->enable_exec_recording;
 
-  /* Save the gaddr of the sysvar cache */
-  slot_msg_out->sysvar_cache_gaddr = fd_wksp_gaddr_fast( runtime_public_wksp, slot_ctx->sysvar_cache );
-
   /* Now encode the bhq */
   ulong   bhq_encode_sz  = fd_block_hash_queue_size( &slot_ctx->slot_bank.block_hash_queue ) + 128UL;
   uchar * bhq_encode_mem = fd_spad_alloc( runtime_spad,

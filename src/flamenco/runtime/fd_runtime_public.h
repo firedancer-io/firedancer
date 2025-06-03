@@ -214,7 +214,6 @@ struct fd_runtime_public_slot_msg {
   ulong                  slot;
   ulong                  prev_lamports_per_signature;
   fd_fee_rate_governor_t fee_rate_governor;
-  ulong                  sysvar_cache_gaddr;
   ulong                  block_hash_queue_encoded_gaddr;
   ulong                  block_hash_queue_encoded_sz;
   int                    enable_exec_recording;

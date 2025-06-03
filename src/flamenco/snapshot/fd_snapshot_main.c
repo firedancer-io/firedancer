@@ -339,7 +339,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   d->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( fd_spad_alloc( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) ), vote_acct_max ) );
   if( FD_UNLIKELY( !d->epoch_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_epoch_ctx_t" )); return EXIT_FAILURE; }
 
-  d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ), spad ) );
+  d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ) ) );
   if( FD_UNLIKELY( !d->slot_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_slot_ctx_t" )); return EXIT_FAILURE; }
 
   d->slot_ctx->epoch_ctx = d->epoch_ctx;

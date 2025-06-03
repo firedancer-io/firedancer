@@ -144,7 +144,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_wksp_t const *          funk_wksp,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
-                                    ulong                      sysvar_cache_gaddr,
                                     ulong                      funk_gaddr );
 
 FD_PROTOTYPES_END

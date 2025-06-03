@@ -154,6 +154,14 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
   }
 
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( rec->vt->get_lamports( rec ) == 0UL ) ) {
+    return NULL;
+  }
+
   fd_bincode_decode_ctx_t ctx = {
     .data    = rec->vt->get_data( rec ),
     .dataend = rec->vt->get_data( rec ) + rec->vt->get_data_len( rec )

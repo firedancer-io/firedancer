@@ -130,3 +130,43 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
                  slot_ctx->slot_bank.slot );
   } FD_SPAD_FRAME_END;
 }
+
+fd_recent_block_hashes_global_t *
+fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad ) {
+  FD_TXN_ACCOUNT_DECL( acc );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, funk, funk_txn );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+    return NULL;
+
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = acc->vt->get_data( acc ),
+    .dataend = acc->vt->get_data( acc ) + acc->vt->get_data_len( acc ),
+  };
+
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0UL ) ) {
+    return NULL;
+  }
+
+  ulong total_sz = 0;
+  err = fd_recent_block_hashes_decode_footprint( &ctx, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
+    return NULL;
+  }
+
+  uchar * mem = fd_spad_alloc( spad, fd_recent_block_hashes_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_CRIT(( "fd_spad_alloc failed" ));
+  }
+
+  /* This would never happen in a real cluster, this is a workaround
+     for fuzz-generated cases where sysvar accounts are not funded. */
+  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0 ) ) {
+    return NULL;
+  }
+
+  return fd_recent_block_hashes_decode_global( mem, &ctx );
+}

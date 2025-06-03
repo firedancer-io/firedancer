@@ -246,7 +246,6 @@ slot_ctx_restore( ulong                 slot,
     }
 
     slot_ctx_out->slot_bank = *slot_bank;
-    FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out, runtime_spad ) );
 
     if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
       break;
@@ -312,7 +311,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
     /* Format and join the slot_ctx */
 
     uchar * slot_ctx_mem = fd_spad_alloc( runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
-    fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, runtime_spad ) );
+    fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
     fork->slot_ctx = slot_ctx;
     if( FD_UNLIKELY( !slot_ctx ) ) {
       FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );

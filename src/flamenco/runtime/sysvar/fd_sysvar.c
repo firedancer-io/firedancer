@@ -1,6 +1,9 @@
 #include "fd_sysvar.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../context/fd_exec_instr_ctx.h"
+#include "../context/fd_exec_txn_ctx.h"
+
 #include "fd_sysvar_rent.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1813 */
@@ -45,4 +48,22 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_txn_account_mutable_fini( rec, funk, funk_txn );
   return 0;
+}
+
+int
+fd_sysvar_instr_acct_check( fd_exec_instr_ctx_t const * ctx,
+                            ulong                       idx,
+                            fd_pubkey_t const *         addr_want ) {
+
+  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
+
+  ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;
+  fd_pubkey_t const * addr_have = &ctx->txn_ctx->account_keys[ idx_in_txn ];
+  if( FD_UNLIKELY( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }

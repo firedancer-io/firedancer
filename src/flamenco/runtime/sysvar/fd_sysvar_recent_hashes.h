@@ -1,11 +1,13 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
 
+#include "../../types/fd_types.h"
 #include "../../fd_flamenco_base.h"
+#include "../../../funk/fd_funk.h"
 
 /* FD_SYSVAR_RECENT_HASHES_CAP is the max number of block hash entries
    the recent blockhashes sysvar will include.
-   
+
    https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/sysvar/recent_blockhashes.rs#L32
 */
 
@@ -24,6 +26,14 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_spad_t *          runtime_spad );
+
+
+/* fd_sysvar_recent_hashes_read reads the recent hashes sysvar from funk.
+   If the account doesn't exist in funk or if the account has zero
+   lamports, this function returns NULL. */
+
+fd_recent_block_hashes_global_t *
+fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad );
 
 FD_PROTOTYPES_END
 

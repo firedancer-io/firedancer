@@ -32,9 +32,9 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
   return schedule;
 }
 
-static void
-write_epoch_schedule( fd_exec_slot_ctx_t *  slot_ctx,
-                      fd_epoch_schedule_t * epoch_schedule ) {
+void
+fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *  slot_ctx,
+                                fd_epoch_schedule_t * epoch_schedule ) {
   ulong sz = fd_epoch_schedule_size( epoch_schedule );
   FD_LOG_INFO(("Writing epoch schedule size %lu", sz));
   /* TODO remove alloca */
@@ -58,8 +58,17 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
 
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, funk_txn );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
+  }
+
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0UL ) ) {
+    return NULL;
+  }
 
   return fd_bincode_decode_spad(
       epoch_schedule, spad,
@@ -71,7 +80,7 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *     funk,
 void
 fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  write_epoch_schedule( slot_ctx, &epoch_bank->epoch_schedule );
+  fd_sysvar_epoch_schedule_write( slot_ctx, &epoch_bank->epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */

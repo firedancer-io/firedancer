@@ -6,7 +6,7 @@
 #include "../../log_collector/fd_log_collector_base.h"
 #include "../../../ballet/txn/fd_txn.h"
 #include "../../features/fd_features.h"
-#include "../sysvar/fd_sysvar_cache.h"
+#include "../fd_acc_mgr.h"
 #include "../fd_txncache.h"
 #include "../fd_bank_hash_cmp.h"
 
@@ -57,7 +57,7 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 /* https://github.com/anza-xyz/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
 #define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
 
-struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
+struct fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
   /* TODO: These are fields borrowed from the slot and epoch ctx. This
@@ -68,7 +68,6 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   /* All pointers starting here are valid local joins in txn execution. */
   fd_features_t                   features;
-  fd_sysvar_cache_t const *       sysvar_cache;
   fd_txncache_t *                 status_cache;
   ulong                           prev_lamports_per_signature;
   int                             enable_exec_recording;

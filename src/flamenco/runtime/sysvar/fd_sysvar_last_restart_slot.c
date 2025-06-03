@@ -41,6 +41,12 @@ fd_sysvar_last_restart_slot_read( fd_funk_t *     funk,
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) return NULL;
+
   return fd_bincode_decode_spad(
       sol_sysvar_last_restart_slot, spad,
       acc->vt->get_data( acc ),

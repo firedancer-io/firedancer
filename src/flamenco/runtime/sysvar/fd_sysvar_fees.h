@@ -13,7 +13,10 @@ FD_PROTOTYPES_BEGIN
 void
 fd_sysvar_fees_init( fd_exec_slot_ctx_t * slot_ctx );
 
-/* Reads the current value of the fees sysvar */
+/* fd_sysvar_fees_read reads the current value of the fees sysvar from
+   funk. If the account doesn't exist in funk or if the account
+   has zero lamports, this function returns NULL. */
+
 fd_sysvar_fees_t *
 fd_sysvar_fees_read( fd_funk_t *     funk,
                      fd_funk_txn_t * funk_txn,

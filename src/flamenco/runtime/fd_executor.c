@@ -21,10 +21,11 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "program/fd_bpf_program_util.h"
-#include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_slot_history.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
+#include "sysvar/fd_sysvar_slot_hashes.h"
+#include "sysvar/fd_sysvar_rent.h"
 
 #include "tests/fd_dump_pb.h"
 
@@ -315,6 +316,9 @@ status_check_tower( ulong slot, void * _ctx ) {
   fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk,
                                                                          ctx->funk_txn,
                                                                          ctx->spad );
+  if( FD_UNLIKELY( !slot_history ) ) {
+    FD_LOG_ERR(( "Unable to read and decode slot history sysvar" ));
+  }
 
   if( fd_sysvar_slot_history_find_slot( slot_history,
                                         slot,
@@ -489,8 +493,12 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong                       requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
-  fd_epoch_schedule_t const * schedule                            = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache, txn_ctx->runtime_pub_wksp );
-  ulong                       epoch                               = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
+  fd_epoch_schedule_t const * schedule                            = fd_sysvar_epoch_schedule_read( txn_ctx->funk, txn_ctx->funk_txn, txn_ctx->spad );
+  if( FD_UNLIKELY( !schedule ) ) {
+    FD_LOG_ERR(( "Unable to read and decode epoch schedule sysvar" ));
+  }
+
+  ulong epoch = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
@@ -889,7 +897,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( txn_ctx->sysvar_cache, txn_ctx->runtime_pub_wksp );
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( txn_ctx->funk, txn_ctx->funk_txn, txn_ctx->spad );
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
@@ -1253,7 +1261,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_wksp_t const *          funk_wksp,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
-                                    ulong                      sysvar_cache_gaddr,
                                     ulong                      funk_gaddr ) {
 
   ctx->runtime_pub_wksp = (fd_wksp_t *)runtime_pub_wksp;
@@ -1265,11 +1272,6 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
     FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
-  }
-
-  ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
-  if( FD_UNLIKELY( !ctx->sysvar_cache ) ) {
-    FD_LOG_ERR(( "Could not find valid sysvar cache" ));
   }
 
   ctx->features     = slot_ctx->epoch_ctx->features;
@@ -1394,7 +1396,6 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
   fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
   ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->funk->shmem );
-  ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->sysvar_cache );
 
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );
@@ -1403,7 +1404,6 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                                       funk_wksp,
                                       runtime_pub_wksp,
                                       funk_txn_gaddr,
-                                      sysvar_cache_gaddr,
                                       funk_gaddr );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
@@ -1484,7 +1484,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
 int
 fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->sysvar_cache, txn_ctx->runtime_pub_wksp );
+  fd_rent_t const * rent = &txn_ctx->rent;
 
   ulong starting_lamports_l = 0;
   ulong starting_lamports_h = 0;
