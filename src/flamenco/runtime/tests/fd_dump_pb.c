@@ -405,7 +405,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
     fd_solana_vote_program_id,
     fd_solana_stake_program_id,
     fd_solana_config_program_id,
-    // fd_solana_zk_token_proof_program_id,
+    fd_solana_zk_token_proof_program_id,
     fd_solana_bpf_loader_v4_program_id,
     fd_solana_address_lookup_table_program_id,
     fd_solana_bpf_loader_deprecated_program_id,
