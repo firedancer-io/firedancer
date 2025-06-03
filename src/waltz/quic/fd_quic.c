@@ -771,6 +771,7 @@ fd_quic_conn_error1( fd_quic_conn_t * conn,
 
   /* set connection to be serviced ASAP */
   fd_quic_svc_prep_schedule_now( conn );
+  fd_quic_svc_schedule1( conn );
 }
 
 static void
