@@ -24,30 +24,30 @@ setup_xdp_tile( fd_topo_t *             topo,
   fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
 
-  FD_STATIC_ASSERT( sizeof(tile->net.interface)==IF_NAMESIZE, str_bounds );
-  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->net.interface ), net_cfg->interface, IF_NAMESIZE-1 ) );
+  FD_STATIC_ASSERT( sizeof(tile->xdp.interface)==IF_NAMESIZE, str_bounds );
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->xdp.interface ), net_cfg->interface, IF_NAMESIZE-1 ) );
   tile->net.bind_address = net_cfg->bind_address_parsed;
 
-  tile->net.tx_flush_timeout_ns = (long)net_cfg->xdp.flush_timeout_micros * 1000L;
-  tile->net.xdp_rx_queue_size = net_cfg->xdp.xdp_rx_queue_size;
-  tile->net.xdp_tx_queue_size = net_cfg->xdp.xdp_tx_queue_size;
-  tile->net.zero_copy         = net_cfg->xdp.xdp_zero_copy;
-  fd_memset( tile->net.xdp_mode, 0, 4 );
-  fd_memcpy( tile->net.xdp_mode, net_cfg->xdp.xdp_mode, strnlen( net_cfg->xdp.xdp_mode, 3 ) );  /* GCC complains about strncpy */
+  tile->xdp.tx_flush_timeout_ns = (long)net_cfg->xdp.flush_timeout_micros * 1000L;
+  tile->xdp.xdp_rx_queue_size = net_cfg->xdp.xdp_rx_queue_size;
+  tile->xdp.xdp_tx_queue_size = net_cfg->xdp.xdp_tx_queue_size;
+  tile->xdp.zero_copy         = net_cfg->xdp.xdp_zero_copy;
+  fd_memset( tile->xdp.xdp_mode, 0, 4 );
+  fd_memcpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, strnlen( net_cfg->xdp.xdp_mode, 3 ) );  /* GCC complains about strncpy */
 
-  tile->net.umem_dcache_obj_id    = umem_obj->id;
-  tile->net.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;
-  tile->net.fib4_main_obj_id      = netlink_tile->netlink.fib4_main_obj_id;
-  tile->net.fib4_local_obj_id     = netlink_tile->netlink.fib4_local_obj_id;
-  tile->net.neigh4_obj_id         = netlink_tile->netlink.neigh4_obj_id;
-  tile->net.neigh4_ele_obj_id     = netlink_tile->netlink.neigh4_ele_obj_id;
+  tile->xdp.net.umem_dcache_obj_id= umem_obj->id;
+  tile->xdp.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+  tile->xdp.fib4_main_obj_id      = netlink_tile->netlink.fib4_main_obj_id;
+  tile->xdp.fib4_local_obj_id     = netlink_tile->netlink.fib4_local_obj_id;
+  tile->xdp.neigh4_obj_id         = netlink_tile->netlink.neigh4_obj_id;
+  tile->xdp.neigh4_ele_obj_id     = netlink_tile->netlink.neigh4_ele_obj_id;
 
   /* Allocate free ring */
 
-  tile->net.free_ring_depth = tile->net.xdp_tx_queue_size;
+  tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
   if( i==0 ) {
     /* Allocate additional frames for loopback */
-    tile->net.free_ring_depth += 16384UL;
+    tile->xdp.free_ring_depth += 16384UL;
   }
 }
 
@@ -56,12 +56,12 @@ setup_sock_tile( fd_topo_t *             topo,
                  ulong const *           tile_to_cpu,
                  fd_config_net_t const * net_cfg ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  tile->net.bind_address = net_cfg->bind_address_parsed;
+  tile->sock.net.bind_address = net_cfg->bind_address_parsed;
 
   if( FD_UNLIKELY( net_cfg->socket.receive_buffer_size>INT_MAX ) ) FD_LOG_ERR(( "invalid [net.socket.receive_buffer_size]" ));
   if( FD_UNLIKELY( net_cfg->socket.send_buffer_size   >INT_MAX ) ) FD_LOG_ERR(( "invalid [net.socket.send_buffer_size]" ));
-  tile->net.so_rcvbuf = (int)net_cfg->socket.receive_buffer_size;
-  tile->net.so_sndbuf = (int)net_cfg->socket.send_buffer_size   ;
+  tile->sock.so_rcvbuf = (int)net_cfg->socket.receive_buffer_size;
+  tile->sock.so_sndbuf = (int)net_cfg->socket.send_buffer_size   ;
 }
 
 void
@@ -187,8 +187,8 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
 
   fd_topo_tile_t * net_tile = &topo->tiles[ fd_topo_find_tile( topo, "net", net_kind_id ) ];
 
-  ulong rx_depth = net_tile->net.xdp_rx_queue_size;
-  ulong tx_depth = net_tile->net.xdp_tx_queue_size;
+  ulong rx_depth = net_tile->xdp.xdp_rx_queue_size;
+  ulong tx_depth = net_tile->xdp.xdp_tx_queue_size;
   rx_depth += (rx_depth/2UL);
   tx_depth += (tx_depth/2UL);
 

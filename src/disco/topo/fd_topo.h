@@ -78,6 +78,19 @@ typedef struct {
   uint permit_no_producers : 1;  /* Permit a topology where this link has no producers */
 } fd_topo_link_t;
 
+struct fd_topo_net_tile {
+  ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
+  uint  bind_address;
+
+  ushort shred_listen_port;
+  ushort quic_transaction_listen_port;
+  ushort legacy_transaction_listen_port;
+  ushort gossip_listen_port;
+  ushort repair_intake_listen_port;
+  ushort repair_serve_listen_port;
+};
+typedef struct fd_topo_net_tile fd_topo_net_tile_t;
+
 /* A tile is a unique process that is spawned by Firedancer to represent
    one thread of execution.  Firedancer sandboxes all tiles to their own
    process for security reasons.
@@ -130,10 +143,11 @@ struct fd_topo_tile {
   /* Configuration fields.  These are required to be known by the topology so it can determine the
      total size of Firedancer in memory. */
   union {
+    fd_topo_net_tile_t net;
+
     struct {
-      char   provider[ 8 ]; /* "xdp" or "socket" */
-      char   interface[ 16 ];
-      uint   bind_address;
+      fd_topo_net_tile_t net;
+      char interface[ 16 ];
 
       /* xdp specific options */
       ulong  xdp_rx_queue_size;
@@ -143,24 +157,19 @@ struct fd_topo_tile {
       char   xdp_mode[8];
       int    zero_copy;
 
-      /* sock specific options */
-      int so_sndbuf;
-      int so_rcvbuf;
-
-      ushort shred_listen_port;
-      ushort quic_transaction_listen_port;
-      ushort legacy_transaction_listen_port;
-      ushort gossip_listen_port;
-      ushort repair_intake_listen_port;
-      ushort repair_serve_listen_port;
-
-      ulong umem_dcache_obj_id;    /* dcache for XDP UMEM frames */
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       ulong neigh4_obj_id;         /* neigh4 hash map header */
       ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
-    } net;
+    } xdp;
+
+    struct {
+      fd_topo_net_tile_t net;
+      /* sock specific options */
+      int so_sndbuf;
+      int so_rcvbuf;
+    } sock;
 
     struct {
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
