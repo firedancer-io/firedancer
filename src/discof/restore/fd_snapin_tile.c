@@ -300,7 +300,7 @@ static int
 snapshot_is_duplicate_account( fd_snapin_tile_t *  restore,
                                fd_pubkey_t const * account_key ) {
   /* Check if account exists */
-  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( restore->funk, restore->funk_txn, account_key, NULL, NULL, NULL );
+  fd_account_meta_t const * rec_meta = fd_funk_find_account( restore->funk, account_key );
   if( rec_meta )
     if( rec_meta->slot > restore->accv_slot ) 
       return 1;
@@ -308,25 +308,20 @@ snapshot_is_duplicate_account( fd_snapin_tile_t *  restore,
 }
 
 static int
-snapshot_insert_account( fd_snapin_tile_t *              restore,
-                         fd_pubkey_t const *             account_key,
-                         fd_solana_account_hdr_t const * hdr ) {
-  char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
+snapshot_insert_account2( fd_snapin_tile_t *              restore,
+  fd_pubkey_t const *             account_key,
+  fd_solana_account_hdr_t const * hdr ) {
   FD_TXN_ACCOUNT_DECL( rec );
 
-  int write_result = fd_txn_account_init_from_funk_mutable( rec, account_key, restore->funk, restore->funk_txn, /* do_create */ 1, hdr->meta.data_len );
-  if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_txn_account_init_from_funk_mutable(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, account_key->uc ), write_result ));
-    return ENOMEM;
-  }
+  fd_account_meta_t * meta = fd_funk_insert_account( restore->funk, account_key, hdr );
+  rec->vt->set_meta_mutable(rec, meta );
+
   rec->vt->set_data_len( rec, hdr->meta.data_len );
   rec->vt->set_slot( rec, restore->accv_slot );
   rec->vt->set_hash( rec, &hdr->hash );
   rec->vt->set_info( rec, &hdr->info );
   /* TODO: do we still need rent logic here? see fd_snapshot_restore_account_hdr */
   restore->acc_data = rec->vt->get_data_mut( rec );
-
-  fd_txn_account_mutable_fini( rec, restore->funk, restore->funk_txn );
   restore->inserted_accounts++;
   return 0;
 }
@@ -348,8 +343,8 @@ snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
   }
   
   fd_pubkey_t const * account_key = fd_type_pun_const( hdr->meta.pubkey );
-  if( !snapshot_is_duplicate_account( restore, account_key ) ) {
-    snapshot_insert_account( restore, account_key, hdr );
+  if( !snapshot_is_duplicate_account( restore, account_key) ) {
+    snapshot_insert_account2( restore, account_key, hdr );
   }
 
   /* Next step */
@@ -410,19 +405,6 @@ snapshot_read_account_chunk( fd_snapin_tile_t * restore,
 
   if( FD_LIKELY( chunk_sz ) ) {
 
-    // int eom = restore->acc_rem == chunk_sz;
-
-    // fd_mcache_publish_stream(
-    //     restore->out_mcache,
-    //     restore->out_depth,
-    //     restore->out_seq,
-    //     (ulong)buf - restore->goff_translate,
-    //     (ulong)buf - (ulong)restore->in_base,
-    //     chunk_sz,
-    //     fd_frag_meta_ctl( 0UL, 0, eom, 0 )
-    // );
-
-    // restore->out_seq  = fd_seq_inc( restore->out_seq, 1UL );
     restore->acc_rem -= chunk_sz;
     restore->accv_sz -= chunk_sz;
     buf              += chunk_sz;
