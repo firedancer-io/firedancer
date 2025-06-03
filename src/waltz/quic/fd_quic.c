@@ -2867,7 +2867,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     break;
   default:
     /* prep idle timeout or keep alive at idle timeout/2 */
-    fd_quic_svc_prep_schedule( conn, state->now + (conn->idle_timeout>>(quic->config.keep_alive)) );
+    fd_quic_svc_prep_schedule( conn, state->now + (quic->config.idle_timeout>>(quic->config.keep_alive)) );
     fd_quic_svc_schedule( state->svc_timers, conn );
     break;
   }
