@@ -6,14 +6,14 @@
 #include "../../../util/rng/fd_rng.h"
 #include "../../../util/wksp/fd_wksp.h"
 
-#include "../sysvar/fd_sysvar_cache.h"
 #include "../../types/fd_types.h"
 #include "../fd_txncache.h"
+#include "../fd_acc_mgr.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
 
-struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
+struct fd_exec_slot_ctx {
   ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_funk_txn_t *             funk_txn;
@@ -43,8 +43,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       failed_txn_count;
   ulong                       nonvote_failed_txn_count;
   ulong                       total_compute_units_used;
-
-  fd_sysvar_cache_t *         sysvar_cache;
 
   fd_txncache_t *             status_cache;
   fd_slot_history_global_t *  slot_history;
@@ -76,8 +74,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 FD_PROTOTYPES_BEGIN
 
 void *
-fd_exec_slot_ctx_new( void *      mem,
-                      fd_spad_t * spad );
+fd_exec_slot_ctx_new( void * mem );
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_join( void * mem );

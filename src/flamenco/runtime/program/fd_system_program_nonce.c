@@ -5,6 +5,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../fd_executor.h"
 
 static int
@@ -33,7 +34,7 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
+  fd_rent_t const * rent = fd_sysvar_rent_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -51,7 +52,7 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_recent_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !rbh_global ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }

@@ -1,4 +1,5 @@
 #include "fd_loader_v4_program.h"
+#include "../sysvar/fd_sysvar_clock.h"
 
 /* Helper functions that would normally be provided by fd_types. */
 FD_FN_PURE uchar
@@ -333,7 +334,8 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L221-L227 */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_rent_t const * rent = fd_sysvar_rent_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
+
   if( FD_UNLIKELY( rent==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -467,7 +469,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L288 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( clock==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -561,7 +563,7 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L368 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache, instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk, instr_ctx->txn_ctx->funk_txn, instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( clock==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }

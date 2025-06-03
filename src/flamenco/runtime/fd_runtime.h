@@ -317,10 +317,6 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
                            ulong                slot,
                            fd_spad_t *          runtime_spad );
 
-int
-fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_spad_t *          runtime_spad );
-
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
 ulong

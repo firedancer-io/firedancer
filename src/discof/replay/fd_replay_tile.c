@@ -13,6 +13,7 @@
 #include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
 #include "../../flamenco/snapshot/fd_snapshot.h"
@@ -1244,10 +1245,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx->funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx->funk_txn, &xid, 1);
   fd_funk_txn_end_write( ctx->funk );
 
-  /* We must invalidate all of the sysvar cache entries in the case that
-     their memory is no longer valid/the cache contains stale data. */
-  fd_sysvar_cache_invalidate( fork->slot_ctx->sysvar_cache );
-
   int is_epoch_boundary = 0;
   /* TODO: Currently all of the epoch boundary/rewards logic is not
      multhreaded at the epoch boundary. */
@@ -1282,8 +1279,9 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Read slot history into slot ctx */
-  fork->slot_ctx->slot_history = fd_sysvar_cache_slot_history( fork->slot_ctx->sysvar_cache,
-                                                               fork->slot_ctx->runtime_wksp );
+  fork->slot_ctx->slot_history = fd_sysvar_slot_history_read( ctx->funk,
+                                                              fork->slot_ctx->funk_txn,
+                                                              ctx->runtime_spad );
 
   if( is_new_epoch_in_new_block ) {
     publish_stake_weights( ctx, stem, fork->slot_ctx );
@@ -1726,11 +1724,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
                      fd_stem_context_t *    stem ) {
   /* Do not modify order! */
 
-  /* First, load in the sysvars into the sysvar cache. This is required to
-     make the StakeHistory sysvar available to the rewards calculation. */
-
-  fd_runtime_sysvar_cache_load( ctx->slot_ctx, ctx->runtime_spad );
-
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
@@ -1867,7 +1860,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   /* Init slot_ctx */
 
   uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
-  ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, ctx->runtime_spad ) );
+  ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->blockstore   = ctx->blockstore;
   ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;

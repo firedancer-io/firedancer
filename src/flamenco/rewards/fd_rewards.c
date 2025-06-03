@@ -1,12 +1,13 @@
 #include "fd_rewards.h"
 #include <math.h>
 
+#include "../../ballet/siphash13/fd_siphash13.h"
 #include "../runtime/fd_executor_err.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/fd_runtime.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
-#include "../../ballet/siphash13/fd_siphash13.h"
 #include "../runtime/program/fd_program_util.h"
+#include "../runtime/sysvar/fd_sysvar_stake_history.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/native_token.rs#L6 */
 #define LAMPORTS_PER_SOL                     (1000000000UL)
@@ -376,7 +377,8 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
                                      ulong                      rewards,
                                      fd_point_value_t *         result,
                                      fd_tpool_t *               tpool,
-                                     fd_epoch_info_t *          temp_info ) {
+                                     fd_epoch_info_t *          temp_info,
+                                     fd_spad_t *                runtime_spad ) {
 
   uint128 points = 0;
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
@@ -386,9 +388,10 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
-                                                   slot_ctx->sysvar_cache,
+                                                   slot_ctx->funk,
+                                                   slot_ctx->funk_txn,
+                                                   runtime_spad,
                                                    &slot_ctx->epoch_ctx->features,
-                                                   slot_ctx->runtime_wksp,
                                                    new_warmup_cooldown_rate_epoch,
                                                    _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -603,9 +606,10 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
-                                                   slot_ctx->sysvar_cache,
+                                                   slot_ctx->funk,
+                                                   slot_ctx->funk_txn,
+                                                   runtime_spad,
                                                    &slot_ctx->epoch_ctx->features,
-                                                   slot_ctx->runtime_wksp,
                                                    new_warmup_cooldown_rate_epoch,
                                                    _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -696,10 +700,9 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              ulong                                     exec_spad_cnt,
                              fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
-
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
-  if( FD_UNLIKELY( !stake_history ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    if( FD_UNLIKELY( !stake_history ) ) {
+    FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
   }
 
   /* Calculate the epoch reward points from stake/vote accounts */
@@ -708,7 +711,8 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                                        rewards,
                                        &result->point_value,
                                        tpool,
-                                       temp_info );
+                                       temp_info,
+                                       runtime_spad );
 
   /* Calculate the stake and vote rewards for each account */
   calculate_stake_vote_rewards( slot_ctx,
@@ -1177,9 +1181,9 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t * *        exec_spads,
                                             ulong                exec_spad_cnt,
                                             fd_spad_t *          runtime_spad ) {
-  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_cache_epoch_rewards( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
+  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
   if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
-    FD_LOG_NOTICE(( "failed to read sysvar epoch rewards - the sysvar may not have been created yet" ));
+    FD_LOG_NOTICE(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
     return;
   }
@@ -1207,18 +1211,19 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     int _err[1] = {0};
     ulong * new_warmup_cooldown_rate_epoch = fd_spad_alloc( runtime_spad, alignof(ulong), sizeof(ulong) );
     int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
-                                                     slot_ctx->sysvar_cache,
+                                                     slot_ctx->funk,
+                                                     slot_ctx->funk_txn,
+                                                     runtime_spad,
                                                      &slot_ctx->epoch_ctx->features,
-                                                     slot_ctx->runtime_wksp,
                                                      new_warmup_cooldown_rate_epoch,
                                                      _err );
     if( FD_UNLIKELY( !is_some ) ) {
       new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache, slot_ctx->runtime_wksp );
+    fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
     if( FD_UNLIKELY( !stake_history ) ) {
-      FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+      FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
     }
 
     fd_point_value_t point_value = { .points  = epoch_rewards->total_points,

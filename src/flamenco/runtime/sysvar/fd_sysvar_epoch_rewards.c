@@ -32,6 +32,14 @@ fd_sysvar_epoch_rewards_read( fd_funk_t *     funk,
     return NULL;
   }
 
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( acc->vt->get_lamports( acc ) == 0UL ) ) {
+    return NULL;
+  }
+
   return fd_bincode_decode_spad(
       sysvar_epoch_rewards, spad,
       acc->vt->get_data( acc ),
@@ -62,13 +70,6 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
   epoch_rewards->distributed_rewards += distributed;
 
   write_epoch_rewards( slot_ctx, epoch_rewards );
-
-  /* Sync the epoch rewards sysvar cache entry with the account */
-  fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
-                                         slot_ctx->funk,
-                                         slot_ctx->funk_txn,
-                                         runtime_spad,
-                                         slot_ctx->runtime_wksp );
 }
 
 void
@@ -92,13 +93,6 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
   epoch_rewards->active = 0;
 
   write_epoch_rewards( slot_ctx, epoch_rewards );
-
-  /* Sync the epoch rewards sysvar cache entry with the account */
-  fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
-                                         slot_ctx->funk,
-                                         slot_ctx->funk_txn,
-                                         runtime_spad,
-                                         slot_ctx->runtime_wksp );
 }
 
 /* Create EpochRewards sysvar with calculated rewards

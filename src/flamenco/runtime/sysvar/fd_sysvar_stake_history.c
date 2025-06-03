@@ -21,16 +21,26 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
   fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id, &fd_sysvar_stake_history_id, enc, sizeof(enc), slot_ctx->slot_bank.slot );
 }
 
-static fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_spad_t *          runtime_spad ) {
+fd_stake_history_t *
+fd_sysvar_stake_history_read( fd_funk_t *     funk,
+                              fd_funk_txn_t * funk_txn,
+                              fd_spad_t *     spad ) {
   FD_TXN_ACCOUNT_DECL( stake_rec );
-  int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, slot_ctx->funk, slot_ctx->funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+  int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, funk_txn );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
+  }
+
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( stake_rec->vt->get_lamports( stake_rec )==0 ) ) {
+    return NULL;
+  }
 
   return fd_bincode_decode_spad(
-      stake_history, runtime_spad,
+      stake_history, spad,
       stake_rec->vt->get_data( stake_rec ),
       stake_rec->vt->get_data_len( stake_rec ),
       &err );
@@ -48,7 +58,7 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                  slot_ctx,
                                 fd_epoch_stake_history_entry_pair_t * pair,
                                 fd_spad_t *                           runtime_spad ) {
   // Need to make this maybe zero copies of map...
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx, runtime_spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
 
   if( stake_history->fd_stake_history_offset == 0 ) {
     stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;

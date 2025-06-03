@@ -18,9 +18,10 @@ FD_PROTOTYPES_BEGIN
 
 int
 fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
-                                   fd_sysvar_cache_t const * sysvar_cache,
+                                   fd_funk_t *               funk,
+                                   fd_funk_txn_t *           funk_txn,
+                                   fd_spad_t *               spad,
                                    fd_features_t const *     features,
-                                   fd_wksp_t *               wksp,
                                    /* out */ ulong *         epoch,
                                    int *                     err );
 

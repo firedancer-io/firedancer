@@ -96,7 +96,7 @@ fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx, runtime_spad );
+  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
   fd_slot_hash_t *          hashes             = NULL;
   if( FD_UNLIKELY( !slot_hashes_global ) ) {
     /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
@@ -136,11 +136,20 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 }
 
 fd_slot_hashes_global_t *
-fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
-                            fd_spad_t *           runtime_spad ) {
+fd_sysvar_slot_hashes_read( fd_funk_t *     funk,
+                            fd_funk_txn_t * funk_txn,
+                            fd_spad_t *     spad ) {
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    return NULL;
+  }
+
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( rec->vt->get_lamports( rec )==0 ) ) {
     return NULL;
   }
 
@@ -155,7 +164,7 @@ fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
     return NULL;
   }
 
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_hashes_align(), total_sz );
+  uchar * mem = fd_spad_alloc( spad, fd_slot_hashes_align(), total_sz );
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_ERR(( "Unable to allocate memory for slot hashes" ));

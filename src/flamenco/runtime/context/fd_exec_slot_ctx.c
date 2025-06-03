@@ -8,8 +8,8 @@
 #include <time.h>
 
 void *
-fd_exec_slot_ctx_new( void *      mem,
-                      fd_spad_t * runtime_spad ) {
+fd_exec_slot_ctx_new( void * mem ) {
+
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -23,13 +23,6 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_memset( mem, 0, sizeof(fd_exec_slot_ctx_t) );
 
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *)mem;
-  fd_slot_bank_new( &self->slot_bank );
-
-  uchar * sysvar_cache_mem = fd_spad_alloc_check( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() );
-  if( FD_UNLIKELY( !sysvar_cache_mem ) ) {
-    FD_LOG_WARNING(( "failed to allocate sysvar cache" ));
-  }
-  self->sysvar_cache = fd_sysvar_cache_new( sysvar_cache_mem );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
@@ -87,8 +80,6 @@ fd_exec_slot_ctx_delete( void * mem ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
-
-  hdr->sysvar_cache = NULL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;

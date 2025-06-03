@@ -35,8 +35,10 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_CLOCK, sizeof(fd_sol_sysvar_clock_t) );
 
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache,
-                                                               instr_ctx->txn_ctx->runtime_pub_wksp );
+
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( instr_ctx->txn_ctx->funk,
+                                                              instr_ctx->txn_ctx->funk_txn,
+                                                              instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !clock ) ) {
     FD_LOG_ERR(( "failed to read sysvar clock" ));
   }
@@ -71,8 +73,9 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE, sizeof(fd_epoch_schedule_t) );
 
-  fd_epoch_schedule_t * schedule = fd_sysvar_cache_epoch_schedule( instr_ctx->txn_ctx->sysvar_cache,
-                                                                   instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_epoch_schedule_t * schedule = fd_sysvar_epoch_schedule_read( instr_ctx->txn_ctx->funk,
+                                                                  instr_ctx->txn_ctx->funk_txn,
+                                                                  instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( schedule == NULL ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch schedule" ));
   }
@@ -107,8 +110,9 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_FEES, sizeof(fd_sysvar_fees_t) );
 
-  fd_sysvar_fees_t * fees = fd_sysvar_cache_fees( instr_ctx->txn_ctx->sysvar_cache,
-                                                  instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_sysvar_fees_t * fees = fd_sysvar_fees_read( instr_ctx->txn_ctx->funk,
+                                                 instr_ctx->txn_ctx->funk_txn,
+                                                 instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !fees ) ) {
     FD_LOG_ERR(( "failed to read sysvar fees" ));
   }
@@ -143,8 +147,9 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_RENT, sizeof(fd_rent_t) );
 
-  fd_rent_t * rent = fd_sysvar_cache_rent( instr_ctx->txn_ctx->sysvar_cache,
-                                           instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_rent_t const * rent = fd_sysvar_rent_read( instr_ctx->txn_ctx->funk,
+                                                instr_ctx->txn_ctx->funk_txn,
+                                                instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !rent ) ) {
     FD_LOG_ERR(( "failed to read sysvar rent" ));
   }
@@ -173,8 +178,9 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
                                                                 FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT,
                                                                 sizeof(fd_sol_sysvar_last_restart_slot_t) );
 
-  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_sysvar_cache_last_restart_slot( vm->instr_ctx->txn_ctx->sysvar_cache,
-                                                                                             vm->instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_sysvar_last_restart_slot_read( vm->instr_ctx->txn_ctx->funk,
+                                                                                            vm->instr_ctx->txn_ctx->funk_txn,
+                                                                                            vm->instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !last_restart_slot ) ) {
     FD_LOG_ERR(( "failed to read sysvar last restart slot" ));
   }
@@ -632,8 +638,9 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_sysvar_epoch_rewards_t) );
 
-  fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_cache_epoch_rewards( instr_ctx->txn_ctx->sysvar_cache,
-                                                                             instr_ctx->txn_ctx->runtime_pub_wksp );
+  fd_sysvar_epoch_rewards_t const * epoch_rewards = fd_sysvar_epoch_rewards_read( instr_ctx->txn_ctx->funk,
+                                                                                  instr_ctx->txn_ctx->funk_txn,
+                                                                                  instr_ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !epoch_rewards ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }

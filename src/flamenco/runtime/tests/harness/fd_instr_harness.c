@@ -3,7 +3,10 @@
 #define FD_SPAD_USE_HANDHOLDING 1
 
 #include "fd_instr_harness.h"
-
+#include "../../sysvar/fd_sysvar_clock.h"
+#include "../../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../sysvar/fd_sysvar_recent_hashes.h"
+#include "../../sysvar/fd_sysvar_last_restart_slot.h"
 int
 fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                   fd_exec_instr_ctx_t *                ctx,
@@ -32,7 +35,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   uchar *               txn_ctx_mem   = fd_spad_alloc( runner->spad,FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, runner->spad ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
 
   assert( epoch_ctx );
@@ -76,7 +79,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_wksp_t * runtime_wksp       = fd_wksp_containing( slot_ctx );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, funk_txn );
   ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk->shmem );
-  ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_wksp, slot_ctx->sysvar_cache );
 
   /* Set up mock txn descriptor */
   fd_txn_t * txn_descriptor           = fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
@@ -88,7 +90,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                       funk_wksp,
                                       runtime_wksp,
                                       funk_txn_gaddr,
-                                      sysvar_cache_gaddr,
                                       funk_gaddr );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
@@ -211,17 +212,14 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
-  /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, runtime_wksp );
-
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
 
   /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  if( !slot_ctx->sysvar_cache->has_clock ) {
-    slot_ctx->sysvar_cache->has_clock = 1;
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
+  if( !clock ) {
     fd_sol_sysvar_clock_t sysvar_clock = {
                                           .slot                  = 10UL,
                                           .epoch_start_timestamp = 0L,
@@ -229,15 +227,13 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                           .leader_schedule_epoch = 0UL,
                                           .unix_timestamp        = 0L
                                         };
-    uchar * val_clock = fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_CLOCK_ALIGN, sizeof(fd_sol_sysvar_clock_t) );
-    slot_ctx->sysvar_cache->gaddr_clock = fd_wksp_gaddr( runtime_wksp, val_clock );
-    memcpy( val_clock, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
+    fd_sysvar_clock_write( slot_ctx, &sysvar_clock );
   }
 
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  if ( !slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    slot_ctx->sysvar_cache->has_epoch_schedule = 1;
+  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
+  if( !epoch_schedule ) {
     fd_epoch_schedule_t sysvar_epoch_schedule = {
                                                   .slots_per_epoch             = 432000UL,
                                                   .leader_schedule_slot_offset = 432000UL,
@@ -245,48 +241,47 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                                   .first_normal_epoch          = 14UL,
                                                   .first_normal_slot           = 524256UL
                                                 };
-    uchar * val_epoch_schedule = fd_spad_alloc( runner->spad, FD_EPOCH_SCHEDULE_ALIGN, sizeof(fd_epoch_schedule_t) );
-    slot_ctx->sysvar_cache->gaddr_epoch_schedule = fd_wksp_gaddr( runtime_wksp, val_epoch_schedule );
-    memcpy( val_epoch_schedule, &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+    fd_sysvar_epoch_schedule_write( slot_ctx, &sysvar_epoch_schedule );
   }
 
   /* Rent */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  if ( !slot_ctx->sysvar_cache->has_rent ) {
-    slot_ctx->sysvar_cache->has_rent = 1;
+  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  if( !rent ) {
     fd_rent_t sysvar_rent = {
                               .lamports_per_uint8_year = 3480UL,
                               .exemption_threshold     = 2.0,
                               .burn_percent            = 50
                             };
-    uchar * val_rent = fd_spad_alloc( runner->spad, FD_RENT_ALIGN, sizeof(fd_rent_t) );
-    slot_ctx->sysvar_cache->gaddr_rent = fd_wksp_gaddr( runtime_wksp, val_rent );
-    memcpy( val_rent, &sysvar_rent, sizeof(fd_rent_t) );
+    fd_sysvar_rent_write( slot_ctx, &sysvar_rent );
   }
 
-  if ( !slot_ctx->sysvar_cache->has_last_restart_slot ) {
-    slot_ctx->sysvar_cache->has_last_restart_slot = 1;
+  fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( funk, funk_txn, runner->spad );
+  if( !last_restart_slot ) {
 
     fd_sol_sysvar_last_restart_slot_t restart = { .slot = 5000UL };
 
-    uchar * val_last_restart_slot = fd_spad_alloc( runner->spad, FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN, sizeof(fd_sol_sysvar_last_restart_slot_t) );
-    slot_ctx->sysvar_cache->gaddr_last_restart_slot = fd_wksp_gaddr( runtime_wksp, val_last_restart_slot );
-    memcpy( val_last_restart_slot, &restart, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+    fd_sysvar_set( slot_ctx, &fd_sysvar_owner_id,
+                   &fd_sysvar_last_restart_slot_id,
+                   &restart.slot, sizeof(ulong),
+                   slot_ctx->slot_bank.slot );
+
   }
 
   /* Set slot bank variables */
-  slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache, runner->wksp )->slot;
+  clock = fd_sysvar_clock_read( funk, funk_txn, runner->spad );
+  slot_ctx->slot_bank.slot = clock->slot;
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* Override epoch bank rent setting */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache, runner->wksp );
+  rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
   if( rent ) {
     epoch_bank->rent = *rent;
   }
 
   /* Override most recent blockhash if given */
-  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache, runner->wksp );
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_global ) {
     rbh->hashes = deq_fd_block_block_hash_entry_t_join( (uchar*)rbh_global + rbh_global->hashes_offset );
@@ -359,7 +354,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_runtime_fuzz_runner_t *           runner,
                                       funk_wksp,
                                       runtime_wksp,
                                       funk_txn_gaddr,
-                                      sysvar_cache_gaddr,
                                       funk_gaddr );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );

@@ -3,6 +3,7 @@
 #include "../fd_pubkey_utils.h"
 #include "../fd_borrowed_account.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
+#include "../sysvar/fd_sysvar_clock.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "fd_native_cpi.h"
 
@@ -251,7 +252,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong derivation_slot = 1UL;
 
   do {
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
 
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
@@ -669,8 +670,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L290 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache,
-                                                               ctx->txn_ctx->runtime_pub_wksp );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -864,8 +864,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L380 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache,
-                                                               ctx->txn_ctx->runtime_pub_wksp );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -984,14 +983,13 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L437 */
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache,
-                                                               ctx->txn_ctx->runtime_pub_wksp );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !clock ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
-  fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache, ctx->txn_ctx->runtime_pub_wksp );
+  fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !slot_hashes_global ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }

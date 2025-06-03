@@ -31,9 +31,9 @@ timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
   return (long)( epoch_bank->genesis_creation_time + ( ( slot_ctx->slot_bank.slot * epoch_bank->ns_per_slot ) / NS_IN_S ) );
 }
 
-static void
-write_clock( fd_exec_slot_ctx_t *    slot_ctx,
-             fd_sol_sysvar_clock_t * clock ) {
+void
+fd_sysvar_clock_write( fd_exec_slot_ctx_t *    slot_ctx,
+                       fd_sol_sysvar_clock_t * clock ) {
   ulong sz = fd_sol_sysvar_clock_size( clock );
   uchar enc[sz];
   memset( enc, 0, sz );
@@ -53,8 +53,17 @@ fd_sysvar_clock_read( fd_funk_t *     funk,
                       fd_spad_t *     spad ) {
   FD_TXN_ACCOUNT_DECL( acc );
   int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, funk, funk_txn );
-  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
+  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
+  }
+
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( acc->vt->get_lamports( acc )==0 ) ) {
+    return NULL;
+  }
 
   int err;
   return fd_bincode_decode_spad(
@@ -75,7 +84,7 @@ fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx ) {
     .leader_schedule_epoch = 1,
     .unix_timestamp = timestamp,
   };
-  write_clock( slot_ctx, &clock );
+  fd_sysvar_clock_write( slot_ctx, &clock );
 }
 
 /* Bounds the timestamp estimate by the max allowable drift from the expected PoH slot duration.
