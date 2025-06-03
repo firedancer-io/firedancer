@@ -328,11 +328,9 @@ fd_account_hash( fd_funk_t *                    funk,
         iterator.  Instead, we will store away the record and erase
         it later where appropriate.  */
     task_info->should_erase = 1;
-    /* In the exceedingly unlikely event that the account's old hash is
-       actually 0, this would cause the account not to be included in
-       the bank hash. */
-    if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
-      task_info->hash_changed = 1;
+    if( FD_UNLIKELY( NULL != acc_meta_parent) ){
+      if( FD_UNLIKELY( acc_meta->info.lamports != acc_meta_parent->info.lamports ) )
+        task_info->hash_changed = 1;
     }
   } else {
     uchar *             acc_data = fd_account_meta_get_data((fd_account_meta_t *) acc_meta);
