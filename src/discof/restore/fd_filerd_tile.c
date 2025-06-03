@@ -12,7 +12,16 @@
 
 struct fd_filerd_tile {
   fd_stream_writer_t * writer;
-  int                  fd;
+  int                  full_fd;
+  int                  incr_fd;
+
+  struct {
+    ulong full_read;
+    ulong full_sz;
+
+    ulong incr_read;
+    ulong incr_sz;
+  } metrics;
 };
 
 typedef struct fd_filerd_tile fd_filerd_tile_t;
@@ -62,8 +71,9 @@ fd_filerd_shutdown( fd_filerd_tile_t * ctx ) {
     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   ctx->fd = -1;
-  FD_MGAUGE_SET( TILE, STATUS, 2UL );
   fd_stream_writer_close( ctx->writer );
+  FD_COMPILER_MFENCE();
+  FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
   FD_LOG_INFO(( "Reached end of file" ));
 
@@ -115,12 +125,13 @@ fd_filerd_run1( fd_filerd_tile_t *         ctx,
                      NULL,
                      NULL,
                      after_credit,
+                     NULL,
                      NULL );
 }
 
 static void
-fd_filerd_run( fd_topo_t *        topo,
-               fd_topo_tile_t *   tile ) {
+fd_filerd_run( fd_topo_t *      topo,
+               fd_topo_tile_t * tile ) {
   fd_filerd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   void * ctx_mem = fd_alloca_check( FD_STEM_SCRATCH_ALIGN, fd_stream_ctx_footprint( topo, tile ) );
   fd_stream_ctx_t * stream_ctx = fd_stream_ctx_new( ctx_mem, topo, tile );

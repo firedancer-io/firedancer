@@ -134,6 +134,7 @@ fd_stream_writer_register_consumer(
 
 static inline void
 fd_stream_writer_close( fd_stream_writer_t * writer ) {
+  // This is silly, just send a frag with the fin ctl bit set instead
   FD_VOLATILE( writer->out_sync[ 0 ] ) = writer->seq;
   FD_VOLATILE( writer->out_sync[ 1 ] ) = writer->goff;
   FD_COMPILER_MFENCE();

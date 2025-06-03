@@ -105,22 +105,37 @@ struct fd_snapin_tile {
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
 
-struct fd_snapin_in {
-  fd_stream_frag_meta_t const * mcache;
-  uint                          depth;
-  uint                          idx;
-  ulong                         seq;
-  ulong                         goff;
-  fd_stream_frag_meta_t const * mline;
-  ulong volatile * restrict     fseq;
-  uint                          accum[6];
-};
-
-typedef struct fd_snapin_in fd_snapin_in_t;
-
 static void
 fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
   ctx->flags = SNAP_FLAG_DONE;
+
+  FD_COMPILER_MFENCE();
+
+  // TODO: Share an fseq with replay, set it to 1
+  // here to indicate snapshot now loaded.
+  //
+  // make the fseq a topo object with fd_topob_obj_new()
+  // just put this fseq in the metrics workspace
+  //
+  // fd_fseq_update( ... )
+  //
+  // IN REPLAY TILE:
+  //
+  // struct replay_ctx {
+  //   int is_snapshot_loaded;
+  // }
+  //
+  // void during_housekeeping() {
+  //   if( !is_snapshot_loaded ) check_fseq();
+  // }
+  //
+  // void after_credit() {
+  //  if( !is_snapshot_loaded ) return;
+  //
+  //   continue_replay();
+  // }
+
+  FD_COMPILER_MFENCE();
 
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_LOG_WARNING(( "Finished parsing snapshot" ));
@@ -264,7 +279,8 @@ restore_file( void *                restore_,
       restore->flags |= SNAP_FLAG_FAILED;
       return;
     }
-    fd_snapshot_restore_accv_prepare( restore, meta, sz );
+    int err = fd_snapshot_restore_accv_prepare( restore, meta, sz );
+    // TODO: Handle error
   } else if( fd_memeq( meta->name, "snapshots/status_cache", sizeof("snapshots/status_cache") ) ) {
     /* TODO */
   } else if(0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1 ) ) {
@@ -410,19 +426,6 @@ snapshot_read_account_chunk( fd_snapin_tile_t * restore,
 
   if( FD_LIKELY( chunk_sz ) ) {
 
-    // int eom = restore->acc_rem == chunk_sz;
-
-    // fd_mcache_publish_stream(
-    //     restore->out_mcache,
-    //     restore->out_depth,
-    //     restore->out_seq,
-    //     (ulong)buf - restore->goff_translate,
-    //     (ulong)buf - (ulong)restore->in_base,
-    //     chunk_sz,
-    //     fd_frag_meta_ctl( 0UL, 0, eom, 0 )
-    // );
-
-    // restore->out_seq  = fd_seq_inc( restore->out_seq, 1UL );
     restore->acc_rem -= chunk_sz;
     restore->accv_sz -= chunk_sz;
     buf              += chunk_sz;

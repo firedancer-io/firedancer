@@ -44,7 +44,7 @@ metric introduced.
     <gauge name="Tid" clickhouse_exclude="true" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
     <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
-    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
+    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running, 2 is shutdown." />
     <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
     <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
     <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing." />
@@ -98,6 +98,16 @@ metric introduced.
     <counter name="TxDropCnt" summary="Number of packets failed to send" />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
     <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
+</tile>
+
+<tile name="snaprd">
+    <gauge name="Status" summary="Status of the tile. 0 = waiting for gossip peers, 1 = reading full snapshot, 2 = reading incremental snapshot, 3 = complete" />
+    <counter name="FullNumRetries" summary="Number of times we aborted and retried full snapshot download because the peer was too slow" />
+    <counter name="IncrementalNumRetries" summary="Number of times we aborted and retried incremental snapshot download because the peer was too slow" />
+    <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="FullBytesTotal" summary="Total size of the full snapshot file. Might change if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalBytesRead" summary="Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
 </tile>
 
 <enum name="TpuRecvType">
