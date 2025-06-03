@@ -118,9 +118,113 @@ struct fd_snapin_in {
 
 typedef struct fd_snapin_in fd_snapin_in_t;
 
+static const fd_pubkey_t sentinel = {0};
+
+struct fd_acc_chain_entry {
+  fd_pubkey_t key;
+  fd_funk_rec_t * rec;
+  uint hash;
+};
+typedef struct fd_acc_chain_entry fd_acc_chain_entry_t;
+
+static uint
+fd_pubkey_hash( fd_pubkey_t key ) {
+  return (uint)fd_hash( 0UL, key.key, sizeof(fd_pubkey_t) );
+}
+
+static int
+fd_pubkey_inval( fd_pubkey_t key ) {
+  return memcmp( key.uc, sentinel.uc, sizeof(fd_pubkey_t) )==0;
+}
+
+static int
+fd_pubkey_equal( fd_pubkey_t a, fd_pubkey_t b ) {
+  return memcmp( a.uc, b.uc, sizeof(fd_pubkey_t) );
+}
+
+#define MAP_NAME fd_accounts_in_chain
+#define MAP_KEY_T fd_pubkey_t
+#define MAP_T fd_acc_chain_entry_t
+#define MAP_KEY_NULL sentinel
+#define MAP_KEY_INVAL fd_pubkey_inval
+#define MAP_KEY_EQUAL fd_pubkey_equal
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_MEMOIZE           0
+#define MAP_KEY_HASH fd_pubkey_hash
+#define MAP_LG_SLOT_CNT 5
+#include "../../util/tmpl/fd_map.c"
+
+static void
+fd_acc_key_from_rec( fd_funk_rec_t * rec, fd_pubkey_t * pubkey ) {
+  fd_memcpy( pubkey, rec->pair.key, sizeof(fd_pubkey_t) );
+}
+
+void
+fd_funk_dedup_accounts( fd_funk_t * funk ) {
+  void * map_mem = fd_alloca_check( alignof(fd_acc_chain_entry_t), fd_accounts_in_chain_footprint() );
+  fd_acc_chain_entry_t * accounts_map = fd_accounts_in_chain_join( fd_accounts_in_chain_new( map_mem ) );
+
+  /* iterate though all chains and dedup the accounts based on slot */
+  fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
+  ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
+  ulong num_chains_with_multiple_accs = 0UL;
+  ulong num_duplicates = 0UL;
+  for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    fd_funk_rec_map_shmem_private_chain_t * chain =  fd_funk_rec_map_shmem_private_chain( rec_map->map, chain_idx );
+    ulong ver_cnt = chain->ver_cnt;
+    ulong ele_cnt = fd_funk_rec_map_private_vcnt_cnt( ver_cnt );
+
+    if( ele_cnt > 1 ) {
+      num_chains_with_multiple_accs++;
+      for(
+        fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
+        !fd_funk_rec_map_iter_done( iter );
+        iter = fd_funk_rec_map_iter_next( iter )
+      ) {
+        /* lookup record key in a local map */
+        /* if not in the map, add to map */
+        /* if already in map, check slot and flush the one with the lower slot */
+        fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( iter );
+        fd_pubkey_t key;
+        fd_acc_key_from_rec( rec, &key );
+
+        fd_account_meta_t * meta = fd_funk_val( rec, fd_funk_wksp( funk ) );
+        fd_acc_chain_entry_t * found_rec = fd_accounts_in_chain_query(accounts_map, key, NULL );
+
+        if( !found_rec ) {
+          fd_acc_chain_entry_t * new_rec = fd_accounts_in_chain_insert( accounts_map, key );
+          new_rec->rec = rec;
+        } else {
+          num_duplicates++;
+          fd_account_meta_t * found_meta = fd_funk_val( rec, fd_funk_wksp( funk ) );
+          if( found_meta->slot < meta->slot ) {
+            fd_funk_val_flush( found_rec->rec, fd_funk_alloc( funk), fd_funk_wksp( funk ) );
+            found_rec->rec = rec;
+          } else if( meta->slot < found_meta->slot ) {
+            fd_funk_val_flush( rec, fd_funk_alloc( funk), fd_funk_wksp( funk ) );
+          }
+
+        }
+      }
+      fd_accounts_in_chain_clear( accounts_map );
+    }
+  }
+  FD_LOG_WARNING(("num chains with multiple accs: %lu, num_dups: %lu", num_chains_with_multiple_accs, num_duplicates));
+}
+
+
+static void
+fd_snapin_process_snapshot_complete( fd_snapin_tile_t * ctx ) {
+  FD_LOG_WARNING(("starting to dedup accounts!"));
+  fd_funk_dedup_accounts( ctx->funk );
+  FD_LOG_WARNING(("finished dedup accounts"));
+}
+
 static void
 fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
   ctx->flags = SNAP_FLAG_DONE;
+
+  // fd_snapin_process_snapshot_complete( ctx );
 
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_LOG_WARNING(( "Finished parsing snapshot" ));
