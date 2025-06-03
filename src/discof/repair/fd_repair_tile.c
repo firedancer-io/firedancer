@@ -1033,26 +1033,25 @@ after_credit( fd_repair_tile_ctx_t * ctx,
       if( FD_UNLIKELY( head->complete_idx == UINT_MAX ) ) {
         fd_repair_need_highest_window_index( ctx->repair, head->slot, 0 );
       } else {
-        for(ulong i = 0; i < 10; i++ ) {
-          for( uint idx = 0; idx < head->complete_idx; idx++ ) {
-            if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
-              ulong key = (head->slot << 32) | idx;
-              fd_recent_t * recent = fd_recent_query( ctx->recent, key, NULL );
-              if( FD_UNLIKELY( !recent ) ) {
-                recent     = fd_recent_insert( ctx->recent, key );
-                recent->ts = 0;
+        for( uint idx = 0; idx < head->complete_idx; idx++ ) {
+          if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
+            ulong key = (head->slot << 32) | idx;
+            fd_recent_t * recent = fd_recent_query( ctx->recent, key, NULL );
+            if( FD_UNLIKELY( !recent ) ) {
+              recent     = fd_recent_insert( ctx->recent, key );
+              recent->ts = 0;
+            }
+            long now = fd_log_wallclock();
+            if( FD_UNLIKELY( ( recent->ts + (long)20e6 ) < now ) ) {
+              fd_repair_need_window_index( ctx->repair, head->slot, idx );
+              recent->ts = now;
+              if( FD_UNLIKELY( ++cnt == 10 ) ) {
+                break; /* stop after 10 requests in this slot, and continue down the rest of the tree*/
               }
-              long now = fd_log_wallclock();
-              if( FD_UNLIKELY( ( recent->ts + (long)20e6 ) < now ) ) {
-                fd_repair_need_window_index( ctx->repair, head->slot, idx );
-                recent->ts = now;
-                if( FD_UNLIKELY( ++cnt == FD_REEDSOL_DATA_SHREDS_MAX ) ) break;
-                // FD_LOG_NOTICE(("break"));
-                break;
-              }
-            };
+            }
           }
         }
+        cnt = 0; /* reset for next head */
       }
       fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
       while( FD_LIKELY( child ) ) { /* append children to frontier */
