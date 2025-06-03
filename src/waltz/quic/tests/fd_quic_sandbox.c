@@ -304,8 +304,8 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->peer_enc_level     = fd_quic_enc_level_appdata_id;
   conn->keys_avail         = 1U<<fd_quic_enc_level_appdata_id;
 
-  conn->idle_timeout  = FD_QUIC_SANDBOX_IDLE_TIMEOUT;
-  conn->last_activity = sandbox->wallclock;
+  conn->idle_timeout_ticks  = FD_QUIC_SANDBOX_IDLE_TIMEOUT;
+  conn->last_activity       = sandbox->wallclock;
 
   /* Reset flow control limits */
   conn->tx_max_data           = 0UL;
