@@ -200,9 +200,10 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 set -x
   sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
 
+{ set +x; } &> /dev/null
+
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
-{ set +x; } &> /dev/null
 echo_notice "Finished on-demand ingest and replay\n"
 
 echo "Log for ledger $LEDGER at $LOG"
