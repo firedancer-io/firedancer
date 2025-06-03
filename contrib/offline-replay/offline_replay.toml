@@ -1,0 +1,40 @@
+[layout]
+    affinity = "auto"
+    bank_tile_count = 1
+    shred_tile_count = 4
+    exec_tile_count = 10
+[tiles]
+    [tiles.archiver]
+        enabled = true
+        end_slot = {end_slot}
+        archiver_path = "{ledger}/rocksdb"
+        file = "{ledger}/backtest.blockstore"
+    [tiles.replay]
+        snapshot = "{snapshot}"
+        funk_sz_gb = {funk_pages}
+        funk_txn_max = 1024
+        funk_rec_max = {index_max}
+        cluster_version = "{cluster_version}"
+        funk_file = "{ledger}/backtest.funk"
+    [tiles.gui]
+        enabled = false
+[runtime]
+    heap_size_gib = {heap_size}
+[blockstore]
+    shred_max = 16777216
+    block_max = 8192
+    txn_max = 1048576
+    alloc_max = 10737418240
+    file = "{ledger}/backtest.blockstore"
+[consensus]
+    vote = false
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true
+[log]
+    level_stderr = "INFO"
+    path = "{log}"
+[paths]
+    identity_key = "{identity_key_path}"
+    vote_account = "{vote_account_path}"
