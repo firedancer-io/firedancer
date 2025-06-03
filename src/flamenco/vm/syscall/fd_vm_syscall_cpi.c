@@ -472,7 +472,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl ) \
   ulong decl = acc_info->data_addr;
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
-  uchar * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->data_addr, alignof(uchar), acc_info->data_sz ); \
+  uchar * decl = FD_VM_MEM_SLICE_HADDR_ST( vm, acc_info->data_addr, alignof(uchar), acc_info->data_sz ); \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
