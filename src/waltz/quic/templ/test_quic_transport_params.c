@@ -103,8 +103,8 @@ test_max_size( void ) {
     .original_destination_connection_id_len     = FD_QUIC_MAX_CONN_ID_SZ,
 
     /* 0x01 */
-    .max_idle_timeout_present = 1,
-    .max_idle_timeout         = (1UL<<62)-1,
+    .max_idle_timeout_ms_present = 1,
+    .max_idle_timeout_ms         = (1UL<<62)-1,
 
     /* 0x02 */
     .stateless_reset_token_present = 1,

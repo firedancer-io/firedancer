@@ -307,6 +307,20 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
   }
 }
 
+/* fd_quic_ticks_to_us converts ticks to microseconds
+   fd_quic_us_to_ticks converts microseconds to ticks
+   These should only be used after clock has been set
+   Relies on conversion rate in config */
+FD_FN_UNUSED static ulong fd_quic_ticks_to_us( fd_quic_t * quic, ulong ticks ) {
+  double ratio = quic->config.tick_per_us;
+  return (ulong)( (double)ticks / ratio );
+}
+
+static ulong fd_quic_us_to_ticks( fd_quic_t * quic, ulong us ) {
+  double ratio = quic->config.tick_per_us;
+  return (ulong)( (double)us * ratio );
+}
+
 FD_QUIC_API void
 fd_quic_set_clock( fd_quic_t *   quic,
                    fd_quic_now_t now_fn,
@@ -590,7 +604,7 @@ fd_quic_init( fd_quic_t * quic ) {
   ulong  idle_timeout_ms_u = (ulong)round( idle_timeout_ms );
 
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms_u        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout_ms,                 idle_timeout_ms_u        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ   ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    (1UL<<62)-1UL            );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         initial_max_stream_data  );
@@ -2677,8 +2691,10 @@ fd_quic_tls_cb_peer_params( void *        context,
   }
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
-  if( peer_tp->max_idle_timeout ) {
-    conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
+  if( peer_tp->max_idle_timeout_ms ) {
+    double peer_max_idle_timeout_us    = (double)peer_tp->max_idle_timeout_ms * 1e3;
+    ulong  peer_max_idle_timeout_ticks = fd_quic_us_to_ticks( conn->quic, (ulong)peer_max_idle_timeout_us );
+    conn->idle_timeout_ticks = fd_ulong_min( peer_max_idle_timeout_ticks, conn->idle_timeout_ticks );
   }
 
   /* set ack_delay_exponent so we can properly interpret peer's ack_delays
@@ -2824,8 +2840,8 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     return 1;
   }
 
-  if( FD_UNLIKELY( now >= conn->last_activity + ( conn->idle_timeout / 2 ) ) ) {
-    if( FD_UNLIKELY( now >= conn->last_activity + conn->idle_timeout ) ) {
+  if( FD_UNLIKELY( now >= conn->last_activity + ( conn->idle_timeout_ticks / 2 ) ) ) {
+    if( FD_UNLIKELY( now >= conn->last_activity + conn->idle_timeout_ticks ) ) {
       if( FD_LIKELY( conn->state != FD_QUIC_CONN_STATE_DEAD ) ) {
         /* rfc9000 10.1 Idle Timeout
             "... the connection is silently closed and its state is discarded
@@ -2833,7 +2849,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             max_idle_timeout value advertised by both endpoints." */
         FD_DEBUG( FD_LOG_WARNING(("%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
             conn->server?"SERVER":"CLIENT",
-            (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
+            (void *)conn, conn->conn_idx, (double)fd_quic_ticks_to_us(conn->idle_timeout_ticks) / 1e3 )); )
 
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_timeout_cnt++;
@@ -2867,7 +2883,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     break;
   default:
     /* prep idle timeout or keep alive at idle timeout/2 */
-    fd_quic_svc_prep_schedule( conn, state->now + (conn->idle_timeout>>(quic->config.keep_alive)) );
+    fd_quic_svc_prep_schedule( conn, state->now + (conn->idle_timeout_ticks>>(quic->config.keep_alive)) );
     fd_quic_svc_schedule( state->svc_timers, conn );
     break;
   }
@@ -4271,8 +4287,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->peer_enc_level = 0;
 
   /* idle timeout */
-  conn->idle_timeout  = config->idle_timeout;
-  conn->last_activity = state->now;
+  conn->idle_timeout_ticks  = config->idle_timeout;
+  conn->last_activity       = state->now;
 
   memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
   memset( conn->last_pkt_number, 0, sizeof( conn->last_pkt_number ) );

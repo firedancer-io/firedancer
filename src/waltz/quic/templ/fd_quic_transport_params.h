@@ -18,7 +18,7 @@ X( original_destination_connection_id,                                          
   "first Initial packet sent by the client; see Section 7.3. This transport "          \
   "parameter is only sent by a server.",                                               \
   __VA_ARGS__ )                                                                        \
-X( max_idle_timeout,                                                                   \
+X( max_idle_timeout_ms,                                                                   \
   0x01,                                                                                \
   VARINT,                                                                              \
   DFT_UNKNOWN,                                                                         \

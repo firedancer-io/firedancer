@@ -232,7 +232,7 @@ struct fd_quic_conn {
   uchar                peer_enc_level;
 
   /* idle timeout arguments */
-  ulong                idle_timeout;
+  ulong                idle_timeout_ticks;
   ulong                last_activity;
   ulong                last_ack;
 
