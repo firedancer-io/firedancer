@@ -75,17 +75,6 @@ typedef struct fd_fec_sig fd_fec_sig_t;
 #define MAP_MEMOIZE 0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-struct fd_recent {
-  ulong key;
-  long  ts;
-};
-typedef struct fd_recent fd_recent_t;
-
-#define MAP_NAME     fd_recent
-#define MAP_T        fd_recent_t
-#define MAP_MEMOIZE  0
-#include "../../util/tmpl/fd_map_dynamic.c"
-
 struct fd_reasm {
   ulong slot;
   uint  cnt;
@@ -117,7 +106,6 @@ struct fd_repair_tile_ctx {
 
   fd_forest_t *  forest;
   fd_fec_sig_t * fec_sigs;
-  fd_recent_t *  recent;
   fd_reasm_t *  reasm;
   // fd_fec_repair_t *  fec_repair;
   fd_fec_chainer_t * fec_chainer;
@@ -194,7 +182,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),             fd_repair_footprint()                    );
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),             fd_forest_footprint( FD_FOREST_ELE_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),            fd_fec_sig_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_recent_align(),             fd_recent_footprint( 20 ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),              fd_reasm_footprint( 20 ) );
   // l = FD_LAYOUT_APPEND( l, fd_fec_repair_align(),         fd_fec_repair_footprint( ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_fec_chainer_align(),        fd_fec_chainer_footprint( 1 << 20 ) ); // TODO: fix this
@@ -407,77 +394,24 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
 
 static void
-fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * glob ) {
-  /* Garbage collect old requests */
-  long expire = glob->now - (long)5e9; /* 5 seconds */
-  fd_repair_nonce_t n;
-  for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
-    fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
-    if ( NULL == ele )
-      continue;
-    if (ele->when > expire)
-      break;
-    // (*glob->deliver_fail_fun)( &ele->key, ele->slot, ele->shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_TIMEOUT );
-    fd_dupdetect_elem_t * dup = fd_dupdetect_table_query( glob->dupdetect, &ele->dupkey, NULL );
-    if( dup && --dup->req_cnt == 0) {
-      fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
-    }
-    //FD_LOG_INFO(("removing old request for %lu, %u", ele->dupkey.slot, ele->dupkey.shred_index));
-    fd_needed_table_remove( glob->needed, &n );
-  }
-  glob->oldest_nonce = n;
+fd_repair_send_request( fd_repair_tile_ctx_t * repair_tile_ctx,
+                         fd_repair_t * glob,
+                         fd_repair_protocol_t * protocol,
+                         ulong slot,
+                         uint  shred_idx ) {
 
   /* Send requests starting where we left off last time. i.e. if n < current_nonce, seek forward */
-  if ( (int)(n - glob->current_nonce) < 0 )
-    n = glob->current_nonce;
-  ulong j = 0;
-  ulong k = 0;
-  for ( ; n != glob->next_nonce; ++n ) {
-    ++k;
-    fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
-    if ( NULL == ele )
-      continue;
+  /* Track statistics */
 
-    //if(j == 128U) break;
-    ++j;
+  fd_pubkey_t      * active_key = &protocol->inner.window_index.header.recipient; // its a union across all request types, so should be fine methinks but do the less lazy way!
+  fd_active_elem_t *     active = fd_active_table_query( glob->actives, active_key, NULL );
 
-    /* Track statistics */
-    ele->when = glob->now;
+  active->avg_reqs++;
+  glob->metrics.send_pkt_cnt++;
 
-    fd_active_elem_t * active = fd_active_table_query( glob->actives, &ele->id, NULL );
-    if ( active == NULL) {
-      fd_dupdetect_elem_t * dup = fd_dupdetect_table_query( glob->dupdetect, &ele->dupkey, NULL );
-      if( dup && --dup->req_cnt == 0) {
-        fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
-      }
-      fd_needed_table_remove( glob->needed, &n );
-      continue;
-    }
-    /* note these requests STAY in table even after being requested */
-
-    active->avg_reqs++;
-    glob->metrics.send_pkt_cnt++;
-
-    fd_repair_protocol_t protocol;
-    switch (ele->dupkey.type) {
-      case fd_needed_window_index: {
-        glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
-        fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
-        fd_repair_window_index_t * wi = &protocol.inner.window_index;
-        wi->header.sender = *glob->public_key;
-        wi->header.recipient = active->key;
-        wi->header.timestamp = (ulong)glob->now/1000000L;
-        wi->header.nonce = n;
-        wi->slot = ele->dupkey.slot;
-        wi->shred_index = ele->dupkey.shred_index;
-        //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
+  FD_TEST (protocol->inner.window_index.slot == slot);
 #ifdef FD_HAS_REPAIR_ANALYSIS
-        ulong slot       = wi->slot;
-        uint  idx        = (uint)wi->shred_index;
-        char repair_data_buf[1024];
-        snprintf( repair_data_buf, sizeof(repair_data_buf),
-                "%lu,%s,%ld,%lu,%u\n",
-                 0xfffffUL & (ulong)active->addr.addr, FD_BASE58_ENC_32_ALLOCA( &active->key ), fd_log_wallclock(), slot, idx );
+  FD_LOG_INFO(( "Sending repair request for slot %lu shred %u ", slot, shred_idx ));
 
   uint nonce = protocol->inner.window_index.header.nonce;
   char repair_data_buf[1024];
@@ -489,47 +423,14 @@ fd_repair_send_requests( fd_repair_tile_ctx_t * repair_tile_ctx, fd_repair_t * g
   int err = fd_io_write( repair_tile_ctx->request_data_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
   FD_TEST( err==0 );
 #endif
-        break;
-      }
 
-      case fd_needed_highest_window_index: {
-        glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX]++;
-        fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
-        fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
-        wi->header.sender = *glob->public_key;
-        wi->header.recipient = active->key;
-        wi->header.timestamp = (ulong)glob->now/1000000L;
-        wi->header.nonce = n;
-        wi->slot = ele->dupkey.slot;
-        wi->shred_index = ele->dupkey.shred_index;
-        //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
-        break;
-      }
-
-      case fd_needed_orphan: {
-        glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX]++;
-        fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
-        fd_repair_orphan_t * wi = &protocol.inner.orphan;
-        wi->header.sender = *glob->public_key;
-        wi->header.recipient = active->key;
-        wi->header.timestamp = (ulong)glob->now/1000000L;
-        wi->header.nonce = n;
-        wi->slot = ele->dupkey.slot;
-        //FD_LOG_INFO(( "repair request for %lu", ele->dupkey.slot));
-        break;
-      }
-    }
-
-    uchar buf[1024];
-    ulong buflen = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf) );
-    uint  src_ip4_addr = 0U; /* unknown */
-    ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
-    send_packet( repair_tile_ctx, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
-  }
-  glob->current_nonce = n;
-  if( k )
-    FD_LOG_DEBUG(("checked %lu nonces, sent %lu packets, total %lu", k, j, fd_needed_table_key_cnt( glob->needed )));
+  uchar buf[1024];
+  ulong buflen = fd_repair_sign_and_send( repair_tile_ctx, protocol, &active->addr, buf, sizeof(buf) );
+  uint  src_ip4_addr = 0U; /* unknown */
+  ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
+  send_packet( repair_tile_ctx, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
 }
+
 
 static inline int
 before_frag( fd_repair_tile_ctx_t * ctx,
@@ -964,8 +865,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
     // FD_LOG_NOTICE(( "shred %lu %u %u %d", shred->slot, shred->idx, shred->fec_set_idx, is_code ));
     if( FD_LIKELY( !is_code ) ) {
-      fd_recent_t * recent = fd_recent_query( ctx->recent, (shred->slot << 32) | shred->idx, NULL );
-      if( FD_UNLIKELY( recent ) ) fd_recent_remove( ctx->recent, recent );
+      fd_repair_inflight_remove( ctx->repair, shred->slot, shred->idx );
 
       int               data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
       int               slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
@@ -1026,6 +926,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 }
 
+#define MAX_REQ_PER_CREDIT 500
+
 static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
               fd_stem_context_t *    stem FD_PARAM_UNUSED,
@@ -1033,6 +935,8 @@ after_credit( fd_repair_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
+     // TODO definitely need to limit this to a certain number of rq per iteration.
+     // we dont refresh actives at most once per iter, and agave clients only accept until 1024 rq per iter annway
   *charge_busy = 1;
 
   long now = fd_log_wallclock();
@@ -1043,13 +947,14 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->forest->root == ULONG_MAX ) ) return;
 
-  ulong cnt = 0;
+  FD_LOG_INFO(("Iterating and sending repairs"));
   fd_forest_t *          forest   = ctx->forest;
   fd_forest_ele_t *      pool     = fd_forest_pool( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
   fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
 
+  ulong total_reqs = 0;
   for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
        !fd_forest_frontier_iter_done( iter, frontier, pool );
        iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
@@ -1059,28 +964,35 @@ after_credit( fd_repair_tile_ctx_t * ctx,
     fd_forest_ele_t *       prev = NULL;
     while( FD_LIKELY( head ) ) {
       if( FD_UNLIKELY( head->complete_idx == UINT_MAX ) ) {
-        fd_repair_need_highest_window_index( ctx->repair, head->slot, 0 );
+
+        /* No upper bound on the shred indexes for this slot yet, so
+           we can only send requests for the highest window index. */
+
+        int req_cnt = fd_repair_need_highest_window_index( ctx->repair, head->slot, 0 );
+        for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, UINT_MAX );
       } else {
+        ulong cnt = 0;
         for( uint idx = 0; idx < head->complete_idx; idx++ ) {
           if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
-            ulong key = (head->slot << 32) | idx;
-            fd_recent_t * recent = fd_recent_query( ctx->recent, key, NULL );
-            if( FD_UNLIKELY( !recent ) ) {
-              recent     = fd_recent_insert( ctx->recent, key );
-              recent->ts = 0;
-            }
-            long now = fd_log_wallclock();
-            if( FD_UNLIKELY( ( recent->ts + (long)20e6 ) < now ) ) {
-              fd_repair_need_window_index( ctx->repair, head->slot, idx );
-              recent->ts = now;
+            int   req_cnt = fd_repair_need_window_index( ctx->repair, head->slot, idx );
+            if( FD_LIKELY( req_cnt ) ) {
+              /* We are allowed to send requests out for this shred. The
+                 multiple requests are for the same shred, but for up to
+                 4 different peer destinations.
+
+                 generated protocols live in the
+                  repair->protocol_ret_buf, and we can send them out. */
+              for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, idx );
+              total_reqs += (uint) req_cnt;
               if( FD_UNLIKELY( ++cnt == 10 ) ) {
                 break; /* stop after 10 requests in this slot, and continue down the rest of the tree*/
               }
             }
           }
         }
-        cnt = 0; /* reset for next head */
       }
+      if ( FD_UNLIKELY( total_reqs > MAX_REQ_PER_CREDIT ) ) break;
+
       fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
       while( FD_LIKELY( child ) ) { /* append children to frontier */
         tail->prev     = fd_forest_pool_idx( pool, child );
@@ -1092,46 +1004,18 @@ after_credit( fd_repair_tile_ctx_t * ctx,
       head       = fd_forest_pool_ele( pool, head->prev );
       prev->prev = null;
     }
+    if ( FD_UNLIKELY( total_reqs > MAX_REQ_PER_CREDIT ) ) break;
   }
 
   for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
        !fd_forest_orphaned_iter_done( iter, orphaned, pool );
        iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
-    fd_repair_need_orphan( ctx->repair, orphan->slot );
-
-    // fd_forest_ele_t * head = orphan;
-    // fd_forest_ele_t * tail = head;
-    // fd_forest_ele_t * prev = NULL;
-    // while( FD_LIKELY( head ) ) {
-    //   ulong cnt = 0;
-    //   for( uint idx = 0; idx < head->complete_idx; idx++ ) {
-    //     if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
-    //       fd_repair_need_window_index( ctx->repair, head->slot, idx );
-    //       if( FD_UNLIKELY( ++cnt == FD_REEDSOL_DATA_SHREDS_MAX ) ) break;
-    //     };
-    //   }
-    //   fd_forest_ele_t * child = fd_forest_pool_ele( pool, head->child );
-    //   while( FD_LIKELY( child ) ) { /* append children to frontier */
-    //     tail->prev     = fd_forest_pool_idx( pool, child );
-    //     tail           = fd_forest_pool_ele( pool, tail->prev );
-    //     tail->prev     = fd_forest_pool_idx_null( pool );
-    //     child          = fd_forest_pool_ele( pool, child->sibling );
-    //   }
-    //   prev       = head;
-    //   head       = fd_forest_pool_ele( pool, head->prev );
-    //   prev->prev = null;
-    // }
+    int req_cnt = fd_repair_need_orphan( ctx->repair, orphan->slot );
+    for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], orphan->slot, UINT_MAX );
   }
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
-  if ( ctx->repair->now - ctx->repair->last_sends > (long)1e6 ) { /* 1 millisecond */
-    fd_repair_send_requests( ctx, ctx->repair );
-
-    FD_LOG_INFO(("after credit making real repairs!"));
-
-    ctx->repair->last_sends = ctx->repair->now;
-  }
   fd_repair_continue( ctx->repair );
 
   long after_credit_duration = fd_log_wallclock() - now;
@@ -1319,7 +1203,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
   ctx->forest = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(), fd_forest_footprint( FD_FOREST_ELE_MAX ) );
   ctx->fec_sigs = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(), fd_fec_sig_footprint( 20 ) );
-  ctx->recent = FD_SCRATCH_ALLOC_APPEND( l, fd_recent_align(), fd_recent_footprint( 20 ) );
   ctx->reasm = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(), fd_reasm_footprint( 20 ) );
   // ctx->fec_repair = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_repair_align(), fd_fec_repair_footprint(  ( 1<<20 ), tile->repair.shred_tile_cnt ) );
   /* Look at fec_repair.h for an explanation of this fec_max. */
@@ -1379,7 +1262,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->forest  = fd_forest_join( fd_forest_new( ctx->forest, FD_FOREST_ELE_MAX, ctx->repair_seed ) );
   // ctx->fec_repair  = fd_fec_repair_join( fd_fec_repair_new( ctx->fec_repair, ( tile->repair.max_pending_shred_sets + 2 ), tile->repair.shred_tile_cnt,  0 ) );
   ctx->fec_sigs = fd_fec_sig_join( fd_fec_sig_new( ctx->fec_sigs, 20 ) );
-  ctx->recent = fd_recent_join( fd_recent_new( ctx->recent, 20 ) );
   ctx->reasm = fd_reasm_join( fd_reasm_new( ctx->reasm, 20 ) );
   ctx->fec_chainer = fd_fec_chainer_join( fd_fec_chainer_new( ctx->fec_chainer, 1 << 20, 0 ) );
 
