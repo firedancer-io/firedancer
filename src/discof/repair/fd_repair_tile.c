@@ -940,7 +940,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   *charge_busy = 1;
 
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsrepair < (long)50e6 ) ) return; /* space to after_frag, honestly */
+  if( FD_UNLIKELY( now - ctx->tsrepair < (long)20e6 ) ) return; /* space to after_frag, honestly */
   long after_credit_wait = now - ctx->tsrepair; // last time we did repairs!
 
   ctx->tsrepair = now;
@@ -971,8 +971,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
         int req_cnt = fd_repair_need_highest_window_index( ctx->repair, head->slot, 0 );
         for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, UINT_MAX );
       } else {
-        ulong cnt = 0;
-        for( uint idx = 0; idx < head->complete_idx; idx++ ) {
+        for( uint idx = head->buffered_idx + 1; idx < head->complete_idx; idx++ ) {
           if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
             int   req_cnt = fd_repair_need_window_index( ctx->repair, head->slot, idx );
             if( FD_LIKELY( req_cnt ) ) {
@@ -984,9 +983,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
                   repair->protocol_ret_buf, and we can send them out. */
               for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, idx );
               total_reqs += (uint) req_cnt;
-              if( FD_UNLIKELY( ++cnt == 10 ) ) {
-                break; /* stop after 10 requests in this slot, and continue down the rest of the tree*/
-              }
+              if ( FD_UNLIKELY( total_reqs > MAX_REQ_PER_CREDIT ) ) break;
             }
           }
         }
