@@ -462,13 +462,26 @@ user = ""
     # denial of service or spam attack.
     verify_tile_count = 6
 
-    # How many bank tiles to run.  Should be set to 4.  Bank tiles
-    # execute transactions, so the validator can include the results of
-    # the transaction into a block when we are leader.  Because of
-    # current consensus limits restricting blocks to around 32,000
-    # transactions per block, there is no need to use more than 4 bank
-    # tiles on mainnet-beta.  For development and benchmarking, it can
-    # be useful to increase this number further.
+    # How many bank tiles to run.  Should be set to 4 for perf and
+    # balanced scheduling modes.  Bank tiles execute transactions, so
+    # the validator can include the results of the transaction into a
+    # block when we are leader.  Because of current consensus limits
+    # restricting blocks to around 32,000 transactions per block, there
+    # is typically no need to use more than 4 bank tiles on
+    # mainnet-beta, except when using unique scheduling strategies.  For
+    # development and benchmarking, it can be useful to increase this
+    # number further.
+    #
+    # Bank tiles do not scale linearly.  The current implementation uses
+    # the agave runtime for execution, which takes various locks and
+    # uses concurrent data structures which slow down with multiple
+    # parallel users.
+    #
+    # If using the revenue scheduling strategy (see tiles.pack), the
+    # bank tile count can be increased, and more bank tiles will likely
+    # result in better blocks.  Adding too many bank tiles does have
+    # diminishing returns, and it's suggested to experiment with values
+    # around 10-20.
     bank_tile_count = 1
 
     # TODO: add docs on exec_tile_cnt / exec tile
@@ -893,6 +906,51 @@ user = ""
         # performance.  It's not recommended (but allowed) to disable
         # this option in a production cluster.
         use_consumed_cus = false
+
+        # The pack tile can schedule using different strategies with
+        # different tradeoffs.  The primary tradeoff is that executing
+        # transactions quickly is best for the network as a whole, but
+        # can reduce revenue opportunities for this validator.
+        #
+        # Over time, as the network gets faster and compute unit limits
+        # are raised, this trade-off will become less pronounced.
+        #
+        # The Firedancer team supports three different strategies which
+        # are described below.
+        #
+        #  "perf" (default)
+        #   Try to fill the block as fast as possible using the highest-
+        #   paying transactions available.  This strategy results in
+        #   consistently 100% full blocks.
+        #
+        #   When using the perf scheduling mode, there is no reason to
+        #   increase the bank tile count beyond the default of 4.
+        #
+        #  "balanced"
+        #   Try to fill the block at a rate that is just fast enough to
+        #   fill it by the end.  This strategy optimizes for revenue
+        #   from priority fees, but can result in blocks that are not
+        #   always 100% full, and can be poor at capturing MEV if using
+        #   an external block builders.
+        #
+        #   When using the balanced mode, there is no reason to increase
+        #   bank tile count beyond the default of 4.
+        #
+        #  "revenue"
+        #   Fill blocks extremely lazily, saving most work for the end
+        #   of the block.  This strategy results in high revenue from
+        #   MEV, but results in regularly unfull blocks, and decreased
+        #   priority fees compared to the balanced strategy.
+        #
+        #   When scheduling with the revenue mode, it is suggested to
+        #   use a high number of bank tiles.  The more bank tiles in
+        #   use, the faster the scheduler can fill blocks during the
+        #   short working window at the end of each slot.
+        #
+        # In cases of network congestion, high volume, or if seeing poor
+        # block packing performance for any reason, it is recommended to
+        # revert to the "perf" strategy.
+        schedule_strategy = "perf"
 
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the

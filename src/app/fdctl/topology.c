@@ -401,6 +401,7 @@ fd_topo_initialize( config_t * config ) {
       tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
       tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
       tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
+      tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
 
       if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_PUBKEY( _tile, f ) \
