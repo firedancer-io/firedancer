@@ -2368,8 +2368,19 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   pack->cumulative_block_cost  -= rebate->total_cost_rebate;
   pack->cumulative_vote_cost   -= rebate->vote_cost_rebate;
   pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
-  pack->microblock_cnt         -= rebate->microblock_cnt_rebate;
   pack->cumulative_rebated_cus += rebate->total_cost_rebate;
+  /* For now, we want to ignore the microblock count rebate.  There are
+     3 places the microblock count is kept (here, in the pack tile, and
+     in the PoH tile), and they all need to count microblocks that end
+     up being empty in the same way.  It would be better from a
+     DoS-resistance perspective for them all not to count empty
+     microblocks towards the total, but there's a race condition:
+     suppose pack schedules a microblock containing one transaction that
+     doesn't land on chain, the slot ends, and then pack informs PoH of
+     the number of microblocks before the final rebate comes through.
+     This isn't unsolvable, but it's pretty gross, so it's probably
+     better to just not apply the rebate for now. */
+  (void)rebate->microblock_cnt_rebate;
 
   fd_pack_addr_use_t * writer_costs = pack->writer_costs;
   for( ulong i=0UL; i<rebate->writer_cnt; i++ ) {
