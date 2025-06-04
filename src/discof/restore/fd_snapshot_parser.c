@@ -1,0 +1,517 @@
+#include "fd_snapshot_parser.h"
+#include "../../util/archive/fd_tar.h"
+#include "../../flamenco/runtime/fd_acc_mgr.h" /* FD_ACC_SZ_MAX */
+#include <errno.h>
+#include <assert.h>
+#include <stdio.h>
+
+static void
+fd_snapshot_parser_discard_buf( fd_snapshot_parser_t * self ) {
+  self->buf_ctr = 0UL;
+  self->buf_sz  = 0UL;
+}
+
+static void *
+fd_snapshot_parser_prepare_buf( fd_snapshot_parser_t * self,
+                                 ulong              sz ) {
+  self->buf_ctr = 0UL;
+  self->buf_sz  = 0UL;
+
+  fd_snapshot_parser_discard_buf( self );
+  if( FD_UNLIKELY( sz > self->buf_max ) ) {
+    FD_LOG_WARNING(( "Alloc failed (need %lu bytes, have %lu)", sz, self->buf_max ));
+    self->state = SNAP_FLAG_FAILED;
+    return NULL;
+  }
+
+  return self->buf;
+}
+
+static int
+fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
+
+  ulong accv_sz = self->accv_sz;
+  if( accv_sz < sizeof(fd_solana_account_hdr_t) ) {
+    if( FD_LIKELY( accv_sz==0UL ) ) {
+      self->state = SNAP_STATE_ACCOUNT_HDR;
+      return 0;
+    }
+    FD_LOG_WARNING(( "encountered unexpected EOF while reading account header" ));
+    self->flags |= SNAP_FLAG_FAILED;
+    return EINVAL;
+  }
+
+  self->state   = SNAP_STATE_ACCOUNT_HDR;
+  self->buf_ctr = 0UL;
+  self->buf_sz  = sizeof(fd_solana_account_hdr_t);
+
+  return 0;
+}
+
+static int
+fd_snapshot_parser_accv_prepare( fd_snapshot_parser_t * const self,
+                                  fd_tar_meta_t const *  const meta,
+                                  ulong                  const real_sz ) {
+
+  if( FD_UNLIKELY( !fd_snapshot_parser_prepare_buf( self, sizeof(fd_solana_account_hdr_t) ) ) ) {
+    FD_LOG_WARNING(( "Failed to allocate read buffer while restoring accounts from snapshot" ));
+    return ENOMEM;
+  }
+
+  /* Parse file name */
+  ulong id, slot;
+  if( FD_UNLIKELY( sscanf( meta->name, "accounts/%lu.%lu", &slot, &id )!=2 ) ) {
+    /* Ignore entire file if file name invalid */
+    self->state = SNAP_STATE_IGNORE;
+    return 0;
+  }
+
+  /* Lookup account vec file size */
+  fd_snapshot_accv_key_t key = { .slot = slot, .id = id };
+  fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_query( self->accv_map, key, NULL );
+  if( FD_UNLIKELY( !rec ) ) {
+    /* Ignore account vec files that are not explicitly mentioned in the
+        manifest. */
+    FD_LOG_DEBUG(( "Ignoring %s (sz %lu)", meta->name, real_sz ));
+    self->state = SNAP_STATE_IGNORE;
+    return 0;
+  }
+  ulong sz = rec->sz;
+
+  /* Validate the supposed file size against real size */
+  if( FD_UNLIKELY( sz > real_sz ) ) {
+    FD_LOG_WARNING(( "AppendVec %lu.%lu is %lu bytes long according to manifest, but actually only %lu bytes",
+                     slot, id, sz, real_sz ));
+    self->flags |= SNAP_FLAG_FAILED;
+    return EINVAL;
+  }
+  self->accv_sz   = sz;
+  self->accv_slot = slot;
+  self->accv_id   = id;
+
+  /* Prepare read of account header */
+  FD_LOG_DEBUG(( "Loading account vec %s", meta->name ));
+  return fd_snapshot_parser_expect_account_hdr( self );
+}
+
+/* fd_snapshot_restore_manifest_prepare prepares for consumption of the
+   snapshot manifest. */
+
+static int
+fd_snapshot_parser_manifest_prepare( fd_snapshot_parser_t * self,
+                                      ulong                  sz ) {
+  /* Only read once */
+  if( self->manifest_done ) {
+    FD_LOG_WARNING(( "Snapshot file contains multiple manifests" ));
+    self->state = SNAP_STATE_IGNORE;
+    return 0;
+  }
+
+  /* We don't support streaming manifest deserialization yet.  Thus,
+     buffer the whole manifest in one place. */
+  if( FD_UNLIKELY( !fd_snapshot_parser_prepare_buf( self, sz ) ) ) {
+    self->flags |= SNAP_FLAG_FAILED;
+    return ENOMEM;
+  }
+
+  self->state  = SNAP_STATE_MANIFEST;
+  self->buf_sz = sz;
+
+  return 0;
+}
+
+static void
+restore_file( void *                self_,
+              fd_tar_meta_t const * meta,
+              ulong                 sz ) {
+  fd_snapshot_parser_t * self = self_;
+
+  self->buf_ctr = 0UL;  /* reset buffer */
+  self->state   = SNAP_STATE_IGNORE;
+
+  if( (sz==0UL) | (!fd_tar_meta_is_reg( meta )) ) return;
+
+  /* Detect account vec files.  These are files that contain a vector
+     of accounts in Solana Labs "AppendVec" format. */
+  assert( sizeof("accounts/")<FD_TAR_NAME_SZ );
+  if( 0==strncmp( meta->name, "accounts/", sizeof("accounts/")-1) ) {
+    if( FD_UNLIKELY( !self->manifest_done ) ) {
+      FD_LOG_WARNING(( "Unsupported snapshot: encountered AppendVec before manifest" ));
+      self->flags |= SNAP_FLAG_FAILED;
+      return;
+    }
+    fd_snapshot_parser_accv_prepare( self, meta, sz );
+  } else if( fd_memeq( meta->name, "snapshots/status_cache", sizeof("snapshots/status_cache") ) ) {
+    /* TODO */
+  } else if(0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1 ) ) {
+    fd_snapshot_parser_manifest_prepare( self, sz );
+  }
+
+}
+
+static void
+fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
+                                    uchar const *      cur ) {
+
+  fd_tar_meta_t const * hdr = (fd_tar_meta_t const *)self->buf;
+
+  /* "ustar\x00" and "ustar  \x00" (overlaps with version) are both
+     valid values for magic.  These are POSIX ustar and OLDGNU versions
+     respectively. */
+  if( FD_UNLIKELY( 0!=memcmp( hdr->magic, FD_TAR_MAGIC, 5UL ) ) ) {
+
+    /* Detect EOF.  A TAR EOF is marked by 1024 bytes of zeros.
+       We abort after 512 bytes. */
+    int not_zero=0;
+    for( ulong i=0UL; i<sizeof(fd_tar_meta_t); i++ )
+      not_zero |= self->buf[ i ];
+    if( !not_zero ) {
+      cur += sizeof(fd_tar_meta_t);
+      self->flags |= SNAP_FLAG_DONE;
+      return;
+    }
+    /* Not an EOF, so must be a protocol error */
+    ulong goff = (ulong)cur - self->in_state.goff_translate - sizeof(fd_tar_meta_t);
+    FD_LOG_WARNING(( "Invalid tar header magic at goff=0x%lx", goff ));
+    FD_LOG_HEXDUMP_WARNING(( "Tar header", hdr, sizeof(fd_tar_meta_t) ));
+    self->flags |= SNAP_FLAG_FAILED;
+    return;
+  }
+
+  ulong file_sz = fd_tar_meta_get_size( hdr );
+  if( FD_UNLIKELY( file_sz==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "Failed to parse file size in tar header" ));
+    self->flags |= SNAP_FLAG_FAILED;
+    return;
+  }
+  self->tar_file_rem = file_sz;
+  self->buf_ctr      = (ushort)0U;
+
+  /* Call back to recipient */
+  restore_file( self, hdr, file_sz );
+}
+
+static uchar const *
+fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
+              uchar const *          cur,
+              ulong                  bufsz ) {
+  uchar const * end = cur+bufsz;
+
+  /* Skip padding */
+  if( self->buf_ctr==0UL ) {
+    ulong  goff   = (ulong)cur - self->in_state.goff_translate;
+    ulong  pad_sz = fd_ulong_align_up( goff, 512UL ) - goff;
+           pad_sz = fd_ulong_min( pad_sz, (ulong)( end-cur ) );
+    cur += pad_sz;
+  }
+
+  /* Determine number of bytes to read */
+  long chunk_sz = (long)sizeof(fd_tar_meta_t) - (long)self->buf_ctr;
+  FD_TEST( chunk_sz>=0L );
+  if( end-cur < chunk_sz ) chunk_sz = end-cur;
+
+  /* Copy to header */
+  fd_memcpy( self->buf + self->buf_ctr, cur, (ulong)chunk_sz );
+  cur             +=        chunk_sz;
+  self->buf_ctr += (ulong)chunk_sz;
+
+  /* Handle complete header */
+  if( FD_LIKELY( self->buf_ctr == sizeof(fd_tar_meta_t) ) ) {
+    fd_snapshot_parser_tar_process_hdr( self, cur );
+  }
+
+  return cur;
+}
+
+/* fd_snapshot_accv_index populates the index of account vecs.  This
+   index will be used when loading accounts.  Returns errno-compatible
+   error code. */
+
+static int
+fd_snapshot_parser_accv_index( fd_snapshot_parser_t *          self,
+                        fd_solana_accounts_db_fields_t const * fields ) {
+  for( ulong i=0UL; i < fields->storages_len; i++ ) {
+
+    fd_snapshot_slot_acc_vecs_t * slot = &fields->storages[ i ];
+
+    for( ulong j=0UL; j < slot->account_vecs_len; j++ ) {
+      fd_snapshot_acc_vec_t * accv = &slot->account_vecs[ j ];
+
+      /* Insert new AppendVec */
+      fd_snapshot_accv_key_t key = { .slot = slot->slot, .id = accv->id };
+      fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_insert( self->accv_map, key );
+      if( FD_UNLIKELY( !rec ) ) {
+        FD_LOG_WARNING(( "fd_snapshot_accv_map_insert failed" ));
+        return ENOMEM;
+      }
+
+      /* Remember size */
+      rec->sz = accv->file_sz;
+    }
+
+  }
+
+  return 0;
+}
+
+/* snapshot_restore_manifest imports a snapshot manifest into the
+   given slot context.  Also populates the accv index.  Destroys the
+   existing bank structure. */
+
+static void
+fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
+   
+  /* Decode manifest placing dynamic data structures onto slot context
+  heap.  Once the epoch context heap is separated out, we need to
+  revisit this.
+
+  This is horrible.  Plenty of room for optimization, including:
+  - Streaming decoding
+  - Fixing the decoder (does 2 walks in decode_footprint, decode)
+  - Unpack directly into slot_ctx */
+
+  long dt = -fd_log_wallclock();
+
+  fd_bincode_decode_ctx_t decode = {
+  .data    = self->buf,
+  .dataend = self->buf + self->buf_sz
+  };
+
+  ulong total_sz = 0UL;
+  int err = fd_solana_manifest_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "fd_solana_manifest_decode_footprint failed (%d)", err ));
+  }
+
+  uchar * scratch    = (uchar *)fd_ulong_align_up( (ulong)decode.dataend, fd_solana_manifest_align() );
+  ulong   scratch_sz = (ulong)( self->buf + self->buf_max - scratch );
+  if( FD_UNLIKELY( total_sz > scratch_sz ) ) {
+  FD_LOG_ERR(( "Cannot decode snapshot. Insufficient scratch buffer size (need %lu, have %lu bytes)",
+              (ulong)scratch + total_sz - (ulong)self->buf, self->buf_max ));
+  }
+  fd_solana_manifest_t * manifest = fd_solana_manifest_decode( scratch, &decode );
+
+  char acc_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( manifest->accounts_db.bank_hash_info.accounts_hash.uc, NULL, acc_hash_cstr );
+  if( manifest->bank_incremental_snapshot_persistence ) {
+    FD_LOG_ERR(( "Incremental snapshots not yet supported TODO" ));
+  } else {
+    FD_LOG_NOTICE(( "Full snapshot acc_hash=%s", acc_hash_cstr ));
+  }
+
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "Snapshot manifest decode took %.2g seconds", (double)dt/1e9 ));
+
+  /* Move over accounts DB fields */
+
+  fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
+  fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
+
+    /* Read AccountVec map */
+
+  if( FD_LIKELY( !err ) ) {
+    err = fd_snapshot_parser_accv_index( self, &accounts_db );
+  }
+
+  /* Discard buffer to reclaim heap space */
+
+  fd_snapshot_parser_discard_buf( self );
+  self->manifest_done = 1;
+}
+
+FD_FN_PURE static inline int
+fd_snapshot_parser_hdr_read_is_complete( fd_snapshot_parser_t const * self ) {
+  return self->buf_ctr == self->buf_sz;
+}
+
+static uchar const *
+fd_snapshot_parser_read_buffered( fd_snapshot_parser_t * self,
+                        uchar const *          buf,
+                        ulong                  bufsz ) {
+  /* Should not be called if read is complete */
+  FD_TEST( self->buf_ctr < self->buf_sz );
+
+  /* Determine number of bytes to buffer */
+  ulong sz = self->buf_sz - self->buf_ctr;
+  if( sz>bufsz ) sz = bufsz;
+
+  /* Append to buffer */
+  fd_memcpy( self->buf + self->buf_ctr, buf, sz );
+  self->buf_ctr += sz;
+
+  return buf+sz;
+}
+
+static uchar const *
+fd_snapshot_parser_read_discard( fd_snapshot_parser_t * self,
+                                 uchar const *          buf,
+                                 ulong                  bufsz ) {
+  ulong avail = fd_ulong_min( bufsz, self->tar_file_rem );
+  return buf + avail;
+}
+
+/* snapshot_read_manifest_chunk reads partial manifest content. */
+
+static uchar const *
+fd_snapshot_parser_read_manifest_chunk( fd_snapshot_parser_t * self,
+                                        uchar const *          buf,
+                                        ulong                  bufsz ) {
+  uchar const * end = fd_snapshot_parser_read_buffered( self, buf, bufsz );
+  if( fd_snapshot_parser_hdr_read_is_complete( self ) ) {
+    fd_snapshot_parser_restore_manifest( self );
+    self->state = SNAP_STATE_IGNORE;
+  }
+  return end;
+}
+
+static int
+fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
+  fd_solana_account_hdr_t const * hdr = fd_type_pun_const( self->buf );
+  if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
+    FD_LOG_ERR(( "account data size (%lu) exceeds max (%lu) (possible memory corruption?)", hdr->meta.data_len, FD_ACC_SZ_MAX ));
+  }
+
+  ulong data_sz    = hdr->meta.data_len;
+  self->acc_sz  = data_sz;
+  self->acc_rem = data_sz;
+  self->acc_pad = fd_ulong_align_up( data_sz, 8UL ) - data_sz;
+
+  if( FD_UNLIKELY( data_sz>(10UL<<20) ) ) {
+    FD_LOG_ERR(( "Oversize account found (%lu bytes)", data_sz ));
+  }
+
+  if( self->acc_hdr_cb ) {
+    self->acc_hdr_cb( self, hdr, self->cb_arg );
+  }
+
+  /* TODO: make callback here */
+//   if( !snapshot_is_duplicate_account( self, account_key) ) {
+//     snapshot_insert_account( self, account_key, hdr );
+//   }
+
+  /* Next step */
+  if( data_sz == 0UL ) {
+    return fd_snapshot_parser_expect_account_hdr( self );
+  }
+
+  self->state   = SNAP_STATE_ACCOUNT_DATA;
+  self->buf_ctr = 0UL;
+  self->buf_sz  = 0UL;
+  return 0;
+}
+
+static uchar const *
+fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
+                                 uchar const *          buf,
+                                 ulong                  bufsz ) {
+  if( !self->accv_sz ) {
+    /* Reached end of AppendVec */
+    self->state   = SNAP_STATE_IGNORE;
+    self->buf_ctr = self->buf_sz = 0UL;
+    return buf;
+  }
+  bufsz = fd_ulong_min( bufsz, self->accv_sz );
+
+  uchar const * buf_next = fd_snapshot_parser_read_buffered( self, buf, bufsz );
+  ulong hdr_read = (ulong)(buf_next-buf);
+  self->accv_sz -= hdr_read;
+  bufsz            -= hdr_read;
+
+  ulong peek_sz = 0UL;
+  if( FD_LIKELY( fd_snapshot_parser_hdr_read_is_complete( self ) ) ) {
+    if( FD_UNLIKELY( 0!=fd_snapshot_parser_restore_account_hdr( self ) ) ) {
+      return buf; /* parse error */
+    }
+    peek_sz = fd_ulong_min( self->acc_rem, bufsz );
+  }
+
+  self->acc_rem -= peek_sz;
+  self->accv_sz -= peek_sz;
+  buf_next         += peek_sz;
+
+  return buf_next;
+}
+
+static uchar const *
+fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
+                             uchar const *      buf,
+                             ulong              bufsz ) {
+
+  ulong chunk_sz = fd_ulong_min( self->acc_rem, bufsz );
+  if( FD_UNLIKELY( chunk_sz > self->accv_sz ) )
+    FD_LOG_CRIT(( "OOB account vec read: chunk_sz=%lu accv_sz=%lu", chunk_sz, self->accv_sz ));
+
+  if( FD_LIKELY( chunk_sz ) ) {
+
+    /* TODO: make callback here */
+    if( self->acc_data_cb ) {
+        self->acc_data_cb( self, self->cb_arg );
+    }
+    // if( FD_LIKELY( self->acc_data ) ) {
+    //     fd_memcpy( self->acc_data, buf, chunk_sz );
+    //     self->acc_data += chunk_sz;
+    //   }
+
+    self->acc_rem -= chunk_sz;
+    self->accv_sz -= chunk_sz;
+    buf              += chunk_sz;
+    bufsz            -= chunk_sz;
+
+  }
+
+  if( self->acc_rem == 0UL ) {
+    ulong pad_sz = fd_ulong_min( fd_ulong_min( self->acc_pad, bufsz ), self->accv_sz );
+    buf              += pad_sz;
+    bufsz            -= pad_sz;
+    self->acc_pad -= pad_sz;
+    self->accv_sz -= pad_sz;
+
+    if( self->accv_sz == 0UL ) {
+      self->state = SNAP_STATE_IGNORE;
+      return buf;
+    }
+    if( self->acc_pad == 0UL ) {
+      return (0==fd_snapshot_parser_expect_account_hdr( self )) ? buf : NULL;
+    }
+  }
+
+  return buf;
+}
+
+uchar const *
+fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
+                                  uchar const *          buf,
+                                  ulong                  bufsz ) {
+  if( FD_UNLIKELY( self->state==SNAP_STATE_TAR ) ) {
+    return fd_snapshot_parser_tar_read_hdr( self, buf, bufsz );
+  }
+  bufsz = fd_ulong_min( bufsz, self->tar_file_rem );
+
+  uchar const * buf_next = NULL;
+  switch( self->state ) {
+  case SNAP_STATE_IGNORE:
+    buf_next = fd_snapshot_parser_read_discard( self, buf, bufsz );
+    break;
+  case SNAP_STATE_MANIFEST:
+    buf_next = fd_snapshot_parser_read_manifest_chunk( self, buf, bufsz );
+    break;
+  case SNAP_STATE_ACCOUNT_HDR:
+    buf_next = fd_snapshot_parser_read_account_hdr_chunk( self, buf, bufsz );
+    break;
+  case SNAP_STATE_ACCOUNT_DATA:
+    buf_next = fd_snapshot_parser_read_account_chunk( self, buf, bufsz );
+    break;
+  default:
+    FD_LOG_ERR(( "Invalid parser state %u (this is a bug)", self->state ));
+  }
+
+  ulong consumed = (ulong)buf_next - (ulong)buf;
+  if( FD_UNLIKELY( consumed>bufsz ) ) FD_LOG_CRIT(( "Buffer overflow (consumed=%lu bufsz=%lu)", consumed, bufsz ));
+  self->tar_file_rem -= consumed;
+  if( self->tar_file_rem==0UL ) {
+    self->buf_ctr = 0UL;
+    self->buf_sz  = 0UL;
+    self->state   = SNAP_STATE_TAR;
+  }
+  return buf_next;
+}

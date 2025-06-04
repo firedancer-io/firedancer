@@ -293,6 +293,54 @@ user = ""
         snapshot_grace_period_seconds = 409
         max_vote_accounts = 2000000
 
+# This section configures the "funk" account database.  Currently, funk
+# stores all Solana accounts.  In future versions of Firedancer, most
+# accounts will be offloaded to the "groove" database.
+[funk]
+    # The max amount of records that the funk instance can store.
+    # Each Solana account uses at least one record.  Additional records
+    # are used for account changes that are not yet finalized by
+    # consensus (typically takes 13 seconds).
+    max_account_records = 10_000_000
+
+    # The size of the funk heap in gigabytes.  This value must be large
+    # enough to store all Solana accounts uncompressed.
+    heap_size_gb = 32
+
+    # The max amount of concurrent database transactions.  These are
+    # used to track conflicting versions of accounts until such
+    # conflicts are resolved by the consensus algorithm.  (Not to be
+    # confused with Solana transactions).
+    # The validator uses one database transaction for each Solana block
+    # that is not yet finalized.  It is not recommended to change this
+    # setting.
+    max_database_transactions = 1024
+
+    # If this option is set to 'false', `firedancer configure` may
+    # destroy a funk database and all its data (e.g. because config
+    # parameters changed, or `configure fini` requested).
+    # If set to 'true', running the `firedancer` command will never
+    # delete the funk database.
+    delete_protection = true
+
+    # Optionally, a funk database can be memory-mapped from a regular
+    # file.  This feature reducees performance significantly.  It allows
+    # a validator to operate even when account set size exceeds the
+    # amount of available DRAM.  This feature will be eventually
+    # replaced by the "groove" database, see below.
+    [funk.filemap]
+        # If set to "true", uses a regular file to store the funk
+        # database.  Otherwise, uses shared memory via hugetlbfs/tmpfs.
+        enable = false
+
+        # The absolute path to the funk file.  Ignored if filemap is not
+        # enabled.
+        path = "/tmp/funk.bin"
+
+# This section configures the "groove" persistent account database.
+# [groove]
+# ...
+
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this
@@ -1038,9 +1086,6 @@ user = ""
         # snapshots and frequent validator restarts are expected.
         snapshot_dir = ""
 
-        funk_sz_gb = 32
-        funk_rec_max = 10000000
-        funk_txn_max = 1024
         cluster_version =  "1.18.0"
 
     # The metric tile receives metrics updates published from the rest

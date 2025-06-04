@@ -21,7 +21,7 @@
 | tile_&#8203;tid | `gauge` | The thread ID of the tile. Always the same as the Pid in production, but might be different in development. |
 | tile_&#8203;context_&#8203;switch_&#8203;involuntary_&#8203;count | `counter` | The number of involuntary context switches. |
 | tile_&#8203;context_&#8203;switch_&#8203;voluntary_&#8203;count | `counter` | The number of voluntary context switches. |
-| tile_&#8203;status | `gauge` | The current status of the tile. 0 is booting, 1 is running. |
+| tile_&#8203;status | `gauge` | The current status of the tile. 0 is booting, 1 is running. 2 is shutdown |
 | tile_&#8203;heartbeat | `gauge` | The last UNIX timestamp in nanoseconds that the tile heartbeated. |
 | tile_&#8203;in_&#8203;backpressure | `gauge` | Whether the tile is currently backpressured or not, either 1 or 0. |
 | tile_&#8203;backpressure_&#8203;count | `counter` | Number of times the tile has had to wait for one of more consumers to catch up to resume publishing. |
@@ -598,3 +598,36 @@
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;window | `counter` | What types of client messages are we sending (Need Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;highest_&#8203;window | `counter` | What types of client messages are we sending (Need Highest Window) |
 | repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;orphan | `counter` | What types of client messages are we sending (Need Orphans) |
+
+## Snaprd Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| snaprd_&#8203;status | `gauge` | Status of the tile. 0 = waiting for gossip peers, 1 = reading full snapshot, 2 = reading incremental snapshot, 3 = complete |
+| snaprd_&#8203;full_&#8203;num_&#8203;retries | `counter` | Number of times we aborted and retried full snapshot download because the peer was too slow |
+| snaprd_&#8203;incremental_&#8203;num_&#8203;retries | `counter` | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
+| snaprd_&#8203;full_&#8203;bytes_&#8203;read | `gauge` | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| snaprd_&#8203;full_&#8203;bytes_&#8203;total | `gauge` | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
+| snaprd_&#8203;incremental_&#8203;bytes_&#8203;read | `gauge` | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| snaprd_&#8203;incremental_&#8203;bytes_&#8203;total | `gauge` | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
+
+## Snapdc Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| snapdc_&#8203;status | `gauge` | Status of the tile. 0 = waiting for compressed snapshot bytestream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = complete |
+| snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read | `gauge` | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
+| snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;read | `gauge` | Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted |
+| snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;total | `gauge` | Total size of the decompressed full snapshot file. Might change if snapshot load is aborted and restarted |
+| snapdc_&#8203;incremental_&#8203;compressed_&#8203;bytes_&#8203;read | `gauge` | Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
+| snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;read | `gauge` | Number of bytes read so far from the decompressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
+| snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;total | `gauge` | Total size of the decompressed incremental snapshot file. Might change if snapshot load is aborted and restarted |
+
+## Snapin Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| snapin_&#8203;status | `gauge` | Status of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = complete |
+| snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;processed | `gauge` | Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| snapin_&#8203;full_&#8203;accounts_&#8203;files_&#8203;total | `gauge` | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
+| snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;processed | `gauge` | Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;total | `gauge` | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
+| snapin_&#8203;full_&#8203;accounts_&#8203;processed | `gauge` | Number of accounts processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| snapin_&#8203;incremental_&#8203;accounts_&#8203;processed | `gauge` | Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |

@@ -8,7 +8,7 @@
 struct fd_stem_context {
    fd_frag_meta_t ** mcaches;
    ulong *           seqs;
-   ulong *           depths;
+   ulong const *     depths;
 
    ulong *           cr_avail;
    ulong             cr_decrement_amount;

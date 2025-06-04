@@ -122,14 +122,18 @@ fd_snapshot_http_new( void *               mem,
   return this;
 }
 
-static void
+void
 fd_snapshot_http_cleanup_fds( fd_snapshot_http_t * this ) {
   if( this->snapshot_fd!=-1 ) {
-    close( this->snapshot_fd );
+    if( FD_UNLIKELY( close( this->snapshot_fd ) ) ) {
+      FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
     this->snapshot_fd = -1;
   }
   if( this->socket_fd!=-1 ) {
-    close( this->socket_fd );
+    if( FD_UNLIKELY( close( this->socket_fd ) ) ) {
+      FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
     this->socket_fd = -1;
   }
 }
@@ -190,6 +194,18 @@ fd_snapshot_http_init( fd_snapshot_http_t * this ) {
 
   this->state = FD_SNAPSHOT_HTTP_STATE_REQ;
   return 0;
+}
+
+/* for http tile use */
+void
+fd_snapshot_http_privileged_init( fd_snapshot_http_t * this ) {
+  fd_snapshot_http_init( this );
+
+  /* open snapshot fd for writing to snapshot file */
+  this->snapshot_fd = open( this->snapshot_path, O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR );
+  if( this->snapshot_fd<0 ) {
+    FD_LOG_ERR(( "open(%s) failed (%d-%s)", this->snapshot_path, errno, fd_io_strerror( errno ) ));
+  }
 }
 
 /* fd_snapshot_http_req writes out the request. */
@@ -652,6 +668,8 @@ fd_io_istream_snapshot_http_read( void *  _this,
     return fd_snapshot_http_dl( this, dst, dst_max, dst_sz );
   case FD_SNAPSHOT_HTTP_STATE_READ:
     return fd_snapshot_http_read( this, dst, dst_max, dst_sz );
+  case FD_SNAPSHOT_HTTP_STATE_DONE:
+    return 1;
   }
 
   /* Not yet ready to read at this point. */

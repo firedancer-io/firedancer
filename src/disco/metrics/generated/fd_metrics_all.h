@@ -19,6 +19,9 @@
 #include "fd_metrics_repair.h"
 #include "fd_metrics_gossip.h"
 #include "fd_metrics_netlnk.h"
+#include "fd_metrics_snaprd.h"
+#include "fd_metrics_snapdc.h"
+#include "fd_metrics_snapin.h"
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
@@ -106,7 +109,7 @@
 #define FD_METRICS_GAUGE_TILE_STATUS_OFF  (4UL)
 #define FD_METRICS_GAUGE_TILE_STATUS_NAME "tile_status"
 #define FD_METRICS_GAUGE_TILE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TILE_STATUS_DESC "The current status of the tile. 0 is booting, 1 is running."
+#define FD_METRICS_GAUGE_TILE_STATUS_DESC "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown"
 #define FD_METRICS_GAUGE_TILE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_TILE_HEARTBEAT_OFF  (5UL)
@@ -155,7 +158,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_T
 
 #define FD_METRICS_TOTAL_SZ (8UL*246UL)
 
-#define FD_METRICS_TILE_KIND_CNT 17
+#define FD_METRICS_TILE_KIND_CNT 20
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];
