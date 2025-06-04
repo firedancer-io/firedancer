@@ -21,15 +21,12 @@ fd_repair_new ( void * shmem, ulong seed ) {
   void * shm = FD_SCRATCH_ALLOC_APPEND( l, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
   glob->seed = seed;
-  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX) );
-  glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
-  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX) );
-  glob->dupdetect = fd_dupdetect_table_join(fd_dupdetect_table_new(shm, FD_NEEDED_KEY_MAX, seed));
+  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_inflight_table_align(), fd_inflight_table_footprint(FD_NEEDED_KEY_MAX) );
+  glob->dupdetect = fd_inflight_table_join(fd_inflight_table_new(shm, FD_NEEDED_KEY_MAX, seed));
   shm = FD_SCRATCH_ALLOC_APPEND( l, fd_pinged_table_align(), fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
   glob->pinged = fd_pinged_table_join(fd_pinged_table_new(shm, FD_REPAIR_PINGED_MAX, seed));
   glob->stake_weights = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
   glob->stake_weights_cnt = 0;
-  glob->last_sends = 0;
   glob->last_decay = 0;
   glob->last_print = 0;
   glob->last_good_peer_cache_file_write = 0;
@@ -57,8 +54,7 @@ void *
 fd_repair_delete ( void * shmap ) {
   fd_repair_t * glob = (fd_repair_t *)shmap;
   fd_active_table_delete( fd_active_table_leave( glob->actives ) );
-  fd_needed_table_delete( fd_needed_table_leave( glob->needed ) );
-  fd_dupdetect_table_delete( fd_dupdetect_table_leave( glob->dupdetect ) );
+  fd_inflight_table_delete( fd_inflight_table_leave( glob->dupdetect ) );
   fd_pinged_table_delete( fd_pinged_table_leave( glob->pinged ) );
   return glob;
 }
@@ -300,12 +296,6 @@ fd_repair_continue( fd_repair_t * glob ) {
   return 0;
 }
 
-
-int
-fd_repair_is_full( fd_repair_t * glob ) {
-  return fd_needed_table_is_full(glob->needed);
-}
-
 /* Test if a peer is good. Returns 1 if the peer is "great", 0 if the peer is "good", and -1 if the peer sucks */
 static int
 is_good_peer( fd_active_elem_t * val ) {
@@ -343,10 +333,6 @@ fd_actives_shuffle( fd_repair_t * repair ) {
 
     ulong total_stake = 0UL;
     if( repair->stake_weights_cnt==0 ) {
-      leftovers = fd_scratch_alloc(
-        alignof( fd_active_elem_t * ),
-        sizeof( fd_active_elem_t * ) * fd_active_table_key_cnt( repair->actives ) );
-
       for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
          !fd_active_table_iter_done( repair->actives, iter );
          iter = fd_active_table_iter_next( repair->actives, iter ) ) {
@@ -355,9 +341,6 @@ fd_actives_shuffle( fd_repair_t * repair ) {
         leftovers[leftovers_cnt++] = peer;
       }
     } else {
-      leftovers = fd_scratch_alloc(
-        alignof( fd_active_elem_t * ),
-        sizeof( fd_active_elem_t * ) * repair->stake_weights_cnt );
 
       for( ulong i = 0; i < repair->stake_weights_cnt; i++ ) {
         fd_stake_weight_t const * stake_weight = &repair->stake_weights[i];
@@ -504,31 +487,20 @@ actives_sample( fd_repair_t * repair ) {
   return NULL;
 }
 
-static int
-fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint shred_index ) {
-
-  /* If there are no active sticky peers from which to send requests to, refresh the sticky peers
-     selection. It may be that stake weights were not available before, and now they are. */
-  if ( glob->actives_sticky_cnt == 0 ) {
-    fd_actives_shuffle( glob );
-  }
-
-  fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
-  uint found_peer = 0;
-  uint peer_cnt = fd_uint_min( (uint)glob->actives_sticky_cnt, FD_REPAIR_NUM_NEEDED_PEERS );
-  for( ulong i=0UL; i<peer_cnt; i++ ) {
+static uint
+select_peers_FIX_PLEASE( fd_repair_t * glob, fd_pubkey_t ** ids, uint max_peer_cnt ) {
+  uint found_peers = 0;
+  for( ulong i=0UL; i<max_peer_cnt; i++ ) {
     fd_active_elem_t * peer = actives_sample( glob );
     if(!peer) continue;
-    found_peer = 1;
 
-    ids[i] = &peer->key;
+    ids[found_peers++] = &peer->key;
   }
 
-  if (!found_peer) {
-    /* maybe atp we should just... send it. TODO: reevaluate wth testnet */
-
-    for( ulong i=0UL; i<peer_cnt; i++ ) {
-      fd_pubkey_t *      id   = &glob->actives_sticky[i];
+  if (!found_peers) {
+    FD_LOG_WARNING(( "[%s] No peers found, refreshing sticky peers", __func__ ));
+    for( ulong i=0UL; i<max_peer_cnt; i++ ) {
+      fd_pubkey_t      * id   = &glob->actives_sticky[i];
       fd_active_elem_t * peer = fd_active_table_query( glob->actives, id, NULL );
       if( peer ){
         peer->first_request_time = glob->now;
@@ -536,45 +508,129 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     }
 
     // Can guarantee found peers now! lol
-    for( ulong i=0UL; i<peer_cnt; i++ ) {
+    for( ulong i=0UL; i<max_peer_cnt; i++ ) {
       fd_active_elem_t * peer = actives_sample( glob );
       if(!peer) continue;
-      ids[i] = &peer->key;
+      ids[found_peers++] = &peer->key;
     }
-    //
-    //return -1;
   };
+  return found_peers;
+}
 
-  fd_dupdetect_key_t dupkey = { .type = (enum fd_needed_elem_type)type, .slot = slot, .shred_index = shred_index };
-  fd_dupdetect_elem_t * dupelem = fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL );
-  if( dupelem == NULL ) {
-    dupelem = fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
-    dupelem->last_send_time = 0L;
-  } else if( ( dupelem->last_send_time+(long)20e6 )>glob->now ) {
-    // if last send time > now - 100ms. then we don't want to add another.
+static int
+fd_repair_construct_request_protocol( fd_repair_t          * glob,
+                                      fd_repair_protocol_t * protocol,
+                                      int type,
+                                      ulong slot,
+                                      uint shred_index,
+                                      fd_active_elem_t * active, uint nonce, long now ) {
+  switch( type ) {
+    case fd_needed_window_index: {
+      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
+      fd_repair_protocol_new_disc(protocol, fd_repair_protocol_enum_window_index);
+      fd_repair_window_index_t * wi = &protocol->inner.window_index;
+      wi->header.sender = *glob->public_key;
+      wi->header.recipient = active->key;
+      wi->header.timestamp = (ulong)now/1000000L;
+      wi->header.nonce = nonce;
+      wi->slot = slot;
+      wi->shred_index = shred_index;
+        //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
+      return 1;
+    }
 
-    //FD_LOG_INFO(("deduped request for %lu, %u", slot, shred_index));
-    return 0;
+    case fd_needed_highest_window_index: {
+      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX]++;
+      fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_highest_window_index );
+      fd_repair_highest_window_index_t * wi = &protocol->inner.highest_window_index;
+      wi->header.sender = *glob->public_key;
+      wi->header.recipient = active->key;
+      wi->header.timestamp = (ulong)now/1000000L;
+      wi->header.nonce = nonce;
+      wi->slot = slot;
+      wi->shred_index = shred_index;
+      //FD_LOG_INFO(( "repair request for %lu, %lu", wi->slot, wi->shred_index ));
+      return 1;
+    }
+
+    case fd_needed_orphan: {
+      glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX]++;
+      fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_orphan );
+      fd_repair_orphan_t * wi = &protocol->inner.orphan;
+      wi->header.sender = *glob->public_key;
+      wi->header.recipient = active->key;
+      wi->header.timestamp = (ulong)now/1000000L;
+      wi->header.nonce = nonce;
+      wi->slot = slot;
+      //FD_LOG_INFO(( "repair request for %lu", ele->dupkey.slot));
+      return 1;
+    }
   }
-
-  dupelem->last_send_time = glob->now;
-  dupelem->req_cnt = peer_cnt;
-
-  if (fd_needed_table_is_full(glob->needed)) {
-    FD_LOG_DEBUG(( "repair failed to get shred - slot: %lu, shred_index: %u, reason: %d", slot, shred_index, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED ));
-    return -1;
-  }
-  for( ulong i=0UL; i<fd_ulong_min( fd_needed_table_key_max( glob->needed ) - fd_needed_table_key_cnt( glob->needed ), peer_cnt ); i++ ) {
-    fd_repair_nonce_t key = glob->next_nonce++;
-    fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
-    val->id = *ids[i];
-    val->dupkey = dupkey;
-    val->when = glob->now;
-  }
-  FD_LOG_INFO(("added request for %lu, %u", slot, shred_index));
-
   return 0;
 }
+
+static int
+fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint shred_index, long now ) {
+
+  /* If there are no active sticky peers from which to send requests to, refresh the sticky peers
+     selection. It may be that stake weights were not available before, and now they are. */
+  if ( FD_UNLIKELY( glob->actives_sticky_cnt == 0 ) ) { // should be hit at most once per after_credit iter.
+    FD_LOG_INFO(("Shuffling sticky peers, no active peers available"));
+    fd_actives_shuffle( glob );
+  }
+
+  fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
+  uint       peer_cnt = fd_uint_min( (uint)glob->actives_sticky_cnt, FD_REPAIR_NUM_NEEDED_PEERS );
+  uint found_peer_cnt = select_peers_FIX_PLEASE( glob, ids, peer_cnt );
+
+  fd_inflight_key_t     dupkey = { .type = (enum fd_needed_elem_type)type, .slot = slot, .shred_index = shred_index };
+  fd_inflight_elem_t * dupelem = fd_inflight_table_query( glob->dupdetect, &dupkey, NULL );
+
+  if( dupelem == NULL ) {
+    dupelem = fd_inflight_table_insert( glob->dupdetect, &dupkey );
+
+    if ( FD_UNLIKELY( dupelem == NULL ) ) {
+      FD_LOG_ERR(( "IMPLEMENT RANDOM EVICTION! Failed to insert duplicate detection element for slot %lu, shred_index %u", slot, shred_index ));
+      return -1;
+    }
+
+    dupelem->last_send_time = 0L;
+  }
+
+  if( FD_LIKELY( dupelem->last_send_time+(long)20e6  < now ) ) { /* 20ms */
+    dupelem->last_send_time = now;
+    dupelem->req_cnt        = found_peer_cnt;
+    for( ulong i=0UL; i<found_peer_cnt; i++ ) {
+      fd_active_elem_t * active = fd_active_table_query( glob->actives, ids[i], NULL );
+      if( FD_UNLIKELY( active==NULL ) ) {
+        __asm__("int $3");
+        FD_LOG_ERR(( "Failed to find active peer for %s", FD_BASE58_ENC_32_ALLOCA( ids[i] ) ));
+      }
+      fd_repair_construct_request_protocol( glob, &glob->protocol_ret_buf[i], type, slot, shred_index, active, glob->next_nonce, now );
+      glob->next_nonce++;
+    }
+    FD_LOG_INFO(("added request for %lu, %u", slot, shred_index));
+    return (int)found_peer_cnt;
+  }
+  return 0;
+}
+
+int
+fd_repair_inflight_remove( fd_repair_t * glob,
+                           ulong         slot,
+                           uint          shred_index ) {
+  /* If we have a shred, we can remove it from the inflight table */
+  // FIXME: might be worth adding eviction logic here for orphan / highest window reqs
+
+  fd_inflight_key_t    dupkey  = { .type = fd_needed_window_index, .slot = slot, .shred_index = shred_index };
+  fd_inflight_elem_t * dupelem = fd_inflight_table_query( glob->dupdetect, &dupkey, NULL );
+  if( dupelem ) {
+    /* Remove the element from the inflight table */
+    fd_inflight_table_remove( glob->dupdetect, &dupkey );
+  }
+  return 0;
+}
+
 
 static int
 fd_write_good_peer_cache_file( fd_repair_t * repair ) {
@@ -636,19 +692,19 @@ fd_write_good_peer_cache_file( fd_repair_t * repair ) {
 int
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
   // FD_LOG_NOTICE(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
-  return fd_repair_create_needed_request( glob, fd_needed_window_index, slot, shred_index );
+  return fd_repair_create_needed_request( glob, fd_needed_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  FD_LOG_DEBUG(( "[%s] need highest %lu", __func__, slot ));
-  return fd_repair_create_needed_request( glob, fd_needed_highest_window_index, slot, shred_index );
+  //FD_LOG_DEBUG(( "[%s] need highest %lu", __func__, slot ));
+  return fd_repair_create_needed_request( glob, fd_needed_highest_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
   // FD_LOG_NOTICE( ( "[repair] need orphan %lu", slot ) );
-  return fd_repair_create_needed_request( glob, fd_needed_orphan, slot, UINT_MAX );
+  return fd_repair_create_needed_request( glob, fd_needed_orphan, slot, UINT_MAX, glob->now );
 }
 
 static void
