@@ -83,7 +83,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build_gcc:
-    runs-on: X64
+    runs-on: ci4
     if: ${{ inputs.gcc != 'none' }}
     steps:
       - uses: actions/checkout@v4
@@ -130,7 +130,7 @@ jobs:
           contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
 
   build_clang:
-    runs-on: 512G
+    runs-on: ci16
     if: ${{ inputs.clang != 'none' }}
     steps:
       - uses: actions/checkout@v4
