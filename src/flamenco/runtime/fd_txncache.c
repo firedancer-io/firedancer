@@ -1174,11 +1174,11 @@ fd_txncache_get_is_constipated( fd_txncache_t * tc ) {
 
 int
 fd_txncache_set_is_constipated( fd_txncache_t * tc, int is_constipated ) {
-  fd_rwlock_read( tc->lock );
+  fd_rwlock_write( tc->lock );
 
   tc->is_constipated = is_constipated;
 
-  fd_rwlock_unread( tc->lock );
+  fd_rwlock_unwrite( tc->lock );
 
   return 0;
 }
