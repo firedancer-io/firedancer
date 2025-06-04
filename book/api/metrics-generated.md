@@ -108,7 +108,9 @@
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Number of connections that failed to create due to lack of slots. |
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Number of connections that failed during retry (e.g. invalid token). |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span> | counter | Number of packets with an unknown connection ID. |
-| <span class="metrics-name">quic_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail</span> | counter | Number of packets failed to send because of metadata alloc fail. |
+| <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (Success) |
+| <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (PktMetaPoolEmpty) |
+| <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;conn_&#8203;max</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (ConnMaxedInflightFrames) |
 | <span class="metrics-name">quic_&#8203;handshakes_&#8203;created</span> | counter | Number of handshake flows created. |
 | <span class="metrics-name">quic_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail</span> | counter | Number of handshakes dropped due to alloc fail. |
 | <span class="metrics-name">quic_&#8203;handshake_&#8203;evicted</span> | counter | Number of handshakes dropped due to eviction. |
