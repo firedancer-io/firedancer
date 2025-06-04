@@ -522,15 +522,15 @@ test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
       FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, empty_stream );
       FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
 
-      ulong metrics_before = quic->metrics.pkt_tx_alloc_fail_cnt;
+      ulong conn_max_fails_before = quic->metrics.frame_tx_alloc_cnt[2];
       fd_quic_conn_service( quic, conn, 0 );
-      ulong metrics_after = quic->metrics.pkt_tx_alloc_fail_cnt;
+      ulong metrics_after = quic->metrics.frame_tx_alloc_cnt[2];
       if( i==11 ) {
         /* 12th packet should fail */
-        FD_TEST( metrics_after == metrics_before + 1 );
+        FD_TEST( metrics_after == conn_max_fails_before + 1 );
       } else {
         /* 11th packet should succeed */
-        FD_TEST( metrics_after == metrics_before );
+        FD_TEST( metrics_after == conn_max_fails_before );
       }
     }
 
