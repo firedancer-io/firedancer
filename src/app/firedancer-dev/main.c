@@ -101,12 +101,9 @@ extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_archiver_backtest;
 
-extern fd_topo_run_tile_t fd_tile_snapshot_restore_FileRd;
-extern fd_topo_run_tile_t fd_tile_snapshot_restore_Unzstd;
+extern fd_topo_run_tile_t fd_tile_snapshot_restore_SnapRd;
+extern fd_topo_run_tile_t fd_tile_snapshot_restore_SnapDc;
 extern fd_topo_run_tile_t fd_tile_snapshot_restore_SnapIn;
-extern fd_topo_run_tile_t fd_tile_snapshot_restore_ActAlc;
-extern fd_topo_run_tile_t fd_tile_snapshot_restore_ActIdx;
-extern fd_topo_run_tile_t fd_tile_snapshot_restore_Unzstd;
 extern fd_topo_run_tile_t fd_tile_snapshot_restore_HttpDl;
 
 fd_topo_run_tile_t * TILES[] = {
@@ -148,12 +145,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
-  &fd_tile_snapshot_restore_FileRd,
-  &fd_tile_snapshot_restore_Unzstd,
+  &fd_tile_snapshot_restore_SnapRd,
+  &fd_tile_snapshot_restore_SnapDc,
   &fd_tile_snapshot_restore_SnapIn,
-  &fd_tile_snapshot_restore_ActAlc,
-  &fd_tile_snapshot_restore_ActIdx,
-  &fd_tile_snapshot_restore_Unzstd,
   &fd_tile_snapshot_restore_HttpDl,
   NULL,
 };
