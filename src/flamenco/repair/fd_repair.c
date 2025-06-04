@@ -597,7 +597,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     dupelem->last_send_time = 0L;
   }
 
-  if( FD_LIKELY( dupelem->last_send_time+(long)20e6  < now ) ) { /* 20ms */
+  if( FD_LIKELY( dupelem->last_send_time+(long)40e6  < now ) ) { /* 20ms */
     dupelem->last_send_time = now;
     dupelem->req_cnt        = found_peer_cnt;
     for( ulong i=0UL; i<found_peer_cnt; i++ ) {
