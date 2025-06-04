@@ -343,9 +343,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                     ) );
   ctx->scratch = fd_tower_join( fd_tower_new( scratch_mem                   ) );
 
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->batch.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
+
   ctx->epoch_voters_buf = voter_mem;
 
-  memcpy( ctx->funk_file, tile->tower.funk_file, PATH_MAX );
   memcpy( ctx->identity_key->uc, fd_keyload_load( tile->tower.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
   memcpy( ctx->vote_acc->uc, fd_keyload_load( tile->tower.vote_acc_path, 1 ), sizeof(fd_pubkey_t) );
 

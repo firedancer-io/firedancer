@@ -180,7 +180,7 @@ fd_funk_open_file( void *       ljoin,
 
     ulong part_max = fd_wksp_part_max_est( total_sz, 1U<<18U );
     if( FD_UNLIKELY( !part_max ) ) {
-      FD_LOG_WARNING(( "fd_wksp_part_max_est(%lu,64KiB) failed", total_sz ));
+      FD_LOG_WARNING(( "fd_wksp_part_max_est(%lu,256KiB) failed", total_sz ));
       munmap( shmem, total_sz );
       close( fd );
       return NULL;
