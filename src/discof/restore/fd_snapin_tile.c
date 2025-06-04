@@ -15,6 +15,11 @@
 #define LINK_IN_MAX  1UL
 #define BURST       16UL
 
+#define SNAP_IN_STATUS_WAITING 0UL
+#define SNAP_IN_STATUS_FULL    1UL
+#define SNAP_IN_STATUS_INC     2UL
+#define SNAP_IN_STATUS_DONE    3UL
+
 #define SNAP_STATE_IGNORE       ((uchar)0)  /* ignore file content */
 #define SNAP_STATE_TAR          ((uchar)1)  /* reading tar header (buffered) */
 #define SNAP_STATE_MANIFEST     ((uchar)2)  /* reading manifest (buffered) */
@@ -69,7 +74,6 @@ struct fd_snapin_tile {
   /* Stream input */
 
   fd_stream_frag_meta_ctx_t in_state; /* input mcache context */
-  ulong *       in_sync;
 
   /* Frame buffer */
 
@@ -100,7 +104,19 @@ struct fd_snapin_tile {
   fd_funk_t       funk[1];
   fd_funk_txn_t * funk_txn;
   uchar *         acc_data;
-  ulong           inserted_accounts;
+
+  struct {
+    ulong full_accounts_files_processed;
+    ulong full_accounts_files_total;
+
+    ulong incremental_accounts_files_processed;
+    ulong incremental_accounts_files_total;
+
+    ulong full_accounts_processed;
+    ulong incremental_accounts_processed;
+
+    ulong status;
+  } metrics;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -119,10 +135,10 @@ struct fd_snapin_in {
 typedef struct fd_snapin_in fd_snapin_in_t;
 
 static void
-fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
-  ctx->flags = SNAP_FLAG_DONE;
-
+fd_snapin_shutdown( void ) {
+  FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
+  FD_COMPILER_MFENCE();
   FD_LOG_WARNING(( "Finished parsing snapshot" ));
 
   for(;;) pause();
@@ -308,9 +324,9 @@ snapshot_is_duplicate_account( fd_snapin_tile_t *  restore,
 }
 
 static int
-snapshot_insert_account2( fd_snapin_tile_t *              restore,
-  fd_pubkey_t const *             account_key,
-  fd_solana_account_hdr_t const * hdr ) {
+snapshot_insert_account( fd_snapin_tile_t *               restore,
+                          fd_pubkey_t const *             account_key,
+                          fd_solana_account_hdr_t const * hdr ) {
   FD_TXN_ACCOUNT_DECL( rec );
 
   fd_account_meta_t * meta = fd_funk_insert_account( restore->funk, account_key, hdr );
@@ -320,9 +336,9 @@ snapshot_insert_account2( fd_snapin_tile_t *              restore,
   rec->vt->set_slot( rec, restore->accv_slot );
   rec->vt->set_hash( rec, &hdr->hash );
   rec->vt->set_info( rec, &hdr->info );
-  /* TODO: do we still need rent logic here? see fd_snapshot_restore_account_hdr */
+
   restore->acc_data = rec->vt->get_data_mut( rec );
-  restore->inserted_accounts++;
+
   return 0;
 }
 
@@ -344,7 +360,7 @@ snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
   
   fd_pubkey_t const * account_key = fd_type_pun_const( hdr->meta.pubkey );
   if( !snapshot_is_duplicate_account( restore, account_key) ) {
-    snapshot_insert_account2( restore, account_key, hdr );
+    snapshot_insert_account( restore, account_key, hdr );
   }
 
   /* Next step */
@@ -439,7 +455,6 @@ snapshot_read_account_chunk( fd_snapin_tile_t * restore,
 static int
 fd_snapshot_accv_index( fd_snapshot_accv_map_t *               map,
                         fd_solana_accounts_db_fields_t const * fields ) {
-
   for( ulong i=0UL; i < fields->storages_len; i++ ) {
 
     fd_snapshot_slot_acc_vecs_t * slot = &fields->storages[ i ];
@@ -612,7 +627,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
   ctx->in_state.in_buf  = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->in_state.in_skip = 0UL;
-  ctx->in_sync = fd_mcache_seq_laddr( topo->links[ tile->in_link_id[ 0 ] ].mcache );
 
   /* Join frame buffer */
 
@@ -627,7 +641,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* IDK what to put here right now */
   ctx->funk_txn = NULL;
-  ctx->inserted_accounts = 0UL;
+  ctx->metrics.full_accounts_files_processed = 0UL;
+  ctx->metrics.full_accounts_files_total = 0UL;
+  ctx->metrics.full_accounts_processed = 0UL;
+
+  ctx->metrics.incremental_accounts_files_processed = 0UL;
+  ctx->metrics.incremental_accounts_files_total = 0UL;
+  ctx->metrics.incremental_accounts_processed = 0UL;
+  ctx->metrics.status = SNAP_IN_STATUS_FULL;
 }
 
 static void
@@ -648,7 +669,7 @@ tar_process_hdr( fd_snapin_tile_t * reader,
       not_zero |= reader->buf[ i ];
     if( !not_zero ) {
       cur += sizeof(fd_tar_meta_t);
-      fd_snapin_shutdown( reader );
+      reader->flags |= SNAP_FLAG_DONE;
       return;
     }
     /* Not an EOF, so must be a protocol error */
@@ -750,6 +771,44 @@ restore_chunk1( fd_snapin_tile_t * restore,
   return buf_next;
 }
 
+static void
+fd_snapin_set_status( fd_snapin_tile_t * ctx,
+                      ulong              status ) {
+  ctx->metrics.status = status;
+  FD_COMPILER_MFENCE();
+  FD_MGAUGE_SET( SNAPIN, STATUS, status );
+  FD_COMPILER_MFENCE();
+}
+
+static void
+fd_snapin_on_file_complete( fd_snapin_tile_t * ctx ) {
+  if( ctx->metrics.status == SNAP_IN_STATUS_FULL ) {
+    FD_LOG_INFO(("snapdc: done decompressing full snapshot, now decompressing incremental snapshot"));
+    fd_snapin_set_status( ctx, SNAP_IN_STATUS_INC );
+
+
+  } else if( ctx->metrics.status == SNAP_IN_STATUS_INC ) {
+    FD_LOG_INFO(("snapdc: done reading incremental snapshot"));
+    fd_snapin_set_status( ctx, SNAP_IN_STATUS_DONE );
+    ctx->flags = SNAP_FLAG_DONE;
+    fd_snapin_shutdown();
+
+  } else {
+    FD_LOG_ERR(("snapdc: unexpected status"));
+  }
+}
+
+static void
+metrics_write( void * _ctx ) {
+  fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_PROCESSED, ctx->metrics.full_accounts_files_processed );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_TOTAL, ctx->metrics.full_accounts_files_total );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_PROCESSED, ctx->metrics.incremental_accounts_files_processed );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_TOTAL, ctx->metrics.incremental_accounts_files_total );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_PROCESSED, ctx->metrics.full_accounts_processed );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_PROCESSED, ctx->metrics.incremental_accounts_processed );
+}
+
 /* on_stream_frag consumes an incoming stream data fragment.  This frag
    may be up to the dcache size (e.g. 8 MiB), therefore could contain
    thousands of accounts.  This function will publish a message for each
@@ -765,12 +824,15 @@ on_stream_frag( void *                        _ctx,
                 ulong *                       sz ) {
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
 
+  /* poll file complete notification */
+  if( FD_UNLIKELY( fd_frag_meta_ctl_eom( frag->ctl ) ) ) {
+    fd_snapin_on_file_complete( ctx );
+    *sz = frag->sz;
+    return 1;
+  }
+
   if( FD_UNLIKELY( ctx->flags ) ) {
     if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_FAILED ) ) FD_LOG_ERR(( "Failed to restore snapshot" ));
-    if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_DONE ) ) {
-      *sz = frag->sz;
-      return 1;
-    }
     return 0;
   }
 
@@ -798,11 +860,6 @@ on_stream_frag( void *                        _ctx,
   ulong consumed_sz = (ulong)( cur-start );
   *sz  = consumed_sz;
 
-  /* write inserted accounts number to in_sync[3] */
-  FD_COMPILER_MFENCE();
-  ctx->in_sync[3] = ctx->inserted_accounts;
-  FD_COMPILER_MFENCE();
-
   return consume_frag;
 }
 
@@ -824,7 +881,7 @@ fd_snapin_run1(
     NULL,
     fd_snapin_in_update,
     NULL,
-    NULL,
+    metrics_write,
     NULL,
     on_stream_frag );
 }

@@ -430,8 +430,9 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
-      char file_path[ PATH_MAX ];
-    } filerd;
+      char full_snapshot_path[ PATH_MAX ];
+      char incremental_snapshot_path[ PATH_MAX ];
+    } snaprd;
 
     struct {
       char         dest[128];

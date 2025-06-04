@@ -75,7 +75,8 @@ __attribute__((noreturn)) FD_FN_UNUSED static void
 fd_httpdl_shutdown( fd_httpdl_tile_t * ctx ) {
   fd_snapshot_http_cleanup_fds( ctx->http );
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
-  fd_stream_writer_close( ctx->writer );
+  fd_stream_writer_notify( ctx->writer, 
+    fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
   FD_COMPILER_MFENCE();
   FD_LOG_WARNING(("Done downloading snapshot"));
 

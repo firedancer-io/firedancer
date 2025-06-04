@@ -91,7 +91,8 @@ struct fdctl_args {
   } quic_trace;
 
   struct {
-    char snapshot_path[ PATH_MAX ];
+    char full_snapshot_path[ PATH_MAX ];
+    char incremental_snapshot_path[ PATH_MAX ];
     char snapshot_dir[ PATH_MAX ];
   } snapshot_load;
 };

@@ -1,4 +1,4 @@
-$(call add-objs,fd_filerd_tile,fd_discof)
+$(call add-objs,fd_snaprd_tile,fd_discof)
 ifdef FD_HAS_ZSTD
 $(call add-objs,fd_unzstd_tile,fd_discof)
 endif
@@ -11,6 +11,3 @@ $(call add-objs,fd_httpdl_tile,fd_discof)
 $(call add-objs,stream/fd_stream_writer,fd_discof)
 $(call add-objs,stream/fd_event_map,fd_discof)
 $(call add-objs,stream/fd_stream_ctx,fd_discof)
-ifdef FD_HAS_INT128
-$(call make-unit-test,test_snapin_tile,test_snapin_tile,fd_discof fd_disco fd_flamenco fd_tango fd_ballet fd_util)
-endif

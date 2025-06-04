@@ -44,7 +44,7 @@ metric introduced.
     <gauge name="Tid" clickhouse_exclude="true" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
     <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
-    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running." />
+    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" />
     <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
     <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
     <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing." />
@@ -746,10 +746,12 @@ metric introduced.
 
 <tile name="snapin">
     <gauge name="Status" summary="Status of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = complete" />
-    <gauge name="FullAccountsFilesProcessed", summary="Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="FullAccountsFilesTotal", summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsFilesProcessed", summary="Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsFilesTotal", summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
+    <gauge name="FullAccountsFilesProcessed" summary="Number of accounts files (appendvecs) processed in the full snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="FullAccountsFilesTotal" summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsFilesProcessed" summary="Number of accounts files (appendvecs) processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsFilesTotal" summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
+    <gauge name="FullAccountsProcessed" summary="Number of accounts processed in the full snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsProcessed" summary="Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
 </metrics>

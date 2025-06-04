@@ -130,14 +130,20 @@ fd_stream_writer_register_consumer(
     ulong *              fseq_join
 );
 
-/* fd_stream_writer_close marks the stream as closed. */
+/* fd_stream_writer_notify sends an empty frag with user-specified ctl bits. */
 
 static inline void
-fd_stream_writer_close( fd_stream_writer_t * writer ) {
-  FD_VOLATILE( writer->out_sync[ 0 ] ) = writer->seq;
-  FD_VOLATILE( writer->out_sync[ 1 ] ) = writer->goff;
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( writer->out_sync[ 2 ] ) = 1;
+fd_stream_writer_notify( fd_stream_writer_t * writer,
+                         ulong                ctl ) {
+  fd_mcache_publish_stream( writer->mcache,
+                            writer->depth,
+                            writer->seq,
+                            0UL,
+                            0UL,
+                            0UL,
+                            ctl );
+  writer->seq = fd_seq_inc( writer->seq, 1UL );
+  writer->cr_frag_avail -= 1;
 }
 
 /* Flow control API ***************************************************/
