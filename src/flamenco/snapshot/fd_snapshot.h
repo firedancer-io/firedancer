@@ -132,6 +132,9 @@ fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
                       fd_spad_t *          spad,
                       fd_lthash_value_t *  lt_hash );
 
+void
+fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad );
+
 FD_PROTOTYPES_END
 
 #endif /* FD_HAS_ZSTD */

@@ -615,7 +615,6 @@ fd_tower_print( fd_tower_t const * tower, ulong root ) {
   } while( rem > 0 );
 
   /* Print the table header */
-
   printf( "slot%*s | %s\n", digit_cnt - (int)strlen("slot"), "", "confirmation count" );
 
   /* Print the divider line */

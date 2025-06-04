@@ -25,6 +25,7 @@
 #include "../../choreo/fd_choreo.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../discof/restore/stream/fd_stream_reader.h"
 #include "fd_exec.h"
 
 #include <arpa/inet.h>
@@ -53,7 +54,8 @@
 #define REPAIR_IN_IDX  (0UL)
 #define PACK_IN_IDX    (1UL)
 #define BATCH_IN_IDX   (2UL)
-#define SHRED_IN_IDX   (3UL)
+#define SNAP_IN_IDX    (3UL)
+#define SHRED_IN_IDX   (4UL)
 
 #define EXEC_BOOT_WAIT  (0UL)
 #define EXEC_BOOT_DONE  (1UL)
@@ -64,6 +66,9 @@
 #define EXEC_TXN_READY  (6UL)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
+
+#define SNAP_FSEQ_NO_SNAPSHOT 1UL
+#define SNAP_FSEQ_SNAPSHOT_LOADED 2UL
 
 struct fd_replay_out_link {
   ulong            idx;
@@ -135,11 +140,6 @@ struct fd_replay_tile_ctx {
   int          tx_metadata_storage;
   char const * funk_checkpt;
   char const * genesis;
-  char const * incremental;
-  char const * snapshot;
-  char const * snapshot_dir;
-  int          incremental_src_type;
-  int          snapshot_src_type;
 
   /* Do not modify order! This is join-order in unprivileged_init. */
 
@@ -223,6 +223,8 @@ struct fd_replay_tile_ctx {
   ulong * poh;  /* proof-of-history slot */
   uint poh_init_done;
   int  snapshot_init_done;
+  ulong  snapshot_state;
+  ulong volatile * snap_fseq;
 
   int         tower_checkpt_fileno;
 
@@ -275,6 +277,8 @@ struct fd_replay_tile_ctx {
   ulong * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
 
   ulong enable_bank_hash_cmp;
+  /* manifest reader */
+  fd_frag_reader_t * manifest_reader;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -301,6 +305,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
+  l = FD_LAYOUT_APPEND( l, fd_frag_reader_align(), fd_frag_reader_footprint() );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -369,7 +374,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-static void
+__attribute__((unused)) static void
 snapshot_hash_tiles_cb( void * para_arg_1,
                         void * para_arg_2,
                         void * fn_arg_1,
@@ -1322,7 +1327,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   return fork;
 }
 
-static void
+__attribute__((unused)) static void
 init_poh( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_INFO(( "sending init msg" ));
   fd_replay_out_link_t * bank_out = &ctx->bank_out[ 0UL ];
@@ -1618,119 +1623,142 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
 }
 
+// static void
+// read_snapshot( void *              _ctx,
+//                fd_stem_context_t * stem,
+//                char const *        snapshot,
+//                char const *        incremental,
+//                char const *        snapshot_dir ) {
+//   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
+
+//   fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
+//     .func       = snapshot_hash_tiles_cb,
+//     .para_arg_1 = ctx,
+//     .para_arg_2 = stem,
+//   };
+
+//   /* Pass the slot_ctx to snapshot_load or recover_banks */
+//   /* Base slot is the slot we will compare against the base slot of the incremental snapshot, to ensure that the
+//      base slot of the incremental snapshot is the slot of the full snapshot.
+
+//      We pull this out of the full snapshot to use when verifying the incremental snapshot. */
+//   ulong        base_slot = 0UL;
+//   if( strcmp( snapshot, "funk" )==0 || strncmp( snapshot, "wksp:", 5 )==0 ) {
+//     /* Funk already has a snapshot loaded */
+//     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
+//     base_slot = ctx->slot_ctx->slot_bank.slot;
+//     kickoff_repair_orphans( ctx, stem );
+//   } else {
+
+//     /* If we have an incremental snapshot try to prefetch the snapshot slot
+//        and manifest as soon as possible. In order to kick off repair effectively
+//        we need the snapshot slot and the stake weights. These are both available
+//        in the manifest. We will try to load in the manifest from the latest
+//        snapshot that is availble, then setup the blockstore and publish the
+//        stake weights. After this, repair will kick off concurrently with loading
+//        the rest of the snapshots. */
+
+//     /* TODO: Verify account hashes for all 3 snapshot loads. */
+//     /* TODO: If prefetching the manifest is enabled it leads to
+//        incorrect snapshot loads. This needs to be looked into. */
+//     if( strlen( incremental )>0UL ) {
+//       uchar * tmp_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+
+//       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
+//                                                                     incremental,
+//                                                                     ctx->incremental_src_type,
+//                                                                     NULL,
+//                                                                     ctx->slot_ctx,
+//                                                                     false,
+//                                                                     false,
+//                                                                     FD_SNAPSHOT_TYPE_INCREMENTAL,
+//                                                                     ctx->exec_spads,
+//                                                                     ctx->exec_spad_cnt,
+//                                                                     ctx->runtime_spad,
+//                                                                     &exec_para_ctx_snap );
+//       /* Load the prefetch manifest, and initialize the status cache and slot context,
+//          so that we can use these to kick off repair. */
+//       fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
+//       kickoff_repair_orphans( ctx, stem );
+
+//     }
+
+//     uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+//     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
+//                                                               snapshot,
+//                                                               ctx->snapshot_src_type,
+//                                                               snapshot_dir,
+//                                                               ctx->slot_ctx,
+//                                                               false,
+//                                                               false,
+//                                                               FD_SNAPSHOT_TYPE_FULL,
+//                                                               ctx->exec_spads,
+//                                                               ctx->exec_spad_cnt,
+//                                                               ctx->runtime_spad,
+//                                                               &exec_para_ctx_snap );
+
+//     fd_snapshot_load_init( snap_ctx );
+
+//     /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize
+//          the objects because we don't have these from the incremental snapshot. */
+//     if( strlen( incremental )<=0UL ) {
+//       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
+//         FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
+
+//       kickoff_repair_orphans( ctx, stem );
+//       /* If we don't have an incremental snapshot, we can still kick off
+//          sending the stake weights and snapshot slot to repair. */
+//     } else {
+//       /* If we have an incremental snapshot, load the manifest and the status cache,
+//           and don't initialize the objects because we did this above from the incremental snapshot. */
+//       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL, FD_SNAPSHOT_RESTORE_NONE );
+//     }
+//     base_slot = fd_snapshot_get_slot( snap_ctx );
+
+//     fd_snapshot_load_accounts( snap_ctx );
+//     fd_snapshot_load_fini( snap_ctx );
+//   }
+
+//   if( strlen( incremental ) > 0 && strcmp( snapshot, "funk" ) != 0 ) {
+
+//     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
+//        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
+//     fd_snapshot_load_all( incremental,
+//                           ctx->incremental_src_type,
+//                           NULL,
+//                           ctx->slot_ctx,
+//                           &base_slot,
+//                           NULL,
+//                           false,
+//                           false,
+//                           FD_SNAPSHOT_TYPE_INCREMENTAL,
+//                           ctx->exec_spads,
+//                           ctx->exec_spad_cnt,
+//                           ctx->runtime_spad );
+//   }
+
+  // fd_runtime_update_leaders( ctx->slot_ctx,
+  //                            ctx->slot_ctx->slot_bank.slot,
+  //                            ctx->runtime_spad );
+  // FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
+
+  // fd_exec_para_cb_ctx_t exec_para_ctx = {
+  //   .func       = bpf_tiles_cb,
+  //   .para_arg_1 = ctx,
+  //   .para_arg_2 = stem
+  // };
+  // fd_bpf_scan_and_create_bpf_program_cache_entry_para( ctx->slot_ctx,
+  //                                                      ctx->runtime_spad,
+  //                                                      &exec_para_ctx );
+  // FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
+// }
+
 static void
-read_snapshot( void *              _ctx,
-               fd_stem_context_t * stem,
-               char const *        snapshot,
-               char const *        incremental,
-               char const *        snapshot_dir ) {
-  fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
+init_after_snapshot( fd_replay_tile_ctx_t * ctx,
+                     fd_stem_context_t *    stem ) {
+  /* Do not modify order! */
 
-  fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
-    .func       = snapshot_hash_tiles_cb,
-    .para_arg_1 = ctx,
-    .para_arg_2 = stem,
-  };
-
-  /* Pass the slot_ctx to snapshot_load or recover_banks */
-  /* Base slot is the slot we will compare against the base slot of the incremental snapshot, to ensure that the
-     base slot of the incremental snapshot is the slot of the full snapshot.
-
-     We pull this out of the full snapshot to use when verifying the incremental snapshot. */
-  ulong        base_slot = 0UL;
-  if( strcmp( snapshot, "funk" )==0 || strncmp( snapshot, "wksp:", 5 )==0 ) {
-    /* Funk already has a snapshot loaded */
-    fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
-    base_slot = ctx->slot_ctx->slot_bank.slot;
-    kickoff_repair_orphans( ctx, stem );
-  } else {
-
-    /* If we have an incremental snapshot try to prefetch the snapshot slot
-       and manifest as soon as possible. In order to kick off repair effectively
-       we need the snapshot slot and the stake weights. These are both available
-       in the manifest. We will try to load in the manifest from the latest
-       snapshot that is availble, then setup the blockstore and publish the
-       stake weights. After this, repair will kick off concurrently with loading
-       the rest of the snapshots. */
-
-    /* TODO: Verify account hashes for all 3 snapshot loads. */
-    /* TODO: If prefetching the manifest is enabled it leads to
-       incorrect snapshot loads. This needs to be looked into. */
-    if( strlen( incremental )>0UL ) {
-      uchar * tmp_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-
-      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
-                                                                    incremental,
-                                                                    ctx->incremental_src_type,
-                                                                    NULL,
-                                                                    ctx->slot_ctx,
-                                                                    false,
-                                                                    false,
-                                                                    FD_SNAPSHOT_TYPE_INCREMENTAL,
-                                                                    ctx->exec_spads,
-                                                                    ctx->exec_spad_cnt,
-                                                                    ctx->runtime_spad,
-                                                                    &exec_para_ctx_snap );
-      /* Load the prefetch manifest, and initialize the status cache and slot context,
-         so that we can use these to kick off repair. */
-      fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
-      kickoff_repair_orphans( ctx, stem );
-
-    }
-
-    uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
-                                                              snapshot,
-                                                              ctx->snapshot_src_type,
-                                                              snapshot_dir,
-                                                              ctx->slot_ctx,
-                                                              false,
-                                                              false,
-                                                              FD_SNAPSHOT_TYPE_FULL,
-                                                              ctx->exec_spads,
-                                                              ctx->exec_spad_cnt,
-                                                              ctx->runtime_spad,
-                                                              &exec_para_ctx_snap );
-
-    fd_snapshot_load_init( snap_ctx );
-
-    /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize
-         the objects because we don't have these from the incremental snapshot. */
-    if( strlen( incremental )<=0UL ) {
-      fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
-        FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
-
-      kickoff_repair_orphans( ctx, stem );
-      /* If we don't have an incremental snapshot, we can still kick off
-         sending the stake weights and snapshot slot to repair. */
-    } else {
-      /* If we have an incremental snapshot, load the manifest and the status cache,
-          and don't initialize the objects because we did this above from the incremental snapshot. */
-      fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL, FD_SNAPSHOT_RESTORE_NONE );
-    }
-    base_slot = fd_snapshot_get_slot( snap_ctx );
-
-    fd_snapshot_load_accounts( snap_ctx );
-    fd_snapshot_load_fini( snap_ctx );
-  }
-
-  if( strlen( incremental ) > 0 && strcmp( snapshot, "funk" ) != 0 ) {
-
-    /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
-       not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
-    fd_snapshot_load_all( incremental,
-                          ctx->incremental_src_type,
-                          NULL,
-                          ctx->slot_ctx,
-                          &base_slot,
-                          NULL,
-                          false,
-                          false,
-                          FD_SNAPSHOT_TYPE_INCREMENTAL,
-                          ctx->exec_spads,
-                          ctx->exec_spad_cnt,
-                          ctx->runtime_spad );
-  }
+  kickoff_repair_orphans( ctx, stem );
 
   fd_runtime_update_leaders( ctx->slot_ctx,
                              ctx->slot_ctx->slot_bank.slot,
@@ -1746,13 +1774,6 @@ read_snapshot( void *              _ctx,
                                                        ctx->runtime_spad,
                                                        &exec_para_ctx );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-}
-
-static void
-init_after_snapshot( fd_replay_tile_ctx_t * ctx,
-                     fd_stem_context_t *    stem ) {
-  /* Do not modify order! */
-
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
@@ -1898,11 +1919,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
 }
 
-void
-init_snapshot( fd_replay_tile_ctx_t * ctx,
-               fd_stem_context_t *    stem ) {
-  /* Init slot_ctx */
-
+static void
+replay_init( fd_replay_tile_ctx_t * ctx,
+             fd_stem_context_t *    stem,
+             uchar is_snapshot ) {
   uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
   ctx->slot_ctx->funk         = ctx->funk;
@@ -1911,11 +1931,15 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->status_cache = ctx->status_cache;
   fd_runtime_update_slots_per_epoch( ctx->slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH );
 
-  uchar is_snapshot = strlen( ctx->snapshot ) > 0;
-  if( is_snapshot ) {
-    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental, ctx->snapshot_dir );
-  }
+  /* ??? TODO:*/
+  fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
+  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
+  fd_hashes_load( ctx->slot_ctx, ctx->runtime_spad );
 
+  fd_epoch_schedule_t const * schedule = fd_sysvar_epoch_schedule_read( ctx->funk, ctx->slot_ctx->funk_txn, ctx->runtime_spad );
+  FD_LOG_WARNING(("schedule slots per epoch is %lu", schedule->slots_per_epoch));
+
+  FD_LOG_WARNING(("replay init epoch_bank->epoch_schedule.slots_per_epoch is %lu", ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch));
   if( ctx->plugin_out->mem ) {
     uchar msg[56];
     fd_memset( msg, 0, sizeof(msg) );
@@ -1925,7 +1949,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   fd_runtime_read_genesis( ctx->slot_ctx,
                            ctx->genesis,
-                           is_snapshot,
+                           1,
                            ctx->capture_ctx,
                            ctx->runtime_spad );
   /* We call this after fd_runtime_read_genesis, which sets up the
@@ -1980,8 +2004,6 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   }
 
   publish_slot_notifications( ctx, stem, fork, block_entry_height, curr_slot );
-
-
   FD_TEST( ctx->slot_ctx );
 }
 
@@ -2184,6 +2206,12 @@ handle_writer_state_updates( fd_replay_tile_ctx_t * ctx ) {
 
 }
 
+// static int
+// process_manifest( fd_replay_tile_ctx_t * ctx,
+//                   fd_frag_meta_t const * frag ) {
+
+// }
+
 static void
 after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
@@ -2203,6 +2231,22 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   }
 
   /* TODO: Consider moving state management to during_housekeeping */
+
+  if( FD_UNLIKELY( !ctx->snapshot_state && !ctx->snapshot_init_done ) ) {
+    if( ctx->plugin_out->mem ) {
+      uchar msg[56];
+      fd_memset( msg, 0, sizeof(msg) );
+      msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+    }
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->snapshot_state && !ctx->snapshot_init_done ) ) {
+    uchar is_snapshot = ctx->snapshot_state == SNAP_FSEQ_SNAPSHOT_LOADED ? 1 : 0;
+    replay_init( ctx, stem, is_snapshot );
+    ctx->snapshot_init_done = 1;
+  }
 
   /* Check all the writer link fseqs. */
   handle_writer_state_updates( ctx );
@@ -2372,7 +2416,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     fd_bank_hash_cmp_unlock( bank_hash_cmp );
     ctx->flags = EXEC_FLAG_READY_NEW;
-  } // end of if( FD_UNLIKELY( ( flags & EXEC_FLAG_FINISHED_SLOT ) ) )
+  } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
 
   long now = fd_log_wallclock();
   if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
@@ -2427,10 +2471,11 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(("Starting unprivileged init"));
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt < 3 ||
+  if( FD_UNLIKELY( tile->in_cnt < 4 ||
                    strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
                    strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX  ] ].name, "batch_replay" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX  ] ].name, "repair_repla" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX  ] ].name, "repair_repla" ) ) ||
+                   strcmp( topo->links[ tile->in_link_id[ SNAP_IN_IDX  ] ].name, "snap_replay" ) ) {
     FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
@@ -2448,7 +2493,13 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
+<<<<<<< HEAD
   void * slice_buf           = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
+  void * manifest_reader_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stream_reader_align(), fd_stream_reader_footprint() );
+=======
+  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
+  void * manifest_reader_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_frag_reader_align(), fd_frag_reader_footprint() );
+>>>>>>> 8be2fb855 (working scafold for http)
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -2540,12 +2591,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
   ctx->funk_checkpt        = tile->replay.funk_checkpt;
   ctx->genesis             = tile->replay.genesis;
-  ctx->incremental         = tile->replay.incremental;
-  ctx->snapshot            = tile->replay.snapshot;
-  ctx->snapshot_dir        = tile->replay.snapshot_dir;
-
-  ctx->incremental_src_type = tile->replay.incremental_src_type;
-  ctx->snapshot_src_type    = tile->replay.snapshot_src_type;
 
   /**********************************************************************/
   /* status cache                                                       */
@@ -2628,6 +2673,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   uchar * bank_hash_cmp_shmem = fd_spad_alloc_check( ctx->runtime_spad, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint() );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_shmem ) );
+
+  /* Make epoch context be a shared topology object */
   ctx->epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, tile->replay.max_vote_accounts ) );
 
   if( FD_UNLIKELY( sscanf( tile->replay.cluster_version, "%u.%u.%u", &ctx->epoch_ctx->epoch_bank.cluster_version[0], &ctx->epoch_ctx->epoch_bank.cluster_version[1], &ctx->epoch_ctx->epoch_bank.cluster_version[2] )!=3 ) ) {
@@ -2887,6 +2934,16 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->exec_slice_deque ) ) {
     FD_LOG_ERR(( "failed to join and create exec slice deque" ));
   }
+
+  /* set up snap fseq */
+  ctx->snap_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->replay.snap_fseq_obj_id ) );
+  FD_TEST( ctx->snap_fseq );
+
+  /* set up manifest reader */
+  ctx->manifest_reader = manifest_reader_mem;
+  fd_frag_meta_t * mcache = topo->links[ tile->in_link_id[ SNAP_IN_IDX ] ].mcache;
+  ulong *          fseq   = tile->in_link_fseq[ SNAP_IN_IDX ];
+  fd_frag_reader_init( ctx->manifest_reader, mcache, fseq, SNAP_IN_IDX );
 
   FD_LOG_NOTICE(("Finished unprivileged init"));
 

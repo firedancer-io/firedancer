@@ -80,6 +80,12 @@ fd_topob_link( fd_topo_t *  topo,
                ulong        mtu,
                ulong        burst );
 
+fd_topo_obj_t *
+fd_topob_link_set_dcache( fd_topo_t *     topo,
+                         fd_topo_link_t * link,
+                         char const *     wksp_name,
+                         ulong            dcache_sz );
+
 /* Add a tile to the topology.  This creates various objects needed for
    a standard tile, including tile scratch memory, metrics memory and so
    on.  These objects will be created and linked to the respective

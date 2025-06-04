@@ -294,11 +294,8 @@ struct fd_topo_tile {
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
-      char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  shred_cap[ PATH_MAX ];
-      char  snapshot[ PATH_MAX ];
-      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
@@ -316,7 +313,8 @@ struct fd_topo_tile {
       /* not specified in TOML */
 
       int   incremental_src_type;
-      int   snapshot_src_type;
+      ulong snap_fseq_obj_id;
+      ulong slot_ctx_obj_id;
 
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
@@ -454,6 +452,41 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       char  vote_acc_path[ PATH_MAX ];
     } tower;
+
+    struct {
+      char snapshots_path[ PATH_MAX ];
+      int incremental_snapshot_fetch;
+      int do_download;
+      uint maximum_local_snapshot_age;
+      uint minimum_download_speed_mib;
+      uint maximum_download_retry_abort;
+      ulong fseq_obj_id;
+    } snaprd;
+
+    struct {
+      char         dest[128];
+      uint         ip4;
+      ushort       port;
+      char         path[ PATH_MAX ];
+      ulong        path_len;
+      char         snapshot_dir[ PATH_MAX ];
+    } httpdl;
+
+    struct {
+      ulong scratch_sz;
+      ulong funk_obj_id;
+      ulong fseq_obj_id;
+    } snapin;
+
+    struct {
+      ulong funk_obj_id;
+    } actalc;
+
+    struct {
+      ulong funk_obj_id;
+    } actidx;
+
+>>>>>>> 4f7104236 (compiles)
   };
 };
 
@@ -540,6 +573,14 @@ static inline void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
                    ulong             obj_id ) {
   fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  if( obj_id>=FD_TOPO_MAX_OBJS  ) {
+    FD_LOG_WARNING(("bad object id: %lu", obj_id));
+    FD_LOG_WARNING(("max objs is %lu", FD_TOPO_MAX_OBJS));
+    FD_LOG_WARNING(("sdfa sd"));
+    FD_LOG_WARNING(("sdfa sd"));
+    FD_LOG_WARNING(("sdfa sd"));
+    FD_LOG_WARNING(("sdfa sd"));
+  }
   FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
   FD_TEST( obj->id == obj_id );
   FD_TEST( obj->offset );

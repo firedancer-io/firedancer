@@ -39,7 +39,7 @@ struct fd_snapshot_load_ctx {
 };
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
-static void
+void
 fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( block_hashes_rec );
   int err = fd_txn_account_init_from_funk_readonly( block_hashes_rec, &fd_sysvar_recent_block_hashes_id, slot_ctx->funk, slot_ctx->funk_txn );

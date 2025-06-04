@@ -101,9 +101,10 @@ extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 
-extern fd_topo_run_tile_t fd_tile_bencho;
-extern fd_topo_run_tile_t fd_tile_benchg;
-extern fd_topo_run_tile_t fd_tile_benchs;
+extern fd_topo_run_tile_t fd_tile_snapshot_restore_SnapRd;
+extern fd_topo_run_tile_t fd_tile_snapshot_restore_SnapDc;
+extern fd_topo_run_tile_t fd_tile_snapshot_restore_SnapIn;
+extern fd_topo_run_tile_t fd_tile_snapshot_restore_HttpDl;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -144,6 +145,10 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
+  &fd_tile_snapshot_restore_SnapRd,
+  &fd_tile_snapshot_restore_SnapDc,
+  &fd_tile_snapshot_restore_SnapIn,
+  &fd_tile_snapshot_restore_HttpDl,
   NULL,
 };
 
@@ -166,6 +171,7 @@ extern action_t fd_action_help;
 extern action_t fd_action_load;
 extern action_t fd_action_pktgen;
 extern action_t fd_action_quic_trace;
+extern action_t fd_action_snapshot_load;
 extern action_t fd_action_txn;
 extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
@@ -191,6 +197,7 @@ action_t * ACTIONS[] = {
   &fd_action_flame,
   &fd_action_load,
   &fd_action_pktgen,
+  &fd_action_snapshot_load,
   &fd_action_quic_trace,
   &fd_action_txn,
   &fd_action_wksp,
