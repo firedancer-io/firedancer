@@ -41,7 +41,7 @@ jobs:
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: gcc
-            compiler-version: 11.4.0
+            compiler-version: 15.1.0
             run-unit-tests: true
           - test-case: linux_gcc_icelake
             machine: linux_gcc_icelake
