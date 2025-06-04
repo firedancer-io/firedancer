@@ -703,7 +703,8 @@ class VectorMember(TypeNode):
         "uint" :    lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
         "uint128" : lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
         "ulong" :   lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
-        "ushort" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body)
+        "ushort" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body),
+        "uchar" :   lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );', file=body),
     }
 
     def emitWalk(self, inner, indent=''):
@@ -716,17 +717,10 @@ class VectorMember(TypeNode):
         # Reference: https://docs.rs/bincode/latest/src/bincode/features/serde/ser.rs.html#226-228 (see the `serialize_seq` implementation above for comparison)
         if self.compact:
             print(f'{indent}  fun( w, &self->{self.name}_len, "{self.name}_len", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body)
-        if self.element == "uchar":
-            print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
-            print(f'{indent}    fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body)
-            print(f'{indent}  }} else {{', file=body)
-            print(f'{indent}    fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );', file=body)
-            print(f'{indent}  }}', file=body)
-            return
-        else:
-            print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
-            print(f'{indent}    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "array", level++ );', file=body)
-            print(f'{indent}    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
+
+        print(f'{indent}  if( self->{self.name}_len ) {{', file=body)
+        print(f'{indent}    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "array", level++ );', file=body)
+        print(f'{indent}    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
 
         if self.element in VectorMember.emitWalkMap:
             body.write("    ")

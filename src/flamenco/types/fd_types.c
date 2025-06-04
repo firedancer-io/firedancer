@@ -1269,9 +1269,10 @@ void fd_solana_account_walk( void * w, fd_solana_account_t const * self, fd_type
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_solana_account", level++ );
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->data_len ) {
-    fun(w, self->data, "data", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->data, "data", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "data", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->data_len; i++ )
+      fun( w, self->data + i, "data", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "data", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->owner, fun, "owner", level );
   fun( w, &self->executable, "executable", FD_FLAMENCO_TYPE_BOOL, "bool", level );
@@ -4604,9 +4605,10 @@ void fd_string_pubkey_pair_new(fd_string_pubkey_pair_t * self) {
 void fd_string_pubkey_pair_walk( void * w, fd_string_pubkey_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_string_pubkey_pair", level++ );
   if( self->string_len ) {
-    fun(w, self->string, "string", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->string, "string", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "string", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->string_len; i++ )
+      fun( w, self->string + i, "string", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "string", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->pubkey, fun, "pubkey", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_string_pubkey_pair", level-- );
@@ -8217,9 +8219,10 @@ void fd_feature_entry_walk( void * w, fd_feature_entry_t const * self, fd_types_
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_feature_entry", level++ );
   fd_pubkey_walk( w, &self->pubkey, fun, "pubkey", level );
   if( self->description_len ) {
-    fun(w, self->description, "description", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->description, "description", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "description", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->description_len; i++ )
+      fun( w, self->description + i, "description", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "description", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->since_slot, "since_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_feature_entry", level-- );
@@ -10686,9 +10689,10 @@ void fd_vote_authorize_with_seed_args_walk( void * w, fd_vote_authorize_with_see
   fd_vote_authorize_walk( w, &self->authorization_type, fun, "authorization_type", level );
   fd_pubkey_walk( w, &self->current_authority_derived_key_owner, fun, "current_authority_derived_key_owner", level );
   if( self->current_authority_derived_key_seed_len ) {
-    fun(w, self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->current_authority_derived_key_seed_len; i++ )
+      fun( w, self->current_authority_derived_key_seed + i, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->new_authority, fun, "new_authority", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_authorize_with_seed_args", level-- );
@@ -10776,9 +10780,10 @@ void fd_vote_authorize_checked_with_seed_args_walk( void * w, fd_vote_authorize_
   fd_vote_authorize_walk( w, &self->authorization_type, fun, "authorization_type", level );
   fd_pubkey_walk( w, &self->current_authority_derived_key_owner, fun, "current_authority_derived_key_owner", level );
   if( self->current_authority_derived_key_seed_len ) {
-    fun(w, self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->current_authority_derived_key_seed_len; i++ )
+      fun( w, self->current_authority_derived_key_seed + i, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_authorize_checked_with_seed_args", level-- );
 }
@@ -11460,9 +11465,10 @@ void fd_system_program_instruction_create_account_with_seed_walk( void * w, fd_s
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_create_account_with_seed", level++ );
   fd_pubkey_walk( w, &self->base, fun, "base", level );
   if( self->seed_len ) {
-    fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->seed_len; i++ )
+      fun( w, self->seed + i, "seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->space, "space", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -11557,9 +11563,10 @@ void fd_system_program_instruction_allocate_with_seed_walk( void * w, fd_system_
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_allocate_with_seed", level++ );
   fd_pubkey_walk( w, &self->base, fun, "base", level );
   if( self->seed_len ) {
-    fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->seed_len; i++ )
+      fun( w, self->seed + i, "seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, &self->space, "space", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fd_pubkey_walk( w, &self->owner, fun, "owner", level );
@@ -11647,9 +11654,10 @@ void fd_system_program_instruction_assign_with_seed_walk( void * w, fd_system_pr
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_assign_with_seed", level++ );
   fd_pubkey_walk( w, &self->base, fun, "base", level );
   if( self->seed_len ) {
-    fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->seed_len; i++ )
+      fun( w, self->seed + i, "seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->owner, fun, "owner", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_program_instruction_assign_with_seed", level-- );
@@ -11734,9 +11742,10 @@ void fd_system_program_instruction_transfer_with_seed_walk( void * w, fd_system_
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_transfer_with_seed", level++ );
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->from_seed_len ) {
-    fun(w, self->from_seed, "from_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->from_seed, "from_seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "from_seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->from_seed_len; i++ )
+      fun( w, self->from_seed + i, "from_seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "from_seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->from_owner, fun, "from_owner", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_program_instruction_transfer_with_seed", level-- );
@@ -12760,9 +12769,10 @@ void fd_authorize_with_seed_args_walk( void * w, fd_authorize_with_seed_args_t c
   fd_pubkey_walk( w, &self->new_authorized_pubkey, fun, "new_authorized_pubkey", level );
   fd_stake_authorize_walk( w, &self->stake_authorize, fun, "stake_authorize", level );
   if( self->authority_seed_len ) {
-    fun(w, self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "authority_seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->authority_seed_len; i++ )
+      fun( w, self->authority_seed + i, "authority_seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "authority_seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->authority_owner, fun, "authority_owner", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_authorize_with_seed_args", level-- );
@@ -12849,9 +12859,10 @@ void fd_authorize_checked_with_seed_args_walk( void * w, fd_authorize_checked_wi
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_authorize_checked_with_seed_args", level++ );
   fd_stake_authorize_walk( w, &self->stake_authorize, fun, "stake_authorize", level );
   if( self->authority_seed_len ) {
-    fun(w, self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "authority_seed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->authority_seed_len; i++ )
+      fun( w, self->authority_seed + i, "authority_seed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "authority_seed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_pubkey_walk( w, &self->authority_owner, fun, "authority_owner", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_authorize_checked_with_seed_args", level-- );
@@ -14710,9 +14721,10 @@ void fd_bpf_loader_program_instruction_write_walk( void * w, fd_bpf_loader_progr
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_loader_program_instruction_write", level++ );
   fun( w, &self->offset, "offset", FD_FLAMENCO_TYPE_UINT, "uint", level );
   if( self->bytes_len ) {
-    fun(w, self->bytes, "bytes", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->bytes, "bytes", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "bytes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->bytes_len; i++ )
+      fun( w, self->bytes + i, "bytes", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "bytes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_loader_program_instruction_write", level-- );
 }
@@ -14912,9 +14924,10 @@ void fd_loader_v4_program_instruction_write_walk( void * w, fd_loader_v4_program
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_loader_v4_program_instruction_write", level++ );
   fun( w, &self->offset, "offset", FD_FLAMENCO_TYPE_UINT, "uint", level );
   if( self->bytes_len ) {
-    fun(w, self->bytes, "bytes", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->bytes, "bytes", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "bytes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->bytes_len; i++ )
+      fun( w, self->bytes + i, "bytes", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "bytes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_loader_v4_program_instruction_write", level-- );
 }
@@ -15300,9 +15313,10 @@ void fd_bpf_upgradeable_loader_program_instruction_write_walk( void * w, fd_bpf_
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bpf_upgradeable_loader_program_instruction_write", level++ );
   fun( w, &self->offset, "offset", FD_FLAMENCO_TYPE_UINT, "uint", level );
   if( self->bytes_len ) {
-    fun(w, self->bytes, "bytes", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->bytes, "bytes", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "bytes", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->bytes_len; i++ )
+      fun( w, self->bytes + i, "bytes", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "bytes", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bpf_upgradeable_loader_program_instruction_write", level-- );
 }
@@ -16979,9 +16993,10 @@ void fd_gossip_prune_sign_data_with_prefix_new(fd_gossip_prune_sign_data_with_pr
 void fd_gossip_prune_sign_data_with_prefix_walk( void * w, fd_gossip_prune_sign_data_with_prefix_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_prune_sign_data_with_prefix", level++ );
   if( self->prefix_len ) {
-    fun(w, self->prefix, "prefix", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->prefix, "prefix", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "prefix", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->prefix_len; i++ )
+      fun( w, self->prefix + i, "prefix", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "prefix", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fd_gossip_prune_sign_data_walk( w, &self->data, fun, "data", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_prune_sign_data_with_prefix", level-- );
@@ -17842,9 +17857,10 @@ void fd_gossip_slots_walk( void * w, fd_gossip_slots_t const * self, fd_types_wa
     fun( w, NULL, "slots", FD_FLAMENCO_TYPE_NULL, "uchar", level );
   } else {
     if( self->slots_bitvec_len ) {
-      fun(w, self->slots_bitvec, "slots_bitvec", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-    } else {
-      fun(w, self->slots_bitvec, "slots_bitvec", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+      fun( w, NULL, "slots_bitvec", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+      for( ulong i=0; i < self->slots_bitvec_len; i++ )
+      fun( w, self->slots_bitvec + i, "slots_bitvec", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+      fun( w, NULL, "slots_bitvec", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
     }
   }
   fun( w, &self->slots_len, "slots_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -17932,9 +17948,10 @@ void fd_gossip_flate2_slots_walk( void * w, fd_gossip_flate2_slots_t const * sel
   fun( w, &self->first_slot, "first_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->num, "num", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->compressed_len ) {
-    fun(w, self->compressed, "compressed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->compressed, "compressed", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "compressed", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->compressed_len; i++ )
+      fun( w, self->compressed + i, "compressed", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "compressed", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_flate2_slots", level-- );
 }
@@ -18648,9 +18665,10 @@ void fd_gossip_duplicate_shred_walk( void * w, fd_gossip_duplicate_shred_t const
   fun( w, &self->num_chunks, "num_chunks", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fun( w, &self->chunk_index, "chunk_index", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   if( self->chunk_len ) {
-    fun(w, self->chunk, "chunk", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->chunk, "chunk", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "chunk", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->chunk_len; i++ )
+      fun( w, self->chunk + i, "chunk", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "chunk", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_duplicate_shred", level-- );
 }
@@ -19251,9 +19269,10 @@ void fd_restart_raw_offsets_walk( void * w, fd_restart_raw_offsets_t const * sel
     fun( w, NULL, "offsets", FD_FLAMENCO_TYPE_NULL, "uchar", level );
   } else {
     if( self->offsets_bitvec_len ) {
-      fun(w, self->offsets_bitvec, "offsets_bitvec", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-    } else {
-      fun(w, self->offsets_bitvec, "offsets_bitvec", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+      fun( w, NULL, "offsets_bitvec", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+      for( ulong i=0; i < self->offsets_bitvec_len; i++ )
+      fun( w, self->offsets_bitvec + i, "offsets_bitvec", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+      fun( w, NULL, "offsets_bitvec", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
     }
   }
   fun( w, &self->offsets_len, "offsets_len", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -24414,14 +24433,16 @@ void fd_duplicate_slot_proof_new(fd_duplicate_slot_proof_t * self) {
 void fd_duplicate_slot_proof_walk( void * w, fd_duplicate_slot_proof_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_duplicate_slot_proof", level++ );
   if( self->shred1_len ) {
-    fun(w, self->shred1, "shred1", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->shred1, "shred1", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "shred1", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->shred1_len; i++ )
+      fun( w, self->shred1 + i, "shred1", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "shred1", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   if( self->shred2_len ) {
-    fun(w, self->shred2, "shred2", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
-  } else {
-    fun(w, self->shred2, "shred2", FD_FLAMENCO_TYPE_NULL, "uchar", level );
+    fun( w, NULL, "shred2", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->shred2_len; i++ )
+      fun( w, self->shred2 + i, "shred2", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "shred2", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_duplicate_slot_proof", level-- );
 }

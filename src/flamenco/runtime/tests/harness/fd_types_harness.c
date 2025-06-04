@@ -38,7 +38,6 @@ custom_serializer_walk( void *       _self,
     case FD_FLAMENCO_TYPE_ARR_END:
       break;
     case FD_FLAMENCO_TYPE_NULL:
-      fprintf( file, "null," );
       break;
     case FD_FLAMENCO_TYPE_BOOL:
       fprintf( file, "%s,", (*(uchar const *)arg) ? "true" : "false" );
