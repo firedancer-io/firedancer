@@ -23,7 +23,6 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../choreo/fd_choreo.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../disco/plugin/fd_plugin.h"
 #include "fd_exec.h"
@@ -96,7 +95,6 @@ typedef struct fd_replay_tile_metrics fd_replay_tile_metrics_t;
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
-  fd_wksp_t * funk_wksp;
   fd_wksp_t * status_cache_wksp;
 
   fd_wksp_t  * runtime_public_wksp;
@@ -633,7 +631,7 @@ checkpt( fd_replay_tile_ctx_t * ctx ) {
       FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
     }
   }
-  int rc = fd_wksp_checkpt( ctx->funk_wksp, ctx->funk_checkpt, 0666, 0, NULL );
+  int rc = fd_wksp_checkpt( ctx->funk->wksp, ctx->funk_checkpt, 0666, 0, NULL );
   if( rc ) {
     FD_LOG_ERR( ( "funk checkpt failed: error %d", rc ) );
   }
@@ -2442,40 +2440,6 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->runtime_public ) ) {
     FD_LOG_ERR(( "no runtime_public" ));
   }
-
-
-  /* Open Funk */
-  fd_funk_txn_start_write( NULL );
-  fd_funk_t * funk;
-  const char * snapshot = tile->replay.snapshot;
-  if( strcmp( snapshot, "funk" ) == 0 ) {
-    /* Funk database already exists. The parameters are actually mostly ignored. */
-    funk = fd_funk_open_file(
-        ctx->funk,
-        tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
-        tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
-        FD_FUNK_READ_WRITE, NULL );
-  } else if( strncmp( snapshot, "wksp:", 5 ) == 0) {
-    /* Recover funk database from a checkpoint. */
-    funk = fd_funk_recover_checkpoint( ctx->funk, tile->replay.funk_file, 1, snapshot+5, NULL );
-  } else {
-    FD_LOG_NOTICE(( "Trying to create new funk at file=%s", tile->replay.funk_file ));
-    /* Create new funk database */
-    funk = fd_funk_open_file(
-        ctx->funk,
-        tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
-        tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
-        FD_FUNK_OVERWRITE, NULL );
-    FD_LOG_NOTICE(( "Opened funk file at %s", tile->replay.funk_file ));
-  }
-  if( FD_UNLIKELY( !funk ) ) {
-    FD_LOG_ERR(( "Failed to join funk database" ));
-  }
-  fd_funk_txn_end_write( NULL );
-  ctx->funk_wksp = fd_funk_wksp( funk );
-  if( FD_UNLIKELY( ctx->funk_wksp == NULL ) ) {
-    FD_LOG_ERR(( "no funk wksp" ));
-  }
 }
 
 static void
@@ -2557,8 +2521,9 @@ unprivileged_init( fd_topo_t *      topo,
   /* funk                                                               */
   /**********************************************************************/
 
-  /* TODO: This below code needs to be shared as a topology object. This
-     will involve adding support to create a funk-based file here. */
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
 
   ctx->is_caught_up = 0;
 
@@ -2657,7 +2622,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   /* Join each of the exec spads. */
-  ctx->exec_cnt = tile->replay.exec_tile_count;
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong       exec_spad_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_spad.%lu", i );
     fd_spad_t * spad         = fd_spad_join( fd_topo_obj_laddr( topo, exec_spad_id ) );
@@ -2754,8 +2719,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* bank                                                               */
   /**********************************************************************/
 
-  ctx->bank_cnt         = tile->replay.bank_tile_count;
-  for( ulong i=0UL; i<tile->replay.bank_tile_count; i++ ) {
+  ctx->bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
+  for( ulong i=0UL; i<(ctx->bank_cnt); i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
     ctx->bank_busy[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
@@ -2779,7 +2744,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* exec                                                               */
   /**********************************************************************/
-  ctx->exec_cnt = tile->replay.exec_tile_count;
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
   if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
   }
@@ -2823,7 +2788,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* writer                                                             */
   /**********************************************************************/
-  ctx->writer_cnt = tile->replay.writer_tile_cuont;
+  ctx->writer_cnt = fd_topo_tile_name_cnt( topo, "writer" );
   if( FD_UNLIKELY( ctx->writer_cnt>FD_PACK_MAX_BANK_TILES ) ) {
     FD_LOG_CRIT(( "replay tile has too many writer tiles %lu", ctx->writer_cnt ));
   }

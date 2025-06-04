@@ -15,6 +15,10 @@
     idx_max = 8192
     alloc_max = 10737418240
     file = "{blockstore_path}"
+[funk]
+    heap_size_gib = 140
+    max_account_records = 150000000
+    max_database_transactions = 2000
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384
