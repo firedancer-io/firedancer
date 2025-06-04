@@ -48,11 +48,11 @@ fd_lookup_ipliteral( struct address buf[ static 1 ],
     if( *z ) {
       if( !IN6_IS_ADDR_LINKLOCAL(&a6) &&
           !IN6_IS_ADDR_MC_LINKLOCAL(&a6) )
-        return EAI_NONAME;
+        return FD_EAI_NONAME;
       scopeid = if_nametoindex( p );
-      if( !scopeid ) return EAI_NONAME;
+      if( !scopeid ) return FD_EAI_NONAME;
     }
-    if( scopeid > UINT_MAX ) return EAI_NONAME;
+    if( scopeid > UINT_MAX ) return FD_EAI_NONAME;
   }
   buf[0].scopeid = (uint)scopeid;
   return 1;
