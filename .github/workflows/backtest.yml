@@ -42,4 +42,4 @@ jobs:
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
-          DUMP_DIR=../dump make run-backtest-test
+          DUMP_DIR=../dump make run-runtime-backtest

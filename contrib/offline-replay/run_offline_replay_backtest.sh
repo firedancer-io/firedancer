@@ -16,6 +16,18 @@ EOF
     curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_WEBHOOK_URL
 }
 
+send_mismatch_slack_message() {
+    MESSAGE=$1
+    json_payload=$(cat <<EOF
+{
+    "text": "$MESSAGE",
+    "link_names": 1
+}
+EOF
+)
+    curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_MISMATCH_WEBHOOK_URL
+}
+
 send_slack_debug_message() {
     MESSAGE=$1
     json_payload=$(cat <<EOF
@@ -347,16 +359,19 @@ while true; do
                 tar -czvf $(basename $MISMATCH_TAR) $(basename $MISMATCH_DIR)
                 gsutil cp $MISMATCH_TAR gs://firedancer-ci-resources/$(basename $MISMATCH_TAR)
                 send_slack_message "Minimized ledger uploaded to gs://firedancer-ci-resources/$(basename $MISMATCH_TAR)"
+                send_mismatch_slack_message "Mismatch ledger uploaded to gs://firedancer-ci-resources/$(basename $MISMATCH_TAR)"
+
                 ledger_name=$(basename $MISMATCH_DIR)
                 snapshot_name=$(basename $MISMATCH_SNAPSHOT_FILE)
                 end_slot=$((NEXT_ROOTED_SLOT+5))
-                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -s $snapshot_name -p 60 -y 20 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION \`\`\`"
+                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -s $snapshot_name -y 10 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION \`\`\`"
 
             fi
         done
         # currently keeping rocksdb and minimized ledgers for debugging purposes
         if [ "$CURRENT_MISMATCH_COUNT" -eq 0 ] && [ "$CURRENT_FAILURE_COUNT" -eq 0 ]; then
             # delete everything including rocksdb and mismatch directories
+            cp "$LOG" /tmp/
             rm -rf "$LEDGER_DIR"
             rm -rf "$LOG"
             rm -rf "$TEMP_LOG"
