@@ -1,7 +1,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
@@ -23,7 +22,6 @@ struct fd_snapshot_tile_ctx {
   ulong           full_interval;
   ulong           incremental_interval;
   char const    * out_dir;
-  char            funk_file[ PATH_MAX ];
 
   /* Shared data structures. */
   fd_txncache_t * status_cache;
@@ -35,9 +33,6 @@ struct fd_snapshot_tile_ctx {
   int             tmp_inc_fd;
   int             full_snapshot_fd;
   int             incremental_snapshot_fd;
-
-  /* Only join funk after tiles start spinning. */
-  int             is_funk_active;
 
   /* Metadata from the full snapshot used for incremental snapshots. */
   ulong           last_full_snap_slot;
@@ -171,11 +166,9 @@ unprivileged_init( fd_topo_t      * topo,
   /* funk                                                               */
   /**********************************************************************/
 
-  /* We only want to join funk after it has been setup and joined in the
-     replay tile.
-     TODO: Eventually funk will be joined via a shared topology object. */
-  ctx->is_funk_active = 0;
-  memcpy( ctx->funk_file, tile->replay.funk_file, sizeof(tile->replay.funk_file) );
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->batch.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
 
   /**********************************************************************/
   /* status cache                                                       */
@@ -426,20 +419,6 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
      anything. Keep this tile spinning. */
   if( !batch_fseq ) {
     return;
-  }
-
-  if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
-    /* Setting these parameters are not required because we are joining the
-       funk that was setup in the replay tile. */
-    fd_funk_t * funk = fd_funk_open_file(
-        ctx->funk, ctx->funk_file,
-        1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READ_WRITE, NULL );
-    if( FD_UNLIKELY( !funk ) ) {
-      FD_LOG_ERR(( "Failed to join a funk database" ));
-    }
-    ctx->is_funk_active = 1;
-
-    FD_LOG_WARNING(( "Joined funk database at file=%s", ctx->funk_file ));
   }
 
   if( fd_batch_fseq_is_snapshot( batch_fseq ) ) {
