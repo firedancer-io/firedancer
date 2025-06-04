@@ -103,6 +103,11 @@ FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 
 #endif
 
+/* Sync with src/app/shared/fd_config.c */
+#define FD_PACK_STRATEGY_PERF     0
+#define FD_PACK_STRATEGY_BALANCED 1
+#define FD_PACK_STRATEGY_BUNDLE   2
+
 typedef struct {
   fd_acct_addr_t commission_pubkey[1];
   ulong          commission;
@@ -118,6 +123,9 @@ typedef struct {
   fd_pack_t *  pack;
   fd_txn_e_t * cur_spot;
   int          is_bundle; /* is the current transaction a bundle */
+
+  /* One of the FD_PACK_STRATEGY_* values defined above */
+  int      strategy;
 
   /* The value passed to fd_pack_new, etc. */
   ulong    max_pending_transactions;
@@ -637,14 +645,28 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
-    /* We want to exempt votes from pacing, so we always allow
-       scheduling votes.  It doesn't really make much sense to pace
-       bundles, because they get scheduled in FIFO order.  However, we
-       keep pacing for normal transactions.  For example, if
-       pacing_bank_cnt is 0, then pack won't schedule normal
-       transactions to any bank tile. */
-    int flags = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,              FD_PACK_SCHEDULE_BUNDLE, 0 )
+    int flags;
+
+    switch( ctx->strategy ) {
+      default:
+      case FD_PACK_STRATEGY_PERF:
+        flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE | FD_PACK_SCHEDULE_TXN;
+        break;
+      case FD_PACK_STRATEGY_BALANCED:
+        /* We want to exempt votes from pacing, so we always allow
+           scheduling votes.  It doesn't really make much sense to pace
+           bundles, because they get scheduled in FIFO order.  However,
+           we keep pacing for normal transactions.  For example, if
+           pacing_bank_cnt is 0, then pack won't schedule normal
+           transactions to any bank tile. */
+        flags = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,              FD_PACK_SCHEDULE_BUNDLE, 0 )
                                       | fd_int_if( i<pacing_bank_cnt, FD_PACK_SCHEDULE_TXN,    0 );
+        break;
+      case FD_PACK_STRATEGY_BUNDLE:
+        flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE
+                                      | fd_int_if( ctx->slot_end_ns - ctx->approx_wallclock_ns<50000000L, FD_PACK_SCHEDULE_TXN,  0 );
+        break;
+    }
 
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
@@ -1122,8 +1144,11 @@ unprivileged_init( fd_topo_t *      topo,
                                                                                           extra_txn_deq_footprint() ) ) );
 #endif
 
+  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BUNDLE) );
+
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;
+  ctx->strategy                      = tile->pack.schedule_strategy;
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
@@ -1199,7 +1224,7 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->blk_engine_cfg,     '\0', sizeof(ctx->blk_engine_cfg)     );
   memset( ctx->last_sched_metrics, '\0', sizeof(ctx->last_sched_metrics) );
 
-  FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles", EFFECTIVE_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count ));
+  FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles using strategy %i", EFFECTIVE_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count, ctx->strategy ));
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

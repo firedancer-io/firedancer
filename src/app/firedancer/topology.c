@@ -892,6 +892,7 @@ fd_topo_initialize( config_t * config ) {
       tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
       tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
       tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
+      tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
       if( FD_UNLIKELY( tile->pack.use_consumed_cus ) ) FD_LOG_ERR(( "Firedancer does not support CU rebating yet.  [tiles.pack.use_consumed_cus] must be false" ));
     } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
       strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );

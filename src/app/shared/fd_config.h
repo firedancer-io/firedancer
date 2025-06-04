@@ -341,6 +341,8 @@ struct fd_config {
     struct {
       uint max_pending_transactions;
       int  use_consumed_cus;
+      char schedule_strategy[ 16 ];
+      int  schedule_strategy_enum;
     } pack;
 
     struct {
