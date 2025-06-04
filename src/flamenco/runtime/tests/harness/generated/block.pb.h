@@ -43,17 +43,10 @@ typedef struct fd_exec_test_block_context {
 typedef struct fd_exec_test_block_effects {
     /* If block execution failed */
     bool has_error;
-    /* Resulting account states */
-    pb_size_t acct_states_count;
-    struct fd_exec_test_acct_state *acct_states;
     /* Slot capitalization */
     uint64_t slot_capitalization;
     /* Bank hash */
     pb_byte_t bank_hash[32];
-    /* Accounts lattice hash */
-    pb_byte_t lt_hash[32];
-    /* Account delta hash */
-    pb_byte_t account_delta_hash[32];
 } fd_exec_test_block_effects_t;
 
 typedef struct fd_exec_test_block_fixture {
@@ -75,11 +68,11 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_MICROBLOCK_INIT_DEFAULT     {0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, NULL, 0, {0}, {0}, {0}}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_MICROBLOCK_INIT_ZERO        {0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, NULL, 0, {0}, {0}, {0}}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -90,11 +83,8 @@ extern "C" {
 #define FD_EXEC_TEST_BLOCK_CONTEXT_SLOT_CTX_TAG  4
 #define FD_EXEC_TEST_BLOCK_CONTEXT_EPOCH_CTX_TAG 5
 #define FD_EXEC_TEST_BLOCK_EFFECTS_HAS_ERROR_TAG 1
-#define FD_EXEC_TEST_BLOCK_EFFECTS_ACCT_STATES_TAG 2
-#define FD_EXEC_TEST_BLOCK_EFFECTS_SLOT_CAPITALIZATION_TAG 3
-#define FD_EXEC_TEST_BLOCK_EFFECTS_BANK_HASH_TAG 4
-#define FD_EXEC_TEST_BLOCK_EFFECTS_LT_HASH_TAG   5
-#define FD_EXEC_TEST_BLOCK_EFFECTS_ACCOUNT_DELTA_HASH_TAG 6
+#define FD_EXEC_TEST_BLOCK_EFFECTS_SLOT_CAPITALIZATION_TAG 2
+#define FD_EXEC_TEST_BLOCK_EFFECTS_BANK_HASH_TAG 3
 #define FD_EXEC_TEST_BLOCK_FIXTURE_METADATA_TAG  1
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INPUT_TAG     2
 #define FD_EXEC_TEST_BLOCK_FIXTURE_OUTPUT_TAG    3
@@ -121,14 +111,10 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         5)
 
 #define FD_EXEC_TEST_BLOCK_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     has_error,         1) \
-X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       2) \
-X(a, STATIC,   SINGULAR, UINT64,   slot_capitalization,   3) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bank_hash,         4) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, lt_hash,           5) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, account_delta_hash,   6)
+X(a, STATIC,   SINGULAR, UINT64,   slot_capitalization,   2) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bank_hash,         3)
 #define FD_EXEC_TEST_BLOCK_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_BLOCK_EFFECTS_DEFAULT NULL
-#define fd_exec_test_block_effects_t_acct_states_MSGTYPE fd_exec_test_acct_state_t
 
 #define FD_EXEC_TEST_BLOCK_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
@@ -154,8 +140,9 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_Microblock_size depends on runtime parameters */
 /* fd_exec_test_BlockContext_size depends on runtime parameters */
-/* fd_exec_test_BlockEffects_size depends on runtime parameters */
 /* fd_exec_test_BlockFixture_size depends on runtime parameters */
+#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          47
+#define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_BLOCK_EFFECTS_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_Microblock fd_exec_test_Microblock

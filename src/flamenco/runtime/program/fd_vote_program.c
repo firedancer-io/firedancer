@@ -2339,27 +2339,6 @@ process_authorize_with_seed_instruction(
                     ctx );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L90
-static uint
-vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
-  uint data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V3_SZ;
-  uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
-  uint data_check = memcmp((
-    vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
-  if (data_check && data_len_check) {
-    return 1;
-  }
-
-  // VoteState1_14_11::is_correct_size_and_initialized
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
-  data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V2_SZ;
-  uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
-  data_check = memcmp(
-    (vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
-  return data_check && data_len_check;
-}
-
 /**********************************************************************/
 /* Entry point for the Vote Program                                   */
 /**********************************************************************/
@@ -2910,6 +2889,26 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /* Public API                                                         */
 /**********************************************************************/
 
+uint
+fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
+  uint data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V3_SZ;
+  uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
+  uint data_check = memcmp((
+    vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
+  if (data_check && data_len_check) {
+    return 1;
+  }
+
+  // VoteState1_14_11::is_correct_size_and_initialized
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
+  data_len_check = vote_account->vt->get_data_len( vote_account ) == FD_VOTE_STATE_V2_SZ;
+  uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
+  data_check = memcmp(
+    (vote_account->vt->get_data( vote_account ) + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
+  return data_check && data_len_check;
+}
+
 int
 fd_vote_get_state( fd_txn_account_t const *      self,
                    fd_spad_t *                   spad,
@@ -2963,7 +2962,7 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  if( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
+  if( fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
     fd_account_keys_pair_t_mapnode_t key;
     fd_memcpy( &key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
 
