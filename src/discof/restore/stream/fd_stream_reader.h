@@ -70,6 +70,11 @@ fd_stream_reader_new( void *                 mem,
 }
 
 static inline void
+fd_stream_reader_reset_stream( fd_stream_reader_t * reader ) {
+  reader->goff = 0UL;
+}
+
+static inline void
 fd_stream_reader_update_upstream( fd_stream_reader_t * reader ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( reader->base.fseq[0] ) = reader->base.seq;

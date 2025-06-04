@@ -139,7 +139,7 @@ fd_snapin_shutdown( void ) {
   FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
-  FD_LOG_WARNING(( "Finished parsing snapshot" ));
+  FD_LOG_INFO(( "snapin: shutting down" ));
 
   for(;;) pause();
 }
@@ -312,35 +312,35 @@ snapshot_read_is_complete( fd_snapin_tile_t const * restore ) {
   return restore->buf_ctr == restore->buf_sz;
 }
 
-static int
-snapshot_is_duplicate_account( fd_snapin_tile_t *  restore,
-                               fd_pubkey_t const * account_key ) {
-  /* Check if account exists */
-  fd_account_meta_t const * rec_meta = fd_funk_find_account( restore->funk, account_key );
-  if( rec_meta )
-    if( rec_meta->slot > restore->accv_slot ) 
-      return 1;
-  return 0;
-}
+// static int
+// snapshot_is_duplicate_account( fd_snapin_tile_t *  restore,
+//                                fd_pubkey_t const * account_key ) {
+//   /* Check if account exists */
+//   fd_account_meta_t const * rec_meta = fd_funk_find_account( restore->funk, account_key );
+//   if( rec_meta )
+//     if( rec_meta->slot > restore->accv_slot ) 
+//       return 1;
+//   return 0;
+// }
 
-static int
-snapshot_insert_account( fd_snapin_tile_t *               restore,
-                          fd_pubkey_t const *             account_key,
-                          fd_solana_account_hdr_t const * hdr ) {
-  FD_TXN_ACCOUNT_DECL( rec );
+// static int
+// snapshot_insert_account( fd_snapin_tile_t *               restore,
+//                           fd_pubkey_t const *             account_key,
+//                           fd_solana_account_hdr_t const * hdr ) {
+//   FD_TXN_ACCOUNT_DECL( rec );
 
-  fd_account_meta_t * meta = fd_funk_insert_account( restore->funk, account_key, hdr );
-  rec->vt->set_meta_mutable(rec, meta );
+//   fd_account_meta_t * meta = fd_funk_insert_account( restore->funk, account_key, hdr );
+//   rec->vt->set_meta_mutable(rec, meta );
 
-  rec->vt->set_data_len( rec, hdr->meta.data_len );
-  rec->vt->set_slot( rec, restore->accv_slot );
-  rec->vt->set_hash( rec, &hdr->hash );
-  rec->vt->set_info( rec, &hdr->info );
+//   rec->vt->set_data_len( rec, hdr->meta.data_len );
+//   rec->vt->set_slot( rec, restore->accv_slot );
+//   rec->vt->set_hash( rec, &hdr->hash );
+//   rec->vt->set_info( rec, &hdr->info );
 
-  restore->acc_data = rec->vt->get_data_mut( rec );
+//   restore->acc_data = rec->vt->get_data_mut( rec );
 
-  return 0;
-}
+//   return 0;
+// }
 
 static int
 snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
@@ -358,10 +358,10 @@ snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
     FD_LOG_ERR(( "Oversize account found (%lu bytes)", data_sz ));
   }
   
-  fd_pubkey_t const * account_key = fd_type_pun_const( hdr->meta.pubkey );
-  if( !snapshot_is_duplicate_account( restore, account_key) ) {
-    snapshot_insert_account( restore, account_key, hdr );
-  }
+  // fd_pubkey_t const * account_key = fd_type_pun_const( hdr->meta.pubkey );
+  // if( !snapshot_is_duplicate_account( restore, account_key) ) {
+  //   snapshot_insert_account( restore, account_key, hdr );
+  // }
 
   /* Next step */
   if( data_sz == 0UL ) {
@@ -781,15 +781,26 @@ fd_snapin_set_status( fd_snapin_tile_t * ctx,
 }
 
 static void
-fd_snapin_on_file_complete( fd_snapin_tile_t * ctx ) {
+fd_snapin_reset( fd_snapin_tile_t * ctx ) {
+  ctx->flags = 0UL;
+  ctx->state = SNAP_STATE_TAR;
+  ctx->buf_ctr = 0UL;
+  ctx->buf_sz = 0UL;
+  ctx->in_state.in_skip = 0UL;
+}
+
+static void
+fd_snapin_on_file_complete( fd_snapin_tile_t *   ctx,
+                            fd_stream_reader_t * reader ) {
   if( ctx->metrics.status == SNAP_IN_STATUS_FULL ) {
-    FD_LOG_INFO(("snapdc: done decompressing full snapshot, now decompressing incremental snapshot"));
+    FD_LOG_INFO(("snapin: done processing full snapshot, now processing incremental snapshot"));
     fd_snapin_set_status( ctx, SNAP_IN_STATUS_INC );
-    ctx->flags = 0UL;
-    ctx->state = SNAP_STATE_TAR;
+
+    fd_snapin_reset( ctx );
+    fd_stream_reader_reset_stream( reader );
 
   } else if( ctx->metrics.status == SNAP_IN_STATUS_INC ) {
-    FD_LOG_INFO(("snapdc: done reading incremental snapshot"));
+    FD_LOG_INFO(("snapin: done processing incremental snapshot"));
     fd_snapin_set_status( ctx, SNAP_IN_STATUS_DONE );
     ctx->flags = SNAP_FLAG_DONE;
     fd_snapin_shutdown();
@@ -820,15 +831,14 @@ metrics_write( void * _ctx ) {
 
 static int
 on_stream_frag( void *                        _ctx,
-                fd_stream_reader_t *          reader FD_PARAM_UNUSED,
+                fd_stream_reader_t *          reader,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       sz ) {
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
 
   /* poll file complete notification */
   if( FD_UNLIKELY( fd_frag_meta_ctl_eom( frag->ctl ) ) ) {
-    FD_LOG_WARNING(("snapin: received eom"));
-    fd_snapin_on_file_complete( ctx );
+    fd_snapin_on_file_complete( ctx, reader );
     *sz = frag->sz;
     return 1;
   }

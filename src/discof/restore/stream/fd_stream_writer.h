@@ -147,6 +147,14 @@ fd_stream_writer_notify( fd_stream_writer_t * writer,
   writer->cr_frag_avail -= 1;
 }
 
+/* fd_stream_writer_reset_stream resets the goff to 0 to start a new stream */
+
+static inline void
+fd_stream_writer_reset_stream( fd_stream_writer_t * writer ) {
+  writer->goff = 0UL;
+  writer->cr_byte_avail = 0UL;
+}
+
 /* Flow control API ***************************************************/
 
 /* fd_stream_writer_set_frag_sz_max puts an upper bound on the fragment
@@ -185,8 +193,17 @@ fd_stream_writer_calculate_backpressure( fd_stream_writer_t * writer ) {
   ulong cr_frag_avail = ULONG_MAX;
   ulong const stride = FD_STREAM_WRITER_CONS_SEQ_STRIDE;
   for( ulong cons_idx=0UL; cons_idx<writer->cons_cnt; cons_idx++ ) {
-    ulong cons_cr_byte_avail = (ulong)fd_long_max( (long)cr_byte_max-fd_long_max( fd_seq_diff( writer->goff, writer->cons_seq[ stride*cons_idx+1 ] ), 0L ), 0L );
-    ulong cons_cr_frag_avail = (ulong)fd_long_max( (long)cr_frag_max-fd_long_max( fd_seq_diff( writer->seq,  writer->cons_seq[ stride*cons_idx   ] ), 0L ), 0L );
+    /* the only way for a consumer to be ahead of the producer is if the stream is reset.
+       Backpressure the producer until the consumer's stream resets as well. */
+    ulong cons_cr_byte_avail = 0UL;
+    long goff_diff = fd_seq_diff( writer->goff, writer->cons_seq[ stride*cons_idx+1 ] );
+
+    /* common case: producer is behind consumer */
+    if( FD_LIKELY( goff_diff >= 0 ) ) {
+      cons_cr_byte_avail = (ulong)fd_long_max( (long)cr_byte_max-fd_long_max( goff_diff, 0UL ), 0L );
+    }
+
+    ulong cons_cr_frag_avail = (ulong)fd_long_max( (long)cr_frag_max-fd_long_max( fd_seq_diff( writer->seq,  writer->cons_seq[ stride*cons_idx   ] ), 0UL ), 0L );
     cr_byte_avail = fd_ulong_min( cons_cr_byte_avail, cr_byte_avail );
     cr_frag_avail = fd_ulong_min( cons_cr_frag_avail, cr_frag_avail );
   }

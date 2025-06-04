@@ -8,7 +8,7 @@
 
 #define NAME "SnapDc"
 #define ZSTD_WINDOW_SZ (33554432UL)
-#define ZSTD_FRAME_SZ 16384UL
+#define ZSTD_FRAME_SZ 8*1024*1024UL
 #define LINK_IN_MAX 1
 
 #define SNAP_DC_STATUS_WAITING 0UL
@@ -116,25 +116,33 @@ fd_snapdc_init_from_stream_ctx( void * _ctx,
 
 __attribute__((noreturn)) static void
 fd_snapdc_shutdown( void ) {
-  FD_LOG_INFO(("snapdc: shutting down"));
   FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
+
+  FD_LOG_INFO(("snapdc: shutting down"));
 
   for(;;) pause();
 }
 
 static void
-fd_snapdc_on_file_complete( fd_snapdc_tile_t * ctx ) {
+fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
+                            fd_stream_reader_t * reader ) {
   if( ctx->metrics.status == SNAP_DC_STATUS_FULL ) {
     FD_LOG_INFO(("snapdc: done decompressing full snapshot, now decompressing incremental snapshot"));
     fd_snapdc_set_status( ctx, SNAP_DC_STATUS_INC );
+
+    /* notify downstream consumer */
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
 
+    /* reset */
+    fd_zstd_dstream_reset( ctx->dstream );
+    fd_stream_writer_reset_stream( ctx->writer );
+    fd_stream_reader_reset_stream( reader );
 
   } else if( ctx->metrics.status == SNAP_DC_STATUS_INC ) {
-    FD_LOG_INFO(("snapdc: done reading incremental snapshot"));
+    FD_LOG_INFO(("snapdc: done decompressing incremental snapshot"));
     fd_snapdc_set_status( ctx, SNAP_DC_STATUS_DONE );
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
@@ -147,14 +155,14 @@ fd_snapdc_on_file_complete( fd_snapdc_tile_t * ctx ) {
 
 static int
 on_stream_frag( void *                        _ctx,
-                fd_stream_reader_t *          reader FD_PARAM_UNUSED,
+                fd_stream_reader_t *          reader,
                 fd_stream_frag_meta_t const * frag,
                 ulong *                       sz ) {
   fd_snapdc_tile_t * ctx = fd_type_pun(_ctx);
 
   /* poll file complete notification */
   if( FD_UNLIKELY( fd_frag_meta_ctl_eom( frag->ctl ) ) ) {
-    fd_snapdc_on_file_complete( ctx );
+    fd_snapdc_on_file_complete( ctx, reader );
     *sz = frag->sz;
     return 1;
   }
@@ -184,13 +192,13 @@ on_stream_frag( void *                        _ctx,
     /* fd_zstd_dstream_read updates chunk_start and out */
     int zstd_err = fd_zstd_dstream_read( ctx->dstream, &in_cur, in_chunk_end, &out_cur, out_end, NULL );
     if( FD_UNLIKELY( zstd_err>0 ) ) {
-      FD_LOG_ERR(( "fd_zstd_dstream_read failed" ));
+      FD_LOG_ERR(( "fd_zstd_dstream_read failed on seq %lu", reader->base.seq ));
       break;
     }
 
     /* accumulate consumed bytes */
-    ulong consumed_sz                   = (ulong)in_cur - (ulong)in_prev;
-    ctx->in_state.in_skip              += consumed_sz;
+    ulong consumed_sz      = (ulong)in_cur - (ulong)in_prev;
+    ctx->in_state.in_skip += consumed_sz;
   }
 
   ulong decompressed_bytes = (ulong)out_cur-(ulong)out;
@@ -236,7 +244,7 @@ fd_snapdc_run( fd_topo_t * topo,
 }
 
 #ifndef FD_TILE_TEST
-fd_topo_run_tile_t fd_tile_snapshot_restore_Unzstd = {
+fd_topo_run_tile_t fd_tile_snapshot_restore_SnapDc = {
   .name              = NAME,
   .scratch_align     = scratch_align,
   .scratch_footprint = scratch_footprint,
