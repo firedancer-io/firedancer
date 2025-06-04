@@ -50,11 +50,19 @@ check-agave-hash:
 		exit 1; \
 	fi
 
+update-rust-toolchain:
+	@$(eval TOOLCHAIN_VERSION=$(shell sed -n 's/^channel = "\(.*\)"$/\1/p' agave/rust-toolchain.toml))
+	@$(eval TOOLCHAIN_EXISTS=$(shell rustup toolchain list | grep -c $(TOOLCHAIN_VERSION)))
+	@if [ "$(TOOLCHAIN_EXISTS)" -eq 0 ]; then \
+		echo "Installing rust toolchain $(TOOLCHAIN_VERSION)"; \
+		rustup toolchain add $(TOOLCHAIN_VERSION); \
+	fi
+
 # Phony target to always rerun cargo build ... it will detect if anything
 # changed on the library side.
-cargo-validator: check-agave-hash
-cargo-solana: check-agave-hash
-cargo-ledger-tool: check-agave-hash
+cargo-validator: check-agave-hash update-rust-toolchain
+cargo-solana: check-agave-hash update-rust-toolchain
+cargo-ledger-tool: check-agave-hash update-rust-toolchain
 
 # Cargo build cannot cache the prior build if the command line changes,
 # for example if we did,
