@@ -24,9 +24,4 @@ run-runtime-test-nightly: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l mainnet-327443157  -s snapshot-327493391-9z5sYZhTCUbMKvXKotuCqN1y5TTt9T4PpxJzE6FLoQiz.tar.zst -p 100 -y 750 -m 950000000 -e 327593391 -c 2.1.11
 
 run-runtime-backtest-nightly: $(OBJDIR)/bin/fd_ledger
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_backtest.sh -l mainnet-327443157  -s snapshot-327493391-9z5sYZhTCUbMKvXKotuCqN1y5TTt9T4PpxJzE6FLoQiz.tar.zst -p 100 -y 750 -m 950000000 -e 327593391 -c 2.1.11
-
-
-run-runtime-test-nightly-asan: $(OBJDIR)/bin/fd_ledger
-	# OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l v201-small        -s snapshot-100-38CM8ita1fT5SmSLUEeqQZffn2xsy9vKz3WJmsFSnhrJ.tar.zst       -p 100 -y 16  -m 500000    -e 120       -c 2.0.1
-	# OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_test.sh -l devnet-330914784  -s snapshot-330914783-BujhdWiXTfRPfFYMG3GZdEcNc18KyvCcAq9QL9e1i1Fk.tar.zst -p 100 -y 16  -m 500000    -e 330914785 -c 2.0.8
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_backtest.sh -l mainnet-327443157  -s snapshot-327493391-9z5sYZhTCUbMKvXKotuCqN1y5TTt9T4PpxJzE6FLoQiz.tar.zst -y 750 -m 950000000 -e 327593391 -c 2.1.11
