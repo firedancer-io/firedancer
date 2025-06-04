@@ -383,9 +383,9 @@ fd_eqvoc_proof_to_chunks( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t 
     chunk->wallclock = (ulong)fd_log_wallclock();
     chunk->slot = proof->key.slot;
     chunk->num_chunks = FD_EQVOC_PROOF_CHUNK_CNT;
-    chunk->chunk_len = FD_EQVOC_PROOF_CHUNK_MAX;
-    ulong off = i * FD_EQVOC_PROOF_CHUNK_MAX;
-    ulong sz  = fd_ulong_min( FD_EQVOC_PROOF_CHUNK_MAX, FD_EQVOC_PROOF_MAX - off );
+    chunk->chunk_len = FD_EQVOC_PROOF_CHUNK_SZ;
+    ulong off = i * FD_EQVOC_PROOF_CHUNK_SZ;
+    ulong sz  = fd_ulong_min( FD_EQVOC_PROOF_CHUNK_SZ, FD_EQVOC_PROOF_SZ - off );
     fd_memcpy( chunks_out[i].chunk, proof->shreds + off, sz );
   }
 }

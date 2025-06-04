@@ -198,9 +198,7 @@ fd_forks_update( fd_forks_t *          forks,
    when handholding is enabled).  */
 
 void
-fd_forks_publish( fd_forks_t *       fork,
-                  ulong              root,
-                  fd_ghost_t const * ghost );
+fd_forks_publish( fd_forks_t * fork, ulong root );
 
 /* fd_forks_print prints a forks as a list of the frontiers and number
    of forks (pool eles acquired). */

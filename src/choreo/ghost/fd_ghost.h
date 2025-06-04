@@ -150,6 +150,7 @@ fd_ghost_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_ghost_footprint( ulong node_max ) {
+  /* clang-format on */
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(

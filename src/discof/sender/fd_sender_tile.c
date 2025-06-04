@@ -59,10 +59,10 @@ struct fd_sender_tile_ctx {
   ulong       contact_in_chunk0;
   ulong       contact_in_wmark;
 
-  ulong       replay_in_idx;
-  fd_wksp_t * replay_in_mem;
-  ulong       replay_in_chunk0;
-  ulong       replay_in_wmark;
+  ulong       tower_in_idx;
+  fd_wksp_t * tower_in_mem;
+  ulong       tower_in_chunk0;
+  ulong       tower_in_wmark;
 
   ulong       poh_in_idx;
   fd_wksp_t * poh_in_mem;
@@ -245,12 +245,12 @@ during_frag( fd_sender_tile_ctx_t * ctx,
     handle_new_cluster_contact_info( ctx, dcache_entry, sz );
   }
 
-  if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz!=sizeof(fd_txn_p_t) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in_chunk0, ctx->replay_in_wmark ));
+  if( FD_UNLIKELY( in_idx==ctx->tower_in_idx ) ) {
+    if( FD_UNLIKELY( chunk<ctx->tower_in_chunk0 || chunk>ctx->tower_in_wmark ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->tower_in_chunk0, ctx->tower_in_wmark ));
     }
 
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->tower_in_mem, chunk );
     memcpy( ctx->txn_buf, dcache_entry, sz );
   }
 }
@@ -281,7 +281,7 @@ after_frag( fd_sender_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
+  if( FD_UNLIKELY( in_idx==ctx->tower_in_idx ) ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)fd_type_pun(ctx->txn_buf);
 
     /* sign the txn */
@@ -378,12 +378,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->contact_in_wmark  = fd_dcache_compact_wmark( ctx->contact_in_mem, contact_in_link->dcache, contact_in_link->mtu );
 
   /* Set up replay tile input */
-  ctx->replay_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_voter", 0 );
-  FD_TEST( ctx->replay_in_idx!=ULONG_MAX );
-  fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ ctx->replay_in_idx ] ];
-  ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in_link->dcache );
-  ctx->replay_in_wmark  = fd_dcache_compact_wmark( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
+  ctx->tower_in_idx = fd_topo_find_tile_in_link( topo, tile, "tower_sender", 0 );
+  FD_TEST( ctx->tower_in_idx!=ULONG_MAX );
+  fd_topo_link_t * tower_in_link = &topo->links[ tile->in_link_id[ ctx->tower_in_idx ] ];
+  ctx->tower_in_mem    = topo->workspaces[ topo->objs[ tower_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->tower_in_chunk0 = fd_dcache_compact_chunk0( ctx->tower_in_mem, tower_in_link->dcache );
+  ctx->tower_in_wmark  = fd_dcache_compact_wmark( ctx->tower_in_mem, tower_in_link->dcache, tower_in_link->mtu );
 
   /* Set up repair request output */
   ctx->gossip_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_gossip", 0 );
