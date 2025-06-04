@@ -3,7 +3,9 @@
 
 #include "../platform/fd_cap_chk.h"
 
-union fdctl_args {
+struct fdctl_args {
+  char tile_cpus[ 256UL ];
+
   struct {
     char  tile_name[ 7UL ];
     ulong kind_id;
@@ -87,9 +89,15 @@ union fdctl_args {
     int event;
     int dump; /* whether the user requested --dump */
   } quic_trace;
+
+  struct {
+    char full_snapshot_path[ PATH_MAX ];
+    char incremental_snapshot_path[ PATH_MAX ];
+    char snapshot_dir[ PATH_MAX ];
+  } snapshot_load;
 };
 
-typedef union fdctl_args args_t;
+typedef struct fdctl_args args_t;
 
 struct fd_action {
   char const * name;

@@ -439,6 +439,33 @@ struct fd_topo_tile {
       int archive_fd;
     } archiver;
 
+    struct {
+      char full_snapshot_path[ PATH_MAX ];
+      char incremental_snapshot_path[ PATH_MAX ];
+    } snaprd;
+
+    struct {
+      char         dest[128];
+      uint         ip4;
+      ushort       port;
+      char         path[ PATH_MAX ];
+      ulong        path_len;
+      char         snapshot_dir[ PATH_MAX ];
+    } httpdl;
+
+    struct {
+      ulong scratch_sz;
+      ulong funk_obj_id;
+    } snapin;
+
+    struct {
+      ulong funk_obj_id;
+    } actalc;
+
+    struct {
+      ulong funk_obj_id;
+    } actidx;
+
   };
 };
 

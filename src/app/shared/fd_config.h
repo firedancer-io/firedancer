@@ -307,6 +307,10 @@ struct fd_config {
       char affinity[ AFFINITY_SZ ];
       char fake_dst_ip[ 16 ];
     } pktgen;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } snapshot_load;
   } development;
 
   struct {
