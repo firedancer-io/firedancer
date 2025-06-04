@@ -50,7 +50,7 @@ fd_h2_hdr_matcher_init( void * mem,
     last_header_id = header_id;
   }
   fd_h2_hdr_matcher_insert1( map, FD_H2_SEC_WEBSOCKET_KEY,        "sec-websocket-key",        17UL );
-  fd_h2_hdr_matcher_insert1( map, FD_H2_SEC_WEBSOCKET_EXTENSIONS, "sec-websocket-extensions", 25UL );
+  fd_h2_hdr_matcher_insert1( map, FD_H2_SEC_WEBSOCKET_EXTENSIONS, "sec-websocket-extensions", 24UL );
   fd_h2_hdr_matcher_insert1( map, FD_H2_SEC_WEBSOCKET_PROTOCOL,   "sec-websocket-protocol",   22UL );
   fd_h2_hdr_matcher_insert1( map, FD_H2_SEC_WEBSOCKET_ACCEPT,     "sec-websocket-accept",     20UL );
   fd_h2_hdr_matcher_insert1( map, FD_H2_SEC_WEBSOCKET_VERSION,    "sec-websocket-version",    21UL );
