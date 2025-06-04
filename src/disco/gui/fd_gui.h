@@ -52,11 +52,12 @@
    arbitrarily use a fourth of that size. */
 #define FD_GUI_TXN_HISTORY_SZ (1UL<<26UL)
 
-#define FD_GUI_TXN_FLAGS_STARTED         ( 1U)
-#define FD_GUI_TXN_FLAGS_ENDED           ( 2U)
-#define FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE  ( 4U)
-#define FD_GUI_TXN_FLAGS_FROM_BUNDLE     ( 8U)
-#define FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK (16U)
+#define FD_GUI_TXN_FLAGS_STARTED              ( 1U)
+#define FD_GUI_TXN_FLAGS_ENDED                ( 2U)
+#define FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE       ( 4U)
+#define FD_GUI_TXN_FLAGS_FROM_BUNDLE          ( 8U)
+#define FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK      (16U)
+#define FD_GUI_TXN_FLAGS_ARRIVED_WHILE_LEADER (32U)
 
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];

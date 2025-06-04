@@ -50,6 +50,11 @@ struct fd_pack_private_ord_txn {
      that if we delete this transaction, we can also delete it from the
      expiration priority queue. */
   ulong expq_idx;
+  /* arrived_at: The time (in ticks) at which this transaction
+     was successfully received and buffered by pack. Used by monitoring
+     tools to determine if a scheduled transaction arrived in a past
+     slot */
+  long arrived_at;
 
   /* We want rewards*compute_est to fit in a ulong so that r1/c1 < r2/c2 can be
      computed as r1*c2 < r2*c1, with the product fitting in a ulong.
@@ -407,6 +412,10 @@ struct fd_pack_private {
      transaction.  Here, "expire" is used as a verb: cause all
      transactions before this time to expire. */
   ulong      expire_before;
+
+  /* The time when pack last recevied a leader transition update in
+     ticks. */
+  long  leader_transitioned_at;
 
   /* outstanding_microblock_mask: a bitmask indicating which banking
      tiles have outstanding microblocks, i.e. fd_pack has generated a
@@ -1166,6 +1175,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
 
   ord->expires_at = expires_at;
+  ord->arrived_at = fd_tickcount();
   int is_vote = est_result==1;
 
   int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !!pack->bundle_meta_sz );
@@ -1470,6 +1480,7 @@ insert_bundle_impl( fd_pack_t           * pack,
   ulong prev_cost = 1UL<<32;
 
   /* Assign last to first */
+  long arrival_time = fd_tickcount();
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_pack_ord_txn_t * ord = bundle[ txn_cnt-1UL - i ];
     ord->rewards = (uint)(((ulong)ord->compute_est * (prev_reward + 1UL) + prev_cost-1UL)/prev_cost);
@@ -1489,6 +1500,8 @@ insert_bundle_impl( fd_pack_t           * pack,
 
     fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
     expq_insert( pack->expiration_q, temp );
+
+    ord->arrived_at = arrival_time;
   }
 
 }
@@ -1728,6 +1741,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       slow_path++;
       continue;
     }
+
+    /* This txn will be scheduled. Update the scheduled_while_leader
+       flag */
+    cur->txn->flags &= fd_uint_if(cur->arrived_at > pack->leader_transitioned_at, cur->txn->flags | FD_TXN_P_FLAGS_ARRIVED_WHILE_LEADER, cur->txn->flags & ~(FD_TXN_P_FLAGS_ARRIVED_WHILE_LEADER));
 
     /* Include this transaction in the microblock! */
     FD_PACK_BITSET_OR( bitset_rw_in_use, cur->rw_bitset );
@@ -2182,6 +2199,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     _next = treap_rev_iter_next( _cur, pool );
 
     fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    cur->txn->flags &= fd_uint_if(cur->arrived_at > pack->leader_transitioned_at, cur->txn->flags | FD_TXN_P_FLAGS_ARRIVED_WHILE_LEADER, cur->txn->flags & ~(FD_TXN_P_FLAGS_ARRIVED_WHILE_LEADER));
     fd_txn_t const    * txn = TXN(cur->txn);
     fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
     fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
