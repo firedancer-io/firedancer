@@ -7,6 +7,7 @@
 #include "../fd_quic_private.h"
 #include "../templ/fd_quic_parse_util.h"
 #include "../../tls/fd_tls_proto.h"
+#include "../../../disco/metrics/generated/fd_metrics_enums.h"
 
 /* RFC 9000 Section 4.1. Data Flow Control
 
@@ -629,6 +630,104 @@ test_quic_conn_free( fd_quic_sandbox_t * sandbox,
   FD_TEST( quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_appdata_id   ]==1 );
 }
 
+/* Ensure that packet numbers aren't skipped when pkt-meta runs out */
+
+void
+test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
+                               fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_t *                  quic    = sandbox->quic;
+  fd_quic_conn_t *             conn    = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_metrics_t *          metrics = &conn->quic->metrics;
+  fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
+  fd_quic_pkt_meta_t         * pool    = tracker->pool;
+
+  ulong next_pkt_number = conn->pkt_number[2];
+
+  /* trigger a few pings */
+  for( uint j = 0; j < 5; ++j ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock += (ulong)10e6;
+    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    fd_quic_service( quic );
+    FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
+    next_pkt_number++;
+  }
+
+  fd_quic_pkt_meta_t sentinel[1]   = {0};
+  fd_quic_pkt_meta_t *cur_pkt_meta = sentinel;
+
+  /* allocate all the pkt-meta */
+  while( fd_quic_pkt_meta_pool_free( pool ) ) {
+    fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_pool_ele_acquire( pool );
+
+    cur_pkt_meta->next = (ulong)pkt_meta;
+    cur_pkt_meta       = pkt_meta;
+    pkt_meta->next     = 0UL;
+  }
+
+  ulong * metrics_alloc_fail_cnt =
+      &metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_EMPTY_POOL_IDX];
+  FD_TEST(( *metrics_alloc_fail_cnt == 0UL ));
+
+  /* trigger a few pings
+     with no pkt_meta available, no packets should be sent, and the test
+     is to ensure the packet number does NOT increase */
+  ulong alloc_fail_cnt = 0UL;
+  for( uint j = 0; j < 15; ++j ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock += (ulong)10e6;
+    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    fd_quic_service( quic );
+    FD_TEST( conn->pkt_number[2] == next_pkt_number );
+    FD_TEST( *metrics_alloc_fail_cnt > alloc_fail_cnt );
+    alloc_fail_cnt = *metrics_alloc_fail_cnt;
+  }
+
+  /* acks should still be possible
+     send pings from peer, and we should send acks, incrementing pktnum */
+  ulong pktnum = 42;
+
+  for( uint j = 0; j < 5; ++j ) {
+    fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum++ );
+
+    /* wait for the ack delay timeout */
+    sandbox->wallclock += (ulong)100e6;
+    fd_quic_service( quic );
+
+    /* verify packet sent */
+    FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
+    next_pkt_number++;
+  }
+
+  /* return a few pkt_meta */
+  for( uint j = 0; j < 5; ++j ) {
+    fd_quic_pkt_meta_t * pkt_meta = (fd_quic_pkt_meta_t*)sentinel->next;
+    FD_TEST( pkt_meta );
+
+    /* move up linked list head */
+    sentinel->next = (ulong)pkt_meta->next;
+
+    fd_quic_pkt_meta_pool_ele_release( pool, pkt_meta );
+  }
+
+  /* trigger a few pings */
+  for( uint j = 0; j < 5; ++j ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock += (ulong)10e6;
+    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    fd_quic_service( quic );
+    FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
+    next_pkt_number++;
+  }
+
+  FD_TEST( *metrics_alloc_fail_cnt == alloc_fail_cnt );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -690,6 +789,7 @@ main( int     argc,
   test_quic_inflight_pkt_limit           ( sandbox, rng );
   test_quic_parse_path_challenge();
   test_quic_conn_free                    ( sandbox, rng );
+  test_quic_pktmeta_pktnum_skip          ( sandbox, rng );
 
   /* Wind down */
 
