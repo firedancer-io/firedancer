@@ -102,7 +102,7 @@ test_h2_hdr_match( void ) {
   }
 
   FD_TEST( fd_h2_hdr_match( matcher, "sec-websocket-key",        17UL, 0U )==-53 );
-  FD_TEST( fd_h2_hdr_match( matcher, "sec-websocket-extensions", 25UL, 0U )==-54 );
+  FD_TEST( fd_h2_hdr_match( matcher, "sec-websocket-extensions", 24UL, 0U )==-54 );
   FD_TEST( fd_h2_hdr_match( matcher, "sec-websocket-accept",     20UL, 0U )==-55 );
   FD_TEST( fd_h2_hdr_match( matcher, "sec-websocket-protocol",   22UL, 0U )==-56 );
   FD_TEST( fd_h2_hdr_match( matcher, "sec-websocket-version",    21UL, 0U )==-57 );
