@@ -15,7 +15,6 @@ LEDGER=""
 SNAPSHOT=""
 RESTORE_ARCHIVE=""
 END_SLOT="1010"
-PAGES="30"
 FUNK_PAGES="16"
 INDEX_MAX="5000000"
 TRASH_HASH=""
@@ -55,11 +54,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -e|--end_slot)
        END_SLOT="$2"
-       shift
-       shift
-       ;;
-    -p|--pages)
-       PAGES="$2"
        shift
        shift
        ;;
