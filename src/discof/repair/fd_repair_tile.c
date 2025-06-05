@@ -413,10 +413,11 @@ fd_repair_send_request( fd_repair_tile_ctx_t * repair_tile_ctx,
 #ifdef FD_HAS_REPAIR_ANALYSIS
   FD_LOG_INFO(( "Sending repair request for slot %lu shred %u ", slot, shred_idx ));
 
+  uint nonce = protocol->inner.window_index.header.nonce;
   char repair_data_buf[1024];
   snprintf( repair_data_buf, sizeof(repair_data_buf),
-          "%lu,%s,%ld,%lu,%u\n",
-            0xfffffUL & (ulong)active->addr.addr, FD_BASE58_ENC_32_ALLOCA( &active->key ), fd_log_wallclock(), slot, shred_idx );
+          "%lu,%s,%ld,%u,%lu,%u\n",
+            0xfffffUL & (ulong)active->addr.addr, FD_BASE58_ENC_32_ALLOCA( &active->key ), fd_log_wallclock(), nonce, slot, shred_idx );
 
   ulong wsz;
   int err = fd_io_write( repair_tile_ctx->request_data_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
@@ -1101,7 +1102,7 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->request_data_fd>=0 );
   FD_TEST( ftruncate( ctx->request_data_fd, 0 ) == 0 );
   ulong sz = 0;
-  fd_io_write( ctx->request_data_fd, "ip4_addr,pubkey,timestamp,slot,idx\n", 35UL, 35UL, &sz );
+  fd_io_write( ctx->request_data_fd, "ip4_addr,pubkey,timestamp,nonce,slot,idx\n", 41UL, 41UL, &sz );
 #endif
 
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );

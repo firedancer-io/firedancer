@@ -758,6 +758,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
 #ifdef FD_HAS_REPAIR_ANALYSIS
     int   is_turbine = fd_disco_netmux_sig_proto( sig ) == DST_PROTO_SHRED;
+    uint  nonce      = is_turbine ? 0 : FD_LOAD(uint, shred_buffer + fd_shred_sz( shred ) );
     ulong ip4_addr   = fd_disco_netmux_sig_hash( sig );
     int   is_data    = fd_shred_is_data( fd_shred_type( shred->variant ) );
     ulong slot       = shred->slot;
@@ -765,8 +766,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     char repair_data_buf[1024];
     snprintf( repair_data_buf, sizeof(repair_data_buf),
-             "%lu,%ld,%lu,%u,%d,%d\n",
-             ip4_addr, fd_log_wallclock(), slot, idx, is_turbine, is_data );
+             "%lu,%ld,%lu,%u,%d,%d,%u\n",
+             ip4_addr, fd_log_wallclock(), slot, idx, is_turbine, is_data, nonce );
     ulong wsz = 0;
     int err = fd_io_write( ctx->repair_data_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
     FD_TEST( err==0 );
@@ -1001,7 +1002,7 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->repair_data_fd>=0 );
   FD_TEST( ftruncate( ctx->repair_data_fd, 0 ) == 0 );
   ulong sz = 0;
-  fd_io_write( ctx->repair_data_fd, "ip4_addr,timestamp,slot,idx,is_turbine,is_data\n", 47UL, 47UL, &sz );
+  fd_io_write( ctx->repair_data_fd, "ip4_addr,timestamp,slot,idx,is_turbine,is_data,nonce\n", 53UL, 53UL, &sz );
 
   ctx->fec_complete_fd = open( "/data/emwang/fec_complete.csv", O_WRONLY|O_CREAT|O_APPEND, 0644 );
   FD_TEST( ctx->fec_complete_fd>=0 );
