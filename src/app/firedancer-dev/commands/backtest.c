@@ -143,28 +143,21 @@ setup_snapshots( config_t *       config,
 
 static void
 backtest_topo( config_t * config ) {
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
+  ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
+  ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
-  fd_topo_t * topo = &config->topo;
-  fd_topob_new( &config->topo, config->name );
+  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
-  enum{
-  metric_cpu_idx=0,
-  backtest_cpu_idx,
-  replay_cpu_idx,
-  exec_idx_start
-  };
-  ulong exec_tile_cnt = config->firedancer.layout.exec_tile_count;
-#define writer_idx_start (exec_idx_start+exec_tile_cnt)
+  ulong cpu_idx = 0;
 
   /**********************************************************************/
   /* Add the metric tile to topo                                        */
   /**********************************************************************/
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", metric_cpu_idx, 0, 0 );
+  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", cpu_idx++, 0, 0 );
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
@@ -172,8 +165,8 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Add the backtest tile to topo                                      */
   /**********************************************************************/
-  fd_topob_wksp( topo, "backtest" );
-  fd_topo_tile_t * backtest_tile   = fd_topob_tile( topo, "btest", "backtest", "metric_in", backtest_cpu_idx, 0, 0 );
+  fd_topob_wksp( topo, "back" );
+  fd_topo_tile_t * backtest_tile   = fd_topob_tile( topo, "back", "back", "metric_in", cpu_idx++, 0, 0 );
   backtest_tile->archiver.end_slot = config->tiles.archiver.end_slot;
   strncpy( backtest_tile->archiver.archiver_path, config->tiles.archiver.archiver_path, PATH_MAX );
   if( FD_UNLIKELY( 0==strlen( backtest_tile->archiver.archiver_path ) ) ) {
@@ -186,7 +179,7 @@ backtest_topo( config_t * config ) {
   /* Add the replay tile to topo                                        */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay" );
-  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", replay_cpu_idx, 0, 0 );
+  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0 );
   replay_tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
   replay_tile->replay.max_vote_accounts = config->firedancer.runtime.limits.max_vote_accounts;
 
@@ -239,22 +232,23 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "exec" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
-  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec",   "exec",   "metric_in", exec_idx_start+i, 0, 0 );
+  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec",   "exec",   "metric_in", cpu_idx++, 0, 0 );
 
   /**********************************************************************/
   /* Add the writer tiles to topo                                       */
   /**********************************************************************/
   fd_topob_wksp( topo, "writer" );
-  ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
-  FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  writer_idx_start+i, 0, 0 );
+  FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
 
-  /**********************************************************************/
-  /* Setup backtest->replay link (repair_repla) in topo                 */
-  /**********************************************************************/
+  /* The repair tile is replaced by the backtest tile for the repair to
+     replay link.  The frag interface is a "slice", ie. entry batch,
+     which is provided by the backtest tile, which reads in the entry
+     batches from the CLI-specified source (eg. RocksDB). */
+
   fd_topob_wksp( topo, "repair_repla" );
   fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(ulong), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "btest", 0UL, "repair_repla", 0UL );
+  fd_topob_tile_out( topo, "back", 0UL, "repair_repla", 0UL );
 
   /**********************************************************************/
   /* Setup pack/batch->replay links in topo w/o a producer              */
@@ -293,7 +287,7 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_notif" );
   fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH, FD_REPLAY_NOTIF_MTU, 1UL );
-  fd_topob_tile_in(  topo, "btest", 0UL, "metric_in", "replay_notif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in(  topo, "back", 0UL, "metric_in", "replay_notif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_notif", 0UL );
 
   /**********************************************************************/
@@ -330,20 +324,14 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
 
   /* blockstore_obj shared by replay and backtest tiles */
-  fd_topob_wksp( topo, "blockstore"      );
-  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
-                                                          "blockstore",
-                                                          config->firedancer.blockstore.shred_max,
-                                                          config->firedancer.blockstore.block_max,
-                                                          config->firedancer.blockstore.idx_max,
-                                                          config->firedancer.blockstore.txn_max,
-                                                          config->firedancer.blockstore.alloc_max );
+  fd_topob_wksp( topo, "blockstore" );
+  fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo, "blockstore", config->firedancer.blockstore.shred_max, config->firedancer.blockstore.block_max, config->firedancer.blockstore.idx_max, config->firedancer.blockstore.txn_max, config->firedancer.blockstore.alloc_max );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, backtest_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
   /* turb_slot_obj shared by replay and backtest tiles */
-  fd_topob_wksp( topo, "turb_slot"   );
+  fd_topob_wksp( topo, "turb_slot" );
   fd_topo_obj_t * turb_slot_obj = fd_topob_obj( topo, "fseq", "turb_slot" );
   fd_topob_tile_uses( topo, replay_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, backtest_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -358,7 +346,7 @@ backtest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_pub_obj->id, "runtime_pub" ) );
 
   /* exec_spad_obj shared by replay, exec and writer tiles */
-  fd_topob_wksp( topo, "exec_spad"   );
+  fd_topob_wksp( topo, "exec_spad" );
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
     fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -371,7 +359,7 @@ backtest_topo( config_t * config ) {
   }
 
   /* exec_fseq_obj shared by replay and exec tiles */
-  fd_topob_wksp( topo, "exec_fseq"   );
+  fd_topob_wksp( topo, "exec_fseq" );
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topo_obj_t * exec_fseq_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -389,7 +377,7 @@ backtest_topo( config_t * config ) {
   }
 
   /* root_slot_obj shared by replay and backtest tiles */
-  fd_topob_wksp( topo, "root_slot"    );
+  fd_topob_wksp( topo, "root_slot" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, backtest_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
@@ -429,7 +417,6 @@ backtest_topo( config_t * config ) {
 static void
 backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                 config_t * config ) {
-  FD_LOG_NOTICE(( "Start to run the backtest cmd" ));
   backtest_topo( config );
 
   initialize_workspaces( config );
