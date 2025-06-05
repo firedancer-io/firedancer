@@ -332,6 +332,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "SnapRd"      );
   fd_topob_wksp( topo, "SnapDc"      );
   fd_topob_wksp( topo, "SnapIn"      );
+  fd_topob_wksp( topo, "snap_zstd"   );
+  fd_topob_wksp( topo, "snap_stream" );
   fd_topob_wksp( topo, "snap_fseq" );
   if(enable_rstart) fd_topob_wksp( topo, "restart" );
   fd_topob_wksp( topo, "exec_spad"   );
@@ -1033,6 +1035,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapRd" ) ) ) {
       strncpy( tile->snaprd.full_snapshot_path, config->tiles.replay.snapshot, sizeof(tile->snaprd.full_snapshot_path) );
       strncpy( tile->snaprd.incremental_snapshot_path, config->tiles.replay.incremental, sizeof(tile->snaprd.incremental_snapshot_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapDc" ) ) ) {
+
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapIn" ) ) ) {
       tile->snapin.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
       tile->snapin.fseq_obj_id = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );

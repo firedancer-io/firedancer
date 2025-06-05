@@ -153,8 +153,11 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self ) {
   self->metrics.accounts_files_processed = 0UL;
   self->metrics.accounts_files_total     = 0UL;
   self->metrics.accounts_processed       = 0UL;
-  self->processing_accv          = 0;
-  self->goff                     = 0UL;
+  self->processing_accv                  = 0;
+  self->goff                             = 0UL;
+  self->accv_slot                        = 0UL;
+  self->accv_id                          = 0UL;
+  fd_snapshot_accv_map_clear( self->accv_map );
 }
 
 static inline fd_snapshot_parser_t *
@@ -208,6 +211,7 @@ fd_snapshot_parser_new( void * mem,
 static inline void
 fd_snapshot_parser_close( fd_snapshot_parser_t * self ) {
   self->flags = SNAP_FLAG_DONE;
+  fd_snapshot_accv_map_clear( self->accv_map );
 }
 
 static inline fd_snapshot_parser_metrics_t

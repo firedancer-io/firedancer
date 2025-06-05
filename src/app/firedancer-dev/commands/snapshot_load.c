@@ -78,6 +78,7 @@ snapshot_load_topo( config_t *     config,
   fd_topo_link_t * snapin_link   = fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, 0UL, 0UL );
   fd_topo_obj_t *  snapin_dcache = fd_topob_obj( topo, "dcache", "snap_stream" );
   snapin_link->dcache_obj_id = snapin_dcache->id;
+  FD_LOG_WARNING(("snapin dcache obj id is %lu", snapin_link->dcache_obj_id));
   FD_TEST( fd_pod_insertf_ulong( topo->props, (16UL<<20), "obj.%lu.data_sz", snapin_dcache->id ) );
 
   if( src->type==FD_SNAPSHOT_SRC_FILE ) {
@@ -180,6 +181,8 @@ snapshot_load_topo( config_t *     config,
 
   fd_topob_tile_uses( topo, snapin_tile, snapshot_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.fseq_obj_id = snapshot_fseq_obj->id;
+  fd_pod_insertf_ulong( topo->props, snapshot_fseq_obj->id, "snap_fseq" );
+  
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
