@@ -174,58 +174,14 @@ resolve_gossip_entrypoints( config_t * config ) {
 static void
 setup_snapshots( config_t *       config,
                  fd_topo_tile_t * tile ) {
-  uchar incremental_is_file, incremental_is_url;
-  if( strnlen( config->tiles.replay.incremental, PATH_MAX )>0UL ) {
-    incremental_is_file = 1U;
-  } else {
-    incremental_is_file = 0U;
-  }
-  if( strnlen( config->tiles.replay.incremental_url, PATH_MAX )>0UL ) {
-    incremental_is_url = 1U;
-  } else {
-    incremental_is_url = 0U;
-  }
-  if( FD_UNLIKELY( incremental_is_file && incremental_is_url ) ) {
-    FD_LOG_ERR(( "At most one of the incremental snapshot source strings in the configuration file under [tiles.replay.incremental] and [tiles.replay.incremental_url] may be set." ));
-  }
-  tile->replay.incremental_src_type = INT_MAX;
-  if( FD_LIKELY( incremental_is_url ) ) {
-    strncpy( tile->replay.incremental, config->tiles.replay.incremental_url, sizeof(tile->replay.incremental) );
-    tile->replay.incremental_src_type = FD_SNAPSHOT_SRC_HTTP;
-  }
-  if( FD_UNLIKELY( incremental_is_file ) ) {
-    strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
-    tile->replay.incremental_src_type = FD_SNAPSHOT_SRC_FILE;
-  }
-  tile->replay.incremental[ sizeof(tile->replay.incremental)-1UL ] = '\0';
+  strncpy( tile->snaprd.full_snapshot_path, config->firedancer.snapshots.full_snapshot_path, PATH_MAX );
+  strncpy( tile->snaprd.incremental_snapshot_path, config->firedancer.snapshots.incremental_snapshot_path, PATH_MAX );
+  tile->snaprd.do_download                  = config->firedancer.snapshots.download;
+  tile->snaprd.maximum_local_snapshot_age   = config->firedancer.snapshots.maximum_local_snapshot_age;
+  tile->snaprd.minimum_download_speed_mib   = config->firedancer.snapshots.minimum_download_speed_mib;
+  tile->snaprd.maximum_download_retry_abort = config->firedancer.snapshots.maximum_download_retry_abort;
 
-  uchar snapshot_is_file, snapshot_is_url;
-  if( strnlen( config->tiles.replay.snapshot, PATH_MAX )>0UL ) {
-    snapshot_is_file = 1U;
-  } else {
-    snapshot_is_file = 0U;
-  }
-  if( strnlen( config->tiles.replay.snapshot_url, PATH_MAX )>0UL ) {
-    snapshot_is_url = 1U;
-  } else {
-    snapshot_is_url = 0U;
-  }
-  if( FD_UNLIKELY( snapshot_is_file && snapshot_is_url ) ) {
-    FD_LOG_ERR(( "At most one of the full snapshot source strings in the configuration file under [tiles.replay.snapshot] and [tiles.replay.snapshot_url] may be set." ));
-  }
-  tile->replay.snapshot_src_type = INT_MAX;
-  if( FD_LIKELY( snapshot_is_url ) ) {
-    strncpy( tile->replay.snapshot, config->tiles.replay.snapshot_url, sizeof(tile->replay.snapshot) );
-    tile->replay.snapshot_src_type = FD_SNAPSHOT_SRC_HTTP;
-  }
-  if( FD_UNLIKELY( snapshot_is_file ) ) {
-    strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
-    tile->replay.snapshot_src_type = FD_SNAPSHOT_SRC_FILE;
-  }
-  tile->replay.snapshot[ sizeof(tile->replay.snapshot)-1UL ] = '\0';
-
-  strncpy( tile->replay.snapshot_dir, config->tiles.replay.snapshot_dir, sizeof(tile->replay.snapshot_dir) );
-  tile->replay.snapshot_dir[ sizeof(tile->replay.snapshot_dir)-1UL ] = '\0';
+  /* TODO: set up known validators and known validators cnt */
 }
 
 void
@@ -949,8 +905,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       tile->replay.plugins_enabled = fd_topo_find_tile( &config->topo, "plugin", 0UL ) != ULONG_MAX;
 
-      if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
-                    && !strncmp( config->tiles.replay.snapshot, "", 1 ) ) ) {
+      if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 ) ) ) {
         fd_cstr_printf_check( config->tiles.replay.genesis, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
       }
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
@@ -1033,8 +988,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapRd" ) ) ) {
-      strncpy( tile->snaprd.full_snapshot_path, config->tiles.replay.snapshot, sizeof(tile->snaprd.full_snapshot_path) );
-      strncpy( tile->snaprd.incremental_snapshot_path, config->tiles.replay.incremental, sizeof(tile->snaprd.incremental_snapshot_path) );
+      strncpy( tile->snaprd.full_snapshot_path, config->firedancer.snapshots.full_snapshot_path, sizeof(tile->snaprd.full_snapshot_path) );
+      strncpy( tile->snaprd.incremental_snapshot_path, config->firedancer.snapshots.incremental_snapshot_path, sizeof(tile->snaprd.incremental_snapshot_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapDc" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapIn" ) ) ) {

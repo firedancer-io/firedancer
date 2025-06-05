@@ -6,12 +6,13 @@ static void
 fd_config_check_configf( fd_config_t *  config,
                          fd_configf_t * config_f ) {
   (void)config_f;
-  if( FD_UNLIKELY( strlen( config->tiles.replay.snapshot_dir )>PATH_MAX-1UL ) ) {
-    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] is too long (max %lu)", PATH_MAX-1UL ));
-  }
-  if( FD_UNLIKELY( config->tiles.replay.snapshot_dir[ 0 ]!='\0' && config->tiles.replay.snapshot_dir[ 0 ]!='/' ) ) {
-    FD_LOG_ERR(( "[tiles.replay.snapshot_dir] must be an absolute path and hence start with a '/'"));
-  }
+  (void)config;
+  // if( FD_UNLIKELY( strlen( config->firedancer..snapshot_dir )>PATH_MAX-1UL ) ) {
+  //   FD_LOG_ERR(( "[tiles.replay.snapshot_dir] is too long (max %lu)", PATH_MAX-1UL ));
+  // }
+  // if( FD_UNLIKELY( config->tiles.replay.snapshot_dir[ 0 ]!='\0' && config->tiles.replay.snapshot_dir[ 0 ]!='/' ) ) {
+  //   FD_LOG_ERR(( "[tiles.replay.snapshot_dir] must be an absolute path and hence start with a '/'"));
+  // }
 }
 
 fd_configh_t *
@@ -68,7 +69,6 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( uint,   snapshots.maximum_full_snapshots_to_retain       );
   CFG_POP      ( uint,   snapshots.maximum_incremental_snapshots_to_retain);
   CFG_POP      ( cstr,   snapshots.path                                   );
-  CFG_POP      ( cstr,   snapshots.incremental_path                       );
 
   return config;
 }
@@ -76,33 +76,41 @@ fd_config_extract_podh( uchar *        pod,
 fd_configf_t *
 fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
-  CFG_POP      ( uint,   layout.exec_tile_count                           );
-  CFG_POP      ( uint,   layout.writer_tile_count                         );
+  CFG_POP       ( uint,   layout.exec_tile_count                           );
+  CFG_POP       ( uint,   layout.writer_tile_count                         );
 
-  CFG_POP      ( ulong,  blockstore.shred_max                             );
-  CFG_POP      ( ulong,  blockstore.block_max                             );
-  CFG_POP      ( ulong,  blockstore.idx_max                               );
-  CFG_POP      ( ulong,  blockstore.txn_max                               );
-  CFG_POP      ( ulong,  blockstore.alloc_max                             );
-  CFG_POP      ( cstr,   blockstore.file                                  );
-  CFG_POP      ( cstr,   blockstore.checkpt                               );
-  CFG_POP      ( cstr,   blockstore.restore                               );
+  CFG_POP       ( ulong,  blockstore.shred_max                             );
+  CFG_POP       ( ulong,  blockstore.block_max                             );
+  CFG_POP       ( ulong,  blockstore.idx_max                               );
+  CFG_POP       ( ulong,  blockstore.txn_max                               );
+  CFG_POP       ( ulong,  blockstore.alloc_max                             );
+  CFG_POP       ( cstr,   blockstore.file                                  );
+  CFG_POP       ( cstr,   blockstore.checkpt                               );
+  CFG_POP       ( cstr,   blockstore.restore                               );
 
-  CFG_POP      ( bool,   consensus.vote                                   );
+  CFG_POP       ( bool,   consensus.vote                                   );
 
-  CFG_POP      ( ulong,  runtime.heap_size_gib                            );
+  CFG_POP       ( ulong,  runtime.heap_size_gib                            );
 
-  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                  );
-  CFG_POP      ( ulong,  runtime.limits.max_live_slots                    );
-  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
-  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
-  CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
+  CFG_POP       ( ulong,  runtime.limits.max_rooted_slots                  );
+  CFG_POP       ( ulong,  runtime.limits.max_live_slots                    );
+  CFG_POP       ( ulong,  runtime.limits.max_transactions_per_slot         );
+  CFG_POP       ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
+  CFG_POP       ( ulong,  runtime.limits.max_vote_accounts                 );
 
-  CFG_POP      ( ulong,  funk.max_account_records                         );
-  CFG_POP      ( ulong,  funk.heap_size_gib                               );
-  CFG_POP      ( ulong,  funk.max_database_transactions                   );
-  CFG_POP      ( bool,   funk.filemap.enabled                             );
-  CFG_POP      ( cstr,   funk.filemap.path                                );
+  CFG_POP       ( ulong,  funk.max_account_records                         );
+  CFG_POP       ( ulong,  funk.heap_size_gib                               );
+  CFG_POP       ( ulong,  funk.max_database_transactions                   );
+  CFG_POP       ( bool,   funk.filemap.enabled                             );
+  CFG_POP       ( cstr,   funk.filemap.path                                );
+
+  CFG_POP       ( cstr,   snapshots.full_snapshot_path                     );
+  CFG_POP       ( cstr,   snapshots.incremental_snapshot_path              );
+  CFG_POP       ( uint,   snapshots.maximum_local_snapshot_age             );
+  CFG_POP       ( bool,   snapshots.download                               );
+  CFG_POP_ARRAY ( cstr,   snapshots.known_validators                        );
+  CFG_POP       ( uint,   snapshots.minimum_download_speed_mib             );
+  CFG_POP       ( uint,   snapshots.maximum_download_retry_abort           );
 
   return config;
 }
@@ -223,12 +231,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.capture                             );
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
   CFG_POP      ( cstr,   tiles.replay.genesis                             );
-  CFG_POP      ( cstr,   tiles.replay.incremental                         );
-  CFG_POP      ( cstr,   tiles.replay.incremental_url                     );
   CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
-  CFG_POP      ( cstr,   tiles.replay.snapshot                            );
-  CFG_POP      ( cstr,   tiles.replay.snapshot_url                        );
-  CFG_POP      ( cstr,   tiles.replay.snapshot_dir                        );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
