@@ -252,7 +252,7 @@ fd_topos_xdp_assign_queues( fd_topo_t * topo ) {
   /* Assign loopback queue */
 
   do {
-    fd_topo_tile_t *      tile  = prepare_xdp_queue_assign( topo, net_tile_idx );
+    fd_topo_tile_t *      tile  = prepare_xdp_queue_assign( topo, 0UL );
     fd_topo_xdp_queue_t * queue = &tile->xdp.queues[ tile->xdp.queue_cnt ];
 
     fd_cstr_fini( fd_cstr_append_cstr( fd_cstr_init( queue->if_name ), "lo" ) );
@@ -264,7 +264,6 @@ fd_topos_xdp_assign_queues( fd_topo_t * topo ) {
 
     /* Next queue */
     tile->xdp.queue_cnt++;
-    net_tile_idx = fd_ulong_if( net_tile_idx==0UL, net_tile_cnt-1UL, net_tile_idx-1UL );
   } while(0);
 
 }
