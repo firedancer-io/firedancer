@@ -1716,17 +1716,22 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     fd_txn_p_t * txn_payload = &txns[ i ];
     fd_txn_t * txn = TXN( txn_payload );
 
+    ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;
     ulong priority_rewards                    = ULONG_MAX;
     ulong requested_execution_cus             = ULONG_MAX;
     ulong precompile_sigs                     = ULONG_MAX;
     ulong requested_loaded_accounts_data_cost = ULONG_MAX;
     uint _flags;
     ulong cost_estimate = fd_pack_compute_cost( txn, txn_payload->payload, &_flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost );
+    sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
 
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
+    fd_memcpy(txn_entry->signature, txn_payload->payload + txn->signature_off, FD_SHA512_HASH_SZ);
+    txn_entry->timestamp_arrival_nanos     = txn_payload->scheduler_arrival_time_nanos;
     txn_entry->compute_units_estimated     = cost_estimate           & 0x1FFFFFU;
     txn_entry->compute_units_requested     = requested_execution_cus & 0x1FFFFFU;
     txn_entry->priority_fee                = priority_rewards;
+    txn_entry->transaction_fee             = sig_rewards;
     txn_entry->timestamp_delta_start_nanos = (int)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
     txn_entry->microblock_idx              = microblock_idx;
     txn_entry->flags                      |= (uchar)FD_GUI_TXN_FLAGS_STARTED;
@@ -1752,6 +1757,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
                                  uchar        txn_start_pct,
                                  uchar        txn_load_end_pct,
                                  uchar        txn_end_pct,
+                                 uchar        txn_preload_end_pct,
                                  ulong        tips ) {
   if( FD_UNLIKELY( 1UL!=txn_cnt ) ) FD_LOG_ERR(( "gui expects 1 txn per microblock from bank, found %lu", txn_cnt ));
 
@@ -1774,6 +1780,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->txn_start_pct             = txn_start_pct;
     txn_entry->txn_load_end_pct          = txn_load_end_pct;
     txn_entry->txn_end_pct               = txn_end_pct;
+    txn_entry->txn_preload_end_pct       = txn_preload_end_pct;
     txn_entry->tips                      = tips;
     txn_entry->flags                    |= (uchar)FD_GUI_TXN_FLAGS_ENDED;
     txn_entry->flags                    |= (uchar)fd_uint_if(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS, FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U);

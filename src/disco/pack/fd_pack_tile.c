@@ -173,6 +173,15 @@ typedef struct {
      but that should be small relative to a slot duration. */
   long  approx_wallclock_ns;
 
+  /* approx_tickcount is updated in during_housekeeping() with
+     fd_tickcount() and will match approx_wallclock_ns.  This is done
+     because we need to include an accurate nanosecond timestamp in
+     every fd_txn_p_t but don't want to have to call the expensive
+     fd_log_wallclock() in in the critical path. We can use
+     fd_tempo_tick_per_ns() to convert from ticks to nanoseconds over
+     small periods of time. */
+  long  approx_tickcount;
+
   fd_rng_t * rng;
 
   /* The end wallclock time of the leader slot we are currently packing
@@ -380,6 +389,7 @@ metrics_write( fd_pack_ctx_t * ctx ) {
 static inline void
 during_housekeeping( fd_pack_ctx_t * ctx ) {
   ctx->approx_wallclock_ns = fd_log_wallclock();
+  ctx->approx_tickcount = fd_tickcount();
 
   if( FD_UNLIKELY( ctx->crank->enabled && fd_keyswitch_state_query( ctx->crank->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_memcpy( ctx->crank->identity_pubkey, ctx->crank->keyswitch->bytes, 32UL );
@@ -916,11 +926,11 @@ during_frag( fd_pack_ctx_t * ctx,
        The transactions should have been parsed and verified. */
     FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
 
-
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
     fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );
     ctx->cur_spot->txnp->payload_sz = payload_sz;
+    ctx->cur_spot->txnp->scheduler_arrival_time_nanos = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
 
     break;
   }
@@ -1159,6 +1169,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->drain_banks                   = 0;
   ctx->approx_wallclock_ns           = fd_log_wallclock();
+  ctx->approx_tickcount              = fd_tickcount();
   ctx->rng                           = rng;
   ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
   ctx->last_successful_insert        = 0L;

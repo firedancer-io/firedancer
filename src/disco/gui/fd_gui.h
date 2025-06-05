@@ -46,8 +46,8 @@
    transactions per slot is around 10_000, then an epoch will have about
    432_000*10_000*0.05 transactions (~2^28).
 
-   Unfortunately, the transaction struct is 40+ bytes.  If we sized the
-   array to 2^28 entries then the memory required would be ~8.5GB.  In
+   Unfortunately, the transaction struct is 100+ bytes.  If we sized the
+   array to 2^28 entries then the memory required would be ~26GB.  In
    order to keep memory usage to a more reasonable level, we'll
    arbitrarily use a fourth of that size. */
 #define FD_GUI_TXN_HISTORY_SZ (1UL<<26UL)
@@ -235,8 +235,12 @@ struct fd_gui_slot {
 typedef struct fd_gui_slot fd_gui_slot_t;
 
 struct __attribute__((packed)) fd_gui_txn {
-  ulong priority_fee               : 64;
-  ulong tips                       : 64;
+  uchar signature[ FD_SHA512_HASH_SZ ];
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+  long timestamp_arrival_nanos;
+
   uint compute_units_requested     : 21; /* <= 1.4M */
   uint compute_units_estimated     : 21; /* <= 1.4M */
   uint actual_consumed_cus         : 21; /* <= 1.4M */
@@ -256,6 +260,7 @@ struct __attribute__((packed)) fd_gui_txn {
   uchar txn_start_pct;
   uchar txn_load_end_pct;
   uchar txn_end_pct;
+  uchar txn_preload_end_pct;
   uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
   uint microblock_idx;
 };
@@ -472,6 +477,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
                                  uchar        txn_start_pct,
                                  uchar        txn_load_end_pct,
                                  uchar        txn_end_pct,
+                                 uchar        txn_preload_end_pct,
                                  ulong        tips );
 
 int
