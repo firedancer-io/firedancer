@@ -351,7 +351,7 @@ fd_topo_initialize( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
-  FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
+  fd_topos_net_tile_finish( topo );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];

@@ -492,6 +492,11 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
+  CFG_HAS_NON_ZERO( net.ethtool_queue_count );
+  if( FD_UNLIKELY( config->net.ethtool_queue_count < config->layout.net_tile_count ) ) {
+    FD_LOG_ERR(( "`net.ethtool_queue_count` (%u) must be at least as large as `layout.net_tile_count` (%u)",
+                 config->net.ethtool_queue_count, config->layout.net_tile_count ));
+  }
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );

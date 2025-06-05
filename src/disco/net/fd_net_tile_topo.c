@@ -6,7 +6,39 @@
 #include "../../app/shared/fd_config.h" /* FIXME layering violation */
 #include "../../util/pod/fd_pod_format.h"
 
+#include <errno.h>
+#include <unistd.h>
 #include <net/if.h>
+#include <netinet/in.h>
+#include <linux/if.h> /* struct ifreq */
+#include <sys/ioctl.h>
+
+/* interface_addrs queries the MAC address and first IPv4 address of an
+   interface, given an interface name. */
+
+static void
+interface_addrs( char const * interface,
+                 uchar *      mac,
+                 uint *       ip4_addr ) {
+  int fd = socket( AF_INET, SOCK_DGRAM, 0 );
+  struct ifreq ifr = {0};
+  ifr.ifr_addr.sa_family = AF_INET;
+
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
+  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) ) {
+    FD_LOG_ERR(( "Failed to get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
+  }
+  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
+
+  if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) ) {
+    FD_LOG_ERR(( "Failed to get IP address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
+  }
+  *ip4_addr = ((struct sockaddr_in *)fd_type_pun( &ifr.ifr_addr ))->sin_addr.s_addr;
+
+  if( FD_UNLIKELY( close(fd) ) ) {
+    FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
 
 static void
 setup_xdp_tile( fd_topo_t *             topo,
@@ -24,8 +56,6 @@ setup_xdp_tile( fd_topo_t *             topo,
   fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
 
-  FD_STATIC_ASSERT( sizeof(tile->xdp.interface)==IF_NAMESIZE, str_bounds );
-  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->xdp.interface ), net_cfg->interface, IF_NAMESIZE-1 ) );
   tile->net.bind_address = net_cfg->bind_address_parsed;
 
   tile->xdp.tx_flush_timeout_ns = (long)net_cfg->xdp.flush_timeout_micros * 1000L;
@@ -74,9 +104,14 @@ fd_topos_net_tiles( fd_topo_t *             topo,
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
 
-  /* Create workspaces */
+  fd_pod_insert_cstr( topo->props, "net.provider",  net_cfg->provider );
+  fd_pod_insert_uint( topo->props, "net.queue_cnt", net_cfg->ethtool_queue_count );
 
+  /* Create workspaces */
   if( 0==strcmp( net_cfg->provider, "xdp" ) ) {
+
+    fd_pod_insert_cstr( topo->props, "net.if_name", net_cfg->interface );
+    fd_pod_insert_uint( topo->props, "net.if_idx",  if_nametoindex( net_cfg->interface ) );
 
     /* net: private working memory of the net tiles */
     fd_topob_wksp( topo, "net" );
@@ -106,17 +141,6 @@ fd_topos_net_tiles( fd_topo_t *             topo,
   } else {
     FD_LOG_ERR(( "invalid `net.provider`" ));
   }
-}
-
-static int
-topo_is_xdp( fd_topo_t * topo ) {
-  /* FIXME hacky */
-  for( ulong j=0UL; j<(topo->tile_cnt); j++ ) {
-    if( 0==strcmp( topo->tiles[ j ].name, "net" ) ) {
-      return 1;
-    }
-  }
-  return 0;
 }
 
 static void
@@ -156,7 +180,7 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
                       char const * link_name,
                       ulong        net_kind_id,
                       ulong        depth ) {
-  if( topo_is_xdp( topo ) ) {
+  if( 0==strcmp( fd_pod_query_cstr( topo->props, "net.provider", "" ), "xdp" ) ) {
     add_xdp_rx_link( topo, link_name, net_kind_id, depth );
     fd_topob_tile_out( topo, "net", net_kind_id, link_name, net_kind_id );
   } else {
@@ -180,25 +204,84 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
   }
 }
 
-void
-fd_topos_net_tile_finish( fd_topo_t * topo,
-                          ulong       net_kind_id ) {
-  if( !topo_is_xdp( topo ) ) return;
+static fd_topo_tile_t *
+prepare_xdp_queue_assign( fd_topo_t * topo,
+                          ulong       xdp_tile_idx ) {
+  ulong tile_id = fd_topo_find_tile( topo, "net", xdp_tile_idx );
+  if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "tile net:%lu not found", xdp_tile_idx ));
+  }
+  fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
+  if( FD_UNLIKELY( tile->xdp.queue_cnt >= FD_TOPO_XDP_TILE_QUEUES_MAX ) ) {
+    FD_LOG_ERR(( "Cannot start, net:%lu exceeds the max of %u network queues.\n"
+                  "Consider increasing [layout.net_tile_count] or decreasing [net.ethtool_queue_count]",
+                  xdp_tile_idx, FD_TOPO_XDP_TILE_QUEUES_MAX ));
+  }
+  return tile;
+}
 
-  fd_topo_tile_t * net_tile = &topo->tiles[ fd_topo_find_tile( topo, "net", net_kind_id ) ];
+static void
+fd_topos_xdp_assign_queues( fd_topo_t * topo ) {
+
+  /* Reverse round robin assign interface queues to net tiles */
+
+  ulong const net_tile_cnt = fd_topo_tile_name_cnt( topo, "net" );
+  ulong       net_tile_idx = net_tile_cnt-1UL;
+  uint const  queue_cnt    = fd_pod_query_uint( topo->props, "net.queue_cnt", 0U );
+  if( FD_UNLIKELY( !queue_cnt ) ) FD_LOG_ERR(( "net.queue_cnt not set" ));
+
+  for( uint queue_idx=0UL; queue_idx<queue_cnt; queue_idx++ ) {
+    fd_topo_tile_t *      tile  = prepare_xdp_queue_assign( topo, net_tile_idx );
+    fd_topo_xdp_queue_t * queue = &tile->xdp.queues[ tile->xdp.queue_cnt ];
+    queue->queue_id = queue_idx;
+
+    fd_cstr_fini( fd_cstr_append_cstr_safe(
+        fd_cstr_init( queue->if_name ),
+        fd_pod_query_cstr( topo->props, "net.if_name", "" ),
+        IF_NAMESIZE-1UL ) );
+    queue->if_idx = fd_pod_query_uint( topo->props, "net.if_idx", 0U );
+
+    interface_addrs( queue->if_name, queue->mac_addr, &queue->ip4_addr );
+    queue->xsk_map_fd = -1; /* placeholder */
+
+    /* Next queue */
+    tile->xdp.queue_cnt++;
+    net_tile_idx = fd_ulong_if( net_tile_idx==0UL, net_tile_cnt-1UL, net_tile_idx-1UL );
+  }
+
+  /* Assign loopback queue */
+
+  do {
+    fd_topo_tile_t *      tile  = prepare_xdp_queue_assign( topo, net_tile_idx );
+    fd_topo_xdp_queue_t * queue = &tile->xdp.queues[ tile->xdp.queue_cnt ];
+
+    fd_cstr_fini( fd_cstr_append_cstr( fd_cstr_init( queue->if_name ), "lo" ) );
+    queue->if_idx   = 1U;
+    queue->queue_id = 0U;
+
+    interface_addrs( queue->if_name, queue->mac_addr, &queue->ip4_addr );
+    queue->xsk_map_fd = -1; /* placeholder */
+
+    /* Next queue */
+    tile->xdp.queue_cnt++;
+    net_tile_idx = fd_ulong_if( net_tile_idx==0UL, net_tile_cnt-1UL, net_tile_idx-1UL );
+  } while(0);
+
+}
+
+static void
+fd_topos_xdp_setup_mem( fd_topo_t *      topo,
+                        fd_topo_tile_t * net_tile ) {
+  ulong cum_frame_cnt = 0UL;
+
+  /* Round robin assign channels */
 
   ulong rx_depth = net_tile->xdp.xdp_rx_queue_size;
   ulong tx_depth = net_tile->xdp.xdp_tx_queue_size;
   rx_depth += (rx_depth/2UL);
   tx_depth += (tx_depth/2UL);
-
-  if( net_kind_id==0 ) {
-    /* Double it for loopback XSK */
-    rx_depth *= 2UL;
-    tx_depth *= 2UL;
-  }
-
-  ulong cum_frame_cnt = rx_depth + tx_depth;
+  ulong const queue_frame_cnt = rx_depth + tx_depth;
+  cum_frame_cnt += queue_frame_cnt * net_tile->xdp.queue_cnt;
 
   /* Count up the depth of all RX mcaches */
 
@@ -212,11 +295,28 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
 
   /* Create a dcache object */
 
-  ulong umem_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "net.%lu.umem", net_kind_id );
+  ulong umem_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "net.%lu.umem", net_tile->kind_id );
   FD_TEST( umem_obj_id!=ULONG_MAX );
 
   FD_TEST( net_tile->net.umem_dcache_obj_id > 0 );
   fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
   fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id ); /* 4096 byte padding */
   fd_pod_insertf_ulong( topo->props, 2048UL,        "obj.%lu.mtu",   umem_obj_id );
+}
+
+void
+fd_topos_net_tile_finish( fd_topo_t * topo ) {
+  if( 0!=strcmp( fd_pod_query_cstr( topo->props, "net.provider", "" ), "xdp" ) ) return;
+
+  fd_topos_xdp_assign_queues( topo );
+
+  ulong const net_tile_cnt = fd_topo_tile_name_cnt( topo, "net" );
+  for( ulong net_kind_id=0UL; net_kind_id<net_tile_cnt; net_kind_id++ ) {
+    ulong tile_id = fd_topo_find_tile( topo, "net", net_kind_id );
+    if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "tile net:%lu not found", net_kind_id ));
+    }
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
+    fd_topos_xdp_setup_mem( topo, tile );
+  }
 }

@@ -4,6 +4,7 @@
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_topob.h"
+#include "../../../../disco/topo/fd_topo_net.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../util/tile/fd_tile_private.h" /* fd_tile_private_cpus_parse */
@@ -70,7 +71,7 @@ pktgen_topo( config_t * config ) {
   fd_topob_tile_out( topo, "net", 0UL, "net_quic", 0UL );
   fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-  fd_topos_net_tile_finish( topo, 0UL );
+  fd_topos_net_tile_finish( topo );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
