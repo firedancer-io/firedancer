@@ -49,6 +49,10 @@ typedef struct fd_bundle_crank_gen_private fd_bundle_crank_gen_t;
    however, merkle_root_authority_addr must point to a valid 32-byte
    region.
 
+   schedule_mode is an ASCII cstr that describe what schedule mode is
+   currently in use.  It is useful for metrics aggregation but otherwise
+   has no effect.  Only the first 3 characters are used on-chain.
+
    Returns mem, which is properly initialized for use in
    fd_bundle_crank_generate. */
 fd_bundle_crank_gen_t *
@@ -57,6 +61,7 @@ fd_bundle_crank_gen_init( void                 * mem,
                           fd_acct_addr_t const * tip_payment_program_addr,
                           fd_acct_addr_t const * validator_vote_acct_addr,
                           fd_acct_addr_t const * merkle_root_authority_addr,
+                          char const           * schedule_mode,
                           ulong                  commission_bps );
 
 
@@ -169,8 +174,8 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
   uchar signature[64];
   uchar _sig_cnt; /* = 1 */
   uchar ro_signed_cnt; /* = 0 */
-  uchar ro_unsigned_cnt; /* = 5 */
-  uchar acct_addr_cnt; /* = 20 */
+  uchar ro_unsigned_cnt; /* = 6 */
+  uchar acct_addr_cnt; /* = 21 */
 
   /* Writable signers */
   /* 0 */   uchar authorized_voter[32];
@@ -190,9 +195,10 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
   /* 17  */ uchar validator_vote_account[32];
   /* 18  */ uchar system_program[32];
   /* 19  */ uchar tip_distribution_program[32];
+  /* 20  */ uchar memo_program[32];
 
   uchar recent_blockhash[32];
-  uchar instr_cnt; /* = 4 */
+  uchar instr_cnt; /* = 5 */
 
   /* Compute budget instruction */
   struct __attribute__((packed)) {
@@ -233,6 +239,14 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
   uchar ix_discriminator[8]; /* = {86 50 26 89 a5 15 72 7b} */
   ulong block_builder_commission_pct;
   } change_block_builder;
+
+  /* Memo */
+  struct __attribute__((packed)) {
+  uchar prog_id; /* = 20 */
+  uchar acct_cnt; /* = 0 */
+  uchar data_sz; /* = 3 */
+  char  memo[3];
+  } memo;
 };
 
 struct __attribute__((packed)) fd_bundle_crank_2 {
@@ -240,8 +254,8 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
   uchar signature[64];
   uchar _sig_cnt; /* = 1 */
   uchar ro_signed_cnt; /* = 0 */
-  uchar ro_unsigned_cnt; /* = 2 */
-  uchar acct_addr_cnt; /* = 17 */
+  uchar ro_unsigned_cnt; /* = 3 */
+  uchar acct_addr_cnt; /* = 18 */
 
   /* Writable signers */
   /* 0 */   uchar authorized_voter[32];
@@ -258,9 +272,10 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
   /* Readonly non-signers */
   /* 15  */ uchar compute_budget_program[32];
   /* 16  */ uchar tip_payment_program[32];
+  /* 17  */ uchar memo_program[32];
 
   uchar recent_blockhash[32];
-  uchar instr_cnt; /* = 3 */
+  uchar instr_cnt; /* = 4 */
 
   /* Compute budget instruction */
   struct __attribute__((packed)) {
@@ -290,6 +305,13 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
   ulong block_builder_commission_pct;
   } change_block_builder;
 
+  /* Memo */
+  struct __attribute__((packed)) {
+  uchar prog_id; /* = 17 */
+  uchar acct_cnt; /* = 0 */
+  uchar data_sz; /* = 3 */
+  char  memo[3];
+  } memo;
 };
 
 
@@ -307,8 +329,8 @@ struct fd_bundle_crank_gen_private {
   fd_bundle_crank_3_t crank3[1];
   fd_bundle_crank_2_t crank2[1];
 
-  uchar txn3[ sizeof(fd_txn_t)+4UL*sizeof(fd_txn_instr_t) ] __attribute__(( aligned( alignof(fd_txn_t) ) ));
-  uchar txn2[ sizeof(fd_txn_t)+3UL*sizeof(fd_txn_instr_t) ] __attribute__(( aligned( alignof(fd_txn_t) ) ));
+  uchar txn3[ sizeof(fd_txn_t)+5UL*sizeof(fd_txn_instr_t) ] __attribute__(( aligned( alignof(fd_txn_t) ) ));
+  uchar txn2[ sizeof(fd_txn_t)+4UL*sizeof(fd_txn_instr_t) ] __attribute__(( aligned( alignof(fd_txn_t) ) ));
   ulong configured_epoch;
 
   fd_bundle_crank_gen_pidx_t map[32];
