@@ -329,6 +329,10 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "eqvoc"       );
   fd_topob_wksp( topo, "batch"       );
   fd_topob_wksp( topo, "constipate"  );
+  fd_topob_wksp( topo, "SnapRd"      );
+  fd_topob_wksp( topo, "SnapDc"      );
+  fd_topob_wksp( topo, "SnapIn"      );
+  fd_topob_wksp( topo, "snap_fseq" );
   if(enable_rstart) fd_topob_wksp( topo, "restart" );
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topob_wksp( topo, "exec_fseq"   );
@@ -363,6 +367,8 @@ fd_topo_initialize( config_t * config ) {
      message that is outbound from the replay to exec. */
   FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",  128UL,                                    10240UL,                       exec_tile_cnt );
   FOR(writer_tile_cnt) fd_topob_link( topo, "replay_wtr",   "replay_wtr",   128UL,                                    FD_REPLAY_WRITER_MTU,          1UL );
+  fd_topo_link_t * snap_zstd_link = fd_topob_link( topo, "snap_zstd",    "snap_zstd",    512UL,                                    0UL,                           0UL );
+  fd_topo_link_t * snapin_link    = fd_topob_link( topo, "snap_stream", "snap_stream",   512UL,                                    0UL,                           0UL );
   /* Assuming the number of writer tiles is sufficient to keep up with
      the number of exec tiles, under equilibrium, we should have at least
      enough link space to buffer worst case input shuffling done by the
@@ -471,6 +477,10 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * rpcserv_tile = NULL;
   if( enable_rpc ) rpcserv_tile =  fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
+  fd_topo_tile_t * snaprd_tile  =  fd_topob_tile( topo, "SnapRd", "SnapRd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * snapdc_tile  =  fd_topob_tile( topo, "SnapDc", "SnapDc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * snapin_tile  =  fd_topob_tile( topo, "SnapIn", "SnapIn", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+
   /* Database cache */
 
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
@@ -566,6 +576,17 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, replay_tile, writer_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, writer_fseq_obj->id, "writer_fseq.%lu", i ) );
   }
+
+  fd_topo_obj_t * zstd_dcache   = fd_topob_link_set_dcache( topo, snap_zstd_link, "snap_zstd", (16<<20UL) );
+  fd_topo_obj_t * snapin_dcache = fd_topob_link_set_dcache( topo, snapin_link, "snap_stream", (16<<20UL) );
+  fd_topo_obj_t * snapshot_fseq_obj = fd_topob_obj( topo, "fseq", "snap_fseq" );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, snapshot_fseq_obj->id, "snap_fseq" ) );
+
+  fd_topob_tile_uses( topo, snaprd_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapdc_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, snapshot_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* There's another special fseq that's used to communicate the shred
     version from the Agave boot path to the shred tile. */
@@ -703,6 +724,11 @@ fd_topo_initialize( config_t * config ) {
   FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "writer",  i,            "metric_in", "exec_writer",  j,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
   FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "writer",  i,            "metric_in", "replay_wtr",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
+
+  fd_topob_tile_out( topo, "SnapRd", 0UL, "snap_zstd", 0UL );
+  fd_topob_tile_in( topo, "SnapDc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "SnapDc", 0UL, "snap_stream", 0UL );
+  fd_topob_tile_in  ( topo, "SnapIn", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
 
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "stake_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "gossip_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -944,6 +970,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->replay.incremental_interval = config->tiles.batch.incremental_interval;
 
       FD_TEST( tile->replay.funk_obj_id == fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX ) );
+      tile->replay.snap_fseq_obj_id = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
@@ -1003,6 +1030,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->exec.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       tile->writer.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapRd" ) ) ) {
+      strncpy( tile->snaprd.full_snapshot_path, config->tiles.replay.snapshot, sizeof(tile->snaprd.full_snapshot_path) );
+      strncpy( tile->snaprd.incremental_snapshot_path, config->tiles.replay.incremental, sizeof(tile->snaprd.incremental_snapshot_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapIn" ) ) ) {
+      tile->snapin.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
+      tile->snapin.fseq_obj_id = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rstart" ) ) ) {
       tile->restart.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       strncpy( tile->restart.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
