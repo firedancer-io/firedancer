@@ -6,7 +6,7 @@
 /* map leader pubkey to quic conn
    an entry can be in 3 states:
    - UNSTAKED: no element in map
-   - NO_CONN: pubkey maps to null conn. staked, no contact info yet
+   - NO_CONN: pubkey maps to null conn. staked, no contact info yet (or conn died)
    - CONN: pubkey maps to conn. staked, connection initiated
 
 For a given peer, state machine works as follows:
@@ -109,10 +109,11 @@ quic_connect( fd_send_tile_ctx_t * ctx,
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port );
   if( FD_UNLIKELY( !conn ) ) {
     /* AMANTODO - add a metric for this */
-    FD_LOG_WARNING(( "Failed to create QUIC connection" ));
-    return NULL;
+    FD_LOG_ERR(( "Failed to create QUIC connection" ));
   }
   ctx->metrics.quic_conns_created++;
+
+  FD_LOG_NOTICE(("send_tile: Quic conn created: %p to peer %u.%u.%u.%u:%u", (void*)conn, (dst_ip>>24)&0xFF, (dst_ip>>16)&0xFF, (dst_ip>>8)&0xFF, dst_ip&0xFF, dst_port));
 
   return conn;
 }
@@ -121,17 +122,20 @@ quic_connect( fd_send_tile_ctx_t * ctx,
 static void
 quic_conn_final( fd_quic_conn_t * conn,
                  void *           quic_ctx ) {
+  /* should ideally never happen, immediately try reestablishing */
   fd_send_tile_ctx_t * ctx = quic_ctx;
 
-  // Remove from connection map - need to iterate to find by conn pointer
-  for( ulong slot_idx=0UL; slot_idx<fd_send_conn_map_slot_cnt(); slot_idx++ ) {
-    fd_send_conn_entry_t * entry = &ctx->conn_map[slot_idx];
-    if( !fd_send_conn_map_key_inval( entry->pubkey ) && entry->conn == conn ) {
-      fd_send_conn_map_remove( ctx->conn_map, entry );
-      ctx->metrics.quic_conns_closed++;
-      break;
-    }
+  fd_send_conn_entry_t * entry = (fd_send_conn_entry_t *)fd_quic_conn_get_context( conn );
+  if( FD_UNLIKELY( !entry ) ) {
+    FD_LOG_NOTICE(("send_tile: Conn map entry not found in conn_final"));
   }
+  ctx->metrics.quic_conns_closed++;
+
+  uint ip4_addr = entry->ip4_addr;
+  FD_LOG_NOTICE(("send_tile: Quic conn final: %p to peer %u.%u.%u.%u:%u", (void*)conn, (ip4_addr>>24)&0xFF, (ip4_addr>>16)&0xFF, (ip4_addr>>8)&0xFF, ip4_addr&0xFF, entry->udp_port));
+  entry->conn = quic_connect( ctx, ip4_addr, entry->udp_port );
+  fd_quic_conn_set_context( entry->conn, entry );
+
 }
 
 static int
@@ -183,14 +187,14 @@ send_packet( fd_send_tile_ctx_t  *  ctx,
   fd_quic_conn_t * conn = find_quic_conn( ctx, pubkey );
   if( FD_UNLIKELY( !conn ) ) {
     ctx->metrics.quic_conn_not_found++;
-    FD_LOG_NOTICE(("Quic conn not found when trying to send to leader"));
+    FD_LOG_NOTICE(("send_tile: Quic conn not found"));
     return;
   }
 
   fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
   if( FD_UNLIKELY( !stream ) ) {
     ctx->metrics.quic_stream_unavail++;
-    FD_LOG_NOTICE(("Quic stream unavailable when trying to send to leader"));
+    FD_LOG_NOTICE(("send_tile: Quic stream unavailable"));
     return;
   }
 
@@ -238,21 +242,33 @@ handle_new_cluster_contact_info( fd_send_tile_ctx_t * ctx,
 
 static inline void
 finalize_new_cluster_contact_info( fd_send_tile_ctx_t * ctx ) {
-  /* Implement state machine on the contact info */
   for( ulong i=0UL; i<ctx->contact_cnt; i++ ) {
-    /* Look up the pubkey in our connection map */
+    /* get incoming contact and existing entry in conn map */
     fd_shred_dest_wire_t * contact = &ctx->contact_buf[i];
     fd_send_conn_entry_t * entry   = fd_send_conn_map_query( ctx->conn_map, *contact->pubkey, NULL );
 
-    if( FD_LIKELY( entry ) ) {
-      if( FD_UNLIKELY( !entry->conn ) ) {
-        /* NO_CONN state: start quic connection and transition to CONN state */
-        entry->conn = quic_connect( ctx, contact->ip4_addr, contact->udp_port );
-      }
-      /* If already in CONN state, this is a no-op */
-      entry->last_touched = ctx->now;
+    if( FD_UNLIKELY( !entry ) ) {
+      /* Skip if UNSTAKED */
+      continue;
     }
-    /* If UNSTAKED (no entry in map), ignore the contact info */
+
+    int info_changed = entry->ip4_addr != contact->ip4_addr || entry->udp_port != contact->udp_port;
+    if( entry->conn && info_changed ) {
+      /* CONN -> NO_CONN */
+      fd_quic_conn_close( entry->conn, 0 );
+      entry->conn = NULL;
+    }
+
+    entry->ip4_addr = contact->ip4_addr;
+    entry->udp_port = contact->udp_port;
+
+    if( FD_UNLIKELY( !entry->conn ) && contact->udp_port!=9007 ) {
+      /* NO_CONN: start quic connection and transition to CONN state */
+      entry->conn = quic_connect( ctx, contact->ip4_addr, contact->udp_port );
+      fd_quic_conn_set_context( entry->conn, entry );
+    }
+
+    entry->last_touched = ctx->now;
   }
 }
 
@@ -283,7 +299,6 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
       entry->conn = NULL; /* NO_CONN state */
     }
 
-    /* entry non-null guaranteed by 'continue' above */
     entry->last_touched = ctx->now;
   }
 }
@@ -377,16 +392,16 @@ after_frag( fd_send_tile_ctx_t * ctx,
       send_packet( ctx, &leader_dest->pubkey, txn->payload, txn->payload_sz );
       ctx->metrics.txns_sent_to_leader++;
     } else {
-      FD_LOG_ERR(("Failed to get leader contact"));
+      FD_LOG_NOTICE(("send_tile: Failed to get leader contact"));
     }
 
     /* send to gossip and dedup */
-    // fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
-    // uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
-    // fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
-    // fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
-    // gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
-    //     gossip_verify_out->wmark );
+    fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
+    uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
+    fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
+    fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
+    gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
+        gossip_verify_out->wmark );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {

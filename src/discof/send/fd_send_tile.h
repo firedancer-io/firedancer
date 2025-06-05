@@ -65,6 +65,8 @@ struct fd_send_conn_entry {
   uint             hash;
   fd_quic_conn_t * conn;
   long             last_touched;
+  uint             ip4_addr;
+  ushort           udp_port;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 
