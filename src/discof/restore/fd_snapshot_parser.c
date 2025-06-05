@@ -45,6 +45,10 @@ fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
   self->buf_ctr = 0UL;
   self->buf_sz  = sizeof(fd_solana_account_hdr_t);
 
+  if( self->acc_done_cb ) {
+    self->acc_done_cb( self, self->cb_arg );
+  }
+
   return 0;
 }
 
@@ -149,9 +153,10 @@ fd_snapshot_parser_restore_file( void *                self_,
 
 }
 
-static void
+static uchar const *
 fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
-                                    uchar const *          cur ) {
+                                    uchar const *          cur,
+                                    uchar const *          end ) {
 
   fd_tar_meta_t const * hdr = (fd_tar_meta_t const *)self->buf;
 
@@ -166,35 +171,35 @@ fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
     for( ulong i=0UL; i<sizeof(fd_tar_meta_t); i++ )
       not_zero |= self->buf[ i ];
     if( !not_zero ) {
-      cur += sizeof(fd_tar_meta_t);
       self->flags |= SNAP_FLAG_DONE;
-      return;
+      return end;
     }
     /* Not an EOF, so must be a protocol error */
     ulong goff = self->goff - sizeof(fd_tar_meta_t);
     FD_LOG_WARNING(( "Invalid tar header magic at goff=0x%lx", goff ));
     FD_LOG_HEXDUMP_WARNING(( "Tar header", hdr, sizeof(fd_tar_meta_t) ));
     self->flags |= SNAP_FLAG_FAILED;
-    return;
+    return cur;
   }
 
   ulong file_sz = fd_tar_meta_get_size( hdr );
   if( FD_UNLIKELY( file_sz==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "Failed to parse file size in tar header" ));
     self->flags |= SNAP_FLAG_FAILED;
-    return;
+    return cur;
   }
   self->tar_file_rem = file_sz;
   self->buf_ctr      = (ushort)0U;
 
   /* Call back to recipient */
   fd_snapshot_parser_restore_file( self, hdr, file_sz );
+  return cur;
 }
 
 static uchar const *
 fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
-              uchar const *          cur,
-              ulong                  bufsz ) {
+                                 uchar const *          cur,
+                                 ulong                  bufsz ) {
   uchar const * end = cur+bufsz;
 
   /* Skip padding */
@@ -217,7 +222,7 @@ fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
 
   /* Handle complete header */
   if( FD_LIKELY( self->buf_ctr == sizeof(fd_tar_meta_t) ) ) {
-    fd_snapshot_parser_tar_process_hdr( self, cur );
+    cur = fd_snapshot_parser_tar_process_hdr( self, cur, end );
   }
 
   return cur;
@@ -440,7 +445,7 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
 
     /* TODO: make callback here */
     if( self->acc_data_cb ) {
-        self->acc_data_cb( self, self->cb_arg );
+        self->acc_data_cb( self, self->cb_arg, self->buf, chunk_sz );
     }
 
     self->acc_rem -= chunk_sz;

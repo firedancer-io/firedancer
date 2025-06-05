@@ -14,7 +14,6 @@
 
 #define NAME        "SnapIn"
 #define LINK_IN_MAX  1UL
-#define BURST       16UL
 
 #define SNAP_IN_STATUS_WAITING 0UL
 #define SNAP_IN_STATUS_FULL    1UL
@@ -35,7 +34,7 @@ struct fd_snapin_tile {
 
   /* Stream input */
 
-  fd_stream_frag_meta_ctx_t in_state; /* input mcache context */
+  fd_stream_frag_meta_ctx_t in_state;
 
   /* Account insertion */
 
@@ -69,85 +68,56 @@ fd_snapin_shutdown( void ) {
   for(;;) pause();
 }
 
-// static int
-// snapshot_is_duplicate_account( fd_snapin_tile_t *  restore,
-//                                fd_pubkey_t const * account_key ) {
-//   /* Check if account exists */
-//   fd_account_meta_t const * rec_meta = fd_funk_find_account( restore->funk, account_key );
-//   if( rec_meta )
-//     if( rec_meta->slot > restore->accv_slot ) 
-//       return 1;
-//   return 0;
-// }
-
-// static int
-// snapshot_insert_account( fd_snapin_tile_t *               restore,
-//                           fd_pubkey_t const *             account_key,
-//                           fd_solana_account_hdr_t const * hdr ) {
-//   FD_TXN_ACCOUNT_DECL( rec );
-
-//   fd_account_meta_t * meta = fd_funk_insert_account( restore->funk, account_key, hdr );
-//   rec->vt->set_meta_mutable(rec, meta );
-
-//   rec->vt->set_data_len( rec, hdr->meta.data_len );
-//   rec->vt->set_slot( rec, restore->accv_slot );
-//   rec->vt->set_hash( rec, &hdr->hash );
-//   rec->vt->set_info( rec, &hdr->info );
-
-//   restore->acc_data = rec->vt->get_data_mut( rec );
-
-//   return 0;
-// }
-
-static ulong
-scratch_align( void ) {
-  return fd_ulong_max( alignof(fd_snapin_tile_t), fd_snapshot_parser_align() );
+static int
+snapshot_is_duplicate_account( fd_snapshot_parser_t * parser,
+                               fd_snapin_tile_t *     ctx,
+                               fd_pubkey_t const *    account_key ) {
+  /* Check if account exists */
+  fd_account_meta_t const * rec_meta = fd_funk_find_account( ctx->funk, account_key );
+  if( rec_meta )
+    if( rec_meta->slot > parser->accv_slot ) 
+      return 1;
+  return 0;
 }
 
-static ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
-  return l;
-}
+static void
+snapshot_insert_account( fd_snapshot_parser_t *          parser,
+                         fd_solana_account_hdr_t const * hdr,
+                         void *                          _ctx ) {
+  fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
+  fd_pubkey_t const * account_key  = fd_type_pun_const( hdr->meta.pubkey );
 
-FD_FN_UNUSED static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
-  if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
+  if( !snapshot_is_duplicate_account( parser, ctx, account_key ) ) {
+    FD_TXN_ACCOUNT_DECL( rec );
+    fd_account_meta_t * meta = fd_funk_insert_account( ctx->funk, account_key, hdr );
+    rec->vt->set_meta_mutable(rec, meta );
 
-  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
-  /* FIXME check link names */
+    rec->vt->set_data_len( rec, hdr->meta.data_len );
+    rec->vt->set_slot( rec, parser->accv_slot );
+    rec->vt->set_hash( rec, &hdr->hash );
+    rec->vt->set_info( rec, &hdr->info );
 
-  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
-  fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
-  void * parser_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
-
-  ctx->parser = fd_snapshot_parser_new( parser_mem, NULL, NULL, NULL );
-
-  /* Join stream input */
-
-  FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
-  ctx->in_state.in_buf  = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->in_state.in_skip = 0UL;
-
-  /* join funk */
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "Failed to join database cache" ));
+    ctx->acc_data = rec->vt->get_data_mut( rec );
   }
+}
 
-  /* IDK what to put here right now */
-  ctx->funk_txn = NULL;
-  ctx->metrics.full_accounts_files_processed = 0UL;
-  ctx->metrics.full_accounts_files_total = 0UL;
-  ctx->metrics.full_accounts_processed = 0UL;
+static void
+snapshot_copy_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
+                        void *                 _ctx,
+                        uchar *                buf,
+                        ulong                  data_sz ) {
+  fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
 
-  ctx->metrics.incremental_accounts_files_processed = 0UL;
-  ctx->metrics.incremental_accounts_files_total = 0UL;
-  ctx->metrics.incremental_accounts_processed = 0UL;
-  ctx->metrics.status = SNAP_IN_STATUS_FULL;
+  if( ctx->acc_data ) {
+    fd_memcpy( ctx->acc_data, buf, data_sz );
+  }
+}
+
+static void
+snapshot_reset_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
+                         void *                 _ctx ) {
+  fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
+  ctx->acc_data = NULL;
 }
 
 static void
@@ -187,14 +157,75 @@ fd_snapin_on_file_complete( fd_snapin_tile_t *   ctx,
 }
 
 static void
+fd_snapin_check_parser_failed( fd_snapshot_parser_t * parser ) {
+  if( FD_UNLIKELY( parser->flags & SNAP_FLAG_FAILED ) ) {
+    FD_LOG_ERR(( "Failed to restore snapshot" ));
+  }
+}
+
+static ulong
+scratch_align( void ) {
+  return fd_ulong_max( alignof(fd_snapin_tile_t), fd_snapshot_parser_align() );
+}
+
+static ulong
+scratch_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)       );
+  l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
+  return l;
+}
+
+FD_FN_UNUSED static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+  if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
+
+  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
+  /* FIXME check link names */
+
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
+  void * parser_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
+
+  ctx->parser = fd_snapshot_parser_new( parser_mem,
+                                        snapshot_insert_account,
+                                        snapshot_copy_acc_data,
+                                        snapshot_reset_acc_data,
+                                        ctx );
+
+  /* Join stream input */
+
+  FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
+  ctx->in_state.in_buf  = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->in_state.in_skip = 0UL;
+
+  /* join funk */
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
+
+  ctx->funk_txn                              = NULL;
+  ctx->metrics.full_accounts_files_processed = 0UL;
+  ctx->metrics.full_accounts_files_total     = 0UL;
+  ctx->metrics.full_accounts_processed       = 0UL;
+
+  ctx->metrics.incremental_accounts_files_processed = 0UL;
+  ctx->metrics.incremental_accounts_files_total     = 0UL;
+  ctx->metrics.incremental_accounts_processed       = 0UL;
+  ctx->metrics.status                               = SNAP_IN_STATUS_FULL;
+}
+
+static void
 metrics_write( void * _ctx ) {
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
-  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_PROCESSED, ctx->metrics.full_accounts_files_processed );
-  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_TOTAL, ctx->metrics.full_accounts_files_total );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_PROCESSED,        ctx->metrics.full_accounts_files_processed );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_TOTAL,            ctx->metrics.full_accounts_files_total );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_PROCESSED, ctx->metrics.incremental_accounts_files_processed );
-  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_TOTAL, ctx->metrics.incremental_accounts_files_total );
-  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_PROCESSED, ctx->metrics.full_accounts_processed );
-  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_PROCESSED, ctx->metrics.incremental_accounts_processed );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_TOTAL,     ctx->metrics.incremental_accounts_files_total );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_PROCESSED,              ctx->metrics.full_accounts_processed );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_PROCESSED,       ctx->metrics.incremental_accounts_processed );
 }
 
 /* on_stream_frag consumes an incoming stream data fragment.  This frag
@@ -220,7 +251,7 @@ on_stream_frag( void *                        _ctx,
   }
 
   if( FD_UNLIKELY( ctx->parser->flags ) ) {
-    if( FD_UNLIKELY( ctx->parser->flags & SNAP_FLAG_FAILED ) ) FD_LOG_ERR(( "Failed to restore snapshot" ));
+    fd_snapin_check_parser_failed( ctx->parser );
     return 0;
   }
 
@@ -239,13 +270,7 @@ on_stream_frag( void *                        _ctx,
     }
     cur = fd_snapshot_parser_process_chunk( ctx->parser, cur, (ulong)( chunk1-cur ) );
     if( FD_UNLIKELY( ctx->parser->flags ) ) {
-      if( FD_UNLIKELY( ctx->parser->flags & SNAP_FLAG_FAILED ) ) {
-        FD_LOG_ERR(( "Failed to restore snapshot" ));
-      } else if( FD_UNLIKELY( ctx->parser->flags & SNAP_FLAG_DONE ) ) {
-        /* move cur to end */
-        cur = chunk1;
-        break;
-      }
+      fd_snapin_check_parser_failed( ctx->parser );
     }
   }
 
@@ -288,7 +313,6 @@ fd_snapin_run( fd_topo_t *      topo,
   fd_snapin_run1( ctx, stream_ctx );
 }
 
-#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_snapshot_restore_SnapIn = {
   .name              = "SnapIn",
   .scratch_align     = scratch_align,
@@ -296,7 +320,5 @@ fd_topo_run_tile_t fd_tile_snapshot_restore_SnapIn = {
   .unprivileged_init = unprivileged_init,
   .run               = fd_snapin_run,
 };
-#endif
 
 #undef LINK_IN_MAX
-#undef BURST

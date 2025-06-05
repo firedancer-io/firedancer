@@ -54,11 +54,17 @@ typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 typedef void
 (* fd_snapshot_process_acc_hdr_fn_t)( fd_snapshot_parser_t *          parser,
                                       fd_solana_account_hdr_t const * hdr,
-                                      void *                          ctx );
+                                      void *                          _ctx );
 
 typedef void
 (* fd_snapshot_process_acc_data_fn_t)( fd_snapshot_parser_t * parser,
-                                       void *                 ctx );
+                                       void *                 _ctx,
+                                       uchar *                buf,
+                                       ulong                  data_sz );
+
+typedef void
+(* fd_snapshot_process_acc_done_fn_t)( fd_snapshot_parser_t * parser,
+                                       void *                 _ctx );
 
 struct fd_snapshot_parser {
   uchar state;
@@ -74,7 +80,7 @@ struct fd_snapshot_parser {
 
   /* Tar parser */
 
-  ulong goff;
+  ulong goff;          /* current position in stream */
   ulong tar_file_rem; /* number of stream bytes in current TAR file */
 
   /* Snapshot file parser */
@@ -90,9 +96,11 @@ struct fd_snapshot_parser {
   ulong acc_rem;  /* acc bytes pending write */
   ulong acc_pad;  /* padding size at end of account */
 
-  /* callbacks */
+  /* Account processing callbacks */
+
   fd_snapshot_process_acc_hdr_fn_t acc_hdr_cb;
   fd_snapshot_process_acc_data_fn_t acc_data_cb;
+  fd_snapshot_process_acc_done_fn_t acc_done_cb;
   void * cb_arg;
 };
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
@@ -134,6 +142,7 @@ static inline fd_snapshot_parser_t *
 fd_snapshot_parser_new( void * mem,
                         fd_snapshot_process_acc_hdr_fn_t acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t acc_data_cb,
+                        fd_snapshot_process_acc_done_fn_t acc_done_cb,
                         void *                            cb_arg ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -166,6 +175,7 @@ fd_snapshot_parser_new( void * mem,
 
   self->acc_hdr_cb  = acc_hdr_cb;
   self->acc_data_cb = acc_data_cb;
+  self->acc_done_cb = acc_done_cb;
   self->cb_arg      = cb_arg;
 
   return self;
