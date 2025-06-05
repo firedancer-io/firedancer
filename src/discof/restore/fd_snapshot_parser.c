@@ -121,9 +121,9 @@ fd_snapshot_parser_manifest_prepare( fd_snapshot_parser_t * self,
 }
 
 static void
-restore_file( void *                self_,
-              fd_tar_meta_t const * meta,
-              ulong                 sz ) {
+fd_snapshot_parser_restore_file( void *                self_,
+                                 fd_tar_meta_t const * meta,
+                                 ulong                 sz ) {
   fd_snapshot_parser_t * self = self_;
 
   self->buf_ctr = 0UL;  /* reset buffer */
@@ -151,7 +151,7 @@ restore_file( void *                self_,
 
 static void
 fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
-                                    uchar const *      cur ) {
+                                    uchar const *          cur ) {
 
   fd_tar_meta_t const * hdr = (fd_tar_meta_t const *)self->buf;
 
@@ -171,7 +171,7 @@ fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
       return;
     }
     /* Not an EOF, so must be a protocol error */
-    ulong goff = (ulong)cur - self->in_state.goff_translate - sizeof(fd_tar_meta_t);
+    ulong goff = self->goff - sizeof(fd_tar_meta_t);
     FD_LOG_WARNING(( "Invalid tar header magic at goff=0x%lx", goff ));
     FD_LOG_HEXDUMP_WARNING(( "Tar header", hdr, sizeof(fd_tar_meta_t) ));
     self->flags |= SNAP_FLAG_FAILED;
@@ -188,7 +188,7 @@ fd_snapshot_parser_tar_process_hdr( fd_snapshot_parser_t * self,
   self->buf_ctr      = (ushort)0U;
 
   /* Call back to recipient */
-  restore_file( self, hdr, file_sz );
+  fd_snapshot_parser_restore_file( self, hdr, file_sz );
 }
 
 static uchar const *
@@ -199,10 +199,10 @@ fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
 
   /* Skip padding */
   if( self->buf_ctr==0UL ) {
-    ulong  goff   = (ulong)cur - self->in_state.goff_translate;
-    ulong  pad_sz = fd_ulong_align_up( goff, 512UL ) - goff;
+    ulong  pad_sz = fd_ulong_align_up( self->goff, 512UL ) - self->goff;
            pad_sz = fd_ulong_min( pad_sz, (ulong)( end-cur ) );
-    cur += pad_sz;
+    cur          += pad_sz;
+    self->goff   += pad_sz;
   }
 
   /* Determine number of bytes to read */
@@ -212,7 +212,7 @@ fd_snapshot_parser_tar_read_hdr( fd_snapshot_parser_t * self,
 
   /* Copy to header */
   fd_memcpy( self->buf + self->buf_ctr, cur, (ulong)chunk_sz );
-  cur             +=        chunk_sz;
+  cur           +=        chunk_sz;
   self->buf_ctr += (ulong)chunk_sz;
 
   /* Handle complete header */
@@ -384,11 +384,6 @@ fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
     self->acc_hdr_cb( self, hdr, self->cb_arg );
   }
 
-  /* TODO: make callback here */
-//   if( !snapshot_is_duplicate_account( self, account_key) ) {
-//     snapshot_insert_account( self, account_key, hdr );
-//   }
-
   /* Next step */
   if( data_sz == 0UL ) {
     return fd_snapshot_parser_expect_account_hdr( self );
@@ -447,15 +442,11 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
     if( self->acc_data_cb ) {
         self->acc_data_cb( self, self->cb_arg );
     }
-    // if( FD_LIKELY( self->acc_data ) ) {
-    //     fd_memcpy( self->acc_data, buf, chunk_sz );
-    //     self->acc_data += chunk_sz;
-    //   }
 
     self->acc_rem -= chunk_sz;
     self->accv_sz -= chunk_sz;
-    buf              += chunk_sz;
-    bufsz            -= chunk_sz;
+    buf           += chunk_sz;
+    bufsz         -= chunk_sz;
 
   }
 
@@ -506,12 +497,11 @@ fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
   }
 
   ulong consumed = (ulong)buf_next - (ulong)buf;
+  self->goff    += consumed;
   if( FD_UNLIKELY( consumed>bufsz ) ) FD_LOG_CRIT(( "Buffer overflow (consumed=%lu bufsz=%lu)", consumed, bufsz ));
   self->tar_file_rem -= consumed;
   if( self->tar_file_rem==0UL ) {
-    self->buf_ctr = 0UL;
-    self->buf_sz  = 0UL;
-    self->state   = SNAP_STATE_TAR;
+    fd_snapshot_parser_reset_tar( self );
   }
   return buf_next;
 }

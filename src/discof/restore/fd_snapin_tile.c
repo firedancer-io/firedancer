@@ -1,4 +1,5 @@
 #include "fd_restore_base.h"
+#include "fd_snapshot_parser.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/archive/fd_tar.h"
@@ -27,77 +28,14 @@
 #define SNAP_STATE_ACCOUNT_DATA ((uchar)4)  /* reading account data (zero copy) */
 #define SNAP_STATE_DONE         ((uchar)5)  /* expect no more data */
 
-struct fd_snapshot_accv_key {
-  ulong slot;
-  ulong id;
-};
-
-typedef struct fd_snapshot_accv_key fd_snapshot_accv_key_t;
-
-static const fd_snapshot_accv_key_t
-fd_snapshot_accv_key_null = { 0UL, 0UL };
-
-FD_FN_PURE static inline ulong
-fd_snapshot_accv_key_hash( fd_snapshot_accv_key_t key ) {
-  return fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_snapshot_accv_key_t) );
-}
-
-struct fd_snapshot_accv_map {
-  fd_snapshot_accv_key_t key;
-  ulong                  sz;
-  ulong                  hash;  /* use uint or ulong hash? */
-};
-
-typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
-
-#define MAP_NAME              fd_snapshot_accv_map
-#define MAP_T                 fd_snapshot_accv_map_t
-#define MAP_LG_SLOT_CNT       23  /* 8.39 million */
-#define MAP_KEY_T             fd_snapshot_accv_key_t
-#define MAP_KEY_NULL          fd_snapshot_accv_key_null
-#define MAP_KEY_INVAL(k)      ( ((k).slot==0UL) & ((k).id==0UL) )
-#define MAP_KEY_EQUAL(k0,k1)  ( ((k0).slot==(k1).slot) & ((k0).id==(k1).id) )
-#define MAP_KEY_EQUAL_IS_SLOW 0
-#define MAP_HASH_T            ulong
-#define MAP_KEY_HASH(k0)      fd_snapshot_accv_key_hash(k0)
-#include "../../util/tmpl/fd_map.c"
-
-#define SNAP_FLAG_FAILED  1
-#define SNAP_FLAG_BLOCKED 2
-#define SNAP_FLAG_DONE    4
-
 struct fd_snapin_tile {
-  uchar state;
-  uchar flags;
-  uchar manifest_done;
+  /* Snapshot parser */
+
+  fd_snapshot_parser_t * parser;
 
   /* Stream input */
 
   fd_stream_frag_meta_ctx_t in_state; /* input mcache context */
-
-  /* Frame buffer */
-
-  uchar * buf;
-  ulong   buf_ctr;  /* number of bytes allocated in buffer */
-  ulong   buf_sz;   /* target buffer size (buf_ctr<buf_sz implies incomplete read) */
-  ulong   buf_max;  /* byte capacity of buffer */
-
-  /* Tar parser */
-
-  ulong tar_file_rem; /* number of stream bytes in current TAR file */
-
-  /* Snapshot file parser */
-
-  ulong   accv_slot;  /* account vec slot */
-  ulong   accv_id;    /* account vec index */
-  ulong   accv_sz;    /* account vec size */
-  fd_snapshot_accv_map_t * accv_map;
-
-  /* Account defrag */
-
-  ulong acc_sz;
-  ulong acc_rem;  /* acc bytes pending write */
-  ulong acc_pad;  /* padding size at end of account */
 
   /* Account insertion */
 
@@ -121,19 +59,6 @@ struct fd_snapin_tile {
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
 
-struct fd_snapin_in {
-  fd_stream_frag_meta_t const * mcache;
-  uint                          depth;
-  uint                          idx;
-  ulong                         seq;
-  ulong                         goff;
-  fd_stream_frag_meta_t const * mline;
-  ulong volatile * restrict     fseq;
-  uint                          accum[6];
-};
-
-typedef struct fd_snapin_in fd_snapin_in_t;
-
 static void
 fd_snapin_shutdown( void ) {
   FD_COMPILER_MFENCE();
@@ -142,174 +67,6 @@ fd_snapin_shutdown( void ) {
   FD_LOG_INFO(( "snapin: shutting down" ));
 
   for(;;) pause();
-}
-
-static void
-fd_snapshot_restore_discard_buf( fd_snapin_tile_t * self ) {
-  self->buf_ctr = 0UL;
-  self->buf_sz  = 0UL;
-}
-
-static void *
-fd_snapshot_restore_prepare_buf( fd_snapin_tile_t * self,
-                                 ulong              sz ) {
-  self->buf_ctr = 0UL;
-  self->buf_sz  = 0UL;
-
-  fd_snapshot_restore_discard_buf( self );
-  if( FD_UNLIKELY( sz > self->buf_max ) ) {
-    FD_LOG_WARNING(( "Alloc failed (need %lu bytes, have %lu)", sz, self->buf_max ));
-    self->state = SNAP_FLAG_FAILED;
-    return NULL;
-  }
-
-  return self->buf;
-}
-
-static int
-fd_snapshot_expect_account_hdr( fd_snapin_tile_t * restore ) {
-
-  ulong accv_sz = restore->accv_sz;
-  if( accv_sz < sizeof(fd_solana_account_hdr_t) ) {
-    if( FD_LIKELY( accv_sz==0UL ) ) {
-      restore->state = SNAP_STATE_ACCOUNT_HDR;
-      return 0;
-    }
-    FD_LOG_WARNING(( "encountered unexpected EOF while reading account header" ));
-    restore->flags |= SNAP_FLAG_FAILED;
-    return EINVAL;
-  }
-
-  restore->state   = SNAP_STATE_ACCOUNT_HDR;
-  restore->buf_ctr = 0UL;
-  restore->buf_sz  = sizeof(fd_solana_account_hdr_t);
-
-  return 0;
-}
-
-static int
-fd_snapshot_restore_accv_prepare( fd_snapin_tile_t *    const restore,
-                                  fd_tar_meta_t const * const meta,
-                                  ulong                 const real_sz ) {
-
-  if( FD_UNLIKELY( !fd_snapshot_restore_prepare_buf( restore, sizeof(fd_solana_account_hdr_t) ) ) ) {
-    FD_LOG_WARNING(( "Failed to allocate read buffer while restoring accounts from snapshot" ));
-    return ENOMEM;
-  }
-
-  /* Parse file name */
-  ulong id, slot;
-  if( FD_UNLIKELY( sscanf( meta->name, "accounts/%lu.%lu", &slot, &id )!=2 ) ) {
-    /* Ignore entire file if file name invalid */
-    restore->state = SNAP_STATE_IGNORE;
-    return 0;
-  }
-
-  /* Lookup account vec file size */
-  fd_snapshot_accv_key_t key = { .slot = slot, .id = id };
-  fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_query( restore->accv_map, key, NULL );
-  if( FD_UNLIKELY( !rec ) ) {
-    /* Ignore account vec files that are not explicitly mentioned in the
-        manifest. */
-    FD_LOG_DEBUG(( "Ignoring %s (sz %lu)", meta->name, real_sz ));
-    restore->state = SNAP_STATE_IGNORE;
-    return 0;
-  }
-  ulong sz = rec->sz;
-
-  /* Validate the supposed file size against real size */
-  if( FD_UNLIKELY( sz > real_sz ) ) {
-    FD_LOG_WARNING(( "AppendVec %lu.%lu is %lu bytes long according to manifest, but actually only %lu bytes",
-                     slot, id, sz, real_sz ));
-    restore->flags |= SNAP_FLAG_FAILED;
-    return EINVAL;
-  }
-  restore->accv_sz   = sz;
-  restore->accv_slot = slot;
-  restore->accv_id   = id;
-
-  /* Prepare read of account header */
-  FD_LOG_DEBUG(( "Loading account vec %s", meta->name ));
-  return fd_snapshot_expect_account_hdr( restore );
-}
-
-
-/* fd_snapshot_restore_manifest_prepare prepares for consumption of the
-   snapshot manifest. */
-
-static int
-fd_snapshot_restore_manifest_prepare( fd_snapin_tile_t * restore,
-                                      ulong              sz ) {
-  /* Only read once */
-  if( restore->manifest_done ) {
-    FD_LOG_WARNING(( "Snapshot file contains multiple manifests" ));
-    restore->state = SNAP_STATE_IGNORE;
-    return 0;
-  }
-
-  /* We don't support streaming manifest deserialization yet.  Thus,
-     buffer the whole manifest in one place. */
-  if( FD_UNLIKELY( !fd_snapshot_restore_prepare_buf( restore, sz ) ) ) {
-    restore->flags |= SNAP_FLAG_FAILED;
-    return ENOMEM;
-  }
-
-  restore->state  = SNAP_STATE_MANIFEST;
-  restore->buf_sz = sz;
-
-  return 0;
-}
-
-static void
-restore_file( void *                restore_,
-              fd_tar_meta_t const * meta,
-              ulong                 sz ) {
-  fd_snapin_tile_t * restore = restore_;
-
-  restore->buf_ctr = 0UL;  /* reset buffer */
-  restore->state   = SNAP_STATE_IGNORE;
-
-  if( (sz==0UL) | (!fd_tar_meta_is_reg( meta )) ) return;
-
-  /* Detect account vec files.  These are files that contain a vector
-     of accounts in Solana Labs "AppendVec" format. */
-  assert( sizeof("accounts/")<FD_TAR_NAME_SZ );
-  if( 0==strncmp( meta->name, "accounts/", sizeof("accounts/")-1) ) {
-    if( FD_UNLIKELY( !restore->manifest_done ) ) {
-      FD_LOG_WARNING(( "Unsupported snapshot: encountered AppendVec before manifest" ));
-      restore->flags |= SNAP_FLAG_FAILED;
-      return;
-    }
-    fd_snapshot_restore_accv_prepare( restore, meta, sz );
-  } else if( fd_memeq( meta->name, "snapshots/status_cache", sizeof("snapshots/status_cache") ) ) {
-    /* TODO */
-  } else if(0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1 ) ) {
-    fd_snapshot_restore_manifest_prepare( restore, sz );
-  }
-
-}
-
-static uchar const *
-snapshot_read_buffered( fd_snapin_tile_t * restore,
-                        uchar const *      buf,
-                        ulong              bufsz ) {
-  /* Should not be called if read is complete */
-  FD_TEST( restore->buf_ctr < restore->buf_sz );
-
-  /* Determine number of bytes to buffer */
-  ulong sz = restore->buf_sz - restore->buf_ctr;
-  if( sz>bufsz ) sz = bufsz;
-
-  /* Append to buffer */
-  fd_memcpy( restore->buf + restore->buf_ctr, buf, sz );
-  restore->buf_ctr += sz;
-
-  return buf+sz;
-}
-
-FD_FN_PURE static inline int
-snapshot_read_is_complete( fd_snapin_tile_t const * restore ) {
-  return restore->buf_ctr == restore->buf_sz;
 }
 
 // static int
@@ -342,265 +99,18 @@ snapshot_read_is_complete( fd_snapin_tile_t const * restore ) {
 //   return 0;
 // }
 
-static int
-snapshot_restore_account_hdr( fd_snapin_tile_t * restore ) {
-  fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->buf );
-  if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
-    FD_LOG_ERR(( "account data size (%lu) exceeds max (%lu) (possible memory corruption?)", hdr->meta.data_len, FD_ACC_SZ_MAX ));
-  }
-
-  ulong data_sz    = hdr->meta.data_len;
-  restore->acc_sz  = data_sz;
-  restore->acc_rem = data_sz;
-  restore->acc_pad = fd_ulong_align_up( data_sz, 8UL ) - data_sz;
-
-  if( FD_UNLIKELY( data_sz>(10UL<<20) ) ) {
-    FD_LOG_ERR(( "Oversize account found (%lu bytes)", data_sz ));
-  }
-  
-  // fd_pubkey_t const * account_key = fd_type_pun_const( hdr->meta.pubkey );
-  // if( !snapshot_is_duplicate_account( restore, account_key) ) {
-  //   snapshot_insert_account( restore, account_key, hdr );
-  // }
-
-  /* Next step */
-  if( data_sz == 0UL ) {
-    return fd_snapshot_expect_account_hdr( restore );
-  }
-
-  restore->state   = SNAP_STATE_ACCOUNT_DATA;
-  restore->buf_ctr = 0UL;
-  restore->buf_sz  = 0UL;
-  return 0;
-}
-
-static uchar const *
-snapshot_read_account_hdr_chunk( fd_snapin_tile_t * restore,
-                                 uchar const *      buf,
-                                 ulong              bufsz ) {
-  if( !restore->accv_sz ) {
-    /* Reached end of AppendVec */
-    restore->state   = SNAP_STATE_IGNORE;
-    restore->buf_ctr = restore->buf_sz = 0UL;
-    return buf;
-  }
-  bufsz = fd_ulong_min( bufsz, restore->accv_sz );
-
-  uchar const * buf_next = snapshot_read_buffered( restore, buf, bufsz );
-  ulong hdr_read = (ulong)(buf_next-buf);
-  restore->accv_sz -= hdr_read;
-  bufsz            -= hdr_read;
-
-  ulong peek_sz = 0UL;
-  if( FD_LIKELY( snapshot_read_is_complete( restore ) ) ) {
-    if( FD_UNLIKELY( 0!=snapshot_restore_account_hdr( restore ) ) ) {
-      return buf; /* parse error */
-    }
-    peek_sz = fd_ulong_min( restore->acc_rem, bufsz );
-  }
-
-  restore->acc_rem -= peek_sz;
-  restore->accv_sz -= peek_sz;
-  buf_next         += peek_sz;
-
-  return buf_next;
-}
-
-static uchar const *
-snapshot_read_account_chunk( fd_snapin_tile_t * restore,
-                             uchar const *      buf,
-                             ulong              bufsz ) {
-
-  ulong chunk_sz = fd_ulong_min( restore->acc_rem, bufsz );
-  if( FD_LIKELY( restore->acc_data ) ) {
-    fd_memcpy( restore->acc_data, buf, chunk_sz );
-    restore->acc_data += chunk_sz;
-  }
-  if( FD_UNLIKELY( chunk_sz > restore->accv_sz ) )
-    FD_LOG_CRIT(( "OOB account vec read: chunk_sz=%lu accv_sz=%lu", chunk_sz, restore->accv_sz ));
-
-  if( FD_LIKELY( chunk_sz ) ) {
-
-    restore->acc_rem -= chunk_sz;
-    restore->accv_sz -= chunk_sz;
-    buf              += chunk_sz;
-    bufsz            -= chunk_sz;
-
-  }
-
-  if( restore->acc_rem == 0UL ) {
-    ulong pad_sz = fd_ulong_min( fd_ulong_min( restore->acc_pad, bufsz ), restore->accv_sz );
-    buf              += pad_sz;
-    bufsz            -= pad_sz;
-    restore->acc_pad -= pad_sz;
-    restore->accv_sz -= pad_sz;
-
-    if( restore->accv_sz == 0UL ) {
-      restore->state = SNAP_STATE_IGNORE;
-      return buf;
-    }
-    if( restore->acc_pad == 0UL ) {
-      return (0==fd_snapshot_expect_account_hdr( restore )) ? buf : NULL;
-    }
-  }
-
-  return buf;
-}
-
-
-/* fd_snapshot_accv_index populates the index of account vecs.  This
-   index will be used when loading accounts.  Returns errno-compatible
-   error code. */
-
-static int
-fd_snapshot_accv_index( fd_snapshot_accv_map_t *               map,
-                        fd_solana_accounts_db_fields_t const * fields ) {
-  for( ulong i=0UL; i < fields->storages_len; i++ ) {
-
-    fd_snapshot_slot_acc_vecs_t * slot = &fields->storages[ i ];
-
-    for( ulong j=0UL; j < slot->account_vecs_len; j++ ) {
-      fd_snapshot_acc_vec_t * accv = &slot->account_vecs[ j ];
-
-      /* Insert new AppendVec */
-      fd_snapshot_accv_key_t key = { .slot = slot->slot, .id = accv->id };
-      fd_snapshot_accv_map_t * rec = fd_snapshot_accv_map_insert( map, key );
-      if( FD_UNLIKELY( !rec ) ) {
-        FD_LOG_WARNING(( "fd_snapshot_accv_map_insert failed" ));
-        return ENOMEM;
-      }
-
-      /* Remember size */
-      rec->sz = accv->file_sz;
-    }
-
-  }
-
-  return 0;
-}
-
-/* snapshot_restore_manifest imports a snapshot manifest into the
-   given slot context.  Also populates the accv index.  Destroys the
-   existing bank structure. */
-
-static void
-snapshot_restore_manifest( fd_snapin_tile_t * restore ) {
-
-  /* Decode manifest placing dynamic data structures onto slot context
-     heap.  Once the epoch context heap is separated out, we need to
-     revisit this.
-
-     This is horrible.  Plenty of room for optimization, including:
-     - Streaming decoding
-     - Fixing the decoder (does 2 walks in decode_footprint, decode)
-     - Unpack directly into slot_ctx */
-
-  long dt = -fd_log_wallclock();
-
-  fd_bincode_decode_ctx_t decode = {
-    .data    = restore->buf,
-    .dataend = restore->buf + restore->buf_sz
-  };
-
-  ulong total_sz = 0UL;
-  int err = fd_solana_manifest_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "fd_solana_manifest_decode_footprint failed (%d)", err ));
-  }
-
-  uchar * scratch    = (uchar *)fd_ulong_align_up( (ulong)decode.dataend, fd_solana_manifest_align() );
-  ulong   scratch_sz = (ulong)( restore->buf + restore->buf_max - scratch );
-  if( FD_UNLIKELY( total_sz > scratch_sz ) ) {
-    FD_LOG_ERR(( "Cannot decode snapshot. Insufficient scratch buffer size (need %lu, have %lu bytes)",
-                 (ulong)scratch + total_sz - (ulong)restore->buf, restore->buf_max ));
-  }
-  fd_solana_manifest_t * manifest = fd_solana_manifest_decode( scratch, &decode );
-
-  char acc_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( manifest->accounts_db.bank_hash_info.accounts_hash.uc, NULL, acc_hash_cstr );
-  if( manifest->bank_incremental_snapshot_persistence ) {
-    FD_LOG_ERR(( "Incremental snapshots not yet supported TODO" ));
-  } else {
-    FD_LOG_NOTICE(( "Full snapshot acc_hash=%s", acc_hash_cstr ));
-  }
-
-  dt += fd_log_wallclock();
-  FD_LOG_NOTICE(( "Snapshot manifest decode took %.2g seconds", (double)dt/1e9 ));
-
-  /* Move over accounts DB fields */
-
-  fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
-  fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
-
-  /* Remember slot number */
-
-  //ulong slot = manifest->bank.slot;
-
-  /* Copy objects into slot context */
-
-  //if( restore->cb_manifest ) {
-  //  err = restore->cb_manifest( restore->cb_manifest_ctx, manifest, restore->spad );
-  //}
-
-  /* Read AccountVec map */
-
-  if( FD_LIKELY( !err ) ) {
-    err = fd_snapshot_accv_index( restore->accv_map, &accounts_db );
-  }
-
-  /* Discard buffer to reclaim heap space */
-
-  fd_snapshot_restore_discard_buf( restore );
-
-  restore->manifest_done = 1;
-}
-
-/* snapshot_read_manifest_chunk reads partial manifest content. */
-
-static uchar const *
-snapshot_read_manifest_chunk( fd_snapin_tile_t * restore,
-                              uchar const *      buf,
-                              ulong              bufsz ) {
-  uchar const * end = snapshot_read_buffered( restore, buf, bufsz );
-  if( snapshot_read_is_complete( restore ) ) {
-    snapshot_restore_manifest( restore );
-    restore->state = SNAP_STATE_IGNORE;
-  }
-  return end;
-}
-
 static ulong
 scratch_align( void ) {
-  return fd_ulong_max( alignof(fd_snapin_tile_t), fd_snapshot_accv_map_align() );
+  return fd_ulong_max( alignof(fd_snapin_tile_t), fd_snapshot_parser_align() );
 }
 
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),    sizeof(fd_snapin_tile_t)         );
-  l = FD_LAYOUT_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
-  l = FD_LAYOUT_APPEND( l, 16UL,                         tile->snapin.scratch_sz          );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)       );
+  l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
   return l;
-}
-
-static fd_snapin_tile_t *
-scratch_init( void *                 mem,
-              fd_topo_tile_t const * tile ) {
-  if( FD_UNLIKELY( !mem ) ) return NULL;
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, scratch_align() ) ) ) return NULL;
-
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_snapin_tile_t * ctx          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
-  void *             accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
-  void *             scratch_mem  = FD_SCRATCH_ALLOC_APPEND( l, 16UL, tile->snapin.scratch_sz );
-
-  fd_memset( ctx, 0, sizeof(fd_snapin_tile_t) );
-  ctx->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
-  FD_TEST( ctx->accv_map );
-  ctx->buf = scratch_mem;
-
-  return ctx;
 }
 
 FD_FN_UNUSED static void
@@ -611,28 +121,17 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   /* FIXME check link names */
 
-  if( FD_UNLIKELY( !tile->snapin.scratch_sz ) ) FD_LOG_ERR(( "scratch_sz param not set" ));
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
+  void * parser_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
 
-  fd_snapin_tile_t * ctx = scratch_init( fd_topo_obj_laddr( topo, tile->tile_obj_id ), tile );
-  if( FD_UNLIKELY( !ctx ) ) FD_LOG_ERR(( "scratch_init failed" ));
-
-  /* Init state */
-
-  ctx->state         = SNAP_STATE_TAR;
-  ctx->flags         = 0;
-  ctx->manifest_done = 0;
+  ctx->parser = fd_snapshot_parser_new( parser_mem, NULL, NULL, NULL );
 
   /* Join stream input */
 
   FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
   ctx->in_state.in_buf  = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->in_state.in_skip = 0UL;
-
-  /* Join frame buffer */
-
-  ctx->buf_sz  = 0UL;
-  ctx->buf_ctr = 0UL;
-  ctx->buf_max = tile->snapin.scratch_sz;
 
   /* join funk */
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) ) ) {
@@ -652,126 +151,6 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static void
-tar_process_hdr( fd_snapin_tile_t * reader,
-                 uchar const *      cur ) {
-
-  fd_tar_meta_t const * hdr = (fd_tar_meta_t const *)reader->buf;
-
-  /* "ustar\x00" and "ustar  \x00" (overlaps with version) are both
-     valid values for magic.  These are POSIX ustar and OLDGNU versions
-     respectively. */
-  if( FD_UNLIKELY( 0!=memcmp( hdr->magic, FD_TAR_MAGIC, 5UL ) ) ) {
-
-    /* Detect EOF.  A TAR EOF is marked by 1024 bytes of zeros.
-       We abort after 512 bytes. */
-    int not_zero=0;
-    for( ulong i=0UL; i<sizeof(fd_tar_meta_t); i++ )
-      not_zero |= reader->buf[ i ];
-    if( !not_zero ) {
-      cur += sizeof(fd_tar_meta_t);
-      reader->flags |= SNAP_FLAG_DONE;
-      return;
-    }
-    /* Not an EOF, so must be a protocol error */
-    ulong goff = (ulong)cur - reader->in_state.goff_translate - sizeof(fd_tar_meta_t);
-    FD_LOG_WARNING(( "Invalid tar header magic at goff=0x%lx", goff ));
-    FD_LOG_HEXDUMP_WARNING(( "Tar header", hdr, sizeof(fd_tar_meta_t) ));
-    reader->flags |= SNAP_FLAG_FAILED;
-    return;
-  }
-
-  ulong file_sz = fd_tar_meta_get_size( hdr );
-  if( FD_UNLIKELY( file_sz==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "Failed to parse file size in tar header" ));
-    reader->flags |= SNAP_FLAG_FAILED;
-    return;
-  }
-  reader->tar_file_rem = file_sz;
-  reader->buf_ctr      = (ushort)0U;
-
-  /* Call back to recipient */
-  restore_file( reader, hdr, file_sz );
-}
-
-static uchar const *
-tar_read_hdr( fd_snapin_tile_t * reader,
-              uchar const *      cur,
-              ulong              bufsz ) {
-  uchar const * end = cur+bufsz;
-
-  /* Skip padding */
-  if( reader->buf_ctr==0UL ) {
-    ulong  goff   = (ulong)cur - reader->in_state.goff_translate;
-    ulong  pad_sz = fd_ulong_align_up( goff, 512UL ) - goff;
-           pad_sz = fd_ulong_min( pad_sz, (ulong)( end-cur ) );
-    cur += pad_sz;
-  }
-
-  /* Determine number of bytes to read */
-  long chunk_sz = (long)sizeof(fd_tar_meta_t) - (long)reader->buf_ctr;
-  FD_TEST( chunk_sz>=0L );
-  if( end-cur < chunk_sz ) chunk_sz = end-cur;
-
-  /* Copy to header */
-  fd_memcpy( reader->buf + reader->buf_ctr, cur, (ulong)chunk_sz );
-  cur             +=        chunk_sz;
-  reader->buf_ctr += (ulong)chunk_sz;
-
-  /* Handle complete header */
-  if( FD_LIKELY( reader->buf_ctr == sizeof(fd_tar_meta_t) ) ) {
-    tar_process_hdr( reader, cur );
-  }
-
-  return cur;
-}
-
-static uchar const *
-snapshot_read_discard( fd_snapin_tile_t * restore,
-                       uchar const *      buf,
-                       ulong              bufsz ) {
-  ulong avail = fd_ulong_min( bufsz, restore->tar_file_rem );
-  return buf + avail;
-}
-
-static uchar const *
-restore_chunk1( fd_snapin_tile_t * restore,
-                uchar const *      buf,
-                ulong              bufsz ) {
-  if( FD_UNLIKELY( restore->state==SNAP_STATE_TAR ) ) {
-    return tar_read_hdr( restore, buf, bufsz );
-  }
-  bufsz = fd_ulong_min( bufsz, restore->tar_file_rem );
-
-  uchar const * buf_next = NULL;
-  switch( restore->state ) {
-  case SNAP_STATE_IGNORE:
-    buf_next = snapshot_read_discard          ( restore, buf, bufsz );
-    break;
-  case SNAP_STATE_MANIFEST:
-    buf_next = snapshot_read_manifest_chunk   ( restore, buf, bufsz );
-    break;
-  case SNAP_STATE_ACCOUNT_HDR:
-    buf_next = snapshot_read_account_hdr_chunk( restore, buf, bufsz );
-    break;
-  case SNAP_STATE_ACCOUNT_DATA:
-    buf_next = snapshot_read_account_chunk    ( restore, buf, bufsz );
-    break;
-  default:
-    FD_LOG_ERR(( "Invalid parser state %u (this is a bug)", restore->state ));
-  }
-
-  ulong consumed = (ulong)buf_next - (ulong)buf;
-  if( FD_UNLIKELY( consumed>bufsz ) ) FD_LOG_CRIT(( "Buffer overflow (consumed=%lu bufsz=%lu)", consumed, bufsz ));
-  restore->tar_file_rem -= consumed;
-  if( restore->tar_file_rem==0UL ) {
-    restore->buf_ctr = 0UL;
-    restore->buf_sz  = 0UL;
-    restore->state   = SNAP_STATE_TAR;
-  }
-  return buf_next;
-}
-
-static void
 fd_snapin_set_status( fd_snapin_tile_t * ctx,
                       ulong              status ) {
   ctx->metrics.status = status;
@@ -782,10 +161,7 @@ fd_snapin_set_status( fd_snapin_tile_t * ctx,
 
 static void
 fd_snapin_reset( fd_snapin_tile_t * ctx ) {
-  ctx->flags = 0UL;
-  ctx->state = SNAP_STATE_TAR;
-  ctx->buf_ctr = 0UL;
-  ctx->buf_sz = 0UL;
+  fd_snapshot_parser_reset( ctx->parser );
   ctx->in_state.in_skip = 0UL;
 }
 
@@ -802,7 +178,7 @@ fd_snapin_on_file_complete( fd_snapin_tile_t *   ctx,
   } else if( ctx->metrics.status == SNAP_IN_STATUS_INC ) {
     FD_LOG_INFO(("snapin: done processing incremental snapshot"));
     fd_snapin_set_status( ctx, SNAP_IN_STATUS_DONE );
-    ctx->flags = SNAP_FLAG_DONE;
+    fd_snapshot_parser_close( ctx->parser );
     fd_snapin_shutdown();
 
   } else {
@@ -843,8 +219,8 @@ on_stream_frag( void *                        _ctx,
     return 1;
   }
 
-  if( FD_UNLIKELY( ctx->flags ) ) {
-    if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_FAILED ) ) FD_LOG_ERR(( "Failed to restore snapshot" ));
+  if( FD_UNLIKELY( ctx->parser->flags ) ) {
+    if( FD_UNLIKELY( ctx->parser->flags & SNAP_FLAG_FAILED ) ) FD_LOG_ERR(( "Failed to restore snapshot" ));
     return 0;
   }
 
@@ -853,7 +229,7 @@ on_stream_frag( void *                        _ctx,
   uchar const * const start  = chunk0 + ctx->in_state.in_skip;
   uchar const *       cur    = start;
 
-  ctx->in_state.goff_translate = (ulong)chunk0 - frag->goff;
+  fd_snapshot_parser_set_goff( ctx->parser, frag->goff );
 
   int consume_frag = 1;
   for(;;) {
@@ -861,11 +237,11 @@ on_stream_frag( void *                        _ctx,
       ctx->in_state.in_skip = 0U;
       break;
     }
-    cur = restore_chunk1( ctx, cur, (ulong)( chunk1-cur ) );
-    if( FD_UNLIKELY( ctx->flags ) ) {
-      if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_FAILED ) ) {
+    cur = fd_snapshot_parser_process_chunk( ctx->parser, cur, (ulong)( chunk1-cur ) );
+    if( FD_UNLIKELY( ctx->parser->flags ) ) {
+      if( FD_UNLIKELY( ctx->parser->flags & SNAP_FLAG_FAILED ) ) {
         FD_LOG_ERR(( "Failed to restore snapshot" ));
-      } else if( FD_UNLIKELY( ctx->flags & SNAP_FLAG_DONE ) ) {
+      } else if( FD_UNLIKELY( ctx->parser->flags & SNAP_FLAG_DONE ) ) {
         /* move cur to end */
         cur = chunk1;
         break;
