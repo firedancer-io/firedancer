@@ -247,6 +247,7 @@ after_frag( fd_gui_ctx_t *      ctx,
                                      trailer->txn_start_pct,
                                      trailer->txn_load_end_pct,
                                      trailer->txn_end_pct,
+                                     trailer->txn_preload_end_pct,
                                      trailer->tips );
   } else {
     FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
