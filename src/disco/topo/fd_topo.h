@@ -441,8 +441,12 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
+      char snapshot_dir_path[ PATH_MAX ];
       char full_snapshot_path[ PATH_MAX ];
       char incremental_snapshot_path[ PATH_MAX ];
+      uchar download_enabled;
+      uint minimum_download_speed_mib;
+      uint maximum_download_retry_abort;
     } snaprd;
 
     struct {
@@ -554,6 +558,14 @@ static inline void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
                    ulong             obj_id ) {
   fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  if( obj_id>=FD_TOPO_MAX_OBJS  ) {
+    FD_LOG_WARNING(("bad object id: %lu", obj_id));
+    FD_LOG_WARNING(("max objs is %lu", FD_TOPO_MAX_OBJS));
+    FD_LOG_WARNING(("sdfa sd"));
+    FD_LOG_WARNING(("sdfa sd"));
+    FD_LOG_WARNING(("sdfa sd"));
+    FD_LOG_WARNING(("sdfa sd"));
+  }
   FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
   FD_TEST( obj->id == obj_id );
   FD_TEST( obj->offset );

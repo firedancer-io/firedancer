@@ -80,7 +80,7 @@ fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
   for(;;) pause();
 }
 
-static int
+__attribute__((unused)) static int
 snapshot_is_duplicate_account( fd_snapshot_parser_t * parser,
                                fd_snapin_tile_t *     ctx,
                                fd_pubkey_t const *    account_key ) {
@@ -92,7 +92,7 @@ snapshot_is_duplicate_account( fd_snapshot_parser_t * parser,
   return 0;
 }
 
-static void
+__attribute__((unused)) static void
 snapshot_insert_account( fd_snapshot_parser_t *          parser,
                          fd_solana_account_hdr_t const * hdr,
                          void *                          _ctx ) {
@@ -113,7 +113,7 @@ snapshot_insert_account( fd_snapshot_parser_t *          parser,
   }
 }
 
-static void
+__attribute__((unused)) static void
 snapshot_copy_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
                         void *                 _ctx,
                         uchar *                buf,
@@ -125,7 +125,7 @@ snapshot_copy_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
   }
 }
 
-static void
+__attribute__((unused)) static void
 snapshot_reset_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
                          void *                 _ctx ) {
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
@@ -191,13 +191,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * parser_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint() );
 
   ctx->parser = fd_snapshot_parser_new( parser_mem,
-                                        snapshot_insert_account,
-                                        snapshot_copy_acc_data,
-                                        snapshot_reset_acc_data,
+                                        NULL,
+                                        NULL,
+                                        NULL,
                                         ctx );
 
   /* Join stream input */
-
   FD_TEST( fd_dcache_join( fd_topo_obj_laddr( topo, topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ) ) );
   ctx->in_state.in_buf  = (uchar const *)topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->in_state.in_skip = 0UL;

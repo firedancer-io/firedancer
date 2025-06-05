@@ -302,7 +302,9 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
   char acc_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( manifest->accounts_db.bank_hash_info.accounts_hash.uc, NULL, acc_hash_cstr );
   if( manifest->bank_incremental_snapshot_persistence ) {
-    FD_LOG_ERR(( "Incremental snapshots not yet supported TODO" ));
+    FD_LOG_NOTICE(( "Incremental snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
+      FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->full_hash),
+      FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->incremental_hash) ));
   } else {
     FD_LOG_NOTICE(( "Full snapshot acc_hash=%s", acc_hash_cstr ));
   }
