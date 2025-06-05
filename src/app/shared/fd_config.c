@@ -497,6 +497,11 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
+    CFG_HAS_NON_ZERO ( net.xdp.ethtool_queue_count );
+    if( FD_UNLIKELY( config->net.xdp.ethtool_queue_count < config->layout.net_tile_count ) ) {
+      FD_LOG_ERR(( "`net.ethtool_queue_count` (%u) must be at least as large as `layout.net_tile_count` (%u)",
+                  config->net.xdp.ethtool_queue_count, config->layout.net_tile_count ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );

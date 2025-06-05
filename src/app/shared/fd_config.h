@@ -142,6 +142,7 @@ struct fd_config_net {
 
   struct {
     char xdp_mode[ 8 ];
+    uint ethtool_queue_count;
     int  xdp_zero_copy;
 
     uint xdp_rx_queue_size;

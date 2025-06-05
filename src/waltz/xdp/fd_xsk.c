@@ -239,7 +239,7 @@ fd_xsk_init( fd_xsk_t *              xsk,
   char if_name[ IF_NAMESIZE ] = {0};
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
-    FD_LOG_WARNING(( "bind( PF_XDP, ifindex=%u (%s), queue_id=%u, flags=%x ) failed (%i-%s)",
+    FD_LOG_WARNING(( "bind( PF_XDP, ifindex=%u (%s), queue_id=%u, flags=0x%x ) failed (%i-%s)",
                      xsk->if_idx, if_indextoname( xsk->if_idx, if_name ),
                      xsk->if_queue_id, flags,
                      errno, fd_io_strerror( errno ) ));

@@ -99,12 +99,15 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
                       int          reliable,
                       int          polled );
 
-/* This should be called *after* all app<->net tile links have been
-   created.  Should be called once per net tile. */
+/* fd_topos_net_tile_finish auto-generates configuration for a net
+   topology after all net tiles and links have been created.
+
+   For XDP, it does the following:
+   - Configures interface queue <> net tile affinities
+   - Configures net dcache sizes */
 
 void
-fd_topos_net_tile_finish( fd_topo_t * topo,
-                          ulong       net_kind_id );
+fd_topos_net_tile_finish( fd_topo_t * topo );
 
 FD_PROTOTYPES_END
 

@@ -159,6 +159,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   net.provider                                     );
   CFG_POP      ( uint,   net.ingress_buffer_size                          );
   CFG_POP      ( cstr,   net.xdp.xdp_mode                                 );
+  CFG_POP      ( uint,   net.xdp.ethtool_queue_count                      );
   CFG_POP      ( bool,   net.xdp.xdp_zero_copy                            );
   CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );

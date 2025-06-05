@@ -979,6 +979,12 @@ dynamic_port_range = "8900-9000"
         xdp_rx_queue_size = 32768
         xdp_tx_queue_size = 32768
 
+        # For improved performance, XDP reduces the ethtool queue count.
+        # This is done in the 'fdctl configure ethtool-channels' step.
+        # The recommended queue count is 8 per net tile.  Each net tile
+        # can serve up to 32 queues.
+        ethtool_queue_count = 8
+
         # When the oldest packet in a batch has been queued for more than
         # the specified duration, flushes the batch out to the network
         # device.  Smaller values improve latency, larger values may
