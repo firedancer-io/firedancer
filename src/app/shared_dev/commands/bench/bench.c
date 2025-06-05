@@ -1,11 +1,10 @@
 #define _GNU_SOURCE
-#include "../dev.h"
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
-#include "../../../../util/shmem/fd_shmem_private.h"
+#include "../../../../disco/topo/fd_topo_net.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
@@ -177,8 +176,7 @@ bench_cmd_fn( args_t *   args,
   fdctl_setup_netns( config, 1 );
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-    (void)fds;
+    (void)fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
   }
 
   fd_log_private_shared_lock[ 1 ] = 0;

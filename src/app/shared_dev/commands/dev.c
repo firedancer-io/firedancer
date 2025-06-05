@@ -5,6 +5,7 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../shared/commands/monitor/monitor.h"
+#include "../../../disco/topo/fd_topo_net.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -131,8 +132,7 @@ run_firedancer_threaded( config_t * config,
      join (the key is only on shmem name, when it should be (name, mode)). */
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-    (void)fds;
+    (void)fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
   }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );

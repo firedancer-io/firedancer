@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_xdp_instr_cnt = 45;
 
-static void populate_sock_filter_policy_xdp( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int xsk_fd, unsigned int lo_xsk_fd) {
+static void populate_sock_filter_policy_xdp( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int xsk_fd_lo, unsigned int xsk_fd_hi) {
   FD_TEST( out_cnt >= 45 );
   struct sock_filter filter[45] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
@@ -58,12 +58,12 @@ static void populate_sock_filter_policy_xdp( ulong out_cnt, struct sock_filter *
 //  check_sendto:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, xsk_fd, /* lbl_2 */ 2, /* lbl_3 */ 0 ),
-//  lbl_3:
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, xsk_fd_lo, /* lbl_2 */ 0, /* RET_KILL_PROCESS */ 26 ),
+//  lbl_2:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, lo_xsk_fd, /* lbl_2 */ 0, /* RET_KILL_PROCESS */ 24 ),
-//  lbl_2:
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, xsk_fd_hi, /* RET_KILL_PROCESS */ 24, /* lbl_3 */ 0 ),
+//  lbl_3:
     /* load syscall argument 1 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* lbl_4 */ 0, /* RET_KILL_PROCESS */ 22 ),
@@ -86,24 +86,24 @@ static void populate_sock_filter_policy_xdp( ulong out_cnt, struct sock_filter *
 //  check_recvmsg:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, xsk_fd, /* lbl_8 */ 2, /* lbl_9 */ 0 ),
-//  lbl_9:
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, xsk_fd_lo, /* lbl_8 */ 0, /* RET_KILL_PROCESS */ 12 ),
+//  lbl_8:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, lo_xsk_fd, /* lbl_8 */ 0, /* RET_KILL_PROCESS */ 10 ),
-//  lbl_8:
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, xsk_fd_hi, /* RET_KILL_PROCESS */ 10, /* lbl_9 */ 0 ),
+//  lbl_9:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, MSG_DONTWAIT, /* RET_ALLOW */ 9, /* RET_KILL_PROCESS */ 8 ),
 //  check_getsockopt:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, xsk_fd, /* lbl_10 */ 2, /* lbl_11 */ 0 ),
-//  lbl_11:
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, xsk_fd_lo, /* lbl_10 */ 0, /* RET_KILL_PROCESS */ 6 ),
+//  lbl_10:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, lo_xsk_fd, /* lbl_10 */ 0, /* RET_KILL_PROCESS */ 4 ),
-//  lbl_10:
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, xsk_fd_hi, /* RET_KILL_PROCESS */ 4, /* lbl_11 */ 0 ),
+//  lbl_11:
     /* load syscall argument 1 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SOL_XDP, /* lbl_12 */ 0, /* RET_KILL_PROCESS */ 2 ),

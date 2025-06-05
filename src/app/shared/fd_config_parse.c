@@ -152,6 +152,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  hugetlbfs.gigantic_page_threshold_mib            );
 
   CFG_POP      ( cstr,   net.interface                                    );
+  CFG_POP      ( uint,   net.ethtool_queue_count                          );
   CFG_POP      ( cstr,   net.bind_address                                 );
   CFG_POP      ( cstr,   net.provider                                     );
   CFG_POP      ( uint,   net.ingress_buffer_size                          );
