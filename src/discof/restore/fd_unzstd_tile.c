@@ -73,7 +73,7 @@ fd_snapdc_accumulate_metrics( fd_snapdc_tile_t * ctx,
     ctx->metrics.incremental.compressed_bytes_read   += compressed_bytes_read;
     ctx->metrics.incremental.decompressed_bytes_read += decompressed_bytes_read;
   } else {
-    FD_LOG_ERR(("unexpected status"));
+    FD_LOG_ERR(("snapdc: unexpected status"));
   }
 }
 
@@ -129,7 +129,7 @@ fd_snapdc_shutdown( void ) {
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
 
-  FD_LOG_INFO(("shutting down"));
+  FD_LOG_INFO(("snapdc: shutting down"));
 
   for(;;) pause();
 }
@@ -138,7 +138,7 @@ static void
 fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
                             fd_stream_reader_t * reader ) {
   if( ctx->metrics.status == SNAP_DC_STATUS_FULL ) {
-    FD_LOG_INFO(("done decompressing full snapshot, now decompressing incremental snapshot"));
+    FD_LOG_INFO(("snapdc: done decompressing full snapshot, now decompressing incremental snapshot"));
     fd_snapdc_set_status( ctx, SNAP_DC_STATUS_INC );
 
     /* notify downstream consumer */
@@ -151,14 +151,14 @@ fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
     fd_stream_reader_reset_stream( reader );
 
   } else if( ctx->metrics.status == SNAP_DC_STATUS_INC ) {
-    FD_LOG_INFO(("done decompressing incremental snapshot"));
+    FD_LOG_INFO(("snapdc: done decompressing incremental snapshot"));
     fd_snapdc_set_status( ctx, SNAP_DC_STATUS_DONE );
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
     fd_snapdc_shutdown();
 
   } else {
-    FD_LOG_ERR(("unexpected status"));
+    FD_LOG_ERR(("snapdc: unexpected status"));
   }
 }
 
@@ -201,7 +201,7 @@ on_stream_frag( void *                        _ctx,
     /* fd_zstd_dstream_read updates chunk_start and out */
     int zstd_err = fd_zstd_dstream_read( ctx->dstream, &in_cur, in_chunk_end, &out_cur, out_end, NULL );
     if( FD_UNLIKELY( zstd_err>0 ) ) {
-      FD_LOG_ERR(( "fd_zstd_dstream_read failed on seq %lu", reader->base.seq ));
+      FD_LOG_ERR(( "snapdc: fd_zstd_dstream_read failed on seq %lu", reader->base.seq ));
       break;
     }
 

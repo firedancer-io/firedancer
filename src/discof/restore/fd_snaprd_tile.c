@@ -77,7 +77,7 @@ fd_snaprd_shutdown( fd_snaprd_tile_t * ctx ) {
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
 
-  FD_LOG_INFO(( "shutting down" ));
+  FD_LOG_INFO(( "snaprd: shutting down" ));
 
   for(;;) pause();
 }
@@ -87,7 +87,7 @@ fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
   if( ctx->metrics.status == SNAP_RD_STATUS_FULL ) {
     ctx->curr_fd = ctx->inc_fd;
 
-    FD_LOG_INFO(("done reading full snapshot, now reading incremental snapshot, seq is %lu", ctx->writer->seq ));
+    FD_LOG_INFO(("snaprd: done reading full snapshot, now reading incremental snapshot, seq is %lu", ctx->writer->seq ));
     fd_snaprd_set_status( ctx, SNAP_RD_STATUS_INC );
     fd_stream_writer_notify( ctx->writer, 
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
@@ -95,13 +95,13 @@ fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
 
   } else if( ctx->metrics.status == SNAP_RD_STATUS_INC ) {
 
-    FD_LOG_INFO(( "done reading incremental snapshot!" ));
+    FD_LOG_INFO(( "snaprd: done reading incremental snapshot!" ));
     fd_snaprd_set_status( ctx, SNAP_RD_STATUS_DONE );
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
     fd_snaprd_shutdown( ctx );
   } else {
-    FD_LOG_ERR(("unexpected status"));
+    FD_LOG_ERR(("snaprd: unexpected status"));
   }
 }
 
@@ -113,7 +113,7 @@ fd_snaprd_accumulate_metrics( fd_snaprd_tile_t * ctx,
   } else if( ctx->metrics.status == SNAP_RD_STATUS_INC ) {
     ctx->metrics.incremental.bytes_read += bytes;
   } else {
-    FD_LOG_ERR(("unexpected status"));
+    FD_LOG_ERR(("snaprd: unexpected status"));
   }
 }
 

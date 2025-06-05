@@ -282,10 +282,7 @@ struct fd_topo_tile {
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
-      char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
-      char  snapshot[ PATH_MAX ];
-      char  snapshot_dir[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
@@ -304,7 +301,6 @@ struct fd_topo_tile {
       /* not specified in TOML */
 
       int   incremental_src_type;
-      int   snapshot_src_type;
       ulong snap_fseq_obj_id;
 
       ulong enable_features_cnt;
@@ -444,7 +440,8 @@ struct fd_topo_tile {
       char snapshot_dir_path[ PATH_MAX ];
       char full_snapshot_path[ PATH_MAX ];
       char incremental_snapshot_path[ PATH_MAX ];
-      uchar download_enabled;
+      int do_download;
+      uint maximum_local_snapshot_age;
       uint minimum_download_speed_mib;
       uint maximum_download_retry_abort;
     } snaprd;

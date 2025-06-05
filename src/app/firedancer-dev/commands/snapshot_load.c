@@ -306,7 +306,7 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong snap_in_wait  = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
                           FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
                           snap_in_backp;
-    ulong acc_cnt       = FD_VOLATILE_CONST( snap_accs_sync[3] );
+    ulong acc_cnt       = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, SNAPIN, FULL_ACCOUNTS_PROCESSED    ) ] );
     printf( "bw=%4.2g GB/s backp=(%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%) acc=%8.3g/s\n",
             (double)( goff-goff_old )/1e9,
             ( (double)( file_rd_backp-file_rd_backp_old )*ns_per_tick )/1e7,
