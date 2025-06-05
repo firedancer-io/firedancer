@@ -1766,6 +1766,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz     )+sizeof(((fd_txn_p_t*)NULL)->payload_sz    )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, blockhash_slot )+sizeof(((fd_txn_p_t*)NULL)->blockhash_slot)<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags          )+sizeof(((fd_txn_p_t*)NULL)->flags         )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, scheduler_arrival_time_nanos )+sizeof(((fd_txn_p_t*)NULL)->scheduler_arrival_time_nanos )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _              )                                            <=1280UL, nt_memcpy );
       const ulong offset_into_txn = 1280UL - offsetof(fd_txn_p_t, _ );
       fd_memcpy( offset_into_txn+(uchar *)TXN(out), offset_into_txn+(uchar const *)txn,
@@ -1778,6 +1779,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       out->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
       out->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
       out->flags                           = cur->txn->flags;
+      out->scheduler_arrival_time_nanos    = cur->txn->scheduler_arrival_time_nanos;
     }
     out++;
 
@@ -2189,6 +2191,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     out->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
     out->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
     out->flags                           = cur->txn->flags;
+    out->scheduler_arrival_time_nanos    = cur->txn->scheduler_arrival_time_nanos;
     out++;
 
     pack->cumulative_block_cost += cur->compute_est;

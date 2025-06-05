@@ -69,6 +69,8 @@ struct __attribute__((aligned(64))) fd_txn_p {
    } bank_cu; /* Populated by bank. */
    ulong blockhash_slot; /* Slot provided by resolv tile when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
   };
+  /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->bank link. */
+  long scheduler_arrival_time_nanos;
   /* Populated by pack, bank.  A combination of the bitfields
      FD_TXN_P_FLAGS_* defined above.  The bank sets the high byte with
      the transaction result code. */
