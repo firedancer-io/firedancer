@@ -46,6 +46,8 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 #define SNAP_FLAG_BLOCKED 2
 #define SNAP_FLAG_DONE    4
 
+#define SCRATCH_SZ 3*1024*1024*1024UL
+
 struct fd_snapshot_parser;
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
@@ -72,6 +74,7 @@ struct fd_snapshot_parser {
 
   /* Tar parser */
 
+  ulong goff;
   ulong tar_file_rem; /* number of stream bytes in current TAR file */
 
   /* Snapshot file parser */
@@ -94,8 +97,86 @@ struct fd_snapshot_parser {
 };
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
+FD_FN_CONST static inline ulong
+fd_snapshot_parser_align( void ) {
+  return fd_ulong_max( alignof(fd_snapshot_parser_t), fd_snapshot_accv_map_align() );
+}
+
+FD_FN_CONST static inline ulong
+fd_snapshot_parser_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t)     );
+  l = FD_LAYOUT_APPEND( l, fd_snapshot_accv_map_align(),  fd_snapshot_accv_map_footprint() );
+  l = FD_LAYOUT_APPEND( l, 16UL,                          SCRATCH_SZ                       );
+  return l;
+}
+
+static inline void
+fd_snapshot_parser_set_goff( fd_snapshot_parser_t * self,
+                             ulong                  goff ) {
+  self->goff = goff;
+}
+
+static inline void
+fd_snapshot_parser_reset_tar( fd_snapshot_parser_t * self ) {
+  self->state   = SNAP_STATE_TAR;
+  self->buf_ctr = 0UL;
+  self->buf_sz  = 0UL;
+}
+
+static inline void
+fd_snapshot_parser_reset( fd_snapshot_parser_t * self ) {
+  self->flags = 0UL;
+  fd_snapshot_parser_reset_tar( self );
+}
+
+static inline fd_snapshot_parser_t *
+fd_snapshot_parser_new( void * mem,
+                        fd_snapshot_process_acc_hdr_fn_t acc_hdr_cb,
+                        fd_snapshot_process_acc_data_fn_t acc_data_cb,
+                        void *                            cb_arg ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_snapshot_parser_align() ) ) ) {
+    FD_LOG_WARNING(( "unaligned mem" ));
+    return NULL;
+  }
+
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_snapshot_parser_t * self = (fd_snapshot_parser_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_parser_t), sizeof(fd_snapshot_parser_t) );
+
+  self->state         = SNAP_STATE_TAR;
+  self->flags         = 0;
+  self->manifest_done = 0;
+
+  self->buf_sz  = 0UL;
+  self->buf_ctr = 0UL;
+  self->buf_max = SCRATCH_SZ;
+
+  void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
+  void * buf_mem      = FD_SCRATCH_ALLOC_APPEND( l, 16UL, SCRATCH_SZ );
+
+  self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
+  FD_TEST( self->accv_map );
+
+  self->buf = buf_mem;
+
+  self->acc_hdr_cb  = acc_hdr_cb;
+  self->acc_data_cb = acc_data_cb;
+  self->cb_arg      = cb_arg;
+
+  return self;
+}
+
+static inline void
+fd_snapshot_parser_close( fd_snapshot_parser_t * self ) {
+  self->flags = SNAP_FLAG_DONE;
+}
+
 uchar const *
 fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
                                   uchar const *          buf,
                                   ulong                  bufsz );
-
