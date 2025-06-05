@@ -5,7 +5,7 @@
 
    The auth flow is as follows:
    - Client requests a challenge-response transaction
-   - Server returns a 7 byte "challenge" to be signed using the client's
+   - Server returns a 9 byte "challenge" to be signed using the client's
      identity key
    - Client sends back the signed challenge and requests an auth token
    - Server returns an auth token and a refresh token  */
