@@ -108,6 +108,9 @@ FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 #define FD_PACK_STRATEGY_BALANCED 1
 #define FD_PACK_STRATEGY_BUNDLE   2
 
+static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "BUN" };
+
+
 typedef struct {
   fd_acct_addr_t commission_pubkey[1];
   ulong          commission;
@@ -1109,13 +1112,16 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( bank_cnt>FD_PACK_MAX_BANK_TILES      ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
   if( FD_UNLIKELY( bank_cnt!=tile->pack.bank_tile_count ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", bank_cnt, tile->pack.bank_tile_count ));
 
+  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BUNDLE) );
 
   ctx->crank->enabled = tile->pack.bundle.enabled;
   if( FD_UNLIKELY( tile->pack.bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_bundle_crank_gen_init( ctx->crank->gen, (fd_acct_addr_t const *)tile->pack.bundle.tip_distribution_program_addr,
             (fd_acct_addr_t const *)tile->pack.bundle.tip_payment_program_addr,
             (fd_acct_addr_t const *)ctx->crank->vote_pubkey->b,
-            (fd_acct_addr_t const *)tile->pack.bundle.tip_distribution_authority, tile->pack.bundle.commission_bps ) ) ) {
+            (fd_acct_addr_t const *)tile->pack.bundle.tip_distribution_authority,
+            schedule_strategy_strings[ tile->pack.schedule_strategy ],
+            tile->pack.bundle.commission_bps ) ) ) {
       FD_LOG_ERR(( "constructing bundle generator failed" ));
     }
 
@@ -1153,8 +1159,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->extra_txn_deq = extra_txn_deq_join( extra_txn_deq_new( FD_SCRATCH_ALLOC_APPEND( l, extra_txn_deq_align(),
                                                                                           extra_txn_deq_footprint() ) ) );
 #endif
-
-  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BUNDLE) );
 
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;

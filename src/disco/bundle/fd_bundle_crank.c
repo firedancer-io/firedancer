@@ -3,24 +3,28 @@
 
 FD_STATIC_ASSERT( sizeof(fd_bundle_crank_tip_payment_config_t)==89UL, config_struct );
 
+#define MEMO_PROGRAM_ID 0x05U,0x4aU,0x53U,0x5aU,0x99U,0x29U,0x21U,0x06U,0x4dU,0x24U,0xe8U,0x71U,0x60U,0xdaU,0x38U,0x7cU, \
+                        0x7cU,0x35U,0xb5U,0xddU,0xbcU,0x92U,0xbbU,0x81U,0xe4U,0x1fU,0xa8U,0x40U,0x41U,0x05U,0x44U,0x8dU
+
 static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
 
     .sig_cnt         =  1,
     ._sig_cnt        =  1,
     .ro_signed_cnt   =  0,
-    .ro_unsigned_cnt =  5,
-    .acct_addr_cnt   = 20,
+    .ro_unsigned_cnt =  6,
+    .acct_addr_cnt   = 21,
 
     .system_program         = { SYS_PROG_ID            },
     .compute_budget_program = { COMPUTE_BUDGET_PROG_ID },
+    .memo_program           = { MEMO_PROGRAM_ID        },
 
-    .instr_cnt = 4,
+    .instr_cnt = 5,
     .compute_budget_instruction = {
         .prog_id = 15,
         .acct_cnt = 0,
         .data_sz = 5,
         .set_cu_limit = 2,
-        .cus = 100000U
+        .cus = 103000U
     },
 
     .init_tip_distribution_acct = {
@@ -47,6 +51,12 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
         .ix_discriminator = { FD_BUNDLE_CRANK_DISC_CHANGE_BLK_BLD },
     },
 
+    .memo = {
+      .prog_id = 20,
+      .acct_cnt = 0,
+      .data_sz  = 3
+    },
+
     /* Account addresses that depend on the network: */
     .tip_payment_accounts            = {{ 0 }},
     .tip_distribution_program_config =  { 0 },
@@ -57,6 +67,7 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
     /* Fields that depend on the validator configuration: */
     .authorized_voter       = { 0 },
     .validator_vote_account = { 0 },
+    .memo.memo              = { 0 },
     .init_tip_distribution_acct.merkle_root_upload_authority = { 0 },
     .init_tip_distribution_acct.commission_bps               = 0,
     .init_tip_distribution_acct.bump                         = 0,
@@ -74,18 +85,19 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
     .sig_cnt         =  1,
     ._sig_cnt        =  1,
     .ro_signed_cnt   =  0,
-    .ro_unsigned_cnt =  2,
-    .acct_addr_cnt   = 17,
+    .ro_unsigned_cnt =  3,
+    .acct_addr_cnt   = 18,
 
     .compute_budget_program = { COMPUTE_BUDGET_PROG_ID },
+    .memo_program           = { MEMO_PROGRAM_ID        },
 
-    .instr_cnt = 3,
+    .instr_cnt = 4,
     .compute_budget_instruction = {
         .prog_id = 15,
         .acct_cnt = 0,
         .data_sz = 5,
         .set_cu_limit = 2,
-        .cus = 80000U
+        .cus = 83000U
     },
 
     .change_tip_receiver = {
@@ -104,6 +116,12 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
         .ix_discriminator = { FD_BUNDLE_CRANK_DISC_CHANGE_BLK_BLD },
     },
 
+    .memo = {
+      .prog_id = 17,
+      .acct_cnt = 0,
+      .data_sz = 3
+    },
+
     /* Account addresses that depend on the network: */
     .tip_payment_accounts            = {{ 0 }},
     .tip_distribution_program_config =  { 0 },
@@ -112,6 +130,7 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
 
     /* Fields that depend on the validator configuration: */
     .authorized_voter       = { 0 },
+    .memo.memo              = { 0 },
 
     /* Fields that vary each time: */
     .old_tip_receiver  = { 0 },
@@ -154,6 +173,7 @@ fd_bundle_crank_gen_init( void                 * mem,
                           fd_acct_addr_t const * tip_payment_program_addr,
                           fd_acct_addr_t const * validator_vote_acct_addr,
                           fd_acct_addr_t const * merkle_root_authority_addr,
+                          char const *           scheduler_mode,
                           ulong                  commission_bps ) {
   fd_bundle_crank_gen_t * g = (fd_bundle_crank_gen_t *)mem;
   memcpy( g->crank3, fd_bundle_crank_3_base, sizeof(fd_bundle_crank_3_base) );
@@ -164,6 +184,15 @@ fd_bundle_crank_gen_init( void                 * mem,
   memcpy( g->crank3->tip_payment_program,                                     tip_payment_program_addr,      32UL );
   memcpy( g->crank3->validator_vote_account,                                  validator_vote_acct_addr,      32UL );
   memcpy( g->crank3->init_tip_distribution_acct.merkle_root_upload_authority, merkle_root_authority_addr,    32UL );
+
+  /* What we want here is just an strncpy, but the compiler makes it
+     really hard to use strncpy to make a deliberately potentially
+     unterminated string.  Rather than fight the compiler, we basically
+     hand-do it. */
+  int is_nul;
+  is_nul = 0      || (!scheduler_mode[0]);    g->crank3->memo.memo[0] = is_nul ? '\0' : scheduler_mode[0];
+  is_nul = is_nul || (!scheduler_mode[1]);    g->crank3->memo.memo[1] = is_nul ? '\0' : scheduler_mode[1];
+  is_nul = is_nul || (!scheduler_mode[2]);    g->crank3->memo.memo[2] = is_nul ? '\0' : scheduler_mode[2];
 
   uint  cerr[1];
   do {
@@ -198,6 +227,7 @@ fd_bundle_crank_gen_init( void                 * mem,
   memcpy( g->crank2->tip_distribution_program_config, g->crank3->tip_distribution_program_config,     32UL );
   memcpy( g->crank2->tip_payment_program_config,      g->crank3->tip_payment_program_config,          32UL );
   memcpy( g->crank2->tip_payment_program,             g->crank3->tip_payment_program,                 32UL );
+  memcpy( g->crank2->memo.memo,                       g->crank3->memo.memo,                            3UL );
 
   FD_TEST( sizeof(g->txn3)==fd_txn_parse( (uchar const *)g->crank3, sizeof(g->crank3), g->txn3, NULL ) );
   FD_TEST( sizeof(g->txn2)==fd_txn_parse( (uchar const *)g->crank2, sizeof(g->crank2), g->txn2, NULL ) );

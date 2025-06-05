@@ -63,6 +63,7 @@ test_repro_onchain( void ) {
 
   fd_bundle_crank_gen_init( g, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, _T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt,
                                _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD, _GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib,
+                               "NONE",
                                0UL );
   fd_acct_addr_t tip_payment_config[1];
   fd_acct_addr_t tip_receiver      [1];
@@ -94,7 +95,7 @@ test_repro_onchain( void ) {
   ulong txn_2ni_sz = fd_txn_parse( payload_2ni, payload_2ni_sz, _txn_2ni, NULL );
   FD_TEST( txn_2ni_sz );
 
-  FD_TEST( txn->instr_cnt==txn_2ni->instr_cnt+1UL );
+  FD_TEST( txn->instr_cnt==txn_2ni->instr_cnt+2UL );
   fd_acct_addr_t const * addr = fd_txn_get_acct_addrs( txn, payload );
   fd_acct_addr_t const * addr_2ni = fd_txn_get_acct_addrs( txn_2ni, payload_2ni );
 #define ASSERT_PUBKEY_EQ( idx1, idx2 ) FD_TEST( fd_memeq( addr+(idx1), addr_2ni+(idx2), 32UL ) ); \
@@ -170,6 +171,7 @@ test_no_duplicates( void ) {
 
   fd_bundle_crank_gen_init( g, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, _T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt,
                                _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD, _GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib,
+                               "NONE",
                                0UL );
   FD_TEST( check_duplicates( g, rng, _GiLHMES95axFbFX7ogCTwL6QQ1uqspajz9SHMpt5dCGh, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY  ) );
   FD_TEST( check_duplicates( g, rng, _GiLHMES95axFbFX7ogCTwL6QQ1uqspajz9SHMpt5dCGh, _DNVZMSqeRH18Xa4MCTrb1MndNf3Npg4MEwqswo23eWkf ) );
@@ -187,6 +189,7 @@ test_crank_cnt( void ) {
 
   fd_bundle_crank_gen_init( g, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, _T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt,
                                _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD, _GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib,
+                               "NONE",
                                1UL );
 
   fd_bundle_crank_tip_payment_config_t tip_payment_config[1] = {{
