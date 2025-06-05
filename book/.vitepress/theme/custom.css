@@ -1,0 +1,32 @@
+.metrics td {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.metrics tbody tr > *:nth-child(1) {
+  width: 40%;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+}
+.metrics tr > *:nth-child(2) { width:10%; font-weight: 600; }
+.metrics tr > *:nth-child(3) { width:55%; }
+
+.dark .metrics-name {
+  color: #B392F0;
+  font-weight: 600;
+}
+
+html:not(.dark) .metrics-name {
+  color: #6F42C1;
+  font-weight: 600;
+}
+
+.dark .metrics-enum {
+  color: #9ECBFF;
+  font-weight: 600;
+}
+
+html:not(.dark) .metrics-enum {
+  color: #032F62;
+  font-weight: 600;
+}
