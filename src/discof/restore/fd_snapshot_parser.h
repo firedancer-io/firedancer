@@ -66,10 +66,18 @@ typedef void
 (* fd_snapshot_process_acc_done_fn_t)( fd_snapshot_parser_t * parser,
                                        void *                 _ctx );
 
+struct fd_snapshot_parser_metrics {
+  ulong accounts_files_processed;
+  ulong accounts_files_total;
+  ulong accounts_processed;
+};
+typedef struct fd_snapshot_parser_metrics fd_snapshot_parser_metrics_t;
+
 struct fd_snapshot_parser {
   uchar state;
   uchar flags;
   uchar manifest_done;
+  uchar processing_accv;
 
   /* Frame buffer */
 
@@ -102,6 +110,9 @@ struct fd_snapshot_parser {
   fd_snapshot_process_acc_data_fn_t acc_data_cb;
   fd_snapshot_process_acc_done_fn_t acc_done_cb;
   void * cb_arg;
+
+  /* metrics */
+  fd_snapshot_parser_metrics_t metrics;
 };
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
@@ -127,15 +138,23 @@ fd_snapshot_parser_set_goff( fd_snapshot_parser_t * self,
 
 static inline void
 fd_snapshot_parser_reset_tar( fd_snapshot_parser_t * self ) {
-  self->state   = SNAP_STATE_TAR;
-  self->buf_ctr = 0UL;
-  self->buf_sz  = 0UL;
+  self->state           = SNAP_STATE_TAR;
+  self->buf_ctr         = 0UL;
+  self->buf_sz          = 0UL;
+  self->processing_accv = 0;
+  self->tar_file_rem    = 0UL;
 }
 
 static inline void
 fd_snapshot_parser_reset( fd_snapshot_parser_t * self ) {
   self->flags = 0UL;
   fd_snapshot_parser_reset_tar( self );
+  self->manifest_done = 0;
+  self->metrics.accounts_files_processed = 0UL;
+  self->metrics.accounts_files_total     = 0UL;
+  self->metrics.accounts_processed       = 0UL;
+  self->processing_accv          = 0;
+  self->goff                     = 0UL;
 }
 
 static inline fd_snapshot_parser_t *
@@ -178,12 +197,22 @@ fd_snapshot_parser_new( void * mem,
   self->acc_done_cb = acc_done_cb;
   self->cb_arg      = cb_arg;
 
+  self->metrics.accounts_files_processed = 0UL;
+  self->metrics.accounts_files_total     = 0UL;
+  self->metrics.accounts_processed       = 0UL;
+  self->processing_accv          = 0;
+
   return self;
 }
 
 static inline void
 fd_snapshot_parser_close( fd_snapshot_parser_t * self ) {
   self->flags = SNAP_FLAG_DONE;
+}
+
+static inline fd_snapshot_parser_metrics_t
+fd_snapshot_parser_get_metrics( fd_snapshot_parser_t * self ) {
+  return self->metrics;
 }
 
 uchar const *

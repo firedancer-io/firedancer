@@ -140,23 +140,6 @@ fd_funk_find_account( fd_funk_t * funk,
   }
 }
 
-static void
-fd_funk_insert_rec( fd_funk_t * funk,
-                    fd_funk_rec_t * rec,
-                    ulong rec_idx ) {
-  fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
-  ulong hash = fd_funk_rec_key_hash( rec->pair.key, fd_funk_seed( funk ) );
-  fd_funk_rec_map_shmem_private_chain_t * chain =  fd_funk_rec_map_shmem_private_chain( rec_map->map, hash );
-  rec->map_next = chain->head_cidx;
-  chain->head_cidx = (uint)rec_idx;
-
-  ulong ver_cnt = chain->ver_cnt;
-  ulong version = fd_funk_rec_map_private_vcnt_ver( ver_cnt );
-  ulong ele_cnt = fd_funk_rec_map_private_vcnt_cnt( ver_cnt );
-
-  chain->ver_cnt   = fd_funk_rec_map_private_vcnt( version, ele_cnt+1UL );
-}
-
 fd_account_meta_t *
 fd_funk_insert_account( fd_funk_t *               funk,
                         fd_pubkey_t const *       pubkey,
@@ -182,32 +165,6 @@ fd_funk_insert_account( fd_funk_t *               funk,
   rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
 
   fd_funk_rec_publish( funk, prepare );
-  return meta;
-}
-
-fd_account_meta_t *
-fd_funk_insert_account_idx( fd_funk_t *               funk,
-                        fd_pubkey_t const *           pubkey,
-                        fd_solana_account_hdr_t const * hdr,
-                        ulong rec_idx ) {
-  fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
-  fd_funk_rec_t * rec = &rec_map->ele[ rec_idx ];
-  memset( rec, 0, sizeof(fd_funk_rec_t) );
-
-  memcpy( rec->pair.key->uc, pubkey, sizeof(fd_pubkey_t) );
-  rec->pair.key->ul[ 4 ] = FD_FUNK_KEY_TYPE_ACC;
-
-  ulong acc_sz = sizeof(fd_account_meta_t)+hdr->meta.data_len;
-
-  ulong new_val_max;
-  fd_account_meta_t * meta  = fd_alloc_malloc_at_least( fd_funk_alloc( funk ), 0UL, acc_sz, &new_val_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(("fd_alloc_malloc_at_least(sz=%lu)", acc_sz ));
-
-  rec->val_gaddr = fd_wksp_gaddr_fast( fd_funk_wksp( funk ), meta );
-  rec->val_sz    = (uint)acc_sz;
-  rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
-
-  fd_funk_insert_rec( funk, rec, rec_idx );
   return meta;
 }
 

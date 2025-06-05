@@ -42,15 +42,13 @@ struct fd_snapin_tile {
   fd_funk_txn_t * funk_txn;
   uchar *         acc_data;
 
+  /* Shared fseq with replay tile */
+  ulong * replay_snapshot_fseq;
+
   struct {
-    ulong full_accounts_files_processed;
-    ulong full_accounts_files_total;
 
-    ulong incremental_accounts_files_processed;
-    ulong incremental_accounts_files_total;
-
-    ulong full_accounts_processed;
-    ulong incremental_accounts_processed;
+    fd_snapshot_parser_metrics_t full;
+    fd_snapshot_parser_metrics_t incremental;
 
     ulong status;
   } metrics;
@@ -59,10 +57,24 @@ struct fd_snapin_tile {
 typedef struct fd_snapin_tile fd_snapin_tile_t;
 
 static void
-fd_snapin_shutdown( void ) {
+fd_snapin_set_status( fd_snapin_tile_t * ctx,
+                      ulong              status ) {
+  ctx->metrics.status = status;
+  FD_COMPILER_MFENCE();
+  FD_MGAUGE_SET( SNAPIN, STATUS, status );
+  FD_COMPILER_MFENCE();
+}
+
+static void
+fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
+  fd_snapin_set_status( ctx, SNAP_IN_STATUS_DONE );
+  fd_snapshot_parser_close( ctx->parser );
+  fd_fseq_update( ctx->replay_snapshot_fseq, SNAP_IN_STATUS_DONE );
+
   FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
+  
   FD_LOG_INFO(( "snapin: shutting down" ));
 
   for(;;) pause();
@@ -121,15 +133,6 @@ snapshot_reset_acc_data( fd_snapshot_parser_t * parser FD_PARAM_UNUSED,
 }
 
 static void
-fd_snapin_set_status( fd_snapin_tile_t * ctx,
-                      ulong              status ) {
-  ctx->metrics.status = status;
-  FD_COMPILER_MFENCE();
-  FD_MGAUGE_SET( SNAPIN, STATUS, status );
-  FD_COMPILER_MFENCE();
-}
-
-static void
 fd_snapin_reset( fd_snapin_tile_t * ctx ) {
   fd_snapshot_parser_reset( ctx->parser );
   ctx->in_state.in_skip = 0UL;
@@ -147,9 +150,7 @@ fd_snapin_on_file_complete( fd_snapin_tile_t *   ctx,
 
   } else if( ctx->metrics.status == SNAP_IN_STATUS_INC ) {
     FD_LOG_INFO(("snapin: done processing incremental snapshot"));
-    fd_snapin_set_status( ctx, SNAP_IN_STATUS_DONE );
-    fd_snapshot_parser_close( ctx->parser );
-    fd_snapin_shutdown();
+    fd_snapin_shutdown( ctx );
 
   } else {
     FD_LOG_ERR(("snapdc: unexpected status"));
@@ -206,26 +207,43 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join database cache" ));
   }
 
-  ctx->funk_txn                              = NULL;
-  ctx->metrics.full_accounts_files_processed = 0UL;
-  ctx->metrics.full_accounts_files_total     = 0UL;
-  ctx->metrics.full_accounts_processed       = 0UL;
+  /* join fseq */
+  ctx->replay_snapshot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.fseq_obj_id ) );
+  if( FD_UNLIKELY( !ctx->replay_snapshot_fseq ) ) {
+    FD_LOG_ERR(( "Failed to join replay snapshot fseq" ));
+  }
 
-  ctx->metrics.incremental_accounts_files_processed = 0UL;
-  ctx->metrics.incremental_accounts_files_total     = 0UL;
-  ctx->metrics.incremental_accounts_processed       = 0UL;
+  ctx->funk_txn                              = NULL;
+  ctx->metrics.full.accounts_files_processed = 0UL;
+  ctx->metrics.full.accounts_files_total     = 0UL;
+  ctx->metrics.full.accounts_processed       = 0UL;
+
+  ctx->metrics.incremental.accounts_files_processed = 0UL;
+  ctx->metrics.incremental.accounts_files_total     = 0UL;
+  ctx->metrics.incremental.accounts_processed       = 0UL;
   ctx->metrics.status                               = SNAP_IN_STATUS_FULL;
+}
+
+static void
+fd_snapin_accumulate_metrics( fd_snapin_tile_t * ctx ) {
+  if( ctx->metrics.status == SNAP_IN_STATUS_FULL ) {
+    ctx->metrics.full = fd_snapshot_parser_get_metrics( ctx->parser );
+  } else if( ctx->metrics.status == SNAP_IN_STATUS_INC ) {
+    ctx->metrics.incremental = fd_snapshot_parser_get_metrics( ctx->parser );
+  } else {
+    FD_LOG_ERR(("unexpected status"));
+  }
 }
 
 static void
 metrics_write( void * _ctx ) {
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
-  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_PROCESSED,        ctx->metrics.full_accounts_files_processed );
-  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_TOTAL,            ctx->metrics.full_accounts_files_total );
-  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_PROCESSED, ctx->metrics.incremental_accounts_files_processed );
-  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_TOTAL,     ctx->metrics.incremental_accounts_files_total );
-  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_PROCESSED,              ctx->metrics.full_accounts_processed );
-  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_PROCESSED,       ctx->metrics.incremental_accounts_processed );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_PROCESSED,        ctx->metrics.full.accounts_files_processed );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_FILES_TOTAL,            ctx->metrics.full.accounts_files_total );
+  FD_MGAUGE_SET( SNAPIN, FULL_ACCOUNTS_PROCESSED,              ctx->metrics.full.accounts_processed );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_PROCESSED, ctx->metrics.incremental.accounts_files_processed );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_TOTAL,     ctx->metrics.incremental.accounts_files_total );
+  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_PROCESSED,       ctx->metrics.incremental.accounts_processed );
 }
 
 /* on_stream_frag consumes an incoming stream data fragment.  This frag
@@ -252,6 +270,7 @@ on_stream_frag( void *                        _ctx,
 
   if( FD_UNLIKELY( ctx->parser->flags ) ) {
     fd_snapin_check_parser_failed( ctx->parser );
+    /* don't consume the frag if blocked or done */
     return 0;
   }
 
@@ -275,7 +294,8 @@ on_stream_frag( void *                        _ctx,
   }
 
   ulong consumed_sz = (ulong)( cur-start );
-  *sz  = consumed_sz;
+  *sz               = consumed_sz;
+  fd_snapin_accumulate_metrics( ctx );
 
   return consume_frag;
 }

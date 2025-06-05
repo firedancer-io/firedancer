@@ -69,6 +69,10 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "metric" );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
 
+  /* fseq for communicating snapshot loading done */
+  fd_topob_wksp( topo, "snap_fseq" );
+  fd_topo_obj_t * snapshot_fseq_obj = fd_topob_obj( topo, "fseq", "snap_fseq" );
+
   /* Uncompressed data stream */
   fd_topob_wksp( topo, "snap_stream" );
   fd_topo_link_t * snapin_link   = fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, 0UL, 0UL );
@@ -173,6 +177,9 @@ snapshot_load_topo( config_t *     config,
 
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.funk_obj_id = funk_obj->id;
+
+  fd_topob_tile_uses( topo, snapin_tile, snapshot_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  snapin_tile->snapin.fseq_obj_id = snapshot_fseq_obj->id;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
