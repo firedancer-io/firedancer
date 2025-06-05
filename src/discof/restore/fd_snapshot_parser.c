@@ -49,6 +49,8 @@ fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
     self->acc_done_cb( self, self->cb_arg );
   }
 
+  self->metrics.accounts_processed++;
+
   return 0;
 }
 
@@ -89,9 +91,10 @@ fd_snapshot_parser_accv_prepare( fd_snapshot_parser_t * const self,
     self->flags |= SNAP_FLAG_FAILED;
     return EINVAL;
   }
-  self->accv_sz   = sz;
-  self->accv_slot = slot;
-  self->accv_id   = id;
+  self->accv_sz         = sz;
+  self->accv_slot       = slot;
+  self->accv_id         = id;
+  self->processing_accv = 1;
 
   /* Prepare read of account header */
   FD_LOG_DEBUG(( "Loading account vec %s", meta->name ));
@@ -312,8 +315,9 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
   fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
   fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
 
-    /* Read AccountVec map */
+  /* Read AccountVec map */
 
+  self->metrics.accounts_files_total = accounts_db.storages_len;
   if( FD_LIKELY( !err ) ) {
     err = fd_snapshot_parser_accv_index( self, &accounts_db );
   }
@@ -507,6 +511,9 @@ fd_snapshot_parser_process_chunk( fd_snapshot_parser_t * self,
   self->tar_file_rem -= consumed;
   if( self->tar_file_rem==0UL ) {
     fd_snapshot_parser_reset_tar( self );
+    if( self->processing_accv ) {
+      self->metrics.accounts_files_processed++;
+    }
   }
   return buf_next;
 }

@@ -23,10 +23,17 @@ struct fd_snaprd_tile {
   int                  curr_fd;
 
   struct {
-    ulong full_bytes_read;
-    ulong full_bytes_total;
-    ulong incremental_bytes_read;
-    ulong incremental_bytes_total;
+
+    struct {
+      ulong bytes_read;
+      ulong bytes_total;
+    } full;
+
+    struct {
+      ulong bytes_read;
+      ulong bytes_total;
+    } incremental;
+
     ulong status;
   } metrics;
 };
@@ -70,7 +77,7 @@ fd_snaprd_shutdown( fd_snaprd_tile_t * ctx ) {
   FD_MGAUGE_SET( TILE, STATUS, 2UL );
   FD_COMPILER_MFENCE();
 
-  FD_LOG_INFO(( "snaprd: shutting down" ));
+  FD_LOG_INFO(( "shutting down" ));
 
   for(;;) pause();
 }
@@ -80,7 +87,7 @@ fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
   if( ctx->metrics.status == SNAP_RD_STATUS_FULL ) {
     ctx->curr_fd = ctx->inc_fd;
 
-    FD_LOG_INFO(("snaprd: done reading full snapshot, now reading incremental snapshot, seq is %lu", ctx->writer->seq ));
+    FD_LOG_INFO(("done reading full snapshot, now reading incremental snapshot, seq is %lu", ctx->writer->seq ));
     fd_snaprd_set_status( ctx, SNAP_RD_STATUS_INC );
     fd_stream_writer_notify( ctx->writer, 
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
@@ -88,23 +95,35 @@ fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
 
   } else if( ctx->metrics.status == SNAP_RD_STATUS_INC ) {
 
-    FD_LOG_INFO(( "snaprd: done reading incremental snapshot!" ));
+    FD_LOG_INFO(( "done reading incremental snapshot!" ));
     fd_snaprd_set_status( ctx, SNAP_RD_STATUS_DONE );
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
     fd_snaprd_shutdown( ctx );
   } else {
-    FD_LOG_ERR(("snaprd: unexpected status"));
+    FD_LOG_ERR(("unexpected status"));
+  }
+}
+
+static void
+fd_snaprd_accumulate_metrics( fd_snaprd_tile_t * ctx,
+                              ulong              bytes ) {
+  if( ctx->metrics.status == SNAP_RD_STATUS_FULL ) {
+    ctx->metrics.full.bytes_read += bytes;
+  } else if( ctx->metrics.status == SNAP_RD_STATUS_INC ) {
+    ctx->metrics.incremental.bytes_read += bytes;
+  } else {
+    FD_LOG_ERR(("unexpected status"));
   }
 }
 
 static void
 metrics_write( void * _ctx ) {
   fd_snaprd_tile_t * ctx = fd_type_pun( _ctx );
-  FD_MGAUGE_SET( SNAPRD, FULL_BYTES_READ, ctx->metrics.full_bytes_read );
-  FD_MGAUGE_SET( SNAPRD, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
-  FD_MGAUGE_SET( SNAPRD, FULL_BYTES_TOTAL, ctx->metrics.full_bytes_total );
-  FD_MGAUGE_SET( SNAPRD, INCREMENTAL_BYTES_TOTAL, ctx->metrics.incremental_bytes_total );
+  FD_MGAUGE_SET( SNAPRD, FULL_BYTES_READ,         ctx->metrics.full.bytes_read );
+  FD_MGAUGE_SET( SNAPRD, FULL_BYTES_TOTAL,        ctx->metrics.full.bytes_total );
+  FD_MGAUGE_SET( SNAPRD, INCREMENTAL_BYTES_READ,  ctx->metrics.incremental.bytes_read );
+  FD_MGAUGE_SET( SNAPRD, INCREMENTAL_BYTES_TOTAL, ctx->metrics.incremental.bytes_total );
 }
 
 static void
@@ -125,13 +144,13 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( 0!=fstat( ctx->full_fd, &full_stat ) ) ) {
     FD_LOG_ERR(( "fstat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  ctx->metrics.full_bytes_total = (ulong)full_stat.st_size;
+  ctx->metrics.full.bytes_total = (ulong)full_stat.st_size;
 
   struct stat inc_stat;
   if( FD_UNLIKELY( 0!=fstat( ctx->inc_fd, &inc_stat ) ) ) {
     FD_LOG_ERR(( "fstat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  ctx->metrics.incremental_bytes_total = (ulong)inc_stat.st_size;
+  ctx->metrics.incremental.bytes_total = (ulong)inc_stat.st_size;
 }
 
 static void
@@ -143,10 +162,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_snaprd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ctx->curr_fd                         = ctx->full_fd;
-  ctx->metrics.full_bytes_read         = 0UL;
-  ctx->metrics.full_bytes_total        = 0UL;
-  ctx->metrics.incremental_bytes_read  = 0UL;
-  ctx->metrics.incremental_bytes_total = 0UL;
+  ctx->metrics.full.bytes_read         = 0UL;
+  ctx->metrics.full.bytes_total        = 0UL;
+  ctx->metrics.incremental.bytes_read  = 0UL;
+  ctx->metrics.incremental.bytes_total = 0UL;
 
   fd_snaprd_set_status( ctx, SNAP_RD_STATUS_FULL );
 }
@@ -191,7 +210,7 @@ after_credit( void *            _ctx,
   }
 
   fd_stream_writer_publish( ctx->writer, (ulong)res, 0UL );
-  ctx->metrics.full_bytes_read += (ulong)res;
+  fd_snaprd_accumulate_metrics( ctx, (ulong)res );
 }
 
 __attribute__((noinline)) static void
