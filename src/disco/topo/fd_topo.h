@@ -3,7 +3,6 @@
 
 #include "../stem/fd_stem.h"
 #include "../../tango/fd_tango.h"
-#include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../util/net/fd_net_headers.h"
 
@@ -25,6 +24,9 @@
 
 /* Maximum number of additional ip addresses */
 #define FD_NET_MAX_SRC_ADDR 4
+
+/* Maximum number of XDP queues per net tile */
+#define FD_TOPO_XDP_TILE_QUEUES_MAX 9u
 
 /* A workspace is a Firedancer specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -91,6 +93,16 @@ struct fd_topo_net_tile {
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 
+struct fd_topo_xdp_queue {
+  char  if_name[ 16 ];
+  uint  if_idx;
+  uint  queue_id;
+  uchar mac_addr[ 6 ];  /* MAC address for TX */
+  uint  ip4_addr;       /* First IP4 address for TX */
+  int   xsk_map_fd;
+};
+typedef struct fd_topo_xdp_queue fd_topo_xdp_queue_t;
+
 /* A tile is a unique process that is spawned by Firedancer to represent
    one thread of execution.  Firedancer sandboxes all tiles to their own
    process for security reasons.
@@ -147,7 +159,6 @@ typedef struct {
 
     struct {
       fd_topo_net_tile_t net;
-      char interface[ 16 ];
 
       /* xdp specific options */
       ulong  xdp_rx_queue_size;
@@ -156,6 +167,11 @@ typedef struct {
       long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
+
+      fd_topo_xdp_queue_t queues[ FD_TOPO_XDP_TILE_QUEUES_MAX ];
+      uint                queue_cnt;
+      int                 prog_link_fds[ FD_TOPO_XDP_TILE_QUEUES_MAX ];
+      uint                prog_link_fd_cnt;
 
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
@@ -772,14 +788,6 @@ void *
 fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
                          ulong        tile_kind_id );
-
-/* Install the XDP program needed by the net tiles into the local device
-   and return the xsk_map_fd.  bind_addr is an optional IPv4 address to
-   used for filtering by dst IP. */
-
-fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo,
-                     uint              bind_addr );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
