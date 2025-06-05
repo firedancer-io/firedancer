@@ -2357,16 +2357,23 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
 
   if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
-    if( ctx->plugin_out->mem ) {
-      uchar msg[56];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+    // fd_topob_new_obj( "fseq" ) <-- put this in metric_in workspace
+    if( FD_UNLIKELY( *ctx->snapshot_fully_loaded_bool_shared_with_snapin ) ) {
+      ctx->snapshot_init_done = 1;
     }
-    init_snapshot( ctx, stem );
-    ctx->snapshot_init_done = 1;
-    //*charge_busy = 0;
+    FD_SPIN_PAUSE();
   }
+
+  // if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
+  //   if( ctx->plugin_out->mem ) {
+  //     uchar msg[56];
+  //     fd_memset( msg, 0, sizeof(msg) );
+  //     msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
+  //     replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+  //   }
+  //   init_snapshot( ctx, stem );
+  //   //*charge_busy = 0;
+  // }
 
   long now = fd_log_wallclock();
   if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
