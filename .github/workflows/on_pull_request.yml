@@ -3,20 +3,21 @@ on:
   merge_group:
   pull_request:
     types: [synchronize, opened, reopened, ready_for_review]
+  workflow_dispatch:
 concurrency:
   group: on-pull-request_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   tests:
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     uses: ./.github/workflows/tests.yml
     secrets: inherit
   ledgers:
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     uses: ./.github/workflows/ledgers.yml
     secrets: inherit
   backtest:
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     uses: ./.github/workflows/backtest.yml
     secrets: inherit
 
