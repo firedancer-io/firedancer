@@ -287,13 +287,15 @@ fd_repair_continue( fd_repair_t * glob ) {
   return 0;
 }
 
-static int
+int
 fd_repair_construct_request_protocol( fd_repair_t          * glob,
                                       fd_repair_protocol_t * protocol,
-                                      int type,
-                                      ulong slot,
-                                      uint shred_index,
-                                      fd_pubkey_t * recipient, uint nonce, long now ) {
+                                      enum fd_needed_elem_type type,
+                                      ulong                  slot,
+                                      uint                   shred_index,
+                                      fd_pubkey_t const    * recipient,
+                                      uint                   nonce,
+                                      long                   now ) {
   switch( type ) {
     case fd_needed_window_index: {
       glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
@@ -339,56 +341,33 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
   return 0;
 }
 
-static uint
-select_peers( fd_repair_t *  glob,
-              fd_pubkey_t ** ids,
-              uint           peer_cnt ) {
-  /* consecutively select next 4 active peers */
-  if( FD_UNLIKELY( glob->peer_cnt==0 ) ) return 0;
-
-  for( uint i = 0; i < peer_cnt; i++ ) {
-    fd_pubkey_t * id = &glob->peers[ glob->peer_idx++ ].key;
-    ids[i] = id;
-    if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) {
-      glob->peer_idx = 0; /* wrap around */
-    }
-  }
-  return peer_cnt;
-}
-
+/* Returns 1 if its valid to send a request for the given shred. 0 if
+   it is not, i.e., there is an inflight request for it that was sent
+   within the last x ms. */
 static int
-fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint shred_index, long now ) {
+fd_repair_create_inflight_request( fd_repair_t * glob, int type, ulong slot, uint shred_index, long now ) {
 
   /* If there are no active sticky peers from which to send requests to, refresh the sticky peers
      selection. It may be that stake weights were not available before, and now they are. */
 
-  fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
-  uint       peer_cnt = FD_REPAIR_NUM_NEEDED_PEERS;
-  uint found_peer_cnt = select_peers( glob, ids, peer_cnt );
-
-  fd_inflight_key_t     dupkey = { .type = (enum fd_needed_elem_type)type, .slot = slot, .shred_index = shred_index };
+  fd_inflight_key_t    dupkey  = { .type = (enum fd_needed_elem_type)type, .slot = slot, .shred_index = shred_index };
   fd_inflight_elem_t * dupelem = fd_inflight_table_query( glob->dupdetect, &dupkey, NULL );
 
   if( dupelem == NULL ) {
     dupelem = fd_inflight_table_insert( glob->dupdetect, &dupkey );
 
     if ( FD_UNLIKELY( dupelem == NULL ) ) {
-      FD_LOG_ERR(( "IMPLEMENT RANDOM EVICTION! Failed to insert duplicate detection element for slot %lu, shred_index %u", slot, shred_index ));
-      return -1;
+      FD_LOG_ERR(( "Eviction unimplemented. Failed to insert duplicate detection element for slot %lu, shred_index %u", slot, shred_index ));
+      return 0;
     }
 
     dupelem->last_send_time = 0L;
   }
 
-  if( FD_LIKELY( dupelem->last_send_time+(long)40e6  < now ) ) { /* 20ms */
+  if( FD_LIKELY( dupelem->last_send_time+(long)40e6  < now ) ) { /* 40ms */
     dupelem->last_send_time = now;
-    dupelem->req_cnt        = found_peer_cnt;
-    for( ulong i=0UL; i<found_peer_cnt; i++ ) {
-      fd_repair_construct_request_protocol( glob, &glob->protocol_ret_buf[i], type, slot, shred_index, ids[i], glob->next_nonce, now );
-      glob->next_nonce++;
-    }
-    FD_LOG_INFO(("added request for %lu, %u", slot, shred_index));
-    return (int)found_peer_cnt;
+    dupelem->req_cnt        = FD_REPAIR_NUM_NEEDED_PEERS;
+    return 1;
   }
   return 0;
 }
@@ -470,19 +449,19 @@ fd_write_good_peer_cache_file( fd_repair_t * repair ) {
 int
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
   // FD_LOG_NOTICE(( "[%s] need window %lu, shred_index %u", __func__, slot, shred_index ));
-  return fd_repair_create_needed_request( glob, fd_needed_window_index, slot, shred_index, glob->now );
+  return fd_repair_create_inflight_request( glob, fd_needed_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
   //FD_LOG_DEBUG(( "[%s] need highest %lu", __func__, slot ));
-  return fd_repair_create_needed_request( glob, fd_needed_highest_window_index, slot, shred_index, glob->now );
+  return fd_repair_create_inflight_request( glob, fd_needed_highest_window_index, slot, shred_index, glob->now );
 }
 
 int
 fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
   // FD_LOG_NOTICE( ( "[repair] need orphan %lu", slot ) );
-  return fd_repair_create_needed_request( glob, fd_needed_orphan, slot, UINT_MAX, glob->now );
+  return fd_repair_create_inflight_request( glob, fd_needed_orphan, slot, UINT_MAX, glob->now );
 }
 
 static void

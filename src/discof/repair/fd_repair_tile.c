@@ -398,30 +398,33 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
 
 static void
-fd_repair_send_request( fd_repair_tile_ctx_t * repair_tile_ctx,
-                         fd_repair_t * glob,
-                         fd_repair_protocol_t * protocol,
-                         ulong slot,
-                         uint  shred_idx ) {
+fd_repair_send_request( fd_repair_tile_ctx_t   * repair_tile_ctx,
+                        fd_repair_t            * glob,
+                        enum fd_needed_elem_type type,
+                        ulong                    slot,
+                        uint                     shred_index,
+                        fd_pubkey_t const      * recipient,
+                        long                     now ) {
 
   /* Send requests starting where we left off last time. i.e. if n < current_nonce, seek forward */
   /* Track statistics */
-
-  fd_pubkey_t      * active_key = &protocol->inner.window_index.header.recipient; // its a union across all request types, so should be fine methinks but do the less lazy way!
-  fd_active_elem_t *     active = fd_active_table_query( glob->actives, active_key, NULL );
+  fd_repair_protocol_t protocol;
+  fd_repair_construct_request_protocol( glob, &protocol, type, slot, shred_index, recipient, glob->next_nonce, now );
+  glob->next_nonce++;
+  fd_active_elem_t * active = fd_active_table_query( glob->actives, recipient, NULL );
 
   active->avg_reqs++;
   glob->metrics.send_pkt_cnt++;
 
-  FD_TEST (protocol->inner.window_index.slot == slot);
+  FD_TEST (protocol.inner.window_index.slot == slot);
 #ifdef FD_HAS_REPAIR_ANALYSIS
-  FD_LOG_INFO(( "Sending repair request for slot %lu shred %u ", slot, shred_idx ));
+  FD_LOG_INFO(( "Sending repair request for slot %lu shred %u ", slot, shred_index ));
 
-  uint nonce = protocol->inner.window_index.header.nonce;
+  uint nonce = protocol.inner.window_index.header.nonce;
   char repair_data_buf[1024];
   snprintf( repair_data_buf, sizeof(repair_data_buf),
           "%lu,%s,%ld,%u,%lu,%u\n",
-            0xfffffUL & (ulong)active->addr.addr, FD_BASE58_ENC_32_ALLOCA( &active->key ), fd_log_wallclock(), nonce, slot, shred_idx );
+            0xfffffUL & (ulong)active->addr.addr, FD_BASE58_ENC_32_ALLOCA( &active->key ), fd_log_wallclock(), nonce, slot, shred_index );
 
   ulong wsz;
   int err = fd_io_write( repair_tile_ctx->request_data_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
@@ -429,10 +432,25 @@ fd_repair_send_request( fd_repair_tile_ctx_t * repair_tile_ctx,
 #endif
 
   uchar buf[1024];
-  ulong buflen = fd_repair_sign_and_send( repair_tile_ctx, protocol, &active->addr, buf, sizeof(buf) );
-  uint  src_ip4_addr = 0U; /* unknown */
+  ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, &protocol, &active->addr, buf, sizeof(buf) );
   ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
+  uint  src_ip4_addr = 0U; /* unknown */
   send_packet( repair_tile_ctx, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
+}
+
+static void
+fd_repair_send_requests( fd_repair_tile_ctx_t   * ctx,
+                         enum fd_needed_elem_type type,
+                         ulong slot,
+                         uint  shred_index,
+                         long  now ){
+  fd_repair_t * glob = ctx->repair;
+
+  for( uint i=0; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
+    fd_pubkey_t const * id = &glob->peers[ glob->peer_idx++ ].key;
+    fd_repair_send_request( ctx, glob, type, slot, shred_index, id, now );
+    if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) glob->peer_idx = 0; /* wrap around */
+  }
 }
 
 
@@ -951,6 +969,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   ctx->tsrepair = now;
 
   if( FD_UNLIKELY( ctx->forest->root == ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( ctx->repair->peer_cnt == 0 ) ) return; /* no peers to send requests to */
 
   FD_LOG_INFO(("Iterating and sending repairs"));
   fd_forest_t *          forest   = ctx->forest;
@@ -973,21 +992,20 @@ after_credit( fd_repair_tile_ctx_t * ctx,
         /* No upper bound on the shred indexes for this slot yet, so
            we can only send requests for the highest window index. */
 
-        int req_cnt = fd_repair_need_highest_window_index( ctx->repair, head->slot, 0 );
-        for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, UINT_MAX );
+        if( fd_repair_need_highest_window_index( ctx->repair, head->slot, 0 ) ) {
+          fd_repair_send_requests( ctx, fd_needed_highest_window_index, head->slot, UINT_MAX, now );
+        }
       } else {
         for( uint idx = head->buffered_idx + 1; idx < head->complete_idx; idx++ ) {
           if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
-            int   req_cnt = fd_repair_need_window_index( ctx->repair, head->slot, idx );
-            if( FD_LIKELY( req_cnt ) ) {
-              /* We are allowed to send requests out for this shred. The
-                 multiple requests are for the same shred, but for up to
-                 4 different peer destinations.
+            if( FD_LIKELY( fd_repair_need_window_index( ctx->repair, head->slot, idx ) ) ) {
 
-                 generated protocols live in the
-                  repair->protocol_ret_buf, and we can send them out. */
-              for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, idx );
-              total_reqs += (uint) req_cnt;
+              /* The multiple requests are for the same shred, but for
+                 up to 4 different peer destinations. */
+
+              fd_repair_send_requests( ctx, fd_needed_window_index, head->slot, idx, now );
+
+              total_reqs += (uint) FD_REPAIR_NUM_NEEDED_PEERS;
               if ( FD_UNLIKELY( total_reqs > MAX_REQ_PER_CREDIT ) ) break;
             }
           }
@@ -1013,8 +1031,10 @@ after_credit( fd_repair_tile_ctx_t * ctx,
        !fd_forest_orphaned_iter_done( iter, orphaned, pool );
        iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
-    int req_cnt = fd_repair_need_orphan( ctx->repair, orphan->slot );
-    for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], orphan->slot, UINT_MAX );
+
+    if( fd_repair_need_orphan( ctx->repair, orphan->slot ) ) {
+      fd_repair_send_requests( ctx, fd_needed_orphan, orphan->slot, UINT_MAX, now );
+    }
   }
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
