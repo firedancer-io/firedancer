@@ -1,3 +1,6 @@
+$(call add-hdrs,fd_gossip.h fd_gossip_types.h fd_ping_tracker.h)
+$(call add-objs,fd_gossip fd_ping_tracker fd_gossip_msg_ser fd_gossip_msg_parse fd_gossip_msg_ser,fd_flamenco)
+
 $(call add-hdrs,fd_bloom.h)
 $(call add-objs,fd_bloom fd_active_set fd_ping_tracker,fd_flamenco)
 

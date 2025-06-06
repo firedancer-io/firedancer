@@ -22,7 +22,7 @@
     (2) Peers sometimes request that we don't forward messages from
         other originating (origin) nodes to them, because they already
         have a lot of paths from that node.  This is called a prune.
-   
+
    Complication (1) is handled by keeping a list of the top 12 peers
    (sorted by stake) for each of 25 buckets of stakes.  These buckets
    are all rotated together.
@@ -82,7 +82,7 @@ fd_active_set_join( void * shas );
    have pruned the origin, except if ignore_prunes_if_peer_is_origin
    is non-zero, in which case the list will include a peer if its pubkey
    matches the origin pubkey.
-   
+
    Up to 12 peer nodes will be returned in out_nodes.  The values
    returned in out_nodes are an internal peer index of the active set
    and should not be used for anything other than calling

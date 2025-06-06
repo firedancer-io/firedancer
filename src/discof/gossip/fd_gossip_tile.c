@@ -45,10 +45,18 @@ struct fd_gossip_tile_ctx {
   int                in_kind[ 32UL ];
 
   fd_gossip_out_ctx_t net_out[ 1 ];
+  fd_frag_meta_t * net_out_mcache;
+  ulong            net_out_seq;
+  ulong            net_out_depth;
+
   fd_gossip_out_ctx_t gossip_out[ 1 ];
+  fd_gossip_out_ctx_t sign_out[ 1 ];
 
   fd_keyguard_client_t keyguard_client[ 1 ];
   fd_keyswitch_t *     keyswitch;
+
+  fd_ip4_udp_hdrs_t   net_out_hdr[ 1 ]; /* Used to construct outgoing network packets */
+  ushort              net_id; /* Network ID for outgoing packets */
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
@@ -66,13 +74,58 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static void
+gossip_send_fn( void *                ctx,
+                uchar const *         payload,
+                ulong                 payload_sz,
+                fd_ip4_port_t const * peer_address,
+                ulong                 tsorig ) {
+  fd_gossip_tile_ctx_t * gossip_ctx = (fd_gossip_tile_ctx_t *)ctx;
+
+  ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
+
+  uchar * packet          = (uchar *)fd_chunk_to_laddr( gossip_ctx->net_out->mem, gossip_ctx->net_out->chunk );
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
+  *hdr = *gossip_ctx->net_out_hdr;
+
+  fd_ip4_hdr_t * ip4 = hdr->ip4;
+  fd_udp_hdr_t * udp = hdr->udp;
+
+  ip4->net_tot_len = fd_ushort_bswap( (ushort)(packet_sz) );
+  udp->net_len     = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  ip4->daddr       = peer_address->addr;
+  udp->net_dport   = peer_address->port;
+  ip4->check       = fd_ip4_hdr_check_fast( ip4 );
+  ip4->net_id      = fd_ushort_bswap( gossip_ctx->net_id++ );
+
+  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
+
+  /* Publish fragment */
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sig   = fd_disco_netmux_sig( peer_address->addr, peer_address->port, peer_address->addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+
+  fd_mcache_publish( gossip_ctx->net_out_mcache, gossip_ctx->net_out_depth, gossip_ctx->net_out_seq, sig, gossip_ctx->net_out->chunk, packet_sz, 0UL, tsorig, tspub );
+  gossip_ctx->net_out_seq    = fd_seq_inc( gossip_ctx->net_out_seq,  1UL );
+  gossip_ctx->net_out->chunk = fd_dcache_compact_next( gossip_ctx->net_out->chunk, packet_sz, gossip_ctx->net_out->chunk0, gossip_ctx->net_out->wmark );
+}
+
+static void
+gossip_sign_fn( void *        ctx,
+                uchar const * data,
+                ulong         data_sz,
+                int           sign_type,
+                uchar *       out_signature ) {
+  fd_gossip_tile_ctx_t * gossip_ctx = (fd_gossip_tile_ctx_t *)ctx;
+  fd_keyguard_client_sign( gossip_ctx->keyguard_client, out_signature, data, data_sz, sign_type );
+}
+
 static inline void
 during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     /* TODO: Need some kind of state machine here, to ensure we switch
        in sync with the signing tile.  Currently, we might send out a
        badly signed message before the signing tile has switched. */
-    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes );
+    // fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -83,15 +136,16 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_gossip_tile_ctx_t * ctx ) {
-  fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
+  (void)ctx;
+  // fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
 
-  FD_MGAUGE_SET( GOSSIP, TABLE_SIZE,    metrics->table_size    );
-  FD_MGAUGE_SET( GOSSIP, TABLE_EXPIRED, metrics->table_expired );
-  FD_MGAUGE_SET( GOSSIP, TABLE_EVICTED, metrics->table_evicted );
+  // FD_MGAUGE_SET( GOSSIP, TABLE_SIZE,    metrics->table_size    );
+  // FD_MGAUGE_SET( GOSSIP, TABLE_EXPIRED, metrics->table_expired );
+  // FD_MGAUGE_SET( GOSSIP, TABLE_EVICTED, metrics->table_evicted );
 
-  FD_MGAUGE_SET( GOSSIP, PURGED_SIZE,   metrics->purged_size   );
+  // FD_MGAUGE_SET( GOSSIP, PURGED_SIZE,   metrics->purged_size   );
 
-  FD_MGAUGE_SET( GOSSIP, FAILED_SIZE,   metrics->failed_size   );
+  // FD_MGAUGE_SET( GOSSIP, FAILED_SIZE,   metrics->failed_size   );
 }
 
 static inline void
@@ -124,7 +178,7 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t *    stem   FD_PARAM_UNUSED ) {
+            fd_stem_context_t *    stem   FD_PARAM_UNUSED) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
 
@@ -168,8 +222,6 @@ out1( fd_topo_t const *      topo,
     }
   }
 
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had no output link named %s", tile->name, tile->kind_id, name ));
-
   void * mem   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
@@ -181,10 +233,14 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   void * gossip              = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries ) );
+
+  ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
+  ctx->last_wallclock = fd_log_wallclock();
+  ctx->last_tickcount = fd_tickcount();
 
   fd_rng_t rng[ 1 ];
   FD_TEST( fd_rng_join( fd_rng_new( rng, ctx->rng_seed, ctx->rng_idx ) ) );
@@ -195,7 +251,12 @@ unprivileged_init( fd_topo_t *      topo,
                                                tile->gossip.expected_shred_version,
                                                tile->gossip.entrypoints_cnt,
                                                tile->gossip.entrypoints,
-                                               ctx->identity_key->uc ) );
+                                               ctx->identity_key->uc,
+
+                                               gossip_send_fn,
+                                               (void*)ctx,
+                                               gossip_sign_fn,
+                                               (void*)ctx ) );
   FD_TEST( ctx->gossip );
 
   FD_MGAUGE_SET( GOSSIP, SHRED_VERSION, tile->gossip.expected_shred_version );
@@ -207,10 +268,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
-  ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
-
+  ulong sign_in_tile_idx = ULONG_MAX;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -223,13 +281,48 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = IN_KIND_SHRED_VERSION;
     } else if( FD_UNLIKELY( !strcmp( link->name, "net_gossip" ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_NET;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_SIGN;
+      sign_in_tile_idx = i;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
   }
 
+  if( FD_UNLIKELY( sign_in_tile_idx==ULONG_MAX ) )
+    FD_LOG_ERR(( "tile %s:%lu had no input link named sign_gossip", tile->name, tile->kind_id ));
+
   *ctx->net_out    = out1( topo, tile, "gossip_net" );
-  *ctx->gossip_out = out1( topo, tile, "gossip_out" );
+  *ctx->sign_out   = out1( topo, tile, "gossip_sign" );
+
+  fd_topo_link_t * net_out_link = &topo->links[ tile->out_link_id[ ctx->net_out->idx ] ];
+  ctx->net_out_mcache           = net_out_link->mcache;
+  ctx->net_out_seq              = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->net_out_mcache ) );
+  ctx->net_out_depth            = fd_mcache_depth( ctx->net_out_mcache );
+
+  /* Optional out links (?) */
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ i ] ];
+    if( FD_UNLIKELY( !strcmp( link->name, "gossip_out" ) ) ) {
+      *ctx->gossip_out = out1( topo, tile, "gossip_out" );
+    }
+  }
+
+  fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];
+
+  if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                       sign_out->mcache,
+                                                       sign_out->dcache,
+                                                       sign_in->mcache,
+                                                       sign_in->dcache ) )==NULL ) {
+    FD_LOG_ERR(( "failed to join keyguard client" ));
+  }
+
+  fd_ip4_udp_hdr_init( ctx->net_out_hdr,
+                       FD_GOSSIP_MTU,
+                       tile->gossip.ip_addr,
+                       tile->gossip.ports.gossip );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
