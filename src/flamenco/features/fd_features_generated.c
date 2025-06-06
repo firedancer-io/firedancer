@@ -1572,8 +1572,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, drop_unchained_merkle_shreds)>>3,
-    .id                        = {"\x20\x0f\x3a\xb8\x5d\x6c\x0b\x80\xe0\x5b\xbd\x7c\x65\x02\x11\xc5\x4c\xa1\x37\x3a\x74\xc9\x1a\xf1\xe7\x34\x0b\xf5\x27\x82\x0f\x8d"},
-                                 /* 3A9WtMU4aHuryD3VN7SFKdfXto8HStLb1Jj6HjkgfnGL */
+    .id                        = {"\x40\x20\xfb\xe2\x35\xb3\xf6\x28\x09\x7d\x56\x40\x5b\xea\xc3\x7a\xba\x14\x9f\xee\xf5\xc5\x5a\x83\xf5\x67\xbb\xa9\xee\x8c\xd3\xdd"},
+                                 /* 5KLGJSASDVxKPjLCDWNtnABLpZjsQSrYZ8HKwcEdAMC8 */
     .name                      = "drop_unchained_merkle_shreds",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1848,7 +1848,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xd571e3dc9532c905: return &ids[ 226 ];
   case 0x4d86ca23d81d6d11: return &ids[ 227 ];
   case 0x68b66c984ac5e709: return &ids[ 228 ];
-  case 0x800b6c5db83a0f20: return &ids[ 229 ];
+  case 0x28f6b335e2fb2040: return &ids[ 229 ];
   case 0xa841eda250bdcc9c: return &ids[ 230 ];
   case 0x0272a3278356fa9c: return &ids[ 231 ];
   case 0x494f963ae12b5106: return &ids[ 232 ];

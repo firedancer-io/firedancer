@@ -418,7 +418,8 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">okay</span>"} | counter | The result of processing a thread from the network (Shred accepted to an incomplete FEC set) |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">completes</span>"} | counter | The result of processing a thread from the network (Shred accepted and resulted in a valid, complete FEC set) |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;set_&#8203;spilled</span> | counter | The number of FEC sets that were spilled because they didn't complete in time and we needed space |
-| <span class="metrics-name">shred_&#8203;shred_&#8203;rejected_&#8203;initial</span> | counter | The number shreds that were rejected before any resources were allocated for the FEC set |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;rejected_&#8203;initial</span> | counter | The number of shreds that were rejected before any resources were allocated for the FEC set |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;rejected_&#8203;unchained</span> | counter | The number of shreds that were rejected because they're not chained merkle shreds |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;rejected_&#8203;fatal</span> | counter | The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we recieved a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
