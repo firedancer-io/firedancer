@@ -296,7 +296,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE ) ];
 
   cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_EXPIRED ) ] +
-                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ];
+                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ] +
+                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DELETED ) ];
 
   cur->out.pack_leader_slow =
       pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ]

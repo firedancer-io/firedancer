@@ -606,6 +606,7 @@ static poh_link_t gossip_dedup;
 static poh_link_t stake_out;
 static poh_link_t crds_shred;
 static poh_link_t replay_resolv;
+static poh_link_t executed_txn;
 
 static poh_link_t replay_plugin;
 static poh_link_t gossip_plugin;
@@ -2132,6 +2133,24 @@ fd_ext_poh_publish_cluster_info( uchar * data,
 }
 
 void
+fd_ext_poh_publish_executed_txn( uchar const * data  ) {
+  static int lock = 0;
+
+  /* Need to lock since the link publisher is not concurrent, and replay
+     happens on a thread pool. */
+  for(;;) {
+    if( FD_LIKELY( FD_ATOMIC_CAS( &lock, 0, 1 )==0 ) ) break;
+    FD_SPIN_PAUSE();
+  }
+
+  FD_COMPILER_MFENCE();
+  poh_link_publish( &executed_txn, 0UL, data, 64UL );
+  FD_COMPILER_MFENCE();
+
+  FD_VOLATILE(lock) = 0;
+}
+
+void
 fd_ext_plugin_publish_replay_stage( ulong   sig,
                                     uchar * data,
                                     ulong   data_len ) {
@@ -2267,6 +2286,7 @@ unprivileged_init( fd_topo_t *      topo,
   poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
   poh_link_init( &crds_shred,            topo, tile, out1( topo, tile, "crds_shred"   ).idx );
   poh_link_init( &replay_resolv,         topo, tile, out1( topo, tile, "replay_resol" ).idx );
+  poh_link_init( &executed_txn,          topo, tile, out1( topo, tile, "executed_txn" ).idx );
 
   if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
     poh_link_init( &replay_plugin,         topo, tile, out1( topo, tile, "replay_plugi" ).idx );

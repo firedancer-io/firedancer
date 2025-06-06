@@ -64,6 +64,7 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                        summed[('pack_transaction_inserted', 'vote_replace')]
 
     pack_expired = summed[('pack_transaction_expired', None)] + \
+                   summed[('pack_transaction_deleted', None)] + \
                    summed[('pack_transaction_inserted', 'expired')]
 
     pack_invalid = summed[('pack_transaction_dropped_partial_bundle', None)] + \
