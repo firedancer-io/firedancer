@@ -147,6 +147,10 @@ union fdctl_args {
     ulong max_contact;
     int   compact_mode;
   } gossip;
+
+  struct {
+    ushort listen_port;
+  } pktgen;
 };
 
 typedef union fdctl_args args_t;

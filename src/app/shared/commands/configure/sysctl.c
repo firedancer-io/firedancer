@@ -184,7 +184,7 @@ check( config_t const * config,
     sock_params[ 1 ].value = config->net.socket.send_buffer_size;
     r = check_param_list( sock_params );
   } else {
-    FD_LOG_ERR(( "unknown net provider: %s", config->net.provider ));
+    CONFIGURE_OK();
   }
   if( r.result!=CONFIGURE_OK ) return r;
 

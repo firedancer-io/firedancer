@@ -190,6 +190,21 @@ struct fd_topo_tile {
     } sock;
 
     struct {
+      fd_topo_net_tile_t net;
+
+      ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
+      char  if_name[ 16 ];
+      uint  rx_queue_size;
+      uint  tx_queue_size;
+
+      ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
+      ulong fib4_main_obj_id;      /* fib4 containing main route table */
+      ulong fib4_local_obj_id;     /* fib4 containing local route table */
+      ulong neigh4_obj_id;         /* neigh4 hash map header */
+      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+    } ibeth;
+
+    struct {
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */

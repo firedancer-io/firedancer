@@ -1044,8 +1044,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
     tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  } else  if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "net"   ) ||
+                          !strcmp( tile->name, "sock"  ) ||
+                          !strcmp( tile->name, "ibeth" ) ) ) {
 
+    tile->net.bind_address                   = config->net.bind_address_parsed;
     tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
     tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
     tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
