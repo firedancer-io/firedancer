@@ -1032,12 +1032,9 @@ distribute_epoch_rewards_in_partition( fd_partitioned_stake_rewards_dlist_t * pa
   }
 
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
-  if( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
-                 FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) ) {
-    fd_sysvar_epoch_rewards_distribute( slot_ctx,
-                                        lamports_distributed + lamports_burned,
-                                        runtime_spad );
-  }
+  fd_sysvar_epoch_rewards_distribute( slot_ctx,
+                                      lamports_distributed + lamports_burned,
+                                      runtime_spad );
 
   FD_LOG_DEBUG(( "lamports burned: %lu, lamports distributed: %lu", lamports_burned, lamports_distributed ));
 
@@ -1092,39 +1089,6 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
   }
 }
 
-/* Non-partitioned epoch rewards entry-point. This uses the same logic as the partitioned epoch rewards code,
-   but distributes the rewards in one go.  */
-void
-fd_update_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                   fd_hash_t const *    parent_blockhash,
-                   ulong                parent_epoch,
-                   fd_epoch_info_t *    temp_info,
-                   fd_tpool_t *         tpool,
-                   fd_spad_t * *        exec_spads,
-                   ulong                exec_spad_cnt,
-                   fd_spad_t *          runtime_spad ) {
-
-  /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
-  fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
-  calculate_rewards_and_distribute_vote_rewards( slot_ctx,
-                                                 parent_epoch,
-                                                 parent_blockhash,
-                                                 rewards_result,
-                                                 temp_info,
-                                                 tpool,
-                                                 exec_spads,
-                                                 exec_spad_cnt,
-                                                 runtime_spad );
-
-  /* Distribute all of the partitioned epoch rewards in one go */
-  for( ulong i = 0UL; i < rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len; i++ ) {
-    distribute_epoch_rewards_in_partition( &rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions[ i ],
-                                           rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.pool,
-                                           slot_ctx,
-                                           runtime_spad );
-  }
-}
-
 /* Partitioned epoch rewards entry-point.
 
    https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L41
@@ -1162,7 +1126,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
   /* Initialize the epoch rewards sysvar
     https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L78 */
   fd_sysvar_epoch_rewards_init( slot_ctx,
-                                rewards_result->total_rewards,
                                 rewards_result->distributed_rewards,
                                 distribution_starting_block_height,
                                 rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len,

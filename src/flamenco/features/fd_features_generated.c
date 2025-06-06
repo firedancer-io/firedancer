@@ -591,7 +591,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x7f\xc6\x29\x7b\xa9\x98\xf8\x5b\xa2\x48\x57\xc0\xde\x06\x74\x63\x2f\x56\xd9\x5a\x5c\xc5\x54\x31\x39\x41\xb0\x13\xe2\x53\xf6\xf2"},
                                  /* 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK */
     .name                      = "enable_partitioned_epoch_reward",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {2, 2, 0},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, spl_token_v3_4_0)>>3,
     .id                        = {"\xdd\x49\x17\x14\x26\x0f\xf1\xe8\xa1\x87\xe0\x3b\x4b\x80\x5d\xde\xd4\x52\xd3\x90\x4e\x14\x4c\xa2\xc5\x99\x39\x3f\x15\xf2\x37\x85"},
@@ -1409,7 +1410,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x05\xb1\xf6\xd0\xa0\xbf\xfc\x81\xbc\x95\xde\xeb\x35\x7a\x88\x3e\xa6\x5e\x44\xce\xb5\x15\x5a\xd2\xb0\xb5\x57\xbf\x87\xf9\x4b\x53"},
                                  /* PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 */
     .name                      = "partitioned_epoch_rewards_superfeature",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {2, 2, 0},
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_secp256r1_precompile)>>3,
