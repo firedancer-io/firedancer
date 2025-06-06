@@ -131,6 +131,7 @@ struct fd_microblock_trailer {
   uchar txn_start_pct;
   uchar txn_load_end_pct;
   uchar txn_end_pct;
+  uchar txn_preload_end_pct;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
