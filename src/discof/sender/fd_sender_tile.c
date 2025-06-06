@@ -136,7 +136,7 @@ send_packet( fd_sender_tile_ctx_t *  ctx,
   udp->check     = 0U; /* indicates no checksum */
 
   ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t), 0 );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   fd_stem_publish( stem, net_out_link->idx, sig, net_out_link->chunk, packet_sz, 0UL, tsorig, tspub );
   net_out_link->chunk = fd_dcache_compact_next( net_out_link->chunk, packet_sz, net_out_link->chunk0, net_out_link->wmark );

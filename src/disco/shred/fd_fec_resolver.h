@@ -196,7 +196,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                uchar const          * leader_pubkey,
                                fd_fec_set_t const * * out_fec_set,
                                fd_shred_t const   * * out_shred,
-                               fd_bmtree_node_t     * out_merkle_root );
+                               fd_bmtree_node_t     * out_merkle_root,
+                               long                 * out_first_shred_ts );
 
 
 /* fd_fec_resolver_done_contains returns 1 if the FEC with signature
@@ -273,7 +274,8 @@ fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
 int
 fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
                                 fd_shred_t const *    last_shred,
-                                fd_fec_set_t const ** out_fec_set );
+                                fd_fec_set_t const ** out_fec_set,
+                                long               * out_first_shred_ts );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );

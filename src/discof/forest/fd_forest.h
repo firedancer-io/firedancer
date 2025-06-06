@@ -20,6 +20,7 @@
    to turn on additional runtime checks and logging. */
 
 #include "../../disco/fd_disco_base.h"
+#include <linux/netlink.h>
 
 #ifndef FD_FOREST_USE_HANDHOLDING
 #define FD_FOREST_USE_HANDHOLDING 1
@@ -309,6 +310,77 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off
 
 fd_forest_ele_t const *
 fd_forest_publish( fd_forest_t * forest, ulong slot );
+
+struct fd_forest_iter {
+  ulong ele_idx;
+  uint  shred_idx;
+};
+typedef struct fd_forest_iter fd_forest_iter_t;
+
+static inline fd_forest_iter_t
+fd_forest_iter_init( fd_forest_t const * forest ) {
+  /* Find first element.  We could randomly select anything on the frontier. */
+  fd_forest_ele_t const      * pool     = fd_forest_pool_const( forest );
+  fd_forest_frontier_t const * frontier = fd_forest_frontier_const( forest );
+
+  fd_forest_iter_t repair_iter;
+
+  fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
+  if( FD_UNLIKELY( fd_forest_frontier_iter_done( iter, frontier, pool ) ) ) {
+    repair_iter.ele_idx   = fd_forest_pool_idx_null( pool );
+    repair_iter.shred_idx = UINT_MAX;
+    return repair_iter;
+  }
+  repair_iter.ele_idx   = iter.ele_idx;
+  repair_iter.shred_idx = fd_forest_pool_ele_const( pool, iter.ele_idx )->buffered_idx + 1;
+  return repair_iter;
+}
+
+static inline fd_forest_iter_t
+fd_forest_iter_next( fd_forest_t const * forest, fd_forest_iter_t iter ) {
+  fd_forest_ele_t const * pool = fd_forest_pool_const( forest );
+
+  fd_forest_ele_t const * ele = fd_forest_pool_ele_const( pool, iter.ele_idx );
+  if( FD_UNLIKELY( iter.shred_idx >= ele->complete_idx ) ){
+    /* At the end of the current slot. */
+    iter.ele_idx   = ele->next;
+    iter.shred_idx = 0; /* next slot */
+  }
+
+  uint next_shred_idx = iter.shred_idx + 1;
+  for(;;) {
+    if( ele->complete_idx != UINT_MAX && !fd_forest_ele_idxs_test( ele->idxs, next_shred_idx ) && next_shred_idx < ele->complete_idx ) {
+      // Valid shred to request. Note you can't know the ele->complete_idx
+      // until you have actually recieved the slot complete shred, thus the <
+      break;
+    } else {
+      next_shred_idx++;
+      if( FD_UNLIKELY( next_shred_idx >= ele->complete_idx )) {
+        /* No more shreds in this slot to request, move to the next one. */
+        ele = fd_forest_pool_ele_const( pool, ele->child );
+        iter.ele_idx   = ele->child;
+        iter.shred_idx = ele->buffered_idx + 1;
+        if( FD_UNLIKELY( iter.ele_idx == fd_forest_pool_idx_null( pool ) ) ) {
+          iter.shred_idx = UINT_MAX; /* no more elements */
+          return iter;
+        }
+
+
+
+      }
+    }
+  }
+  return iter;
+}
+
+FD_FN_CONST static inline int
+fd_forest_iter_done( fd_forest_iter_t iter, fd_forest_t const * forest ) {
+  fd_forest_ele_t const * pool = fd_forest_pool_const( forest );
+  if( FD_UNLIKELY( iter.ele_idx == fd_forest_pool_idx_null( pool ) ) ) return 1; /* no more elements */
+  return 0;
+}
+
+
 
 /* Misc */
 
