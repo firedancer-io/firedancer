@@ -33,7 +33,8 @@ fd_repair_new ( void * shmem, ulong seed ) {
   glob->oldest_nonce = glob->current_nonce = glob->next_nonce = 0;
   fd_rng_new(glob->rng, (uint)seed, 0UL);
 
-  glob->actives_sticky_cnt   = 0;
+  glob->peer_cnt   = 0;
+  glob->peer_idx   = 0;
   glob->actives_random_seed  = 0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI(l, 1UL);
@@ -95,29 +96,23 @@ fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * intake_
 /* Initiate connection to a peer */
 int
 fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id ) {
-  char tmp[100];
-  char keystr[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( id->uc, NULL, keystr );
-  FD_LOG_DEBUG(("adding active peer address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), addr), keystr));
-
+  if( FD_UNLIKELY( glob->peer_cnt >= FD_ACTIVE_KEY_MAX ) ) return -1;
   fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
   if (val == NULL) {
-    if (fd_active_table_is_full(glob->actives)) {
-      FD_LOG_WARNING(("too many active repair peers, discarding new peer"));
-      return -1;
-    }
     val = fd_active_table_insert(glob->actives, id);
     fd_repair_peer_addr_copy(&val->addr, addr);
     val->avg_reqs = 0;
     val->avg_reps = 0;
     val->avg_lat = 0;
-    val->sticky = 0;
-    val->first_request_time = 0;
     val->stake = 0UL;
-    FD_LOG_DEBUG(( "adding repair peer %s", FD_BASE58_ENC_32_ALLOCA( val->key.uc ) ));
-  }
 
-  return 0;
+    glob->peers[ glob->peer_cnt++ ] = (fd_peer_t){
+      .key = *id,
+      .ip4 = *addr
+    };
+    return 0;
+  }
+  return 1;
 }
 
 /* Set the current protocol time in nanosecs */
@@ -235,7 +230,6 @@ fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {
       FD_LOG_WARNING(( "Invalid IPv4 address '%s', skipping", ip_str ));
       continue;
     }
-    uint ip_addr = (uint)addr_parsed.s_addr;
 
     /* Convert the port */
     char * endptr = NULL;
@@ -246,14 +240,14 @@ fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {
     }
 
     /* Create the peer address struct (byte-swap the port to network order). */
-    fd_repair_peer_addr_t peer_addr;
+    //fd_repair_peer_addr_t peer_addr;
     /* already in network byte order from inet_aton */
-    peer_addr.addr = ip_addr;
+    //peer_addr.addr = ip_addr;
     /* Flip to big-endian for network order */
-    peer_addr.port = fd_ushort_bswap( (ushort)port );
+    //peer_addr.port = fd_ushort_bswap( (ushort)port );
 
     /* Add to active peers in the repair tile. */
-    fd_repair_add_active_peer( repair, &peer_addr, &pubkey );
+   // fd_repair_add_active_peer( repair, &peer_addr, &pubkey );
 
     loaded_peers++;
   }
@@ -272,7 +266,6 @@ fd_repair_start( fd_repair_t * glob ) {
 }
 
 static void fd_repair_print_all_stats( fd_repair_t * glob );
-static void fd_actives_shuffle( fd_repair_t * repair );
 static int fd_write_good_peer_cache_file( fd_repair_t * repair );
 
 /* Dispatch timed events and other protocol behavior. This should be
@@ -282,11 +275,9 @@ fd_repair_continue( fd_repair_t * glob ) {
   if ( glob->now - glob->last_print > (long)30e9 ) { /* 30 seconds */
     fd_repair_print_all_stats( glob );
     glob->last_print = glob->now;
-    fd_actives_shuffle( glob );
     fd_repair_decay_stats( glob );
     glob->last_decay = glob->now;
   } else if ( glob->now - glob->last_decay > (long)15e9 ) { /* 15 seconds */
-    fd_actives_shuffle( glob );
     fd_repair_decay_stats( glob );
     glob->last_decay = glob->now;
   } else if ( glob->now - glob->last_good_peer_cache_file_write > (long)60e9 ) { /* 1 minute */
@@ -296,241 +287,20 @@ fd_repair_continue( fd_repair_t * glob ) {
   return 0;
 }
 
-/* Test if a peer is good. Returns 1 if the peer is "great", 0 if the peer is "good", and -1 if the peer sucks */
-static int
-is_good_peer( fd_active_elem_t * val ) {
-  if( FD_UNLIKELY( NULL == val ) ) return -1;                          /* Very bad */
-  if( val->avg_reqs > 10U && val->avg_reps == 0U )  return -1;         /* Bad, no response after 10 requests */
-  if( val->avg_reqs < 20U ) return 0;                                  /* Not sure yet, good enough for now */
-  if( (float)val->avg_reps < 0.01f*((float)val->avg_reqs) ) return -1; /* Very bad */
-  if( (float)val->avg_reps < 0.8f*((float)val->avg_reqs) ) return 0;   /* 80%, Good but not great */
-  if( (float)val->avg_lat > 2500e9f*((float)val->avg_reps) ) return 0;  /* 300ms, Good but not great */
-  return 1;                                                            /* Great! */
-}
-
-#define SORT_NAME        fd_latency_sort
-#define SORT_KEY_T       long
-#define SORT_BEFORE(a,b) (a)<(b)
-#include "../../util/tmpl/fd_sort.c"
-
-static void
-fd_actives_shuffle( fd_repair_t * repair ) {
-  /* Since we now have stake weights very quickly after reading the manifest, we wait
-     until we have the stake weights before we start repairing. This ensures that we always
-     sample from the available peers using stake weights. */
-  if( repair->stake_weights_cnt == 0 ) {
-    FD_LOG_NOTICE(( "repair does not have stake weights yet, not selecting any sticky peers" ));
-    return;
-  }
-
-  FD_SCRATCH_SCOPE_BEGIN {
-    ulong prev_sticky_cnt = repair->actives_sticky_cnt;
-    /* Find all the usable stake holders */
-    fd_active_elem_t ** leftovers = fd_scratch_alloc(
-        alignof( fd_active_elem_t * ),
-        sizeof( fd_active_elem_t * ) * repair->stake_weights_cnt );
-    ulong leftovers_cnt = 0;
-
-    ulong total_stake = 0UL;
-    if( repair->stake_weights_cnt==0 ) {
-      for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
-         !fd_active_table_iter_done( repair->actives, iter );
-         iter = fd_active_table_iter_next( repair->actives, iter ) ) {
-        fd_active_elem_t * peer = fd_active_table_iter_ele( repair->actives, iter );
-        if( peer->sticky ) continue;
-        leftovers[leftovers_cnt++] = peer;
-      }
-    } else {
-
-      for( ulong i = 0; i < repair->stake_weights_cnt; i++ ) {
-        fd_stake_weight_t const * stake_weight = &repair->stake_weights[i];
-        ulong stake = stake_weight->stake;
-        if( !stake ) continue;
-        fd_pubkey_t const * key = &stake_weight->key;
-        fd_active_elem_t * peer = fd_active_table_query( repair->actives, key, NULL );
-        if( peer!=NULL ) {
-          peer->stake = stake;
-          total_stake = fd_ulong_sat_add( total_stake, stake );
-        }
-        if( NULL == peer || peer->sticky ) continue;
-        leftovers[leftovers_cnt++] = peer;
-      }
-    }
-
-    fd_active_elem_t * best[FD_REPAIR_STICKY_MAX];
-    ulong              best_cnt = 0;
-    fd_active_elem_t * good[FD_REPAIR_STICKY_MAX];
-    ulong              good_cnt = 0;
-
-    long  latencies[ FD_REPAIR_STICKY_MAX ];
-    ulong latencies_cnt = 0UL;
-
-    long first_quartile_latency = LONG_MAX;
-
-    /* fetch all latencies */
-    for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
-            !fd_active_table_iter_done( repair->actives, iter );
-            iter = fd_active_table_iter_next( repair->actives, iter ) ) {
-            fd_active_elem_t * peer = fd_active_table_iter_ele( repair->actives, iter );
-
-      if( !peer->sticky ) {
-        continue;
-      }
-
-      if( peer->avg_lat==0L || peer->avg_reps==0UL ) {
-        continue;
-      }
-
-      latencies[ latencies_cnt++ ] = peer->avg_lat/(long)peer->avg_reps;
-    }
-
-    if( latencies_cnt >= 4 ) {
-      /* we probably want a few peers before sorting and pruning them based on
-         latency. */
-      fd_latency_sort_inplace( latencies, latencies_cnt );
-      first_quartile_latency = latencies[ latencies_cnt / 4UL ];
-      FD_LOG_NOTICE(( "repair peers first quartile latency - latency: %6.6f ms", (double)first_quartile_latency * 1e-6 ));
-    }
-
-    /* Build the new sticky peers set based on the latency and stake weight */
-
-    /* select an upper bound */
-    /* acceptable latency is 2 * first quartile latency  */
-    long acceptable_latency = first_quartile_latency != LONG_MAX ? 2L * first_quartile_latency : LONG_MAX;
-    for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
-         !fd_active_table_iter_done( repair->actives, iter );
-         iter = fd_active_table_iter_next( repair->actives, iter ) ) {
-      fd_active_elem_t * peer = fd_active_table_iter_ele( repair->actives, iter );
-      uchar sticky = peer->sticky;
-      peer->sticky = 0; /* Already clear the sticky bit */
-      if( sticky ) {
-        /* See if we still like this peer */
-        if( peer->avg_reps>0UL && ( peer->avg_lat/(long)peer->avg_reps ) >= acceptable_latency ) {
-          continue;
-        }
-        int r = is_good_peer( peer );
-        if( r == 1 ) best[best_cnt++] = peer;
-        else if( r == 0 ) good[good_cnt++] = peer;
-      }
-    }
-
-    ulong tot_cnt = 0;
-    for( ulong i = 0; i < best_cnt && tot_cnt < FD_REPAIR_STICKY_MAX - 2U; ++i ) {
-      repair->actives_sticky[tot_cnt++] = best[i]->key;
-      best[i]->sticky                       = (uchar)1;
-    }
-    for( ulong i = 0; i < good_cnt && tot_cnt < FD_REPAIR_STICKY_MAX - 2U; ++i ) {
-      repair->actives_sticky[tot_cnt++] = good[i]->key;
-      good[i]->sticky                       = (uchar)1;
-    }
-    if( leftovers_cnt ) {
-      /* Sample 64 new sticky peers using stake-weighted sampling */
-      for( ulong i = 0; i < 64 && tot_cnt < FD_REPAIR_STICKY_MAX && tot_cnt < fd_active_table_key_cnt( repair->actives ); ++i ) {
-        /* Generate a random amount of culmative stake at which to sample the peer */
-        ulong target_culm_stake = fd_rng_ulong( repair->rng ) % total_stake;
-
-        /* Iterate over the active peers until we find the randomly selected peer */
-        ulong culm_stake = 0UL;
-        fd_active_elem_t * peer = NULL;
-        for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
-          !fd_active_table_iter_done( repair->actives, iter );
-          iter = fd_active_table_iter_next( repair->actives, iter ) ) {
-            peer = fd_active_table_iter_ele( repair->actives, iter );
-            culm_stake = fd_ulong_sat_add( culm_stake, peer->stake );
-            if( FD_UNLIKELY(( culm_stake >= target_culm_stake )) ) {
-              break;
-            }
-        }
-
-        /* Select this peer as sticky */
-        if( FD_LIKELY(( peer && !peer->sticky )) ) {
-          repair->actives_sticky[tot_cnt++] = peer->key;
-          peer->sticky                      = (uchar)1;
-        }
-      }
-
-    }
-    repair->actives_sticky_cnt = tot_cnt;
-
-    FD_LOG_NOTICE(
-        ( "selected %lu (previously: %lu) peers for repair (best was %lu, good was %lu, leftovers was %lu) (nonce_diff: %u)",
-          tot_cnt,
-          prev_sticky_cnt,
-          best_cnt,
-          good_cnt,
-          leftovers_cnt,
-          repair->next_nonce - repair->current_nonce ) );
-  }
-  FD_SCRATCH_SCOPE_END;
-}
-
-static fd_active_elem_t *
-actives_sample( fd_repair_t * repair ) {
-  ulong seed = repair->actives_random_seed;
-  ulong actives_sticky_cnt = repair->actives_sticky_cnt;
-  while( actives_sticky_cnt ) {
-    seed += 774583887101UL;
-    fd_pubkey_t *      id   = &repair->actives_sticky[seed % actives_sticky_cnt];
-    fd_active_elem_t * peer = fd_active_table_query( repair->actives, id, NULL );
-    if( NULL != peer ) {
-      if( peer->first_request_time == 0U ) peer->first_request_time = repair->now;
-      /* Aggressively throw away bad peers */
-      if( repair->now - peer->first_request_time < (long)5e9 || /* Sample the peer for at least 5 seconds */
-          is_good_peer( peer ) != -1 ) {
-        repair->actives_random_seed = seed;
-        return peer;
-      }
-      peer->sticky = 0;
-    }
-    *id = repair->actives_sticky[--( actives_sticky_cnt )];
-  }
-  return NULL;
-}
-
-static uint
-select_peers_FIX_PLEASE( fd_repair_t * glob, fd_pubkey_t ** ids, uint max_peer_cnt ) {
-  uint found_peers = 0;
-  for( ulong i=0UL; i<max_peer_cnt; i++ ) {
-    fd_active_elem_t * peer = actives_sample( glob );
-    if(!peer) continue;
-
-    ids[found_peers++] = &peer->key;
-  }
-
-  if (!found_peers) {
-    FD_LOG_WARNING(( "[%s] No peers found, refreshing sticky peers", __func__ ));
-    for( ulong i=0UL; i<max_peer_cnt; i++ ) {
-      fd_pubkey_t      * id   = &glob->actives_sticky[i];
-      fd_active_elem_t * peer = fd_active_table_query( glob->actives, id, NULL );
-      if( peer ){
-        peer->first_request_time = glob->now;
-      }
-    }
-
-    // Can guarantee found peers now! lol
-    for( ulong i=0UL; i<max_peer_cnt; i++ ) {
-      fd_active_elem_t * peer = actives_sample( glob );
-      if(!peer) continue;
-      ids[found_peers++] = &peer->key;
-    }
-  };
-  return found_peers;
-}
-
 static int
 fd_repair_construct_request_protocol( fd_repair_t          * glob,
                                       fd_repair_protocol_t * protocol,
                                       int type,
                                       ulong slot,
                                       uint shred_index,
-                                      fd_active_elem_t * active, uint nonce, long now ) {
+                                      fd_pubkey_t * recipient, uint nonce, long now ) {
   switch( type ) {
     case fd_needed_window_index: {
       glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
       fd_repair_protocol_new_disc(protocol, fd_repair_protocol_enum_window_index);
       fd_repair_window_index_t * wi = &protocol->inner.window_index;
       wi->header.sender = *glob->public_key;
-      wi->header.recipient = active->key;
+      wi->header.recipient = *recipient;
       wi->header.timestamp = (ulong)now/1000000L;
       wi->header.nonce = nonce;
       wi->slot = slot;
@@ -544,7 +314,7 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_highest_window_index );
       fd_repair_highest_window_index_t * wi = &protocol->inner.highest_window_index;
       wi->header.sender = *glob->public_key;
-      wi->header.recipient = active->key;
+      wi->header.recipient = *recipient;
       wi->header.timestamp = (ulong)now/1000000L;
       wi->header.nonce = nonce;
       wi->slot = slot;
@@ -558,7 +328,7 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
       fd_repair_protocol_new_disc( protocol, fd_repair_protocol_enum_orphan );
       fd_repair_orphan_t * wi = &protocol->inner.orphan;
       wi->header.sender = *glob->public_key;
-      wi->header.recipient = active->key;
+      wi->header.recipient = *recipient;
       wi->header.timestamp = (ulong)now/1000000L;
       wi->header.nonce = nonce;
       wi->slot = slot;
@@ -569,19 +339,32 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
   return 0;
 }
 
+static uint
+select_peers( fd_repair_t *  glob,
+              fd_pubkey_t ** ids,
+              uint           peer_cnt ) {
+  /* consecutively select next 4 active peers */
+  if( FD_UNLIKELY( glob->peer_cnt==0 ) ) return 0;
+
+  for( uint i = 0; i < peer_cnt; i++ ) {
+    fd_pubkey_t * id = &glob->peers[ glob->peer_idx++ ].key;
+    ids[i] = id;
+    if( FD_UNLIKELY( glob->peer_idx >= glob->peer_cnt ) ) {
+      glob->peer_idx = 0; /* wrap around */
+    }
+  }
+  return peer_cnt;
+}
+
 static int
 fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint shred_index, long now ) {
 
   /* If there are no active sticky peers from which to send requests to, refresh the sticky peers
      selection. It may be that stake weights were not available before, and now they are. */
-  if ( FD_UNLIKELY( glob->actives_sticky_cnt == 0 ) ) { // should be hit at most once per after_credit iter.
-    FD_LOG_INFO(("Shuffling sticky peers, no active peers available"));
-    fd_actives_shuffle( glob );
-  }
 
   fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
-  uint       peer_cnt = fd_uint_min( (uint)glob->actives_sticky_cnt, FD_REPAIR_NUM_NEEDED_PEERS );
-  uint found_peer_cnt = select_peers_FIX_PLEASE( glob, ids, peer_cnt );
+  uint       peer_cnt = FD_REPAIR_NUM_NEEDED_PEERS;
+  uint found_peer_cnt = select_peers( glob, ids, peer_cnt );
 
   fd_inflight_key_t     dupkey = { .type = (enum fd_needed_elem_type)type, .slot = slot, .shred_index = shred_index };
   fd_inflight_elem_t * dupelem = fd_inflight_table_query( glob->dupdetect, &dupkey, NULL );
@@ -601,12 +384,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     dupelem->last_send_time = now;
     dupelem->req_cnt        = found_peer_cnt;
     for( ulong i=0UL; i<found_peer_cnt; i++ ) {
-      fd_active_elem_t * active = fd_active_table_query( glob->actives, ids[i], NULL );
-      if( FD_UNLIKELY( active==NULL ) ) {
-        __asm__("int $3");
-        FD_LOG_ERR(( "Failed to find active peer for %s", FD_BASE58_ENC_32_ALLOCA( ids[i] ) ));
-      }
-      fd_repair_construct_request_protocol( glob, &glob->protocol_ret_buf[i], type, slot, shred_index, active, glob->next_nonce, now );
+      fd_repair_construct_request_protocol( glob, &glob->protocol_ret_buf[i], type, slot, shred_index, ids[i], glob->next_nonce, now );
       glob->next_nonce++;
     }
     FD_LOG_INFO(("added request for %lu, %u", slot, shred_index));
@@ -730,7 +508,6 @@ fd_repair_print_all_stats( fd_repair_t * glob ) {
        !fd_active_table_iter_done( glob->actives, iter );
        iter = fd_active_table_iter_next( glob->actives, iter ) ) {
     fd_active_elem_t * val = fd_active_table_iter_ele( glob->actives, iter );
-    if( !val->sticky ) continue;
     print_stats( val );
   }
   FD_LOG_INFO( ( "peer count: %lu", fd_active_table_key_cnt( glob->actives ) ) );
@@ -760,7 +537,11 @@ fd_repair_set_stake_weights( fd_repair_t * repair,
   for( ulong i = 0UL; i < repair->stake_weights_cnt; i++ ) {
     fd_stake_weight_t const * stake_weight = &repair->stake_weights[i];
     fd_pubkey_t const * key = &stake_weight->key;
-    FD_LOG_NOTICE(( "repair set stake weight %lu: %s, stake %lu", i, FD_BASE58_ENC_32_ALLOCA( key ), stake_weight->stake ));
+    if( fd_active_table_query_const( repair->actives, key, NULL ) ) {
+      FD_LOG_NOTICE(( "repair set stake weight %lu: %s, stake %lu", i, FD_BASE58_ENC_32_ALLOCA( key ), stake_weight->stake ));
+    } else {
+      FD_LOG_WARNING(( "repair set stake weight %lu: %s, stake %lu, but peer not active", i, FD_BASE58_ENC_32_ALLOCA( key ), stake_weight->stake ));
+    }
   }
 }
 

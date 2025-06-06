@@ -248,13 +248,17 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
+  /* Stop adding peers after we reach the peer max, but we may want to
+     consider an eviction policy. */
   for( ulong i=0UL; i<dest_cnt; i++ ) {
     fd_repair_peer_addr_t repair_peer = {
       .addr = in_dests[i].ip4_addr,
       .port = fd_ushort_bswap( in_dests[i].udp_port ),
     };
 
-    fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
+    if( fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey ) == -1 ) {
+      break; /* FIXME: reached max active peers */
+    }
   }
 }
 
@@ -745,6 +749,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
   } FD_SCRATCH_SCOPE_END;
   return 0;
 }
+
 static void
 after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  in_idx,

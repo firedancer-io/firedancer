@@ -74,11 +74,11 @@ struct fd_active_elem {
     ulong next; /* used internally by fd_map_giant */
 
     fd_repair_peer_addr_t addr;
+    // Might be worth keeping these fields, but currently response rate is pretty high.
+    // latency could be a useful metric to keep track of.
     ulong avg_reqs; /* Moving average of the number of requests */
     ulong avg_reps; /* Moving average of the number of requests */
     long  avg_lat;  /* Moving average of response latency */
-    uchar sticky;
-    long  first_request_time;
     ulong stake;
 };
 /* Active table */
@@ -165,8 +165,11 @@ typedef struct fd_pinged_elem fd_pinged_elem_t;
 #define MAP_T        fd_pinged_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
-/* Callbacks when a repair is requested. shred_idx==-1 means the last index. */
-
+struct fd_peer {
+  fd_pubkey_t   key;
+  fd_ip4_port_t ip4;
+};
+typedef struct fd_peer fd_peer_t;
 /* Repair Metrics */
 struct fd_repair_metrics {
   ulong recv_clnt_pkt;
@@ -195,9 +198,16 @@ struct fd_repair {
     void * fun_arg;
     /* Table of validators that we are actively pinging, keyed by repair address */
     fd_active_elem_t * actives;
+
+    /* TODO remove, along with good peer cache file */
     fd_pubkey_t actives_sticky[FD_REPAIR_STICKY_MAX]; /* cache of chosen repair peer samples */
     ulong       actives_sticky_cnt;
     ulong       actives_random_seed;
+
+    fd_peer_t peers[ FD_ACTIVE_KEY_MAX ];
+    ulong     peer_cnt; /* number of peers in the peers array */
+    ulong     peer_idx; /* max number of peers in the peers array */
+
     /* Duplicate request detection table */
     fd_inflight_elem_t * dupdetect;
     fd_repair_protocol_t protocol_ret_buf[FD_REPAIR_NUM_NEEDED_PEERS]; /* buffer for constructed protocol messages */
