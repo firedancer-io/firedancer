@@ -19,7 +19,7 @@
 #include "sham_link.h"
 
 #define SHAM_LINK_CONTEXT fd_rpc_ctx_t
-#define SHAM_LINK_STATE   fd_stake_ci_t
+#define SHAM_LINK_STATE   fd_multi_epoch_leaders_t
 #define SHAM_LINK_NAME    stake_sham_link
 #include "sham_link.h"
 
@@ -61,10 +61,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->wmk ));
   fd_wksp_mprotect( wksp, 1 );
 
-  fd_pubkey_t identity_key[1]; /* Just the public key */
-  memset( identity_key, 0xa5, sizeof(fd_pubkey_t) );
-  args->stake_ci = fd_stake_ci_join( fd_stake_ci_new( aligned_alloc( fd_stake_ci_align(), fd_stake_ci_footprint() ), identity_key ) );
-
+  args->ml   = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( aligned_alloc( fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint() ) ) );
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 
   args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 30 );
@@ -221,7 +218,7 @@ int main( int argc, char ** argv ) {
     fd_replay_notif_msg_t msg;
     replay_sham_link_poll( rep_notify, ctx, &msg );
 
-    stake_sham_link_poll( stake_notify, ctx, args.stake_ci );
+    stake_sham_link_poll( stake_notify, ctx, args.ml );
 
     fd_rpc_ws_poll( ctx );
   }
@@ -241,11 +238,11 @@ replay_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 }
 
 static void
-stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state, void const * msg, int sz) {
+stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state, void const * msg, int sz) {
   fd_rpc_stake_during_frag( ctx, state, msg, sz );
 }
 
 static void
-stake_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_stake_ci_t * state) {
+stake_sham_link_after_frag(fd_rpc_ctx_t * ctx, fd_multi_epoch_leaders_t * state) {
   fd_rpc_stake_after_frag( ctx, state );
 }

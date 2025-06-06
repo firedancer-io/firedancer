@@ -14,7 +14,7 @@
 
      slots_per_epoch = sched_cnt * slots_per_rotation
 
-   The leader can only change between rotations.  An example leader
+   The leader can only change between rotations.  An example leaderasdf
    schedule looks as follows (where A, B, C are node identities and each
    column is a slot, with 4 slots per rotation)
 
@@ -31,8 +31,9 @@
 #include "../types/fd_types.h"
 #include "../../ballet/wsample/fd_wsample.h"
 
-#define MAX_SLOTS_CNT         432000UL
+#define MAX_SLOTS_PER_EPOCH   432000UL
 #define MAX_PUB_CNT           50000UL
+#define MAX_STAKED_LEADERS    40200UL
 
 #define FD_ULONG_MAX(  a, b ) (__builtin_choose_expr( __builtin_constant_p( a ) & __builtin_constant_p( b ),        \
                                                       ((ulong )(a))>=((ulong )(b)) ? ((ulong )(a)) : ((ulong )(b)), \
