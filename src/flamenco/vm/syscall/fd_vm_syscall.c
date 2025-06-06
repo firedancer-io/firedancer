@@ -32,8 +32,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_get_epoch_stake_syscall       = 0;
   int enable_epoch_rewards_syscall         = 0;
 
-  int disable_fees_sysvar                  = 0;
-
   if( slot ) {
     enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot, *features, blake3_syscall_enabled );
     enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot, *features, curve25519_syscall_enabled );
@@ -46,8 +44,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     // https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/mod.rs#L275-L277
     enable_epoch_rewards_syscall         = FD_FEATURE_ACTIVE( slot, *features, enable_partitioned_epoch_reward ) ||
                                            FD_FEATURE_ACTIVE( slot, *features, partitioned_epoch_rewards_superfeature );
-
-    disable_fees_sysvar                  = FD_FEATURE_ACTIVE( slot, *features, disable_fees_sysvar );
 
   } else { /* enable ALL */
 
@@ -104,9 +100,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   REGISTER( "sol_get_clock_sysvar",                  fd_vm_syscall_sol_get_clock_sysvar );
   REGISTER( "sol_get_epoch_schedule_sysvar",         fd_vm_syscall_sol_get_epoch_schedule_sysvar );
-
-  if( !disable_fees_sysvar )
-    REGISTER( "sol_get_fees_sysvar",                 fd_vm_syscall_sol_get_fees_sysvar );
 
   REGISTER( "sol_get_rent_sysvar",                   fd_vm_syscall_sol_get_rent_sysvar );
 

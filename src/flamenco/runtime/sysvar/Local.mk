@@ -15,9 +15,6 @@ $(call make-unit-test,test_sysvar_epoch_schedule,test_sysvar_epoch_schedule,fd_f
 $(call run-unit-test,test_sysvar_epoch_schedule)
 endif
 
-$(call add-hdrs,fd_sysvar_fees.h)
-$(call add-objs,fd_sysvar_fees,fd_flamenco)
-
 $(call add-hdrs,fd_sysvar_instructions.h)
 $(call add-objs,fd_sysvar_instructions,fd_flamenco)
 

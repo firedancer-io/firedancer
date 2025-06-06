@@ -133,11 +133,6 @@ do{
   uchar * rodata = fd_spad_alloc_check( spad, 8UL, rodata_sz );
   memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
-  /* Enable direct_mapping for SBPF version >= v1 */
-  if( input->vm_ctx.sbpf_version >= FD_SBPF_V1 ) {
-    ((fd_exec_txn_ctx_t *)(instr_ctx->txn_ctx))->features.bpf_account_data_direct_mapping = 0UL;
-  }
-
   /* Setup input region */
   ulong                    input_sz                                = 0UL;
   ulong                    pre_lens[256]                           = {0};

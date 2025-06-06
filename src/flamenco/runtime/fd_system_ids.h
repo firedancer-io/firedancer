@@ -11,6 +11,9 @@ extern const fd_pubkey_t fd_sysvar_slot_history_id;
 extern const fd_pubkey_t fd_sysvar_slot_hashes_id;
 extern const fd_pubkey_t fd_sysvar_epoch_schedule_id;
 extern const fd_pubkey_t fd_sysvar_epoch_rewards_id;
+
+/* SysvarFees111111111111111111111111111111111 has been disabled and cleaned
+   up following the activation of the `disable_fees_sysvar` feature. */
 extern const fd_pubkey_t fd_sysvar_fees_id;
 extern const fd_pubkey_t fd_sysvar_rent_id;
 extern const fd_pubkey_t fd_sysvar_stake_history_id;

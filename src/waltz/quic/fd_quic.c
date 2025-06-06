@@ -3688,7 +3688,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
     /* get next packet number
        Returned to pool if not sent as gaps are harmful for ACK frame
        compression. */
-    ulong pkt_number = conn->pkt_number[pn_space]++;
+    ulong pkt_number = conn->pkt_number[pn_space];
     FD_QUIC_PKT_META_SET_PKT_NUM( pkt_meta_tmpl, pkt_number );
 
     /* are we the client initial packet? */
@@ -3895,6 +3895,9 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
     conn->tx_ptr += cipher_text_sz;
 #endif
+
+    /* we have committed the packet into the buffer, so inc pkt_number */
+    conn->pkt_number[pn_space]++;
 
     fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
 
@@ -4458,10 +4461,14 @@ static ulong
 fd_quic_handle_ping_frame(
     fd_quic_frame_ctx_t *  ctx,
     fd_quic_ping_frame_t * data FD_PARAM_UNUSED,
-    uchar const *          p    FD_PARAM_UNUSED,
+    uchar const *          p0   FD_PARAM_UNUSED,
     ulong                  p_sz FD_PARAM_UNUSED ) {
   FD_DTRACE_PROBE_1( quic_handle_ping_frame, ctx->conn->our_conn_id );
-  return 0;
+  /* skip pings and pads */
+  uchar const *       p     = p0;
+  uchar const * const p_end = p + p_sz;
+  while( p < p_end && ((uint)p[0] & 0xfeu) == 0 ) p++;
+  return (ulong)( p - p0 );
 }
 
 /* Retry packet metadata

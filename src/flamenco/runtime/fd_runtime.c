@@ -38,7 +38,6 @@
 #include "program/fd_address_lookup_table_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
-#include "sysvar/fd_sysvar_fees.h"
 #include "sysvar/fd_sysvar_last_restart_slot.h"
 #include "sysvar/fd_sysvar_recent_hashes.h"
 #include "sysvar/fd_sysvar_rent.h"
@@ -472,9 +471,6 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   fd_runtime_update_rent_epoch( slot_ctx );
 
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
-
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar) )
-    fd_sysvar_fees_update( slot_ctx, runtime_spad );
 
   ulong fees = 0UL;
   ulong burn = 0UL;
@@ -1002,6 +998,75 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
 /* Block-Level Execution Preparation/Finalization                             */
 /******************************************************************************/
 
+/*
+https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/program/src/fee_calculator.rs#L105-L165
+*/
+static void
+fd_runtime_new_fee_rate_governor_derived( fd_exec_slot_ctx_t *   slot_ctx,
+                                          ulong                  latest_singatures_per_slot ) {
+  fd_fee_rate_governor_t * base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( slot_ctx->bank_mgr );
+  ulong *                  lamports_per_signature = fd_bank_mgr_lamports_per_signature_query( slot_ctx->bank_mgr );
+
+  fd_fee_rate_governor_t me = {
+    .target_signatures_per_slot    = base_fee_rate_governor->target_signatures_per_slot,
+    .target_lamports_per_signature = base_fee_rate_governor->target_lamports_per_signature,
+    .max_lamports_per_signature    = base_fee_rate_governor->max_lamports_per_signature,
+    .min_lamports_per_signature    = base_fee_rate_governor->min_lamports_per_signature,
+    .burn_percent                  = base_fee_rate_governor->burn_percent
+  };
+
+  ulong new_lamports_per_signature = 0;
+  if( me.target_signatures_per_slot > 0 ) {
+    me.min_lamports_per_signature = fd_ulong_max( 1UL, (ulong)(me.target_lamports_per_signature / 2) );
+    me.max_lamports_per_signature = me.target_lamports_per_signature * 10;
+    ulong desired_lamports_per_signature = fd_ulong_min(
+      me.max_lamports_per_signature,
+      fd_ulong_max(
+        me.min_lamports_per_signature,
+        me.target_lamports_per_signature
+        * fd_ulong_min(latest_singatures_per_slot, (ulong)UINT_MAX)
+        / me.target_signatures_per_slot
+      )
+    );
+    long gap = (long)desired_lamports_per_signature - (long)*lamports_per_signature;
+    if ( gap == 0 ) {
+      new_lamports_per_signature = desired_lamports_per_signature;
+    } else {
+      long gap_adjust = (long)(fd_ulong_max( 1UL, (ulong)(me.target_lamports_per_signature / 20) ))
+        * (gap != 0)
+        * (gap > 0 ? 1 : -1);
+      new_lamports_per_signature = fd_ulong_min(
+        me.max_lamports_per_signature,
+        fd_ulong_max(
+          me.min_lamports_per_signature,
+          (ulong)((long)*lamports_per_signature + gap_adjust)
+        )
+      );
+    }
+  } else {
+    new_lamports_per_signature = base_fee_rate_governor->target_lamports_per_signature;
+    me.min_lamports_per_signature = me.target_lamports_per_signature;
+    me.max_lamports_per_signature = me.target_lamports_per_signature;
+  }
+
+  ulong * prev_lamports_per_signature = fd_bank_mgr_prev_lamports_per_signature_modify( slot_ctx->bank_mgr );
+  if( FD_UNLIKELY( *lamports_per_signature==0UL ) ) {
+    *prev_lamports_per_signature = new_lamports_per_signature;
+  } else {
+    *prev_lamports_per_signature = *lamports_per_signature;
+  }
+  fd_bank_mgr_prev_lamports_per_signature_save( slot_ctx->bank_mgr );
+
+  base_fee_rate_governor = fd_bank_mgr_fee_rate_governor_modify( slot_ctx->bank_mgr );
+  *base_fee_rate_governor = me;
+  fd_bank_mgr_fee_rate_governor_save( slot_ctx->bank_mgr );
+
+  lamports_per_signature = fd_bank_mgr_lamports_per_signature_modify( slot_ctx->bank_mgr );
+  *lamports_per_signature = new_lamports_per_signature;
+  fd_bank_mgr_lamports_per_signature_save( slot_ctx->bank_mgr );
+}
+
+
 static int
 fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t *          runtime_spad ) {
@@ -1012,7 +1077,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
 
   ulong * parent_signature_cnt = fd_bank_mgr_parent_signature_cnt_query( slot_ctx->bank_mgr );
 
-  fd_sysvar_fees_new_derived( slot_ctx, *parent_signature_cnt );
+  fd_runtime_new_fee_rate_governor_derived( slot_ctx, *parent_signature_cnt );
 
   // TODO: move all these out to a fd_sysvar_update() call...
   long clock_update_time      = -fd_log_wallclock();
@@ -1020,9 +1085,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   clock_update_time          += fd_log_wallclock();
   double clock_update_time_ms = (double)clock_update_time * 1e-6;
   FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot, clock_update_time_ms ));
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ) ) {
-    fd_sysvar_fees_update( slot_ctx, runtime_spad );
-  }
+
   // It has to go into the current txn previous info but is not in slot 0
   if( slot_ctx->slot != 0 ) {
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
@@ -3404,9 +3467,6 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
   fd_sysvar_slot_history_init( slot_ctx, runtime_spad );
   fd_sysvar_slot_hashes_init( slot_ctx, runtime_spad );
   fd_sysvar_epoch_schedule_init( slot_ctx );
-  if( !FD_FEATURE_ACTIVE( slot_ctx->slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ) ) {
-    fd_sysvar_fees_init( slot_ctx );
-  }
   fd_sysvar_rent_init( slot_ctx );
   fd_sysvar_stake_history_init( slot_ctx );
   fd_sysvar_last_restart_slot_init( slot_ctx );
