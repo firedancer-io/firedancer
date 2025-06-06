@@ -37,7 +37,6 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_sysvar_epoch_rewards_init(
     fd_exec_slot_ctx_t * slot_ctx,
-    ulong total_rewards,
     ulong distributed_rewards,
     ulong distribution_starting_block_height,
     ulong num_partitions,

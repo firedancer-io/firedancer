@@ -6,10 +6,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257067457-no-rent -
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257068890-no-rent -s snapshot-257068890-uRVtagPzKhYorycp4CRtKdWrYPij6iBxCYYXmqRvdSp.tar.zst -y 10 -m 20000000 -e 257068895 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257181622-no-rent -s snapshot-257181622-Fy996aeLW7kZ6AbBcPd3Vst77pkHDSAXpaexGiVHbB4S.tar.zst -y 5 -m 20000000 -e 257181624 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-no-rent -s snapshot-254462437-9HqBi19BJJRZfHeBS3ZpkeP9B5SAxBxz6Kwug29yLHac.tar.zst -y 30 -m 20000000 -e 254462836 -c 2.0.23
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-586-no-rent -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst -y 15 -m 20000000 -e 253152099 -c 2.1.14
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-586-no-rent-per -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst -y 15 -m 20000000 -e 253152099 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-cluster-v2.2.11 -s snapshot-5003-CVpKRo2Lb2Rc4CVnnMvB8HgsZG857TLFHe9ByLHXZjiU.tar.zst -y 5 -m 20000000 -e 5010 -c 2.2.11 --zst
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-262654839-no-rent -s snapshot-262654838-B6GkEWuehxZTZ77Ht9vWUzdX87BiWP5ohi84LMicYTBZ.tar.zst -y 5 -m 20000000 -e 262654840 -c 2.1.14
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257039990-no-rent -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -y 10 -m 20000000 -e 257040003 -c 2.1.14
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257039990-no-rent-per -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -y 10 -m 20000000 -e 257040003 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257037451-no-rent -s snapshot-257037451-36ERh35nFMRFB8sLHLTUnAd41TuzKYSTyxsa2bgBoMEj.tar.zst -y 10 -m 20000000 -e 257037454 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257035225-no-rent -s snapshot-257035225-EgwCNhhmffR38XWBXVp3GFs6fmtHKgzw5vEcD9e2oz14.tar.zst -y 10 -m 20000000 -e 257035233 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257465453-no-rent -s snapshot-257465452-3QExADnJwC756Law388ELX6xhtjnBGwToKVoQUFDcQfn.tar.zst -y 15 -m 20000000 -e 257465454 -c 2.1.14
@@ -46,8 +46,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-dm-no-ren
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-281375356-no-rent -s snapshot-281375353-Bg81vkkW8K3UtrQoEn3wLsEpYwoHRQSihW4t5PiF1bBD.tar.zst -y 10 -m 20000000 -e 281375359 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-251418170-no-rent -s snapshot-251418170-8sAkojR9PYTZvqiQZ1VWu27ewX5tXeVdC97wMXAtgHnT.tar.zst -y 10 -m 2000000 -e 251418233 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-282232100-no-rent -s snapshot-282232097-5ChH2XwaWrYaMvkemMQZmhMxabSNvXLKz3mZSCwhaW5W.tar.zst -y 5 -m 20000000 -e 282232101 -c 2.1.14
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-586-partitioned-epoch-rewards-no-rent -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst -y 20 -m 20000000 -e 253152099 -c 2.1.14 -o 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257039990-partitioned-epoch-rewards-no-rent -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -y 10 -m 20000000 -e 257040003 -c 2.1.14 -o 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-282151715-no-rent -s snapshot-282151712-6qodKmgM9YNdoFzfRKPFmVh1Gv3McVzQ8pd1Gka1efdg.tar.zst -y 5 -m 20000000 -e 282151717 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-286450148-no-rent -s snapshot-286450145-5kdyfTzRq8GHKgQAZNYLNGRR2MvoeG6CWrsm8uwG6QKF.tar.zst -y 10 -m 20000000 -e 286450151 -c 2.1.14
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-no-rent-200 -s snapshot-200-ic2aT3ncpMBwXo72XRtWRJK2FxanAGZsrNefaSH9CqH.tar.zst -y 5 -m 20000000 -e 984 -c 2.0.23 -o PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8
