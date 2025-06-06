@@ -188,6 +188,11 @@ typedef struct {
     } sock;
 
     struct {
+      fd_topo_net_tile_t net;
+      char               if_name[ 16 ];
+    } ibeth;
+
+    struct {
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */

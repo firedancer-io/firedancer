@@ -505,6 +505,8 @@ fd_config_validate( fd_config_t const * config ) {
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
+  } else if( 0==strcmp( config->net.provider, "ibverbs" ) ) {
+    /**/
   } else {
     FD_LOG_ERR(( "invalid `net.provider`: must be \"xdp\" or \"socket\"" ));
   }
