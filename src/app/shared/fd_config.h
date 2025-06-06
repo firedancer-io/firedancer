@@ -94,7 +94,9 @@ union fdctl_args {
 
   struct {
     int event;
-    int dump; /* whether the user requested --dump */
+    int dump;        /* whether the user requested --dump */
+    int dump_config; /* whether the user requested --dump-config */
+    int dump_conns;  /* whether the user requested --dump-conns */
   } quic_trace;
 };
 
