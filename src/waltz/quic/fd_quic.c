@@ -29,6 +29,8 @@
 #include "../../tango/tempo/fd_tempo.h"
 #include "../../util/log/fd_dtrace.h"
 
+#include "../../disco/metrics/generated/fd_metrics_enums.h"
+
 /* Declare map type for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
 #define MAP_KEY               stream_id
@@ -3146,6 +3148,26 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
       conn->host.udp_port);
 }
 
+static inline int
+fd_quic_conn_can_acquire_pkt_meta( fd_quic_conn_t             * conn,
+                                   fd_quic_pkt_meta_tracker_t * tracker ) {
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+  fd_quic_metrics_t * metrics = &conn->quic->metrics;
+
+  ulong pool_free = fd_quic_pkt_meta_pool_free( tracker->pool );
+  if( !pool_free || conn->used_pkt_meta >= state->max_inflight_frame_cnt_conn ) {
+    if( !pool_free ) {
+      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_EMPTY_POOL_IDX]++;
+    } else {
+      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_CONN_MAX_IDX]++;
+    }
+    return 0;
+  }
+  metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_SUCCESS_IDX]++;
+
+  return 1;
+}
+
 /* fd_quic_gen_frame_store_pkt_meta stores a pkt_meta into tracker.
    Value and type take the passed args; all other fields are copied
    from pkt_meta_tmpl. Returns 1 if successful, 0 if not.
@@ -3157,11 +3179,7 @@ fd_quic_gen_frame_store_pkt_meta( const fd_quic_pkt_meta_t   * pkt_meta_tmpl,
                                   fd_quic_pkt_meta_value_t     value,
                                   fd_quic_pkt_meta_tracker_t * tracker,
                                   fd_quic_conn_t             * conn ) {
-  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-  if( !fd_quic_pkt_meta_pool_free( tracker->pool ) || conn->used_pkt_meta >= state->max_inflight_frame_cnt_conn ) {
-    conn->quic->metrics.pkt_tx_alloc_fail_cnt++;
-    return 0;
-  }
+  if( !fd_quic_conn_can_acquire_pkt_meta( conn, tracker ) ) return 0;
 
   conn->used_pkt_meta++;
   fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_pool_ele_acquire( tracker->pool );
@@ -3228,11 +3246,7 @@ fd_quic_gen_handshake_frames( fd_quic_conn_t             * conn,
   if( !hs_data ) return payload_ptr;
 
   /* confirm we have pkt_meta space */
-  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-  if( !fd_quic_pkt_meta_pool_free( tracker->pool ) || conn->used_pkt_meta >= state->max_inflight_frame_cnt_conn ) {
-    conn->quic->metrics.pkt_tx_alloc_fail_cnt++;
-    return payload_ptr;
-  }
+  if( !fd_quic_conn_can_acquire_pkt_meta( conn, tracker ) ) return payload_ptr;
 
   ulong hs_offset   = 0; /* offset within the current hs_data */
   ulong sent_offset = conn->hs_sent_bytes[enc_level];
@@ -3445,7 +3459,6 @@ fd_quic_gen_stream_frames( fd_quic_conn_t             * conn,
   fd_quic_stream_t * sentinel   = conn->send_streams;
   fd_quic_stream_t * cur_stream = sentinel->next;
   ulong pkt_num = pkt_meta_tmpl->key.pkt_num;
-  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
   while( !cur_stream->sentinel ) {
     /* required, since cur_stream may get removed from list */
     fd_quic_stream_t * nxt_stream = cur_stream->next;
@@ -3471,10 +3484,7 @@ fd_quic_gen_stream_frames( fd_quic_conn_t             * conn,
         if( payload_ptr+FD_QUIC_MAX_FOOTPRINT( stream_e_frame )+1 > payload_end ) break;
 
         /* check pkt_meta availability */
-        if( !fd_quic_pkt_meta_pool_free( tracker->pool ) || conn->used_pkt_meta >= state->max_inflight_frame_cnt_conn ) {
-          conn->quic->metrics.pkt_tx_alloc_fail_cnt++;
-          break;
-        }
+        if( !fd_quic_conn_can_acquire_pkt_meta( conn, tracker ) ) break;
 
         /* Leave placeholder for frame/stream type */
         uchar * const frame_type_p = payload_ptr++;

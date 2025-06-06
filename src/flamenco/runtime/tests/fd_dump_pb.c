@@ -491,107 +491,45 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   };
   block_context->epoch_ctx.genesis_creation_time      = epoch_ctx->epoch_bank.genesis_creation_time;
 
-  /* Dumping stake accounts */
+  /* Dumping stake accounts for this epoch */
 
-  // BlockContext -> EpochContext -> new_stake_accounts (stake accounts for the current running epoch)
-  block_context->epoch_ctx.new_stake_accounts_count = 0UL;
-  block_context->epoch_ctx.new_stake_accounts       = fd_spad_alloc( spad,
-                                                                     alignof(pb_bytes_array_t *),
-                                                                     new_stake_account_cnt * sizeof(pb_bytes_array_t *) );
-
-  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
-          slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-          slot_ctx->slot_bank.stake_account_keys.account_keys_root );
-       curr;
-       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, curr ) ) {
-
-    // Verify the stake state before dumping
-    FD_TXN_ACCOUNT_DECL( account );
-    int rc = fd_txn_account_init_from_funk_readonly( account, &curr->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
-    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
-      continue;
-    }
-
-    // Dump the new stake account pubkey
-    pb_bytes_array_t * stake_out = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_pubkey_t) ) );
-    stake_out->size = sizeof(fd_pubkey_t);
-    fd_memcpy( stake_out->bytes, &curr->elem.key, sizeof(fd_pubkey_t) );
-    block_context->epoch_ctx.new_stake_accounts[block_context->epoch_ctx.new_stake_accounts_count++] = stake_out;
-
-    // Dump the account state as well
-    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-  }
-
-  // BlockContext -> EpochContext -> stake_accounts (stake accounts at epoch T)
-  block_context->epoch_ctx.stake_accounts_count = 0UL;
-  block_context->epoch_ctx.stake_accounts       = fd_spad_alloc( spad,
-                                                                 alignof(fd_exec_test_stake_account_t),
-                                                                 stake_account_cnt * sizeof(fd_exec_test_stake_account_t) );
-
+  /* Dumping all existing stake accounts */
   for( fd_delegation_pair_t_mapnode_t const * curr = fd_delegation_pair_t_map_minimum_const(
           epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
           epoch_ctx->epoch_bank.stakes.stake_delegations_root );
        curr;
        curr = fd_delegation_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.stake_delegations_pool, curr ) ) {
-    FD_TXN_ACCOUNT_DECL( account );
-    if( fd_txn_account_init_from_funk_readonly( account, &curr->elem.account, slot_ctx->funk, slot_ctx->funk_txn ) ) {
-      continue;
-    }
-
-    fd_exec_test_stake_account_t * stake_out = &block_context->epoch_ctx.stake_accounts[block_context->epoch_ctx.stake_accounts_count++];
-
-    fd_memcpy( stake_out->stake_account_pubkey, &curr->elem.account, sizeof(fd_pubkey_t) );
-    fd_memcpy( stake_out->voter_pubkey, &curr->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t) );
-    stake_out->stake                = curr->elem.delegation.stake;
-    stake_out->activation_epoch     = curr->elem.delegation.activation_epoch;
-    stake_out->deactivation_epoch   = curr->elem.delegation.deactivation_epoch;
-    stake_out->warmup_cooldown_rate = curr->elem.delegation.warmup_cooldown_rate;
-
-    // Dump the account state
     dump_account_if_not_already_dumped( slot_ctx, &curr->elem.account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 
-  /* Dumping vote accounts */
+  /* Dump all new stake accounts */
+  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
+          slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
+          slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+       curr;
+       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, curr ) ) {
+    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  }
 
-  // BlockContext -> EpochContext -> new_vote_accounts (vote accounts for the current running epoch)
-  ulong new_vote_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
-                                                                slot_ctx->slot_bank.vote_account_keys.account_keys_root );
-  block_context->epoch_ctx.new_vote_accounts_count = 0UL;
-  block_context->epoch_ctx.new_vote_accounts       = fd_spad_alloc( spad,
-                                                                   alignof(fd_exec_test_vote_account_t),
-                                                                   new_vote_account_cnt * sizeof(fd_exec_test_vote_account_t) );
+  /* Dumping vote accounts for this epoch */
 
+  /* Dump all existing vote accounts */
+  for( fd_vote_accounts_pair_t_mapnode_t const * curr = fd_vote_accounts_pair_t_map_minimum_const(
+          epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool,
+          epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
+       curr;
+       curr = fd_vote_accounts_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool, curr ) ) {
+    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+  }
+
+  /* Dump all new vote accounts */
   for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
           slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
           slot_ctx->slot_bank.vote_account_keys.account_keys_root );
        curr;
        curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, curr ) ) {
-
-    // Verify the vote account before dumping
-    FD_TXN_ACCOUNT_DECL( account );
-    int rc = fd_txn_account_init_from_funk_readonly( account, &curr->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
-    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
-      continue;
-    }
-
-    // Dump the new vote account pubkey
-    pb_bytes_array_t * vote_out = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_pubkey_t) ) );
-    vote_out->size = sizeof(fd_pubkey_t);
-    fd_memcpy( vote_out->bytes, &curr->elem.key, sizeof(fd_pubkey_t) );
-    block_context->epoch_ctx.new_vote_accounts[block_context->epoch_ctx.new_vote_accounts_count++] = vote_out;
-
-    // Dump the account state as well
     dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
-
-  // BlockContext -> EpochContext -> vote_accounts_t (vote accounts at epoch T)
-  dump_vote_accounts( slot_ctx,
-                      &epoch_ctx->epoch_bank.stakes.vote_accounts,
-                      spad,
-                      &block_context->epoch_ctx.vote_accounts_t,
-                      &block_context->epoch_ctx.vote_accounts_t_count,
-                      block_context->acct_states,
-                      &block_context->acct_states_count );
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
   dump_vote_accounts( slot_ctx,

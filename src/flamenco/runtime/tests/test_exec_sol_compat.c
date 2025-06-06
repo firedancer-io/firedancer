@@ -42,6 +42,8 @@ run_test( fd_runtime_fuzz_runner_t * runner,
     ok = sol_compat_syscall_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/vm_interp/" ) != NULL ){
     ok = sol_compat_vm_interp_fixture( runner, buf, file_sz );
+  } else if( strstr( path, "/block/" ) != NULL ){
+    ok = sol_compat_block_fixture( runner, buf, file_sz );
   } else {
     FD_LOG_WARNING(( "Unknown test type: %s", path ));
   }

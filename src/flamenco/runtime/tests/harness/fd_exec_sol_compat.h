@@ -34,6 +34,11 @@ sol_compat_txn_fixture( fd_runtime_fuzz_runner_t * runner,
                         ulong                      in_sz );
 
 int
+sol_compat_block_fixture( fd_runtime_fuzz_runner_t * runner,
+                          uchar const *              in,
+                          ulong                      in_sz );
+
+int
 sol_compat_elf_loader_fixture( fd_runtime_fuzz_runner_t * runner,
                                uchar const *              in,
                                ulong                      in_sz );

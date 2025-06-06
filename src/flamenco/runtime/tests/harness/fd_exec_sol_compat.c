@@ -495,6 +495,33 @@ sol_compat_txn_fixture( fd_runtime_fuzz_runner_t * runner,
 }
 
 int
+sol_compat_block_fixture( fd_runtime_fuzz_runner_t * runner,
+                          uchar const *              in,
+                          ulong                      in_sz ) {
+  // Decode fixture
+  fd_exec_test_block_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_block_fixture_t_msg );
+  if ( res==NULL ) {
+    FD_LOG_WARNING(( "Invalid block fixture." ));
+    return 0;
+  }
+
+  int ok = 0;
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_block_run );
+
+  // Compare effects
+  ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_block_effects_t_msg, runner->spad );
+  } FD_SPAD_FRAME_END;
+
+  // Cleanup
+  pb_release( &fd_exec_test_block_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
 sol_compat_elf_loader_fixture( fd_runtime_fuzz_runner_t * runner,
                                uchar const *              in,
                                ulong                      in_sz ) {

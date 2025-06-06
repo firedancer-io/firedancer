@@ -97,18 +97,7 @@ typedef struct fd_exec_test_epoch_context {
     fd_exec_test_inflation_t inflation;
     /* Genesis creation time */
     uint64_t genesis_creation_time;
-    /* New stake accounts for this running epoch */
-    pb_size_t new_stake_accounts_count;
-    pb_bytes_array_t **new_stake_accounts;
-    /* Epoch stakes for epoch T */
-    pb_size_t stake_accounts_count;
-    struct fd_exec_test_stake_account *stake_accounts;
-    /* New vote accounts for this running epoch */
-    pb_size_t new_vote_accounts_count;
-    pb_bytes_array_t **new_vote_accounts;
-    /* Epoch vote accounts for epochs [T-2, T] */
-    pb_size_t vote_accounts_t_count;
-    struct fd_exec_test_vote_account *vote_accounts_t;
+    /* Epoch vote accounts for epochs T-1 and T-2 */
     pb_size_t vote_accounts_t_1_count;
     struct fd_exec_test_vote_account *vote_accounts_t_1;
     pb_size_t vote_accounts_t_2_count;
@@ -147,7 +136,7 @@ extern "C" {
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_DEFAULT  {{0}, {0}, 0, 0, 0, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, {0}, 0, 0, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
@@ -155,7 +144,7 @@ extern "C" {
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
 #define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_ZERO     {{0}, {0}, 0, 0, 0, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, {0}, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -189,10 +178,6 @@ extern "C" {
 #define FD_EXEC_TEST_EPOCH_CONTEXT_SLOTS_PER_YEAR_TAG 4
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INFLATION_TAG 5
 #define FD_EXEC_TEST_EPOCH_CONTEXT_GENESIS_CREATION_TIME_TAG 6
-#define FD_EXEC_TEST_EPOCH_CONTEXT_NEW_STAKE_ACCOUNTS_TAG 7
-#define FD_EXEC_TEST_EPOCH_CONTEXT_STAKE_ACCOUNTS_TAG 8
-#define FD_EXEC_TEST_EPOCH_CONTEXT_NEW_VOTE_ACCOUNTS_TAG 9
-#define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_TAG 10
 #define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_1_TAG 11
 #define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_2_TAG 12
 #define FD_EXEC_TEST_SLOT_CONTEXT_SLOT_TAG       1
@@ -262,18 +247,12 @@ X(a, STATIC,   SINGULAR, UINT64,   ticks_per_slot,    3) \
 X(a, STATIC,   SINGULAR, DOUBLE,   slots_per_year,    4) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  inflation,         5) \
 X(a, STATIC,   SINGULAR, UINT64,   genesis_creation_time,   6) \
-X(a, POINTER,  REPEATED, BYTES,    new_stake_accounts,   7) \
-X(a, POINTER,  REPEATED, MESSAGE,  stake_accounts,    8) \
-X(a, POINTER,  REPEATED, BYTES,    new_vote_accounts,   9) \
-X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t,  10) \
 X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_1,  11) \
 X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_2,  12)
 #define FD_EXEC_TEST_EPOCH_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_EPOCH_CONTEXT_DEFAULT NULL
 #define fd_exec_test_epoch_context_t_features_MSGTYPE fd_exec_test_feature_set_t
 #define fd_exec_test_epoch_context_t_inflation_MSGTYPE fd_exec_test_inflation_t
-#define fd_exec_test_epoch_context_t_stake_accounts_MSGTYPE fd_exec_test_stake_account_t
-#define fd_exec_test_epoch_context_t_vote_accounts_t_MSGTYPE fd_exec_test_vote_account_t
 #define fd_exec_test_epoch_context_t_vote_accounts_t_1_MSGTYPE fd_exec_test_vote_account_t
 #define fd_exec_test_epoch_context_t_vote_accounts_t_2_MSGTYPE fd_exec_test_vote_account_t
 

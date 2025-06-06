@@ -106,6 +106,12 @@ metric introduced.
     <int value="2" name="QuicFrag" label="TPU/QUIC fragmented" />
 </enum>
 
+<enum name="FrameTxAllocResult">
+    <int value="0" name="Success"       label="Success" />
+    <int value="1" name="FailEmptyPool" label="PktMetaPoolEmpty" />
+    <int value="2" name="FailConnMax"   label="ConnMaxedInflightFrames" />
+</enum>
+
 <enum name="QuicFrameType">
     <!-- These don't correspond to QUIC frame IDs because gen_metrics.py is currently bugged and corrupts enums with sparse IDs -->
     <int value="0" name="Unknown" label="Unknown frame type" />
@@ -186,7 +192,7 @@ metric introduced.
     <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
 
     <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
-    <counter name="PktTxAllocFail" summary="Number of packets failed to send because of metadata alloc fail." />
+    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
 
     <counter name="HandshakesCreated" summary="Number of handshake flows created." />
     <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />

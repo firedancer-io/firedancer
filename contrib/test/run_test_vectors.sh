@@ -34,6 +34,9 @@ git fetch -q --depth=1 origin $GIT_REF
 git checkout -q $GIT_REF
 cd ../..
 
+LOG=$LOG_PATH/test_exec_block
+cat contrib/test/test-vectors-fixtures/block-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824 --tile-cpus 5-6
+
 LOG=$LOG_PATH/test_exec_syscall
 cat contrib/test/test-vectors-fixtures/syscall-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
