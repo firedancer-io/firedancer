@@ -429,7 +429,6 @@ FD_VM_SYSCALL_DECL( sol_memmove );
 
 /* syscall(d56b5fe9) "sol_get_clock_sysvar"
    syscall(23a29a61) "sol_get_epoch_schedule_sysvar"
-   syscall(3b97b73c) "sol_get_fees_sysvar"
    syscall(bf7188f6) "sol_get_rent_sysvar"
    syscall(77f9b9d0) "sol_get_last_restart_slot_sysvar"
    Get various sysvar values
@@ -455,7 +454,6 @@ FD_VM_SYSCALL_DECL( sol_memmove );
                           | align | sz
        clock              |     8 | 40
        schedule           |     1 | 40 ... FIXME: CHECK THIS IS CORRECT!
-       fees               |     8 |  8
        rent               |     8 | 24
        last restart slot  |     8 | 8
      Strict alignment is only required when the VM has check_align set.
@@ -465,7 +463,6 @@ FD_VM_SYSCALL_DECL( sol_memmove );
 
 FD_VM_SYSCALL_DECL( sol_get_clock_sysvar             );
 FD_VM_SYSCALL_DECL( sol_get_epoch_schedule_sysvar    );
-FD_VM_SYSCALL_DECL( sol_get_fees_sysvar              );
 FD_VM_SYSCALL_DECL( sol_get_rent_sysvar              );
 FD_VM_SYSCALL_DECL( sol_get_last_restart_slot_sysvar );
 FD_VM_SYSCALL_DECL( sol_get_epoch_rewards_sysvar     );
