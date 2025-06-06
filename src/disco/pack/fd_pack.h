@@ -640,8 +640,10 @@ int fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
 ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
 
 /* fd_pack_delete_txn removes a transaction (identified by its first
-   signature) from the pool of available transactions.  Returns 1 if the
-   transaction was found (and then removed) and 0 if not. */
+   signature) from the pool of available transactions.  Returns a
+   nonzero count of the number of transactions deleted, if the
+   transaction was found (and then removed) and 0 if not.  The count
+   might be >1 if a bundle was caused to be deleted. */
 int fd_pack_delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0 );
 
 /* fd_pack_end_block resets some state to prepare for the next block.
