@@ -32,7 +32,11 @@ struct fd_sbpf_validated_program {
   /* SBPF version, SIMD-0161 */
   ulong sbpf_version;
 
-  /* Used to check if the program needs to be reverified */
+  /* Used to check if the program needs to be reverified. Programs are reverified
+     the first time they are mentioned in a transaction in an epoch, and then never again
+     until the next epoch. This is because feature set changes across the epoch boundary can
+     make existing deployed programs invalid. When iterating over programs to
+     reverify, we ignore programs that have `last_verified_epoch` equal to the current epoch. */
   ulong last_verified_epoch;
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
@@ -91,6 +95,17 @@ fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
                           ulong                 slot,
                           fd_features_t const * features );
 
+/* Reverifies a single program for the current epoch, given its pubkey.
+   Silently returns if the program does not already exist in the cache, or if the
+   program has already been reverified for the current epoch. If it exists,
+   it will be removed from the cache if any of the following checks fail:
+   - The account does not exist.
+   - The programdata cannot be read from the account or programdata account
+   - The ELF info cannot be parsed.
+   - The sBPF program fails loading validations.
+
+   On success, the program's `last_verified_epoch` field is updated to the current epoch.
+   This program will not be reverified again until it is invoked in a following epoch. */
 void
 fd_bpf_program_reverify( fd_exec_slot_ctx_t * slot_ctx,
                          fd_pubkey_t const *  program_pubkey,

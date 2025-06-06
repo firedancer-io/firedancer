@@ -254,9 +254,8 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
   }
 
-  fd_exec_instr_ctx_t dummy_instr_ctx; /* UNUSED in fd_vm_validate() */
   vm = fd_vm_init( vm,
-                   &dummy_instr_ctx,
+                   NULL, /* OK since unused in `fd_vm_validate()` */
                    0UL,
                    0UL,
                    prog->rodata,
@@ -287,6 +286,7 @@ fd_bpf_validate_sbpf_program( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
+  /* FIXME: Super expensive memcpy. */
   fd_memcpy( validated_prog->calldests_shmem, prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
 
   validated_prog->calldests           = fd_sbpf_calldests_join( validated_prog->calldests_shmem );
@@ -629,17 +629,17 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_sbpf_validated_program_t * prog = NULL;
   fd_funk_rec_key_t             id   = fd_acc_mgr_cache_key( program_pubkey );
 
-  /* First check if the program is in the BPF cache */
+  /* First check if the program is in the BPF cache. */
   int err = fd_bpf_load_cache_entry( slot_ctx->funk, slot_ctx->funk_txn, program_pubkey, &prog );
-  if( err ) {
-    return;
-  }
+  if( FD_UNLIKELY( err ) ) return;
 
   /* If the program is cached, check if it's already been reverified for the current epoch */
   ulong current_epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, NULL );
   if( FD_LIKELY( prog->last_verified_epoch==current_epoch ) ) {
     return;
   }
+
+  /* From here on, if any checks fail, the program should be removed from the cache. */
 
   /* Program needs to be reverified with the new feature set. If the program fails verification,
      remove it from the program cache. */
@@ -648,6 +648,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
                                                            program_pubkey,
                                                            slot_ctx->funk,
                                                            slot_ctx->funk_txn ) ) ) {
+    fd_funk_rec_remove( slot_ctx->funk, slot_ctx->funk_txn, &id, NULL, 0UL );
     return;
   }
 
@@ -655,6 +656,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   uchar const * program_data     = NULL;
   ulong         program_data_len = 0UL;
   if( FD_UNLIKELY( fd_bpf_get_programdata_from_account( slot_ctx, exec_rec, &program_data, &program_data_len, runtime_spad ) ) ) {
+    fd_funk_rec_remove( slot_ctx->funk, slot_ctx->funk_txn, &id, NULL, 0UL );
     return;
   }
 
@@ -681,7 +683,9 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   void * data = fd_funk_val( rec, fd_funk_wksp( slot_ctx->funk ) );
 
-  /* Validate the program */
+  /* Validate the program.
+     FIXME: this is a bit silly as it commits the modifying changes, and then subsequently removes the record it
+     just committed. */
   if( FD_UNLIKELY( fd_bpf_validate_sbpf_program( slot_ctx, &elf_info, data, program_data, program_data_len, runtime_spad ) ) ) {
     fd_funk_rec_modify_publish( query );
     fd_funk_rec_remove( slot_ctx->funk, slot_ctx->funk_txn, &id, NULL, 0UL );
