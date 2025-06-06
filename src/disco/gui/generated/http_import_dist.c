@@ -3,17 +3,19 @@
 
 FD_IMPORT_BINARY( file0, "src/disco/gui/dist/assets/firedancer-D_J0EzUc.svg" );
 FD_IMPORT_BINARY( file1, "src/disco/gui/dist/assets/firedancer_logo-CrgwxzPk.svg" );
-FD_IMPORT_BINARY( file2, "src/disco/gui/dist/assets/index-BD_C_erF.js" );
-FD_IMPORT_BINARY( file3, "src/disco/gui/dist/assets/index-BIjF1r1F.css" );
-FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-Bj1nB5Lc.js" );
-FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-kZRR0EoL.css" );
-FD_IMPORT_BINARY( file6, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
-FD_IMPORT_BINARY( file7, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-CjmW70MP.woff2" );
-FD_IMPORT_BINARY( file8, "src/disco/gui/dist/assets/privateYou-DxC3xn7b.svg" );
-FD_IMPORT_BINARY( file9, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-B0u6u4eV.woff" );
-FD_IMPORT_BINARY( file10, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-C_5wUCW5.woff2" );
-FD_IMPORT_BINARY( file11, "src/disco/gui/dist/index.html" );
-FD_IMPORT_BINARY( file12, "src/disco/gui/dist/LICENSE_DEPENDENCIES" );
+FD_IMPORT_BINARY( file2, "src/disco/gui/dist/assets/frankendancer-0Top5G94.svg" );
+FD_IMPORT_BINARY( file3, "src/disco/gui/dist/assets/frankendancer_logo-CHyfJ772.svg" );
+FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-BHJG6mYY.js" );
+FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-Btes40ob.js" );
+FD_IMPORT_BINARY( file6, "src/disco/gui/dist/assets/index-bZV0Uvwf.css" );
+FD_IMPORT_BINARY( file7, "src/disco/gui/dist/assets/index-_St8gGTN.css" );
+FD_IMPORT_BINARY( file8, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
+FD_IMPORT_BINARY( file9, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-CjmW70MP.woff2" );
+FD_IMPORT_BINARY( file10, "src/disco/gui/dist/assets/privateYou-DxC3xn7b.svg" );
+FD_IMPORT_BINARY( file11, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-B0u6u4eV.woff" );
+FD_IMPORT_BINARY( file12, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-C_5wUCW5.woff2" );
+FD_IMPORT_BINARY( file13, "src/disco/gui/dist/index.html" );
+FD_IMPORT_BINARY( file14, "src/disco/gui/dist/LICENSE_DEPENDENCIES" );
 
 fd_http_static_file_t STATIC_FILES[] = {
     {
@@ -27,59 +29,69 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file1_sz,
     },
     {
-        .name = "/assets/index-BD_C_erF.js",
+        .name = "/assets/frankendancer-0Top5G94.svg",
         .data = file2,
         .data_len = &file2_sz,
     },
     {
-        .name = "/assets/index-BIjF1r1F.css",
+        .name = "/assets/frankendancer_logo-CHyfJ772.svg",
         .data = file3,
         .data_len = &file3_sz,
     },
     {
-        .name = "/assets/index-Bj1nB5Lc.js",
+        .name = "/assets/index-BHJG6mYY.js",
         .data = file4,
         .data_len = &file4_sz,
     },
     {
-        .name = "/assets/index-kZRR0EoL.css",
+        .name = "/assets/index-Btes40ob.js",
         .data = file5,
         .data_len = &file5_sz,
     },
     {
-        .name = "/assets/inter-tight-latin-400-normal-BW_APOAv.woff",
+        .name = "/assets/index-bZV0Uvwf.css",
         .data = file6,
         .data_len = &file6_sz,
     },
     {
-        .name = "/assets/inter-tight-latin-400-normal-CjmW70MP.woff2",
+        .name = "/assets/index-_St8gGTN.css",
         .data = file7,
         .data_len = &file7_sz,
     },
     {
-        .name = "/assets/privateYou-DxC3xn7b.svg",
+        .name = "/assets/inter-tight-latin-400-normal-BW_APOAv.woff",
         .data = file8,
         .data_len = &file8_sz,
     },
     {
-        .name = "/assets/roboto-mono-latin-400-normal-B0u6u4eV.woff",
+        .name = "/assets/inter-tight-latin-400-normal-CjmW70MP.woff2",
         .data = file9,
         .data_len = &file9_sz,
     },
     {
-        .name = "/assets/roboto-mono-latin-400-normal-C_5wUCW5.woff2",
+        .name = "/assets/privateYou-DxC3xn7b.svg",
         .data = file10,
         .data_len = &file10_sz,
     },
     {
-        .name = "/index.html",
+        .name = "/assets/roboto-mono-latin-400-normal-B0u6u4eV.woff",
         .data = file11,
         .data_len = &file11_sz,
     },
     {
-        .name = "/LICENSE_DEPENDENCIES",
+        .name = "/assets/roboto-mono-latin-400-normal-C_5wUCW5.woff2",
         .data = file12,
         .data_len = &file12_sz,
+    },
+    {
+        .name = "/index.html",
+        .data = file13,
+        .data_len = &file13_sz,
+    },
+    {
+        .name = "/LICENSE_DEPENDENCIES",
+        .data = file14,
+        .data_len = &file14_sz,
     },
     {0}
 };

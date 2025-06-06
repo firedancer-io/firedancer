@@ -1675,3 +1675,22 @@ user = ""
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
+
+    # Development only options for the GUI tile.  These should not be
+    # change on a production validator.
+    [development.gui]
+        # Enables support for WebSocket compression.  Compression may
+        # improve startup speed when loading the GUI and decrease
+        # overall bandwidth use.  GUI WebSocket messages are by default
+        # always a single WebSocket text frame with plaintext JSON
+        # contents.  If this option is enabled, a client may indicate
+        # support for receiving compressed messages with the
+        # Sec-WebSocket-Protocol header.
+        #
+        # If compression is successfully negotiated, the server will
+        # optionally compress large frames with ZSTD, indicating this
+        # by marking the frame as binary instead of text.
+        #
+        # This option has not been tested or security audited and should
+        # not currently be used in production.
+        websocket_compression = false
