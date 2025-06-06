@@ -240,12 +240,14 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
+  /* Stop adding peers after we reach the peer max, but we may want to
+     consider an eviction policy. */
   for( ulong i=0UL; i<dest_cnt; i++ ) {
+   if( FD_UNLIKELY( ctx->repair->peer_cnt >= FD_ACTIVE_KEY_MAX ) ) break;// FIXME: aiming to move all peer tracking out of lib into tile, leaving like this for now
     fd_repair_peer_addr_t repair_peer = {
       .addr = in_dests[i].ip4_addr,
       .port = fd_ushort_bswap( in_dests[i].udp_port ),
     };
-
     fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
   }
 }
@@ -387,38 +389,22 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
 static void
 fd_repair_send_request( fd_repair_tile_ctx_t * repair_tile_ctx,
-                         fd_repair_t * glob,
-                         fd_repair_protocol_t * protocol,
-                         ulong slot,
-                         uint  shred_idx ) {
+                        fd_repair_t          * glob,
+                        fd_repair_protocol_t * protocol ) {
 
   /* Send requests starting where we left off last time. i.e. if n < current_nonce, seek forward */
   /* Track statistics */
 
-  fd_pubkey_t      * active_key = &protocol->inner.window_index.header.recipient; // its a union across all request types, so should be fine methinks but do the less lazy way!
-  fd_active_elem_t *     active = fd_active_table_query( glob->actives, active_key, NULL );
+  fd_pubkey_t      * active_key = &protocol->inner.window_index.header.recipient; // union across all request types. Also will be getting ripped out by refactor
+  fd_active_elem_t * active = fd_active_table_query( glob->actives, active_key, NULL );
 
   active->avg_reqs++;
   glob->metrics.send_pkt_cnt++;
 
-  FD_TEST (protocol->inner.window_index.slot == slot);
-#ifdef FD_HAS_REPAIR_ANALYSIS
-  FD_LOG_INFO(( "Sending repair request for slot %lu shred %u ", slot, shred_idx ));
-
-  char repair_data_buf[1024];
-  snprintf( repair_data_buf, sizeof(repair_data_buf),
-          "%lu,%s,%ld,%lu,%u\n",
-            0xfffffUL & (ulong)active->addr.addr, FD_BASE58_ENC_32_ALLOCA( &active->key ), fd_log_wallclock(), slot, shred_idx );
-
-  ulong wsz;
-  int err = fd_io_write( repair_tile_ctx->request_data_fd, repair_data_buf, strlen(repair_data_buf), strlen(repair_data_buf), &wsz );
-  FD_TEST( err==0 );
-#endif
-
   uchar buf[1024];
-  ulong buflen = fd_repair_sign_and_send( repair_tile_ctx, protocol, &active->addr, buf, sizeof(buf) );
-  uint  src_ip4_addr = 0U; /* unknown */
+  ulong buflen       = fd_repair_sign_and_send( repair_tile_ctx, protocol, &active->addr, buf, sizeof(buf) );
   ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
+  uint  src_ip4_addr = 0U; /* unknown */
   send_packet( repair_tile_ctx, 1, active->addr.addr, active->addr.port, src_ip4_addr, buf, buflen, tsorig );
 }
 
@@ -736,6 +722,7 @@ fd_repair_recv_serv_packet( fd_repair_tile_ctx_t *        repair_tile_ctx,
   } FD_SCRATCH_SCOPE_END;
   return 0;
 }
+
 static void
 after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  in_idx,
@@ -937,7 +924,6 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->forest->root == ULONG_MAX ) ) return;
 
-  FD_LOG_INFO(("Iterating and sending repairs"));
   fd_forest_t *          forest   = ctx->forest;
   fd_forest_ele_t *      pool     = fd_forest_pool( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
@@ -959,19 +945,18 @@ after_credit( fd_repair_tile_ctx_t * ctx,
            we can only send requests for the highest window index. */
 
         int req_cnt = fd_repair_need_highest_window_index( ctx->repair, head->slot, 0 );
-        for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, UINT_MAX );
+        for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i] );
       } else {
         for( uint idx = head->buffered_idx + 1; idx < head->complete_idx; idx++ ) {
           if( FD_LIKELY( !fd_forest_ele_idxs_test( head->idxs, idx ) ) ) {
             int   req_cnt = fd_repair_need_window_index( ctx->repair, head->slot, idx );
             if( FD_LIKELY( req_cnt ) ) {
-              /* We are allowed to send requests out for this shred. The
-                 multiple requests are for the same shred, but for up to
-                 4 different peer destinations.
-
-                 generated protocols live in the
-                  repair->protocol_ret_buf, and we can send them out. */
-              for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], head->slot, idx );
+              /* The multiple requests are for the same shred, but for
+                 up to 4 different peer destinations. generated protocol
+                 objs live in the repair->protocol_ret_buf, and we can
+                 send them out. Can get rid of this stupid buf after we
+                 move actives to tile out of library */
+              for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i] );
               total_reqs += (uint) req_cnt;
               if ( FD_UNLIKELY( total_reqs > MAX_REQ_PER_CREDIT ) ) break;
             }
@@ -999,7 +984,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
        iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
     fd_forest_ele_t * orphan = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
     int req_cnt = fd_repair_need_orphan( ctx->repair, orphan->slot );
-    for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i], orphan->slot, UINT_MAX );
+    for( int i = 0; i < req_cnt; i++ ) fd_repair_send_request( ctx, ctx->repair, &ctx->repair->protocol_ret_buf[i] );
   }
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
