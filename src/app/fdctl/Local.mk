@@ -51,7 +51,7 @@ check-agave-hash:
 	fi
 
 update-rust-toolchain:
-	@$(eval TOOLCHAIN_VERSION=$(shell sed -n 's/^channel = "\(.*\)"$/\1/p' agave/rust-toolchain.toml))
+	@$(eval TOOLCHAIN_VERSION=$(shell sed -n 's/^channel = "\(.*\)"$$/\1/p' agave/rust-toolchain.toml))
 	@$(eval TOOLCHAIN_EXISTS=$(shell rustup toolchain list | grep -c $(TOOLCHAIN_VERSION)))
 	@if [ "$(TOOLCHAIN_EXISTS)" -eq 0 ]; then \
 		echo "Installing rust toolchain $(TOOLCHAIN_VERSION)"; \
