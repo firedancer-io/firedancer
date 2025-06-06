@@ -7,7 +7,7 @@
 #define IN_KIND_QUIC   (0UL)
 #define IN_KIND_BUNDLE (1UL)
 #define IN_KIND_GOSSIP (2UL)
-#define IN_KIND_SENDER (3UL)
+#define IN_KIND_SEND   (3UL)
 /* The verify tile is a wrapper around the mux tile, that also verifies
    incoming transaction signatures match the data being signed.
    Non-matching transactions are filtered out of the frag stream. */
@@ -70,7 +70,7 @@ during_frag( fd_verify_ctx_t * ctx,
              ulong             ctl FD_PARAM_UNUSED ) {
 
   ulong in_kind = ctx->in_kind[ in_idx ];
-  if( FD_UNLIKELY( in_kind==IN_KIND_QUIC || in_kind==IN_KIND_GOSSIP || in_kind==IN_KIND_SENDER ) ) {
+  if( FD_UNLIKELY( in_kind==IN_KIND_QUIC || in_kind==IN_KIND_GOSSIP || in_kind==IN_KIND_SEND ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
 
@@ -206,7 +206,7 @@ unprivileged_init( fd_topo_t *      topo,
     if(      !strcmp( link->name, "quic_verify"  ) ) ctx->in_kind[ i ] = IN_KIND_QUIC;
     else if( !strcmp( link->name, "bundle_verif" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( !strcmp( link->name, "gossip_verif" ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    else if( !strcmp( link->name, "send_txns"    ) ) ctx->in_kind[ i ] = IN_KIND_SENDER;
+    else if( !strcmp( link->name, "send_txns"    ) ) ctx->in_kind[ i ] = IN_KIND_SEND;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

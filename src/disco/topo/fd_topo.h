@@ -407,7 +407,7 @@ typedef struct {
 
       uint    ip_addr;
       char  identity_key_path[ PATH_MAX ];
-    } sender;
+    } send;
 
     struct {
       char  identity_key_path[ PATH_MAX ];

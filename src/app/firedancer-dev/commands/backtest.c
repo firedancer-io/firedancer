@@ -8,7 +8,7 @@
      |____________________|| | |___________________________________|
           replay_notif     | |              replay_wtr
                            | |------------------------------>no consumer
-    no producer-------------  stake_out, sender_out, poh_out
+    no producer-------------  stake_out, send_out, poh_out
                 store_replay,
                 pack_replay,
                 batch_replay
@@ -263,7 +263,7 @@ backtest_topo( config_t * config ) {
   topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "batch_replay", 0 ) ] ].permit_no_producers = 1;
 
   /**********************************************************************/
-  /* Setup replay->stake/sender/poh links in topo w/o consumers         */
+  /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
   fd_topob_wksp( topo, "stake_out"    );
   fd_topob_wksp( topo, "replay_send"  );

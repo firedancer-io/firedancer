@@ -1,4 +1,4 @@
-/* Sender tile signs and sends transactions to the current leader.
+/* Send tile signs and sends transactions to the current leader.
    Currently only supports transactions which require one signature.
    Designed with voting as primary use case. Signing those votes will
    eventually move to a separate consensus tile.*/
@@ -6,7 +6,7 @@
 
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
-#include "generated/fd_sender_tile_seccomp.h"
+#include "generated/fd_send_tile_seccomp.h"
 
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -30,20 +30,19 @@
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"
 
-
 #define IN_KIND_GOSSIP (1UL)
 #define IN_KIND_REPLAY (2UL)
 #define IN_KIND_STAKE  (3UL)
 
-struct fd_sender_link_in {
+struct fd_send_link_in {
   fd_wksp_t *  mem;
   ulong        chunk0;
   ulong        wmark;
   ulong        kind;
 };
-typedef struct fd_sender_link_in fd_sender_link_in_t;
+typedef struct fd_send_link_in fd_send_link_in_t;
 
-struct fd_sender_link_out {
+struct fd_send_link_out {
   ulong            idx;
   fd_frag_meta_t * mcache;
   ulong *          sync;
@@ -54,9 +53,9 @@ struct fd_sender_link_out {
   ulong       wmark;
   ulong       chunk;
 };
-typedef struct fd_sender_link_out fd_sender_link_out_t;
+typedef struct fd_send_link_out fd_send_link_out_t;
 
-struct fd_sender_tile_ctx {
+struct fd_send_tile_ctx {
   fd_pubkey_t identity_key[ 1 ];
   fd_pubkey_t vote_acct_addr[ 1 ];
 
@@ -70,11 +69,11 @@ struct fd_sender_tile_ctx {
   fd_ip4_udp_hdrs_t     packet_hdr[1];
   ushort                net_id;
 
-  #define FD_SENDER_MAX_IN_LINK_CNT 32UL
-  fd_sender_link_in_t in_links[ FD_SENDER_MAX_IN_LINK_CNT ];
+  #define FD_SEND_MAX_IN_LINK_CNT 32UL
+  fd_send_link_in_t in_links[ FD_SEND_MAX_IN_LINK_CNT ];
 
-  fd_sender_link_out_t gossip_verify_out[1];
-  fd_sender_link_out_t net_out         [1];
+  fd_send_link_out_t gossip_verify_out[1];
+  fd_send_link_out_t net_out         [1];
 
   ulong                sign_out_idx;
   fd_keyguard_client_t keyguard_client[ 1 ];
@@ -93,7 +92,7 @@ struct fd_sender_tile_ctx {
   } metrics;
 
 };
-typedef struct fd_sender_tile_ctx fd_sender_tile_ctx_t;
+typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
 
 
 FD_FN_CONST static inline ulong
@@ -104,20 +103,20 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sender_tile_ctx_t), sizeof(fd_sender_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_send_tile_ctx_t), sizeof(fd_send_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
-send_packet( fd_sender_tile_ctx_t *  ctx,
+send_packet( fd_send_tile_ctx_t  *  ctx,
              fd_stem_context_t   *  stem,
              uint                   dst_ip_addr,
              ushort                 dst_port,
              uchar const         *  payload,
              ulong                  payload_sz,
              ulong                  tsorig ) {
-  fd_sender_link_out_t * net_out_link = ctx->net_out;
+  fd_send_link_out_t * net_out_link = ctx->net_out;
   uchar * packet = fd_chunk_to_laddr( net_out_link->mem, net_out_link->chunk );
 
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
@@ -144,7 +143,7 @@ send_packet( fd_sender_tile_ctx_t *  ctx,
 
 
 static int
-get_current_leader_tpu_vote_contact( fd_sender_tile_ctx_t *       ctx,
+get_current_leader_tpu_vote_contact( fd_send_tile_ctx_t        * ctx,
                                      ulong                       poh_slot,
                                      fd_shred_dest_weighted_t ** out_dest ) {
 
@@ -178,7 +177,7 @@ get_current_leader_tpu_vote_contact( fd_sender_tile_ctx_t *       ctx,
 }
 
 static inline void
-handle_new_cluster_contact_info( fd_sender_tile_ctx_t * ctx,
+handle_new_cluster_contact_info( fd_send_tile_ctx_t *  ctx,
                                  uchar const *         buf,
                                  ulong                 buf_sz ) {
   ulong const * header = (ulong const *)fd_type_pun_const( buf );
@@ -199,12 +198,12 @@ handle_new_cluster_contact_info( fd_sender_tile_ctx_t * ctx,
 }
 
 static inline void
-finalize_new_cluster_contact_info( fd_sender_tile_ctx_t * ctx ) {
+finalize_new_cluster_contact_info( fd_send_tile_ctx_t * ctx ) {
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
 }
 
 static void
-during_frag( fd_sender_tile_ctx_t * ctx,
+during_frag( fd_send_tile_ctx_t   * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig FD_PARAM_UNUSED,
@@ -212,7 +211,7 @@ during_frag( fd_sender_tile_ctx_t * ctx,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
 
-  fd_sender_link_in_t * in_link = &ctx->in_links[ in_idx ];
+  fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];
   if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] on link %lu", chunk, sz,
           in_link->chunk0, in_link->wmark, in_idx ));
@@ -243,14 +242,14 @@ during_frag( fd_sender_tile_ctx_t * ctx,
 }
 
 static void
-after_frag( fd_sender_tile_ctx_t * ctx,
+after_frag( fd_send_tile_ctx_t   * ctx,
             ulong                  in_idx,
             ulong                  seq,
             ulong                  sig,
             ulong                  sz,
             ulong                  tsorig,
             ulong                  tspub,
-            fd_stem_context_t *    stem ) {
+            fd_stem_context_t    * stem ) {
   (void)seq;
   (void)sig;
   (void)sz;
@@ -258,7 +257,7 @@ after_frag( fd_sender_tile_ctx_t * ctx,
   (void)tspub;
   (void)stem;
 
-  fd_sender_link_in_t * in_link = &ctx->in_links[ in_idx ];
+  fd_send_link_in_t * in_link  = &ctx->in_links[ in_idx ];
   ulong                kind    = in_link->kind;
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
@@ -291,7 +290,7 @@ after_frag( fd_sender_tile_ctx_t * ctx,
     }
 
     /* send to gossip and dedup */
-    fd_sender_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
+    fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
     uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
     fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
     fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
@@ -306,16 +305,16 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_sender_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sender_tile_ctx_t), sizeof(fd_sender_tile_ctx_t) );
+  fd_send_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_send_tile_ctx_t), sizeof(fd_send_tile_ctx_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->sender.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( tile->send.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->sender.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
 }
 
 static void
-setup_input_link( fd_sender_tile_ctx_t * ctx,
+setup_input_link( fd_send_tile_ctx_t  * ctx,
                   fd_topo_t           * topo,
                   fd_topo_tile_t      * tile,
                   ulong                 kind,
@@ -323,7 +322,7 @@ setup_input_link( fd_sender_tile_ctx_t * ctx,
   ulong in_idx = fd_topo_find_tile_in_link( topo, tile, name, 0 );
   FD_TEST( in_idx!=ULONG_MAX );
   fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ in_idx ] ];
-  fd_sender_link_in_t * in_link_desc = &ctx->in_links[ in_idx ];
+  fd_send_link_in_t * in_link_desc = &ctx->in_links[ in_idx ];
   in_link_desc->mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
   in_link_desc->chunk0 = fd_dcache_compact_chunk0( in_link_desc->mem, in_link->dcache );
   in_link_desc->wmark  = fd_dcache_compact_wmark( in_link_desc->mem, in_link->dcache, in_link->mtu );
@@ -331,7 +330,7 @@ setup_input_link( fd_sender_tile_ctx_t * ctx,
 }
 
 static void
-setup_output_link( fd_sender_link_out_t * desc,
+setup_output_link( fd_send_link_out_t  * desc,
                    fd_topo_t           * topo,
                    fd_topo_tile_t      * tile,
                    const char          * name ) {
@@ -353,18 +352,18 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "sender has no primary output link" ));
+  if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "send has no primary output link" ));
 
   /* Scratch mem setup */
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_sender_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sender_tile_ctx_t), sizeof(fd_sender_tile_ctx_t) );
+  fd_send_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_send_tile_ctx_t), sizeof(fd_send_tile_ctx_t) );
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
 
   ctx->net_id   = (ushort)0;
 
-  ctx->tpu_serve_addr.addr = tile->sender.ip_addr;
-  ctx->tpu_serve_addr.port = tile->sender.tpu_listen_port;
+  ctx->tpu_serve_addr.addr = tile->send.ip_addr;
+  ctx->tpu_serve_addr.port = tile->send.tpu_listen_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->tpu_serve_addr.port );
 
   setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_send" );
@@ -408,8 +407,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_sender_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_sender_tile_instr_cnt;
+  populate_sock_filter_policy_fd_send_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_send_tile_instr_cnt;
 }
 
 static ulong
@@ -430,22 +429,22 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 static void
-metrics_write( fd_sender_tile_ctx_t * ctx ) {
+metrics_write( fd_send_tile_ctx_t * ctx ) {
   /* Transaction metrics */
-  FD_MCNT_SET( SENDER, TXNS_SENT_TO_LEADER,   ctx->metrics.txns_sent_to_leader );
+  FD_MCNT_SET( SEND, TXNS_SENT_TO_LEADER,   ctx->metrics.txns_sent_to_leader );
 
   /* Leader metrics */
-  FD_MCNT_SET( SENDER, LEADER_SCHED_NOT_FOUND,     ctx->metrics.leader_sched_not_found );
-  FD_MCNT_SET( SENDER, LEADER_NOT_FOUND,           ctx->metrics.leader_not_found );
-  FD_MCNT_SET( SENDER, LEADER_CONTACT_NOT_FOUND,   ctx->metrics.leader_contact_not_found );
-  FD_MCNT_SET( SENDER, LEADER_CONTACT_NONROUTABLE, ctx->metrics.leader_contact_nonroutable );
+  FD_MCNT_SET( SEND, LEADER_SCHED_NOT_FOUND,     ctx->metrics.leader_sched_not_found );
+  FD_MCNT_SET( SEND, LEADER_NOT_FOUND,           ctx->metrics.leader_not_found );
+  FD_MCNT_SET( SEND, LEADER_CONTACT_NOT_FOUND,   ctx->metrics.leader_contact_not_found );
+  FD_MCNT_SET( SEND, LEADER_CONTACT_NONROUTABLE, ctx->metrics.leader_contact_nonroutable );
 }
 
 
 #define STEM_BURST (3UL)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_sender_tile_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sender_tile_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_send_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_send_tile_ctx_t)
 
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
@@ -453,8 +452,8 @@ metrics_write( fd_sender_tile_ctx_t * ctx ) {
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_sender = {
-  .name                     = "sender",
+fd_topo_run_tile_t fd_tile_send = {
+  .name                     = "send",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
