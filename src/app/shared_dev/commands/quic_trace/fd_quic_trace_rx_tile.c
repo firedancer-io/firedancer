@@ -43,7 +43,7 @@ during_frag( void * _ctx   FD_PARAM_UNUSED,
 
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( proto == DST_PROTO_TPU_QUIC ) {
-    fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds[0], chunk, ctl, sz ), sz );
+    fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz ), sz );
   } else if( proto == DST_PROTO_OUTGOING ) {
     ulong p = (trace_ctx->net_out_base + (chunk<<FD_CHUNK_LG_SZ));
     fd_memcpy( ctx->buffer, (void*)p, sz );
