@@ -361,7 +361,9 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
-    if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( tile->name, "net"   ) ||
+                     !strcmp( tile->name, "sock"  ) ||
+                     !strcmp( tile->name, "ibeth" ) ) ) {
 
       tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
