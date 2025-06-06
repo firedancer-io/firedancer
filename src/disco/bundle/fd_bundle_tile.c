@@ -550,5 +550,6 @@ fd_topo_run_tile_t fd_tile_bundle = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
   .rlimit_file_cnt          = 64,
-  .keep_host_networking     = 1
+  .keep_host_networking     = 1,
+  .allow_connect            = 1
 };
