@@ -253,7 +253,7 @@ metric introduced.
     <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Total count of packets with crypto failures" />
     <counter name="PktNoKey" enum="QuicEncLevel" summary="Total count of packets with no key" />
     <counter name="PktNoConn" summary="Total count of packets with no connection" />
-    <counter name="PktTxAllocFail" summary="Total count of packet TX allocation failures" />
+    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
     <counter name="PktNetHeaderInvalid" summary="Total count of packets with invalid network headers" />
     <counter name="PktQuicHeaderInvalid" summary="Total count of packets with invalid QUIC headers" />
     <counter name="PktUndersz" summary="Total count of undersized packets" />
