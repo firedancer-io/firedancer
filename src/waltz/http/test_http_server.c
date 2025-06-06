@@ -21,8 +21,8 @@ test_oring( void ) {
     .ws_message = NULL,
   };
 
-  uchar scratch[ 329216 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==329216 );
+  uchar scratch[ 1632896 ] __attribute__((aligned(128UL)));
+  FD_TEST( fd_http_server_footprint( params )==1632896 );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -31,6 +31,7 @@ test_oring( void ) {
   fd_http_server_printf( http, "C" );
   FD_TEST( http->stage_off==8UL );
   FD_TEST( http->stage_len==3UL );
+  FD_TEST( http->stage_comp_len==0UL );
   FD_TEST( !memcmp( "ABC", http->oring, 3UL ) );
   fd_http_server_unstage( http );
 
@@ -59,22 +60,26 @@ test_oring( void ) {
   FD_TEST( http->stage_off==8UL );
   FD_TEST( http->stage_len==8UL );
   FD_TEST( !fd_http_server_stage_body( http, &response ) );
+  FD_TEST( http->stage_comp_len==0UL );
 
   http->stage_off = 7UL;
   fd_http_server_printf( http, "01234567" );
   FD_TEST( http->stage_off==8UL );
   FD_TEST( http->stage_len==8UL );
   fd_http_server_unstage( http );
+  FD_TEST( http->stage_comp_len==0UL );
 
   http->stage_off = 16UL;
   fd_http_server_printf( http, "01234567" );
   FD_TEST( http->stage_off==16UL );
   FD_TEST( http->stage_len==8UL );
   FD_TEST( !fd_http_server_stage_body( http, &response ) );
+  FD_TEST( http->stage_comp_len==0UL );
 
   http->stage_off = 0UL;
   fd_http_server_printf( http, "012345678" );
   FD_TEST( fd_http_server_stage_body( http, &response ) );
+  FD_TEST( http->stage_comp_len==0UL );
 }
 
 int
