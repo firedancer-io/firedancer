@@ -1,6 +1,11 @@
 [hugetlbfs]
 max_page_size = "huge"
 
+[funk]
+max_account_records = 1048576
+heap_size_gib = 20
+max_database_transactions = 1024
+
 [runtime]
 heap_size_gib = 4
 
@@ -16,11 +21,6 @@ writer_tile_count = 1
 
 [tiles.restart]
 enabled = false
-
-[tiles.replay]
-funk_sz_gb = 20
-funk_txn_max = 1024
-funk_rec_max = 1048576
 
 [tiles.shred]
 max_pending_shred_sets = 512
