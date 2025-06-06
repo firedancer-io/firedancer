@@ -136,7 +136,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   switch( role ) {
 
-  case FD_KEYGUARD_ROLE_VOTER:
+  case FD_KEYGUARD_ROLE_SEND:
     if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TXN ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for voter (mask=%#lx)", payload_mask ));
       return 0;

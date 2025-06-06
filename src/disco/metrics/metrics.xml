@@ -224,7 +224,7 @@ metric introduced.
     <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
-<tile name="sender">
+<tile name="send">
     <counter name="TxnsSentToLeader" summary="Total count of transactions sent to leader" />
     <counter name="LeaderSchedNotFound" summary="Total count of times leader schedule not found" />
     <counter name="LeaderNotFound" summary="Total count of times leader not found for given slot" />
@@ -609,7 +609,7 @@ metric introduced.
 <enum name="PeerTypes">
     <int value="0" name="Tvu"    label="TVU"   />
     <int value="1" name="Repair" label="Repair" />
-    <int value="2" name="Voter"  label="Voter" />
+    <int value="2" name="Send"  label="Send" />
 </enum>
 
 <enum name="PruneFailureReason">

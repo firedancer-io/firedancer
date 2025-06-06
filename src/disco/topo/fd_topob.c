@@ -371,7 +371,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "replay", /* FIREDANCER only */
     "exec",   /* FIREDANCER only */
     "writer", /* FIREDANCER only */
-    "sender", /* FIREDANCER only */
+    "send",   /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
     "batch",  /* FIREDANCER only */

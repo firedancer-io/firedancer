@@ -462,13 +462,13 @@
 | <span class="metrics-name">gossip_&#8203;mismatched_&#8203;contact_&#8203;info_&#8203;shred_&#8203;version</span> | counter | Mismatched Contact Info Shred Version |
 | <span class="metrics-name">gossip_&#8203;ipv6_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">tvu</span>"} | counter | IPv6 Contact Info (by peer type) (TVU) |
 | <span class="metrics-name">gossip_&#8203;ipv6_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">repair</span>"} | counter | IPv6 Contact Info (by peer type) (Repair) |
-| <span class="metrics-name">gossip_&#8203;ipv6_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">voter</span>"} | counter | IPv6 Contact Info (by peer type) (Voter) |
+| <span class="metrics-name">gossip_&#8203;ipv6_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">send</span>"} | counter | IPv6 Contact Info (by peer type) (Send) |
 | <span class="metrics-name">gossip_&#8203;zero_&#8203;ipv4_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">tvu</span>"} | counter | Zero IPv4 Contact Info (by peer type) (TVU) |
 | <span class="metrics-name">gossip_&#8203;zero_&#8203;ipv4_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">repair</span>"} | counter | Zero IPv4 Contact Info (by peer type) (Repair) |
-| <span class="metrics-name">gossip_&#8203;zero_&#8203;ipv4_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">voter</span>"} | counter | Zero IPv4 Contact Info (by peer type) (Voter) |
+| <span class="metrics-name">gossip_&#8203;zero_&#8203;ipv4_&#8203;contact_&#8203;info</span><br/>{peer_&#8203;types="<span class="metrics-enum">send</span>"} | counter | Zero IPv4 Contact Info (by peer type) (Send) |
 | <span class="metrics-name">gossip_&#8203;peer_&#8203;counts</span><br/>{peer_&#8203;types="<span class="metrics-enum">tvu</span>"} | gauge | Number of peers of each type (TVU) |
 | <span class="metrics-name">gossip_&#8203;peer_&#8203;counts</span><br/>{peer_&#8203;types="<span class="metrics-enum">repair</span>"} | gauge | Number of peers of each type (Repair) |
-| <span class="metrics-name">gossip_&#8203;peer_&#8203;counts</span><br/>{peer_&#8203;types="<span class="metrics-enum">voter</span>"} | gauge | Number of peers of each type (Voter) |
+| <span class="metrics-name">gossip_&#8203;peer_&#8203;counts</span><br/>{peer_&#8203;types="<span class="metrics-enum">send</span>"} | gauge | Number of peers of each type (Send) |
 | <span class="metrics-name">gossip_&#8203;shred_&#8203;version_&#8203;zero</span> | counter | Shred version zero |
 | <span class="metrics-name">gossip_&#8203;value_&#8203;meta_&#8203;size</span> | gauge | Current size of the CRDS value metas map |
 | <span class="metrics-name">gossip_&#8203;value_&#8203;vec_&#8203;size</span> | gauge | Current size of the CRDS value vector |
@@ -695,16 +695,16 @@
 
 </div>
 
-## Sender Tile
+## Send Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">sender_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader</span> | counter | Total count of transactions sent to leader |
-| <span class="metrics-name">sender_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found</span> | counter | Total count of times leader schedule not found |
-| <span class="metrics-name">sender_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total count of times leader not found for given slot |
-| <span class="metrics-name">sender_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found</span> | counter | Total count of times leader contact info not found |
-| <span class="metrics-name">sender_&#8203;leader_&#8203;contact_&#8203;nonroutable</span> | counter | Total count of times leader contact is nonroutable |
+| <span class="metrics-name">send_&#8203;txns_&#8203;sent_&#8203;to_&#8203;leader</span> | counter | Total count of transactions sent to leader |
+| <span class="metrics-name">send_&#8203;leader_&#8203;sched_&#8203;not_&#8203;found</span> | counter | Total count of times leader schedule not found |
+| <span class="metrics-name">send_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total count of times leader not found for given slot |
+| <span class="metrics-name">send_&#8203;leader_&#8203;contact_&#8203;not_&#8203;found</span> | counter | Total count of times leader contact info not found |
+| <span class="metrics-name">send_&#8203;leader_&#8203;contact_&#8203;nonroutable</span> | counter | Total count of times leader contact is nonroutable |
 
 </div>
