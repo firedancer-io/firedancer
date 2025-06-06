@@ -4,6 +4,7 @@
 #include "../../funk/fd_funk.h"
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
+#include "../leaders/fd_leaders.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 FD_PROTOTYPES_BEGIN
@@ -155,11 +156,12 @@ if( FD_UNLIKELY( !bank_mgr ) ) {                                                
   X(fd_hash_t,                         genesis_hash,                36UL, 32UL,        8UL   ) \
   X(fd_epoch_schedule_t,               epoch_schedule,              37UL, 40UL,        8UL   ) \
   X(fd_rent_t,                         rent,                        38UL, 24UL,        8UL   ) \
-  X(fd_vote_accounts_global_t,         next_epoch_stakes,           39UL, 100000000UL, 1024UL) \
-  X(fd_vote_accounts_global_t,         epoch_stakes,                40UL, 100000000UL, 1024UL) \
+  X(fd_vote_accounts_global_t,         next_epoch_stakes,           39UL, 300000000UL, 1024UL) \
+  X(fd_vote_accounts_global_t,         epoch_stakes,                40UL, 300000000UL, 1024UL) \
   X(fd_slot_lthash_t,                  lthash,                      41UL, 4096UL,      128UL ) \
   X(fd_epoch_reward_status_global_t,   epoch_reward_status,         42UL, 160000000UL, 128UL ) \
-  X(fd_stakes_global_t,                stakes,                      43UL, 800000000UL, 256UL)
+  X(fd_stakes_global_t,                stakes,                      43UL, 800000000UL, 256UL) \
+  X(fd_epoch_leaders_t,                epoch_leaders,               44UL, 1000000UL,   128UL)
 FD_BANK_MGR_ITER(BANK_MGR_FUNCTIONS)
 
 FD_PROTOTYPES_END

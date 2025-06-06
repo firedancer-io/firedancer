@@ -251,7 +251,7 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
       if( vote_acc_node == NULL ) {
         int err;
 
-        uchar * data     = (uchar *)vote_acc_pool + n->elem.value.data_offset;
+        uchar * data     = (uchar *)&n->elem.value + n->elem.value.data_offset;
         ulong   data_len = n->elem.value.data_len;
 
         fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(

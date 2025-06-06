@@ -35,8 +35,7 @@ fd_stakes_accum_by_node( fd_vote_accounts_global_t const * in,
     if( n->elem.stake == 0UL ) continue;
 
     int err;
-    // FD_LOG_WARNING(("OFFSET %lu", n->elem.value.data_offset));
-    uchar * data     = (uchar *)in_pool + n->elem.value.data_offset;
+    uchar * data     = (uchar *)&n->elem.value + n->elem.value.data_offset;
     ulong   data_len = n->elem.value.data_len;
 
     fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
@@ -62,7 +61,6 @@ fd_stakes_accum_by_node( fd_vote_accounts_global_t const * in,
       default:
         __builtin_unreachable();
     }
-
 
     /* Extract node pubkey */
 

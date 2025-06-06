@@ -421,7 +421,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
   /* FIXME: Remove the magic number here. */
   fd_clock_timestamp_votes_global_t * clock_timestamp_votes = fd_bank_mgr_clock_timestamp_votes_modify( slot_ctx->bank_mgr );
   uchar * clock_pool_mem = (uchar *)fd_ulong_align_up( (ulong)clock_timestamp_votes + sizeof(fd_clock_timestamp_votes_global_t), fd_clock_timestamp_vote_t_map_align() );
-  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new(clock_pool_mem, 30000UL ) );
+  fd_clock_timestamp_vote_t_mapnode_t * clock_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new(clock_pool_mem, 50000UL ) );
   clock_timestamp_votes->votes_pool_offset = (ulong)fd_clock_timestamp_vote_t_map_leave( clock_pool) - (ulong)clock_timestamp_votes;
   clock_timestamp_votes->votes_root_offset = 0UL;
   fd_bank_mgr_clock_timestamp_votes_save( slot_ctx->bank_mgr );
@@ -521,11 +521,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_vote_accounts_global_t * epoch_stakes = fd_bank_mgr_epoch_stakes_modify( slot_ctx->bank_mgr );
     uchar * epoch_stakes_pool_mem = (uchar *)fd_ulong_align_up( (ulong)epoch_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
-    fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( epoch_stakes_pool_mem, 30000UL ) );
+    fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( epoch_stakes_pool_mem, 50000UL ) );
     fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = NULL;
 
-    uchar * acc_region_start = (uchar *)fd_ulong_align_up( (ulong)epoch_stakes_pool + fd_vote_accounts_pair_global_t_map_footprint( 30000UL ), 8UL );
-    ulong   curr_offset      = (ulong)acc_region_start - (ulong)epoch_stakes_pool;
+    uchar * acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)epoch_stakes_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
 
     for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
           curr_stakes.vote_accounts_pool,
@@ -547,11 +546,11 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
       elem->elem.value.executable  = n->elem.value.executable;
       elem->elem.value.rent_epoch  = n->elem.value.rent_epoch;
 
-      elem->elem.value.data_offset = curr_offset;
+      elem->elem.value.data_offset = (ulong)(acc_region_curr - (uchar *)&elem->elem.value);
       elem->elem.value.data_len = n->elem.value.data_len;
-      memcpy( (uchar *)epoch_stakes_pool + curr_offset, n->elem.value.data, n->elem.value.data_len );
+      memcpy( acc_region_curr, n->elem.value.data, n->elem.value.data_len );
 
-      curr_offset += n->elem.value.data_len;
+      acc_region_curr += n->elem.value.data_len;
 
       fd_vote_accounts_pair_global_t_map_insert(
         epoch_stakes_pool,
@@ -567,16 +566,13 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_mgr_next_epoch_stakes_modify( slot_ctx->bank_mgr );
     uchar * next_epoch_stakes_pool_mem = (uchar *)fd_ulong_align_up( (ulong)next_epoch_stakes + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
-    fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( next_epoch_stakes_pool_mem, 30000UL ) );
+    fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( next_epoch_stakes_pool_mem, 50000UL ) );
     fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = NULL;
 
     fd_vote_accounts_pair_t_mapnode_t * pool = next_stakes.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * root = next_stakes.vote_accounts_root;
 
-    acc_region_start = (uchar *)fd_ulong_align_up( (ulong)next_epoch_stakes_pool + fd_vote_accounts_pair_global_t_map_footprint( 30000UL ), 8UL );
-    curr_offset      = (ulong)acc_region_start - (ulong)next_epoch_stakes_pool;
-
-    FD_LOG_WARNING(("MIN OFFSET %lu", curr_offset));
+    acc_region_curr = (uchar *)fd_ulong_align_up( (ulong)next_epoch_stakes_pool + fd_vote_accounts_pair_global_t_map_footprint( 50000UL ), 8UL );
 
     for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( pool, root );
          n;
@@ -584,8 +580,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
       fd_vote_accounts_pair_global_t_mapnode_t * elem = fd_vote_accounts_pair_global_t_map_acquire( next_epoch_stakes_pool );
       FD_TEST( elem );
-
-      //elem->elem                    = n->elem;
 
       elem->elem.stake = n->elem.stake;
       elem->elem.key   = n->elem.key;
@@ -598,12 +592,10 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
       elem->elem.value.rent_epoch  = n->elem.value.rent_epoch;
 
 
-      elem->elem.value.data_offset = curr_offset;
+      elem->elem.value.data_offset = (ulong)(acc_region_curr - (uchar *)&elem->elem.value);;
       elem->elem.value.data_len = n->elem.value.data_len;
-      memcpy( (uchar *)next_epoch_stakes_pool + curr_offset, n->elem.value.data, n->elem.value.data_len );
-
-      curr_offset += n->elem.value.data_len;
-
+      memcpy( acc_region_curr, n->elem.value.data, n->elem.value.data_len );
+      acc_region_curr += n->elem.value.data_len;
 
       fd_vote_accounts_pair_global_t_map_insert(
         next_epoch_stakes_pool,
@@ -614,8 +606,6 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
     fd_vote_accounts_vote_accounts_pool_update( next_epoch_stakes, next_epoch_stakes_pool );
     fd_vote_accounts_vote_accounts_root_update( next_epoch_stakes, next_epoch_stakes_root );
     fd_bank_mgr_next_epoch_stakes_save( slot_ctx->bank_mgr );
-
-    FD_LOG_WARNING(("CURR OFFSET %lu", curr_offset));
 
   } while(0);
 

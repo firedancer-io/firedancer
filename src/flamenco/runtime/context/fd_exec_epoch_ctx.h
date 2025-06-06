@@ -60,30 +60,6 @@ ulong
 fd_exec_epoch_ctx_footprint( ulong vote_acc_max );
 
 
-FD_FN_PURE static inline fd_vote_accounts_pair_t_mapnode_t *
-fd_exec_epoch_ctx_stake_votes_join( fd_exec_epoch_ctx_t * ctx ) {
-  void * mem = (void *)((ulong)ctx + ctx->layout.stake_votes_off);
-  return fd_vote_accounts_pair_t_map_join( mem );
-}
-
-FD_FN_PURE static inline fd_delegation_pair_t_mapnode_t *
-fd_exec_epoch_ctx_stake_delegations_join( fd_exec_epoch_ctx_t * ctx ) {
-  void * mem = (void *)((ulong)ctx + ctx->layout.stake_delegations_off);
-  return fd_delegation_pair_t_map_join( mem );
-}
-
-FD_FN_PURE static inline fd_vote_accounts_pair_t_mapnode_t *
-fd_exec_epoch_ctx_next_epoch_stakes_join( fd_exec_epoch_ctx_t * ctx ) {
-  void * mem = (void *)((ulong)ctx + ctx->layout.next_epoch_stakes_off);
-  return fd_vote_accounts_pair_t_map_join( mem );
-}
-
-FD_FN_PURE static inline fd_epoch_leaders_t *
-fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
-  return (fd_epoch_leaders_t *)((uchar *)ctx + ctx->layout.leaders_off);
-}
-
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h */
