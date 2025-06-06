@@ -386,7 +386,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     int rc = fd_txn_account_init_from_funk_readonly( acc, vote_account_pubkey, slot_ctx->funk, slot_ctx->funk_txn );
     FD_TEST( rc == 0 );
     ulong   data_len = elem->elem.value.data_len;
-    uchar * data   = (uchar *)next_epoch_stakes_pool + elem->elem.value.data_offset;
+    uchar * data   = (uchar *)&elem->elem.value + elem->elem.value.data_offset;
 
     //FD_LOG_HEXDUMP_WARNING(("ASDF", data, data_len));
 
