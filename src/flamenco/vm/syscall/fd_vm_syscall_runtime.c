@@ -4,7 +4,6 @@
 #include "../../runtime/sysvar/fd_sysvar_clock.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../runtime/sysvar/fd_sysvar_fees.h"
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
 #include "../../runtime/sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
@@ -81,43 +80,6 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   }
 
   memcpy( out, schedule, sizeof(fd_epoch_schedule_t) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
-                                   /**/            ulong   out_vaddr,
-                                   FD_PARAM_UNUSED ulong   r2,
-                                   FD_PARAM_UNUSED ulong   r3,
-                                   FD_PARAM_UNUSED ulong   r4,
-                                   FD_PARAM_UNUSED ulong   r5,
-                                   /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: In the original version of this code, there was an FD_TEST
-     to check if the VM was attached to an instruction context (that
-     would have crashed anyway because of pointer chasing).  If the VM
-     is being run outside the Solana runtime, it should never invoke
-     this syscall in the first place.  So we treat this as a SIGCALL in
-     a non-crashing way for the time being. */
-
-  fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
-  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
-
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_fees_t) ) );
-
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_FEES, sizeof(fd_sysvar_fees_t) );
-
-  fd_sysvar_fees_t * fees = fd_sysvar_fees_read( instr_ctx->txn_ctx->funk,
-                                                 instr_ctx->txn_ctx->funk_txn,
-                                                 instr_ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !fees ) ) {
-    FD_LOG_ERR(( "failed to read sysvar fees" ));
-  }
-
-  memcpy( out, fees, sizeof(fd_sysvar_fees_t) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;

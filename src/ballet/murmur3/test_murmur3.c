@@ -27,7 +27,6 @@ static fd_murmur3_32_test_vector_t const fd_murmur3_32_test_vector[] = {
   { 0xdd1c41a6U, "sol_curve_group_op",                    18UL, 0 },
   { 0xd56b5fe9U, "sol_get_clock_sysvar",                  20UL, 0 },
   { 0x23a29a61U, "sol_get_epoch_schedule_sysvar",         29UL, 0 },
-  { 0x3b97b73cU, "sol_get_fees_sysvar",                   19UL, 0 },
   { 0xbf7188f6U, "sol_get_rent_sysvar",                   19UL, 0 },
   { 0x717cc4a3U, "sol_memcpy_",                           11UL, 0 },
   { 0x434371f8U, "sol_memmove_",                          12UL, 0 },

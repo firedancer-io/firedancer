@@ -5,7 +5,6 @@
 #include "../../runtime/sysvar/fd_sysvar.h"
 #include "../../runtime/sysvar/fd_sysvar_clock.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../runtime/sysvar/fd_sysvar_fees.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 
