@@ -5,7 +5,7 @@ FD_IMPORT_BINARY( test_client_encrypted, "src/waltz/quic/fixtures/rfc9001-client
 
 /* the destination connection id from the example */
 /* 0x8394c8f03e515708 */
-static uchar const test_dst_conn_id[8] = "\x83\x94\xc8\xf0\x3e\x51\x57\x08";
+static uchar const test_dst_conn_id[8] = { 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08 };
 
 /* expected value from rfc9001:
    7db5df06e7a69e432496adedb0085192 3595221596ae2ae9fb8115c1e9ed0a44 */

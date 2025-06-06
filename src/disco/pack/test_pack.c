@@ -7,6 +7,10 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include <math.h>
 
+#if FD_USING_GCC && __GNUC__ >= 15
+#pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
+
 FD_IMPORT_BINARY( sample_vote, "src/disco/pack/sample_vote.bin" );
 
 #define FD_PACK_TEST_MAX_COST_PER_BLOCK 48000000
