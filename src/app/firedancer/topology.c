@@ -195,6 +195,7 @@ setup_snapshots( config_t *       config,
   if( FD_LIKELY( snapshot_is_url ) ) {
     strncpy( tile->replay.snapshot, config->tiles.replay.snapshot_url, sizeof(tile->replay.snapshot) );
     tile->replay.snapshot_src_type = FD_SNAPSHOT_SRC_HTTP;
+    strncpy( tile->replay.snapshot_http_header, config->tiles.replay.snapshot_http_header, sizeof(tile->replay.snapshot_http_header) );
   }
   if( FD_UNLIKELY( snapshot_is_file ) ) {
     strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
@@ -254,6 +255,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "replay_exec"  );
   fd_topob_wksp( topo, "replay_wtr"   );
+  fd_topob_wksp( topo, "replay_grv"   );
   fd_topob_wksp( topo, "exec_writer"  );
 
   fd_topob_wksp( topo, "send_sign"    );
@@ -298,6 +300,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "writer"      );
   fd_topob_wksp( topo, "blockstore"  );
   fd_topob_wksp( topo, "fec_sets"    );
+  fd_topob_wksp( topo, "groove"      );
   fd_topob_wksp( topo, "tcache"      );
   fd_topob_wksp( topo, "poh"         );
   fd_topob_wksp( topo, "sender"      );
@@ -310,6 +313,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topob_wksp( topo, "writer_fseq" );
+  fd_topob_wksp( topo, "groove_fseq" );
 
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -339,6 +343,7 @@ fd_topo_initialize( config_t * config ) {
      message that is outbound from the replay to exec. */
   FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",  128UL,                                    10240UL,                       exec_tile_cnt );
   FOR(writer_tile_cnt) fd_topob_link( topo, "replay_wtr",   "replay_wtr",   128UL,                                    FD_REPLAY_WRITER_MTU,          1UL );
+  /**/                 fd_topob_link( topo, "replay_grv",   "replay_grv",   128UL,                                    FD_REPLAY_GROOVE_MTU,          1UL );
   /* Assuming the number of writer tiles is sufficient to keep up with
      the number of exec tiles, under equilibrium, we should have at least
      enough link space to buffer worst case input shuffling done by the
@@ -439,6 +444,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(exec_tile_cnt)               fd_topob_tile( topo, "exec",    "exec",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(writer_tile_cnt)             fd_topob_tile( topo, "writer",  "writer",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   fd_topo_tile_t * batch_tile =    fd_topob_tile( topo, "batch",   "batch",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  fd_topo_tile_t * groove_tile =   fd_topob_tile( topo, "groove",  "groove",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   if( enable_rstart ) /*        */ fd_topob_tile( topo, "rstart",  "restart", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
@@ -565,6 +571,12 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, batch_tile,  constipated_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, constipated_obj->id, "constipate" ) );
 
+  /* This fseq communicates the progress Groove is making to the Replay tile */
+  fd_topo_obj_t * groove_fseq_obj = fd_topob_obj( topo, "fseq", "groove_fseq" );
+  fd_topob_tile_uses( topo, groove_tile,  groove_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, groove_fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, groove_fseq_obj->id, "groove_fseq" ) );
+
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
@@ -657,6 +669,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                    ); /* TODO check order in fd_replay.c macros*/
   FOR(writer_tile_cnt) fd_topob_tile_out( topo, "replay",  0UL,                       "replay_wtr",    i                                                    );
+  /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_grv",   0UL                                                  );
 
   FOR(exec_tile_cnt)   fd_topob_tile_in(  topo, "exec",    i,            "metric_in", "replay_exec",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "exec",    i,                         "exec_writer",  i                                                     );
@@ -665,6 +678,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "writer",  i,            "metric_in", "exec_writer",  j,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
   FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "writer",  i,            "metric_in", "replay_wtr",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
+  /**/                 fd_topob_tile_in(  topo, "groove",  0UL,            "metric_in", "replay_grv", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
 
   /**/                 fd_topob_tile_in ( topo, "sender", 0UL,         "metric_in", "stake_out",     0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in ( topo, "sender", 0UL,         "metric_in", "gossip_send",   0UL,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -938,6 +952,9 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->exec.funk_file, config->tiles.replay.funk_file, sizeof(tile->exec.funk_file) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "writer" ) ) ) {
       strncpy( tile->writer.funk_file, config->tiles.replay.funk_file, sizeof(tile->writer.funk_file) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "groove" ) ) ) {
+      strncpy( tile->groove.funk_file, config->tiles.replay.funk_file, sizeof(tile->groove.funk_file) );
+      strncpy( tile->groove.cold_store_dir, config->tiles.groove.cold_store_dir, sizeof(tile->groove.cold_store_dir) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rstart" ) ) ) {
       strncpy( tile->restart.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
       strncpy( tile->restart.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );

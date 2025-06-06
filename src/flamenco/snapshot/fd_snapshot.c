@@ -20,20 +20,14 @@ struct fd_snapshot_load_ctx {
   /* User-defined parameters. */
   const char *           snapshot_dir;
   const char *           snapshot_src;
+  const char *           snapshot_http_header;
   int                    snapshot_src_type;
-  fd_exec_slot_ctx_t *   slot_ctx;
   uint                   verify_hash;
   uint                   check_hash;
   int                    snapshot_type;
 
-  /* Internal state. */
-  fd_funk_txn_t *        par_txn;
-  fd_funk_txn_t *        child_txn;
-
   fd_snapshot_loader_t *  loader;
   fd_snapshot_restore_t * restore;
-
-  fd_spad_t *             runtime_spad;
 
   fd_exec_para_cb_ctx_t * exec_para_ctx;
 };
@@ -81,12 +75,12 @@ restore_status_cache( void *                  ctx,
   return (!!fd_exec_slot_ctx_recover_status_cache( ctx, slot_deltas, spad ) ? 0 : EINVAL);
 }
 
-static int
-restore_rent_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
-                            fd_pubkey_t const  * pubkey ) {
-  fd_runtime_register_new_fresh_account( slot_ctx, pubkey );
-  return 0;
-}
+// static int
+// restore_rent_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
+//                             fd_pubkey_t const  * pubkey ) {
+//   fd_runtime_register_new_fresh_account( slot_ctx, pubkey );
+//   return 0;
+// }
 
 ulong
 fd_snapshot_load_ctx_align( void ) {
@@ -99,33 +93,24 @@ fd_snapshot_load_ctx_footprint( void ) {
 }
 
 fd_snapshot_load_ctx_t *
-fd_snapshot_load_new( uchar *                mem,
-                      const char *           snapshot_src,
-                      int                    snapshot_src_type,
-                      const char *           snapshot_dir,
-                      fd_exec_slot_ctx_t *   slot_ctx,
-                      uint                   verify_hash,
-                      uint                   check_hash,
-                      int                    snapshot_type,
-                      fd_spad_t * *          exec_spads,
-                      ulong                  exec_spad_cnt,
-                      fd_spad_t *            runtime_spad,
-                      fd_exec_para_cb_ctx_t * exec_para_ctx ) {
-
-  (void)exec_spads;
-  (void)exec_spad_cnt;
+fd_snapshot_load_new( uchar *      mem,
+                      const char * snapshot_src,
+                      int          snapshot_src_type,
+                      const char * snapshot_dir,
+                      uint         verify_hash,
+                      uint         check_hash,
+                      int          snapshot_type,
+                      const char * snapshot_http_header ) {
 
   fd_snapshot_load_ctx_t * ctx = (fd_snapshot_load_ctx_t *)mem;
 
-  ctx->snapshot_dir      = snapshot_dir;
-  ctx->snapshot_src      = snapshot_src;
-  ctx->snapshot_src_type = snapshot_src_type;
-  ctx->slot_ctx          = slot_ctx;
-  ctx->verify_hash       = verify_hash;
-  ctx->check_hash        = check_hash;
-  ctx->snapshot_type     = snapshot_type;
-  ctx->runtime_spad      = runtime_spad;
-  ctx->exec_para_ctx     = exec_para_ctx;
+  ctx->snapshot_dir         = snapshot_dir;
+  ctx->snapshot_src         = snapshot_src;
+  ctx->snapshot_src_type    = snapshot_src_type;
+  ctx->verify_hash          = verify_hash;
+  ctx->check_hash           = check_hash;
+  ctx->snapshot_type        = snapshot_type;
+  ctx->snapshot_http_header = snapshot_http_header;
 
   return ctx;
 }
@@ -147,53 +132,47 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
       break;
   }
 
-  ctx->par_txn   = ctx->slot_ctx->funk_txn;
-  ctx->child_txn = ctx->slot_ctx->funk_txn;
-
-  // the hash in the incremental snapshot of an lt_hash contains all the accounts.  This means we don't need a sub-txn for the incremental
-  if( ctx->verify_hash &&
-    (FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, incremental_snapshot_only_incremental_hash_calculation )
-      && !FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, snapshots_lt_hash ) )) {
-    fd_funk_txn_xid_t xid;
-    memset( &xid, 0xc3, sizeof(xid) );
-    fd_funk_txn_start_write( ctx->slot_ctx->funk );
-    ctx->child_txn = fd_funk_txn_prepare( ctx->slot_ctx->funk, ctx->child_txn, &xid, 0 );
-    fd_funk_txn_end_write( ctx->slot_ctx->funk );
-    ctx->slot_ctx->funk_txn = ctx->child_txn;
-  }
+  // fd_snapshot_name_t const * name  = fd_snapshot_loader_get_name( ctx->loader );
+  // if( name->type != ctx->snapshot_type ) {
+  //   FD_LOG_ERR(( "snapshot %s is wrong type", ctx->snapshot_src ));
+  // }
 }
 
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
-                                            ulong *                  base_slot_override,
-                                            int                      restore_manifest_flags ) {
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t *                       ctx,
+                                            fd_spad_t *                                    spad,
+                                            void *                                         cb_manifest_ctx,
+                                            ulong                                          base_slot,
+                                            int                                            restore_manifest_flags,
+                                            fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account,
+                                            void *                                         cb_new_account_ctx,
+                                            fd_snapshot_restore_cb_new_account_fn_t        cb_new_account,
+                                            void *                                         cb_acc_finish_read_ctx,
+                                            fd_snapshot_restore_cb_acc_finish_read_fn_t    cb_acc_finish_read ) {
 
   size_t slen = strlen( ctx->snapshot_src );
-  char * snapshot_cstr = fd_spad_alloc( ctx->runtime_spad, 8UL, slen + 1 );
+  char * snapshot_cstr = fd_spad_alloc( spad, 8UL, slen + 1 );
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( snapshot_cstr ), ctx->snapshot_src, slen ) );
 
   fd_snapshot_src_t src[1];
-  if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr, ctx->snapshot_src_type ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr, ctx->snapshot_src_type, ctx->snapshot_http_header ) ) ) {
     FD_LOG_ERR(( "Failed to parse snapshot src" ));
   }
   src->snapshot_dir = ctx->snapshot_dir;
 
-  fd_exec_epoch_ctx_bank_mem_clear( ctx->slot_ctx->epoch_ctx );
-
-  fd_funk_t *     funk     = ctx->slot_ctx->funk;
-  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
-
-  void * restore_mem = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
-  void * loader_mem  = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
+  void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
+  void * loader_mem  = fd_spad_alloc( spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
   ctx->restore = fd_snapshot_restore_new( restore_mem,
-                                          funk,
-                                          funk_txn,
-                                          ctx->runtime_spad,
-                                          ctx->slot_ctx,
+                                          spad,
+                                          cb_manifest_ctx,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL,
-                                          restore_rent_fresh_account );
+                                          cb_rent_fresh_account,
+                                          cb_new_account_ctx,
+                                          cb_new_account,
+                                          cb_acc_finish_read_ctx,
+                                          cb_acc_finish_read );
   if( FD_UNLIKELY( !ctx->restore ) ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_restore_new" ));
   }
@@ -207,7 +186,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader,
                                              ctx->restore,
                                              src,
-                                             base_slot_override ? *base_slot_override : ctx->slot_ctx->slot_bank.slot,
+                                            base_slot,
                                              1 ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
@@ -247,21 +226,22 @@ fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
 
 #define FD_LTHASH_SNAPSHOT_HACK
 void
-fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
-  fd_snapshot_name_t const * name  = fd_snapshot_loader_get_name( ctx->loader );
-  fd_hash_t          const * fhash = &name->fhash;
-
-  if( name->type != ctx->snapshot_type ) {
-    FD_LOG_ERR(( "snapshot %s is wrong type", ctx->snapshot_src ));
-  }
-
+fd_snapshot_load_fini( int                        snapshot_type,
+                       uint                       verify_hash,
+                       uint                       check_hash,
+                       fd_hash_t                  const * fhash,
+                       fd_funk_txn_t *            child_txn,
+                       fd_funk_txn_t *            par_txn,
+                       fd_exec_slot_ctx_t *       slot_ctx,
+                       fd_spad_t *                runtime_spad,
+                       fd_exec_para_cb_ctx_t *    exec_para_ctx ) {
   // In order to calculate the snapshot hash, we need to know what features are active...
-  fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
-  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
+  fd_features_restore( slot_ctx, runtime_spad );
+  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
-  int snapshots_lt_hash = FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, snapshots_lt_hash );
-  int accounts_lt_hash = FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, accounts_lt_hash );
-  int incremental_snapshot_only_incremental_hash_calculation = FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features,
+  int snapshots_lt_hash = FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash );
+  int accounts_lt_hash = FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, accounts_lt_hash );
+  int incremental_snapshot_only_incremental_hash_calculation = FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features,
     incremental_snapshot_only_incremental_hash_calculation );
 
 #ifdef FD_LTHASH_SNAPSHOT_HACK
@@ -269,8 +249,8 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 #endif
   // https://github.com/anza-xyz/agave/blob/766cd682423b8049ddeac3c0ec6cebe0a1356e9e/runtime/src/bank.rs#L1831
   if( accounts_lt_hash ) {
-    ulong *p = (ulong *) ctx->slot_ctx->slot_bank.lthash.lthash;
-    ulong *e = (ulong *) &ctx->slot_ctx->slot_bank.lthash.lthash[sizeof(ctx->slot_ctx->slot_bank.lthash.lthash)];
+    ulong *p = (ulong *) slot_ctx->slot_bank.lthash.lthash;
+    ulong *e = (ulong *) &slot_ctx->slot_bank.lthash.lthash[sizeof(slot_ctx->slot_bank.lthash.lthash)];
     while (p < e) {
       if ( 0 != *(p++) )
         break;
@@ -278,17 +258,17 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
     if (p >= e) {
 #ifdef FD_LTHASH_SNAPSHOT_HACK
       FD_LOG_WARNING(( "snapshot must have an accounts lt hash if the feature is enabled..  re-calculating" ));
-      ctx->verify_hash = 1;
+      verify_hash = 1;
       zero_lthash = 1;
 #else
       FD_LOG_ERR(( "snapshot must have an accounts lt hash if the feature is enabled.. " ));
 #endif
     } else {
-      FD_LOG_NOTICE(( "accounts_lthash found %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
+      FD_LOG_NOTICE(( "accounts_lthash found %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash)  ) ));
     }
   }
 
-  if( ctx->verify_hash ) {
+  if( verify_hash ) {
     fd_hash_t accounts_hash;
     fd_lthash_value_t *lthash = NULL;
     fd_lthash_value_t lthash_buf;
@@ -297,21 +277,21 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
       lthash = &lthash_buf;
     }
 
-    if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
-      FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-        fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx, lthash );
+    if( snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
+      FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+        fd_snapshot_hash( slot_ctx, &accounts_hash, check_hash, runtime_spad, exec_para_ctx, lthash );
       } FD_SPAD_FRAME_END;
 
       if ( snapshots_lt_hash ) {
 #ifdef FD_LTHASH_SNAPSHOT_HACK
         if ( zero_lthash )
-          fd_memcpy( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) );
+          fd_memcpy( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) );
 #endif
-        if( memcmp( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) ) ) {
+        if( memcmp( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) ) ) {
           FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s",
-              FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash) ), FD_LTHASH_ENC_32_ALLOCA( lthash ) ));
+              FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash) ), FD_LTHASH_ENC_32_ALLOCA( lthash ) ));
         } else {
-          FD_LOG_NOTICE(( "accounts_lthash found %s verified successfully", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
+          FD_LOG_NOTICE(( "accounts_lthash found %s verified successfully", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash)  ) ));
         }
       } else {
         if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
@@ -320,27 +300,27 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
           FD_LOG_NOTICE(( "snapshot accounts_hash %s verified successfully", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ) ));
         }
       }
-    } else if( ctx->snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL ) {
+    } else if( snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL ) {
       fd_hash_t accounts_hash;
 
       if( incremental_snapshot_only_incremental_hash_calculation && !snapshots_lt_hash ) {
         FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
-        fd_snapshot_inc_hash( ctx->slot_ctx, &accounts_hash, ctx->child_txn, ctx->check_hash, ctx->runtime_spad, NULL);
+        fd_snapshot_inc_hash( slot_ctx, &accounts_hash, child_txn, check_hash, runtime_spad, NULL);
       } else {
         FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
-        fd_snapshot_hash( ctx->slot_ctx, &accounts_hash, ctx->check_hash, ctx->runtime_spad, ctx->exec_para_ctx, lthash );
+        fd_snapshot_hash( slot_ctx, &accounts_hash, check_hash, runtime_spad, exec_para_ctx, lthash );
       }
 
       if ( snapshots_lt_hash ) {
 #ifdef FD_LTHASH_SNAPSHOT_HACK
         if ( zero_lthash )
-          fd_memcpy( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) );
+          fd_memcpy( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) );
 #endif
-        if( memcmp( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) ) ) {
+        if( memcmp( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash), lthash, sizeof(lthash_buf) ) ) {
           FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s",
-              FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash) ), FD_LTHASH_ENC_32_ALLOCA( lthash ) ));
+              FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash) ), FD_LTHASH_ENC_32_ALLOCA( lthash ) ));
         } else {
-          FD_LOG_NOTICE(( "accounts_lthash found %s verified successfully", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(ctx->slot_ctx->slot_bank.lthash.lthash)  ) ));
+          FD_LOG_NOTICE(( "accounts_lthash found %s verified successfully", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash)  ) ));
         }
       } else {
         if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
@@ -350,18 +330,18 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
         }
       }
     } else {
-      FD_LOG_ERR(( "invalid snapshot type %d", ctx->snapshot_type ));
+      FD_LOG_ERR(( "invalid snapshot type %d", snapshot_type ));
     }
   }
 
-  if( ctx->child_txn != ctx->par_txn ) {
-    fd_funk_txn_start_write( ctx->slot_ctx->funk );
-    fd_funk_txn_publish( ctx->slot_ctx->funk, ctx->child_txn, 0 );
-    fd_funk_txn_end_write( ctx->slot_ctx->funk );
-    ctx->slot_ctx->funk_txn = ctx->par_txn;
+  if( child_txn != par_txn ) {
+    fd_funk_txn_start_write( slot_ctx->funk );
+    fd_funk_txn_publish( slot_ctx->funk, child_txn, 0 );
+    fd_funk_txn_end_write( slot_ctx->funk );
+    slot_ctx->funk_txn = par_txn;
   }
 
-  fd_hashes_load( ctx->slot_ctx, ctx->runtime_spad );
+  fd_hashes_load( slot_ctx, runtime_spad );
 
   /* We don't need to free any of the loader memory since it is allocated
      from a spad. */
@@ -377,9 +357,8 @@ fd_snapshot_load_all( const char *         source_cstr,
                       uint                 verify_hash,
                       uint                 check_hash,
                       int                  snapshot_type,
-                      fd_spad_t * *        exec_spads,
-                      ulong                exec_spad_cnt,
-                      fd_spad_t *          runtime_spad ) {
+                      fd_spad_t *          runtime_spad,
+                      const char *         snapshot_http_header ) {
 
   fd_exec_para_cb_ctx_t exec_para_ctx = {
     .func       = fd_accounts_hash_counter_and_gather_tpool_cb,
@@ -391,44 +370,96 @@ fd_snapshot_load_all( const char *         source_cstr,
                                                        source_cstr,
                                                        source_type,
                                                        snapshot_dir,
-                                                       slot_ctx,
                                                        verify_hash,
                                                        check_hash,
                                                        snapshot_type,
-                                                       exec_spads,
-                                                       exec_spad_cnt,
-                                                       runtime_spad,
-                                                       &exec_para_ctx );
+                                                       snapshot_http_header );
 
+  fd_funk_txn_t * par_txn   = slot_ctx->funk_txn;
+  fd_funk_txn_t * child_txn = slot_ctx->funk_txn;
   fd_snapshot_load_init( ctx );
+
+  /* Initialize Funk txn for incremental snapshot hash verification, if necessary.
+     We don't need a child txn for this if lattice hash is enabled, because the hash
+     in the incremental snapshot of an lt_hash contains all the accounts.
+   */
+  if( verify_hash && snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL &&
+    (FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, incremental_snapshot_only_incremental_hash_calculation )
+      && !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, snapshots_lt_hash ) )) {
+    fd_funk_txn_xid_t xid;
+    memset( &xid, 0xc3, sizeof(xid) );
+    fd_funk_txn_start_write( slot_ctx->funk );
+    child_txn = fd_funk_txn_prepare( slot_ctx->funk, child_txn, &xid, 0 );
+    fd_funk_txn_end_write( slot_ctx->funk );
+    slot_ctx->funk_txn = child_txn;
+  }
+
+  fd_snapshot_new_account_funk_cb_ctx_t * new_account_funk_cb_ctx = fd_spad_alloc(
+    runtime_spad, alignof(fd_snapshot_new_account_funk_cb_ctx_t), sizeof(fd_snapshot_new_account_funk_cb_ctx_t) );
+  if( FD_UNLIKELY( !new_account_funk_cb_ctx ) ) FD_LOG_ERR(( "Failed to allocate new account funk callback context" ));
+  new_account_funk_cb_ctx->funk     = slot_ctx->funk;
+  new_account_funk_cb_ctx->funk_txn = slot_ctx->funk_txn;
+
   fd_runtime_update_slots_per_epoch( slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH );
-  fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
-    FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
+  fd_exec_epoch_ctx_bank_mem_clear( slot_ctx->epoch_ctx );
+  fd_snapshot_load_manifest_and_status_cache( ctx,
+                                              runtime_spad,
+                                              slot_ctx,
+                                              base_slot_override ? *base_slot_override : slot_ctx->slot_bank.slot,
+                                              FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST,
+                                              fd_runtime_register_new_fresh_account,
+                                              new_account_funk_cb_ctx,
+                                              fd_snapshot_new_account_funk_cb,
+                                              NULL,
+                                              NULL );
   fd_snapshot_load_accounts( ctx );
-  fd_snapshot_load_fini( ctx );
+  fd_snapshot_load_fini( snapshot_type,
+                         verify_hash,
+                         check_hash,
+                         &fd_snapshot_loader_get_name( ctx->loader )->fhash,
+                         child_txn,
+                         par_txn,
+                         slot_ctx,
+                         runtime_spad,
+                         &exec_para_ctx );
 
 }
 
 void
-fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
+fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx,
+                                    fd_exec_slot_ctx_t *     slot_ctx,
+                                    fd_spad_t *              spad ) {
 
   size_t slen = strlen( ctx->snapshot_src );
-  char * snapshot_cstr = fd_spad_alloc( ctx->runtime_spad, 8UL, slen + 1 );
+  char * snapshot_cstr = fd_spad_alloc( spad, 8UL, slen + 1 );
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( snapshot_cstr ), ctx->snapshot_src, slen ) );
 
   fd_snapshot_src_t src[1];
-  if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr, ctx->snapshot_src_type ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_src_parse( src, snapshot_cstr, ctx->snapshot_src_type, ctx->snapshot_http_header ) ) ) {
     FD_LOG_ERR(( "Failed to parse snapshot src" ));
   }
   src->snapshot_dir = ctx->snapshot_dir;
 
-  fd_funk_t *     funk     = ctx->slot_ctx->funk;
-  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
+  void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
+  void * loader_mem  = fd_spad_alloc( spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  void * restore_mem = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
-  void * loader_mem  = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
+  fd_snapshot_new_account_funk_cb_ctx_t * new_account_funk_cb_ctx = fd_spad_alloc(
+    spad, alignof(fd_snapshot_new_account_funk_cb_ctx_t), sizeof(fd_snapshot_new_account_funk_cb_ctx_t) );
+  if( FD_UNLIKELY( !new_account_funk_cb_ctx ) ) FD_LOG_ERR(( "Failed to allocate new account funk callback context" ));
+  new_account_funk_cb_ctx->funk     = slot_ctx->funk;
+  new_account_funk_cb_ctx->funk_txn = slot_ctx->funk_txn;
 
-  ctx->restore = fd_snapshot_restore_new( restore_mem, funk, funk_txn, ctx->runtime_spad, ctx->slot_ctx, restore_manifest, restore_status_cache, restore_rent_fresh_account );
+  ctx->restore = fd_snapshot_restore_new(
+    restore_mem,
+    spad,
+    slot_ctx,
+    restore_manifest,
+    restore_status_cache,
+    NULL,
+    new_account_funk_cb_ctx,
+    fd_snapshot_new_account_funk_cb,
+    NULL,
+    NULL );
   if( FD_UNLIKELY( !ctx->restore ) ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_restore_new" ));
   }
