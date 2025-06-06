@@ -30,7 +30,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_last_restart_slot_syscall     = 0;
   int enable_get_sysvar_syscall            = 0;
   int enable_get_epoch_stake_syscall       = 0;
-  int enable_epoch_rewards_syscall         = 0;
 
   if( slot ) {
     enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot, *features, blake3_syscall_enabled );
@@ -41,9 +40,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot, *features, last_restart_slot_sysvar );
     enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot, *features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot, *features, enable_get_epoch_stake_syscall );
-    // https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/mod.rs#L275-L277
-    enable_epoch_rewards_syscall         = FD_FEATURE_ACTIVE( slot, *features, enable_partitioned_epoch_reward ) ||
-                                           FD_FEATURE_ACTIVE( slot, *features, partitioned_epoch_rewards_superfeature );
 
   } else { /* enable ALL */
 
@@ -55,7 +51,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_last_restart_slot_syscall     = 1;
     enable_get_sysvar_syscall            = 1;
     enable_get_epoch_stake_syscall       = 1;
-    enable_epoch_rewards_syscall         = 1;
 
   }
 
@@ -126,6 +121,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   REGISTER( "sol_log_data",                          fd_vm_syscall_sol_log_data );
   REGISTER( "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
   REGISTER( "sol_get_stack_height",                  fd_vm_syscall_sol_get_stack_height );
+  REGISTER( "sol_get_epoch_rewards_sysvar",          fd_vm_syscall_sol_get_epoch_rewards_sysvar );
 
   if( enable_curve25519_syscall ) {
     REGISTER( "sol_curve_validate_point",            fd_vm_syscall_sol_curve_validate_point );
@@ -141,9 +137,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     REGISTER( "sol_alt_bn128_group_op",                fd_vm_syscall_sol_alt_bn128_group_op );
 
 //REGISTER( "sol_big_mod_exp",                       fd_vm_syscall_sol_big_mod_exp );
-
-  if( enable_epoch_rewards_syscall )
-    REGISTER( "sol_get_epoch_rewards_sysvar",        fd_vm_syscall_sol_get_epoch_rewards_sysvar );
 
   if( enable_poseidon_syscall )
     REGISTER( "sol_poseidon",                        fd_vm_syscall_sol_poseidon );

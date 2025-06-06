@@ -2891,27 +2891,14 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
-  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
-      FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) {
-    FD_LOG_NOTICE(( "fd_begin_partitioned_rewards" ));
-    fd_begin_partitioned_rewards( slot_ctx,
-                                  parent_blockhash,
-                                  parent_epoch,
-                                  &temp_info,
-                                  tpool,
-                                  exec_spads,
-                                  exec_spad_cnt,
-                                  runtime_spad );
-  } else {
-    fd_update_rewards( slot_ctx,
-                       parent_blockhash,
-                       parent_epoch,
-                       &temp_info,
-                       tpool,
-                       exec_spads,
-                       exec_spad_cnt,
-                       runtime_spad );
-  }
+  fd_begin_partitioned_rewards( slot_ctx,
+                                parent_blockhash,
+                                parent_epoch,
+                                &temp_info,
+                                tpool,
+                                exec_spads,
+                                exec_spad_cnt,
+                                runtime_spad );
 
   /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
   fd_update_epoch_stakes( slot_ctx );
@@ -4192,9 +4179,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     *is_epoch_boundary = 0;
   }
 
-  if( slot_ctx->slot_bank.slot != 0UL && (
-      FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
-      FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) ) {
+  if( FD_LIKELY( slot_ctx->slot_bank.slot!=0UL ) ) {
     fd_distribute_partitioned_epoch_rewards( slot_ctx,
                                              tpool,
                                              exec_spads,
