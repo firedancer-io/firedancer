@@ -53,7 +53,7 @@ fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_accou
 /* Queries the delegated stake amount for the given vote account pubkey,
    given the vote accounts map. Returns 0 if nonexistent. */
 ulong
-fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts );
+fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_global_t const * vote_accounts );
 
 /* An implementation of solana_sdk::transaction_context::BorrowedAccount::get_state
    for setting the vote state.
@@ -72,7 +72,8 @@ void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          long                 timestamp,
-                                         ulong                slot );
+                                         ulong                slot,
+                                         fd_bank_mgr_t *      bank_mgr );
 
 struct fd_commission_split {
   ulong voter_portion;

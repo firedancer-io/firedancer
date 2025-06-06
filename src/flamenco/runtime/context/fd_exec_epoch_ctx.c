@@ -2,6 +2,7 @@
 #include <assert.h>
 #include "../sysvar/fd_sysvar_stake_history.h"
 #include "../fd_runtime_public.h"
+#include "../fd_bank_mgr.h"
 
 /* TODO remove this */
 #define MAX_LG_SLOT_CNT   10UL
@@ -62,13 +63,11 @@ fd_exec_epoch_ctx_new( void * mem,
     return NULL;
   }
 
-  fd_exec_epoch_ctx_bank_mem_setup( self );
-
-  fd_features_disable_all( &self->features );
-  self->epoch_bank.cluster_version[0] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR;
-  self->epoch_bank.cluster_version[1] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR;
-  self->epoch_bank.cluster_version[2] = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH;
-  fd_features_enable_cleaned_up( &self->features, self->epoch_bank.cluster_version );
+  // fd_features_disable_all( &self->features );
+  // self->epoch_bank.cluster_version.major = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR;
+  // self->epoch_bank.cluster_version.minor = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR;
+  // self->epoch_bank.cluster_version.patch = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH;
+  // fd_features_enable_cleaned_up( &self->features, &self->epoch_bank.cluster_version );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
@@ -148,7 +147,7 @@ fd_exec_epoch_ctx_delete( void * mem ) {
   fd_vote_accounts_pair_t_map_delete( next_epoch_stakes_mem   );
   fd_epoch_leaders_delete           ( leaders_mem             );
 
-  fd_exec_epoch_ctx_epoch_bank_delete( hdr );
+  // fd_exec_epoch_ctx_epoch_bank_delete( hdr );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
@@ -157,98 +156,26 @@ fd_exec_epoch_ctx_delete( void * mem ) {
   return mem;
 }
 
-static void
-epoch_ctx_bank_mem_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
-  void * mem = epoch_ctx;
-  fd_exec_epoch_ctx_layout_t const * layout = &epoch_ctx->layout;
-
-  void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
-  void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
-
-  fd_vote_accounts_pair_t_map_delete( stake_votes_mem         );
-  fd_delegation_pair_t_map_delete   ( stake_delegations_mem   );
-}
-
-void
-fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
-  epoch_ctx_bank_mem_delete( epoch_ctx );
-  memset( &epoch_ctx->epoch_bank, 0UL, sizeof(fd_epoch_bank_t) );
-}
-
 void
 fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx ) {
-  fd_epoch_bank_t * const epoch_bank = &epoch_ctx->epoch_bank;
-  {
-    fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
-    fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
-    epoch_bank->stakes.vote_accounts.vote_accounts_root = NULL;
-  }
-  {
-    fd_delegation_pair_t_mapnode_t * old_pool = epoch_bank->stakes.stake_delegations_pool;
-    fd_delegation_pair_t_mapnode_t * old_root = epoch_bank->stakes.stake_delegations_root;
-    fd_delegation_pair_t_map_release_tree( old_pool, old_root );
-    epoch_bank->stakes.stake_delegations_root = NULL;
-  }
-  {
-    fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->next_epoch_stakes.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->next_epoch_stakes.vote_accounts_root;
-    fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
-    epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
-  }
-}
-
-fd_epoch_bank_t *
-fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * self ) {
-  fd_exec_epoch_ctx_layout_t * layout = &self->layout;
-
-  void * stake_votes_mem         = (void *)( (ulong)self + layout->stake_votes_off         );
-  void * stake_delegations_mem   = (void *)( (ulong)self + layout->stake_delegations_off   );
-  void * next_epoch_stakes_mem   = (void *)( (ulong)self + layout->next_epoch_stakes_off   );
-  //void * leaders_mem             = (void *)( (ulong)self + layout->leaders_off             );
-
-  fd_epoch_bank_t * epoch_bank = &self->epoch_bank;
-  fd_epoch_bank_new( &self->epoch_bank );
-
-  epoch_bank->stakes.vote_accounts.vote_accounts_pool =
-    fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( stake_votes_mem,         layout->vote_acc_max        ) );
-
-  epoch_bank->stakes.stake_delegations_pool =
-    fd_delegation_pair_t_map_join   ( fd_delegation_pair_t_map_new   ( stake_delegations_mem,   layout->vote_acc_max        ) );
-
-  epoch_bank->next_epoch_stakes.vote_accounts_pool =
-    fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   layout->vote_acc_max        ) );
-
-  //TODO support separate epoch leaders new and init
-  //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
-
-  return epoch_bank;
-}
-
-void
-fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
-                             fd_exec_epoch_ctx_t * prev,
-                             fd_spad_t *           runtime_spad ) {
-  self->features = prev->features; /* large memcpy */
-
-  self->bank_hash_cmp     = prev->bank_hash_cmp;
-  self->runtime_public    = prev->runtime_public;
-  self->total_epoch_stake = 0UL;
-
-  self->runtime_public->features = prev->features; /* large memcpy */
-
-  fd_epoch_bank_t * old_epoch_bank = fd_exec_epoch_ctx_epoch_bank( prev );
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-    ulong   sz  = fd_epoch_bank_size( old_epoch_bank );
-    uchar * buf = fd_spad_alloc( runtime_spad, fd_epoch_bank_align(), sz );
-
-    fd_bincode_encode_ctx_t encode = {.data = buf, .dataend = buf + sz };
-    fd_epoch_bank_encode( old_epoch_bank, &encode );
-
-    sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT ), fd_epoch_leaders_align() );
-    fd_memcpy( fd_exec_epoch_ctx_leaders( self ), fd_exec_epoch_ctx_leaders( prev ), sz );
-
-  } FD_SPAD_FRAME_END;
+  (void)epoch_ctx;
+  // fd_epoch_bank_t * const epoch_bank = &epoch_ctx->epoch_bank;
+  // {
+  //   fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+  //   fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
+  //   fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+  //   epoch_bank->stakes.vote_accounts.vote_accounts_root = NULL;
+  // }
+  // {
+  //   fd_delegation_pair_t_mapnode_t * old_pool = epoch_bank->stakes.stake_delegations_pool;
+  //   fd_delegation_pair_t_mapnode_t * old_root = epoch_bank->stakes.stake_delegations_root;
+  //   fd_delegation_pair_t_map_release_tree( old_pool, old_root );
+  //   epoch_bank->stakes.stake_delegations_root = NULL;
+  // }
+  // {
+  //   fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->next_epoch_stakes.vote_accounts_pool;
+  //   fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->next_epoch_stakes.vote_accounts_root;
+  //   fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+  //   epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
+  // }
 }

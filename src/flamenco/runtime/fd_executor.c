@@ -4,6 +4,8 @@
 #include "fd_hashes.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
+#include "fd_bank_mgr.h"
+
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
@@ -467,7 +469,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
       txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
                                                                        &txn_ctx->schedule,
                                                                        &txn_ctx->rent,
-                                                                       txn_ctx->slots_per_year,
+                                                                       *(fd_bank_mgr_slots_per_year_query( txn_ctx->bank_mgr )),
                                                                        &txn_ctx->features,
                                                                        acct,
                                                                        epoch );
@@ -712,7 +714,8 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
     }
   }
 
-  ulong signature_fee = fd_executor_lamports_per_signature( &txn_ctx->fee_rate_governor ) * num_signatures;
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_mgr_fee_rate_governor_query( txn_ctx->bank_mgr );
+  ulong signature_fee = fd_executor_lamports_per_signature( fee_rate_governor ) * num_signatures;
 
   // TODO: as far as I can tell, this is always 0
   //
@@ -845,7 +848,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
                                                                   &txn_ctx->schedule,
                                                                   &txn_ctx->rent,
-                                                                  txn_ctx->slots_per_year,
+                                                                  *(fd_bank_mgr_slots_per_year_query( txn_ctx->bank_mgr )),
                                                                   &txn_ctx->features,
                                                                   fee_payer_rec,
                                                                   epoch );
@@ -914,6 +917,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
                                                          accts_alt );
     txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -1241,18 +1245,22 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int
-fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
-                                        fd_hash_t const *             blockhash,
-                                        ulong                         max_age ) {
+fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_global_t const * block_hash_queue,
+                                        fd_hash_t const *                    blockhash,
+                                        ulong                                max_age ) {
   fd_hash_hash_age_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
 
-  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = fd_block_hash_queue_ages_pool_join( block_hash_queue );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root = fd_block_hash_queue_ages_root_join( block_hash_queue );
+
+  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( ages_pool, ages_root, &key );
   if( hash_age==NULL ) {
     return 0;
   }
+
   ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
-  return ( age<=max_age );
+  return age<=max_age;
 }
 
 void
@@ -1279,19 +1287,21 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
 
-  ctx->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
   ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
-  ctx->total_epoch_stake           = slot_ctx->epoch_ctx->total_epoch_stake;
 
-  ctx->slot                        = slot_ctx->slot_bank.slot;
-  ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
-  ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
+  ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( ctx->bank_mgr_mem ), slot_ctx->funk, slot_ctx->funk_txn );
 
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
-  ctx->schedule                    = epoch_bank->epoch_schedule;
-  ctx->rent                        = epoch_bank->rent;
-  ctx->slots_per_year              = epoch_bank->slots_per_year;
-  ctx->stakes                      = epoch_bank->stakes;
+  ulong * slot = fd_bank_mgr_slot_query( ctx->bank_mgr );
+  ctx->slot = !!slot ? *slot : 0UL;
+
+  fd_epoch_schedule_t   epoch_schedule_default = {0};
+  fd_epoch_schedule_t * epoch_schedule         = fd_bank_mgr_epoch_schedule_query( ctx->bank_mgr );
+
+  fd_rent_t   rent_default = {0};
+  fd_rent_t * rent_bm      = fd_bank_mgr_rent_query( ctx->bank_mgr );
+
+  ctx->schedule                    = !!epoch_schedule ? *epoch_schedule : epoch_schedule_default;
+  ctx->rent                        = !!rent_bm        ? *rent_bm        : rent_default;
 
 }
 

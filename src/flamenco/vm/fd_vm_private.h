@@ -7,6 +7,7 @@
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
+#include "../runtime/fd_bank_mgr.h"
 #include "../features/fd_features.h"
 #include "fd_vm_base.h"
 

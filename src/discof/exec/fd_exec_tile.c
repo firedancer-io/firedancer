@@ -9,6 +9,7 @@
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_executor.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 
 #include "../../funk/fd_funk.h"
@@ -145,6 +146,13 @@ struct fd_exec_tile_ctx {
 
   /* Pairs len is the number of accounts to hash. */
   ulong                 pairs_len;
+
+  /* Local handle to the bank manager. The join must be updated at
+     every slot boundary. */
+  fd_bank_mgr_t *       bank_mgr;
+
+  /* Current slot being executed. */
+  ulong               slot;
 };
 typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
 
@@ -158,6 +166,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* clang-format off */
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t),  sizeof(fd_exec_tile_ctx_t) );
+  l       = FD_LAYOUT_APPEND( l, alignof(fd_bank_mgr_t),       sizeof(fd_bank_mgr_t) );
   return FD_LAYOUT_FINI( l, scratch_align() );
   /* clang-format on */
 }
@@ -185,24 +194,9 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
   fd_spad_push( ctx->exec_spad );
   ctx->pending_epoch_pop = 1;
 
-  ctx->txn_ctx->features          = epoch_msg->features;
-  ctx->txn_ctx->total_epoch_stake = epoch_msg->total_epoch_stake;
-  ctx->txn_ctx->schedule          = epoch_msg->epoch_schedule;
-  ctx->txn_ctx->rent              = epoch_msg->rent;
-  ctx->txn_ctx->slots_per_year    = epoch_msg->slots_per_year;
-
-  uchar * stakes_enc = fd_wksp_laddr_fast( ctx->runtime_public_wksp, epoch_msg->stakes_encoded_gaddr );
-  if( FD_UNLIKELY( !stakes_enc ) ) {
-    FD_LOG_ERR(( "Could not get laddr for encoded stakes" ));
-  }
-
-  // FIXME account for this in exec spad footprint
-  int err;
-  fd_stakes_t * stakes = fd_bincode_decode_spad( stakes, ctx->exec_spad, stakes_enc, epoch_msg->stakes_encoded_sz, &err );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Could not decode stakes" ));
-  }
-  ctx->txn_ctx->stakes = *stakes;
+  ctx->txn_ctx->features = epoch_msg->features;
+  ctx->txn_ctx->schedule = epoch_msg->epoch_schedule;
+  ctx->txn_ctx->rent     = epoch_msg->rent;
 
   /* TODO: The bank hash cmp obj can likely be shared once at boot and
       there is no need to pass it forward every epoch. The proper
@@ -231,40 +225,29 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   fd_spad_push( ctx->exec_spad );
   ctx->pending_slot_pop = 1;
 
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map->map ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
-  }
-  fd_funk_txn_xid_t xid = { .ul = { slot_msg->slot, slot_msg->slot } };
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
-  fd_funk_txn_end_read( ctx->funk );
-  ctx->txn_ctx->funk_txn = funk_txn;
+  (void)slot_msg;
+  // fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  // if( FD_UNLIKELY( !txn_map->map ) ) {
+  //   FD_LOG_ERR(( "Could not find valid funk transaction map" ));
+  // }
+  // fd_funk_txn_xid_t xid = { .ul = { slot_msg->slot, slot_msg->slot } };
+  // fd_funk_txn_start_read( ctx->funk );
+  // fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
+  // if( FD_UNLIKELY( !funk_txn ) ) {
+  //   FD_LOG_ERR(( "Could not find valid funk transaction" ));
+  // }
+  // fd_funk_txn_end_read( ctx->funk );
+  // ctx->txn_ctx->funk_txn = funk_txn;
 
-  ctx->txn_ctx->slot                        = slot_msg->slot;
-  ctx->txn_ctx->prev_lamports_per_signature = slot_msg->prev_lamports_per_signature;
-  ctx->txn_ctx->fee_rate_governor           = slot_msg->fee_rate_governor;
-  ctx->txn_ctx->enable_exec_recording       = slot_msg->enable_exec_recording;
+  // ctx->txn_ctx->enable_exec_recording = slot_msg->enable_exec_recording;
 
-  uchar * block_hash_queue_enc = fd_wksp_laddr_fast( ctx->runtime_public_wksp, slot_msg->block_hash_queue_encoded_gaddr );
-  if( FD_UNLIKELY( !block_hash_queue_enc ) ) {
-    FD_LOG_ERR(( "Could not get laddr for encoded block hash queue" ));
-  }
-
-  // FIXME account for this in exec spad footprint
-  int err;
-  fd_block_hash_queue_t * block_hash_queue = fd_bincode_decode_spad(
-      block_hash_queue, ctx->exec_spad,
-      block_hash_queue_enc, slot_msg->block_hash_queue_encoded_sz,
-      &err );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Could not decode block hash queue footprint" ));
-  }
-
-  ctx->txn_ctx->block_hash_queue = *block_hash_queue;
+  // /* Refresh the bank manager join for the slot that's being executed. */
+  // ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->funk, funk_txn );
+  // if( FD_UNLIKELY( !ctx->bank_mgr ) ) {
+  //   FD_LOG_ERR(( "Could not join bank mgr for slot %lu", slot_msg->slot ));
+  // }
+  // ctx->txn_ctx->bank_mgr = ctx->bank_mgr;
+  // ctx->txn_ctx->slot     = *(fd_bank_mgr_slot_query( ctx->bank_mgr ));
 }
 
 static void
@@ -275,6 +258,27 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   }
   fd_spad_push( ctx->exec_spad );
   ctx->pending_txn_pop = 1;
+
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  if( FD_UNLIKELY( !txn_map->map ) ) {
+    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
+  }
+  fd_funk_txn_xid_t xid = { .ul = { ctx->slot, ctx->slot } };
+  fd_funk_txn_start_read( ctx->funk );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
+  if( FD_UNLIKELY( !funk_txn ) ) {
+    FD_LOG_ERR(( "Could not find valid funk transaction" ));
+  }
+  fd_funk_txn_end_read( ctx->funk );
+  ctx->txn_ctx->funk_txn = funk_txn;
+
+  /* Refresh the bank manager join for the slot that's being executed. */
+  ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->funk, funk_txn );
+  if( FD_UNLIKELY( !ctx->bank_mgr ) ) {
+    FD_LOG_ERR(( "Could not join bank mgr for slot %lu", ctx->slot ));
+  }
+  ctx->txn_ctx->bank_mgr = ctx->bank_mgr;
+  ctx->txn_ctx->slot     = *(fd_bank_mgr_slot_query( ctx->bank_mgr ));
 
   fd_execute_txn_task_info_t task_info = {
     .txn_ctx  = ctx->txn_ctx,
@@ -320,10 +324,33 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   }
 }
 
-//TODO hashing can be moved into the writer tile
+// TODO: hashing can be moved into the writer tile
 static void
 hash_accounts( fd_exec_tile_ctx_t *                ctx,
                fd_runtime_public_hash_bank_msg_t * msg ) {
+
+
+  ctx->slot = msg->slot;
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  if( FD_UNLIKELY( !txn_map->map ) ) {
+    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
+  }
+  fd_funk_txn_xid_t xid = { .ul = { ctx->slot, ctx->slot } };
+  fd_funk_txn_start_read( ctx->funk );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
+  if( FD_UNLIKELY( !funk_txn ) ) {
+    FD_LOG_ERR(( "Could not find valid funk transaction" ));
+  }
+  fd_funk_txn_end_read( ctx->funk );
+  ctx->txn_ctx->funk_txn = funk_txn;
+
+  /* Refresh the bank manager join for the slot that's being executed. */
+  ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->funk, funk_txn );
+  if( FD_UNLIKELY( !ctx->bank_mgr ) ) {
+    FD_LOG_ERR(( "Could not join bank mgr for slot %lu", ctx->slot ));
+  }
+  ctx->txn_ctx->bank_mgr = ctx->bank_mgr;
+  ctx->txn_ctx->slot     = *(fd_bank_mgr_slot_query( ctx->bank_mgr ));
 
   ulong start_idx = msg->start_idx;
   ulong end_idx   = msg->end_idx;
@@ -421,7 +448,8 @@ during_frag( fd_exec_tile_ctx_t * ctx,
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
       fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      ctx->txn = txn->txn;
+      ctx->txn  = txn->txn;
+      ctx->slot = txn->slot;
       execute_txn( ctx );
       return;
     } else if( sig==EXEC_NEW_SLOT_SIG ) {
@@ -540,8 +568,9 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
-  ulong scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  fd_exec_tile_ctx_t * ctx               = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
+  uchar *              bank_mgr_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
+  ulong                scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_ERR( ( "Scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
       scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
@@ -651,10 +680,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "Just joined funk at file=%s", tile->exec.funk_file ));
 
-  //FIXME
   /********************************************************************/
   /* setup txncache                                                   */
   /********************************************************************/
+
+  /* TODO: Implement this. */
 
   /********************************************************************/
   /* setup txn ctx                                                    */
@@ -685,6 +715,12 @@ unprivileged_init( fd_topo_t *      topo,
   /* Initialize sequence numbers to be 0. */
   ctx->txn_id = 0U;
   ctx->bpf_id = 0U;
+
+  /********************************************************************/
+  /* bank manager                                                    */
+  /********************************************************************/
+
+  ctx->bank_mgr = fd_bank_mgr_join( fd_bank_mgr_new( bank_mgr_mem ), ctx->funk, NULL );
 
   FD_LOG_NOTICE(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 }

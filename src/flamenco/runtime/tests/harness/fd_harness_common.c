@@ -12,7 +12,7 @@ fd_runtime_fuzz_runner_footprint( void ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_runtime_fuzz_runner_align(), sizeof(fd_runtime_fuzz_runner_t) );
-  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                fd_funk_footprint( txn_max, rec_max) );
+  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                fd_funk_footprint( txn_max, rec_max ) );
   /* Spad memory is not included in the footprint since its allocated separately at the beginning of a fuzzing run */
   return FD_LAYOUT_FINI( l, fd_runtime_fuzz_runner_align() );
 }

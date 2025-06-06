@@ -6,6 +6,8 @@
 #include "../../disco/pack/fd_microblock.h"
 #include "../../disco/fd_disco_base.h"
 
+/* FIXME: Everything in this file should be migrated to fd_exec.h */
+
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
 
@@ -200,27 +202,20 @@ fd_writer_fseq_is_not_joined( ulong fseq ) {
    bincode serialized/deserialized. */
 struct fd_runtime_public_epoch_msg {
   fd_features_t       features;
-  ulong               total_epoch_stake;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t           rent;
-  double              slots_per_year;
-  ulong               stakes_encoded_gaddr;
-  ulong               stakes_encoded_sz;
   ulong               bank_hash_cmp_gaddr;
 };
 typedef struct fd_runtime_public_epoch_msg fd_runtime_public_epoch_msg_t;
 
 struct fd_runtime_public_slot_msg {
-  ulong                  slot;
-  ulong                  prev_lamports_per_signature;
-  fd_fee_rate_governor_t fee_rate_governor;
-  ulong                  block_hash_queue_encoded_gaddr;
-  ulong                  block_hash_queue_encoded_sz;
-  int                    enable_exec_recording;
+  ulong slot;
+  int   enable_exec_recording;
 };
 typedef struct fd_runtime_public_slot_msg fd_runtime_public_slot_msg_t;
 
 struct fd_runtime_public_txn_msg {
+  ulong      slot;
   fd_txn_p_t txn;
 };
 typedef struct fd_runtime_public_txn_msg fd_runtime_public_txn_msg_t;
@@ -230,6 +225,7 @@ struct fd_runtime_public_hash_bank_msg {
   ulong lthash_gaddr;
   ulong start_idx;
   ulong end_idx;
+  ulong slot;
 };
 typedef struct fd_runtime_public_hash_bank_msg fd_runtime_public_hash_bank_msg_t;
 
