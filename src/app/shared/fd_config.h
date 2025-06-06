@@ -349,6 +349,10 @@ struct fd_config {
     struct {
       char affinity[ AFFINITY_SZ ];
     } snapshot_load;
+
+    struct {
+      int websocket_compression;
+    } gui;
   } development;
 
   struct {

@@ -324,6 +324,8 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
 
+  CFG_POP      ( bool,   development.gui.websocket_compression            );
+
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;
     fd_config_check_configf( config, &config->firedancer );

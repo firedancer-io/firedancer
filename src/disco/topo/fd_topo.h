@@ -336,6 +336,8 @@ struct fd_topo_tile {
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
       int    schedule_strategy;
+
+      int websocket_compression;
     } gui;
 
     struct {
