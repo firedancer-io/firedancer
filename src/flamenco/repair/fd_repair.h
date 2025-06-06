@@ -210,7 +210,6 @@ struct fd_repair {
 
     /* Duplicate request detection table */
     fd_inflight_elem_t * dupdetect;
-    fd_repair_protocol_t protocol_ret_buf[FD_REPAIR_NUM_NEEDED_PEERS]; /* buffer for constructed protocol messages */
 
     /* Table of needed shreds */
     fd_repair_nonce_t oldest_nonce;
@@ -303,6 +302,16 @@ int fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_inde
 int fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
 
 int fd_repair_need_orphan( fd_repair_t * glob, ulong slot );
+
+int
+fd_repair_construct_request_protocol( fd_repair_t          * glob,
+                                      fd_repair_protocol_t * protocol,
+                                      enum fd_needed_elem_type type,
+                                      ulong                  slot,
+                                      uint                   shred_index,
+                                      fd_pubkey_t const    * recipient,
+                                      uint                   nonce,
+                                      long                   now );
 
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
