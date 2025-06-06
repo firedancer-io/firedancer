@@ -40,7 +40,7 @@ $(call add-objs,commands/run_agave,fd_fdctl)
 $(call make-lib,fdctl_version)
 $(call add-objs,version,fdctl_version)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco agave_validator fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco agave_validator fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version,$(IBVERBS_LIBS))
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
