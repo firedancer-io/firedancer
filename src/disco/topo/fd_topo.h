@@ -3,7 +3,6 @@
 
 #include "../stem/fd_stem.h"
 #include "../../tango/fd_tango.h"
-#include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../util/net/fd_net_headers.h"
 
@@ -25,6 +24,9 @@
 
 /* Maximum number of additional ip addresses */
 #define FD_NET_MAX_SRC_ADDR 4
+
+/* Maximum number of XDP queues per net tile */
+#define FD_TOPO_XDP_TILE_QUEUES_MAX 9u
 
 /* A workspace is a Firedancer specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -78,6 +80,29 @@ typedef struct {
   uint permit_no_producers : 1;  /* Permit a topology where this link has no producers */
 } fd_topo_link_t;
 
+struct fd_topo_net_tile {
+  ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
+  uint  bind_address;
+
+  ushort shred_listen_port;
+  ushort quic_transaction_listen_port;
+  ushort legacy_transaction_listen_port;
+  ushort gossip_listen_port;
+  ushort repair_intake_listen_port;
+  ushort repair_serve_listen_port;
+};
+typedef struct fd_topo_net_tile fd_topo_net_tile_t;
+
+struct fd_topo_xdp_queue {
+  char  if_name[ 16 ];
+  uint  if_idx;
+  uint  queue_id;
+  uchar mac_addr[ 6 ];  /* MAC address for TX */
+  uint  ip4_addr;       /* First IP4 address for TX */
+  int   xsk_map_fd;
+};
+typedef struct fd_topo_xdp_queue fd_topo_xdp_queue_t;
+
 /* A tile is a unique process that is spawned by Firedancer to represent
    one thread of execution.  Firedancer sandboxes all tiles to their own
    process for security reasons.
@@ -130,10 +155,10 @@ typedef struct {
   /* Configuration fields.  These are required to be known by the topology so it can determine the
      total size of Firedancer in memory. */
   union {
+    fd_topo_net_tile_t net;
+
     struct {
-      char   provider[ 8 ]; /* "xdp" or "socket" */
-      char   interface[ 16 ];
-      uint   bind_address;
+      fd_topo_net_tile_t net;
 
       /* xdp specific options */
       ulong  xdp_rx_queue_size;
@@ -143,24 +168,24 @@ typedef struct {
       char   xdp_mode[8];
       int    zero_copy;
 
-      /* sock specific options */
-      int so_sndbuf;
-      int so_rcvbuf;
+      fd_topo_xdp_queue_t queues[ FD_TOPO_XDP_TILE_QUEUES_MAX ];
+      uint                queue_cnt;
+      int                 prog_link_fds[ FD_TOPO_XDP_TILE_QUEUES_MAX ];
+      uint                prog_link_fd_cnt;
 
-      ushort shred_listen_port;
-      ushort quic_transaction_listen_port;
-      ushort legacy_transaction_listen_port;
-      ushort gossip_listen_port;
-      ushort repair_intake_listen_port;
-      ushort repair_serve_listen_port;
-
-      ulong umem_dcache_obj_id;    /* dcache for XDP UMEM frames */
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       ulong neigh4_obj_id;         /* neigh4 hash map header */
       ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
-    } net;
+    } xdp;
+
+    struct {
+      fd_topo_net_tile_t net;
+      /* sock specific options */
+      int so_sndbuf;
+      int so_rcvbuf;
+    } sock;
 
     struct {
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
@@ -763,14 +788,6 @@ void *
 fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
                          ulong        tile_kind_id );
-
-/* Install the XDP program needed by the net tiles into the local device
-   and return the xsk_map_fd.  bind_addr is an optional IPv4 address to
-   used for filtering by dst IP. */
-
-fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo,
-                     uint              bind_addr );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
