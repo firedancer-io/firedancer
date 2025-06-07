@@ -8,12 +8,10 @@
 #include <linux/if.h>
 #include <linux/if_xdp.h>
 
+#include "../fd_net_router.h"
 #include "../../metrics/fd_metrics.h"
-#include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../topo/fd_topo_net.h"
 
-#include "../../../waltz/ip/fd_fib4.h"
-#include "../../../waltz/neigh/fd_neigh4_map.h"
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../waltz/xdp/fd_xsk.h"
 #include "../../../util/log/fd_dtrace.h"
@@ -178,13 +176,10 @@ typedef struct {
   uint net_tile_id;
   uint net_tile_cnt;
 
-  /* Details pertaining to an inflight send op */
+  /* In-flight send op */
   struct {
-    uint   if_idx;
     uint   queue_id;
     void * frame;
-    uchar  mac_addrs[12]; /* First 12 bytes of Ethernet header */
-    uint   src_ip;
   } tx_op;
 
   /* Round-robin cycle serivce operations */
@@ -197,9 +192,9 @@ typedef struct {
   /* Ring tracking free packet buffers */
   fd_net_free_ring_t free_tx;
 
-  uchar  src_mac_addr[6];
-  uint   default_address;
-  uint   bind_address;
+  /* Router */
+  fd_net_router_t r;
+
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
@@ -219,12 +214,6 @@ typedef struct {
   long xdp_stats_interval_ticks;
   long next_xdp_stats_refresh;
 
-  /* Route and neighbor tables */
-  fd_fib4_t const * fib_local;
-  fd_fib4_t const * fib_main;
-  fd_neigh4_hmap_t  neigh4[1];
-  fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
-
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
@@ -237,9 +226,7 @@ typedef struct {
     ulong tx_submit_cnt;
     ulong tx_complete_cnt;
     ulong tx_bytes_total;
-    ulong tx_route_fail_cnt;
     ulong tx_no_xdp_cnt;
-    ulong tx_neigh_fail_cnt;
     ulong tx_full_fail_cnt;
     long  tx_busy_cnt;
     long  tx_idle_cnt;
@@ -274,12 +261,12 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MGAUGE_SET( NET, TX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
   FD_MGAUGE_SET( NET, TX_IDLE_CNT, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
 
-  FD_MCNT_SET( NET, TX_SUBMIT_CNT,        ctx->metrics.tx_submit_cnt     );
-  FD_MCNT_SET( NET, TX_COMPLETE_CNT,      ctx->metrics.tx_complete_cnt   );
-  FD_MCNT_SET( NET, TX_BYTES_TOTAL,       ctx->metrics.tx_bytes_total    );
-  FD_MCNT_SET( NET, TX_ROUTE_FAIL_CNT,    ctx->metrics.tx_route_fail_cnt );
-  FD_MCNT_SET( NET, TX_NEIGHBOR_FAIL_CNT, ctx->metrics.tx_neigh_fail_cnt );
-  FD_MCNT_SET( NET, TX_FULL_FAIL_CNT,     ctx->metrics.tx_full_fail_cnt  );
+  FD_MCNT_SET( NET, TX_SUBMIT_CNT,        ctx->metrics.tx_submit_cnt       );
+  FD_MCNT_SET( NET, TX_COMPLETE_CNT,      ctx->metrics.tx_complete_cnt     );
+  FD_MCNT_SET( NET, TX_BYTES_TOTAL,       ctx->metrics.tx_bytes_total      );
+  FD_MCNT_SET( NET, TX_ROUTE_FAIL_CNT,    ctx->r.metrics.tx_route_fail_cnt );
+  FD_MCNT_SET( NET, TX_NEIGHBOR_FAIL_CNT, ctx->r.metrics.tx_neigh_fail_cnt );
+  FD_MCNT_SET( NET, TX_FULL_FAIL_CNT,     ctx->metrics.tx_full_fail_cnt    );
 
   FD_MCNT_SET( NET, XSK_TX_WAKEUP_CNT,    ctx->metrics.xsk_tx_wakeup_cnt    );
   FD_MCNT_SET( NET, XSK_RX_WAKEUP_CNT,    ctx->metrics.xsk_rx_wakeup_cnt    );
@@ -462,87 +449,6 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
   }
 }
 
-/* net_tx_route resolves the destination interface index, src MAC address,
-   and dst MAC address.  Returns 1 on success, 0 on failure.  On success,
-   tx_op->{if_idx,mac_addrs} is set. */
-
-static int
-net_tx_route( fd_net_ctx_t * ctx,
-              uint           dst_ip ) {
-
-  /* Route lookup */
-
-  fd_fib4_hop_t hop[2] = {0};
-  fd_fib4_lookup( ctx->fib_local, hop+0, dst_ip, 0UL );
-  fd_fib4_lookup( ctx->fib_main,  hop+1, dst_ip, 0UL );
-  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
-
-  uint rtype   = next_hop->rtype;
-  uint if_idx  = next_hop->if_idx;
-  uint ip4_src = next_hop->ip4_src;
-
-  if( FD_UNLIKELY( rtype==FD_FIB4_RTYPE_LOCAL ) ) {
-    rtype  = FD_FIB4_RTYPE_UNICAST;
-    if_idx = 1;
-  }
-
-  if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
-    ctx->metrics.tx_route_fail_cnt++;
-    return 0;
-  }
-
-  ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
-
-  if( if_idx==1 ) {
-    if( FD_UNLIKELY( ctx->tx_lo_idx==UINT_MAX ) ) return 0; /* no loopback socket */
-    /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
-    memset( ctx->tx_op.mac_addrs, 0, 12UL );
-    ctx->tx_op.if_idx   = 1;
-    ctx->tx_op.queue_id = ctx->tx_lo_idx;
-    /* Set preferred src address to 127.0.0.1 if no bind address is set */
-    if( !ip4_src ) ip4_src = FD_IP4_ADDR( 127,0,0,1 );
-    ctx->tx_op.src_ip = ip4_src;
-    return 1;
-  }
-
-  ctx->tx_op.if_idx = ctx->xsk[ ctx->tx_main_idx ].if_idx;
-  if( FD_UNLIKELY( if_idx != ctx->tx_op.if_idx ) ) {
-    ctx->metrics.tx_no_xdp_cnt++;
-    return 0;
-  }
-  ctx->tx_op.queue_id = ctx->tx_main_idx;
-
-  /* Neighbor resolve */
-
-  uint neigh_ip = next_hop->ip4_gw;
-  if( !neigh_ip ) neigh_ip = dst_ip;
-
-  fd_neigh4_hmap_query_t neigh_query[1];
-  int neigh_res = fd_neigh4_hmap_query_try( ctx->neigh4, &neigh_ip, NULL, neigh_query, 0 );
-  if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
-    /* Neighbor not found */
-    fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->metrics.tx_neigh_fail_cnt++;
-    return 0;
-  }
-  fd_neigh4_entry_t const * neigh = fd_neigh4_hmap_query_ele_const( neigh_query );
-  if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
-    return 0;
-  }
-  ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
-  ctx->tx_op.src_ip = ip4_src;
-  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,   6 );
-  memcpy( ctx->tx_op.mac_addrs+6, ctx->src_mac_addr, 6 );
-
-  if( FD_UNLIKELY( fd_neigh4_hmap_query_test( neigh_query ) ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
-    return 0;
-  }
-
-  return 1;
-}
-
 /* before_frag is called when a new metadata descriptor for a TX job is
    found.  This callback determines whether this net tile is responsible
    for the TX job.  If so, it prepares the TX op for the during_frag and
@@ -557,15 +463,30 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Find interface index of next packet */
 
-  ulong proto = fd_disco_netmux_sig_proto( sig );
+  ulong const proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
 
-  uint dst_ip = fd_disco_netmux_sig_dst_ip( sig );
-  if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip ) ) ) return 1;
+  uint const dst_ip = fd_disco_netmux_sig_dst_ip( sig );
+  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->r, dst_ip ) ) ) return 1;
+
+  uint const next_hop_if_idx = ctx->r.tx_op.if_idx;
+  if( FD_UNLIKELY( next_hop_if_idx==1 ) ) {
+    /* Loopback */
+    if( FD_UNLIKELY( ctx->tx_lo_idx==UINT_MAX ) ) return 0; /* no loopback socket */
+    ctx->tx_op.queue_id = ctx->tx_lo_idx;
+  } else {
+    /* "Real" interface */
+    uint const main_if_idx = ctx->xsk[ ctx->tx_main_idx ].if_idx;
+    if( FD_UNLIKELY( main_if_idx != next_hop_if_idx ) ) {
+      ctx->metrics.tx_no_xdp_cnt++;
+      return 0;
+    }
+    ctx->tx_op.queue_id = ctx->tx_main_idx;
+  }
 
   uint net_tile_id  = ctx->net_tile_id;
   uint net_tile_cnt = ctx->net_tile_cnt;
-  uint if_idx       = ctx->tx_op.if_idx;
+  uint if_idx       = ctx->r.tx_op.if_idx;
   uint queue_id     = ctx->tx_op.queue_id;
   if( FD_UNLIKELY( queue_id >= ctx->xsk_cnt ) ) return 1; /* ignore */
 
@@ -644,27 +565,10 @@ after_frag( fd_net_ctx_t *      ctx,
   uchar *    frame    = ctx->tx_op.frame;
   fd_xsk_t * xsk      = &ctx->xsk[ queue_id ];
 
-  /* Select Ethernet addresses */
-  memcpy( frame, ctx->tx_op.mac_addrs, 12 );
+  /* Set Ethernet src and dst MAC addrs, optionally mangle IPv4 header to
+     fill in source address (if it's missing). */
 
-  /* Select IPv4 source address */
-  uint   ihl       = frame[ 14 ] & 0x0f;
-  ushort ethertype = FD_LOAD( ushort, frame+12 );
-  uint   ip4_saddr = FD_LOAD( uint,   frame+26 );
-  if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ip4_saddr==0 ) {
-    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
-                     ihl<5 || (14+(ihl<<2))>sz ) ) {
-      /* Outgoing IPv4 packet with unknown src IP or invalid IHL */
-      /* FIXME should select first IPv4 address of device table here */
-      ctx->metrics.tx_route_fail_cnt++;
-      return;
-    }
-
-    /* Recompute checksum after changing header */
-    FD_STORE( uint,   frame+26, ctx->tx_op.src_ip );
-    FD_STORE( ushort, frame+24, 0 );
-    FD_STORE( ushort, frame+24, fd_ip4_hdr_check( frame+14 ) );
-  }
+  if( FD_UNLIKELY( !fd_net_tx_fill_addrs( &ctx->r, frame, sz ) ) ) return;
 
   /* Submit packet TX job
 
@@ -689,7 +593,6 @@ after_frag( fd_net_ctx_t *      ctx,
   ctx->metrics.tx_submit_cnt++;
   ctx->metrics.tx_bytes_total += sz;
   fd_net_flusher_inc( ctx->tx_flusher+queue_id, fd_tickcount() );
-
 }
 
 /* net_rx_packet is called when a new Ethernet frame is available.
@@ -1152,7 +1055,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
-  ctx->bind_address                   = tile->net.bind_address;
+  ctx->r.bind_address                 = tile->net.bind_address;
   ctx->shred_listen_port              = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
   ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
@@ -1203,9 +1106,9 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
     } else if( strcmp( out_link->name, "net_netlnk" ) == 0 ) {
       fd_topo_link_t * netlink_out = out_link;
-      ctx->neigh4_solicit->mcache = netlink_out->mcache;
-      ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );
-      ctx->neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->neigh4_solicit->mcache ) );
+      ctx->r.neigh4_solicit->mcache = netlink_out->mcache;
+      ctx->r.neigh4_solicit->depth  = fd_mcache_depth( ctx->r.neigh4_solicit->mcache );
+      ctx->r.neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->r.neigh4_solicit->mcache ) );
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }
@@ -1224,7 +1127,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "repair intake port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->neigh4_solicit->mcache==NULL ) ) {
+  } else if( FD_UNLIKELY( ctx->r.neigh4_solicit->mcache==NULL ) ) {
     FD_LOG_ERR(( "netlink request link not found" ));
   }
 
@@ -1235,11 +1138,11 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Join netbase objects */
-  ctx->fib_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) );
-  ctx->fib_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) );
-  if( FD_UNLIKELY( !ctx->fib_local || !ctx->fib_main ) ) FD_LOG_ERR(( "fd_fib4_join failed" ));
+  ctx->r.fib_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) );
+  ctx->r.fib_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) );
+  if( FD_UNLIKELY( !ctx->r.fib_local || !ctx->r.fib_main ) ) FD_LOG_ERR(( "fd_fib4_join failed" ));
   if( FD_UNLIKELY( !fd_neigh4_hmap_join(
-      ctx->neigh4,
+      ctx->r.neigh4,
       fd_topo_obj_laddr( topo, tile->xdp.neigh4_obj_id ),
       fd_topo_obj_laddr( topo, tile->xdp.neigh4_ele_obj_id ) ) ) ) {
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
