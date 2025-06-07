@@ -63,7 +63,7 @@ setup_xdp_tile( fd_topo_t *             topo,
   fd_memset( tile->xdp.xdp_mode, 0, 4 );
   fd_memcpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, strnlen( net_cfg->xdp.xdp_mode, 3 ) );  /* GCC complains about strncpy */
 
-  tile->xdp.net.umem_dcache_obj_id= umem_obj->id;
+  tile->xdp.umem_dcache_obj_id    = umem_obj->id;
   tile->xdp.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;
   tile->xdp.fib4_main_obj_id      = netlink_tile->netlink.fib4_main_obj_id;
   tile->xdp.fib4_local_obj_id     = netlink_tile->netlink.fib4_local_obj_id;
@@ -95,10 +95,23 @@ setup_sock_tile( fd_topo_t *             topo,
 
 static void
 setup_ibeth_tile( fd_topo_t *             topo,
+                  fd_topo_tile_t *        netlink_tile,
                   ulong const *           tile_to_cpu,
                   fd_config_net_t const * net_cfg ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "ibeth", "ibeth", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  (void)net_cfg; (void)tile;
+  fd_netlink_topo_join( topo, netlink_tile, tile );
+
+  fd_topo_obj_t * umem_obj = fd_topob_obj( topo, "dcache", "net_umem" );
+  fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", 0UL ); /* FIXME multi queue support */
+
+  tile->ibeth.umem_dcache_obj_id = umem_obj->id;
+  fd_cstr_fini( fd_cstr_append_cstr_safe(
+      fd_cstr_init( tile->ibeth.if_name ),
+      net_cfg->interface,
+      IF_NAMESIZE-1UL ) );
+  tile->ibeth.rx_queue_size = 128U; /* FIXME */
+  tile->ibeth.tx_queue_size = 128U; /* FIXME */
 }
 
 #endif
@@ -166,7 +179,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_neighbors, net_cfg->interface );
 
-    setup_ibeth_tile( topo, tile_to_cpu, net_cfg );
+    setup_ibeth_tile( topo, netlink_tile, tile_to_cpu, net_cfg );
 
 # endif
 
@@ -220,7 +233,7 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
     fd_topob_link( topo, link_name, "net_umem", depth, FD_NET_MTU, 64 );
     fd_topob_tile_out( topo, "sock", net_kind_id, link_name, net_kind_id );
   } else if( 0==strcmp( provider, "ibverbs" ) ) {
-    fd_topob_link( topo, link_name, "net_umem", depth, FD_NET_MTU, 64 );
+    add_xdp_rx_link( topo, link_name, net_kind_id, depth );
     fd_topob_tile_out( topo, "ibeth", net_kind_id, link_name, net_kind_id );
   }
 }
@@ -334,25 +347,71 @@ fd_topos_xdp_setup_mem( fd_topo_t *      topo,
   ulong umem_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "net.%lu.umem", net_tile->kind_id );
   FD_TEST( umem_obj_id!=ULONG_MAX );
 
-  FD_TEST( net_tile->net.umem_dcache_obj_id > 0 );
+  FD_TEST( net_tile->xdp.umem_dcache_obj_id > 0 );
   fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
   fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id ); /* 4096 byte padding */
-  fd_pod_insertf_ulong( topo->props, 2048UL,        "obj.%lu.mtu",   umem_obj_id );
+  fd_pod_insertf_ulong( topo->props, FD_NET_MTU,    "obj.%lu.mtu",   umem_obj_id );
+}
+
+static void
+fd_topos_ibeth_setup_mem( fd_topo_t *      topo,
+                          fd_topo_tile_t * ibeth_tile ) {
+  ulong cum_frame_cnt = 0UL;
+
+  ulong const rx_depth = ibeth_tile->ibeth.rx_queue_size;
+  ulong const tx_depth = ibeth_tile->ibeth.tx_queue_size;
+  cum_frame_cnt += rx_depth + tx_depth;
+
+  /* Count up the depth of all RX mcaches */
+
+  for( ulong j=0UL; j<(ibeth_tile->out_cnt); j++ ) {
+    ulong link_id       = ibeth_tile->out_link_id[ j ];
+    ulong mcache_obj_id = topo->links[ link_id ].mcache_obj_id;
+    ulong depth = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.depth", mcache_obj_id );
+    if( FD_UNLIKELY( depth==ULONG_MAX ) ) FD_LOG_ERR(( "Didn't find depth for mcache %s", topo->links[ link_id ].name ));
+    cum_frame_cnt += depth + 1UL;
+  }
+
+  /* Create a dcache object */
+
+  ulong umem_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "net.%lu.umem", ibeth_tile->kind_id );
+  FD_TEST( umem_obj_id!=ULONG_MAX );
+
+  FD_TEST( ibeth_tile->ibeth.umem_dcache_obj_id > 0 );
+  fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
+  fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id ); /* 4096 byte padding */
+  fd_pod_insertf_ulong( topo->props, FD_NET_MTU,    "obj.%lu.mtu",   umem_obj_id );
 }
 
 void
 fd_topos_net_tile_finish( fd_topo_t * topo ) {
-  if( 0!=strcmp( fd_pod_query_cstr( topo->props, "net.provider", "" ), "xdp" ) ) return;
+  char const * provider = fd_pod_query_cstr( topo->props, "net.provider", "" );
+  
+  if( 0==strcmp( provider, "xdp" ) ) {
 
-  fd_topos_xdp_assign_queues( topo );
+    fd_topos_xdp_assign_queues( topo );
 
-  ulong const net_tile_cnt = fd_topo_tile_name_cnt( topo, "net" );
-  for( ulong net_kind_id=0UL; net_kind_id<net_tile_cnt; net_kind_id++ ) {
-    ulong tile_id = fd_topo_find_tile( topo, "net", net_kind_id );
-    if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
-      FD_LOG_ERR(( "tile net:%lu not found", net_kind_id ));
+    ulong const net_tile_cnt = fd_topo_tile_name_cnt( topo, "net" );
+    for( ulong net_kind_id=0UL; net_kind_id<net_tile_cnt; net_kind_id++ ) {
+      ulong tile_id = fd_topo_find_tile( topo, "net", net_kind_id );
+      if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
+        FD_LOG_ERR(( "tile net:%lu not found", net_kind_id ));
+      }
+      fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
+      fd_topos_xdp_setup_mem( topo, tile );
     }
-    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
-    fd_topos_xdp_setup_mem( topo, tile );
+
+  } else if( 0==strcmp( provider, "ibverbs" ) ) {
+
+    ulong const net_tile_cnt = fd_topo_tile_name_cnt( topo, "ibeth" );
+    for( ulong net_kind_id=0UL; net_kind_id<net_tile_cnt; net_kind_id++ ) {
+      ulong tile_id = fd_topo_find_tile( topo, "ibeth", net_kind_id );
+      if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
+        FD_LOG_ERR(( "tile ibeth:%lu not found", net_kind_id ));
+      }
+      fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
+      fd_topos_ibeth_setup_mem( topo, tile );
+    }
+
   }
 }

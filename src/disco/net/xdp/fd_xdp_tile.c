@@ -1013,7 +1013,7 @@ privileged_init( fd_topo_t *      topo,
 
   /* Load up dcache containing UMEM */
 
-  void * const dcache_mem          = fd_topo_obj_laddr( topo, tile->net.umem_dcache_obj_id );
+  void * const dcache_mem          = fd_topo_obj_laddr( topo, tile->xdp.umem_dcache_obj_id );
   void * const umem_dcache         = fd_dcache_join( dcache_mem );
   ulong  const umem_dcache_data_sz = fd_dcache_data_sz( umem_dcache );
   ulong  const umem_frame_sz       = 2048UL;

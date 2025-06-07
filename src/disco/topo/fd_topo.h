@@ -81,8 +81,7 @@ typedef struct {
 } fd_topo_link_t;
 
 struct fd_topo_net_tile {
-  ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
-  uint  bind_address;
+  uint bind_address;
 
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
@@ -161,6 +160,7 @@ typedef struct {
       fd_topo_net_tile_t net;
 
       /* xdp specific options */
+      ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
       ulong  free_ring_depth;
@@ -189,7 +189,11 @@ typedef struct {
 
     struct {
       fd_topo_net_tile_t net;
-      char               if_name[ 16 ];
+
+      ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
+      char  if_name[ 16 ];
+      uint  rx_queue_size;
+      uint  tx_queue_size;
     } ibeth;
 
     struct {
