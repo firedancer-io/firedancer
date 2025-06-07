@@ -404,7 +404,7 @@ pre_compress_files( fd_wksp_t * wksp ) {
 
   /* Allocate permanent space for the compressed files. */
   ulong glo, ghi;
-  if( FD_UNLIKELY( !fd_wksp_alloc_at_least( wksp, FD_SPAD_ALIGN, loose_footprint( NULL ), 1UL, &glo, &ghi ) ) ) {
+  if( FD_UNLIKELY( !fd_wksp_alloc_at_least( wksp, FD_SPAD_ALIGN, dist_file_sz(), 1UL, &glo, &ghi ) ) ) {
     FD_LOG_WARNING(( "Failed to allocate space for compressing assets" ));
     fd_wksp_free_laddr( cctx_mem );
     return;
