@@ -2252,7 +2252,7 @@ unprivileged_init( fd_topo_t *      topo,
     NONNULL( fd_bundle_crank_gen_init( ctx->bundle.gen, (fd_acct_addr_t const *)tile->poh.bundle.tip_distribution_program_addr,
              (fd_acct_addr_t const *)tile->poh.bundle.tip_payment_program_addr,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc,
-             (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, 0UL ) ); /* last two arguments are properly bogus */
+             (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, "NAN", 0UL ) ); /* last three arguments are properly bogus */
   } else {
     ctx->bundle.enabled = 0;
   }
