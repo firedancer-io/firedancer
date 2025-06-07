@@ -4,9 +4,21 @@
 
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
+#include "../../../util/net/fd_ip4.h"
+#include "../../../util/net/fd_udp.h"
 #include <errno.h>
 #include <dirent.h>
 #include <infiniband/verbs.h>
+
+#define FD_IBETH_UDP_PORT_MAX  (8UL)
+#define FD_IBETH_TXQ_MAX      (32UL)
+
+struct fd_ibeth_txq {
+  void * base;
+  ulong  chunk0;
+  ulong  wmark;
+};
+typedef struct fd_ibeth_txq fd_ibeth_txq_t;
 
 struct fd_ibeth_tile {
   /* ibverbs resources */
@@ -23,11 +35,20 @@ struct fd_ibeth_tile {
   uint     umem_chunk0; /* Lowest allowed chunk number */
   uint     umem_wmark;  /* Highest allowed chunk number */
 
+  /* TX */
+  ulong          txq_cnt;
+  fd_ibeth_txq_t txq[ FD_IBETH_TXQ_MAX ];
+
+  /* Port matcher */
+  uint   dst_port_cnt;
+  ushort dst_ports  [ FD_IBETH_UDP_PORT_MAX ];
+  uchar  dst_protos [ FD_IBETH_UDP_PORT_MAX ];
+  uchar  dst_out_idx[ FD_IBETH_UDP_PORT_MAX ];
+
   struct {
     ulong rx_enqueue_cnt;
   } metrics;
 };
-
 typedef struct fd_ibeth_tile fd_ibeth_tile_t;
 
 static ulong
@@ -138,6 +159,25 @@ fd_ibeth_rx_enqueue( fd_ibeth_tile_t * ctx,
 }
 
 static void
+init_rxq( fd_ibeth_tile_t * ctx,
+          fd_topo_t *       topo,
+          fd_topo_tile_t *  tile,
+          ulong             dst_proto,
+          char const *      out_link,
+          ushort            dst_port ) {
+  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, 0UL );
+  if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( ctx->dst_port_cnt >= FD_IBETH_UDP_PORT_MAX ) ) {
+    FD_LOG_ERR(( "ibeth tile rxq link count exceeds max of %lu", FD_IBETH_UDP_PORT_MAX ));
+  }
+  uint const idx = ctx->dst_port_cnt;
+  ctx->dst_protos [ idx ] = (uchar)dst_proto;
+  ctx->dst_ports  [ idx ] = dst_port;
+  ctx->dst_out_idx[ idx ] = (uchar)out_idx;
+  ctx->dst_port_cnt++;
+}
+
+static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   fd_ibeth_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -237,22 +277,19 @@ privileged_init( fd_topo_t *      topo,
   }
 
   /* Setup flow steering */
-  ushort const udp_dst_ports[] = {
-    (ushort)tile->sock.net.legacy_transaction_listen_port,
-    (ushort)tile->sock.net.quic_transaction_listen_port,
-    (ushort)tile->sock.net.shred_listen_port,
-    (ushort)tile->sock.net.gossip_listen_port,
-    (ushort)tile->sock.net.repair_intake_listen_port,
-    (ushort)tile->sock.net.repair_serve_listen_port,
-  };
-  ulong const udp_dst_port_cnt = sizeof(udp_dst_ports)/sizeof(ushort);
+  init_rxq( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->ibeth.net.legacy_transaction_listen_port );
+  init_rxq( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->ibeth.net.quic_transaction_listen_port   );
+  init_rxq( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->ibeth.net.shred_listen_port              );
+  init_rxq( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossip", tile->ibeth.net.gossip_listen_port             );
+  init_rxq( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->ibeth.net.repair_intake_listen_port      );  
+  init_rxq( ctx, topo, tile, DST_PROTO_REPAIR,   "net_repair", tile->ibeth.net.repair_serve_listen_port       );
   struct __attribute__((packed,aligned(8))) {
     struct ibv_flow_attr         attr;
     struct ibv_flow_spec_eth     eth;
     struct ibv_flow_spec_ipv4    ipv4;
     struct ibv_flow_spec_tcp_udp udp;
   } flow_rule;
-  for( ulong i=0UL; i<udp_dst_port_cnt; i++ ) {
+  for( ulong i=0UL; i<(ctx->dst_port_cnt); i++ ) {
     flow_rule.attr = (struct ibv_flow_attr) {
       .comp_mask    = 0,
       .type         = IBV_FLOW_ATTR_NORMAL,
@@ -286,7 +323,7 @@ privileged_init( fd_topo_t *      topo,
       .type = IBV_FLOW_SPEC_UDP,
       .size = sizeof(struct ibv_flow_spec_tcp_udp),
       .val = {
-        .dst_port = fd_ushort_bswap( udp_dst_ports[ i ] )
+        .dst_port = fd_ushort_bswap( ctx->dst_ports[ i ] )
       },
       .mask = {
         .dst_port = USHORT_MAX
@@ -313,10 +350,65 @@ unprivileged_init( fd_topo_t *      topo,
     chunk += FD_NET_MTU>>FD_CHUNK_LG_SZ;
   }
 
-  struct ibv_qp_init_attr qp_init_attr = {0};
-  struct ibv_qp_attr qp_attr = {0};
-  ibv_query_qp( ctx->qp, &qp_attr, 0, &qp_init_attr );
-  FD_LOG_NOTICE(( "QP state: %u, port_num: %u", qp_attr.qp_state, qp_attr.port_num ));
+  /* Init TX */
+  for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "ibeth tile in link does not have a normal MTU" ));
+
+    ctx->txq[ i ].base   = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->txq[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->txq[ i ].base, link->dcache );
+    ctx->txq[ i ].wmark  = fd_dcache_compact_wmark(  ctx->txq[ i ].base, link->dcache, link->mtu );
+  }
+}
+
+static inline void
+fd_ibeth_rx_pkt( fd_ibeth_tile_t *     ctx,
+                 fd_stem_context_t *   stem,
+                 struct ibv_wc const * wc ) {
+  if( FD_UNLIKELY( wc->status!=IBV_WC_SUCCESS ) ) return;
+  if( FD_UNLIKELY( wc->opcode!=IBV_WC_RECV ) ) {
+    FD_LOG_WARNING(( "ibv_wc status %u opcode %u not supported", wc->status, wc->opcode ));
+  }
+
+  ulong const chunk = wc->wr_id;
+  ulong const sz    = wc->byte_len;
+
+  if( FD_UNLIKELY( chunk<ctx->umem_chunk0 || chunk>ctx->umem_wmark ) ) {
+    FD_LOG_WARNING(( "ibv_wc wr_id %lu out of bounds [%u,%u]", chunk, ctx->umem_chunk0, ctx->umem_wmark ));
+    return;
+  }
+  fd_eth_hdr_t const * l2 = fd_chunk_to_laddr_const( ctx->umem_base, chunk );
+  fd_ip4_hdr_t const * l3 = (fd_ip4_hdr_t const *)(l2+1);
+  fd_udp_hdr_t const * l4 = (fd_udp_hdr_t const *)( (uchar *)l3 + FD_IP4_GET_LEN( *l3 ) );
+  ulong const dgram_off = (ulong)(l4+1) - (ulong)l2;
+
+  int const sz_ok = dgram_off<=sz;
+  int const hdr_ok =
+    ( fd_ushort_bswap( l2->net_type )==FD_ETH_HDR_TYPE_IP ) &
+    ( FD_IP4_GET_VERSION( *l3 )==4 ) &
+    ( l3->protocol==FD_IP4_HDR_PROTOCOL_UDP );
+
+  ushort const net_dport = fd_ushort_bswap( l4->net_dport );
+  int out_idx = -1;
+  for( ulong i=0UL; i<FD_IBETH_UDP_PORT_MAX; i++ ) {
+    if( ctx->dst_ports[ i ]==net_dport ) {
+      out_idx = ctx->dst_out_idx[ i ];
+      break;
+    }
+  }
+  int const match_ok = 
+    (out_idx >= 0) |
+    (out_idx < (int)ctx->dst_port_cnt);
+  
+  int const filter = sz_ok & hdr_ok & match_ok;
+  if( FD_UNLIKELY( !filter ) ) return;
+
+  ulong const proto  = ctx->dst_protos[ out_idx ];
+  ulong const sig    = fd_disco_netmux_sig( l3->saddr, l4->net_sport, 0U, proto, dgram_off );
+  ulong const ctl    = 0UL;
+  ulong const tsorig = 0UL;
+  ulong const tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, (ulong)out_idx, sig, chunk, sz, ctl, tsorig, tspub );
 }
 
 static inline void
@@ -330,16 +422,47 @@ after_credit( fd_ibeth_tile_t *   ctx,
     FD_LOG_ERR(( "ibv_poll_cq failed (%i)", poll_res ));
   }
   if( poll_res==0 ) return;
-  
-  /* FIXME read wc.status */
-  (void)stem;
+  fd_ibeth_rx_pkt( ctx, stem, &wc );
   fd_ibeth_rx_enqueue( ctx, wc.wr_id );
   *charge_busy = 1;
 }
 
+// static inline int
+// before_frag( fd_ibeth_tile_t * ctx,
+//              ulong             in_idx,
+//              ulong             seq,
+//              ulong             sig ) {
+// }
+
+// static inline void
+// during_frag( fd_ibeth_tile_t * ctx,
+//              ulong             in_idx,
+//              ulong             seq,
+//              ulong             sig,
+//              ulong             chunk,
+//              ulong             sz,
+//              ulong             ctl ) {
+//   uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+//   fd_memcpy( ctx->tx_op.frame, src, sz );
+// }
+
+// static void
+// after_frag( fd_ibeth_tile_t *   ctx,
+//             ulong               in_idx,
+//             ulong               seq,
+//             ulong               sig,
+//             ulong               sz,
+//             ulong               tsorig,
+//             ulong               tspub,
+//             fd_stem_context_t * stem ) {
+// }
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ibeth_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_ibeth_tile_t)
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
+// #define STEM_CALLBACK_BEFORE_FRAG   before_frag
+// #define STEM_CALLBACK_DURING_FRAG   during_frag
+// #define STEM_CALLBACK_AFTER_FRAG    after_frag
 #define STEM_BURST 1UL
 #include "../../stem/fd_stem.c"
 
