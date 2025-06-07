@@ -228,7 +228,7 @@
   {"name":"enable_transaction_loading_failure_fees","pubkey":"PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP","activated_on_all_clusters":1},
   {"name":"disable_partitioned_rent_collection","pubkey":"2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC"},
   {"name":"vote_only_full_fec_sets","pubkey":"ffecLRhhakKSGhMuc6Fz2Lnfq4uT9q3iu9ZsNaPLxPc"},
-  {"name":"drop_unchained_merkle_shreds","pubkey":"3A9WtMU4aHuryD3VN7SFKdfXto8HStLb1Jj6HjkgfnGL"},
+  {"name":"drop_unchained_merkle_shreds","pubkey":"5KLGJSASDVxKPjLCDWNtnABLpZjsQSrYZ8HKwcEdAMC8","old":"3A9WtMU4aHuryD3VN7SFKdfXto8HStLb1Jj6HjkgfnGL"},
   {"name":"verify_retransmitter_signature","pubkey":"BZ5g4hRbu5hLQQBdPyo2z9icGyJ8Khiyj3QS6dhWijTb"},
   {"name":"enable_turbine_extended_fanout_experiments","pubkey":"BZn14Liea52wtBwrXUxTv6vojuTTmfc7XGEDTXrvMD7b"},
   {"name":"vote_only_retransmitter_signed_fec_sets","pubkey":"RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph"},

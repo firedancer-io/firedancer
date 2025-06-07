@@ -573,6 +573,14 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->skip_frag = 1;
       return;
     };
+
+    /* Drop unchained merkle shreds (if feature is active) */
+    int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
+    if( FD_UNLIKELY( is_unchained && shred->slot >= ctx->features_activation->drop_unchained_merkle_shreds ) ) {
+      ctx->skip_frag = 1;
+      return;
+    };
+
     /* all shreds in the same FEC set will have the same signature
        so we can round-robin shreds between the shred tiles based on
        just the signature without splitting individual FEC sets. */
