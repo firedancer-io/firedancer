@@ -425,7 +425,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
-    /* https://github.com/solana-labs/rbpf/blob/4ad935be/src/verifier.rs#L411-L418 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/verifier.rs#L411-L418 */
     case FD_CHECK_CALL_IMM: {
       ulong target_pc = (ulong)( fd_long_sat_add( (long)i, fd_long_sat_add( (long)(int)instr.imm, 1 ) ) );
       if( FD_UNLIKELY( target_pc>text_cnt || !fd_sbpf_calldests_test( vm->calldests, target_pc ) ) ) {
@@ -434,16 +434,10 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
-    /* https://github.com/solana-labs/rbpf/blob/4ad935be/src/verifier.rs#L423-L428 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/verifier.rs#L423-L428 */
     case FD_CHECK_SYSCALL: {
-      uint imm = instr.imm;
-      /* check out of bound */
-      if( FD_UNLIKELY( imm==0 || imm >= FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ ) ) {
-        return FD_VM_INVALID_SYSCALL;
-      }
-      uint syscall_key = FD_VM_SBPF_STATIC_SYSCALLS_LIST[ imm ];
       /* check active syscall */
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, (ulong)syscall_key, NULL );
+      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, (ulong)instr.imm, NULL );
       if( FD_UNLIKELY( !syscall ) ) {
         return FD_VM_INVALID_SYSCALL;
       }
