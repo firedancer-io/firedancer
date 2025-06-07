@@ -163,6 +163,8 @@ main( int argc, char ** argv ) {
     }
   }
 
+  FD_TEST( server_complete && client_complete );
+
   /* TODO detect missing QUIC transport params */
 
   /* TODO we get callback before the call to fd_quic_conn_new_stream can complete
