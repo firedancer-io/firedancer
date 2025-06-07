@@ -30,6 +30,7 @@
 #include <linux/capability.h>
 #include <linux/unistd.h>
 
+#include "../../../../disco/topo/fd_topo_net.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
@@ -65,9 +66,9 @@ run_cmd_perm( args_t *         args,
 }
 
 struct pidns_clone_args {
-  config_t const * config;
-  int *            pipefd;
-  int              closefd;
+  config_t * config;
+  int *      pipefd;
+  int        closefd;
 };
 
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
@@ -233,7 +234,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( close( args->closefd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  config_t const * config = args->config;
+  fd_config_t * config = args->config;
 
   fd_log_thread_set( "pidns" );
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
@@ -253,6 +254,18 @@ main_pid_namespace( void * _args ) {
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+
+  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, NULL ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
+  }
+
+  int need_xdp = 0==strcmp( config->net.provider, "xdp" );
+  fd_xdp_multi_fds_t xdp_fds = {0};
+  if( need_xdp ) {
+    xdp_fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
+  }
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   char  child_names[ FD_TOPO_MAX_TILES+1 ][ 32 ];
@@ -276,34 +289,23 @@ main_pid_namespace( void * _args ) {
     child_cnt++;
   }
 
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, NULL ) ) )
-      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
-  }
-
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  int need_xdp = 0==strcmp( config->net.provider, "xdp" );
-  fd_xdp_fds_t xdp_fds = {0};
-  if( need_xdp ) {
-    xdp_fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-  }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
-    if( need_xdp ) {
-      if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
-        /* close XDP related file descriptors */
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      } else {
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
+    int setfd_flags = 0;
+    if( FD_UNLIKELY( 0!=strcmp( tile->name, "net" ) ) ) {
+      /* close XDP related file descriptors */
+      setfd_flags = FD_CLOEXEC;
+    }
+    for( ulong j=0UL; j<(xdp_fds.device_cnt); j++ ) {
+      fd_xdp_fds_t device = xdp_fds.device[ j ].fds;
+      if( FD_UNLIKELY( -1==fcntl( device.xsk_map_fd,   F_SETFD, setfd_flags ) ) ) FD_LOG_ERR(( "fcntl(%i,F_SETFD,0x%x) failed (%i-%s)", device.xsk_map_fd,  (uint)setfd_flags, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==fcntl( device.prog_link_fd, F_SETFD, setfd_flags ) ) ) FD_LOG_ERR(( "fcntl(%i,F_SETFD,0x%x) failed (%i-%s)", device.prog_link_fd, (uint)setfd_flags, errno, fd_io_strerror( errno ) ));
     }
 
     int pipefd[ 2 ];
@@ -319,11 +321,12 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( config_memfd        ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( need_xdp ) {
-    if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong j=0UL; j<(xdp_fds.device_cnt); j++ ) {
+    fd_xdp_fds_t device = xdp_fds.device[ j ].fds;
+    if( FD_UNLIKELY( close( device.xsk_map_fd   ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( device.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
@@ -437,9 +440,9 @@ main_pid_namespace( void * _args ) {
 }
 
 int
-clone_firedancer( config_t const * config,
-                  int              close_fd,
-                  int *            out_pipe ) {
+clone_firedancer( config_t * config,
+                  int        close_fd,
+                  int *      out_pipe ) {
   /* This pipe is here just so that the child process knows when the
      parent has died (it will get a HUP). */
   int pipefd[2];

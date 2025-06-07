@@ -128,9 +128,10 @@ struct fd_configf {
 typedef struct fd_configf fd_configf_t;
 
 struct fd_config_net {
-  char provider[ 8 ]; /* "xdp" or "socket" */
+  char provider[ 8 ]; /* "xdp", "socket", or "ibverbs" */
 
   char interface[ IF_NAMESIZE ];
+  uint ethtool_queue_count;
   char bind_address[ 16 ];
   uint bind_address_parsed;
   uint ip_addr;
