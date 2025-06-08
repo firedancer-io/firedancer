@@ -619,6 +619,8 @@ user = ""
     # this should be the same as [development.netns.interface0].
     interface = ""
 
+    ethtool_queue_count = 8
+
     # Optional IPv4 bind address for peer-to-peer traffic.  For
     # incoming packets, specifies the destination address to listen
     # on.  For outgoing packets, sets the default source address.

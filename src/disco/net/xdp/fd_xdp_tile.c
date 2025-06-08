@@ -479,7 +479,7 @@ before_frag( fd_net_ctx_t * ctx,
     uint const main_if_idx = ctx->xsk[ ctx->tx_main_idx ].if_idx;
     if( FD_UNLIKELY( main_if_idx != next_hop_if_idx ) ) {
       ctx->metrics.tx_no_xdp_cnt++;
-      return 0;
+      return 1; /* ignore */
     }
     ctx->tx_op.queue_id = ctx->tx_main_idx;
   }
@@ -504,7 +504,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( !net_tx_ready( ctx, queue_id ) ) ) {
     ctx->metrics.tx_full_fail_cnt++;
-    return 1;
+    return 1; /* ignore */
   }
 
   /* Allocate buffer for receive */

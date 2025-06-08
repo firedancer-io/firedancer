@@ -2,16 +2,25 @@
    in 'raw packet' mode and fd_tango traffic.  Works best on Mellanox
    ConnectX. */
 
+#include "../fd_net_router.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
 #include <errno.h>
 #include <dirent.h>
+#include <net/if.h>
 #include <infiniband/verbs.h>
 
 #define FD_IBETH_UDP_PORT_MAX  (8UL)
 #define FD_IBETH_TXQ_MAX      (32UL)
+#define FD_IBETH_BURST         (1UL)
+
+#define DEQUE_NAME tx_free
+#define DEQUE_T    uint
+#include "../../../util/tmpl/fd_deque_dynamic.c"
+
+/* fd_ibeth_tile_t is private tile state */
 
 struct fd_ibeth_txq {
   void * base;
@@ -39,6 +48,13 @@ struct fd_ibeth_tile {
   ulong          txq_cnt;
   fd_ibeth_txq_t txq[ FD_IBETH_TXQ_MAX ];
 
+  /* TX free ring */
+  uint * tx_free;
+
+  /* Router */
+  fd_net_router_t r;
+  uint main_if_idx;
+
   /* Port matcher */
   uint   dst_port_cnt;
   ushort dst_ports  [ FD_IBETH_UDP_PORT_MAX ];
@@ -53,13 +69,15 @@ typedef struct fd_ibeth_tile fd_ibeth_tile_t;
 
 static ulong
 scratch_align( void ) {
-  return alignof(fd_ibeth_tile_t);
+  return fd_ulong_max( alignof(fd_ibeth_tile_t), tx_free_align() );
 }
 
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-  return sizeof(fd_ibeth_tile_t);
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_ibeth_tile_t), sizeof(fd_ibeth_tile_t) );
+  l = FD_LAYOUT_APPEND( l, tx_free_align(), tx_free_footprint( tile->ibeth.tx_queue_size ) );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 /* fd_ibeth_dev_contains_if returns 1 if the PCIe device backing an ibverbs
@@ -138,8 +156,11 @@ fd_ibeth_dev_open( fd_topo_tile_t const * tile ) {
   return ibv_context;
 }
 
+/* fd_ibeth_rx_recycle sends a RX work request to the queue pair.  It 
+   contains a packet buffer that the NIC eventually fills. */
+
 static inline void
-fd_ibeth_rx_enqueue( fd_ibeth_tile_t * ctx,
+fd_ibeth_rx_recycle( fd_ibeth_tile_t * ctx,
                      ulong             chunk ) {
   struct ibv_sge sge = {
     .addr   = (ulong)fd_chunk_to_laddr( ctx->umem_base, chunk ),
@@ -158,13 +179,18 @@ fd_ibeth_rx_enqueue( fd_ibeth_tile_t * ctx,
   ctx->metrics.rx_enqueue_cnt++;
 }
 
+/* rxq_assign adds a routing rule.  All incoming IPv4 UDP ports with the
+   specified dst port will be redirected to the first output link in the
+   topology with the specified names.  frag_meta descriptors are annotated
+   with the given 'dst_proto' value. */
+
 static void
-init_rxq( fd_ibeth_tile_t * ctx,
-          fd_topo_t *       topo,
-          fd_topo_tile_t *  tile,
-          ulong             dst_proto,
-          char const *      out_link,
-          ushort            dst_port ) {
+rxq_assign( fd_ibeth_tile_t * ctx,
+            fd_topo_t *       topo,
+            fd_topo_tile_t *  tile,
+            ulong             dst_proto,
+            char const *      out_link,
+            ushort            dst_port ) {
   ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, 0UL );
   if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) return;
   if( FD_UNLIKELY( ctx->dst_port_cnt >= FD_IBETH_UDP_PORT_MAX ) ) {
@@ -177,6 +203,9 @@ init_rxq( fd_ibeth_tile_t * ctx,
   ctx->dst_port_cnt++;
 }
 
+/* privileged_init does various ibverbs configuration via userspace verbs
+   (/dev/interface/uverbs*). */
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
@@ -184,7 +213,7 @@ privileged_init( fd_topo_t *      topo,
   memset( ctx, 0, sizeof(fd_ibeth_tile_t) );
 
   /* Load up dcache containing UMEM */
-  void * const dcache_mem          = fd_topo_obj_laddr( topo, tile->xdp.umem_dcache_obj_id );
+  void * const dcache_mem          = fd_topo_obj_laddr( topo, tile->ibeth.umem_dcache_obj_id );
   void * const umem_dcache         = fd_dcache_join( dcache_mem );
   ulong  const umem_dcache_data_sz = fd_dcache_data_sz( umem_dcache );
   ulong  const umem_frame_sz       = 2048UL;
@@ -221,6 +250,13 @@ privileged_init( fd_topo_t *      topo,
 
   struct ibv_context * ibv_context = fd_ibeth_dev_open( tile );
 
+  uint if_idx = if_nametoindex( tile->ibeth.if_name );
+  if( FD_UNLIKELY( !if_idx ) ) {
+    FD_LOG_ERR(( "if_nametoindex(%s) failed (%i-%s)",
+                 tile->ibeth.if_name, errno, fd_io_strerror( errno ) ));
+  }
+  ctx->main_if_idx = if_idx;
+
   /* Create protection domain */
   struct ibv_pd * pd = ibv_alloc_pd( ibv_context );
   if( FD_UNLIKELY( !pd ) ) {
@@ -235,7 +271,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->mr_lkey = mr->lkey;
 
   /* Create completion queue */
-  int cqe = 128;
+  int cqe = 1024;
   ctx->cq = ibv_create_cq( ibv_context, cqe, NULL, NULL, 0 );
   if( FD_UNLIKELY( !ctx->cq ) ) {
     FD_LOG_ERR(( "ibv_create_cq failed" ));
@@ -244,11 +280,13 @@ privileged_init( fd_topo_t *      topo,
   /* Create queue pair */
   struct ibv_qp_init_attr qp_init_attr = {
     .qp_context = NULL,
-    .send_cq = ctx->cq,
     .recv_cq = ctx->cq,
+    .send_cq = ctx->cq,
     .cap = {
       .max_recv_wr  = tile->ibeth.rx_queue_size,
-      .max_recv_sge = 1
+      .max_recv_sge = 1,
+      .max_send_wr  = tile->ibeth.tx_queue_size,
+      .max_send_sge = 1
     },
     .qp_type = IBV_QPT_RAW_PACKET
   };
@@ -276,13 +314,20 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "ibv_modify_qp(IBV_QPS_RTR,IBV_QP_STATE) failed (%i-%s)", modify_err, fd_io_strerror( modify_err ) ));
   }
 
+  /* Set QP to "Ready to Send" state */
+  memset( &qp_attr, 0, sizeof(qp_attr) );
+  qp_attr.qp_state = IBV_QPS_RTS;
+  if( FD_UNLIKELY( (modify_err = ibv_modify_qp( ctx->qp, &qp_attr, IBV_QP_STATE )) ) ) {
+    FD_LOG_ERR(( "ibv_modify_qp(IBV_QPS_RTS,IBV_QP_STATE) failed (%i-%s)", modify_err, fd_io_strerror( modify_err ) ));
+  }
+
   /* Setup flow steering */
-  init_rxq( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->ibeth.net.legacy_transaction_listen_port );
-  init_rxq( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->ibeth.net.quic_transaction_listen_port   );
-  init_rxq( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->ibeth.net.shred_listen_port              );
-  init_rxq( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossip", tile->ibeth.net.gossip_listen_port             );
-  init_rxq( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->ibeth.net.repair_intake_listen_port      );  
-  init_rxq( ctx, topo, tile, DST_PROTO_REPAIR,   "net_repair", tile->ibeth.net.repair_serve_listen_port       );
+  rxq_assign( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->ibeth.net.legacy_transaction_listen_port );
+  rxq_assign( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->ibeth.net.quic_transaction_listen_port   );
+  rxq_assign( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->ibeth.net.shred_listen_port              );
+  rxq_assign( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossip", tile->ibeth.net.gossip_listen_port             );
+  rxq_assign( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->ibeth.net.repair_intake_listen_port      );  
+  rxq_assign( ctx, topo, tile, DST_PROTO_REPAIR,   "net_repair", tile->ibeth.net.repair_serve_listen_port       );
   struct __attribute__((packed,aligned(8))) {
     struct ibv_flow_attr         attr;
     struct ibv_flow_spec_eth     eth;
@@ -340,14 +385,23 @@ privileged_init( fd_topo_t *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  fd_ibeth_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_ibeth_tile_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ibeth_tile_t), sizeof(fd_ibeth_tile_t) );
+  void *            deque_mem = FD_SCRATCH_ALLOC_APPEND( l, tx_free_align(), tx_free_footprint( tile->ibeth.tx_queue_size ) );
 
   /* Post RX descriptors */
-  ulong chunk = ctx->umem_chunk0;
+  ulong frame_chunks = FD_NET_MTU>>FD_CHUNK_LG_SZ;
+  ulong next_chunk   = ctx->umem_chunk0;
   ulong const rx_fill_cnt = tile->ibeth.rx_queue_size;
   for( ulong i=0UL; i<rx_fill_cnt; i++ ) {
-    fd_ibeth_rx_enqueue( ctx, chunk );
-    chunk += FD_NET_MTU>>FD_CHUNK_LG_SZ;
+    fd_ibeth_rx_recycle( ctx, next_chunk );
+    next_chunk += frame_chunks;
+  }
+
+  /* Init TX free list */
+  ctx->tx_free = tx_free_join( tx_free_new( deque_mem, tile->ibeth.tx_queue_size ) );
+  while( !tx_free_full( ctx->tx_free ) ) {
+    tx_free_push_tail( ctx->tx_free, (uint)next_chunk );
   }
 
   /* Init TX */
@@ -359,16 +413,38 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->txq[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->txq[ i ].base, link->dcache );
     ctx->txq[ i ].wmark  = fd_dcache_compact_wmark(  ctx->txq[ i ].base, link->dcache, link->mtu );
   }
+
+  /* Join netbase objects */
+  ctx->r.fib_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->ibeth.fib4_local_obj_id ) );
+  ctx->r.fib_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->ibeth.fib4_main_obj_id  ) );
+  if( FD_UNLIKELY( !ctx->r.fib_local || !ctx->r.fib_main ) ) FD_LOG_ERR(( "fd_fib4_join failed" ));
+  if( FD_UNLIKELY( !fd_neigh4_hmap_join(
+      ctx->r.neigh4,
+      fd_topo_obj_laddr( topo, tile->ibeth.neigh4_obj_id ),
+      fd_topo_obj_laddr( topo, tile->ibeth.neigh4_ele_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
+  }
+  ulong net_netlnk_id = fd_topo_find_link( topo, "net_netlnk", 0UL );
+  if( FD_UNLIKELY( net_netlnk_id==ULONG_MAX ) ) FD_LOG_ERR(( "net_netlnk link not found" ));
+  fd_topo_link_t * net_netlnk = &topo->links[ net_netlnk_id ];
+  ctx->r.neigh4_solicit->mcache = net_netlnk->mcache;
+  ctx->r.neigh4_solicit->depth  = fd_mcache_depth( ctx->r.neigh4_solicit->mcache );
+  ctx->r.neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->r.neigh4_solicit->mcache ) );
+
+  /* Check if all chunks are in bound */
+  if( FD_UNLIKELY( next_chunk > ctx->umem_wmark ) ) {
+    FD_LOG_ERR(( "dcache is too small (topology bug)" ));
+  }
 }
+
+/* fd_ibeth_rx_pkt is called when a new Ethernet packet is received on an
+   ibverbs queue pair. */
 
 static inline void
 fd_ibeth_rx_pkt( fd_ibeth_tile_t *     ctx,
                  fd_stem_context_t *   stem,
                  struct ibv_wc const * wc ) {
   if( FD_UNLIKELY( wc->status!=IBV_WC_SUCCESS ) ) return;
-  if( FD_UNLIKELY( wc->opcode!=IBV_WC_RECV ) ) {
-    FD_LOG_WARNING(( "ibv_wc status %u opcode %u not supported", wc->status, wc->opcode ));
-  }
 
   ulong const chunk = wc->wr_id;
   ulong const sz    = wc->byte_len;
@@ -411,59 +487,172 @@ fd_ibeth_rx_pkt( fd_ibeth_tile_t *     ctx,
   fd_stem_publish( stem, (ulong)out_idx, sig, chunk, sz, ctl, tsorig, tspub );
 }
 
+/* fd_ibeth_tx_recycle recycles the TX frame of a completed TX operation. */
+
+static void
+fd_ibeth_tx_recycle( fd_ibeth_tile_t * ctx,
+                     ulong             chunk ) {
+  if( FD_UNLIKELY( (chunk<ctx->umem_chunk0) | (chunk>ctx->umem_wmark) ) ) {
+    FD_LOG_ERR(( "TX completion chunk %lu out of bounds [%u,%u]", chunk, ctx->umem_chunk0, ctx->umem_wmark ));
+    return;
+  }
+  if( FD_UNLIKELY( !tx_free_push_head( ctx->tx_free, (uint)chunk ) ) ) {
+    FD_LOG_ERR(( "TX free list full" ));
+  }
+}
+
+/* after_credit is called every run loop iteration, provided there is
+   sufficient downstream credit for forwarding on all output links.
+   Receives up to one packet. */
+
 static inline void
 after_credit( fd_ibeth_tile_t *   ctx,
               fd_stem_context_t * stem,
-              int *               poll_in FD_PARAM_UNUSED,
+              int *               poll_in,
               int *               charge_busy ) {
-  struct ibv_wc wc;
-  int poll_res = ibv_poll_cq( ctx->cq, 1, &wc );
+  (void)poll_in;
+
+  /* Poll for new event */
+  struct ibv_wc wcs[ FD_IBETH_BURST ];
+  int poll_res = ibv_poll_cq( ctx->cq, FD_IBETH_BURST, wcs );
   if( FD_UNLIKELY( poll_res<0 ) ) {
     FD_LOG_ERR(( "ibv_poll_cq failed (%i)", poll_res ));
   }
-  if( poll_res==0 ) return;
-  fd_ibeth_rx_pkt( ctx, stem, &wc );
-  fd_ibeth_rx_enqueue( ctx, wc.wr_id );
-  *charge_busy = 1;
+  if( FD_LIKELY( poll_res==0 ) ) return;
+
+  for( ulong i=0UL; i<(ulong)poll_res; i++ ) {
+    struct ibv_wc const * wc = &wcs[ i ];
+    if( FD_LIKELY( wc->opcode==IBV_WC_RECV ) ) {
+      fd_ibeth_rx_pkt( ctx, stem, wc );
+      fd_ibeth_rx_recycle( ctx, wc->wr_id );
+      *charge_busy = 1;
+      return;
+    }
+    if( FD_LIKELY( wc->opcode==IBV_WC_SEND ) ) {
+      fd_ibeth_tx_recycle( ctx, wc->wr_id );
+      *charge_busy = 1;
+      return;
+    }
+
+    FD_LOG_WARNING(( "ibv_wc opcode %u status %u not supported", wc->opcode, wc->status ));
+  }
 }
 
-// static inline int
-// before_frag( fd_ibeth_tile_t * ctx,
-//              ulong             in_idx,
-//              ulong             seq,
-//              ulong             sig ) {
-// }
+/* {before,during,after}_frag copy a packet received from an input link out
+   to an ibverbs queue pair for TX. */
 
-// static inline void
-// during_frag( fd_ibeth_tile_t * ctx,
-//              ulong             in_idx,
-//              ulong             seq,
-//              ulong             sig,
-//              ulong             chunk,
-//              ulong             sz,
-//              ulong             ctl ) {
-//   uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-//   fd_memcpy( ctx->tx_op.frame, src, sz );
-// }
+static inline int
+before_frag( fd_ibeth_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq,
+             ulong             sig ) {
+  (void)in_idx; (void)seq;
 
-// static void
-// after_frag( fd_ibeth_tile_t *   ctx,
-//             ulong               in_idx,
-//             ulong               seq,
-//             ulong               sig,
-//             ulong               sz,
-//             ulong               tsorig,
-//             ulong               tspub,
-//             fd_stem_context_t * stem ) {
-// }
+  /* Find interface index of next packet */
+
+  ulong proto = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  
+  uint dst_ip = fd_disco_netmux_sig_dst_ip( sig );
+  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->r, dst_ip ) ) ) return 1;
+
+  uint const next_hop_if_idx = ctx->r.tx_op.if_idx;
+  if( FD_UNLIKELY( next_hop_if_idx==1 ) ) {
+    /* Sorry, loopback not supported yet */
+    return 0;
+  } else {
+    /* "Real" interface */
+    uint const main_if_idx = ctx->main_if_idx;
+    if( FD_UNLIKELY( main_if_idx != next_hop_if_idx ) ) {
+      /* FIXME metric */
+      return 1; /* ignore */
+    }
+  }
+
+  /* Skip if TX is blocked */
+
+  if( FD_UNLIKELY( tx_free_empty( ctx->tx_free ) ) ) {
+    /* FIXME metric */
+    return 1; /* ignore */
+  }
+
+  return 0; /* continue */
+}
+
+static inline void
+during_frag( fd_ibeth_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq,
+             ulong             sig,
+             ulong             chunk,
+             ulong             sz,
+             ulong             ctl ) {
+  (void)seq; (void)sig; (void)ctl;  
+
+  fd_ibeth_txq_t * txq = &ctx->txq[ in_idx ];
+  if( FD_UNLIKELY( chunk < txq->chunk0 || chunk > txq->wmark || sz>FD_NET_MTU ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, txq->chunk0, txq->wmark ));
+  }
+  if( FD_UNLIKELY( sz<34UL ) ) {
+    FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
+  }
+
+  /* Speculatively copy frame into buffer */
+  ulong        dst_chunk = *tx_free_peek_head( ctx->tx_free );
+  void *       dst       = fd_chunk_to_laddr( ctx->umem_base, dst_chunk );
+  void const * src       = fd_chunk_to_laddr_const( txq->base, chunk );
+  fd_memcpy( dst, src, sz );
+}
+
+static void
+after_frag( fd_ibeth_tile_t *   ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig,
+            ulong               tspub,
+            fd_stem_context_t * stem ) {
+  (void)in_idx; (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
+
+  /* Set Ethernet src and dst MAC addrs, optionally mangle IPv4 header to
+     fill in source address (if it's missing). */
+  ulong  chunk = *tx_free_peek_head( ctx->tx_free );
+  void * frame = fd_chunk_to_laddr( ctx->umem_base, chunk );
+  if( FD_UNLIKELY( !fd_net_tx_fill_addrs( &ctx->r, frame, sz ) ) ) return;
+
+  /* Submit TX job */
+  struct ibv_sge sge = {
+    .addr   = (ulong)frame,
+    .length = (uint)sz,
+    .lkey   = ctx->mr_lkey
+  };
+  struct ibv_send_wr wr = {
+    .wr_id      = chunk,
+    .sg_list    = &sge,
+    .num_sge    = 1,
+    .opcode     = IBV_WR_SEND,
+    .send_flags = IBV_SEND_SIGNALED
+  };
+
+  errno = 0;
+  struct ibv_send_wr * bad_wr;
+  int send_err = ibv_post_send( ctx->qp, &wr, &bad_wr );
+  if( FD_UNLIKELY( send_err ) ) {
+    return; /* send failed, recycle frame */
+  }
+
+  /* Consume frame */
+  tx_free_pop_head( ctx->tx_free );
+}
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ibeth_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_ibeth_tile_t)
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
-// #define STEM_CALLBACK_BEFORE_FRAG   before_frag
-// #define STEM_CALLBACK_DURING_FRAG   during_frag
-// #define STEM_CALLBACK_AFTER_FRAG    after_frag
-#define STEM_BURST 1UL
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_BURST                  FD_IBETH_BURST
 #include "../../stem/fd_stem.c"
 
 #ifndef FD_TILE_TEST

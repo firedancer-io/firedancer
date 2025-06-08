@@ -99,6 +99,9 @@ setup_ibeth_tile( fd_topo_t *             topo,
                   ulong const *           tile_to_cpu,
                   fd_config_net_t const * net_cfg ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "ibeth", "ibeth", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
+  fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "ibeth",  0UL,              "net_netlnk", 0UL );
   fd_netlink_topo_join( topo, netlink_tile, tile );
 
   fd_topo_obj_t * umem_obj = fd_topob_obj( topo, "dcache", "net_umem" );
@@ -110,8 +113,15 @@ setup_ibeth_tile( fd_topo_t *             topo,
       fd_cstr_init( tile->ibeth.if_name ),
       net_cfg->interface,
       IF_NAMESIZE-1UL ) );
-  tile->ibeth.rx_queue_size = 128U; /* FIXME */
-  tile->ibeth.tx_queue_size = 128U; /* FIXME */
+  tile->ibeth.rx_queue_size = 1024U; /* FIXME */
+  tile->ibeth.tx_queue_size = 1024U; /* FIXME */
+
+  tile->ibeth.umem_dcache_obj_id    = umem_obj->id;
+  tile->ibeth.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+  tile->ibeth.fib4_main_obj_id      = netlink_tile->netlink.fib4_main_obj_id;
+  tile->ibeth.fib4_local_obj_id     = netlink_tile->netlink.fib4_local_obj_id;
+  tile->ibeth.neigh4_obj_id         = netlink_tile->netlink.neigh4_obj_id;
+  tile->ibeth.neigh4_ele_obj_id     = netlink_tile->netlink.neigh4_ele_obj_id;
 }
 
 #endif
@@ -174,7 +184,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     /* netbase: shared network config (config plane) */
     fd_topob_wksp( topo, "netbase" );
     /* net_netlnk: net->netlnk ARP requests */
-    //fd_topob_wksp( topo, "net_netlnk" );
+    fd_topob_wksp( topo, "net_netlnk" );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_neighbors, net_cfg->interface );
