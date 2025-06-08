@@ -5,6 +5,7 @@
 
 #include <infiniband/verbs.h>
 #include "../../util/fd_util_base.h"
+#include "fd_ibverbs_mock_ds.h"
 
 #define FD_IBVERBS_MOCK_QP_MAGIC 0xde28091e733ec21fUL /* random */
 
@@ -32,15 +33,16 @@ struct __attribute__((aligned(16))) fd_ibverbs_mock_qp {
 
   /* Verbs */
 
-  struct ibv_qp qp[1];
-  struct ibv_cq cq[1];
+  struct ibv_context ctx[1];
+  struct ibv_qp      qp[1];
+  struct ibv_cq      cq[1];
 
   /* Internal buffer */
 
   struct ibv_recv_wr * rx_q; /* fd_deque_dynamic */
   struct ibv_send_wr * tx_q; /* fd_deque_dynamic */
   struct ibv_wc *      wc_q; /* fd_deque_dynamic */
-  struct ibv_sge *     sge_pool; /* fd_pool */
+  fd_ibv_mock_sge_t *  sge_pool; /* fd_pool */
 
   /* Error injection */
 
@@ -73,6 +75,14 @@ fd_ibverbs_mock_qp_new( void * mem,
 void *
 fd_ibverbs_mock_qp_delete( fd_ibverbs_mock_qp_t * mock );
 
+/* fd_ibverbs_mock_qp_get_context returns a pointer to the embedded
+   ibv_context.  Mostly useless for now. */
+
+static inline struct ibv_context *
+fd_ibverbs_mock_qp_get_context( fd_ibverbs_mock_qp_t * mock ) {
+  return mock->ctx;
+}
+
 /* fd_ibverbs_mock_qp_get_qp returns a pointer to the embedded ibv_qp.
    Supports the following ibverbs methods:
    - ibv_post_send
@@ -93,6 +103,11 @@ fd_ibverbs_mock_qp_get_cq( fd_ibverbs_mock_qp_t * mock ) {
 }
 
 /* Begin ibv_context_ops mocks */
+
+int
+fd_ibv_mock_poll_cq( struct ibv_cq * cq,
+                     int             num_entries,
+                     struct ibv_wc * wc );
 
 int
 fd_ibv_mock_post_send( struct ibv_qp *       qp,

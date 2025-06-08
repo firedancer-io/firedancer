@@ -22,14 +22,18 @@
 
 /* Provide an object pool for scatter-gather entries. */
 
+typedef struct fd_ibv_mock_sge fd_ibv_mock_sge_t;
 struct fd_ibv_mock_sge {
   struct ibv_sge sge;
-  ulong          next;
+  union {
+    ulong  pool_next;
+    void * next;
+  };
 };
-typedef struct fd_ibv_mock_sge fd_ibv_mock_sge_t;
 
 #define POOL_NAME fd_ibv_sge_p
 #define POOL_T    fd_ibv_mock_sge_t
+#define POOL_NEXT pool_next
 #include "../../util/tmpl/fd_pool.c"
 
 #endif /* HEADER_fd_src_waltz_ibverbs_fd_ibverbs_mock_ds_h */

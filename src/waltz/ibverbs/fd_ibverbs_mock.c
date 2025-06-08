@@ -71,39 +71,54 @@ fd_ibverbs_mock_qp_new( void * const mem,
   }                      
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  void * ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ibverbs_mock_qp_t), sizeof(fd_ibverbs_mock_qp_t) );
-  void * rxq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_recv_wr_q_align(), fd_ibv_recv_wr_q_footprint( rx_depth     ) );
-  void * txq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_send_wr_q_align(), fd_ibv_send_wr_q_footprint( tx_depth     ) );
-  void * wcq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_wc_q_align(),      fd_ibv_wc_q_footprint     ( cq_depth     ) );
-  void * sge_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_sge_p_align(),     fd_ibv_sge_p_footprint    ( sge_pool_max ) );
+  void * mock_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ibverbs_mock_qp_t), sizeof(fd_ibverbs_mock_qp_t) );
+  void * rxq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_recv_wr_q_align(), fd_ibv_recv_wr_q_footprint( rx_depth     ) );
+  void * txq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_send_wr_q_align(), fd_ibv_send_wr_q_footprint( tx_depth     ) );
+  void * wcq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_wc_q_align(),      fd_ibv_wc_q_footprint     ( cq_depth     ) );
+  void * sge_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_ibv_sge_p_align(),     fd_ibv_sge_p_footprint    ( sge_pool_max ) );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, fd_ibverbs_mock_qp_align() );
   if( FD_UNLIKELY( end-(ulong)mem!=footprint ) ) {
     FD_LOG_CRIT(( "memory corruption" ));
     return NULL;
   }
 
-  fd_ibverbs_mock_qp_t * ctx = ctx_mem;
-  memset( ctx, 0, sizeof(fd_ibverbs_mock_qp_t) );
-  ctx->sge_max = (uint)sge_max;
+  fd_ibverbs_mock_qp_t * mock = mock_mem;
+  memset( mock, 0, sizeof(fd_ibverbs_mock_qp_t) );
+  mock->sge_max = (uint)sge_max;
 
-  ctx->rx_q = fd_ibv_recv_wr_q_join( fd_ibv_recv_wr_q_new( rxq_mem, rx_depth ) );
-  ctx->tx_q = fd_ibv_send_wr_q_join( fd_ibv_send_wr_q_new( txq_mem, tx_depth ) );
-  ctx->wc_q = fd_ibv_wc_q_join     ( fd_ibv_wc_q_new     ( wcq_mem, cq_depth ) );
-  if( FD_UNLIKELY( !ctx->rx_q || !ctx->tx_q || !ctx->wc_q ) ) {
+  mock->rx_q = fd_ibv_recv_wr_q_join( fd_ibv_recv_wr_q_new( rxq_mem, rx_depth ) );
+  mock->tx_q = fd_ibv_send_wr_q_join( fd_ibv_send_wr_q_new( txq_mem, tx_depth ) );
+  mock->wc_q = fd_ibv_wc_q_join     ( fd_ibv_wc_q_new     ( wcq_mem, cq_depth ) );
+  if( FD_UNLIKELY( !mock->rx_q || !mock->tx_q || !mock->wc_q ) ) {
     FD_LOG_WARNING(( "fd_deque_dynamic_new failed" ));
     return NULL;
   }
-
-  ctx->sge_pool = fd_ibv_sge_p_join( fd_ibv_sge_p_new( sge_mem, sge_pool_max ) );
-  if( FD_UNLIKELY( !ctx->sge_pool ) ) {
+  mock->sge_pool = fd_ibv_sge_p_join( fd_ibv_sge_p_new( sge_mem, sge_pool_max ) );
+  if( FD_UNLIKELY( !mock->sge_pool ) ) {
     FD_LOG_WARNING(( "fd_pool_new failed" ));
     return NULL;
   }
 
+  struct ibv_context * ctx = mock->ctx;
+  ctx->ops.poll_cq   = fd_ibv_mock_poll_cq;
+  ctx->ops.post_send = fd_ibv_mock_post_send;
+  ctx->ops.post_recv = fd_ibv_mock_post_recv;
+
+  struct ibv_cq * cq = mock->cq;
+  cq->cq_context = mock;
+  cq->context    = ctx;
+
+  struct ibv_qp * qp = mock->qp;
+  qp->qp_context = mock;
+  qp->context    = ctx;
+  qp->send_cq    = cq;
+  qp->recv_cq    = cq;
+  qp->qp_type    = IBV_QPT_RAW_PACKET;
+
   FD_COMPILER_MFENCE();
-  ctx->magic = FD_IBVERBS_MOCK_QP_MAGIC;
+  mock->magic = FD_IBVERBS_MOCK_QP_MAGIC;
   FD_COMPILER_MFENCE();
-  return ctx;
+  return mock;
 }
 
 void *
@@ -135,6 +150,38 @@ fd_ibverbs_mock_qp_delete( fd_ibverbs_mock_qp_t * qp ) {
    For example, if the NIC can't accept any more WRs, does it throw ENOMEM
    or ENOSPC? */
 
+#define IBV_INJECT_ERR( mock )                \
+  do {                                        \
+    if( FD_UNLIKELY( (mock)->err_delay ) ) {  \
+      (mock)->err_delay--;                    \
+    } else if( FD_UNLIKELY( (mock)->err ) ) { \
+      return (mock)->err;                     \
+    }                                         \
+  } while(0)
+
+int
+fd_ibv_mock_poll_cq( struct ibv_cq * cq,
+                     int             num_entries,
+                     struct ibv_wc * wc ) {      
+  fd_ibverbs_mock_qp_t * mock = cq->cq_context;
+  FD_TEST( mock->magic==FD_IBVERBS_MOCK_QP_MAGIC );              
+  if( FD_UNLIKELY( num_entries<0 ) ) return EINVAL;
+  
+  ulong complete_cnt = 0UL;
+  for(;;) {
+    if( FD_UNLIKELY( fd_ibv_wc_q_empty( mock->wc_q ) ) ) break;
+    if( FD_UNLIKELY( num_entries<=0 ) ) break;
+    if( FD_UNLIKELY( (!mock->err_delay) & (!!mock->err) ) ) {
+      if( FD_LIKELY( !complete_cnt ) ) return -mock->err;
+      break;
+    }
+    *wc = *fd_ibv_wc_q_pop_head_nocopy( mock->wc_q );
+    wc++;
+    num_entries--;
+  }
+  return (int)complete_cnt;
+}
+
 int
 fd_ibv_mock_post_send( struct ibv_qp *       qp,
                        struct ibv_send_wr *  wr,
@@ -142,16 +189,28 @@ fd_ibv_mock_post_send( struct ibv_qp *       qp,
   fd_ibverbs_mock_qp_t * mock = qp->qp_context;
   FD_TEST( mock->magic==FD_IBVERBS_MOCK_QP_MAGIC );
   while( wr ) {
-    if( FD_UNLIKELY( fd_ibv_send_wr_q_full( mock->tx_q ) ) ) {
+    IBV_INJECT_ERR( mock );
+    ulong const sge_cnt = (ulong)wr->num_sge;
+    if( FD_UNLIKELY( fd_ibv_send_wr_q_full( mock->tx_q ) ||
+                     fd_ibv_sge_p_free( mock->sge_pool )>=sge_cnt ) ) {
       *bad_wr = wr;
       return ENOSPC;
     }
+    /* Copy WR */
     struct ibv_send_wr * next = fd_ibv_send_wr_q_push_tail_nocopy( mock->tx_q );
     *next = *wr;
-    next->next = NULL;
+    /* Copy SGEs */
+    next->next    = NULL;
     next->sg_list = NULL;
-
-    for( int j=(wr->) )
+    for( long j=((long)sge_cnt-1L); j>=0L; j-- ) {
+      fd_ibv_mock_sge_t * sge = fd_ibv_sge_p_ele_acquire( mock->sge_pool );
+      FD_TEST( sge ); /* never fails */
+      sge->sge      = wr->sg_list[j];
+      sge->next     = next->sg_list;
+      next->sg_list = &sge->sge;
+    }
+    /* Next WR */
+    wr = wr->next;
   }
   return 0;
 }
@@ -160,5 +219,31 @@ int
 fd_ibv_mock_post_recv( struct ibv_qp *       qp,
                        struct ibv_recv_wr *  wr,
                        struct ibv_recv_wr ** bad_wr ) {
-                      
+  fd_ibverbs_mock_qp_t * mock = qp->qp_context;
+  FD_TEST( mock->magic==FD_IBVERBS_MOCK_QP_MAGIC );
+  while( wr ) {
+    IBV_INJECT_ERR( mock );
+    ulong const sge_cnt = (ulong)wr->num_sge;
+    if( FD_UNLIKELY( fd_ibv_recv_wr_q_full( mock->rx_q ) ||
+                     fd_ibv_sge_p_free( mock->sge_pool )>=sge_cnt ) ) {
+      *bad_wr = wr;
+      return ENOSPC;
+    }
+    /* Copy WR */
+    struct ibv_recv_wr * next = fd_ibv_recv_wr_q_push_tail_nocopy( mock->rx_q );
+    *next = *wr;
+    /* Copy SGEs */
+    next->next    = NULL;
+    next->sg_list = NULL;
+    for( long j=((long)sge_cnt-1L); j>=0L; j-- ) {
+      fd_ibv_mock_sge_t * sge = fd_ibv_sge_p_ele_acquire( mock->sge_pool );
+      FD_TEST( sge ); /* never fails */
+      sge->sge      = wr->sg_list[j];
+      sge->next     = next->sg_list;
+      next->sg_list = &sge->sge;
+    }
+    /* Next WR */
+    wr = wr->next;
+  }
+  return 0;
 }
