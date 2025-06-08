@@ -939,12 +939,12 @@ write_conn_http( fd_http_server_t * http,
           http->ws_conns[ ws_conn_id ].send_frame_bytes_written = 0UL;
 
           FD_TEST( conn->request_bytes_read>=conn->request_bytes_len );
-          if( FD_UNLIKELY( conn->request_bytes_read-conn->request_bytes_len>0UL ) ) {
+          if( FD_UNLIKELY( conn->request_bytes_read > conn->request_bytes_len ) ) {
             /* Client might have already started sending data prior to
                response, so make sure to move it to the recv buffer. */
-            FD_TEST( conn->request_bytes_read-conn->request_bytes_len<=http->max_ws_recv_frame_len );
-            fd_memcpy( http->ws_conns[ ws_conn_id ].recv_bytes, conn->request_bytes+conn->request_bytes_len, conn->request_bytes_read-conn->request_bytes_len );
-            http->ws_conns[ ws_conn_id ].recv_bytes_read = conn->request_bytes_read-conn->request_bytes_len;
+            FD_TEST( conn->request_bytes_read - conn->request_bytes_len <= http->max_ws_recv_frame_len );
+            fd_memcpy( http->ws_conns[ ws_conn_id ].recv_bytes, conn->request_bytes + conn->request_bytes_len, conn->request_bytes_read - conn->request_bytes_len );
+            http->ws_conns[ ws_conn_id ].recv_bytes_read = conn->request_bytes_read - conn->request_bytes_len;
           }
 
 #if FD_HTTP_SERVER_DEBUG
