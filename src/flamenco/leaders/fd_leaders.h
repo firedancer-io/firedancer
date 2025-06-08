@@ -14,7 +14,7 @@
 
      slots_per_epoch = sched_cnt * slots_per_rotation
 
-   The leader can only change between rotations.  An example leaderasdf
+   The leader can only change between rotations.  An example leader
    schedule looks as follows (where A, B, C are node identities and each
    column is a slot, with 4 slots per rotation)
 

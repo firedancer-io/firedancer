@@ -14,7 +14,9 @@ typedef uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)))
     _lsched_t[FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH)];
 
 #define MULTI_EPOCH_LEADERS_EPOCH_CNT (2UL)
-struct fd_multi_epoch_leaders {
+FD_STATIC_ASSERT(MULTI_EPOCH_LEADERS_EPOCH_CNT == 2UL, "This implementation depends on epoch_cnt==2");
+
+struct fd_multi_epoch_leaders_priv {
   fd_epoch_leaders_t * lsched       [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];
   fd_stake_weight_t    stake_weight [ MAX_STAKED_LEADERS ];
 
@@ -30,14 +32,14 @@ struct fd_multi_epoch_leaders {
 
   _lsched_t _lsched[MULTI_EPOCH_LEADERS_EPOCH_CNT];
 };
-typedef struct fd_multi_epoch_leaders fd_multi_epoch_leaders_t;
+typedef struct fd_multi_epoch_leaders_priv fd_multi_epoch_leaders_priv_t;
+
+typedef fd_multi_epoch_leaders_priv_t fd_multi_epoch_leaders_t;
 
 
 FD_PROTOTYPES_BEGIN
 
-/* ///////////////////////////////////////////////////*/
-/* ///////     OBJECT LIFECYCLE FUNCTIONS     /////// */
-/* ///////////////////////////////////////////////////*/
+/* ********    OBJECT LIFECYCLE FUNCTIONS    ******** */
 
 /* fd_epoch_leaders_{align,footprint} describe the required footprint
    and alignment of the leader schedule object. They have compile friendly
@@ -75,7 +77,7 @@ fd_multi_epoch_leaders_t *
 fd_multi_epoch_leaders_join( void * shleaders );
 
 void *
-fd_multi_epoch_leaders_leave( fd_multi_epoch_leaders_t * leaders );
+fd_multi_epoch_leaders_leave( fd_multi_epoch_leaders_t * mleaders );
 
 /* fd_multi_epoch_leaders_delete unformats a memory region and returns owner-
    ship back to the caller. */
@@ -83,9 +85,7 @@ fd_multi_epoch_leaders_leave( fd_multi_epoch_leaders_t * leaders );
 void *
 fd_multi_epoch_leaders_delete( void * shleaders );
 
-/* ///////////////////////////////////////////////////*/
-/* ///////   LEADER INFO GETTER FUNCTIONS     /////// */
-/* ///////////////////////////////////////////////////*/
+/* ********    LEADER INFO GETTER FUNCTIONS    ******** */
 
 /* fd_multi_epoch_leaders_get_leader_for_slot returns a pointer to the selected
    public key given a slot.  Returns NULL if slot is not in epochs tracked
@@ -94,13 +94,9 @@ fd_multi_epoch_leaders_delete( void * shleaders );
    (which is not known), returns a pointer to a pubkey with value
    FD_INDETERMINATE_LEADER. */
 
-FD_FN_PURE static inline fd_pubkey_t const *
-fd_multi_epoch_leaders_get_leader_for_slot( fd_multi_epoch_leaders_t const * leaders,
-                                            ulong                            slot ) {
-  fd_pubkey_t const * even_leader_option = fd_ptr_if( leaders->init_done[0], fd_epoch_leaders_get( leaders->lsched[ 0 ], slot ), NULL );
-  fd_pubkey_t const * odd_leader_option  = fd_ptr_if( leaders->init_done[1], fd_epoch_leaders_get( leaders->lsched[ 1 ], slot ), NULL );
-  return fd_ptr_if( !even_leader_option, odd_leader_option, even_leader_option );
-}
+FD_FN_PURE fd_pubkey_t const *
+fd_multi_epoch_leaders_get_leader_for_slot( fd_multi_epoch_leaders_t const * mleaders,
+                                            ulong                            slot );
 
 /* fd_multi_epoch_leaders_get_lsched_for_{epoch,slot} return the leader
    schedule for epoch or epoch containing slot, respectively.  Returns
@@ -111,18 +107,24 @@ fd_multi_epoch_leaders_get_lsched_for_epoch( fd_multi_epoch_leaders_t const * ml
 FD_FN_PURE fd_epoch_leaders_t const *
 fd_multi_epoch_leaders_get_lsched_for_slot(  fd_multi_epoch_leaders_t const * mleaders, ulong slot  );
 
-/* fd_multi_epoch_leaders_get_next_slot returns the first slot (on or after
-   start_slot) that 'leader' will be leader. It only checks the epoch containing
-   start_slot. If it can't find one, returns ULONG_MAX. */
+/* fd_multi_epoch_leaders_get_next_slot returns the first slot on or after
+   start_slot that 'leader' will be leader. It only checks the epoch containing
+   start_slot. If it can't find one, returns ULONG_MAX.
+   AMANTODO - indeterminate leader handling??
+
+   Failures cases include:
+      - mleaders does not track the epoch containing start_slot
+        - It was either never initialized with that epoch information, or
+        - It was overwritten by another epoch with the same parity
+      - leader_q does not have a leader slot in the epoch containing start_slot
+   */
 
 FD_FN_PURE ulong
-fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * leaders,
+fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
                                       ulong                            start_slot,
                                       fd_pubkey_t const *              leader_q );
 
-/* ///////////////////////////////////////////////////*/
-/* ///////   STAKE INFO UPDATE METHODS        /////// */
-/* ///////////////////////////////////////////////////*/
+/* ********    STAKE INFO UPDATE METHODS    ******** */
 
 /* fd_stake_ci_stake_msg_{init, fini} are used to handle messages
    containing stake weight updates from the Rust side of the splice,.
@@ -140,34 +142,23 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * leaders,
    init does not maintain a read interest in new_message after returning. */
 
 void
-fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t * leaders,
+fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t * mleaders,
                                        uchar const *              new_message );
 
 void
-fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * leaders );
+fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders );
 
 
-/* ///////////////////////////////////////////////////*/
-/* ///////     MLEADER METADATA GETTERS       /////// */
-/* ///////////////////////////////////////////////////*/
+/* ********    MLEADER METADATA GETTERS    ******** */
 
 /* fd_multi_epoch_leaders_get_start_{epoch,slot} returns the earliest
    epoch/slot that the leader schedule covers. Returns ULONG_MAX
    if stake_msg_fini has never been called */
 
-FD_FN_PURE static inline ulong
-fd_multi_epoch_leaders_get_start_epoch( fd_multi_epoch_leaders_t const * mleaders ) {
-  ulong even_start_epoch = fd_ulong_if( mleaders->init_done[0], mleaders->lsched[0]->epoch, ULONG_MAX );
-  ulong odd_start_epoch  = fd_ulong_if( mleaders->init_done[1], mleaders->lsched[1]->epoch, ULONG_MAX );
-  return fd_ulong_min( even_start_epoch, odd_start_epoch );
-}
-
-FD_FN_PURE static inline ulong
-fd_multi_epoch_leaders_get_start_slot( fd_multi_epoch_leaders_t const * mleaders ) {
-  ulong even_start_slot = fd_ulong_if( mleaders->init_done[0], mleaders->lsched[0]->slot0, ULONG_MAX );
-  ulong odd_start_slot  = fd_ulong_if( mleaders->init_done[1], mleaders->lsched[1]->slot0, ULONG_MAX );
-  return fd_ulong_min( even_start_slot, odd_start_slot );
-}
+FD_FN_PURE ulong
+fd_multi_epoch_leaders_get_start_epoch( fd_multi_epoch_leaders_t const * mleaders );
+FD_FN_PURE ulong
+fd_multi_epoch_leaders_get_start_slot(  fd_multi_epoch_leaders_t const * mleaders );
 
 
 FD_PROTOTYPES_END

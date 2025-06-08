@@ -29,6 +29,7 @@ fd_repair_new ( void * shmem, ulong seed ) {
   glob->pinged = fd_pinged_table_join(fd_pinged_table_new(shm, FD_REPAIR_PINGED_MAX, seed));
   glob->stake_weights = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
   glob->stake_weights_temp = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t), FD_STAKE_WEIGHTS_MAX * sizeof(fd_stake_weight_t) );
+  glob->stake_weights_temp_cnt = 0;
   glob->stake_weights_cnt = 0;
   glob->last_sends = 0;
   glob->last_decay = 0;
@@ -703,7 +704,7 @@ fd_repair_set_stake_weights_init( fd_repair_t * repair,
 
 void
 fd_repair_set_stake_weights_fini( fd_repair_t * repair ) {
-  fd_memcpy( repair->stake_weights, repair->stake_weights_temp, repair->stake_weights_temp_cnt * sizeof(fd_stake_weight_t) );
+  fd_swap( repair->stake_weights, repair->stake_weights_temp );
   repair->stake_weights_cnt = repair->stake_weights_temp_cnt;
 }
 
