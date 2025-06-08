@@ -1,3 +1,4 @@
+#include "fd_ibverbs_mock.h"
 #include "fd_ibverbs_mock_ds.h"
 #include "../../util/log/fd_log.h"
 
@@ -128,4 +129,36 @@ fd_ibverbs_mock_qp_delete( fd_ibverbs_mock_qp_t * qp ) {
   memset( qp, 0, sizeof(fd_ibverbs_mock_qp_t) );
 
   return qp;
+}
+
+/* FIXME Double check the errnos returned below against real mlx5 behavior.
+   For example, if the NIC can't accept any more WRs, does it throw ENOMEM
+   or ENOSPC? */
+
+int
+fd_ibv_mock_post_send( struct ibv_qp *       qp,
+                       struct ibv_send_wr *  wr,
+                       struct ibv_send_wr ** bad_wr ) {
+  fd_ibverbs_mock_qp_t * mock = qp->qp_context;
+  FD_TEST( mock->magic==FD_IBVERBS_MOCK_QP_MAGIC );
+  while( wr ) {
+    if( FD_UNLIKELY( fd_ibv_send_wr_q_full( mock->tx_q ) ) ) {
+      *bad_wr = wr;
+      return ENOSPC;
+    }
+    struct ibv_send_wr * next = fd_ibv_send_wr_q_push_tail_nocopy( mock->tx_q );
+    *next = *wr;
+    next->next = NULL;
+    next->sg_list = NULL;
+
+    for( int j=(wr->) )
+  }
+  return 0;
+}
+
+int
+fd_ibv_mock_post_recv( struct ibv_qp *       qp,
+                       struct ibv_recv_wr *  wr,
+                       struct ibv_recv_wr ** bad_wr ) {
+                      
 }
