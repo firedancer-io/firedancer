@@ -238,12 +238,12 @@ user = ""
     # Path to full snapshot file. If set, the validator will attempt to load
     # from this full snapshot file if the snapshot is still within the 
     # maximum_local_snapshot_age.
-    full_snapshot_path = "/home/cali/repos/firedancer-testing/snapshot-337925367-EVg4fS3bfqmR1rHr3H5yPuqrCSqrd3JdhU5RNiHRQKjy.tar.zst"
+    full_snapshot_path = ""
 
     # Path to incremental snapshot file. If set, the validator will attempt to load
     # from this incremental snapshot file if the snapshot is still within the 
     # maximum_local_snapshot_age.
-    incremental_snapshot_path = "/home/cali/repos/firedancer-testing/incremental-snapshot-337925367-337948365-DxoywrsJE2PKf4v9zDHynWR35naarQruEg2jmqj7kha9.tar.zst"
+    incremental_snapshot_path = ""
 
     # How old a local incremental snapshot on disk can be, in slots, and
     # still be loaded on startup.  The age of a snapshot is determined

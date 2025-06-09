@@ -75,6 +75,37 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
   .new       = funk_new,
 };
 
+/* hack to make slot context a shared topo object */
+
+static ulong
+slot_ctx_align( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  (void)topo;
+  (void)obj;
+  return FD_EXEC_SLOT_CTX_ALIGN;
+}
+
+static ulong
+slot_ctx_footprint( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  (void)topo;
+  (void)obj;
+  return FD_EXEC_SLOT_CTX_FOOTPRINT;
+}
+
+static void
+slot_ctx_new( fd_topo_t const * topo,
+              fd_topo_obj_t const * obj ) {
+  fd_exec_slot_ctx_new( fd_topo_obj_laddr( topo, obj->id ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_slot_ctx = {
+  .name      = "slot_ctx",
+  .footprint = slot_ctx_footprint,
+  .align     = slot_ctx_align,
+  .new       = slot_ctx_new,
+};
+
 static ulong
 blockstore_footprint( fd_topo_t const *     topo,
                       fd_topo_obj_t const * obj ) {
