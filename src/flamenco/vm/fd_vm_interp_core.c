@@ -925,9 +925,8 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x95) { /* FD_SBPF_OP_SYSCALL */
-    /* imm has already been validated to not overflow */
-    uint syscall_key = FD_VM_SBPF_STATIC_SYSCALLS_LIST[ imm ];
-    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, (ulong)syscall_key, NULL );
+    /* imm has already been validated */
+    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL );
 
     /* this check is probably useless, as validation includes checking that the
        syscall is active in this epoch.
