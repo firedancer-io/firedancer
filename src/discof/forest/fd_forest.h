@@ -138,8 +138,8 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_forest_t),  sizeof(fd_forest_t)              ),
-      fd_fseq_align(),           fd_fseq_footprint()                  ),
+      alignof(fd_forest_t),         sizeof(fd_forest_t)              ),
+      fd_fseq_align(),              fd_fseq_footprint()              ),
       fd_forest_pool_align(),       fd_forest_pool_footprint( ele_max )     ),
       fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
@@ -309,6 +309,48 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off
 
 fd_forest_ele_t const *
 fd_forest_publish( fd_forest_t * forest, ulong slot );
+
+struct fd_forest_iter {
+  ulong ele_idx;
+  uint  shred_idx;
+  ulong                     frontier_ver; /* the frontier version number of forest at time of initialization */
+  fd_forest_frontier_iter_t head; /* the frontier node "root" of our current iteration, provided NO insertions or deletions in the frontier. */
+};
+typedef struct fd_forest_iter fd_forest_iter_t;
+
+/* fd_forest_iter_* supports iteration over a frontier node of the
+   forest and its children. iter_init selects the frontier_iter_init
+   node from the frontier. iter_next advances the iterator to the next
+   shred currently not yet existing in the forest, and will always
+   choose the left most child to iterate down. This iterator is safe
+   with concurrent query/insert/remove. If the forest has not been
+   modified, the iterator will continue down all frontier nodes. If not,
+   the iterator will return done.
+
+   An iterator is done when the ele_idx is null, i.e. the leaf of the
+   original selected frontier node has been reached.
+
+   An iterator signifies to the repair tile to request the
+   highest_window_index when the ele_idx is not null and shred_idx is
+   UINT_MAX.
+
+   Otherwise, the iterator signifies to the repair tile to request a
+   regular shred window_idx.
+
+   Caller should generally have a timeout that resets the iterator. In
+   addition, since the iterator always chooses the leftmost child,
+   reaching new forks under one frontier node relies on repair reponses
+   -> shreds being inserted. Thus the frontier nodes can advance to the
+   slot where the fork branched. */
+
+fd_forest_iter_t
+fd_forest_iter_init( fd_forest_t * forest );
+
+fd_forest_iter_t
+fd_forest_iter_next( fd_forest_iter_t iter, fd_forest_t const * forest );
+
+int
+fd_forest_iter_done( fd_forest_iter_t iter, fd_forest_t const * forest );
 
 /* Misc */
 
