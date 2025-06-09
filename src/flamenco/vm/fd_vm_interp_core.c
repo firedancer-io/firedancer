@@ -240,6 +240,10 @@
   vm->ic        = ic;                                                         \
   vm->cu        = cu;                                                         \
   vm->frame_cnt = frame_cnt;                                                  \
+  /* Dumping for debugging purposes */                                        \
+  if( FD_UNLIKELY( vm->dump_syscall_to_pb ) ) {                               \
+    fd_dump_vm_syscall_to_protobuf( vm, syscall->name );                      \
+  }                                                                           \
   /* Execution */                                                             \
   ulong ret[1];                                                               \
   err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \

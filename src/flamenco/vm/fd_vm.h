@@ -18,9 +18,9 @@ typedef struct fd_vm fd_vm_t;
 struct fd_vm_shadow { ulong r6; ulong r7; ulong r8; ulong r9; ulong r10; ulong pc; };
 typedef struct fd_vm_shadow fd_vm_shadow_t;
 
-/* fd_vm_input_region_t holds information about fragmented memory regions 
+/* fd_vm_input_region_t holds information about fragmented memory regions
    within the larger input region. */
-   
+
 struct __attribute__((aligned(8UL))) fd_vm_input_region {
    ulong         vaddr_offset; /* Represents offset from the start of the input region. */
    ulong         haddr;        /* Host address corresponding to the start of the mem region. */
@@ -37,9 +37,9 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
    uint                                region_idx;
    uchar                               has_data_region;
-   uchar                               has_resizing_region;   
+   uchar                               has_resizing_region;
    /* offset of the accounts metadata region, relative to the start of the input region.
-      importantly, this excludes any duplicate account markers at the beginning of the "full" metadata region. */   
+      importantly, this excludes any duplicate account markers at the beginning of the "full" metadata region. */
    ulong                               metadata_region_offset;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
@@ -47,15 +47,15 @@ typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 /* In Agave, all the regions are 16-byte aligned in host address space. There is then an alignment check
    which is done inside each syscall memory translation, checking if the data is aligned in host address
    space. This is a layering violation, as it leaks the host address layout into the consensus model.
-   
+
    In the future we will change this alignment check in the vm to purely operate on the virtual address space,
-   taking advantage of the fact that Agave regions are known to be aligned. For now, we align our regions to 
+   taking advantage of the fact that Agave regions are known to be aligned. For now, we align our regions to
    either 8 or 16 bytes, as there are no 16-byte alignment translations in the syscalls currently:
    stack:  16 byte aligned
    heap:   16 byte aligned
    input:  8 byte aligned
    rodata: 8 byte aligned
-   
+
     https://github.com/solana-labs/rbpf/blob/cd19a25c17ec474e6fa01a3cc3efa325f44cd111/src/ebpf.rs#L39-L40  */
 #define FD_VM_HOST_REGION_ALIGN                   (16UL)
 
@@ -155,9 +155,9 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      region_st_sz[1] is also zero such that requests to store data to
      any positive sz range in this region will fail, making region 1
      unwritable.
-     
+
      When the direct mapping feature is enabled, the input region will
-     no longer be a contigious buffer of host memory.  Instead 
+     no longer be a contigious buffer of host memory.  Instead
      it will compose of several fragmented regions of memory each with
      its own read/write privleges and size.  Address translation to the
      input region will now have to rely on a binary search lookup of the
@@ -180,7 +180,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   fd_vm_input_region_t *    input_mem_regions;               /* An array of input mem regions represent the input region.
                                                                 The virtual addresses of each region are contigiuous and
                                                                 strictly increasing. */
-  uint                      input_mem_regions_cnt;          
+  uint                      input_mem_regions_cnt;
   fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indicies
                                                                 from the instruction context to the input memory region index
                                                                 of the account's data region in the input space. */
@@ -205,11 +205,13 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   int   direct_mapping;   /* If direct mapping is enabled or not */
   ulong stack_frame_size; /* Size of a stack frame (varies depending on direct mapping being enabled or not) */
 
-  /* Agave reports different error codes (for developers to understand the failure cause) if direct mapping is 
+  /* Agave reports different error codes (for developers to understand the failure cause) if direct mapping is
      enabled AND we halt on a segfault caused by a store on an invalid vaddr. */
   ulong segv_store_vaddr;
 
   ulong sbpf_version;     /* SBPF version, SIMD-0161 */
+
+  int dump_syscall_to_pb; /* If true, syscalls will be dumped to the specified output directory */
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
@@ -221,10 +223,10 @@ FD_PROTOTYPES_BEGIN
 
 /* FD_VM_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a memory region to hold a fd_vm_t.  ALIGN is a positive
-   integer power of 2.  FOOTPRINT is a multiple of align. 
+   integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527808UL)
+#define FD_VM_FOOTPRINT (527824UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -265,8 +267,8 @@ fd_vm_join( void * shmem );
    not null and has the correct magic value.
 
    It modifies the vm object and also returns the object for convenience.
-   
-   FIXME: we should split out the memory mapping setup from this function 
+
+   FIXME: we should split out the memory mapping setup from this function
           to handle those errors separately. */
 fd_vm_t *
 fd_vm_init(
@@ -290,7 +292,8 @@ fd_vm_init(
    uint mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated,
-   int direct_mapping );
+   int direct_mapping,
+   int dump_syscall_to_pb );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.
    Returns a pointer to the memory region holding the vm on success

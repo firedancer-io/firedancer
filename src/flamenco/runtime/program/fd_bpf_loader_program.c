@@ -220,27 +220,28 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
   vm = fd_vm_init(
-    /* vm              */ vm,
-    /* instr_ctx       */ instr_ctx,
-    /* heap_max        */ instr_ctx->txn_ctx->heap_size,
-    /* entry_cu        */ instr_ctx->txn_ctx->compute_meter,
-    /* rodata          */ prog->rodata,
-    /* rodata_sz       */ prog->rodata_sz,
-    /* text            */ prog->text,
-    /* text_cnt        */ prog->text_cnt,
-    /* text_off        */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
-    /* text_sz         */ prog->text_sz,
-    /* entry_pc        */ prog->entry_pc,
-    /* calldests       */ prog->calldests,
-    /* sbpf_version    */ elf_info->sbpf_version,
-    /* syscalls        */ syscalls,
-    /* trace           */ NULL,
-    /* sha             */ NULL,
-    /* mem_regions     */ NULL,
-    /* mem_regions_cnt */ 0,
-    /* mem_region_accs */ NULL,
-    /* is_deprecated   */ 0,
-    /* direct mapping */  direct_mapping );
+    /* vm                 */ vm,
+    /* instr_ctx          */ instr_ctx,
+    /* heap_max           */ instr_ctx->txn_ctx->heap_size,
+    /* entry_cu           */ instr_ctx->txn_ctx->compute_meter,
+    /* rodata             */ prog->rodata,
+    /* rodata_sz          */ prog->rodata_sz,
+    /* text               */ prog->text,
+    /* text_cnt           */ prog->text_cnt,
+    /* text_off           */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* text_sz            */ prog->text_sz,
+    /* entry_pc           */ prog->entry_pc,
+    /* calldests          */ prog->calldests,
+    /* sbpf_version       */ elf_info->sbpf_version,
+    /* syscalls           */ syscalls,
+    /* trace              */ NULL,
+    /* sha                */ NULL,
+    /* mem_regions        */ NULL,
+    /* mem_regions_cnt    */ 0,
+    /* mem_region_accs    */ NULL,
+    /* is_deprecated      */ 0,
+    /* direct mapping     */ direct_mapping,
+    /* dump_syscall_to_pb */ 0 );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
@@ -448,6 +449,11 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   ulong pre_insn_cus = instr_ctx->txn_ctx->compute_meter;
   ulong heap_max     = instr_ctx->txn_ctx->heap_size;
 
+  /* For dumping syscalls for seed corpora */
+  int dump_syscall_to_pb = instr_ctx->txn_ctx->capture_ctx &&
+                           instr_ctx->txn_ctx->slot >= instr_ctx->txn_ctx->capture_ctx->dump_proto_start_slot &&
+                           instr_ctx->txn_ctx->capture_ctx->dump_syscall_to_pb;
+
   /* TODO: (topointon): correctly set check_size in vm setup */
   vm = fd_vm_init(
     /* vm                    */ vm,
@@ -470,7 +476,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
     /* input_mem_regions_cnt */ input_mem_regions_cnt,
     /* acc_region_metas      */ acc_region_metas,
     /* is_deprecated         */ is_deprecated,
-    /* direct_mapping        */ direct_mapping );
+    /* direct_mapping        */ direct_mapping,
+    /* dump_syscall_to_pb    */ dump_syscall_to_pb );
   if( FD_UNLIKELY( !vm ) ) {
     /* We throw an error here because it could be the case that the given heap_size > HEAP_MAX.
        In this case, Agave fails the transaction but does not error out.
