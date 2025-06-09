@@ -61,8 +61,8 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->wmk ));
   fd_wksp_mprotect( wksp, 1 );
 
-  args->ml   = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( aligned_alloc( fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint() ) ) );
-  args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
+  args->leaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( aligned_alloc( fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint() ) ) );
+  args->port    = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 
   args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 30 );
   args->params.max_ws_connection_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-connection-cnt", NULL, 10 );
@@ -218,7 +218,7 @@ int main( int argc, char ** argv ) {
     fd_replay_notif_msg_t msg;
     replay_sham_link_poll( rep_notify, ctx, &msg );
 
-    stake_sham_link_poll( stake_notify, ctx, args.ml );
+    stake_sham_link_poll( stake_notify, ctx, args.leaders );
 
     fd_rpc_ws_poll( ctx );
   }

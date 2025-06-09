@@ -19,7 +19,7 @@ struct fd_rpcserver_args {
   fd_blockstore_t            blockstore_ljoin;
   fd_blockstore_t          * blockstore;
   int                        blockstore_fd;
-  fd_multi_epoch_leaders_t * ml;
+  fd_multi_epoch_leaders_t * leaders;
   ushort                     port;
   fd_http_server_params_t    params;
   struct sockaddr_in         tpu_addr;

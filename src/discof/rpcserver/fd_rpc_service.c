@@ -76,7 +76,7 @@ struct fd_rpc_global_ctx {
   fd_perf_sample_t * perf_samples;
   fd_perf_sample_t perf_sample_snapshot;
   long perf_sample_ts;
-  fd_multi_epoch_leaders_t * ml;
+  fd_multi_epoch_leaders_t * leaders;
   ulong acct_age;
   fd_rpc_history_t * history;
 };
@@ -517,7 +517,7 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     ulong startslot = blockstore->shmem->wmk;
     ulong endslot = blockstore->shmem->lps;
-    ulong mleaders_start_slot = fd_multi_epoch_leaders_get_start_slot( glob->ml );
+    ulong mleaders_start_slot = fd_multi_epoch_leaders_get_start_slot( glob->leaders );
     startslot = fd_ulong_max( startslot, mleaders_start_slot );
 
     ulong n = (endslot - startslot)/4U + 1U;
@@ -525,7 +525,7 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
     product_rb_node_t * pool = product_rb_join( product_rb_new( shmem, n ) );
     product_rb_node_t * root = NULL;
 
-    fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( glob->ml, startslot );
+    fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( glob->leaders, startslot );
     if( lsched ) {
       for ( ulong i = startslot; i <= endslot; ++i ) {
         fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, i );
@@ -964,7 +964,7 @@ method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
-    fd_epoch_leaders_t const * leaders = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->ml, slot );
+    fd_epoch_leaders_t const * leaders = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->leaders, slot );
     if( FD_UNLIKELY( !leaders ) ) {
       fd_method_error(ctx, -1, "unable to get leaders for slot %lu", slot);
       return 0;
@@ -1328,7 +1328,7 @@ method_getSlotLeader(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":");
   ulong slot = get_slot_from_commitment_level( values, ctx );
-  fd_pubkey_t const * slot_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->global->ml, slot );
+  fd_pubkey_t const * slot_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->global->leaders, slot );
   if( slot_leader ) {
     char str[50];
     fd_base58_encode_32(slot_leader->uc, 0, str);
@@ -1372,7 +1372,7 @@ method_getSlotLeaders(struct json_values* values, fd_rpc_ctx_t * ctx) {
     limitn = 5000;
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
-  fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->ml, startslotn );
+  fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->leaders, startslotn );
   if( lsched ) {
     for ( ulong i = startslotn; i < startslotn + limitn; ++i ) {
       if( i > startslotn ) EMIT_SIMPLE(",");
@@ -2363,9 +2363,9 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   fd_memset(ctx, 0, sizeof(fd_rpc_ctx_t));
   fd_memset(gctx, 0, sizeof(fd_rpc_global_ctx_t));
 
-  ctx->global = gctx;
-  gctx->spad = args->spad;
-  gctx->ml = args->ml;
+  ctx->global   = gctx;
+  gctx->spad    = args->spad;
+  gctx->leaders = args->leaders;
 
   if( !args->offline ) {
     gctx->tpu_socket = socket(AF_INET, SOCK_DGRAM, 0);

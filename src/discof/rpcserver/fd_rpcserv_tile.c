@@ -112,7 +112,7 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
                    ctx->stake_in_chunk0, ctx->stake_in_wmark ));
     }
-    fd_rpc_stake_during_frag( ctx->ctx, ctx->args.ml, fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk ), (int)sz );
+    fd_rpc_stake_during_frag( ctx->ctx, ctx->args.leaders, fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk ), (int)sz );
 
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
@@ -151,7 +151,7 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
     fd_rpc_replay_after_frag( ctx->ctx, &ctx->replay_notif_in_state );
 
   } else if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
-    fd_rpc_stake_after_frag( ctx->ctx, ctx->args.ml );
+    fd_rpc_stake_after_frag( ctx->ctx, ctx->args.leaders );
 
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
@@ -184,7 +184,7 @@ privileged_init( fd_topo_t *      topo,
   args->tpu_addr.sin_addr.s_addr = tile->rpcserv.tpu_ip_addr;
   args->tpu_addr.sin_port = htons( (ushort)tile->rpcserv.tpu_port );
 
-  args->ml = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem) );
+  args->leaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem) );
 
   uchar * spad_mem_cur = spad_mem;
   args->spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RPC_SCRATCH_MAX ) );
