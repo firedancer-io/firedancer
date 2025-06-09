@@ -422,6 +422,7 @@
 #include "../fd_choreo_base.h"
 #include "../epoch/fd_epoch.h"
 #include "../ghost/fd_ghost.h"
+#include "../forks/fd_forks.h"
 #include "../voter/fd_voter.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
@@ -621,7 +622,10 @@ int
 fd_tower_switch_check( fd_tower_t const * tower,
                        fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
-                       ulong slot );
+                       fd_forks_t const * forks,
+                       fd_funk_t *        funk,
+                       ulong              switch_slot,
+                       fd_spad_t *        runtime_spad );
 
 /* fd_tower_threshold_check checks if we pass the threshold required to
    vote for `slot`.  This is only relevant after voting for (and
@@ -702,7 +706,8 @@ ulong
 fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_epoch_t const *    epoch,
                     fd_funk_t *           funk,
-                    fd_funk_txn_t const * txn,
+                    fd_forks_t *          forks,
+                    ulong                 curr_slot,
                     fd_ghost_t const *    ghost,
                     fd_spad_t *           runtime_spad );
 

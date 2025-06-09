@@ -140,6 +140,18 @@ get_slot_funk_txn( fd_funk_t * funk, ulong slot ) {
   return funk_txn_query->ele;
 }
 
+static void
+confirm_no_funk_record( fd_funk_txn_pool_t * txn_pool,
+                        fd_funk_txn_t * funk_txn ) {
+  FD_TEST( funk_txn->rec_head_idx==FD_FUNK_REC_IDX_NULL );
+  if( funk_txn->child_head_cidx!=FD_FUNK_TXN_IDX_NULL ) {
+    confirm_no_funk_record( txn_pool, txn_pool->ele+funk_txn->child_head_cidx );
+  }
+  if( funk_txn->sibling_next_cidx!=FD_FUNK_TXN_IDX_NULL ) {
+    confirm_no_funk_record( txn_pool, txn_pool->ele+funk_txn->sibling_next_cidx );
+  }
+}
+
 void
 insert_vote_state_into_funk_txn( fd_funk_t *                 funk,
                                  fd_funk_txn_t *             funk_txn,
@@ -151,6 +163,12 @@ insert_vote_state_into_funk_txn( fd_funk_t *                 funk,
   fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, funk_txn, &key, funk_rec_query );
 
   if( FD_UNLIKELY( true ) ) {
+    // Make sure that descendants of funk_txn have no records
+    // Otherwise, it is unsafe to unfrozen a funk_txn with the hack below
+    fd_funk_txn_pool_t txn_pool = fd_funk_txn_pool( funk, fd_funk_wksp( funk ) );
+    if( funk_txn->child_head_cidx!=FD_FUNK_TXN_IDX_NULL )
+      confirm_no_funk_record( &txn_pool, txn_pool.ele+funk_txn->child_head_cidx );
+
     // Save the children pointers
     uint saved_child_head = funk_txn->child_head_cidx;
     uint saved_child_tail = funk_txn->child_tail_cidx;
@@ -279,10 +297,11 @@ mock_forks( fd_wksp_t * wksp, fd_funk_txn_t * funk_txn, ulong slot ) {
     fd_exec_slot_ctx_t * slot_ctx = fd_wksp_alloc_laddr( wksp, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT, 7 ); \
     slot_ctx->funk_txn = query->ele; \
     slot_ctx->slot_bank.slot = FRONTIER; \
+    slot_ctx->magic  = FD_EXEC_SLOT_CTX_MAGIC; \
     fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool ); \
     fork->prev       = fd_fork_pool_idx_null( forks->pool ); \
     fork->slot       = FRONTIER; \
-    fork->lock       = 1; \
+    fork->lock       = 0; \
     fork->end_idx    = UINT_MAX; \
     fork->slot_ctx   = slot_ctx; \
     if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool ) ) ) { \
@@ -361,8 +380,7 @@ test_vote_simple( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Vote for slot 5 and check that the tower grows by 1                */
   /**********************************************************************/
-  fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &curr_slot, NULL, forks->pool );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, curr_slot, ghost, spad );
   FD_TEST( vote_slot==curr_slot );
 
   ulong current_tower_height = fd_tower_votes_cnt( tower );
@@ -468,10 +486,9 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
   /*              We should NOT switch to a different fork              */
   /**********************************************************************/
   ulong try_to_vote_slot = frontier2;
-  fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &try_to_vote_slot, NULL, forks->pool );
   // Validate fd_tower_switch_check returns 0
-  FD_TEST( !fd_tower_switch_check( tower, epoch, ghost, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot ) );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  FD_TEST( !fd_tower_switch_check( tower, epoch, ghost, forks, funk, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
+  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
 
   FD_TEST( vote_slot==ULONG_MAX );
 
@@ -488,8 +505,8 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
 
   fd_forks_update( forks, epoch, funk, ghost, frontier2 );
   // Validate fd_tower_switch_check returns 1
-  FD_TEST( fd_tower_switch_check( tower, epoch, ghost, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot ) );
-  vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  FD_TEST( fd_tower_switch_check( tower, epoch, ghost, forks, funk, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
+  vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
   FD_TEST( vote_slot==frontier2 );
   FD_TEST( fd_tower_votes_cnt( tower )==3 );
   fd_tower_vote( tower, vote_slot );
@@ -601,8 +618,7 @@ test_vote_switch_check_4forks( fd_wksp_t * wksp ) {
   /**********************************************************************/
   ulong try_to_vote_slot = frontier4;
   FD_TEST( try_to_vote_slot==fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot );
-  fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &try_to_vote_slot, NULL, forks->pool );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
 
   FD_TEST( vote_slot==frontier4 );
 
@@ -707,10 +723,9 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   /*              We should NOT switch to a different fork              */
   /**********************************************************************/
   ulong try_to_vote_slot = frontier2;
-  fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &try_to_vote_slot, NULL, forks->pool );
   // Validate fd_tower_lockout_check returns 0
   FD_TEST( !fd_tower_lockout_check( tower, ghost, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot ) );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
   FD_TEST( vote_slot==ULONG_MAX );
 
   /**********************************************************************/
@@ -729,7 +744,7 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
 
   // Validate fd_tower_lockout_check returns 1
   FD_TEST( fd_tower_lockout_check( tower, ghost, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot ) );
-  vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
   FD_TEST( vote_slot==frontier2 );
 
   FD_TEST( fd_tower_votes_cnt( tower )==3 );
@@ -860,7 +875,7 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
   fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &try_to_vote_slot, NULL, forks->pool );
   // Validate fd_tower_threshold_check returns 0
   FD_TEST( !fd_tower_threshold_check( tower, epoch, funk, fork->slot_ctx->funk_txn, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
   FD_TEST( vote_slot==ULONG_MAX );
 
   /**********************************************************************/
@@ -870,15 +885,15 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
 
   /* When simulating a vote for slot 331233210 with the tower above, the last 2 entries above will expire,
      leaving the first 3 entries; Given that 2 >= (10-THRESHOLD_DEPTH), threshold check will pass. */
-  voter_vote_for_slot( wksp, towers[0], funk, 331233203, 331233209, &voters[0] );
-  voter_vote_for_slot( wksp, towers[1], funk, 331233203, 331233209, &voters[1] );
+  voter_vote_for_slot( wksp, towers[0], funk, 331233203, 331233210, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, 331233203, 331233210, &voters[1] );
   voter_vote_for_slot( wksp, towers[1], funk, 331233204, 331233210, &voters[1] );
 
   fd_forks_update( forks, epoch, funk, ghost, frontier1 );
 
   // Validate fd_tower_threshold_check returns 1
   FD_TEST( fd_tower_threshold_check( tower, epoch, funk, fork->slot_ctx->funk_txn, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
-  vote_slot = fd_tower_vote_slot( tower, epoch, funk, fork->slot_ctx->funk_txn, ghost, spad );
+  vote_slot = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
   FD_TEST( vote_slot==frontier1 );
 
   fd_funk_close_file( &funk_close_args );
@@ -1885,12 +1900,13 @@ test_agave_check_vote_threshold_forks( fd_wksp_t * wksp ) {
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
   /* 3 voters vote for slot#6 (THRESHOLD_DEPTH-2) with lockout=2 */
-  voter_vote_for_slot( wksp, towers[0], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[0] );
-  voter_vote_for_slot( wksp, towers[1], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[1] );
-  voter_vote_for_slot( wksp, towers[2], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[2] );
   for( ulong slot=0; slot<THRESHOLD_DEPTH; slot++ ) {
     voter_vote_for_slot( wksp, towers[3], funk, slot, slot+1, &voters[3] );
   }
+  voter_vote_for_slot( wksp, towers[0], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[1] );
+  voter_vote_for_slot( wksp, towers[2], funk, THRESHOLD_DEPTH-2, THRESHOLD_DEPTH, &voters[2] );
+
 
   fd_forks_t * forks;
   INIT_FORKS( THRESHOLD_DEPTH );
@@ -2016,7 +2032,7 @@ test_agave_check_vote_threshold_deep_and_shallow_below_threshold( fd_wksp_t * wk
      * Agave has another "shallow" check which looks back only 4 slots; This shallow check is missing in FD.
      * The FD_TEST below is the correct one to be used here. */
     //FD_TEST( 0==fd_tower_threshold_check( tower, epoch1, funk, query->ele, THRESHOLD_DEPTH, spad ) );
-    FD_LOG_WARNING(( "Fail Agave test check_vote_threshold_shallow_below_threshold" ));
+    FD_LOG_NOTICE(( "Fail Agave test check_vote_threshold_shallow_below_threshold, but this is OK because Agave ignores failures of shallow threshold checks" ));
   }
 
   fd_funk_close_file( &funk_close_args );
@@ -2194,6 +2210,435 @@ test_agave_is_slot_confirmed_tests( fd_wksp_t * wksp ) {
   fd_funk_close_file( &funk_close_args );
 }
 
+fd_ghost_t *
+test_agave_setup_switch_test( fd_wksp_t * wksp,
+                              fd_funk_t * funk ) {
+  /*
+     Build fork structure:
+          slot 0
+            |
+          slot 1
+            |
+          slot 2
+          /    \
+     slot 43  slot 10 -
+        /    \          \
+   slot 112   \      slot 11
+             slot 44-      \
+                |    \   slot 12
+             slot 45  \        \
+                |   slot 110 slot 13
+             slot 46               \
+                |               slot 14
+             slot 47
+                |
+             slot 48
+                |
+             slot 49
+                |
+             slot 50
+   */
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 1, funk );
+  ghost_insert( ghost, 1, 2, funk );
+  ghost_insert( ghost, 2, 43, funk );
+  ghost_insert( ghost, 43, 112, funk );
+
+  ghost_insert( ghost, 43, 44, funk );
+  ghost_insert( ghost, 44, 110, funk );
+
+  ghost_insert( ghost, 44, 45, funk );
+  ghost_insert( ghost, 45, 46, funk );
+  ghost_insert( ghost, 46, 47, funk );
+  ghost_insert( ghost, 47, 48, funk );
+  ghost_insert( ghost, 48, 49, funk );
+  ghost_insert( ghost, 49, 50, funk );
+
+  ghost_insert( ghost, 2, 10, funk );
+  ghost_insert( ghost, 10, 11, funk );
+  ghost_insert( ghost, 11, 12, funk );
+  ghost_insert( ghost, 12, 13, funk );
+  ghost_insert( ghost, 13, 14, funk );
+
+  return ghost;
+}
+
+void
+test_agave_switch_threshold( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  fd_ghost_t * ghost = test_agave_setup_switch_test( wksp, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 2;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {10000, 10000};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  FD_TEST( epoch->total_stake==20000 );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  fd_tower_vote( towers[0], 47 );
+
+  fd_forks_t * forks;
+  ulong curr_slot = 50;
+  INIT_FORKS( curr_slot );
+  ADD_FRONTIER_TO_FORKS( 14UL );
+  ADD_FRONTIER_TO_FORKS( 110UL );
+  ADD_FRONTIER_TO_FORKS( 112UL );
+
+  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+
+  if( !fd_ghost_is_ancestor( ghost, 47, 48 ) )
+    /* Should not conduct the switch check because 48 is on the **same** fork as 47 */
+    fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, 48, spad );
+
+  // Trying to switch to another fork at 110 should fail
+  FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, 110, spad ) );
+
+  // Adding another validator lockout on a descendant of last vote should
+  // not count toward the switch threshold
+  {
+    ulong slot=50, voted_slot=49, lockout=100-voted_slot, switch_slot=110;
+    towers[1] = fd_tower_join( fd_tower_new( tower_mems[1] ) );
+    fd_tower_votes_push_tail( towers[1], (fd_tower_vote_t){ .slot = voted_slot, .conf = lockout } );
+    fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+    fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+    insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+    FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, switch_slot, spad ) );
+  }
+
+  // Adding another validator lockout on an ancestor of last vote should
+  // not count toward the switch threshold
+  {
+    ulong slot=50, voted_slot=45, lockout=100-voted_slot, switch_slot=110;
+    towers[1] = fd_tower_join( fd_tower_new( tower_mems[1] ) );
+    fd_tower_votes_push_tail( towers[1], (fd_tower_vote_t){ .slot = voted_slot, .conf = lockout } );
+    fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+    fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+    insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+    FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, switch_slot, spad ) );
+  }
+
+  // Adding another validator lockout on a different fork, and the lockout
+  // covers the last vote would count towards the switch threshold,
+  // unless the bank is not the most recent frozen bank on the fork (14 is a
+  // frozen/computed bank > 13 on the same fork in this case)
+  {
+    ulong slot=13, voted_slot=12, lockout=47-voted_slot;
+    towers[1] = fd_tower_join( fd_tower_new( tower_mems[1] ) );
+    fd_tower_votes_push_tail( towers[1], (fd_tower_vote_t){ .slot = voted_slot, .conf = lockout } );
+    fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+    fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+    insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+    /* Calling fd_tower_switch_check after the slot=14 case below, which effetively combines these 2 checks;
+     * This is due to a bug about inserting into frozen funk_txn revealed by test_insert_into_frozen_funk_txn;
+     * i.e., there could be issues if we insert into funk_txn 13 after inserting into funk_txn 14 */
+  }
+
+  // Adding another validator lockout on a different fork, but the lockout
+  // doesn't cover the last vote, should not satisfy the switch threshold
+  {
+    ulong slot=14, voted_slot=12, lockout=46-voted_slot, switch_slot=110;
+    towers[1] = fd_tower_join( fd_tower_new( tower_mems[1] ) );
+    fd_tower_votes_push_tail( towers[1], (fd_tower_vote_t){ .slot = voted_slot, .conf = lockout } );
+    fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+    fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+    insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+    FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, switch_slot, spad ) );
+  }
+
+  // Adding another validator lockout on a different fork, and the lockout
+  // covers the last vote, should satisfy the switch threshold
+  {
+    ulong slot=14, voted_slot=12, lockout=47-voted_slot, switch_slot=110;
+    towers[1] = fd_tower_join( fd_tower_new( tower_mems[1] ) );
+    fd_tower_votes_push_tail( towers[1], (fd_tower_vote_t){ .slot = voted_slot, .conf = lockout } );
+    fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+    fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+    insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+    FD_TEST( 1==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, switch_slot, spad ) );
+  }
+
+  // Adding another unfrozen descendant of the tip of 14 should not remove
+  // slot 14 from consideration because it is still the most recent frozen
+  // bank on its fork
+  FD_LOG_WARNING(( "It seems that our funk_txn only refers to frozen bank in Agave, "
+                   "and we don't have anything corresponding to unfrozen banks." ));
+
+  // If we set a root, then any lockout intervals below the root shouldn't
+  // count toward the switch threshold. This means the other validator's
+  // vote lockout no longer counts
+  fd_forks_publish( forks, 43, ghost );
+  fd_ghost_publish( ghost, 43 );
+  FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, 110, spad ) );
+
+  FD_LOG_NOTICE(( "Pass Agave test switch_threshold" ));
+  fd_funk_close_file( &funk_close_args );
+}
+
+void
+test_agave_switch_threshold_vote( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  /*
+     Build fork structure:
+          slot 0
+            |
+          slot 1
+            |
+          slot 2
+          /    \
+     slot 43  slot 10 -
+        /    \         \
+   slot 110   \     slot 11
+             slot 44      \
+                |       slot 12
+             slot 45          \
+                |           slot 13
+             slot 46              \
+                                slot 14
+   */
+
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 1, funk );
+  ghost_insert( ghost, 1, 2, funk );
+  ghost_insert( ghost, 2, 10, funk );
+  ghost_insert( ghost, 10, 11, funk );
+  ghost_insert( ghost, 11, 12, funk );
+  ghost_insert( ghost, 12, 13, funk );
+  ghost_insert( ghost, 13, 14, funk );
+
+  ghost_insert( ghost, 2, 43, funk );
+  ghost_insert( ghost, 43, 44, funk );
+  ghost_insert( ghost, 44, 45, funk );
+  ghost_insert( ghost, 45, 46, funk );
+
+  ghost_insert( ghost, 43, 110, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 4;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {10000, 10000, 10000, 10000};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  fd_tower_vote( towers[0], 14 );
+
+  fd_forks_t * forks;
+  INIT_FORKS( 14UL );
+  ADD_FRONTIER_TO_FORKS( 46UL );
+  ADD_FRONTIER_TO_FORKS( 110UL );
+
+  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+  /* switch stake should be 0% */
+  FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, 46, spad ) );
+
+  ghost_insert( ghost, 46, 47, funk );
+  voter_vote_for_slot( wksp, towers[1], funk, 46, 47, &voters[1] );
+  ulong fork_to_remove = 46;
+  fd_fork_frontier_ele_remove( forks->frontier, &fork_to_remove, NULL, forks->pool );
+  ADD_FRONTIER_TO_FORKS( 47UL );
+  /* switch stake should be 25% */
+  FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, 47, spad ) );
+
+  ghost_insert( ghost, 47, 48, funk );
+  voter_vote_for_slot( wksp, towers[2], funk, 47, 48, &voters[2] );
+  fork_to_remove = 47;
+  fd_fork_frontier_ele_remove( forks->frontier, &fork_to_remove, NULL, forks->pool );
+  ADD_FRONTIER_TO_FORKS( 48UL );
+  /* switch stake should be 50% */
+  FD_TEST( 1==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, 48, spad ) );
+
+  FD_LOG_NOTICE(( "Pass Agave test switch_threshold_vote" ));
+  fd_funk_close_file( &funk_close_args );
+}
+
+void
+test_agave_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /**********************************************************************/
+  /*
+     Build fork structure:
+          slot 0
+            |
+          slot 1
+            |
+          slot 2
+          /    \
+     slot 51  slot 43
+                |
+            - slot 44 -
+           /     |     \
+     slot 113 slot 45 slot 110
+                 |        \
+              slot 46  slot 111
+                 |          \
+              slot 47     slot 112
+                 |
+              slot 48
+              /     \
+         slot 49  slot 50
+   */
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  ghost_init( ghost, 0, funk );
+  ghost_insert( ghost, 0, 1, funk );
+  ghost_insert( ghost, 1, 2, funk );
+  ghost_insert( ghost, 2, 51, funk );
+  ghost_insert( ghost, 2, 43, funk );
+  ghost_insert( ghost, 43, 44, funk );
+
+  ghost_insert( ghost, 44, 113, funk );
+
+  ghost_insert( ghost, 44, 45, funk );
+  ghost_insert( ghost, 45, 46, funk );
+  ghost_insert( ghost, 46, 47, funk );
+  ghost_insert( ghost, 47, 48, funk );
+  ghost_insert( ghost, 48, 49, funk );
+  ghost_insert( ghost, 48, 50, funk );
+
+  ghost_insert( ghost, 44, 110, funk );
+  ghost_insert( ghost, 110, 111, funk );
+  ghost_insert( ghost, 111, 112, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 2;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {10000, 10000};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+  FD_TEST( epoch->total_stake==20000 );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  fd_tower_vote( towers[0], 43 );
+  fd_tower_vote( towers[0], 44 );
+  fd_tower_vote( towers[0], 45 );
+  fd_tower_vote( towers[0], 46 );
+  fd_tower_vote( towers[0], 47 );
+  fd_tower_vote( towers[0], 48 );
+  fd_tower_vote( towers[0], 49 );
+
+  fd_forks_t * forks;
+  INIT_FORKS( 50UL );
+  ADD_FRONTIER_TO_FORKS( 51UL );
+  ADD_FRONTIER_TO_FORKS( 49UL );
+  ADD_FRONTIER_TO_FORKS( 112UL );
+  ADD_FRONTIER_TO_FORKS( 113UL );
+
+  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+
+  // Candidate slot 50 should *not* work
+  {
+    ulong slot=50, voted_slot=10, lockout=49-voted_slot, switch_slot=111;
+    towers[1] = fd_tower_join( fd_tower_new( tower_mems[1] ) );
+    fd_tower_votes_push_tail( towers[1], (fd_tower_vote_t){ .slot = voted_slot, .conf = lockout } );
+    fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+    fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+    insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+    FD_TEST( 0==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, switch_slot, spad ) );
+    fd_funk_rec_key_t key = fd_funk_acc_key( &voters[1].pubkey );
+    fd_funk_rec_remove( funk, funk_txn, &key, NULL, 1UL );
+  }
+
+  // 51, 111, 112, and 113 are all valid
+  {
+    ulong slots[] = {51, 111, 112, 113};
+    for( ulong i=0; i<4; i++ ) {
+      ulong slot=slots[i], voted_slot=10, lockout=49-voted_slot, switch_slot=111;
+      towers[1] = fd_tower_join( fd_tower_new( tower_mems[1] ) );
+      fd_tower_votes_push_tail( towers[1], (fd_tower_vote_t){ .slot = voted_slot, .conf = lockout } );
+      fd_vote_state_versioned_t * vote_state_versioned = tower_to_vote_state( wksp, towers[1], &voters[1] );
+      fd_funk_txn_t * funk_txn = get_slot_funk_txn( funk, slot );
+      insert_vote_state_into_funk_txn( funk, funk_txn, &voters[1].pubkey, vote_state_versioned );
+      FD_TEST( 1==fd_tower_switch_check( towers[0], epoch, ghost, forks, funk, switch_slot, spad ) );
+      fd_funk_rec_key_t key = fd_funk_acc_key( &voters[1].pubkey );
+      fd_funk_rec_remove( funk, funk_txn, &key, NULL, 1UL );
+    }
+  }
+
+  /* TODO: Same checks for gossip votes */
+
+  FD_LOG_WARNING(( "Pass Agave test switch_threshold_common_ancestor w/o the **gossip votes** part" ));
+  fd_funk_close_file( &funk_close_args );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2283,6 +2728,12 @@ main( int argc, char ** argv ) {
   test_agave_check_vote_threshold_deep_and_shallow_below_threshold( wksp );
   test_agave_is_locked_out_tests( wksp );
   test_agave_is_slot_confirmed_tests( wksp );
+
+  test_agave_switch_threshold( wksp );
+  test_agave_switch_threshold_vote( wksp );
+  test_agave_switch_threshold_common_ancestor( wksp );
+
+  FD_LOG_NOTICE(( "Test choreo done." ));
 
   fd_halt();
   return 0;

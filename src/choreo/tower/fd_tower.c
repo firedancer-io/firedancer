@@ -122,15 +122,18 @@ int
 fd_tower_switch_check( fd_tower_t const * tower,
                        fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
-                       ulong slot ) {
+                       fd_forks_t const * forks,
+                       fd_funk_t *        funk,
+                       ulong              switch_slot,
+                       fd_spad_t *        runtime_spad ) {
   #if FD_TOWER_USE_HANDHOLDING
   FD_TEST( !fd_tower_votes_empty( tower ) ); /* caller error */
   #endif
 
-  fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
+  fd_tower_vote_t const * my_last_vote = fd_tower_votes_peek_tail_const( tower );
   fd_ghost_node_t const * root = fd_ghost_root( ghost );
 
-  if( FD_UNLIKELY( vote->slot < root->slot ) ) {
+  if( FD_UNLIKELY( my_last_vote->slot < root->slot ) ) {
 
     /* It is possible our last vote slot precedes our ghost root. This
        can happen, for example, when we restart from a snapshot and set
@@ -165,34 +168,60 @@ fd_tower_switch_check( fd_tower_t const * tower,
   */
 
   #if FD_TOWER_USE_HANDHOLDING
-  FD_TEST( !fd_ghost_is_ancestor( ghost, vote->slot, slot ) );
+  FD_TEST( !fd_ghost_is_ancestor( ghost, my_last_vote->slot, switch_slot ) );
   #endif
 
-  fd_ghost_node_map_t const * node_map  = fd_ghost_node_map_const( ghost );
-  fd_ghost_node_t const *     node_pool = fd_ghost_node_pool_const( ghost );
-  fd_ghost_node_t const *     gca       = fd_ghost_gca( ghost, vote->slot, slot );
-  ulong gca_idx = fd_ghost_node_map_idx_query_const( node_map, &gca->slot, ULONG_MAX, node_pool );
-
-  /* gca_child is our latest_vote slot's ancestor that is also a direct
-     child of GCA.  So we do not count it towards the stake of the
-     different forks. */
-
-  fd_ghost_node_t const * gca_child = fd_ghost_query( ghost, vote->slot );
-  while( gca_child->parent_idx != gca_idx ) {
-    gca_child = fd_ghost_node_pool_ele_const( node_pool, gca_child->parent_idx );
-  }
-
   ulong switch_stake = 0;
-  fd_ghost_node_t const * child = fd_ghost_child( ghost, gca );
-  while( FD_LIKELY( child ) ) {
-    if( FD_LIKELY( child != gca_child ) ) {
-      switch_stake += child->weight;
+  fd_voter_t const * epoch_voters = fd_epoch_voters_const( epoch );
+  /* Iterate through every voter and decide whether to count its stake into switch stake */
+  for( ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
+    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+    fd_voter_t const * voter = &epoch_voters[i];
+    uint voter_stake_counted = 0;
+
+    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+      void * tower_mem = fd_spad_alloc( runtime_spad, fd_tower_align(), fd_tower_footprint() );
+
+      /* Iterate through all the fork frontiers */
+      for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
+           !voter_stake_counted && !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
+           iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
+        fd_fork_t * candidate_fork = fd_fork_frontier_iter_ele( iter, forks->frontier, forks->pool );
+        fd_tower_t * voter_tower   = fd_tower_join( fd_tower_new( tower_mem ) );
+        fd_tower_from_vote_acc( voter_tower, funk, candidate_fork->slot_ctx->funk_txn, &voter->rec );
+
+        /* Iterate through all the (slot, conf) in voter_tower  */
+        for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( voter_tower );
+             !fd_tower_votes_iter_done( voter_tower, iter );
+             iter = fd_tower_votes_iter_next( voter_tower, iter ) ) {
+          fd_tower_vote_t * vote = fd_tower_votes_iter_ele( voter_tower, iter );
+          /* Consider this vote=(slot, conf) from voter, below are the conditions for counting
+           * the stake of this voter into the switch stake:
+           * 1. slot is higher than the root slot
+           * 2. slot+conf is greater or equal to my last voted slot
+           * 3. GCA(candidate fork slot, my last voted slot) is an ancestor of the switch slot
+           * 4. slot is not an ancestor of my last voted slot */
+          fd_ghost_node_t const * gca = fd_ghost_gca( ghost, candidate_fork->slot, my_last_vote->slot );
+          if( FD_LIKELY( vote->slot>root->slot &&
+                         vote->slot+vote->conf>=my_last_vote->slot &&
+                         fd_ghost_is_ancestor( ghost, gca->slot, switch_slot ) &&
+                         !fd_ghost_is_ancestor( ghost, vote->slot, my_last_vote->slot ) ) ) {
+            voter_stake_counted=1;
+            switch_stake+=voter->stake;
+            break;
+          }
+        }
+      }
+    } FD_SPAD_FRAME_END;
+
+    if( FD_UNLIKELY( !voter_stake_counted ) ) {
+      /* TODO: If not counted by reading the runtime state, Agave will look at votes
+       * from gossip and decide whether to count this voter's stake into switch stake. */
     }
-    child = fd_ghost_node_pool_ele_const( node_pool, child->sibling_idx );
   }
 
   double switch_pct = (double)switch_stake / (double)epoch->total_stake;
-  FD_LOG_DEBUG(( "[%s] ok? %d. top: %lu. switch: %lu. switch stake: %.0lf%%.", __func__, switch_pct > SWITCH_PCT, fd_tower_votes_peek_tail_const( tower )->slot, slot, switch_pct * 100.0 ));
+  FD_LOG_DEBUG(( "[%s] ok? %d. top: %lu. switch: %lu. switch stake: %.0lf%%.", __func__, switch_pct > SWITCH_PCT, fd_tower_votes_peek_tail_const( tower )->slot, switch_slot, switch_pct * 100.0 ));
   return switch_pct > SWITCH_PCT;
 }
 
@@ -317,7 +346,8 @@ ulong
 fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_epoch_t const *    epoch,
                     fd_funk_t *           funk,
-                    fd_funk_txn_t const * txn,
+                    fd_forks_t *          forks,
+                    ulong                 curr_slot,
                     fd_ghost_t const *    ghost,
                     fd_spad_t *           runtime_spad ) {
 
@@ -346,6 +376,8 @@ fd_tower_vote_slot( fd_tower_t *          tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
+    fd_fork_t * fork          = fd_fork_frontier_ele_query( forks->frontier, &curr_slot, NULL, forks->pool );
+    fd_funk_txn_t const * txn = fork->slot_ctx->funk_txn;
     if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, runtime_spad ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
@@ -358,7 +390,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
       try to switch if we pass lockout and switch threshold. */
 
   if( FD_UNLIKELY( fd_tower_lockout_check( tower, ghost, head->slot ) &&
-                   fd_tower_switch_check( tower, epoch, ghost, head->slot ) ) ) {
+                   fd_tower_switch_check( tower, epoch, ghost, forks, funk, head->slot, runtime_spad ) ) ) {
     FD_LOG_DEBUG(( "[%s] success (lockout switch). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
     return head->slot;
   }

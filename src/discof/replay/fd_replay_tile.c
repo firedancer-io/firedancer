@@ -2561,8 +2561,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
     fd_tower_print( ctx->tower, ctx->root );
 
-    fd_fork_t * child = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
-    ulong vote_slot   = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, child->slot_ctx->funk_txn, ctx->ghost, ctx->runtime_spad );
+    ulong vote_slot   = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, ctx->forks, curr_slot, ctx->ghost, ctx->runtime_spad );
 
     FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
                      "# of vote accounts: %lu\n"
@@ -2610,6 +2609,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Prepare bank for the next execution and write to debugging files   */
     /**********************************************************************/
 
+    fd_fork_t * child = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
     ulong prev_slot = child->slot_ctx->slot_bank.slot;
     child->slot_ctx->slot_bank.slot                     = curr_slot;
     child->slot_ctx->slot_bank.collected_execution_fees = 0UL;
