@@ -232,6 +232,13 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
+  CFG_POP      ( cstr,   tiles.replay.dump_proto_output_dir               );
+  CFG_POP      ( cstr,   tiles.replay.dump_proto_sig_filter               );
+  CFG_POP      ( ulong,  tiles.replay.dump_proto_start_slot               );
+  CFG_POP      ( bool,   tiles.replay.dump_insn_to_pb                     );
+  CFG_POP      ( bool,   tiles.replay.dump_txn_to_pb                      );
+  CFG_POP      ( bool,   tiles.replay.dump_block_to_pb                    );
+  CFG_POP      ( bool,   tiles.replay.dump_syscall_to_pb                  );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );

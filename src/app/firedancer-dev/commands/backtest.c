@@ -218,6 +218,14 @@ backtest_topo( config_t * config ) {
     strncpy( replay_tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(replay_tile->replay.enable_features[i]) );
   }
 
+  strncpy( replay_tile->replay.dump_proto_output_dir, config->tiles.replay.dump_proto_output_dir, sizeof(replay_tile->replay.dump_proto_output_dir) );
+  strncpy( replay_tile->replay.dump_proto_sig_filter, config->tiles.replay.dump_proto_sig_filter, sizeof(replay_tile->replay.dump_proto_sig_filter) );
+  replay_tile->replay.dump_proto_start_slot = config->tiles.replay.dump_proto_start_slot;
+  replay_tile->replay.dump_insn_to_pb = config->tiles.replay.dump_insn_to_pb;
+  replay_tile->replay.dump_txn_to_pb = config->tiles.replay.dump_txn_to_pb;
+  replay_tile->replay.dump_block_to_pb = config->tiles.replay.dump_block_to_pb;
+  replay_tile->replay.dump_syscall_to_pb = config->tiles.replay.dump_syscall_to_pb;
+
   /* not specified by [tiles.replay] */
 
   strncpy( replay_tile->replay.identity_key_path, config->paths.identity_key, sizeof(replay_tile->replay.identity_key_path) );

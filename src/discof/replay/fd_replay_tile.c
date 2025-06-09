@@ -2749,15 +2749,32 @@ unprivileged_init( fd_topo_t *      topo,
   /* capture                                                            */
   /**********************************************************************/
 
-  if( strlen(tile->replay.capture) > 0 ) {
+  int has_solcap = strlen(tile->replay.capture) > 0;
+  int has_dump_to_protobuf = tile->replay.dump_insn_to_pb || tile->replay.dump_txn_to_pb || tile->replay.dump_block_to_pb || tile->replay.dump_syscall_to_pb;
+  if( has_solcap || has_dump_to_protobuf ) {
     ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
     ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-    ctx->capture_file = fopen( tile->replay.capture, "w+" );
-    if( FD_UNLIKELY( !ctx->capture_file ) ) {
-      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.capture, errno, strerror( errno ) ));
+
+    if( has_solcap ) {
+      ctx->capture_file = fopen( tile->replay.capture, "w+" );
+      if( FD_UNLIKELY( !ctx->capture_file ) ) {
+        FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.capture, errno, strerror( errno ) ));
+      }
+      fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
+      ctx->capture_ctx->capture_txns = 0;
+    } else {
+      ctx->capture_ctx->capture = NULL;
     }
-    ctx->capture_ctx->capture_txns = 0;
-    fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
+
+    if( has_dump_to_protobuf ) {
+      ctx->capture_ctx->dump_insn_to_pb       = tile->replay.dump_insn_to_pb;
+      ctx->capture_ctx->dump_txn_to_pb        = tile->replay.dump_txn_to_pb;
+      ctx->capture_ctx->dump_block_to_pb      = tile->replay.dump_block_to_pb;
+      ctx->capture_ctx->dump_syscall_to_pb    = tile->replay.dump_syscall_to_pb;
+      ctx->capture_ctx->dump_proto_sig_filter = tile->replay.dump_proto_sig_filter;
+      ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_output_dir;
+      ctx->capture_ctx->dump_proto_start_slot = tile->replay.dump_proto_start_slot;
+    }
   }
 
   /**********************************************************************/
