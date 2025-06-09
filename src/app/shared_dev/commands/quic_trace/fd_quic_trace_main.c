@@ -138,6 +138,10 @@ dump_connection( fd_quic_conn_t * conn ) {
 #define CONN_MEMB_LIST(X,CONN,...) \
   X( conn_idx,               "%u",         ( (CONN).conn_idx               ), __VA_ARGS__ ) \
   X( state,                  "%u",         ( (CONN).state                  ), __VA_ARGS__ ) \
+  X( reason,                 "%u",         ( (CONN).reason                 ), __VA_ARGS__ ) \
+  X( app_reason,             "%u",         ( (CONN).app_reason             ), __VA_ARGS__ ) \
+  X( tx_ptr,                 "%p",         ( ((void*)(CONN).tx_ptr)        ), __VA_ARGS__ ) \
+  X( unacked_sz,             "%lu",        ( (CONN).unacked_sz             ), __VA_ARGS__ ) \
   X( flags,                  "%x",         ( (CONN).flags                  ), __VA_ARGS__ ) \
   X( conn_gen,               "%u",         ( (CONN).conn_gen               ), __VA_ARGS__ ) \
   X( server,                 "%d",         ( (CONN).server                 ), __VA_ARGS__ ) \
@@ -165,7 +169,8 @@ dump_connection( fd_quic_conn_t * conn ) {
   X( idle_timeout,           "%lu",        ( (CONN).idle_timeout           ), __VA_ARGS__ ) \
   X( last_activity,          "%lu",        ( (CONN).last_activity          ), __VA_ARGS__ ) \
   X( last_ack,               "%lu",        ( (CONN).last_ack               ), __VA_ARGS__ ) \
-  X( peer_cid,               "%s",         ( peer_cid_str(&(CONN))         ), __VA_ARGS__ )
+  X( peer_cid,               "%s",         ( peer_cid_str(&(CONN))         ), __VA_ARGS__ ) \
+
 
 #define UNPACK(...) __VA_ARGS__
 #define CONN_MEMB_FMT(NAME,FMT,ARGS,...)  " " #NAME "=" FMT
@@ -267,8 +272,8 @@ quic_trace_cmd_fn( args_t *   args,
   X( CLOSE_PENDING      , __VA_ARGS__ ) SEP \
   X( DEAD               , __VA_ARGS__ )
 
-  fd_quic_conn_t * conns = (fd_quic_conn_t*)( (ulong)quic + (ulong)quic->layout.conns_off );
-  ulong conn_cnt = quic->limits.conn_cnt;
+  ulong conns         = (ulong)quic + (ulong)quic->layout.conns_off;
+  ulong conn_cnt      = quic->limits.conn_cnt;
   ulong state_unknown = 0;
 #define COMMA ,
 #define _(X,Y) [FD_QUIC_CONN_STATE_##X] = 0
@@ -276,19 +281,21 @@ quic_trace_cmd_fn( args_t *   args,
   ulong state_cap = sizeof( state_cnt) / sizeof( state_cnt[0] );
 #undef _
 
+  ulong conn_footprint = quic->layout.conn_footprint;
   for( ulong j = 0; j < conn_cnt; ++j ) {
-    ulong state = conns[j].state;
+    fd_quic_conn_t * conn = (fd_quic_conn_t*)( conns + j * conn_footprint );
+    ulong state = conn->state;
     ulong *state_bucket = state < state_cap ? &state_cnt[state] : &state_unknown;
 
     (*state_bucket)++;
 
-    switch( conns[j].state ) {
+    switch( conn->state ) {
       case FD_QUIC_CONN_STATE_DEAD:
       case FD_QUIC_CONN_STATE_INVALID:
         break;
       default:
         if( trace_ctx->dump_conns ) {
-          dump_connection( &conns[j] );
+          dump_connection( conn );
         }
 
         /* add connection to the peer_conn_id_map */
@@ -296,7 +303,7 @@ quic_trace_cmd_fn( args_t *   args,
         /* when we receive a one-rtt quic packet, we don't know the conn_id
            size, so we assume its longer than 8 bytes, and truncate the rest */
         ulong key;
-        memcpy( &key, conns[j].peer_cids[0].conn_id, sizeof( key ) );
+        memcpy( &key, conn->peer_cids[0].conn_id, sizeof( key ) );
         peer_conn_id_map_t * entry = peer_conn_id_map_insert( peer_map, key );
         if( entry ) {
           entry->conn_idx = (uint)j;
