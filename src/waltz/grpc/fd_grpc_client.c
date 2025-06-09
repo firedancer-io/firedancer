@@ -3,6 +3,7 @@
 #include "../../ballet/nanopb/pb_encode.h" /* pb_msgdesc_t */
 #include <sys/socket.h>
 #include "../h2/fd_h2_rbuf_sock.h"
+#include "fd_grpc_codec.h"
 #if FD_HAS_OPENSSL
 #include "../openssl/fd_openssl.h"
 #include <openssl/ssl.h>
@@ -16,11 +17,15 @@ fd_grpc_client_align( void ) {
 }
 
 ulong
-fd_grpc_client_footprint( void ) {
+fd_grpc_client_footprint( ulong buf_max ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_grpc_client_t), sizeof(fd_grpc_client_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_grpc_client_bufs_t), sizeof(fd_grpc_client_bufs_t) );
+  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* nanopb_tx */
+  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_scratch */
+  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_rx_buf */
+  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_tx_buf */
   l = FD_LAYOUT_APPEND( l, fd_grpc_h2_stream_pool_align(), fd_grpc_h2_stream_pool_footprint( FD_GRPC_CLIENT_MAX_STREAMS ) );
+  l = FD_LAYOUT_APPEND( l, 1UL, buf_max*FD_GRPC_CLIENT_MAX_STREAMS );
   return FD_LAYOUT_FINI( l, fd_grpc_client_align() );
 }
 
@@ -29,35 +34,51 @@ fd_grpc_client_new( void *                             mem,
                     fd_grpc_client_callbacks_t const * callbacks,
                     fd_grpc_client_metrics_t *         metrics,
                     void *                             app_ctx,
+                    ulong                              buf_max,
                     ulong                              rng_seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
+  if( FD_UNLIKELY( buf_max<4096UL ) ) {
+    FD_LOG_WARNING(( "undersz buf_max" ));
+    return NULL;
+  }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * client_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_grpc_client_t), sizeof(fd_grpc_client_t) );
-  void * bufs_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_grpc_client_bufs_t), sizeof(fd_grpc_client_bufs_t) );
+  void * nanopb_tx       = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* nanopb_tx */
+  void * frame_scratch   = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_scratch */
+  void * frame_rx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_rx_buf */
+  void * frame_tx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_tx_buf */
   void * stream_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_h2_stream_pool_align(), fd_grpc_h2_stream_pool_footprint( FD_GRPC_CLIENT_MAX_STREAMS ) );
-  FD_SCRATCH_ALLOC_FINI( l, fd_grpc_client_align() );
+  void * stream_buf_mem  = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max*FD_GRPC_CLIENT_MAX_STREAMS );
+  ulong end = FD_SCRATCH_ALLOC_FINI( l, fd_grpc_client_align() );
+  FD_TEST( end-(ulong)mem == fd_grpc_client_footprint( buf_max ) );
 
-  fd_grpc_client_t *      client = client_mem;
-  fd_grpc_client_bufs_t * bufs   = bufs_mem;
+  fd_grpc_client_t * client = client_mem;
 
   fd_grpc_h2_stream_t * stream_pool =
     fd_grpc_h2_stream_pool_join( fd_grpc_h2_stream_pool_new( stream_pool_mem, FD_GRPC_CLIENT_MAX_STREAMS ) );
   if( FD_UNLIKELY( !stream_pool ) ) FD_LOG_CRIT(( "Failed to create stream pool" )); /* unreachable */
 
   *client = (fd_grpc_client_t){
-    .callbacks     = callbacks,
-    .ctx           = app_ctx,
-    .stream_pool   = stream_pool,
-    .nanopb_tx     = bufs->nanopb_tx,
-    .frame_scratch = bufs->frame_scratch,
-    .metrics       = metrics
+    .callbacks         = callbacks,
+    .ctx               = app_ctx,
+    .stream_pool       = stream_pool,
+    .stream_bufs       = stream_buf_mem,
+    .nanopb_tx         = nanopb_tx,
+    .nanopb_tx_max     = buf_max,
+    .frame_scratch     = frame_scratch,
+    .frame_scratch_max = buf_max,
+    .frame_rx_buf      = frame_rx_buf,
+    .frame_rx_buf_max  = buf_max,
+    .frame_tx_buf      = frame_tx_buf,
+    .frame_tx_buf_max  = buf_max,
+    .metrics           = metrics
   };
-  fd_h2_rbuf_init( client->frame_rx, bufs->frame_rx_buf, sizeof(bufs->frame_rx_buf) );
-  fd_h2_rbuf_init( client->frame_tx, bufs->frame_tx_buf, sizeof(bufs->frame_tx_buf) );
+  fd_h2_rbuf_init( client->frame_rx, client->frame_rx_buf, client->frame_rx_buf_max );
+  fd_h2_rbuf_init( client->frame_tx, client->frame_tx_buf, client->frame_tx_buf_max );
 
   /* FIXME for performance, cache this? */
   fd_h2_hdr_matcher_init( client->matcher, rng_seed );
@@ -76,6 +97,12 @@ fd_grpc_client_new( void *                             mem,
   memcpy( client->version, "0.0.0", 5 );
 
   /* Don't memset bufs for better performance */
+  for( ulong i=0UL; i<FD_GRPC_CLIENT_MAX_STREAMS; i++ ) {
+    fd_grpc_h2_stream_t * stream = &client->stream_pool[ i ];
+    stream->msg_buf     = (uchar *)stream_buf_mem + (i*buf_max);
+    stream->msg_buf_max = buf_max;
+    FD_TEST( (ulong)( stream->msg_buf + stream->msg_buf_max )<=end );
+  }
 
   return client;
 }
@@ -173,7 +200,7 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
     return 0;
   }
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
-  fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, FD_GRPC_CLIENT_BUFSZ, &fd_grpc_client_h2_callbacks );
+  fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
   fd_grpc_client_send_stream_window_updates( client );
   ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
 
@@ -202,7 +229,7 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
   }
 
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
-  fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, FD_GRPC_CLIENT_BUFSZ, &fd_grpc_client_h2_callbacks );
+  fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
   fd_grpc_client_send_stream_window_updates( client );
 
   int tx_err = fd_h2_rbuf_sendmsg( client->frame_tx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
@@ -358,9 +385,9 @@ fd_grpc_client_request_start(
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return 0;
 
   /* Encode message */
-  FD_STATIC_ASSERT( sizeof(((fd_grpc_client_bufs_t *)0)->nanopb_tx) >= FD_GRPC_CLIENT_MSG_SZ_MAX, sz );
+  FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
   uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  pb_ostream_t ostream = pb_ostream_from_buffer( proto_buf, FD_GRPC_CLIENT_MSG_SZ_MAX );
+  pb_ostream_t ostream = pb_ostream_from_buffer( proto_buf, client->nanopb_tx_max - sizeof(fd_grpc_hdr_t) );
   if( FD_UNLIKELY( !pb_encode( &ostream, fields, message ) ) ) {
     FD_LOG_WARNING(( "Failed to encode Protobuf message (%.*s). This is a bug (insufficient buffer space?)", (int)path_len, path ));
     return 0;
@@ -510,7 +537,7 @@ fd_grpc_h2_cb_data(
 
       /* Header complete */
       stream->msg_sz = fd_uint_bswap( FD_LOAD( uint, (void *)( (ulong)stream->msg_buf+1 ) ) );
-      if( FD_UNLIKELY( stream->msg_sz > FD_GRPC_CLIENT_MSG_SZ_MAX ) ) {
+      if( FD_UNLIKELY( sizeof(fd_grpc_hdr_t)  + stream->msg_sz > stream->msg_buf_max ) ) {
         FD_LOG_WARNING(( "Received oversized gRPC message (%lu bytes), killing request", stream->msg_sz ));
         fd_h2_stream_error( h2_stream, client->frame_tx, FD_H2_ERR_INTERNAL );
         fd_grpc_client_stream_release( client, stream );
