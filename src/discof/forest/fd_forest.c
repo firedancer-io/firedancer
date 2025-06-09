@@ -45,8 +45,8 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
 
   forest->root           = ULONG_MAX;
   forest->wksp_gaddr     = fd_wksp_gaddr_fast( wksp, forest );
-  forest->ver_gaddr      = fd_wksp_gaddr_fast( wksp, fd_fseq_join           ( fd_fseq_new        ( ver, FD_FOREST_VER_UNINIT ) ) );
-  forest->pool_gaddr     = fd_wksp_gaddr_fast( wksp, fd_forest_pool_join    ( fd_forest_pool_new    ( pool, ele_max                 ) ) );
+  forest->ver_gaddr      = fd_wksp_gaddr_fast( wksp, fd_fseq_join           ( fd_fseq_new          ( ver, FD_FOREST_VER_UNINIT          ) ) );
+  forest->pool_gaddr     = fd_wksp_gaddr_fast( wksp, fd_forest_pool_join    ( fd_forest_pool_new   ( pool, ele_max                       ) ) );
   forest->ancestry_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_ancestry_join( fd_forest_ancestry_new( ancestry, ele_max, seed       ) ) );
   forest->frontier_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_frontier_join( fd_forest_frontier_new( frontier, ele_max, seed       ) ) );
   forest->orphaned_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_orphaned_join( fd_forest_orphaned_new( orphaned, ele_max, seed       ) ) );
@@ -433,7 +433,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
      head points to the queue head (initialized with old_root_ele). */
 
   fd_forest_ele_t * head = ancestry_frontier_remove( forest, old_root_ele->slot );
-  head->next          = null;
+  head->next             = null;
   fd_forest_ele_t * tail = head;
 
   /* Second, BFS down the tree, inserting each ele into the prune queue
@@ -463,6 +463,121 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   new_root_ele->parent = null; /* unlink new root from parent */
   forest->root     = fd_forest_ancestry_idx_query( ancestry, &new_root_slot, null, pool );
   return new_root_ele;
+}
+
+fd_forest_iter_t
+fd_forest_iter_init( fd_forest_t * forest ) {
+  /* Find first element. Anything on the frontier. */
+  fd_forest_ele_t      const * pool     = fd_forest_pool_const( forest );
+  fd_forest_frontier_t const * frontier = fd_forest_frontier_const( forest );
+
+  fd_forest_frontier_iter_t frontier_iter = fd_forest_frontier_iter_init( frontier, pool );
+  fd_forest_iter_t          repair_iter   = { fd_forest_pool_idx_null( pool ),
+                                              UINT_MAX,
+                                              fd_fseq_query( fd_forest_ver_const( forest ) ),
+                                              frontier_iter };
+  /* Nothing on frontier */
+
+  if( FD_UNLIKELY( fd_forest_frontier_iter_done( frontier_iter, frontier, pool ) ) ) return repair_iter;
+
+  /* Populate initial iter shred index */
+
+  fd_forest_ele_t const * ele = fd_forest_frontier_iter_ele_const( frontier_iter, frontier, pool );
+  while( ele->complete_idx != UINT_MAX && ele->buffered_idx == ele->complete_idx ) {
+    /* This fork frontier is actually complete, so we can skip it. Also
+       handles edge case where we are calling iter_init right after a
+       forest_init */
+    frontier_iter = fd_forest_frontier_iter_next( frontier_iter, frontier, pool );
+    if( FD_UNLIKELY( fd_forest_frontier_iter_done( frontier_iter, frontier, pool ) ) ) {
+      repair_iter.ele_idx   = fd_forest_pool_idx_null( pool );
+      repair_iter.shred_idx = UINT_MAX; /* no more elements */
+      return repair_iter;
+    }
+    ele = fd_forest_frontier_iter_ele_const( frontier_iter, frontier, pool );
+  }
+
+  repair_iter.ele_idx   = frontier_iter.ele_idx;
+  repair_iter.shred_idx = ele->complete_idx == UINT_MAX ? UINT_MAX : ele->buffered_idx + 1;
+
+  return repair_iter;
+}
+
+fd_forest_iter_t
+fd_forest_iter_next( fd_forest_iter_t iter, fd_forest_t const * forest ) {
+  fd_forest_frontier_t const * frontier = fd_forest_frontier_const( forest );
+  fd_forest_ele_t const      * pool     = fd_forest_pool_const( forest );
+  fd_forest_ele_t const      * ele      = fd_forest_pool_ele_const( pool, iter.ele_idx );
+
+  if( iter.frontier_ver != fd_fseq_query( fd_forest_ver_const( forest ) ) ) {
+    /* If the frontier has changed since we started this traversal, we
+       need to reset the iterator. */
+    iter.ele_idx   = fd_forest_pool_idx_null( pool ) ;
+    iter.shred_idx = UINT_MAX; /* no more elements */
+    return iter;
+  }
+
+  uint next_shred_idx = iter.shred_idx;
+  for(;;) {
+    next_shred_idx++;
+
+    /* Case 1: No more shreds in this slot to request, move to the
+       next one. Wraparound the shred_idx.
+
+       Case 2: original iter.shred_idx == UINT_MAX (implies prev req
+       was a highest_window_idx request). Also requires moving to next
+       slot and wrapping the shred_idx. */
+
+    if( FD_UNLIKELY( next_shred_idx >= ele->complete_idx || iter.shred_idx == UINT_MAX ) ) {
+      iter.ele_idx = ele->child;
+      ele          = fd_forest_pool_ele_const( pool, iter.ele_idx );
+      if( FD_UNLIKELY( iter.ele_idx == fd_forest_pool_idx_null( pool ) ) ) {
+        iter.shred_idx = UINT_MAX; /* no more elements */
+
+        /* rare and unlikely to happen during a regular run, but if the
+           frontier pool hasn't changed at all since we started this
+           traversal, we can cleanly select the next node in the
+           frontier using the stored frontier iterator. If the frontier
+           has changed though, we should just return done and let the
+           caller reset the iterator. */
+
+        if( FD_UNLIKELY( iter.frontier_ver == fd_fseq_query( fd_forest_ver_const( forest ) ) ) ) {
+          iter.head = fd_forest_frontier_iter_next( iter.head, frontier, pool );
+          if( FD_UNLIKELY( !fd_forest_frontier_iter_done( iter.head, frontier, pool ) ) ) {
+            iter.ele_idx   = iter.head.ele_idx;
+            ele            = fd_forest_pool_ele_const( pool, iter.head.ele_idx );
+            iter.shred_idx = ele->complete_idx == UINT_MAX ? UINT_MAX : ele->buffered_idx + 1;
+          }
+        }
+        return iter;
+      }
+      next_shred_idx = ele->buffered_idx + 1;
+    }
+
+    /* Common case - valid shred to request. Note you can't know the
+       ele->complete_idx until you have actually recieved the slot
+       complete shred, thus the we can do lt instead of leq  */
+
+    if( ele->complete_idx != UINT_MAX &&
+        next_shred_idx < ele->complete_idx &&
+        !fd_forest_ele_idxs_test( ele->idxs, next_shred_idx ) ) {
+      iter.shred_idx = next_shred_idx;
+      break;
+    }
+
+    /* Current slot actually needs a highest_window_idx request */
+
+    if( FD_UNLIKELY( ele->complete_idx == UINT_MAX ) ) {
+      iter.shred_idx = UINT_MAX;
+      break;
+    }
+  }
+  return iter;
+}
+
+int
+fd_forest_iter_done( fd_forest_iter_t iter, fd_forest_t const * forest ) {
+  fd_forest_ele_t const * pool = fd_forest_pool_const( forest );
+  return iter.ele_idx == fd_forest_pool_idx_null( pool ); /* no more elements */
 }
 
 #include <stdio.h>

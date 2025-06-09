@@ -283,6 +283,159 @@ test_large_print_tree( fd_wksp_t * wksp ){
 
 }
 
+struct iter_order {
+  ulong slot;
+  uint  idx;
+};
+typedef struct iter_order iter_order_t;
+
+void
+test_linear_forest_iterator( fd_wksp_t * wksp ) {
+  /* Repar forest iterator for a linear chain (expected behavior for
+     start up) */
+  ulong ele_max = 512UL;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  /*
+  slot  complete_idx   received
+  0          1
+  1          1            1
+  2          2            2
+  3          3            0
+  4          4            3
+  5          5            5
+
+  expected iterator order:
+  (slot 1, idx 0), (slot 2, idx 0), (slot 2, idx 1), (slot 3, idx UINT_MAX), (slot 4, idx UINT_MAX),
+  (slot 5, idx 0), (slot 5, idx 1), (slot 5, idx 2), (slot 5, idx 3), (slot 5, idx 4)
+  */
+  fd_forest_init( forest, 0 );
+  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 2, 1, 2, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 3, 1, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 4, 1, 3, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 5, 1, 5, 0, 1, 1 );
+
+  iter_order_t expected[10] = {
+    { 1, 0 }, { 2, 0 }, { 2, 1 }, { 3, UINT_MAX }, { 4, UINT_MAX },
+    { 5, 0 }, { 5, 1 }, { 5, 2 }, { 5, 3 }, { 5, 4 }
+  };
+
+  fd_forest_ele_t const * pool = fd_forest_pool_const( forest );
+  ulong i = 0;
+  for( fd_forest_iter_t iter = fd_forest_iter_init( forest ); !fd_forest_iter_done( iter, forest ); iter = fd_forest_iter_next( iter, forest ) ) {
+    fd_forest_ele_t const * ele = fd_forest_pool_ele_const( pool, iter.ele_idx );
+    FD_LOG_DEBUG(( "iter: slot %lu, idx %u", ele->slot, iter.shred_idx ));
+    FD_TEST( ele->slot == expected[i].slot );
+    FD_TEST( iter.shred_idx == expected[i].idx );
+    i++;
+  }
+  FD_TEST( i == sizeof(expected) / sizeof(iter_order_t) );
+  FD_LOG_DEBUG(("success"));
+}
+
+void
+test_branched_forest_iterator( fd_wksp_t * wksp ) {
+  /* Repair forest iterator for a branched chain (expected behavior for
+     regular turbine) */
+  ulong ele_max = 512UL;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+   /*
+
+         slot 0
+           |
+         slot 1
+         /    \
+    slot 2    |
+       |    slot 3
+    slot 4    |
+            slot 5
+
+  slot  complete_idx   recieved
+  0          1
+  1          1            1
+  2          2            2
+  3          3            0
+  4          4            3
+  5          5            5
+
+  expected iterator order:
+  (slot 1, idx 0), (slot 2, idx 0), (slot 2, idx 1), (slot 3, idx UINT_MAX), (slot 4, idx UINT_MAX),
+  (slot 5, idx 0), (slot 5, idx 1), (slot 5, idx 2), (slot 5, idx 3), (slot 5, idx 4)
+  */
+  fd_forest_init( forest, 0 );
+  fd_forest_data_shred_insert( forest, 1, 1, 1, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 2, 1, 2, 0, 1, 1 );
+  fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 4, 2, 3, 0, 0, 0 );
+  fd_forest_data_shred_insert( forest, 5, 2, 5, 0, 1, 1 );
+
+  /* This is deterministic. With only one frontier, we will try to DFS
+  the left most fork */
+  iter_order_t inital_expected[4] = {
+    { 1, 0 }, { 2, 0 }, { 2, 1 }, { 4, UINT_MAX },
+  };
+  int i = 0;
+  for( fd_forest_iter_t iter = fd_forest_iter_init( forest ); !fd_forest_iter_done( iter, forest ); iter = fd_forest_iter_next( iter, forest ) ) {
+    fd_forest_ele_t const * ele = fd_forest_pool_ele_const( fd_forest_pool_const( forest ), iter.ele_idx );
+    FD_LOG_DEBUG(( "iter: slot %lu, idx %u", ele->slot, iter.shred_idx ));
+    FD_TEST( ele->slot == inital_expected[i].slot );
+    FD_TEST( iter.shred_idx == inital_expected[i].idx );
+    i++;
+  }
+  FD_TEST( i == sizeof(inital_expected) / sizeof(iter_order_t) );
+
+  FD_LOG_DEBUG(("advancing frontier"));
+  /* Now frontier advances to the point where we have two things in the
+     frontier */
+  ulong curr_ver =  fd_fseq_query( fd_forest_ver_const( forest ) );
+  fd_forest_data_shred_insert( forest, 1, 1, 0, 0, 0, 0 );
+  // slot one is complete, so we should now have two things in the frontier
+
+  FD_TEST( curr_ver < fd_fseq_query( fd_forest_ver_const( forest ) ) );
+  curr_ver = fd_fseq_query( fd_forest_ver_const( forest ) );
+
+  iter_order_t expected[9] = {
+    { 2, 0 }, { 2, 1 }, { 4, UINT_MAX }, { 3, UINT_MAX },
+    { 5, 0 }, { 5, 1 }, { 5, 2 }, { 5, 3 }, { 5, 4 }
+  };
+
+  i = 0;
+  for( fd_forest_iter_t iter = fd_forest_iter_init( forest ); !fd_forest_iter_done( iter, forest ); iter = fd_forest_iter_next( iter, forest ) ) {
+    fd_forest_ele_t const * ele = fd_forest_pool_ele_const( fd_forest_pool_const( forest ), iter.ele_idx );
+    FD_LOG_DEBUG(( "iter: slot %lu, idx %u", ele->slot, iter.shred_idx ));
+    FD_TEST( ele->slot == expected[i].slot );
+    FD_TEST( iter.shred_idx == expected[i].idx );
+    i++;
+  }
+  FD_TEST( i == sizeof(expected) / sizeof(iter_order_t) );
+
+  FD_LOG_DEBUG(("adding data shred middle of iteration"));
+
+  FD_TEST( curr_ver == fd_fseq_query( fd_forest_ver_const( forest ) ) );
+
+  /* Lets do a data shred insert in the middle that affects the frontier */
+  i = 0;
+  for( fd_forest_iter_t iter = fd_forest_iter_init( forest ); !fd_forest_iter_done( iter, forest ); iter = fd_forest_iter_next( iter, forest ) ) {
+    fd_forest_ele_t const * ele = fd_forest_pool_ele_const( fd_forest_pool_const( forest ), iter.ele_idx );
+    FD_LOG_DEBUG(( "iter: slot %lu, idx %u", ele->slot, iter.shred_idx ));
+    i++;
+    if( i == 2 ) {
+      /* insert a data shred in the middle of the iteration */
+      fd_forest_data_shred_insert( forest, 3, 2, 3, 0, 1, 1 );
+      FD_TEST( curr_ver < fd_fseq_query( fd_forest_ver_const( forest ) ) );
+      curr_ver = fd_fseq_query( fd_forest_ver_const( forest ) );
+    }
+  }
+  FD_TEST( curr_ver == fd_fseq_query( fd_forest_ver_const( forest ) ) );
+  FD_TEST( i == 2 ); // iteration gets cut off
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -297,6 +450,8 @@ main( int argc, char ** argv ) {
   test_out_of_order( wksp );
   // test_print_tree( wksp );
   // test_large_print_tree( wksp);
+  test_linear_forest_iterator( wksp );
+  test_branched_forest_iterator( wksp );
 
   fd_halt();
   return 0;
