@@ -302,6 +302,7 @@ struct fd_topo_tile {
 
       int   incremental_src_type;
       ulong snap_fseq_obj_id;
+      ulong slot_ctx_obj_id;
 
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
@@ -444,6 +445,7 @@ struct fd_topo_tile {
       uint maximum_local_snapshot_age;
       uint minimum_download_speed_mib;
       uint maximum_download_retry_abort;
+      ulong fseq_obj_id;
     } snaprd;
 
     struct {
@@ -459,6 +461,8 @@ struct fd_topo_tile {
       ulong scratch_sz;
       ulong funk_obj_id;
       ulong fseq_obj_id;
+      ulong runtime_pub_obj_id;
+      ulong slot_ctx_obj_id;
     } snapin;
 
     struct {

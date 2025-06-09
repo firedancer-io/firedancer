@@ -136,8 +136,10 @@ fd_snapdc_shutdown( void ) {
 
 static void
 fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
-                            fd_stream_reader_t * reader ) {
-  if( ctx->metrics.status == SNAP_DC_STATUS_FULL ) {
+                            fd_stream_reader_t * reader,
+                            fd_stream_frag_meta_t const * frag ) {
+  if( ctx->metrics.status == SNAP_DC_STATUS_FULL && 
+      fd_frag_meta_ctl_orig( frag->ctl ) == 1UL ) {
     FD_LOG_INFO(("snapdc: done decompressing full snapshot, now decompressing incremental snapshot"));
     fd_snapdc_set_status( ctx, SNAP_DC_STATUS_INC );
 
@@ -150,8 +152,8 @@ fd_snapdc_on_file_complete( fd_snapdc_tile_t *   ctx,
     fd_stream_writer_reset_stream( ctx->writer );
     fd_stream_reader_reset_stream( reader );
 
-  } else if( ctx->metrics.status == SNAP_DC_STATUS_INC ) {
-    FD_LOG_INFO(("snapdc: done decompressing incremental snapshot"));
+  } else if( ctx->metrics.status == SNAP_DC_STATUS_INC ||
+             !fd_frag_meta_ctl_orig( frag->ctl ) ) {
     fd_snapdc_set_status( ctx, SNAP_DC_STATUS_DONE );
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
@@ -171,7 +173,7 @@ on_stream_frag( void *                        _ctx,
 
   /* poll file complete notification */
   if( FD_UNLIKELY( fd_frag_meta_ctl_eom( frag->ctl ) ) ) {
-    fd_snapdc_on_file_complete( ctx, reader );
+    fd_snapdc_on_file_complete( ctx, reader, frag );
     *sz = frag->sz;
     return 1;
   }

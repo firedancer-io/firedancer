@@ -21,6 +21,8 @@ struct fd_snaprd_tile {
   int                  full_fd;
   int                  inc_fd;
   int                  curr_fd;
+  int                  has_incremental;
+  ulong *              replay_snap_fseq;
 
   struct {
 
@@ -84,18 +86,23 @@ fd_snaprd_shutdown( fd_snaprd_tile_t * ctx ) {
 
 static void
 fd_snaprd_on_file_complete( fd_snaprd_tile_t * ctx ) {
-  if( ctx->metrics.status == SNAP_RD_STATUS_FULL ) {
+  if( ctx->metrics.status == SNAP_RD_STATUS_FULL && ctx->has_incremental ) {
     ctx->curr_fd = ctx->inc_fd;
 
     FD_LOG_INFO(("snaprd: done reading full snapshot, now reading incremental snapshot, seq is %lu", ctx->writer->seq ));
     fd_snaprd_set_status( ctx, SNAP_RD_STATUS_INC );
     fd_stream_writer_notify( ctx->writer, 
-                             fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
+                             fd_frag_meta_ctl( 1UL, 0, 1, 0 ) );
     fd_stream_writer_reset_stream( ctx->writer );
 
-  } else if( ctx->metrics.status == SNAP_RD_STATUS_INC ) {
+  } else if( ctx->metrics.status == SNAP_RD_STATUS_INC || !ctx->has_incremental ) {
 
-    FD_LOG_INFO(( "snaprd: done reading incremental snapshot!" ));
+    if( ctx->has_incremental ) {
+      FD_LOG_INFO(( "snaprd: done reading incremental snapshot!" ));
+    } else {
+      FD_LOG_INFO(( "snaprd: done reading full snapshot with size %lu", ctx->metrics.full.bytes_total ));
+    }
+
     fd_snaprd_set_status( ctx, SNAP_RD_STATUS_DONE );
     fd_stream_writer_notify( ctx->writer,
                              fd_frag_meta_ctl( 0UL, 0, 1, 0 ) );
@@ -136,9 +143,13 @@ privileged_init( fd_topo_t *      topo,
   ctx->full_fd = open( tile->snaprd.full_snapshot_path, O_RDONLY|O_CLOEXEC );
   if( FD_UNLIKELY( ctx->full_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( !tile->snaprd.incremental_snapshot_path[0] ) ) FD_LOG_ERR(( "Incremental snapshot path not set" ));
-  ctx->inc_fd = open( tile->snaprd.incremental_snapshot_path, O_RDONLY|O_CLOEXEC );
-  if( FD_UNLIKELY( ctx->inc_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  FD_LOG_NOTICE(("snaprd: full snapshot path is %s", tile->snaprd.full_snapshot_path));
+
+  if( FD_UNLIKELY( tile->snaprd.incremental_snapshot_path[0] ) ) {
+    ctx->has_incremental = 1;
+    ctx->inc_fd = open( tile->snaprd.incremental_snapshot_path, O_RDONLY|O_CLOEXEC );
+    if( FD_UNLIKELY( ctx->inc_fd<0 ) ) FD_LOG_ERR(( "open() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   struct stat full_stat;
   if( FD_UNLIKELY( 0!=fstat( ctx->full_fd, &full_stat ) ) ) {
@@ -163,11 +174,18 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snaprd_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ctx->curr_fd                         = ctx->full_fd;
   ctx->metrics.full.bytes_read         = 0UL;
-  ctx->metrics.full.bytes_total        = 0UL;
   ctx->metrics.incremental.bytes_read  = 0UL;
-  ctx->metrics.incremental.bytes_total = 0UL;
 
   fd_snaprd_set_status( ctx, SNAP_RD_STATUS_FULL );
+
+  ctx->replay_snap_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.fseq_obj_id ) );
+  if( FD_UNLIKELY( !ctx->replay_snap_fseq ) ) {
+    FD_LOG_ERR(( "Failed to join replay snapshot fseq" ));
+  }
+
+  FD_COMPILER_MFENCE();
+  *ctx->replay_snap_fseq = 0UL;
+  FD_COMPILER_MFENCE();
 }
 
 static void

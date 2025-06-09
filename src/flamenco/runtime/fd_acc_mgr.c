@@ -140,34 +140,6 @@ fd_funk_find_account( fd_funk_t * funk,
   }
 }
 
-fd_account_meta_t *
-fd_funk_insert_account( fd_funk_t *               funk,
-                        fd_pubkey_t const *       pubkey,
-                        fd_solana_account_hdr_t const * hdr) {
-  fd_funk_rec_prepare_t prepare[1];
-  int funk_err;
-  fd_funk_rec_key_t id   = fd_funk_acc_key( pubkey );
-  fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, NULL, &id, prepare, &funk_err );
-
-  if( rec == NULL ) {
-    /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funk_strerror( funk_err ) ));
-  }
-
-  ulong acc_sz = sizeof(fd_account_meta_t)+hdr->meta.data_len;
-
-  ulong new_val_max;
-  fd_account_meta_t * meta  = fd_alloc_malloc_at_least( fd_funk_alloc( funk ), 0UL, acc_sz, &new_val_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(("fd_alloc_malloc_at_least(sz=%lu)", acc_sz ));
-
-  rec->val_gaddr = fd_wksp_gaddr_fast( fd_funk_wksp( funk ), meta );
-  rec->val_sz    = (uint)acc_sz;
-  rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
-
-  fd_funk_rec_publish( funk, prepare );
-  return meta;
-}
-
 FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err ) {
   switch( err ) {

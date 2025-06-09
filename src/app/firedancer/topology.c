@@ -107,6 +107,14 @@ setup_topo_funk( fd_topo_t *  topo,
   return obj;
 }
 
+fd_topo_obj_t *
+setup_topo_slot_ctx( fd_topo_t * topo,
+                     char const * wksp_name ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "slot_ctx", wksp_name );
+  FD_TEST( fd_pod_insert_ulong(  topo->props, "slot_ctx", obj->id ) );
+  return obj;
+}
+
 static int
 resolve_gossip_entrypoint( char const *    host_port,
                           fd_ip4_port_t * ip4_port ) {
@@ -296,6 +304,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topob_wksp( topo, "writer_fseq" );
   fd_topob_wksp( topo, "funk" );
+  fd_topob_wksp( topo, "slot_ctx" );
 
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -445,6 +454,8 @@ fd_topo_initialize( config_t * config ) {
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
       config->firedancer.funk.heap_size_gib );
+  
+  fd_topo_obj_t * slot_ctx_obj = setup_topo_slot_ctx( topo, "slot_ctx" );
 
   /*                */ fd_topob_tile_uses( topo, batch_tile,   funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -544,7 +555,12 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, snapdc_tile, zstd_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   fd_topob_tile_uses( topo, snapin_tile, snapin_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snaprd_tile, snapshot_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snapin_tile, snapshot_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, slot_ctx_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, slot_ctx_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, snapshot_fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   /* There's another special fseq that's used to communicate the shred
     version from the Agave boot path to the shred tile. */
@@ -928,6 +944,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
       FD_TEST( tile->replay.funk_obj_id == fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX ) );
       tile->replay.snap_fseq_obj_id = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );
+      tile->replay.slot_ctx_obj_id  = fd_pod_query_ulong( config->topo.props, "slot_ctx", ULONG_MAX );
+      FD_LOG_WARNING(("replay: slot ctx obj id: %lu", tile->replay.slot_ctx_obj_id));
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
@@ -990,11 +1008,15 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapRd" ) ) ) {
       strncpy( tile->snaprd.full_snapshot_path, config->firedancer.snapshots.full_snapshot_path, sizeof(tile->snaprd.full_snapshot_path) );
       strncpy( tile->snaprd.incremental_snapshot_path, config->firedancer.snapshots.incremental_snapshot_path, sizeof(tile->snaprd.incremental_snapshot_path) );
+      tile->snapin.fseq_obj_id = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapDc" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "SnapIn" ) ) ) {
-      tile->snapin.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
-      tile->snapin.fseq_obj_id = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );
+      tile->snapin.funk_obj_id        = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
+      tile->snapin.fseq_obj_id        = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );
+      tile->snapin.runtime_pub_obj_id = fd_pod_query_ulong( config->topo.props, "runtime_pub", ULONG_MAX );
+      tile->snapin.slot_ctx_obj_id    = fd_pod_query_ulong( config->topo.props, "slot_ctx", ULONG_MAX );
+      FD_LOG_WARNING(("snapin: slot ctx obj id is %lu", tile->snapin.slot_ctx_obj_id));
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rstart" ) ) ) {
       tile->restart.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       strncpy( tile->restart.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
@@ -1005,6 +1027,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                             !strcmp( tile->name, "arch_w" ) ) ) {
       strncpy( tile->archiver.archiver_path, config->tiles.archiver.archiver_path, sizeof(tile->archiver.archiver_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "btest" ) ) ) {
+
     } else {
       return 0;
     }

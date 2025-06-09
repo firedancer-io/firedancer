@@ -29,6 +29,7 @@ fd_sysvar_epoch_rewards_read( fd_funk_t *     funk,
   FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_rewards_id, funk, funk_txn );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(("couldn't find epoch rewards sysvar!"));
     return NULL;
   }
 

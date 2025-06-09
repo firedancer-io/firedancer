@@ -5,6 +5,13 @@
 #include <assert.h>
 #include <stdio.h>
 
+static int
+restore_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
+                                     fd_solana_manifest_t * manifest,
+                                     fd_spad_t *            spad ) {
+  return (!!fd_exec_slot_ctx_recover( slot_ctx, manifest, spad ) ? 0 : EINVAL);
+}
+
 static void
 fd_snapshot_parser_discard_buf( fd_snapshot_parser_t * self ) {
   self->buf_ctr = 0UL;
@@ -30,6 +37,10 @@ fd_snapshot_parser_prepare_buf( fd_snapshot_parser_t * self,
 static int
 fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
 
+  if( self->acc_done_cb ) {
+    self->acc_done_cb( self, self->cb_arg );
+  }
+
   ulong accv_sz = self->accv_sz;
   if( accv_sz < sizeof(fd_solana_account_hdr_t) ) {
     if( FD_LIKELY( accv_sz==0UL ) ) {
@@ -44,12 +55,6 @@ fd_snapshot_parser_expect_account_hdr( fd_snapshot_parser_t * self ) {
   self->state   = SNAP_STATE_ACCOUNT_HDR;
   self->buf_ctr = 0UL;
   self->buf_sz  = sizeof(fd_solana_account_hdr_t);
-
-  if( self->acc_done_cb ) {
-    self->acc_done_cb( self, self->cb_arg );
-  }
-
-  self->metrics.accounts_processed++;
 
   return 0;
 }
@@ -317,6 +322,11 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
   fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
   fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
 
+  /* Move over objects and recover state
+     This destroys all remaining fields with the slot context valloc. */
+
+  err = restore_slot_ctx( self->slot_ctx, manifest, self->runtime_spad );
+
   /* Read AccountVec map */
 
   self->metrics.accounts_files_total = accounts_db.storages_len;
@@ -393,7 +403,9 @@ fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
 
   if( self->acc_hdr_cb ) {
     self->acc_hdr_cb( self, hdr, self->cb_arg );
+    self->metrics.accounts_processed++;
   }
+  memcpy( &self->curr_key, &hdr->meta.pubkey, sizeof(fd_pubkey_t));
 
   /* Next step */
   if( data_sz == 0UL ) {
@@ -423,17 +435,17 @@ fd_snapshot_parser_read_account_hdr_chunk( fd_snapshot_parser_t * self,
   self->accv_sz -= hdr_read;
   bufsz            -= hdr_read;
 
-  ulong peek_sz = 0UL;
+  // ulong peek_sz = 0UL;
   if( FD_LIKELY( fd_snapshot_parser_hdr_read_is_complete( self ) ) ) {
     if( FD_UNLIKELY( 0!=fd_snapshot_parser_restore_account_hdr( self ) ) ) {
       return buf; /* parse error */
     }
-    peek_sz = fd_ulong_min( self->acc_rem, bufsz );
+    // peek_sz = fd_ulong_min( self->acc_rem, bufsz );
   }
 
-  self->acc_rem -= peek_sz;
-  self->accv_sz -= peek_sz;
-  buf_next         += peek_sz;
+  // self->acc_rem -= peek_sz;
+  // self->accv_sz -= peek_sz;
+  // buf_next         += peek_sz;
 
   return buf_next;
 }
@@ -451,7 +463,7 @@ fd_snapshot_parser_read_account_chunk( fd_snapshot_parser_t * self,
 
     /* TODO: make callback here */
     if( self->acc_data_cb ) {
-        self->acc_data_cb( self, self->cb_arg, self->buf, chunk_sz );
+        self->acc_data_cb( self, self->cb_arg, buf, chunk_sz );
     }
 
     self->acc_rem -= chunk_sz;

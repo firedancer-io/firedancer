@@ -339,6 +339,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *         slot_ctx,
 
   /* Move EpochStakes */
   do {
+    FD_LOG_WARNING(("epoch_bank->epoch_schedule.slots_per_epoch is %lu", epoch_bank->epoch_schedule.slots_per_epoch));
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->slot, NULL );
 
     /* We need to save the vote accounts for the current epoch and the next

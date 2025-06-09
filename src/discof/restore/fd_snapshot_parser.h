@@ -1,4 +1,5 @@
 #include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 
 #define SNAP_STATE_IGNORE       ((uchar)0)  /* ignore file content */
 #define SNAP_STATE_TAR          ((uchar)1)  /* reading tar header (buffered) */
@@ -59,7 +60,7 @@ typedef void
 typedef void
 (* fd_snapshot_process_acc_data_fn_t)( fd_snapshot_parser_t * parser,
                                        void *                 _ctx,
-                                       uchar *                buf,
+                                       uchar const *          buf,
                                        ulong                  data_sz );
 
 typedef void
@@ -113,6 +114,12 @@ struct fd_snapshot_parser {
 
   /* metrics */
   fd_snapshot_parser_metrics_t metrics;
+
+  /* runtime shared objects */
+  fd_exec_slot_ctx_t * slot_ctx;
+  fd_spad_t *          runtime_spad;
+
+  fd_pubkey_t curr_key;
 };
 typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
@@ -165,7 +172,9 @@ fd_snapshot_parser_new( void * mem,
                         fd_snapshot_process_acc_hdr_fn_t acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t acc_data_cb,
                         fd_snapshot_process_acc_done_fn_t acc_done_cb,
-                        void *                            cb_arg ) {
+                        void *                            cb_arg,
+                        fd_exec_slot_ctx_t *              slot_ctx,
+                        fd_spad_t *                       runtime_spad ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -204,6 +213,9 @@ fd_snapshot_parser_new( void * mem,
   self->metrics.accounts_files_total     = 0UL;
   self->metrics.accounts_processed       = 0UL;
   self->processing_accv          = 0;
+
+  self->slot_ctx = slot_ctx;
+  self->runtime_spad = runtime_spad;
 
   return self;
 }

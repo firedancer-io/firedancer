@@ -42,6 +42,10 @@ setup_topo_funk( fd_topo_t *  topo,
                  ulong        max_database_transactions,
                  ulong        heap_size_gib );
 
+fd_topo_obj_t *
+setup_topo_slot_ctx( fd_topo_t * topo,
+                     char const * wksp_name );
+
 int
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );
