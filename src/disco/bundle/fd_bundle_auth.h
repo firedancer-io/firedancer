@@ -19,7 +19,7 @@ struct fd_bundle_auther {
   uchar pubkey[ 32 ];
 
   char   challenge[ 9 ];
-  char   access_token [ 512 ];
+  char   access_token[ 1024 ];
   ushort access_token_sz;
 };
 
