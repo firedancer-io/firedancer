@@ -10,7 +10,6 @@
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../funk/fd_funk.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 
 #define VAL(name) (__extension__({                                                             \
@@ -276,44 +275,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_keyswitch = {
   .footprint = keyswitch_footprint,
   .align     = keyswitch_align,
   .new       = keyswitch_new,
-};
-
-static ulong
-funk_align( fd_topo_t const *     topo,
-            fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_funk_align();
-}
-
-static ulong
-funk_footprint( fd_topo_t const *     topo,
-                fd_topo_obj_t const * obj ) {
-  (void)topo;
-  return fd_funk_footprint( VAL("txn_max"), VAL("rec_max") );
-}
-
-static ulong
-funk_loose( fd_topo_t const *     topo,
-            fd_topo_obj_t const * obj ) {
-  (void)topo;
-  return VAL("heap_max");
-}
-
-static void
-funk_new( fd_topo_t const *     topo,
-           fd_topo_obj_t const * obj ) {
-  (void)topo;
-  ulong funk_seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
-  if( !funk_seed ) FD_TEST( fd_rng_secure( &funk_seed, sizeof(ulong) ) );
-  FD_TEST( fd_funk_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, funk_seed, VAL("txn_max"), VAL("rec_max") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_funk = {
-  .name      = "funk",
-  .footprint = funk_footprint,
-  .loose     = funk_loose,
-  .align     = funk_align,
-  .new       = funk_new,
 };
 
 /* hack to make slot context a shared topo object */
