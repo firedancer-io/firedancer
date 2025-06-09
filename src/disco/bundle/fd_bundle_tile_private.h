@@ -86,6 +86,7 @@ struct fd_bundle_tile {
 
   /* gRPC client */
   void *                   grpc_client_mem;
+  ulong                    grpc_buf_max;
   fd_grpc_client_t *       grpc_client;
   fd_grpc_client_metrics_t grpc_metrics[1];
   ulong                    map_seed;

@@ -17,10 +17,11 @@ struct fd_grpc_h2_stream {
   fd_grpc_resp_hdrs_t hdrs;
 
   /* Buffer an incoming gRPC message */
-  uchar msg_buf[ sizeof(fd_grpc_hdr_t)+FD_GRPC_CLIENT_MSG_SZ_MAX ];
-  uint  hdrs_received : 1;
-  ulong msg_buf_used; /* including header */
-  ulong msg_sz;       /* size of next message */
+  uchar * msg_buf;
+  ulong   msg_buf_max;
+  uint    hdrs_received : 1;
+  ulong   msg_buf_used; /* including header */
+  ulong   msg_sz;       /* size of next message */
 };
 
 typedef struct fd_grpc_h2_stream fd_grpc_h2_stream_t;
@@ -110,6 +111,7 @@ struct fd_grpc_client_private {
 
   /* Stream pool */
   fd_grpc_h2_stream_t * stream_pool;
+  uchar *               stream_bufs;
 
   /* Stream map */
   /* FIXME pull this into a fd_map_tiny.c? */
@@ -119,7 +121,15 @@ struct fd_grpc_client_private {
 
   /* Buffers */
   uchar * nanopb_tx;
+  ulong   nanopb_tx_max;
   uchar * frame_scratch;
+  ulong   frame_scratch_max;
+
+  /* Frame buffers */
+  uchar * frame_rx_buf;
+  ulong   frame_rx_buf_max;
+  uchar * frame_tx_buf;
+  ulong   frame_tx_buf_max;
 
   /* Version string */
   uchar version_len;
@@ -127,17 +137,5 @@ struct fd_grpc_client_private {
 
   fd_grpc_client_metrics_t * metrics;
 };
-
-struct fd_grpc_client_bufs {
-  /* Nanopb serialize buffer */
-  uchar nanopb_tx[ FD_GRPC_CLIENT_MSG_SZ_MAX ];
-
-  /* Frame buffers */
-  uchar frame_rx_buf[ FD_GRPC_CLIENT_BUFSZ ];
-  uchar frame_tx_buf[ FD_GRPC_CLIENT_BUFSZ ];
-  uchar frame_scratch[ FD_GRPC_CLIENT_BUFSZ ];
-};
-
-typedef struct fd_grpc_client_bufs fd_grpc_client_bufs_t;
 
 #endif /* HEADER_fd_src_waltz_grpc_fd_grpc_client_private_h */

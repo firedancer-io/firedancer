@@ -25,9 +25,9 @@ FD_FN_CONST static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)   );
-  l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()       );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
+  l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                            );
   return FD_LAYOUT_FINI( l, 32 );
 }
 
@@ -359,9 +359,9 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)   );
-  void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint() );
-  void *             alloc_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()       );
+  fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
+  void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
+  void *             alloc_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                            );
   ulong              scratch_end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   (void)alloc_mem; /* potentially unused */
 
@@ -374,6 +374,7 @@ privileged_init( fd_topo_t *      topo,
 
   memset( ctx, 0, sizeof(fd_bundle_tile_t) );
   ctx->grpc_client_mem = grpc_mem;
+  ctx->grpc_buf_max    = tile->bundle.buf_sz;
   ctx->tcp_sock        = -1;
 
   fd_bundle_auther_init( &ctx->auther );

@@ -13,21 +13,6 @@
 struct fd_grpc_client_private;
 typedef struct fd_grpc_client_private fd_grpc_client_t;
 
-/* FIXME don't hardcode these limits */
-
-/* FD_GRPC_CLIENT_MSG_SZ_MAX is the largest serialized Protobuf
-   message that grpc_client can handle.
-
-   FD_GRPC_CLIENT_BUFSZ, which sets the size of frame buffers wrapping
-   messages, is at least FD_GRPC_CLIENT_REQUEST_SZ_MAX bytes large,
-   plus FD_GRPC_CLIENT_BUFFER_SLACK bytes of "slack" for headers.
-
-   FIXME consider making these dynamic, and move them to the config file */
-
-#define FD_GRPC_CLIENT_MSG_SZ_MAX (1<<16) /* 64 KiB */
-#define FD_GRPC_CLIENT_BUFFER_SLACK (1<<12) /* 4 KiB */
-#define FD_GRPC_CLIENT_BUFSZ (FD_GRPC_CLIENT_MSG_SZ_MAX+FD_GRPC_CLIENT_BUFFER_SLACK)
-
 /* FD_GRPC_CLIENT_MAX_STREAMS specifies the max number of inflight
    unary and server-streaming requests.  Note that grpc_client does
    not scale well to large numbers due to O(n) algorithms. */
@@ -162,13 +147,14 @@ ulong
 fd_grpc_client_align( void );
 
 ulong
-fd_grpc_client_footprint( void );
+fd_grpc_client_footprint( ulong buf_max );
 
 fd_grpc_client_t *
 fd_grpc_client_new( void *                             mem,
                     fd_grpc_client_callbacks_t const * callbacks,
                     fd_grpc_client_metrics_t *         metrics,
                     void *                             app_ctx,
+                    ulong                              buf_max,
                     ulong                              rng_seed );
 
 void *
