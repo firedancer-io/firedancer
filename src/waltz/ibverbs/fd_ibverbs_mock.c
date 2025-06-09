@@ -15,10 +15,10 @@ fd_ibverbs_mock_qp_sge_pool_max(
 ) {
   ulong desc_max;
   ulong sge_pool_max;
-  if( FD_UNLIKELY( !__builtin_uaddl_overflow( rx_depth, tx_depth, &desc_max ) ) ) {
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( rx_depth, tx_depth, &desc_max ) ) ) {
     return 0UL;
   }
-  if( FD_UNLIKELY( !__builtin_umull_overflow( desc_max, sge_max, &sge_pool_max ) ) ) {
+  if( FD_UNLIKELY( __builtin_umull_overflow( desc_max, sge_max, &sge_pool_max ) ) ) {
     return 0UL;
   }
   return sge_pool_max;
@@ -44,7 +44,6 @@ fd_ibverbs_mock_qp_footprint( ulong const rx_depth,
   l = FD_LAYOUT_APPEND( l, fd_ibv_recv_wr_q_align(), fd_ibv_recv_wr_q_footprint( rx_depth ) );
   l = FD_LAYOUT_APPEND( l, fd_ibv_send_wr_q_align(), fd_ibv_send_wr_q_footprint( tx_depth ) );
   l = FD_LAYOUT_APPEND( l, fd_ibv_wc_q_align(),      fd_ibv_wc_q_footprint     ( cq_depth ) );
-  l = FD_LAYOUT_APPEND( l, fd_ibv_sge_p_align(),     fd_ibv_sge_p_footprint    ( tx_depth ) );
   l = FD_LAYOUT_APPEND( l, fd_ibv_sge_p_align(),     fd_ibv_sge_p_footprint    ( sge_pool_max ) );
   return FD_LAYOUT_FINI( l, fd_ibverbs_mock_qp_align() );
 }
@@ -55,6 +54,12 @@ fd_ibverbs_mock_qp_new( void * const mem,
                         ulong  const tx_depth,
                         ulong  const cq_depth,
                         ulong  const sge_max ) {
+  ulong const sge_pool_max = fd_ibverbs_mock_qp_sge_pool_max( rx_depth, tx_depth, sge_max );
+  ulong const footprint    = fd_ibverbs_mock_qp_footprint( rx_depth, tx_depth, cq_depth, sge_max );
+  if( FD_UNLIKELY( !footprint ) ) {
+    FD_LOG_WARNING(( "invalid config for ibverbs_mock_qp" ));
+    return NULL;
+  }       
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -62,13 +67,7 @@ fd_ibverbs_mock_qp_new( void * const mem,
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_ibverbs_mock_qp_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
-  }
-  ulong const sge_pool_max = fd_ibverbs_mock_qp_sge_pool_max( rx_depth, tx_depth, sge_max );
-  ulong const footprint    = fd_ibverbs_mock_qp_footprint( rx_depth, tx_depth, cq_depth, sge_max );
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "invalid config for ibverbs_mock_qp" ));
-    return NULL;
-  }                      
+  }               
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * mock_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ibverbs_mock_qp_t), sizeof(fd_ibverbs_mock_qp_t) );

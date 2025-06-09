@@ -2,6 +2,10 @@
    in 'raw packet' mode and fd_tango traffic.  Works best on Mellanox
    ConnectX. */
 
+/* FIXME ibeth tile should keep the number of inflight WRs strictly below
+   the CQ depth.  (CQ overflow is a semi-permanent failure and needs
+   recovery, so it should be avoided) */
+
 #include "../fd_net_router.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
@@ -206,7 +210,7 @@ rxq_assign( fd_ibeth_tile_t * ctx,
 /* privileged_init does various ibverbs configuration via userspace verbs
    (/dev/interface/uverbs*). */
 
-static void
+FD_FN_UNUSED static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   fd_ibeth_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -271,7 +275,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->mr_lkey = mr->lkey;
 
   /* Create completion queue */
-  int cqe = 1024;
+  int cqe = 1024; /* FIXME */
   ctx->cq = ibv_create_cq( ibv_context, cqe, NULL, NULL, 0 );
   if( FD_UNLIKELY( !ctx->cq ) ) {
     FD_LOG_ERR(( "ibv_create_cq failed" ));
@@ -382,7 +386,7 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
-static void
+FD_FN_UNUSED static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
