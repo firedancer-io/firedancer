@@ -77,6 +77,18 @@ fd_dev_main( int          argc,
   fd_env_strip_cmdline_cstr( &argc, &argv, "--log-level-stderr", NULL, NULL );
   char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
 
+  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
+  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+  config.development.no_clone = config.development.no_clone || no_clone;
+  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
+
+  const char * opt_user_config_path = fd_env_strip_cmdline_cstr(
+    &argc,
+    &argv,
+    "--config",
+    "FIREDANCER_CONFIG_TOML",
+    NULL );
+
   const char * action_name = "dev";
   if( FD_LIKELY( argc > 0 && !strcmp( argv[ 0 ], "--version" ) ) ) {
     action_name = "version";
@@ -93,6 +105,10 @@ fd_dev_main( int          argc,
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
     if( FD_UNLIKELY( !strcmp( action_name, ACTIONS[ i ]->name ) ) ) {
       action = ACTIONS[ i ];
+      if( FD_UNLIKELY( action->is_immediate ) ) {
+        action->fn( NULL, NULL );
+        return 0;
+      }
       break;
     }
   }
@@ -102,12 +118,7 @@ fd_dev_main( int          argc,
     exit( 1 );
   }
 
-  fd_main_init( &argc, &argv, &config, is_firedancer, action->is_local_cluster, log_path, default_config, default_config_sz, topo_init );
-
-  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
-  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
-  config.development.no_clone = config.development.no_clone || no_clone;
-  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, default_config, default_config_sz, topo_init );
 
   int is_allowed_live = action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )

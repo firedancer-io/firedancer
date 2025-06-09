@@ -18,6 +18,7 @@ void
 fd_main_init( int *        pargc,
               char ***     pargv,
               config_t   * config,
+              const char * opt_user_config_path,
               int          is_firedancer,
               int          is_local_cluster,
               char const * log_path,

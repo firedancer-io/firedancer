@@ -75,6 +75,7 @@ void
 fd_main_init( int *        pargc,
               char ***     pargv,
               config_t   * config,
+              const char * opt_user_config_path,
               int          is_firedancer,
               int          is_local_cluster,
               char const * log_path,
@@ -96,22 +97,15 @@ fd_main_init( int *        pargc,
        they can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
-    const char * user_config_path = fd_env_strip_cmdline_cstr(
-      pargc,
-      pargv,
-      "--config",
-      "FIREDANCER_CONFIG_TOML",
-      NULL );
-
     char * user_config = NULL;
     ulong user_config_sz = 0UL;
-    if( FD_LIKELY( user_config_path ) ) {
-      user_config = fd_file_util_read_all( user_config_path, &user_config_sz );
-      if( FD_UNLIKELY( user_config==MAP_FAILED ) ) FD_LOG_ERR(( "failed to read user config file `%s` (%d-%s)", user_config_path, errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( opt_user_config_path ) ) {
+      user_config = fd_file_util_read_all( opt_user_config_path, &user_config_sz );
+      if( FD_UNLIKELY( user_config==MAP_FAILED ) ) FD_LOG_ERR(( "failed to read user config file `%s` (%d-%s)", opt_user_config_path, errno, fd_io_strerror( errno ) ));
     }
 
     int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
-    fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, user_config, user_config_sz, user_config_path, config );
+    fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, user_config, user_config_sz, opt_user_config_path, config );
     topo_init( config );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -210,6 +204,15 @@ fd_main( int          argc,
     }
   }
 
+  /* We need to strip away (potentially leading) cmdline flags first,
+     since the parser assumes the action is the leading argument */
+  const char * opt_user_config_path = fd_env_strip_cmdline_cstr(
+    &argc,
+    &argv,
+    "--config",
+    "FIREDANCER_CONFIG_TOML",
+    NULL );
+
   action_t * action = NULL;
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
     if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ||
@@ -226,7 +229,7 @@ fd_main( int          argc,
   }
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  fd_main_init( &argc, &argv, &config, is_firedancer, is_local_cluster, NULL, default_config, default_config_sz, topo_init );
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, default_config, default_config_sz, topo_init );
 
   if( FD_UNLIKELY( !action ) ) {
     for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
