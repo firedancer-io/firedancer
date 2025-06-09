@@ -584,7 +584,8 @@ fd_vm_init(
    uint mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated,
-   int direct_mapping ) {
+   int direct_mapping,
+   int dump_syscall_to_pb ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
@@ -629,6 +630,7 @@ fd_vm_init(
   vm->direct_mapping = direct_mapping;
   vm->stack_frame_size = FD_VM_STACK_FRAME_SZ + ( direct_mapping ? 0UL : FD_VM_STACK_GUARD_SZ );
   vm->segv_store_vaddr = ULONG_MAX;
+  vm->dump_syscall_to_pb = dump_syscall_to_pb;
 
   /* Unpack the configuration */
   int err = fd_vm_setup_state_for_execution( vm );

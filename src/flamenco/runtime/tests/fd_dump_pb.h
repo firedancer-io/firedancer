@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h
 #define HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h
 
-/* fd_dump_pb.h provides APIs for dumping instructions, transactions, and slots
+/* fd_dump_pb.h provides APIs for dumping syscalls, instructions, transactions, and blocks
    into a digestable and replayable Protobuf message. This is useful for debugging
    ledger test mismatches, collecting seed corpora, and gathering real data to test
    new harnesses.
@@ -36,7 +36,10 @@
                 * File name format is "block-<slot_number>.bin"
                 * Each file represents a single block as a serialized BlockContext Protobuf message
 
-        CPI: Currently not directly invokable with a CLI argument. See details below.
+        Syscalls:
+            --dump-syscall-to-pb <0/1>
+                * If enabled, syscalls will be dumped to the specified output directory
+                * File name format is "syscall-<fn_name>-<base58_enc_sig>-<program_id_idx>-<instr_stack_sz>-<cus_remaining>.bin"
 
     Other notes:
         solana-conformance (https://github.com/firedancer-io/solana-conformance)
@@ -89,24 +92,9 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
                                    fd_spad_t *                     spad,
                                    fd_exec_test_block_context_t *  block_context_msg );
 
-/* Captures the state of the VM (including the instruction context).
-   Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:
-
-  ```
-   dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)),
-                     instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt);
-  ```
-
-  Assumes that a `vm_cpi_state` directory exists in the current working directory. Generates a
-  unique dump for combination of (tile_id, caller_pubkey, instr_sz). */
 void
-fd_dump_vm_cpi_state( fd_vm_t *    vm,
-                      char const * fn_name,
-                      ulong        instruction_va,
-                      ulong        acct_infos_va,
-                      ulong        acct_info_cnt,
-                      ulong        signers_seeds_va,
-                      ulong        signers_seeds_cnt );
+fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
+                                char const *    fn_name );
 
 FD_PROTOTYPES_END
 

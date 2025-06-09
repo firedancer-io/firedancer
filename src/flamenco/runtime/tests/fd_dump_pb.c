@@ -1022,99 +1022,139 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
 }
 
 void
-fd_dump_vm_cpi_state( fd_vm_t *    vm,
-                      char const * fn_name,
-                      ulong        instruction_va,
-                      ulong        acct_infos_va,
-                      ulong        acct_info_cnt,
-                      ulong        signers_seeds_va,
-                      ulong        signers_seeds_cnt ) {
-  char filename[100];
-  fd_instr_info_t const *instr = vm->instr_ctx->instr;
-  sprintf( filename,
-          "vm_cpi_state/%lu_%lu%lu_%hu.sysctx",
-          fd_tile_id(),
-          vm->instr_ctx->txn_ctx->account_keys[ instr->program_id ].ul[0],
-          vm->instr_ctx->txn_ctx->account_keys[ instr->program_id ].ul[1],
-          instr->data_sz );
+fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
+                                char const *    fn_name ) {
+FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
 
-  // Check if file exists
-  if( access (filename, F_OK) != -1 ) {
-    return;
+  fd_ed25519_sig_t signature;
+  memcpy( signature, (uchar const *)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off, sizeof(fd_ed25519_sig_t) );
+  char encoded_signature[FD_BASE58_ENCODED_64_SZ];
+  fd_base58_encode_64( signature, NULL, encoded_signature );
+
+  char filename[256];
+  sprintf( filename,
+          "%s/syscall-%s-%s-%d-%hhu-%lu.sysctx",
+          vm->instr_ctx->txn_ctx->capture_ctx->dump_proto_output_dir,
+          fn_name,
+          encoded_signature,
+          vm->instr_ctx->txn_ctx->current_instr_idx,
+          vm->instr_ctx->txn_ctx->instr_stack_sz,
+          vm->cu );
+
+  /* The generated filename should be unique for every call. */
+  if( FD_UNLIKELY( access( filename, F_OK )!=-1 ) ) {
+    FD_LOG_ERR(( "File %s already exists! Dumped files should be unique.", filename )); // TODO: Maybe don't FD_LOG_ERR?
   }
 
   fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO;
-  sys_ctx.has_instr_ctx = 1;
+
+  /* SyscallContext -> vm_ctx */
   sys_ctx.has_vm_ctx = 1;
+
+  /* SyscallContext -> vm_ctx -> heap_max */
+  sys_ctx.vm_ctx.heap_max = vm->heap_max; /* should be equiv. to txn_ctx->heap_sz */
+
+  /* SyscallContext -> vm_ctx -> rodata */
+  sys_ctx.vm_ctx.rodata = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->rodata_sz ) );
+  sys_ctx.vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
+  fd_memcpy( sys_ctx.vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
+
+  /* SyscallContext -> vm_ctx -> rodata_text_section_offset */
+  sys_ctx.vm_ctx.rodata_text_section_offset = vm->text_off;
+
+  /* SyscallContext -> vm_ctx -> rodata_text_section_length */
+  sys_ctx.vm_ctx.rodata_text_section_length = vm->text_sz;
+
+  /* SyscallContext -> vm_ctx -> r0-11 */
+  sys_ctx.vm_ctx.r0  = vm->reg[0];
+  sys_ctx.vm_ctx.r1  = vm->reg[1];
+  sys_ctx.vm_ctx.r2  = vm->reg[2];
+  sys_ctx.vm_ctx.r3  = vm->reg[3];
+  sys_ctx.vm_ctx.r4  = vm->reg[4];
+  sys_ctx.vm_ctx.r5  = vm->reg[5];
+  sys_ctx.vm_ctx.r6  = vm->reg[6];
+  sys_ctx.vm_ctx.r7  = vm->reg[7];
+  sys_ctx.vm_ctx.r8  = vm->reg[8];
+  sys_ctx.vm_ctx.r9  = vm->reg[9];
+  sys_ctx.vm_ctx.r10 = vm->reg[10];
+  sys_ctx.vm_ctx.r11 = vm->reg[11];
+
+  /* SyscallContext -> vm_ctx -> entry_pc */
+  sys_ctx.vm_ctx.entry_pc = vm->entry_pc;
+
+  /* SyscallContext -> vm_ctx -> return_data */
+  sys_ctx.vm_ctx.has_return_data = 1;
+
+  /* SyscallContext -> vm_ctx -> return_data -> data */
+  sys_ctx.vm_ctx.return_data.data = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->instr_ctx->txn_ctx->return_data.len ) );
+  sys_ctx.vm_ctx.return_data.data->size = (pb_size_t)vm->instr_ctx->txn_ctx->return_data.len;
+  fd_memcpy( sys_ctx.vm_ctx.return_data.data->bytes, vm->instr_ctx->txn_ctx->return_data.data, vm->instr_ctx->txn_ctx->return_data.len );
+
+  /* SyscallContext -> vm_ctx -> return_data -> program_id */
+  sys_ctx.vm_ctx.return_data.program_id = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(pb_bytes_array_t), sizeof(fd_pubkey_t) );
+  sys_ctx.vm_ctx.return_data.program_id->size = sizeof(fd_pubkey_t);
+  fd_memcpy( sys_ctx.vm_ctx.return_data.program_id->bytes, vm->instr_ctx->txn_ctx->return_data.program_id.key, sizeof(fd_pubkey_t) );
+
+  /* SyscallContext -> vm_ctx -> sbpf_version */
+  sys_ctx.vm_ctx.sbpf_version = (uint)vm->sbpf_version;
+
+  /* SyscallContext -> instr_ctx */
+  sys_ctx.has_instr_ctx = 1;
+  create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
+                                                    vm->instr_ctx->txn_ctx,
+                                                    vm->instr_ctx->instr );
+
+  /* SyscallContext -> syscall_invocation */
   sys_ctx.has_syscall_invocation = 1;
 
-  // Copy function name
+  /* SyscallContext -> syscall_invocation -> function_name */
   sys_ctx.syscall_invocation.function_name.size = fd_uint_min( (uint) strlen(fn_name), sizeof(sys_ctx.syscall_invocation.function_name.bytes) );
   fd_memcpy( sys_ctx.syscall_invocation.function_name.bytes,
              fn_name,
              sys_ctx.syscall_invocation.function_name.size );
 
-  // VM Ctx integral fields
-  sys_ctx.vm_ctx.r1 = instruction_va;
-  sys_ctx.vm_ctx.r2 = acct_infos_va;
-  sys_ctx.vm_ctx.r3 = acct_info_cnt;
-  sys_ctx.vm_ctx.r4 = signers_seeds_va;
-  sys_ctx.vm_ctx.r5 = signers_seeds_cnt;
+  /* SyscallContext -> syscall_invocation -> heap_prefix */
+  sys_ctx.syscall_invocation.heap_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+  sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
+  fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
 
-  sys_ctx.vm_ctx.rodata_text_section_length = vm->text_sz;
-  sys_ctx.vm_ctx.rodata_text_section_offset = vm->text_off;
+  /* SyscallContext -> syscall_invocation -> stack_prefix */
+  pb_size_t stack_sz = (pb_size_t)FD_VM_STACK_MAX;
+  sys_ctx.syscall_invocation.stack_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( stack_sz ) );
+  sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
+  fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
 
-  sys_ctx.vm_ctx.heap_max = vm->heap_max; /* should be equiv. to txn_ctx->heap_sz */
-
-  FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
-    sys_ctx.vm_ctx.rodata = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->rodata_sz ) );
-    sys_ctx.vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
-    fd_memcpy( sys_ctx.vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
-
-    pb_size_t stack_sz = (pb_size_t) ( (vm->frame_cnt + 1)*FD_VM_STACK_GUARD_SZ*2 );
-    sys_ctx.syscall_invocation.stack_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( stack_sz ) );
-    sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
-    fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
-
-    sys_ctx.syscall_invocation.heap_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-    sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
-    fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
-
-    create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
-                                                        vm->instr_ctx->txn_ctx,
-                                                        vm->instr_ctx->instr );
-
-    // Serialize the protobuf to file (using mmap)
-    size_t pb_alloc_size = 100 * 1024 * 1024; // 100MB (largest so far is 19MB)
-    FILE *f = fopen(filename, "wb+");
-    if( ftruncate(fileno(f), (off_t) pb_alloc_size) != 0 ) {
-      FD_LOG_WARNING(("Failed to resize file %s", filename));
-      fclose(f);
-      return;
-    }
-
-    uchar *pb_alloc = mmap( NULL,
-                            pb_alloc_size,
-                            PROT_READ | PROT_WRITE,
-                            MAP_SHARED,
-                            fileno(f),
-                            0 /* offset */);
-    if( pb_alloc == MAP_FAILED ) {
-      FD_LOG_WARNING(( "Failed to mmap file %d", errno ));
-      fclose(f);
-      return;
-    }
-
-    pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
-    if( !pb_encode( &stream, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS, &sys_ctx ) ) {
-      FD_LOG_WARNING(( "Failed to encode instruction context" ));
-    }
-    // resize file to actual size
-    if( ftruncate( fileno(f), (off_t) stream.bytes_written ) != 0 ) {
-      FD_LOG_WARNING(( "Failed to resize file %s", filename ));
-    }
-
+  // Serialize the protobuf to file (using mmap)
+  size_t pb_alloc_size = 100 * 1024 * 1024; // 100MB (largest so far is 19MB)
+  FILE *f = fopen(filename, "wb+");
+  if( ftruncate(fileno(f), (off_t) pb_alloc_size) != 0 ) {
+    FD_LOG_WARNING(("Failed to resize file %s", filename));
     fclose(f);
+    return;
+  }
 
-  } FD_SPAD_FRAME_END;
+  uchar *pb_alloc = mmap( NULL,
+                          pb_alloc_size,
+                          PROT_READ | PROT_WRITE,
+                          MAP_SHARED,
+                          fileno(f),
+                          0 /* offset */);
+  if( pb_alloc == MAP_FAILED ) {
+    FD_LOG_WARNING(( "Failed to mmap file %d", errno ));
+    fclose(f);
+    return;
+  }
+
+  pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
+  if( !pb_encode( &stream, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS, &sys_ctx ) ) {
+    FD_LOG_WARNING(( "Failed to encode instruction context" ));
+  }
+  // resize file to actual size
+  if( ftruncate( fileno(f), (off_t) stream.bytes_written ) != 0 ) {
+    FD_LOG_WARNING(( "Failed to resize file %s", filename ));
+  }
+
+  fclose(f);
+
+} FD_SPAD_FRAME_END;
 }
