@@ -84,8 +84,15 @@ fd_net_tx_route( fd_net_router_t * ctx,
   int neigh_res = fd_neigh4_hmap_query_try( ctx->neigh4, &neigh_ip, NULL, neigh_query, 0 );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
-    fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->metrics.tx_neigh_fail_cnt++;
+    if( FD_LIKELY( ctx->neigh4_solicit->mcache ) ) {
+      fd_netlink_neigh4_solicit(
+          ctx->neigh4_solicit,
+          neigh_ip,
+          if_idx,
+          fd_frag_meta_ts_comp( fd_tickcount() )
+      );
+      ctx->metrics.tx_neigh_fail_cnt++;
+    }
     return 0;
   }
   fd_neigh4_entry_t const * neigh = fd_neigh4_hmap_query_ele_const( neigh_query );

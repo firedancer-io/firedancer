@@ -224,9 +224,9 @@ fd_ibv_mock_post_recv( struct ibv_qp *       qp,
     IBV_INJECT_ERR( mock );
     ulong const sge_cnt = (ulong)wr->num_sge;
     if( FD_UNLIKELY( fd_ibv_recv_wr_q_full( mock->rx_q ) ||
-                     fd_ibv_sge_p_free( mock->sge_pool )>=sge_cnt ) ) {
+                     fd_ibv_sge_p_free( mock->sge_pool )<sge_cnt ) ) {
       *bad_wr = wr;
-      return ENOSPC;
+      return (errno = ENOSPC);
     }
     /* Copy WR */
     struct ibv_recv_wr * next = fd_ibv_recv_wr_q_push_tail_nocopy( mock->rx_q );

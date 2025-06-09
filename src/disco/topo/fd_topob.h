@@ -36,7 +36,7 @@ fd_topob_new( void * mem,
    must be unique and adding the same workspace twice will produce an
    error. */
 
-void
+fd_topo_wksp_t *
 fd_topob_wksp( fd_topo_t *  topo,
                char const * name );
 

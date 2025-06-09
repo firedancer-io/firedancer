@@ -406,6 +406,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tx_free = tx_free_join( tx_free_new( deque_mem, tile->ibeth.tx_queue_size ) );
   while( !tx_free_full( ctx->tx_free ) ) {
     tx_free_push_tail( ctx->tx_free, (uint)next_chunk );
+    next_chunk += frame_chunks;
   }
 
   /* Init TX */
@@ -429,11 +430,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
   ulong net_netlnk_id = fd_topo_find_link( topo, "net_netlnk", 0UL );
-  if( FD_UNLIKELY( net_netlnk_id==ULONG_MAX ) ) FD_LOG_ERR(( "net_netlnk link not found" ));
-  fd_topo_link_t * net_netlnk = &topo->links[ net_netlnk_id ];
-  ctx->r.neigh4_solicit->mcache = net_netlnk->mcache;
-  ctx->r.neigh4_solicit->depth  = fd_mcache_depth( ctx->r.neigh4_solicit->mcache );
-  ctx->r.neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->r.neigh4_solicit->mcache ) );
+  if( FD_UNLIKELY( net_netlnk_id!=ULONG_MAX ) ) {
+    fd_topo_link_t * net_netlnk = &topo->links[ net_netlnk_id ];
+    ctx->r.neigh4_solicit->mcache = net_netlnk->mcache;
+    ctx->r.neigh4_solicit->depth  = fd_mcache_depth( ctx->r.neigh4_solicit->mcache );
+    ctx->r.neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->r.neigh4_solicit->mcache ) );
+  }
 
   /* Check if all chunks are in bound */
   if( FD_UNLIKELY( next_chunk > ctx->umem_wmark ) ) {
