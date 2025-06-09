@@ -90,4 +90,10 @@ fd_quic_svc_event_t*
 fd_quic_svc_get_event( fd_quic_svc_timers_t * timers,
                        fd_quic_conn_t       * conn );
 
+
+/* fd_quic_svc_cnt_events returns the number of conns with active timers
+   Primarily used for testing/validation. */
+ulong
+fd_quic_svc_cnt_events( fd_quic_svc_timers_t * timers );
+
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_svc_q_h */

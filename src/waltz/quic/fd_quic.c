@@ -2251,6 +2251,10 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
         break;
     }
 
+    if( FD_LIKELY( conn ) ) {
+      fd_quic_svc_schedule( state->svc_timers, conn );
+    }
+
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "Rejected packet (type=%d)", long_packet_type )); )
       return FD_QUIC_PARSE_FAIL;
@@ -2267,6 +2271,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
+    fd_quic_svc_schedule( state->svc_timers, conn );
+
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2282,6 +2288,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   int ack_type = fd_quic_lazy_ack_pkt( quic, conn, pkt );
   quic->metrics.ack_tx[ ack_type ]++;
 
+  /* fd_quic_lazy_ack_pkt may have prepped schedule */
   fd_quic_svc_schedule( state->svc_timers, conn );
 
   if( pkt->rtt_ack_time ) {
@@ -2461,6 +2468,11 @@ fd_quic_process_packet( fd_quic_t * quic,
       }
 
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
+      if( FD_UNLIKELY( fd_quic_svc_cnt_events( state->svc_timers ) != quic->metrics.conn_active_cnt ) ) {
+        FD_LOG_ERR(( "only %lu out of %lu connections are in timer",
+                     fd_quic_svc_cnt_events( state->svc_timers ),
+                     quic->metrics.conn_active_cnt ));
+      }
 
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
@@ -2490,6 +2502,11 @@ fd_quic_process_packet( fd_quic_t * quic,
   /* short header packet
      only one_rtt packets currently have short headers */
   fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
+  if( FD_UNLIKELY( fd_quic_svc_cnt_events( state->svc_timers ) != quic->metrics.conn_active_cnt ) ) {
+    FD_LOG_ERR(( "only %lu out of %lu connections are in timer",
+                  fd_quic_svc_cnt_events( state->svc_timers ),
+                  quic->metrics.conn_active_cnt ));
+  }
 }
 
 /* main receive-side entry point */
@@ -2917,6 +2934,11 @@ fd_quic_service( fd_quic_t * quic ) {
   long now_ticks = fd_tickcount();
 
   fd_quic_svc_timers_t * timers = state->svc_timers;
+  if( FD_UNLIKELY( fd_quic_svc_cnt_events( timers ) != quic->metrics.conn_active_cnt ) ) {
+    FD_LOG_ERR(( "%lu out of %lu connections are in timer",
+                 fd_quic_svc_cnt_events( timers ),
+                 quic->metrics.conn_active_cnt ));
+  }
   fd_quic_svc_event_t    next   = fd_quic_svc_timers_next( timers, now, 1 /* pop */);
   if( FD_UNLIKELY( next.conn == NULL ) ) {
     return 0;
@@ -3944,6 +3966,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
     case FD_QUIC_CONN_STATE_INVALID:
       /* fall thru */
     default:
+      FD_LOG_ERR(( "invalid conn state %u", conn->state ));
       return;
   }
 

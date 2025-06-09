@@ -161,3 +161,8 @@ fd_quic_svc_get_event( fd_quic_svc_timers_t * timers,
   if( idx == FD_QUIC_SVC_IDX_INVAL ) return NULL;
   return timers + idx;
 }
+
+ulong
+fd_quic_svc_cnt_events( fd_quic_svc_timers_t * timers ) {
+  return fd_quic_svc_queue_prq_cnt( timers );
+}
