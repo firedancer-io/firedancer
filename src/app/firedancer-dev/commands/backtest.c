@@ -227,6 +227,8 @@ backtest_topo( config_t * config ) {
   replay_tile->replay.full_interval        = config->tiles.batch.full_interval;
   replay_tile->replay.incremental_interval = config->tiles.batch.incremental_interval;
 
+  replay_tile->replay.enable_bank_hash_cmp = 0;
+
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */
   /**********************************************************************/

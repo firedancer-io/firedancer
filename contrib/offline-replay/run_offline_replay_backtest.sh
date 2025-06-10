@@ -66,7 +66,7 @@ while true; do
         LOG=/home/kbhargava/${NETWORK}_offline_replay_${NEWEST_BUCKET_SLOT}.log
         TEMP_LOG=/home/kbhargava/${NETWORK}_offline_replay_${NEWEST_BUCKET_SLOT}_temp.log
         send_slack_message "Log File: \`$LOG\`"
-        echo "" > $LOG
+        echo "" > $LOG && chmod 777 $LOG
         LEDGER_DIR=${FIREDANCER_REPO}/dump/${NETWORK}-${NEWEST_BUCKET_SLOT}
         send_slack_message "Ledger Directory: \`$LEDGER_DIR\`"
         OLD_SNAPSHOTS_DIR=${LEDGER_DIR}/old_snapshots
@@ -171,7 +171,7 @@ while true; do
 
             export ledger=$LEDGER_DIR
             echo "ledger: $ledger"
-            export snapshot=$LEDGER_REPLAY_SNAPSHOT
+            export snapshot=$(ls $LEDGER_REPLAY_SNAPSHOT)
             export end_slot=$ROCKSDB_ROOTED_MAX
             export funk_pages=$BACKTEST_FUNK_PAGES
             export index_max=$INDEX_MAX
@@ -196,7 +196,7 @@ while true; do
 
             $OBJDIR/bin/firedancer-dev configure init all --config $LEDGER_DIR/offline_replay.toml &> /dev/null
 
-            rm -rf $TEMP_LOG && touch $TEMP_LOG
+            rm -rf $TEMP_LOG && touch $TEMP_LOG && chmod 777 $TEMP_LOG
 
             set -x
                 $OBJDIR/bin/firedancer-dev backtest --config $LEDGER_DIR/offline_replay.toml &> /dev/null
@@ -314,8 +314,7 @@ while true; do
                 $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
-                # set LEDGER_REPLAY_SNAPSHOT to new snapshot
-                LEDGER_REPLAY_SNAPSHOT=$LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}*
+
                 echo "New snapshot created at $LEDGER_REPLAY_SNAPSHOT"
                 # minify a rocksdb for the minimized snapshot
 
@@ -353,6 +352,9 @@ while true; do
                     send_slack_message "Minimized snapshot created at \`$MISMATCH_SNAPSHOT_FILE\`"
                 done
                 mv $OLD_SNAPSHOTS_DIR/snapshot-${NEXT_ROOTED_SLOT}* $LEDGER_DIR
+
+                # set LEDGER_REPLAY_SNAPSHOT to new snapshot
+                LEDGER_REPLAY_SNAPSHOT=$LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}*
 
                 MISMATCH_TAR=$MISMATCH_DIR.tar.gz
                 cd $LEDGER_DIR

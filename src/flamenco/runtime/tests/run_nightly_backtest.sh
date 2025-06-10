@@ -1,6 +1,5 @@
 #!/bin/bash -f
 
-
 send_slack_message() {
     MESSAGE=$1
     json_payload=$(cat <<EOF
