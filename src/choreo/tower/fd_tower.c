@@ -236,7 +236,11 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
     /* Convert the landed_votes into tower's vote_slots interface. */
 
     fd_tower_votes_remove_all( scratch );
-    fd_tower_from_vote_acc( scratch, funk, txn, &voter->rec );
+    int err = fd_tower_from_vote_acc( scratch, funk, txn, &voter->rec );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "[%s] failed to read vote account %s", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key) ));
+      continue;
+    }
 
     /* If this voter has not voted, continue. */
 
@@ -425,7 +429,7 @@ fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot ) {
   return simulate_vote( tower, slot );
 }
 
-void
+int
 fd_tower_from_vote_acc( fd_tower_t *              tower,
                         fd_funk_t *               funk,
                         fd_funk_txn_t const *     txn,
@@ -435,15 +439,30 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
 # endif
 
   for(;;) {
+
+    /* Speculatively query the record and parse the voter state. If the
+       record is missing or the voter state fails to parse, then return
+       early (tower will be empty). */
+
     fd_funk_rec_query_t   query;
     fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, vote_acc, NULL, &query );
-    if( FD_UNLIKELY( !rec ) ) break;
+    if( FD_UNLIKELY( !rec ) ) return -1; /* record not found */
     fd_voter_state_t const * state = fd_voter_state( funk, rec );
-    if( FD_UNLIKELY( !state ) ) break;
+    if( FD_UNLIKELY( !state ) ) return -1; /* unable to parse voter state */
+
+    /* Speculatively query the cnt.  */
+
+    ulong cnt = fd_voter_state_cnt( state ); /* TODO remove once Funk reads are safe */
+    if( FD_UNLIKELY( fd_funk_rec_query_test( &query ) != FD_FUNK_SUCCESS ) ) continue;
+    if( FD_UNLIKELY( cnt > 31UL ) ) FD_LOG_ERR(( "[%s] funk vote account corruption. cnt %lu > 31", __func__, cnt ));
+
+    /* Speculatively read the votes out of the state and push them onto
+       the tower. If there is a conflicting operation during this read,
+       rollback the tower. */
 
     fd_tower_vote_t vote = { 0 };
     ulong sz = sizeof(fd_voter_vote_old_t);
-    for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
+    for( ulong i = 0; i < cnt; i++ ) {
       if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
         memcpy( (uchar *)&vote, (uchar *)(state->v0_23_5.votes + i), sz );
       } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
@@ -454,9 +473,10 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
         FD_LOG_ERR(( "[%s] unknown state->discriminant %u", __func__, state->discriminant ));
       }
     }
+    fd_tower_votes_push_tail( tower, vote );
 
-    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) break;
-    else fd_tower_votes_remove_all( tower );
+    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) return 0;
+    else fd_tower_votes_remove_all( tower ); /* reset the tower and try again  */
   }
 }
 

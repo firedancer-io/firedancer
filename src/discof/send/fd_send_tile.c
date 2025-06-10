@@ -212,9 +212,9 @@ during_frag( fd_send_tile_ctx_t   * ctx,
              ulong                  ctl FD_PARAM_UNUSED ) {
 
   fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];
-  if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] on link %lu", chunk, sz,
-          in_link->chunk0, in_link->wmark, in_idx ));
+  if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] on link %lu", chunk, sz, in_link->chunk0, in_link->wmark, in_idx ));
+  }
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( in_link->mem, chunk );
   ulong         kind         = in_link->kind;
@@ -256,7 +256,6 @@ after_frag( fd_send_tile_ctx_t   * ctx,
   (void)tsorig;
   (void)tspub;
   (void)stem;
-
   fd_send_link_in_t * in_link  = &ctx->in_links[ in_idx ];
   ulong                kind    = in_link->kind;
 
@@ -279,11 +278,9 @@ after_frag( fd_send_tile_ctx_t   * ctx,
     ulong message_sz  = txn->payload_sz - TXN(txn)->message_off;
     fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
-    ulong poh_slot = sig;
-
     /* send to leader */
     fd_shred_dest_weighted_t * leader_dest = NULL;
-    int res = get_current_leader_tpu_vote_contact( ctx, poh_slot, &leader_dest );
+    int res = get_current_leader_tpu_vote_contact( ctx, sig + 1, &leader_dest ); /* FIXME send to next few leaders */
     if( res==0 ) {
       send_packet( ctx, stem, leader_dest->ip4, leader_dest->port, txn->payload, txn->payload_sz, 0UL );
       ctx->metrics.txns_sent_to_leader++;

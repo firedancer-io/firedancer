@@ -70,7 +70,7 @@ typedef struct {
 } ctx_t;
 
 static void
-init_epoch( ctx_t * ctx, ulong sz ) {
+update_epoch( ctx_t * ctx, ulong sz ) {
   fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
   ctx->epoch->total_stake   = 0;
 
@@ -182,8 +182,6 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
   }
 }
 
-
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -279,13 +277,11 @@ after_frag( ctx_t *             ctx,
   ulong slot        = fd_ulong_extract( sig, 32, 63 );
   ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
 
-  FD_LOG_NOTICE(( "tower tile received slot %lu, parent slot %lu", slot, parent_slot ));
-
   if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) { /* snapshot slot */
     fd_funk_open_file( ctx->funk, ctx->funk_file, 1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL );
     FD_TEST( ctx->funk );
     FD_TEST( fd_funk_txn_map( ctx->funk ) );
-    init_epoch( ctx, sz );
+    update_epoch( ctx, sz );
     fd_ghost_init( ctx->ghost, slot );
     return;
   }
@@ -321,7 +317,7 @@ after_frag( ctx_t *             ctx,
   fd_tower_to_vote_txn( ctx->tower, ctx->root, ctx->lockouts, &ctx->bank_hash, &ctx->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, vote_txn );
   FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
   FD_TEST( vote_txn->payload_sz > 0UL );
-  fd_stem_publish( stem, ctx->send_out_idx, 0UL /* unused sig */, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
   fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
   fd_tower_print( ctx->tower, ctx->root );
@@ -353,10 +349,8 @@ unprivileged_init( fd_topo_t *      topo,
   memcpy( ctx->identity_key->uc, fd_keyload_load( tile->tower.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
   memcpy( ctx->vote_acc->uc, fd_keyload_load( tile->tower.vote_acc_path, 1 ), sizeof(fd_pubkey_t) );
 
-  FD_LOG_NOTICE(( "tower tile identity key path: %s", FD_BASE58_ENC_32_ALLOCA(ctx->identity_key) ));
-
   memset( ctx->funk_key.uc, 0, sizeof(fd_funk_rec_key_t) );
-  memcpy( ctx->funk_key.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) );
+  memcpy( ctx->funk_key.uc, ctx->vote_acc->uc, sizeof(fd_pubkey_t) );
   ctx->funk_key.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 
   if( FD_UNLIKELY( tile->in_cnt > MAX_IN_LINKS ) ) FD_LOG_ERR(( "repair tile has too many input links" ));

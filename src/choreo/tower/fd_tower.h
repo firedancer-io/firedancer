@@ -733,17 +733,17 @@ fd_tower_vote( fd_tower_t * tower, ulong slot );
 /* Misc */
 
 /* fd_tower_from_vote_acc reads into tower the vote account saved in
-   funk at the provided txn and vote_acc address.  Assumes vote_acc
-   exists in a valid state inside txn and that tower is a valid local
-   join and currently empty. */
+   funk at the provided txn and vote_acc address.  Returns 0 on success,
+   -1 on failure (account not found or failed to parse).  Assumes tower
+   is a valid local join and currently empty. */
 
-void
+int
 fd_tower_from_vote_acc( fd_tower_t *              tower,
                         fd_funk_t *               funk,
                         fd_funk_txn_t const *     txn,
                         fd_funk_rec_key_t const * vote_acc );
 
-/* fd_tower_to_tower_sync writes tower into a fd_tower_sync_t vote
+/* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
    instruction and serializes it into a Solana transaction.  Assumes
    tower is a valid local join. */
 
