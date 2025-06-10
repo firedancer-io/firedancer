@@ -117,6 +117,8 @@ init_device( const char * device,
 
 static void
 init( config_t const * config ) {
+  uint const expected_channel_count = config->net.xdp.ethtool_queue_count;
+
   /* we need one channel for both TX and RX on the NIC for each QUIC
      tile, but the interface probably defaults to one channel total */
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
@@ -126,10 +128,10 @@ init( config_t const * config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      init_device( token, config->layout.net_tile_count );
+      init_device( token, expected_channel_count );
     }
   } else {
-    init_device( config->net.interface, config->layout.net_tile_count );
+    init_device( config->net.interface, expected_channel_count );
   }
 }
 
@@ -202,15 +204,17 @@ check_device( const char * device,
 
 static configure_result_t
 check( config_t const * config ) {
+  uint const expected_channel_count = config->net.xdp.ethtool_queue_count;
+
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      CHECK( check_device( token, config->layout.net_tile_count ) );
+      CHECK( check_device( token, expected_channel_count ) );
     }
   } else {
-    CHECK( check_device( config->net.interface, config->layout.net_tile_count ) );
+    CHECK( check_device( config->net.interface, expected_channel_count ) );
   }
 
   CONFIGURE_OK();

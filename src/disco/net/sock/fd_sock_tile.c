@@ -178,12 +178,12 @@ privileged_init( fd_topo_t *      topo,
 
   int sock_fd_min = RX_SOCK_FD_MIN;
   ushort udp_port_candidates[] = {
-    (ushort)tile->net.legacy_transaction_listen_port,
-    (ushort)tile->net.quic_transaction_listen_port,
-    (ushort)tile->net.shred_listen_port,
-    (ushort)tile->net.gossip_listen_port,
-    (ushort)tile->net.repair_intake_listen_port,
-    (ushort)tile->net.repair_serve_listen_port,
+    (ushort)tile->sock.net.legacy_transaction_listen_port,
+    (ushort)tile->sock.net.quic_transaction_listen_port,
+    (ushort)tile->sock.net.shred_listen_port,
+    (ushort)tile->sock.net.gossip_listen_port,
+    (ushort)tile->sock.net.repair_intake_listen_port,
+    (ushort)tile->sock.net.repair_serve_listen_port,
   };
   static char const * udp_port_links[] = {
     "net_quic",   /* legacy_transaction_listen_port */
@@ -222,7 +222,7 @@ privileged_init( fd_topo_t *      topo,
     }
 
     int sock_fd = sock_fd_min + (int)sock_idx;
-    create_udp_socket( sock_fd, tile->net.bind_address, port, tile->net.so_rcvbuf );
+    create_udp_socket( sock_fd, tile->sock.net.bind_address, port, tile->sock.so_rcvbuf );
     ctx->pollfd[ sock_idx ].fd     = sock_fd;
     ctx->pollfd[ sock_idx ].events = POLLIN;
     ctx->sock_cnt++;
@@ -235,12 +235,12 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "socket(AF_INET,SOCK_RAW|SOCK_CLOEXEC,17) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( 0!=setsockopt( tx_sock, SOL_SOCKET, SO_SNDBUF, &tile->net.so_sndbuf, sizeof(int) ) ) ) {
-    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", tile->net.so_sndbuf, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( 0!=setsockopt( tx_sock, SOL_SOCKET, SO_SNDBUF, &tile->sock.so_sndbuf, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", tile->sock.so_sndbuf, errno, fd_io_strerror( errno ) ));
   }
 
   ctx->tx_sock      = tx_sock;
-  ctx->bind_address = tile->net.bind_address;
+  ctx->bind_address = tile->sock.net.bind_address;
 
 }
 
