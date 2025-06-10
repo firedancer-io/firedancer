@@ -155,7 +155,6 @@ sim_topo( config_t * config ) {
   strncpy( replay_tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(replay_tile->replay.blockstore_checkpt) );
 
   replay_tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
-  strncpy( replay_tile->replay.capture, config->capture.capture, sizeof(replay_tile->replay.capture) );
   strncpy( replay_tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(replay_tile->replay.funk_checkpt) );
   replay_tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
   replay_tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
