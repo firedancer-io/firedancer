@@ -47,7 +47,7 @@ fi
 while true; do
     source $NETWORK_PARAMETERS_FILE $NETWORK
     echo "Updated network parameters"
-    NEWEST_BUCKET=$(gcloud storage ls $BUCKET_ENDPOINT | sort -n -t / -k 4 | tail -n 1)
+    NEWEST_BUCKET=$(gcloud storage ls $BUCKET_ENDPOINT --billing-project=$BILLING_PROJECT | sort -n -t / -k 4 | tail -n 1)
     NEWEST_BUCKET_SLOT=$(echo $NEWEST_BUCKET | awk -F'/' '{print $(NF-1)}')
     LATEST_RUN_BUCKET_SLOT=$(cat $LATEST_RUN_BUCKET_SLOT_FILE)
 
@@ -82,7 +82,7 @@ while true; do
             send_slack_message "Rocksdb already exists at \`$LEDGER_DIR/rocksdb\`"
         else
             while true; do
-                if gcloud storage ls ${SOLANA_BUCKET_PATH}/rocksdb.tar.zst | grep -q 'rocksdb.tar.zst'; then
+                if gcloud storage ls ${SOLANA_BUCKET_PATH}/rocksdb.tar.zst --billing-project=$BILLING_PROJECT | grep -q 'rocksdb.tar.zst'; then
                     send_slack_message "Rocksdb found. Starting to copy..."
                     break
                 else
@@ -90,7 +90,7 @@ while true; do
                     sleep 3600
                 fi
             done
-            gcloud storage cp ${SOLANA_BUCKET_PATH}/rocksdb.tar.zst .
+            gcloud storage cp ${SOLANA_BUCKET_PATH}/rocksdb.tar.zst . --billing-project=$BILLING_PROJECT
             zstd -d rocksdb.tar.zst && sleep 5 && rm -rf rocksdb.tar.zst
             tar -xf rocksdb.tar && sleep 5 && rm -rf rocksdb.tar
             send_slack_message "Downloaded rocksdb to \`$LEDGER_DIR/rocksdb\`"
@@ -104,9 +104,9 @@ while true; do
         HOURLY_SNAPSHOT_DIR=${SOLANA_BUCKET_PATH}/hourly
         echo "Hourly Snapshot Directory: $HOURLY_SNAPSHOT_DIR"
 
-        BASE_SNAPSHOT=$(gcloud storage ls "${SOLANA_BUCKET_PATH}/snapshot*.tar.zst" | sort -n -t - -k 3)
+        BASE_SNAPSHOT=$(gcloud storage ls "${SOLANA_BUCKET_PATH}/snapshot*.tar.zst" --billing-project=$BILLING_PROJECT | sort -n -t - -k 3)
 
-        HOURLY_SNAPSHOTS=$(gcloud storage ls "${HOURLY_SNAPSHOT_DIR}" | sort -n -t - -k 3)
+        HOURLY_SNAPSHOTS=$(gcloud storage ls "${HOURLY_SNAPSHOT_DIR}" --billing-project=$BILLING_PROJECT | sort -n -t - -k 3)
         SNAPSHOTS="${BASE_SNAPSHOT} ${HOURLY_SNAPSHOTS}"
 
         CLOSEST_HOURLY_SLOT=${ROCKSDB_ROOTED_MAX}
@@ -136,7 +136,7 @@ while true; do
             send_slack_message "Hourly snapshot already exists at \`$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME\`"
         else
             rm -f $LEDGER_DIR/snapshot*.tar.zst
-            gcloud storage cp ${CLOSEST_HOURLY_URL} .
+            gcloud storage cp ${CLOSEST_HOURLY_URL} . --billing-project=$BILLING_PROJECT
             send_slack_message "Downloaded hourly snapshot to \`$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME\`"
         fi
 
