@@ -766,6 +766,7 @@ metric introduced.
     <gauge name="IncrementalAccountsFilesTotal" summary="Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted" />
     <gauge name="FullAccountsProcessed" summary="Number of accounts processed in the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalAccountsProcessed" summary="Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="AccountsInserted" summary="Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
 </metrics>

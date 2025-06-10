@@ -46,7 +46,7 @@ snapshot_load_topo( config_t *     config,
                     args_t const * args ) {
   fd_snapshot_src_t src[1];
   char snapshot_path_copy[4096];
-  memcpy( snapshot_path_copy, args->snapshot_load.full_snapshot_path, sizeof(snapshot_path_copy) );
+  memcpy( snapshot_path_copy, config->firedancer.snapshots.full_snapshot_path, sizeof(snapshot_path_copy) );
   fd_snapshot_src_parse_type_unknown( src, snapshot_path_copy );
 
   fd_topo_t * topo = &config->topo;
@@ -73,6 +73,12 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "snap_fseq" );
   fd_topo_obj_t * snapshot_fseq_obj = fd_topob_obj( topo, "fseq", "snap_fseq" );
 
+  fd_topob_wksp( topo, "slot_ctx" );
+  fd_topo_obj_t * slot_ctx_obj = setup_topo_slot_ctx( topo, "slot_ctx" );
+
+  fd_topob_wksp( topo, "runtime_pub" );
+  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
+
   /* Uncompressed data stream */
   fd_topob_wksp( topo, "snap_stream" );
   fd_topo_link_t * snapin_link   = fd_topob_link( topo, "snap_stream", "snap_stream", 512UL, 0UL, 0UL );
@@ -83,18 +89,11 @@ snapshot_load_topo( config_t *     config,
 
   if( src->type==FD_SNAPSHOT_SRC_FILE ) {
 
-    int is_zstd = _is_zstd( args->snapshot_load.full_snapshot_path );
+    int is_zstd = _is_zstd( config->firedancer.snapshots.full_snapshot_path );
 
     /* read() tile */
     fd_topob_wksp( topo, "SnapRd" );
     fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "SnapRd", "SnapRd", "SnapRd", tile_to_cpu[1], 0, 0 );
-    fd_memcpy( snaprd_tile->snaprd.full_snapshot_path, args->snapshot_load.full_snapshot_path, PATH_MAX );
-    FD_STATIC_ASSERT( sizeof(snaprd_tile->snaprd.full_snapshot_path)==sizeof(args->snapshot_load.full_snapshot_path), abi );
-    FD_STATIC_ASSERT( sizeof(snaprd_tile->snaprd.full_snapshot_path)==PATH_MAX,                                       abi );
-
-    fd_memcpy( snaprd_tile->snaprd.incremental_snapshot_path, args->snapshot_load.incremental_snapshot_path, PATH_MAX );
-    FD_STATIC_ASSERT( sizeof(snaprd_tile->snaprd.full_snapshot_path)==sizeof(args->snapshot_load.full_snapshot_path), abi );
-    FD_STATIC_ASSERT( sizeof(snaprd_tile->snaprd.full_snapshot_path)==PATH_MAX,                                       abi );
 
     if( is_zstd ) {  /* .tar.zst file */
 
@@ -182,6 +181,13 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_uses( topo, snapin_tile, snapshot_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.fseq_obj_id = snapshot_fseq_obj->id;
   fd_pod_insertf_ulong( topo->props, snapshot_fseq_obj->id, "snap_fseq" );
+
+  fd_topob_tile_uses( topo, snapin_tile, slot_ctx_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_pod_insertf_ulong( topo->props, slot_ctx_obj->id, "slot_ctx" );
+  snapin_tile->snapin.slot_ctx_obj_id = slot_ctx_obj->id;
+
+  fd_topob_tile_uses( topo, snapin_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_pod_insertf_ulong( topo->props, runtime_pub_obj->id, "runtime_pub" );
   
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -201,8 +207,6 @@ snapshot_load_cmd_args( int *    pargc,
                         char *** pargv,
                         args_t * args ) {
   char const * tile_cpus                = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus",     "FD_TILE_CPUS", NULL );
-  char const * full_snapshot_src        = fd_env_strip_cmdline_cstr(  pargc, pargv,  "--full-snapshot", NULL,          NULL );
-  char const * incremental_snapshot_src = fd_env_strip_cmdline_cstr(  pargc, pargv,  "--incremental-snapshot", NULL,          NULL );
   char const * snapshot_dir             = fd_env_strip_cmdline_cstr(  pargc, pargv,  "--snapshot-dir", NULL,           NULL );
 
   if( tile_cpus ) {
@@ -211,20 +215,10 @@ snapshot_load_cmd_args( int *    pargc,
     fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->tile_cpus ), tile_cpus, tile_cpus_strlen ) );
   }
 
-  if( FD_UNLIKELY( !full_snapshot_src ) ) FD_LOG_ERR(( "Missing --full-snapshot flag" ));
-  ulong snapshot_file_strlen = strlen( full_snapshot_src );
-  if( FD_UNLIKELY( snapshot_file_strlen>=sizeof(args->snapshot_load.full_snapshot_path) ) ) FD_LOG_ERR(( "--snapshot: path too long" ));
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->snapshot_load.full_snapshot_path ), full_snapshot_src, snapshot_file_strlen ) );
-
-  if( FD_UNLIKELY( !incremental_snapshot_src ) ) FD_LOG_ERR(( "Missing --full-snapshot flag" ));
-  snapshot_file_strlen = strlen( incremental_snapshot_src );
-  if( FD_UNLIKELY( snapshot_file_strlen>=sizeof(args->snapshot_load.incremental_snapshot_path) ) ) FD_LOG_ERR(( "--snapshot: path too long" ));
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->snapshot_load.incremental_snapshot_path ), full_snapshot_src, snapshot_file_strlen ) );
-
   /* FIXME: check if we need the snapshot dir argument (parse the snapshot input src to see if it's http)*/
   if( snapshot_dir!=NULL ) {
     ulong snapshot_dir_strlen = strlen( snapshot_dir );
-    if( FD_UNLIKELY( snapshot_file_strlen>=sizeof(args->snapshot_load.snapshot_dir) ) ) FD_LOG_ERR(( "--snapshot-dir: dir too long" ));
+    if( FD_UNLIKELY( snapshot_dir_strlen>=sizeof(args->snapshot_load.snapshot_dir) ) ) FD_LOG_ERR(( "--snapshot-dir: dir too long" ));
     fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->snapshot_load.snapshot_dir ), snapshot_dir, snapshot_dir_strlen ) );
   }
 }
@@ -263,7 +257,6 @@ snapshot_load_cmd_fn( args_t *   args,
   fd_topo_tile_t * const snapdc_tile   = zstd_tile_idx!=ULONG_MAX ? &topo->tiles[ zstd_tile_idx ] : NULL;
 
   ulong *          const snap_in_fseq      = snap_in_tile->in_link_fseq[ 0 ];
-  ulong *          const snap_accs_sync    = fd_mcache_seq_laddr( topo->links[ fd_topo_find_link( topo, "snap_stream", 0UL ) ].mcache );
   ulong volatile * file_rd_metrics         = file_rd_tile ? fd_metrics_tile( file_rd_tile->metrics ) : NULL;
   ulong volatile * http_dl_metrics         = http_dl_tile ? fd_metrics_tile( http_dl_tile->metrics ) : NULL;
   ulong volatile * const snap_in_metrics   = fd_metrics_tile( snap_in_tile->metrics );
@@ -306,7 +299,7 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong snap_in_wait  = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] ) +
                           FD_VOLATILE_CONST( snap_in_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] ) +
                           snap_in_backp;
-    ulong acc_cnt       = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, SNAPIN, FULL_ACCOUNTS_PROCESSED    ) ] );
+    ulong acc_cnt       = FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ] );
     printf( "bw=%4.2g GB/s backp=(%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%) acc=%8.3g/s\n",
             (double)( goff-goff_old )/1e9,
             ( (double)( file_rd_backp-file_rd_backp_old )*ns_per_tick )/1e7,
@@ -325,7 +318,7 @@ snapshot_load_cmd_fn( args_t *   args,
   }
 
   long end = fd_log_wallclock();
-  FD_LOG_NOTICE(( "Loaded %g accounts in %ld nanos %f seconds", (double)FD_VOLATILE_CONST( snap_accs_sync[3] ), end-start, ((double)(end-start))/(1000000000UL)));
+  FD_LOG_NOTICE(( "Loaded %g accounts in %ld nanos %f seconds", (double)FD_VOLATILE_CONST( snap_in_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ] ), end-start, ((double)(end-start))/(1000000000UL)));
 }
 
 action_t fd_action_snapshot_load = {

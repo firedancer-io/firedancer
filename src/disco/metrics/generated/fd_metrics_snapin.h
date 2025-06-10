@@ -45,5 +45,11 @@
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_ACCOUNTS_PROCESSED_DESC "Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_ACCOUNTS_PROCESSED_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPIN_TOTAL (7UL)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_OFF  (23UL)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_NAME "snapin_accounts_inserted"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_DESC "Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_SNAPIN_TOTAL (8UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPIN[FD_METRICS_SNAPIN_TOTAL];

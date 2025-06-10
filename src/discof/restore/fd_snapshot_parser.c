@@ -5,12 +5,12 @@
 #include <assert.h>
 #include <stdio.h>
 
-static int
-restore_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_solana_manifest_t * manifest,
-                                     fd_spad_t *            spad ) {
-  return (!!fd_exec_slot_ctx_recover( slot_ctx, manifest, spad ) ? 0 : EINVAL);
-}
+// static int
+// restore_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
+//                                      fd_solana_manifest_t * manifest,
+//                                      fd_spad_t *            spad ) {
+//   return (!!fd_exec_slot_ctx_recover( slot_ctx, manifest, spad ) ? 0 : EINVAL);
+// }
 
 static void
 fd_snapshot_parser_discard_buf( fd_snapshot_parser_t * self ) {
@@ -325,7 +325,7 @@ fd_snapshot_parser_restore_manifest( fd_snapshot_parser_t * self ) {
   /* Move over objects and recover state
      This destroys all remaining fields with the slot context valloc. */
 
-  err = restore_slot_ctx( self->slot_ctx, manifest, self->runtime_spad );
+  // err = restore_slot_ctx( self->slot_ctx, manifest, self->runtime_spad );
 
   /* Read AccountVec map */
 

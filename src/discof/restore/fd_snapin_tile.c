@@ -50,13 +50,13 @@ struct fd_snapin_tile {
 
   /* Shared fseq with replay tile */
   ulong * replay_snapshot_fseq;
-  ulong   num_accounts_inserted;
 
   struct {
 
     fd_snapshot_parser_metrics_t full;
     fd_snapshot_parser_metrics_t incremental;
 
+    ulong   num_accounts_inserted;
     ulong status;
   } metrics;
 };
@@ -83,7 +83,7 @@ fd_snapin_shutdown( fd_snapin_tile_t * ctx ) {
   FD_COMPILER_MFENCE();
   
   FD_LOG_INFO(( "snapin: shutting down, inserted %lu accounts", ctx->metrics.full.accounts_processed ));
-  FD_LOG_INFO(( "snapin: shutting down, inserted %lu accounts", ctx->num_accounts_inserted ));
+  FD_LOG_INFO(( "snapin: shutting down, inserted %lu accounts", ctx->metrics.num_accounts_inserted ));
 
   for(;;) pause();
 }
@@ -116,7 +116,7 @@ snapshot_is_duplicate_account( fd_snapshot_parser_t * parser,
 }
 
 __attribute__((unused)) static void
-snapshot_insert_account_old( fd_snapshot_parser_t *          parser,
+snapshot_insert_account( fd_snapshot_parser_t *          parser,
                          fd_solana_account_hdr_t const * hdr,
                          void *                          _ctx ) {
   fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
@@ -135,9 +135,29 @@ snapshot_insert_account_old( fd_snapshot_parser_t *          parser,
     rec->vt->set_info( rec, &hdr->info );
 
     ctx->acc_data = rec->vt->get_data_mut( rec );
-    ctx->num_accounts_inserted++;
+    ctx->metrics.num_accounts_inserted++;
     fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn);
   }
+}
+
+__attribute__((unused)) static void
+snapshot_insert_account_blind( fd_snapshot_parser_t *          parser,
+                         fd_solana_account_hdr_t const * hdr,
+                         void *                          _ctx ) {
+  fd_snapin_tile_t * ctx = fd_type_pun( _ctx );
+  fd_pubkey_t const * account_key  = fd_type_pun_const( hdr->meta.pubkey );
+
+  FD_TXN_ACCOUNT_DECL( rec );
+  fd_account_meta_t * meta = fd_funk_insert_account( ctx->funk, account_key, hdr );
+  rec->vt->set_meta_mutable( rec, meta );
+
+  rec->vt->set_data_len( rec, hdr->meta.data_len );
+  rec->vt->set_slot( rec, parser->accv_slot );
+  rec->vt->set_hash( rec, &hdr->hash );
+  rec->vt->set_info( rec, &hdr->info );
+
+  ctx->acc_data = rec->vt->get_data_mut( rec );
+  ctx->metrics.num_accounts_inserted++;
 }
 
 __attribute__((unused)) static void
@@ -224,7 +244,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_runtime_public_t * runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, tile->snapin.runtime_pub_obj_id ) );
   fd_spad_t * runtime_spad = fd_runtime_public_spad( runtime_public );
   ctx->parser = fd_snapshot_parser_new( parser_mem,
-                                        snapshot_insert_account_old,
+                                        snapshot_insert_account_blind,
                                         snapshot_copy_acc_data,
                                         snapshot_reset_acc_data,
                                         ctx,
@@ -257,7 +277,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics.incremental.accounts_processed       = 0UL;
   ctx->metrics.status                               = SNAP_IN_STATUS_FULL;
 
-  ctx->num_accounts_inserted = 0UL;
+  ctx->metrics.num_accounts_inserted = 0UL;
 }
 
 static void
@@ -280,6 +300,7 @@ metrics_write( void * _ctx ) {
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_PROCESSED, ctx->metrics.incremental.accounts_files_processed );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_FILES_TOTAL,     ctx->metrics.incremental.accounts_files_total );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_ACCOUNTS_PROCESSED,       ctx->metrics.incremental.accounts_processed );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_INSERTED,                    ctx->metrics.num_accounts_inserted );
 }
 
 /* on_stream_frag consumes an incoming stream data fragment.  This frag

@@ -631,3 +631,4 @@
 | snapin_&#8203;incremental_&#8203;accounts_&#8203;files_&#8203;total | `gauge` | Total number of accounts files in the full snapshot. Might change if snapshot load is aborted and restarted |
 | snapin_&#8203;full_&#8203;accounts_&#8203;processed | `gauge` | Number of accounts processed in the full snapshot. Might decrease if snapshot load is aborted and restarted |
 | snapin_&#8203;incremental_&#8203;accounts_&#8203;processed | `gauge` | Number of accounts processed in the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| snapin_&#8203;accounts_&#8203;inserted | `gauge` | Number of accounts inserted during snpashot loading. Might decrease if snapshot load is aborted and restarted |

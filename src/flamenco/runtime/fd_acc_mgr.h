@@ -200,6 +200,11 @@ fd_account_meta_t *
 fd_funk_find_account( fd_funk_t * funk,
                       fd_pubkey_t const * pubkey );
 
+fd_account_meta_t *
+fd_funk_insert_account( fd_funk_t *               funk,
+                        fd_pubkey_t const *       pubkey,
+                        fd_solana_account_hdr_t const * hdr );
+
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
    readable cstr.  The lifetime of the returned pointer is infinite and
    the call itself is thread safe.  The returned pointer is always to a

@@ -1016,7 +1016,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->snapin.fseq_obj_id        = fd_pod_query_ulong( config->topo.props, "snap_fseq", ULONG_MAX );
       tile->snapin.runtime_pub_obj_id = fd_pod_query_ulong( config->topo.props, "runtime_pub", ULONG_MAX );
       tile->snapin.slot_ctx_obj_id    = fd_pod_query_ulong( config->topo.props, "slot_ctx", ULONG_MAX );
-      FD_LOG_WARNING(("snapin: slot ctx obj id is %lu", tile->snapin.slot_ctx_obj_id));
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rstart" ) ) ) {
       tile->restart.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       strncpy( tile->restart.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );

@@ -144,7 +144,7 @@ fd_stream_ctx_do_housekeeping( fd_stream_ctx_t * ctx,
       fd_stream_metrics_update_external( ctx->metrics,
                                          ctx->ticks->now,
                                          ctx->tile_metrics_write,
-                                         ctx );
+                                         tile_ctx );
       fd_stream_ctx_calculate_backpressure( ctx );
 
       if( ctx->tile_housekeeping ) {
