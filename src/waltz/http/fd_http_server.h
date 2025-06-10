@@ -36,6 +36,7 @@
 #define FD_HTTP_SERVER_METHOD_GET     (0)
 #define FD_HTTP_SERVER_METHOD_POST    (1)
 #define FD_HTTP_SERVER_METHOD_OPTIONS (2)
+#define FD_HTTP_SERVER_METHOD_PUT     (3)
 
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_OK                           ( -1)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED                      ( -2)
