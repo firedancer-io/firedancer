@@ -412,7 +412,7 @@ fd_bundle_tile_publish_bundle_txn(
   fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
 
   ulong sz  = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  ulong sig = 0UL;
+  ulong sig = 1UL;
 
   if( FD_UNLIKELY( !ctx->stem ) ) {
     FD_LOG_CRIT(( "ctx->stem not set. This is a bug." ));
