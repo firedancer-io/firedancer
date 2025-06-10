@@ -17,7 +17,6 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 
   ulong const * FD_RESTRICT text          = vm->text;
   ulong                     text_cnt      = vm->text_cnt;
-  ulong                     text_word_off = vm->text_off / 8UL;
   ulong                     entry_pc      = vm->entry_pc;
   ulong const * FD_RESTRICT calldests     = vm->calldests;
 
@@ -52,7 +51,6 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
 
   ulong const * FD_RESTRICT text          = vm->text;
   ulong                     text_cnt      = vm->text_cnt;
-  ulong                     text_word_off = vm->text_off / 8UL;
   ulong                     entry_pc      = vm->entry_pc;
   ulong const * FD_RESTRICT calldests     = vm->calldests;
 
