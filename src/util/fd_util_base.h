@@ -406,7 +406,7 @@ __extension__ typedef unsigned __int128 uint128;
 
 #if defined(__aarch64__)
 #define FD_ASM_LG_ALIGN(lg_n) ".align " #lg_n "\n"
-#elif defined(__x86_64__) || defined(__powerpc64__) || defined(__riscv) || defined(__s390x__)
+#elif defined(__x86_64__) || defined(__powerpc64__) || defined(__riscv)
 #define FD_ASM_LG_ALIGN(lg_n) ".p2align " #lg_n "\n"
 #endif
 
