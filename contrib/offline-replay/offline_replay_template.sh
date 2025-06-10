@@ -10,6 +10,7 @@ export AGAVE_LEDGER_TOOL="${AGAVE_REPO}/target/release/agave-ledger-tool"
 
 # Network Specific Parameters
 export NETWORK="mainnet"
+export BILLING_PROJECT="billing-project-id"
 export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 export SLACK_MISMATCH_WEBHOOK_URL=https://hooks.slack.com/services/...
 
