@@ -1182,6 +1182,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             ulong                exec_spad_cnt,
                                             fd_spad_t *          runtime_spad ) {
   fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  FD_LOG_WARNING(("reading from funk txn %lu", (ulong)slot_ctx->funk_txn));
   if( FD_UNLIKELY( epoch_rewards == NULL ) ) {
     FD_LOG_NOTICE(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
