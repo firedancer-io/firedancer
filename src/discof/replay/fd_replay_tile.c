@@ -198,7 +198,11 @@ struct fd_replay_tile_ctx {
 
   ulong funk_seed;
   ulong status_cache_seed;
+
+  /* Capture context */
   fd_capture_ctx_t * capture_ctx;
+  fd_wksp_t *        capture_ctx_wksp;
+
   FILE *             capture_file;
   FILE *             slots_replayed_file;
 
@@ -289,7 +293,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
@@ -1358,7 +1361,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
   /* Get the solcap context for replaying curr_slot                     */
   /**********************************************************************/
 
-  if( ctx->capture_ctx ) {
+  if( ctx->capture_ctx && ctx->capture_ctx->capture ) {
     fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx->slot_bank.slot );
   }
 
@@ -2511,7 +2514,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   void * epoch_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) );
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
@@ -2746,35 +2748,19 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slice_exec_ctx.mbatch = mbatch_mem;
 
   /**********************************************************************/
-  /* capture                                                            */
+  /* capture context                                                    */
   /**********************************************************************/
-
-  int has_solcap = strlen(tile->replay.capture) > 0;
-  int has_dump_to_protobuf = tile->replay.dump_insn_to_pb || tile->replay.dump_txn_to_pb || tile->replay.dump_block_to_pb || tile->replay.dump_syscall_to_pb;
-  if( has_solcap || has_dump_to_protobuf ) {
-    ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
-    ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-
-    if( has_solcap ) {
-      ctx->capture_file = fopen( tile->replay.capture, "w+" );
-      if( FD_UNLIKELY( !ctx->capture_file ) ) {
-        FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.capture, errno, strerror( errno ) ));
-      }
-      fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
-      ctx->capture_ctx->capture_txns = 0;
-    } else {
-      ctx->capture_ctx->capture = NULL;
-    }
-
-    if( has_dump_to_protobuf ) {
-      ctx->capture_ctx->dump_insn_to_pb       = tile->replay.dump_insn_to_pb;
-      ctx->capture_ctx->dump_txn_to_pb        = tile->replay.dump_txn_to_pb;
-      ctx->capture_ctx->dump_block_to_pb      = tile->replay.dump_block_to_pb;
-      ctx->capture_ctx->dump_syscall_to_pb    = tile->replay.dump_syscall_to_pb;
-      ctx->capture_ctx->dump_proto_sig_filter = tile->replay.dump_proto_sig_filter;
-      ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_output_dir;
-      ctx->capture_ctx->dump_proto_start_slot = tile->replay.dump_proto_start_slot;
-    }
+  ulong capture_ctx_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "capture_ctx" );
+  if( FD_UNLIKELY( capture_ctx_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "Could not find topology object for capture context" ));
+  }
+  ctx->capture_ctx_wksp = topo->workspaces[ topo->objs[ capture_ctx_obj_id ].wksp_id ].wksp;
+  if( FD_UNLIKELY( !ctx->capture_ctx_wksp ) ) {
+    FD_LOG_ERR(( "No capture context workspace" ));
+  }
+  ctx->capture_ctx = fd_capture_ctx_join( fd_topo_obj_laddr( topo, capture_ctx_obj_id ) );
+  if( FD_UNLIKELY( !ctx->capture_ctx ) ) {
+    FD_LOG_ERR(( "Failed to join capture context" ));
   }
 
   /**********************************************************************/

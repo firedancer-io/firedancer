@@ -32,6 +32,36 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static fd_topo_obj_t *
+setup_topo_capture_ctx( fd_topo_t *  topo,
+                        char const * wksp_name,
+                        char const * capture,
+                        char const * dump_proto_output_dir,
+                        char const * dump_proto_sig_filter,
+                        ulong        dump_proto_start_slot,
+                        int          dump_insn_to_pb,
+                        int          dump_txn_to_pb,
+                        int          dump_block_to_pb,
+                        int          dump_syscall_to_pb ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "capture_ctx", wksp_name );
+
+  if( strncmp( capture, "", 1 ) ) {
+    FD_TEST( fd_pod_insertf_cstr( topo->props, capture, "obj.%lu.capture", obj->id ) );
+  }
+  if( strncmp( dump_proto_output_dir, "", 1 ) ) {
+    FD_TEST( fd_pod_insertf_cstr( topo->props, dump_proto_output_dir, "obj.%lu.dump_proto_output_dir", obj->id ) );
+  }
+  if( strncmp( dump_proto_sig_filter, "", 1 ) ) {
+    FD_TEST( fd_pod_insertf_cstr( topo->props, dump_proto_sig_filter, "obj.%lu.dump_proto_sig_filter", obj->id ) );
+  }
+  FD_TEST( fd_pod_insertf_ulong( topo->props, dump_proto_start_slot, "obj.%lu.dump_proto_start_slot", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_insn_to_pb, "obj.%lu.dump_insn_to_pb", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_txn_to_pb, "obj.%lu.dump_txn_to_pb", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_block_to_pb, "obj.%lu.dump_block_to_pb", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_syscall_to_pb, "obj.%lu.dump_syscall_to_pb", obj->id ) );
+  return obj;
+}
+
+static fd_topo_obj_t *
 setup_topo_runtime_pub( fd_topo_t *  topo,
                         char const * wksp_name,
                         ulong        mem_max ) {
@@ -189,7 +219,6 @@ backtest_topo( config_t * config ) {
   strncpy( replay_tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(replay_tile->replay.blockstore_checkpt) );
 
   replay_tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
-  strncpy( replay_tile->replay.capture, config->tiles.replay.capture, sizeof(replay_tile->replay.capture) );
   strncpy( replay_tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(replay_tile->replay.funk_checkpt) );
   replay_tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
   replay_tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
@@ -217,14 +246,6 @@ backtest_topo( config_t * config ) {
   for( ulong i = 0; i < replay_tile->replay.enable_features_cnt; i++ ) {
     strncpy( replay_tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(replay_tile->replay.enable_features[i]) );
   }
-
-  strncpy( replay_tile->replay.dump_proto_output_dir, config->tiles.replay.dump_proto_output_dir, sizeof(replay_tile->replay.dump_proto_output_dir) );
-  strncpy( replay_tile->replay.dump_proto_sig_filter, config->tiles.replay.dump_proto_sig_filter, sizeof(replay_tile->replay.dump_proto_sig_filter) );
-  replay_tile->replay.dump_proto_start_slot = config->tiles.replay.dump_proto_start_slot;
-  replay_tile->replay.dump_insn_to_pb = config->tiles.replay.dump_insn_to_pb;
-  replay_tile->replay.dump_txn_to_pb = config->tiles.replay.dump_txn_to_pb;
-  replay_tile->replay.dump_block_to_pb = config->tiles.replay.dump_block_to_pb;
-  replay_tile->replay.dump_syscall_to_pb = config->tiles.replay.dump_syscall_to_pb;
 
   /* not specified by [tiles.replay] */
 
@@ -365,6 +386,22 @@ backtest_topo( config_t * config ) {
     }
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
   }
+
+  /* capture_ctx_obj shared by replay and exec tiles */
+  fd_topob_wksp( topo, "capture_ctx" );
+  fd_topo_obj_t * capture_ctx_obj = setup_topo_capture_ctx( topo,
+                                                            "capture_ctx",
+                                                            config->tiles.replay.capture,
+                                                            config->tiles.replay.dump_proto_output_dir,
+                                                            config->tiles.replay.dump_proto_sig_filter,
+                                                            config->tiles.replay.dump_proto_start_slot,
+                                                            config->tiles.replay.dump_insn_to_pb,
+                                                            config->tiles.replay.dump_txn_to_pb,
+                                                            config->tiles.replay.dump_block_to_pb,
+                                                            config->tiles.replay.dump_syscall_to_pb );
+  fd_topob_tile_uses( topo, replay_tile, capture_ctx_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], capture_ctx_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, capture_ctx_obj->id, "capture_ctx" ) );
 
   /* exec_fseq_obj shared by replay and exec tiles */
   fd_topob_wksp( topo, "exec_fseq" );

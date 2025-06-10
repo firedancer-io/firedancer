@@ -137,4 +137,65 @@ fd_topo_obj_callbacks_t fd_obj_cb_exec_spad = {
   .new       = exec_spad_new,
 };
 
+static ulong
+capture_ctx_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                       fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return FD_CAPTURE_CTX_FOOTPRINT;
+}
+
+static ulong
+capture_ctx_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                   fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return FD_CAPTURE_CTX_ALIGN;
+}
+
+/* FIXME: Move all this logic into `fd_capture_ctx_new()` once we get rid of fd_ledger */
+static void
+capture_ctx_new( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  fd_capture_ctx_t * capture_ctx = fd_capture_ctx_new( fd_topo_obj_laddr( topo, obj->id ) );
+  FD_TEST( capture_ctx );
+
+  char const * capture_path = fd_pod_queryf_cstr( topo->props, "", "obj.%lu.%s", obj->id, "capture" );
+  int has_solcap            = strlen(capture_path)>0UL;
+  int has_dump_to_protobuf  = fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_insn_to_pb" ) ||
+                              fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_txn_to_pb" ) ||
+                              fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_block_to_pb" ) ||
+                              fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_syscall_to_pb" );
+
+  if( has_solcap || has_dump_to_protobuf ) {
+    capture_ctx->checkpt_freq = ULONG_MAX;
+
+    if( has_solcap ) {
+      FILE * capture_file = fopen( capture_path, "w+" );
+      if( FD_UNLIKELY( !capture_file ) ) {
+        FD_LOG_ERR(( "fopen(%s) failed", capture_path ));
+      }
+      fd_solcap_writer_init( capture_ctx->capture, capture_file );
+      capture_ctx->capture_txns = 0;
+    } else {
+      capture_ctx->capture = NULL;
+    }
+
+    if( has_dump_to_protobuf ) {
+      capture_ctx->dump_insn_to_pb       = fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_insn_to_pb" );
+      capture_ctx->dump_txn_to_pb        = fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_txn_to_pb" );
+      capture_ctx->dump_block_to_pb      = fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_block_to_pb" );
+      capture_ctx->dump_syscall_to_pb    = fd_pod_queryf_int( topo->props, 0, "obj.%lu.%s", obj->id, "dump_syscall_to_pb" );
+      capture_ctx->dump_proto_sig_filter = fd_pod_queryf_cstr( topo->props, NULL, "obj.%lu.%s", obj->id, "dump_proto_sig_filter" );
+      capture_ctx->dump_proto_output_dir = fd_pod_queryf_cstr( topo->props, NULL, "obj.%lu.%s", obj->id, "dump_proto_output_dir" );
+      capture_ctx->dump_proto_start_slot = fd_pod_queryf_ulong( topo->props, 0, "obj.%lu.%s", obj->id, "dump_proto_start_slot" );
+    }
+  } else {
+    capture_ctx->capture = NULL;
+  }
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_capture_ctx = {
+  .name      = "capture_ctx",
+  .footprint = capture_ctx_footprint,
+  .align     = capture_ctx_align,
+  .new       = capture_ctx_new,
+};
+
 #undef VAL

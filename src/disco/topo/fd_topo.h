@@ -316,15 +316,6 @@ typedef struct {
 
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
-
-      /*======== PROTOBUF ========*/
-      char  dump_proto_output_dir[ PATH_MAX ];
-      char  dump_proto_sig_filter[ FD_BASE58_ENCODED_64_SZ ];
-      ulong dump_proto_start_slot;
-      int   dump_insn_to_pb;
-      int   dump_txn_to_pb;
-      int   dump_block_to_pb;
-      int   dump_syscall_to_pb;
     } replay;
 
     struct {

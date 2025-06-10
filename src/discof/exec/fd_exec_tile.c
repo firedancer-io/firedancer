@@ -145,6 +145,10 @@ struct fd_exec_tile_ctx {
 
   /* Pairs len is the number of accounts to hash. */
   ulong                 pairs_len;
+
+  /* Capture context. */
+  fd_capture_ctx_t *    capture_ctx;
+  fd_wksp_t *           capture_ctx_wksp;
 };
 typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
 
@@ -291,6 +295,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
   task_info.txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
   fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
+  ctx->txn_ctx->capture_ctx = ctx->capture_ctx;
 
   int err = fd_executor_setup_accessed_accounts_for_txn( ctx->txn_ctx );
   if( FD_UNLIKELY( err ) ) {
@@ -609,6 +614,22 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Failed to get and join runtime spad" ));
+  }
+
+  /********************************************************************/
+  /* capture context                                                  */
+  /********************************************************************/
+  ulong capture_ctx_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "capture_ctx" );
+  if( FD_UNLIKELY( capture_ctx_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "Could not find topology object for capture context" ));
+  }
+  ctx->capture_ctx_wksp = topo->workspaces[ topo->objs[ capture_ctx_obj_id ].wksp_id ].wksp;
+  if( FD_UNLIKELY( !ctx->capture_ctx_wksp ) ) {
+    FD_LOG_ERR(( "No capture context workspace" ));
+  }
+  ctx->capture_ctx = fd_capture_ctx_join( fd_topo_obj_laddr( topo, capture_ctx_obj_id ) );
+  if( FD_UNLIKELY( !ctx->capture_ctx ) ) {
+    FD_LOG_ERR(( "Failed to join capture context" ));
   }
 
   /********************************************************************/
