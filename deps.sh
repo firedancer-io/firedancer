@@ -162,7 +162,10 @@ check_fedora_pkgs () {
     protobuf-compiler  # Agave, solfuzz
   )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel llvm-toolset lcov )
+    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel lcov )
+    if [[ "${ID_LIKE:-}" == *rhel* ]]; then
+      REQUIRED_RPMS+=( llvm-toolset )
+    fi
   fi
 
   echo "[~] Checking for required RPM packages"
