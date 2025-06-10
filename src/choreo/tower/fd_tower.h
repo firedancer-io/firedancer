@@ -732,9 +732,10 @@ fd_tower_vote( fd_tower_t * tower, ulong slot );
 
 /* Misc */
 
-/* fd_tower_from_vote_acc writes the saved tower inside `state` to the
-   caller-provided `tower`.  Assumes `tower` is a valid join of an
-   fd_tower that is currently empty. */
+/* fd_tower_from_vote_acc reads into tower the vote account saved in
+   funk at the provided txn and vote_acc address.  Assumes vote_acc
+   exists in a valid state inside txn and that tower is a valid local
+   join and currently empty. */
 
 void
 fd_tower_from_vote_acc( fd_tower_t *              tower,
@@ -742,8 +743,9 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
                         fd_funk_txn_t const *     txn,
                         fd_funk_rec_key_t const * vote_acc );
 
-/* fd_tower_to_tower_sync converts an fd_tower_t into a fd_tower_sync_t
-   to be sent out as a vote program ix inside a txn. */
+/* fd_tower_to_tower_sync writes tower into a fd_tower_sync_t vote
+   instruction and serializes it into a Solana transaction.  Assumes
+   tower is a valid local join. */
 
 void
 fd_tower_to_vote_txn( fd_tower_t const *    tower,
@@ -756,10 +758,10 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       fd_pubkey_t const *   vote_acc,
                       fd_txn_p_t *          vote_txn );
 
-/* fd_tower_verify checks the tower is in a valid state. The cnt should
-   be < FD_TOWER_VOTE_MAX, the vote slots and confirmation counts in the
-   tower should be monotonically increasing, and the root should be <
-   the bottom vote. */
+/* fd_tower_verify checks tower is in a valid state. Valid iff:
+   - cnt < FD_TOWER_VOTE_MAX
+   - vote slots and confirmation counts in the tower are monotonically
+     increasing */
 
 int
 fd_tower_verify( fd_tower_t const * tower );

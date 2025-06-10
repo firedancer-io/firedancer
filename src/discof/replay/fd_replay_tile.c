@@ -114,7 +114,6 @@ struct fd_replay_tile_ctx {
   ulong       batch_in_wmark;
 
   /* Tower tile input */
-
   ulong tower_in_idx;
 
   // Notification output defs
@@ -189,7 +188,8 @@ struct fd_replay_tile_ctx {
   ulong   curr_slot;
   ulong   parent_slot;
   ulong   snapshot_slot;
-  ulong * curr_turbine_slot;
+  ulong * turbine_slot0;
+  ulong * turbine_slot;
   ulong   root; /* the root slot is the most recent slot to have reached
                    max lockout in the tower  */
   ulong   flags;
@@ -262,7 +262,13 @@ struct fd_replay_tile_ctx {
 
   fd_funk_txn_t * false_root;
 
-  int is_caught_up;
+  int read_only; /* The read-only slot is the slot the validator needs
+                    to replay through before it can proceed with any
+                    write operations such as voting or building blocks.
+
+                    This restriction is for safety reasons: the
+                    validator could otherwise equivocate a previous vote
+                    or block. */
 
   int blocked_on_mblock; /* Flag used for synchronizing on mblock boundaries. */
 
@@ -709,7 +715,7 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
 
   uchar is_constipated = fd_fseq_query( ctx->is_constipated ) != 0UL;
 
-  if( !ctx->is_caught_up ) {
+  if( ctx->read_only ) {
     return;
   }
 
@@ -1568,7 +1574,7 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
     ctx->parent_slot = parent_slot;
     prepare_first_batch_execution( ctx, stem );
 
-    ulong curr_turbine_slot = fd_fseq_query( ctx->curr_turbine_slot );
+    ulong turbine_slot = fd_fseq_query( ctx->turbine_slot );
 
     FD_LOG_NOTICE( ( "\n\n[Replay]\n"
       "slot:            %lu\n"
@@ -1576,9 +1582,9 @@ handle_slice( fd_replay_tile_ctx_t * ctx,
       "slots behind:    %lu\n"
       "live:            %d\n",
       slot,
-      curr_turbine_slot,
-      curr_turbine_slot - slot,
-      ( curr_turbine_slot - slot ) < 5 ) );
+      turbine_slot,
+      turbine_slot - slot,
+      ( turbine_slot - slot ) < 5 ) );
   } else {
     /* continuing execution of the slot we have been doing */
   }
@@ -2222,6 +2228,15 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
   /* Finished replaying a slot in this after_credit iteration. */
   if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
+
+    /* Check if the validator is caught up, and can safely be unmarked
+       as read-only.  This happens when it has replayed through
+       turbine_slot0. */
+
+    if( FD_UNLIKELY( ctx->read_only && ctx->curr_slot >= fd_fseq_query( ctx->turbine_slot0 ) ) ) {
+      ctx->read_only = 0;
+    }
+
     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
 
     FD_LOG_NOTICE(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu",
@@ -2274,7 +2289,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     fork->lock = 0;
 
     // FD_LOG_NOTICE(( "ulong_max? %d", ctx->tower_out_idx==ULONG_MAX ));
-    if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && ( !ctx->vote || ctx->is_caught_up ) ) ) {
+    if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX && !ctx->read_only ) ) {
       uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
       memcpy( chunk_laddr, fork->slot_ctx->slot_bank.banks_hash.hash, sizeof(fd_hash_t) );
       memcpy( chunk_laddr+sizeof(fd_hash_t), fork->slot_ctx->slot_bank.block_hash_queue.last_hash->hash, sizeof(fd_hash_t) );
@@ -2513,15 +2528,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(( "Snapshot intervals full=%lu incremental=%lu", ctx->snapshot_interval, ctx->incremental_interval ));
 
   /**********************************************************************/
-  /* funk                                                               */
-  /**********************************************************************/
-
-  /* TODO: This below code needs to be shared as a topology object. This
-     will involve adding support to create a funk-based file here. */
-
-  ctx->is_caught_up = 0;
-
-  /**********************************************************************/
   /* root_slot fseq                                                     */
   /**********************************************************************/
 
@@ -2545,21 +2551,13 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( 0UL==fd_fseq_query( ctx->is_constipated ) );
 
   /**********************************************************************/
-  /* poh_slot fseq                                                     */
-  /**********************************************************************/
-
-  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
-  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
-  ctx->poh = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
-
-  /**********************************************************************/
   /* turbine_slot fseq                                                  */
   /**********************************************************************/
 
-  ulong current_turb_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turb_slot" );
-  FD_TEST( current_turb_slot_obj_id!=ULONG_MAX );
-  ctx->curr_turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_turb_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->curr_turbine_slot ) ) FD_LOG_ERR(( "replay tile has no turb_slot fseq" ));
+  ulong turbine_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turbine_slot" );
+  FD_TEST( turbine_slot_obj_id!=ULONG_MAX );
+  ctx->turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, turbine_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->turbine_slot ) ) FD_LOG_ERR(( "replay tile has no turb_slot fseq" ));
 
   /**********************************************************************/
   /* TOML paths                                                         */
@@ -2842,7 +2840,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Setup tower tile input */
   ctx->tower_in_idx = fd_topo_find_tile_in_link( topo, tile, "tower_replay", 0 );
-  if( FD_UNLIKELY( ctx->tower_in_idx!=ULONG_MAX ) ) FD_LOG_WARNING(( "replay tile is missing tower input link %lu", ctx->tower_in_idx ));
+  if( FD_UNLIKELY( ctx->tower_in_idx==ULONG_MAX ) ) FD_LOG_WARNING(( "replay tile is missing tower input link %lu", ctx->tower_in_idx ));
 
   ulong replay_notif_idx = fd_topo_find_tile_out_link( topo, tile, "replay_notif", 0 );
   if( FD_UNLIKELY( replay_notif_idx!=ULONG_MAX ) ) {

@@ -384,7 +384,6 @@ backtest_topo( config_t * config ) {
   /* txncache_obj, busy_obj, poh_slot_obj and constipated_obj only by replay tile */
   fd_topob_wksp( topo, "tcache"      );
   fd_topob_wksp( topo, "bank_busy"   );
-  fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "constipate"  );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
       config->firedancer.runtime.limits.max_rooted_slots,
@@ -398,9 +397,6 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_uses( topo, replay_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
   }
-  fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
-  fd_topob_tile_uses( topo, replay_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_slot_obj->id, "poh_slot" ) );
   fd_topo_obj_t * constipated_obj = fd_topob_obj( topo, "fseq", "constipate" );
   fd_topob_tile_uses( topo, replay_tile, constipated_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, constipated_obj->id, "constipate" ) );
@@ -421,14 +417,6 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   initialize_stacks( config );
   fd_topo_t * topo = &config->topo;
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  /* FIXME: there's no PoH tile in this mini-topology,
-   *        but replay tile waits for `poh_slot!=ULONG_MAX` before starting to vote
-   *        -- vote updates the root for funk/blockstore publish */
-  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
-  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
-  ulong * poh = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
-  fd_fseq_update( poh, 0UL );
 
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
   for(;;) pause();

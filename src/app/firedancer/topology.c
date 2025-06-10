@@ -271,7 +271,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "repair_repla" );
   fd_topob_wksp( topo, "replay_poh"   );
   fd_topob_wksp( topo, "bank_busy"    );
-  fd_topob_wksp( topo, "root_slot"    );
   fd_topob_wksp( topo, "pack_replay"  );
   fd_topob_wksp( topo, "tower_send"  );
   fd_topob_wksp( topo, "gossip_send"  );
@@ -302,15 +301,14 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "tcache"      );
   fd_topob_wksp( topo, "poh"         );
   fd_topob_wksp( topo, "send"        );
-  fd_topob_wksp( topo, "poh_slot"    );
-  fd_topob_wksp( topo, "turb_slot"   );
   fd_topob_wksp( topo, "tower"       );
   fd_topob_wksp( topo, "batch"       );
   fd_topob_wksp( topo, "constipate"  );
-  if(enable_rstart) fd_topob_wksp( topo, "restart" );
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topob_wksp( topo, "exec_fseq"   );
   fd_topob_wksp( topo, "writer_fseq" );
+  fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
+  if(enable_rstart) fd_topob_wksp( topo, "restart" );
 
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -537,31 +535,41 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ];
   fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  /* This fseq maintains the node's current root slot for the purposes of
-    syncing across tiles and shared data structures. */
-  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
+  /* root_slot is an fseq marking the validator's current Tower root. */
+
+  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
   fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
 
-  /* This fseq maintains the observed current turbine slot for the purposes of
-     tracking slots behind. */
-  fd_topo_obj_t * turb_slot_obj = fd_topob_obj( topo, "fseq", "turb_slot" );
-  fd_topob_tile_uses( topo, repair_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, replay_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, turb_slot_obj->id, "turb_slot" ) );
+  /* turbine_slot0 is an fseq marking the slot number of the first shred
+     we observed from Turbine.  This is a useful heuristic for
+     determining when replay has progressed past the slot in which we
+     last voted.  The idea is once replay has proceeded past the slot
+     from which validator stopped replaying and therefore also stopped
+     voting (crashed, shutdown, etc.), it will have "read-back" its
+     latest tower in the ledger.  Note this logic is not true in the
+     case our latest tower vote was for a minority fork. */
+
+  fd_topo_obj_t * turbine_slot0_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
+  fd_topob_tile_uses( topo, repair_tile, turbine_slot0_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, turbine_slot0_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot0_obj->id, "turbine_slot0" ) );
+
+  /* turbine_slot is an fseq marking the highest slot we've observed on
+     a shred.  This is continuously updated as the validator is running
+     and is used to determine whether the validator is caught up with
+     the rest of the cluster. */
+
+  fd_topo_obj_t * turbine_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
+  fd_topob_tile_uses( topo, repair_tile, turbine_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, turbine_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot_obj->id, "turbine_slot" ) );
 
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
     fd_topob_tile_uses( topo, shred_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
-
-  fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
-  fd_topob_tile_uses( topo, poh_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topo_tile_t * send_tile = &topo->tiles[ fd_topo_find_tile( topo, "send", 0UL ) ];
-  fd_topob_tile_uses( topo, send_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, replay_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_slot_obj->id, "poh_slot" ) );
 
   fd_topo_obj_t * constipated_obj = fd_topob_obj( topo, "fseq", "constipate" );
   fd_topob_tile_uses( topo, replay_tile, constipated_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
