@@ -325,6 +325,36 @@ The phases are,
 | waiting_for_supermajority_slot                  | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the slot that we are stopped at. Otherwise it is `null` |
 | waiting_for_supermajority_stake_percent         | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the percentage of stake that is currently online and gossiping to our node. Otherwise it is `null`. The validator will proceed with starting up once the stake percent reaches 80 |
 
+#### `summary.schedule_strategy`
+| frequency  | type     | example |
+|------------|----------|---------|
+| *Once*     | `string` | below   |
+
+An description of the configured operational mode of the transaction
+scheduler. The following modes are possible:
+
+- "perf"
+- "balanced"
+- "revenue"
+
+The scheduler mode determines how eager / greedy the scheduler is when
+filling a block.  "perf" means the scheduler tries to fill the block as
+quickly as possible while "revenue" means the scheduler will wait as
+long as possible before filling the block. "balanced" is somewhere in
+the middle.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "schedule_strategy",
+    "value": "balanced"
+}
+```
+
+:::
+
 #### `summary.tiles`
 | frequency  | type     | example |
 |------------|----------|---------|

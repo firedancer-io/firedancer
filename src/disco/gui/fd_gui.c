@@ -27,6 +27,7 @@ fd_gui_new( void *             shmem,
             char const *       cluster,
             uchar const *      identity_key,
             int                is_voting,
+            int                schedule_strategy,
             fd_topo_t *        topo ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -50,6 +51,7 @@ fd_gui_new( void *             shmem,
   gui->topo = topo;
 
   gui->debug_in_leader_slot = ULONG_MAX;
+  gui->summary.schedule_strategy = schedule_strategy;
 
 
   gui->next_sample_400millis = fd_log_wallclock();
@@ -151,6 +153,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_skipped_history,
     fd_gui_printf_tps_history,
     fd_gui_printf_tiles,
+    fd_gui_printf_schedule_strategy,
     fd_gui_printf_identity_balance,
     fd_gui_printf_vote_balance,
     fd_gui_printf_estimated_slot_duration_nanos,
