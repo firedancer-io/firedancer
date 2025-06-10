@@ -23,7 +23,6 @@ jobs:
         gcc-9.5.0,linux_gcc_zen4,ALL;
         gcc-10.5.0,linux_gcc_zen4,ALL;
         gcc-11.4.0,linux_gcc_zen4,ALL;
-        ALL,linux_gcc_s390x,ALL;
         ALL,linux_gcc_riscv,ALL
       verbose: false
       build_arm: true
