@@ -431,50 +431,32 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
                         fd_funk_txn_t const *     txn,
                         fd_funk_rec_key_t const * vote_acc ) {
 # if FD_TOWER_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_tower_votes_empty( tower ) ) ) {
-    __asm__("int $3");
-    FD_LOG_ERR(( "[%s] cannot write to non-empty tower", __func__ ));
-  }
+  FD_TEST( fd_tower_votes_empty( tower ) );
 # endif
 
-  ulong vote_cnt            = 0UL;
-  fd_tower_vote_t votes[32] = {0};
-
-  /* Speculatively query the vote state from Funk, until we succeed */
   for(;;) {
-    fd_funk_rec_query_t query[1];
-    fd_voter_state_t const * state = fd_voter_state( funk, query, txn, vote_acc );
-    if( FD_UNLIKELY( state == NULL ) ) return;
-    vote_cnt = fd_voter_state_cnt( state );
+    fd_funk_rec_query_t   query;
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, vote_acc, NULL, &query );
+    if( FD_UNLIKELY( !rec ) ) break;
+    fd_voter_state_t const * state = fd_voter_state( funk, rec );
+    if( FD_UNLIKELY( !state ) ) break;
 
-    /* FIXME: note that this may cause a segfault, if the underlying memory-mapped page is
-       swapped out. If we see segfaults, then we should re-visit this.
-
-       This was not fixed yet, because Funk will be changed to not be memory mapped in the near future. */
-
-    fd_memset( votes, 0, sizeof(votes) );
+    fd_tower_vote_t vote = { 0 };
     ulong sz = sizeof(fd_voter_vote_old_t);
-    for( ulong i = 0; i < vote_cnt; i++ ) {
+    for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
       if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-        memcpy( (uchar *)&votes[i], (uchar *)(state->v0_23_5.votes + i), sz );
+        memcpy( (uchar *)&vote, (uchar *)(state->v0_23_5.votes + i), sz );
       } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
-        memcpy( (uchar *)&votes[i], (uchar *)(state->v1_14_11.votes + i), sz );
+        memcpy( (uchar *)&vote, (uchar *)(state->v1_14_11.votes + i), sz );
       } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
-        memcpy( (uchar *)&votes[i], (uchar *)(state->votes + i) + sizeof(uchar) /* latency */, sz );
+        memcpy( (uchar *)&vote, (uchar *)(state->votes + i) + sizeof(uchar) /* latency */, sz );
       } else {
         FD_LOG_ERR(( "[%s] unknown state->discriminant %u", __func__, state->discriminant ));
       }
     }
 
-    if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
-      break;
-    }
-  }
-
-  /* Now we have read out of Funk and confirmed the speculative query was still valid,
-      it is safe for us to push to the tower. */
-  for( ulong i=0; i<vote_cnt; i++ ) {
-    fd_tower_votes_push_tail( tower, votes[i] );
+    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) break;
+    else fd_tower_votes_remove_all( tower );
   }
 }
 
