@@ -269,6 +269,8 @@ struct fd_replay_tile_ctx {
   fd_replay_tile_metrics_t metrics;
 
   ulong * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
+
+  ulong enable_bank_hash_cmp;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -2334,6 +2336,9 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     /* Try to move the bank hash comparison watermark forward */
     for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
+      if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
+        break;
+      }
       int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
       switch ( rc ) {
         case -1:
@@ -2973,6 +2978,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   FD_LOG_NOTICE(("Finished unprivileged init"));
+
+  ctx->enable_bank_hash_cmp = tile->replay.enable_bank_hash_cmp;
 }
 
 static ulong

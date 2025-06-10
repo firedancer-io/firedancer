@@ -876,6 +876,8 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.full_interval        = config->tiles.batch.full_interval;
       tile->replay.incremental_interval = config->tiles.batch.incremental_interval;
 
+      tile->replay.enable_bank_hash_cmp = 1;
+
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
 

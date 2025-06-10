@@ -1,3 +1,6 @@
+#!/bin/bash
+set -e
+
 src/flamenco/runtime/tests/run_ledger_backtest.sh -t 105 -l v18multi-inverted -s snapshot-100-FpGocyQzYgnzjnvazuiDHPLkVPZt3vRvGvSNX1GBUMGT.tar.zst -y 5 -m 20000000 -e 110 -c 1.18.6
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-519-no-rent       -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -y 5 -m 1000000 -e 255312007 -c 2.0.23
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066033-no-rent -s snapshot-257066033-AD2nFFTCtZVmo5nXLVsQMV1hiQDjzoEBXibRicBJc5Vw.tar.zst -y 10 -m 20000000 -e 257066038 -c 2.1.14

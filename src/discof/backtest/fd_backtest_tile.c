@@ -39,6 +39,8 @@ typedef struct {
   ulong *                published_wmark; /* same as the one in replay tile */
   fd_alloc_t *           alloc;
   fd_valloc_t            valloc;
+  long                   replay_time;
+  ulong                  slot_cnt;
 } ctx_t;
 
 FD_FN_PURE static inline ulong
@@ -186,7 +188,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( root_slot_obj_id!=ULONG_MAX );
   ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
 
-  FD_LOG_WARNING(( "Rocksdb tile finishes initialization" ));
+  ctx->replay_time = LONG_MAX;
+  ctx->slot_cnt    = 0UL;
+
+  FD_LOG_NOTICE(("Finished unprivileged init"));
 }
 
 static void
@@ -199,6 +204,10 @@ after_credit( ctx_t * ctx,
     if( wmark==ULONG_MAX ) return;
     if( ctx->start_slot==ULONG_MAX ) ctx->start_slot=wmark;
     if( wmark!=ctx->replay_notification.slot_exec.slot ) return;
+
+    if (ctx->replay_time==LONG_MAX) {
+      ctx->replay_time = -fd_log_wallclock();
+    }
 
     ctx->playback_started=1;
     fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
@@ -270,8 +279,9 @@ after_frag( ctx_t * ctx,
     }
 
     if( slot!=ctx->start_slot && ctx->start_slot!=ULONG_MAX ) {
+      ctx->slot_cnt++;
       if( FD_LIKELY( !memcmp( bank_hash, &versioned->inner.current.frozen_hash, sizeof(fd_hash_t) ) ) ) {
-        FD_LOG_WARNING(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
+        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
       } else {
         FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
                     slot,
@@ -281,7 +291,17 @@ after_frag( ctx_t * ctx,
     }
     notify_one_slot( ctx, stem );
 
-    if( FD_UNLIKELY( slot>=ctx->end_slot ) ) FD_LOG_ERR(( "Rocksdb playback done." ));
+    if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
+      ctx->replay_time += fd_log_wallclock();
+      double replay_time_s = (double)ctx->replay_time * 1e-9;
+      double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
+      FD_LOG_NOTICE((
+            "replay completed - slots: %lu, elapsed: %6.6f s, sec/slot: %6.6f",
+            ctx->slot_cnt,
+            replay_time_s,
+            sec_per_slot ));
+      FD_LOG_ERR(( "Rocksdb playback done." ));
+    }
   }
 }
 
