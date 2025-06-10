@@ -428,6 +428,20 @@ fd_gui_printf_tiles( fd_gui_t * gui ) {
   jsonp_close_envelope( gui );
 }
 
+void
+fd_gui_printf_schedule_strategy( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "schedule_strategy" );
+    char mode[10];
+    switch (gui->summary.schedule_strategy) {
+      case 0: strncpy( mode, "perf", sizeof(mode) ); break;
+      case 1: strncpy( mode, "balanced", sizeof(mode) ); break;
+      case 2: strncpy( mode, "revenue", sizeof(mode) ); break;
+      default: FD_LOG_ERR(("unexpected schedule_strategy %d", gui->summary.schedule_strategy));
+    }
+    mode[ sizeof(mode) - 1] = '\0';
+    jsonp_string( gui, "value", mode );
+  jsonp_close_envelope( gui );
+}
 
 void
 fd_gui_printf_identity_balance( fd_gui_t * gui ) {
