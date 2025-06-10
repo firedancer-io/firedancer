@@ -230,7 +230,6 @@ struct fd_replay_tile_ctx {
 
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
-  fd_pubkey_t vote_acct_addr[ 1 ];
 
   fd_txncache_t * status_cache;
   void * bmtree[ FD_PACK_MAX_BANK_TILES ];
@@ -2230,7 +2229,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
 
     /* Check if the validator is caught up, and can safely be unmarked
-       as read-only.  This happens when it has replayed through
+       as read-only. This happens when it has replayed through
        turbine_slot0. */
 
     if( FD_UNLIKELY( ctx->read_only && ctx->curr_slot >= fd_fseq_query( ctx->turbine_slot0 ) ) ) {
@@ -2678,9 +2677,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->vote_authority = *ctx->validator_identity; /* FIXME */
   memcpy( ctx->vote_acc, fd_keyload_load( tile->replay.vote_account_path, 1 ), sizeof(fd_pubkey_t) );
 
-  ctx->vote                           = tile->replay.vote;
   ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
-  ctx->vote_acct_addr[ 0 ]            = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.vote_account_path, 1 ) );
 
   /**********************************************************************/
   /* entry batch                                                        */

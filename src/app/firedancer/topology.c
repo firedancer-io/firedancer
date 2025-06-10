@@ -885,7 +885,6 @@ fd_topo_initialize( config_t * config ) {
 
       strncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
       tile->replay.ip_addr = config->net.ip_addr;
-      tile->replay.vote = config->firedancer.consensus.vote;
       strncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
       tile->replay.full_interval        = config->tiles.batch.full_interval;
       tile->replay.incremental_interval = config->tiles.batch.incremental_interval;

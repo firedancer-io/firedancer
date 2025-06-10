@@ -299,7 +299,6 @@ typedef struct {
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
-      int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
       ulong exec_tile_count;
