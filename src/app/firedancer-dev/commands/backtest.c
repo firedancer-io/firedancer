@@ -391,14 +391,14 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "capture_ctx" );
   fd_topo_obj_t * capture_ctx_obj = setup_topo_capture_ctx( topo,
                                                             "capture_ctx",
-                                                            config->tiles.replay.capture,
-                                                            config->tiles.replay.dump_proto_output_dir,
-                                                            config->tiles.replay.dump_proto_sig_filter,
-                                                            config->tiles.replay.dump_proto_start_slot,
-                                                            config->tiles.replay.dump_insn_to_pb,
-                                                            config->tiles.replay.dump_txn_to_pb,
-                                                            config->tiles.replay.dump_block_to_pb,
-                                                            config->tiles.replay.dump_syscall_to_pb );
+                                                            config->capture.capture,
+                                                            config->capture.dump_proto_output_dir,
+                                                            config->capture.dump_proto_sig_filter,
+                                                            config->capture.dump_proto_start_slot,
+                                                            config->capture.dump_insn_to_pb,
+                                                            config->capture.dump_txn_to_pb,
+                                                            config->capture.dump_block_to_pb,
+                                                            config->capture.dump_syscall_to_pb );
   fd_topob_tile_uses( topo, replay_tile, capture_ctx_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], capture_ctx_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, capture_ctx_obj->id, "capture_ctx" ) );
