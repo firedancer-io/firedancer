@@ -8,7 +8,9 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_filemap.h"
+#include "../../funk/fd_funk_val.h"
 
 #define IN_KIND_GOSSIP ( 0)
 #define IN_KIND_REPLAY ( 1)
@@ -121,15 +123,18 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
     /* Fetch the vote account's vote slot and root slot from the vote
        account, re-trying if there is a Funk conflict. */
 
-    ulong vote = 0UL;
-    ulong root = 0UL;
+    ulong vote = FD_SLOT_NULL;
+    ulong root = FD_SLOT_NULL;
+
     for(;;) {
-      fd_funk_rec_query_t query[1];
-      fd_voter_state_t const * state = fd_voter_state( funk, query, txn, &voter->rec );
+      fd_funk_rec_query_t   query;
+      fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, &voter->rec, NULL, &query );
+      if( FD_UNLIKELY( !rec ) ) break;
+      fd_voter_state_t const * state = fd_voter_state( funk, rec );
+      if( FD_UNLIKELY( !state ) ) break;
       vote = fd_voter_state_vote( state );
       root = fd_voter_state_root( state );
-
-      if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) break;
+      if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) break;
     }
 
     /* Only process votes for slots >= root. Ghost requires vote slot
