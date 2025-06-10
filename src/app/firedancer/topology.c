@@ -22,6 +22,36 @@
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
 static fd_topo_obj_t *
+setup_topo_capture_ctx( fd_topo_t *  topo,
+                        char const * wksp_name,
+                        char const * capture,
+                        char const * dump_proto_output_dir,
+                        char const * dump_proto_sig_filter,
+                        ulong        dump_proto_start_slot,
+                        int          dump_insn_to_pb,
+                        int          dump_txn_to_pb,
+                        int          dump_block_to_pb,
+                        int          dump_syscall_to_pb ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "capture_ctx", wksp_name );
+
+  if( strncmp( capture, "", 1 ) ) {
+    FD_TEST( fd_pod_insertf_cstr( topo->props, capture, "obj.%lu.capture", obj->id ) );
+  }
+  if( strncmp( dump_proto_output_dir, "", 1 ) ) {
+    FD_TEST( fd_pod_insertf_cstr( topo->props, dump_proto_output_dir, "obj.%lu.dump_proto_output_dir", obj->id ) );
+  }
+  if( strncmp( dump_proto_sig_filter, "", 1 ) ) {
+    FD_TEST( fd_pod_insertf_cstr( topo->props, dump_proto_sig_filter, "obj.%lu.dump_proto_sig_filter", obj->id ) );
+  }
+  FD_TEST( fd_pod_insertf_ulong( topo->props, dump_proto_start_slot, "obj.%lu.dump_proto_start_slot", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_insn_to_pb, "obj.%lu.dump_insn_to_pb", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_txn_to_pb, "obj.%lu.dump_txn_to_pb", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_block_to_pb, "obj.%lu.dump_block_to_pb", obj->id ) );
+  FD_TEST( fd_pod_insertf_int( topo->props, dump_syscall_to_pb, "obj.%lu.dump_syscall_to_pb", obj->id ) );
+  return obj;
+}
+
+static fd_topo_obj_t *
 setup_topo_blockstore( fd_topo_t *  topo,
                       char const * wksp_name,
                       ulong        shred_max,
@@ -461,6 +491,22 @@ fd_topo_initialize( config_t * config ) {
   }
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
+
+  /* capture_ctx_obj shared by replay and exec tiles */
+  fd_topob_wksp( topo, "capture_ctx" );
+  fd_topo_obj_t * capture_ctx_obj = setup_topo_capture_ctx( topo,
+                                                            "capture_ctx",
+                                                            config->capture.capture,
+                                                            config->capture.dump_proto_output_dir,
+                                                            config->capture.dump_proto_sig_filter,
+                                                            config->capture.dump_proto_start_slot,
+                                                            config->capture.dump_insn_to_pb,
+                                                            config->capture.dump_txn_to_pb,
+                                                            config->capture.dump_block_to_pb,
+                                                            config->capture.dump_syscall_to_pb );
+  fd_topob_tile_uses( topo, replay_tile, capture_ctx_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], capture_ctx_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, capture_ctx_obj->id, "capture_ctx" ) );
 
   fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
 
