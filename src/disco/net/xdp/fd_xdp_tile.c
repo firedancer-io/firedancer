@@ -453,11 +453,6 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     ctx->next_xdp_stats_refresh = now + ctx->xdp_stats_interval_ticks;
     poll_xdp_statistics( ctx );
   }
-
-  int _charge_busy = 0;
-  for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
-    net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
-  }
 }
 
 /* net_tx_route resolves the destination interface index, src MAC address,
@@ -916,8 +911,6 @@ before_credit( fd_net_ctx_t *      ctx,
 
   uint       rr_idx = ctx->rr_idx;
   fd_xsk_t * rr_xsk = &ctx->xsk[ rr_idx ];
-  ctx->rr_idx++;
-  ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
 
   net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
 
@@ -929,6 +922,8 @@ before_credit( fd_net_ctx_t *      ctx,
     net_rx_event( ctx, stem, rr_xsk, rx_cons );
   } else {
     net_rx_wakeup( ctx, rr_xsk, charge_busy );
+    ctx->rr_idx++;
+    ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
   }
 
   uint comp_cons = FD_VOLATILE_CONST( *rr_xsk->ring_cr.cons );
