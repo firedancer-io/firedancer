@@ -923,7 +923,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 }
 
-#define MAX_REQ_PER_CREDIT 500
+#define MAX_REQ_PER_CREDIT 200
 
 static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
@@ -938,7 +938,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
   // FD_LOG_NOTICE(("after credit"));
 
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsrepair < (long)20e6 ) ) return; /* space to after_frag, honestly */
+  if( FD_UNLIKELY( now - ctx->tsrepair < (long)10e6 ) ) return; /* space to after_frag, honestly */
 
   ctx->tsrepair = now;
 
