@@ -159,7 +159,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   X( retry,                       "%d",     bool,  "bool",         __VA_ARGS__ ) \
   X( tick_per_us,                 "%f",     units, "ticks per ms", __VA_ARGS__ ) \
   X( idle_timeout,                "%lu",    units, "ns",           __VA_ARGS__ ) \
-  X( keep_alive,                  "%d",     bool,  "bool",         __VA_ARGS__ ) \
   X( ack_delay,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
   X( ack_threshold,               "%lu",    units, "bytes",        __VA_ARGS__ ) \
   X( retry_ttl,                   "%lu",    units, "ns",           __VA_ARGS__ ) \
