@@ -1,5 +1,6 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
+#include "../../groove/fd_groove.h"
 
 fd_txn_account_t *
 fd_txn_account_init( void * ptr ) {
@@ -196,6 +197,11 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
   }
 
   if( FD_UNLIKELY( !fd_account_meta_exists( meta ) ) ) {
+    /* If we have queried an account that does not exist,
+       try to load it from the cold store */
+    /* FIXME: send blocking prefetch request to Groove */
+    // pull_account_from_cold_store( pubkey, funk, funk_txn, NULL /* FIXME */ );
+
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 

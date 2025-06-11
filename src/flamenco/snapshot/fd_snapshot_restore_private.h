@@ -62,8 +62,6 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 /* Main snapshot restore **********************************************/
 
 struct fd_snapshot_restore {
-  fd_funk_t *       funk;
-  fd_funk_txn_t *   funk_txn;
   fd_spad_t *       spad;
 
   ulong slot;  /* Slot number the snapshot was taken at */
@@ -94,9 +92,11 @@ struct fd_snapshot_restore {
 
   /* Account size.  Used when reading account data. */
 
-  ulong   acc_sz;    /* acc bytes pending write */
-  uchar * acc_data;  /* pointer into funk acc data pending write */
-  ulong   acc_pad;   /* padding size at end of account */
+  fd_pubkey_t * acc_key;  /* pubkey of the account */
+  ulong   acc_sz;         /* acc bytes pending write */
+  uchar * acc_data_start; /* padding size at end of account */
+  uchar * acc_data;       /* pointer into funk acc data pending write */
+  ulong   acc_pad;        /* padding size at end of account */
 
   /* Consumer callback */
 
@@ -108,6 +108,12 @@ struct fd_snapshot_restore {
 
   fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account;
   void *                                         cb_rent_fresh_account_ctx;
+
+  fd_snapshot_restore_cb_new_account_fn_t cb_new_account;
+  void *                                  cb_new_account_ctx;
+
+  fd_snapshot_restore_cb_acc_finish_read_fn_t cb_acc_finish_read;
+  void *                                      cb_acc_finish_read_ctx;
 };
 
 /* STATE_{...} are the state IDs that control file processing in the

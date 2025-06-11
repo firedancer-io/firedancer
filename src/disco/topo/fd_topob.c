@@ -375,6 +375,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
     "batch",  /* FIREDANCER only */
+    "groove", /* FIREDANCER only */
     "pktgen",
   };
 
