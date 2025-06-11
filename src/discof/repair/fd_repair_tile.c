@@ -813,8 +813,9 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( is_fec_completes_msg( sz ) ) ) {
       fd_forest_ele_t * ele = NULL;
+      int last_shred_is_slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
       for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, 0 );
+        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->data.parent_off, idx, last_shred_is_slot_complete && idx == shred->idx );
       }
       FD_TEST( ele ); /* must be non-empty */
 
@@ -845,6 +846,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           }
         }
       }
+      /* remove the fec entry in forest */
     }
 
     /* Insert the shred into the map. */
@@ -989,10 +991,6 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx->stem ) ) {
     return;
   }
-<<<<<<< HEAD
-=======
-
->>>>>>> cea85c43d (repair: rip out force complete)
 }
 static void
 privileged_init( fd_topo_t *      topo,
