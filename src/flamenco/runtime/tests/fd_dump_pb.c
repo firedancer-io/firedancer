@@ -7,6 +7,8 @@
 #include "../program/fd_address_lookup_table_program.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 #include "../../../ballet/nanopb/pb_encode.h"
+#include "../program/fd_bpf_program_util.h"
+
 
 #include <errno.h>
 #include <stdio.h> /* fopen */
@@ -1041,9 +1043,9 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
           vm->instr_ctx->txn_ctx->instr_stack_sz,
           vm->cu );
 
-  /* The generated filename should be unique for every call. */
+  /* The generated filename should be unique for every call. Silently return otherwise. */
   if( FD_UNLIKELY( access( filename, F_OK )!=-1 ) ) {
-    FD_LOG_ERR(( "File %s already exists! Dumped files should be unique.", filename )); // TODO: Maybe don't FD_LOG_ERR?
+    return;
   }
 
   fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO;
@@ -1124,37 +1126,80 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
   sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
   fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
 
-  // Serialize the protobuf to file (using mmap)
-  size_t pb_alloc_size = 100 * 1024 * 1024; // 100MB (largest so far is 19MB)
-  FILE *f = fopen(filename, "wb+");
-  if( ftruncate(fileno(f), (off_t) pb_alloc_size) != 0 ) {
-    FD_LOG_WARNING(("Failed to resize file %s", filename));
-    fclose(f);
+  /* Output to file */
+  ulong out_buf_size = 1UL<<29UL; /* 128 MB */
+  uint8_t * out = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(uint8_t), out_buf_size );
+  pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
+  if( pb_encode( &stream, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS, &sys_ctx ) ) {
+    FILE * file = fopen(filename, "wb");
+    if( file ) {
+      fwrite( out, 1, stream.bytes_written, file );
+      fclose( file );
+    }
+  }
+} FD_SPAD_FRAME_END;
+}
+
+void
+fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
+                         fd_pubkey_t const * program_id ) {
+FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
+
+  /* Query the BPF program cache for the account pubkey */
+  fd_sbpf_validated_program_t * prog = NULL;
+  if( fd_bpf_load_cache_entry( txn_ctx->funk, txn_ctx->funk_txn, program_id, &prog ) != 0 ) {
     return;
   }
 
-  uchar *pb_alloc = mmap( NULL,
-                          pb_alloc_size,
-                          PROT_READ | PROT_WRITE,
-                          MAP_SHARED,
-                          fileno(f),
-                          0 /* offset */);
-  if( pb_alloc == MAP_FAILED ) {
-    FD_LOG_WARNING(( "Failed to mmap file %d", errno ));
-    fclose(f);
+  /* Serialize the ELF to protobuf */
+  fd_ed25519_sig_t signature;
+  memcpy( signature, (uchar const *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off, sizeof(fd_ed25519_sig_t) );
+  char encoded_signature[FD_BASE58_ENCODED_64_SZ];
+  fd_base58_encode_64( signature, NULL, encoded_signature );
+
+  char filename[256];
+  sprintf( filename,
+          "%s/elf-%s-%s-%lu.elfctx",
+          txn_ctx->capture_ctx->dump_proto_output_dir,
+          encoded_signature,
+          FD_BASE58_ENC_32_ALLOCA( program_id ),
+          txn_ctx->slot );
+
+  /* The generated filename should be unique for every call. Silently return otherwise. */
+  if( FD_UNLIKELY( access( filename, F_OK )!=-1 ) ) {
     return;
   }
 
-  pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
-  if( !pb_encode( &stream, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS, &sys_ctx ) ) {
-    FD_LOG_WARNING(( "Failed to encode instruction context" ));
-  }
-  // resize file to actual size
-  if( ftruncate( fileno(f), (off_t) stream.bytes_written ) != 0 ) {
-    FD_LOG_WARNING(( "Failed to resize file %s", filename ));
-  }
+  fd_exec_test_elf_loader_ctx_t elf_ctx = FD_EXEC_TEST_ELF_LOADER_CTX_INIT_ZERO;
 
-  fclose(f);
+  /* ElfLoaderCtx -> elf */
+  elf_ctx.has_elf = true;
+  elf_ctx.elf.data = fd_spad_alloc( txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( prog->rodata_sz ) );
+  elf_ctx.elf.data->size = (pb_size_t)prog->rodata_sz;
+  fd_memcpy( elf_ctx.elf.data->bytes, prog->rodata, prog->rodata_sz );
 
+  /* ElfLoaderCtx -> features */
+  elf_ctx.has_features = true;
+  dump_sorted_features( &txn_ctx->features, &elf_ctx.features, txn_ctx->spad );
+
+  /* ElfLoaderCtx -> elf_sz */
+  /* TODO: this should be removed */
+  elf_ctx.elf_sz = prog->rodata_sz;
+
+  /* ElfLoaderCtx -> deploy_checks
+     We hardcode this to true and rely the fuzzer to toggle this as it pleases */
+  elf_ctx.deploy_checks = true;
+
+  /* Output to file */
+  ulong out_buf_size = 1UL<<29UL; /* 128 MB */
+  uint8_t * out = fd_spad_alloc( txn_ctx->spad, alignof(uint8_t), out_buf_size );
+  pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
+  if( pb_encode( &stream, FD_EXEC_TEST_ELF_LOADER_CTX_FIELDS, &elf_ctx ) ) {
+    FILE * file = fopen(filename, "wb");
+    if( file ) {
+      fwrite( out, 1, stream.bytes_written, file );
+      fclose( file );
+    }
+  }
 } FD_SPAD_FRAME_END;
 }

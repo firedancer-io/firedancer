@@ -1366,6 +1366,7 @@ void
 fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   ushort j = 0UL;
   fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
+
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
 
     fd_txn_account_t * txn_account = fd_executor_setup_txn_account( txn_ctx, i );
@@ -1373,6 +1374,16 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     if( FD_UNLIKELY( txn_account &&
                      memcmp( txn_account->vt->get_owner( txn_account ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
       fd_executor_setup_executable_account( txn_ctx, i, &j );
+    }
+  }
+
+  /* Dumping ELF files to protobuf, if applicable */
+  int dump_elf_to_pb = txn_ctx->capture_ctx &&
+                       txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot &&
+                       txn_ctx->capture_ctx->dump_elf_to_pb;
+  if( FD_UNLIKELY( dump_elf_to_pb ) ) {
+    for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
+      fd_dump_elf_to_protobuf( txn_ctx, &txn_ctx->account_keys[i] );
     }
   }
 
