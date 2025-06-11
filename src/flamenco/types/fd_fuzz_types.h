@@ -3064,6 +3064,31 @@ void *fd_gossip_vote_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
+void *fd_gossip_deprecated_compression_type_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_gossip_deprecated_compression_type_t *self = (fd_gossip_deprecated_compression_type_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_deprecated_compression_type_t);
+  fd_gossip_deprecated_compression_type_new(mem);
+  self->discriminant = fd_rng_uint( rng ) % 3;
+  return mem;
+}
+
+void *fd_gossip_deprecated_epoch_incomplete_slots_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_gossip_deprecated_epoch_incomplete_slots_t *self = (fd_gossip_deprecated_epoch_incomplete_slots_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_deprecated_epoch_incomplete_slots_t);
+  fd_gossip_deprecated_epoch_incomplete_slots_new(mem);
+  self->first = fd_rng_ulong( rng );
+  fd_gossip_deprecated_compression_type_generate( &self->compression, alloc_mem, rng );
+  self->compressed_list_len = fd_rng_ulong( rng ) % 8;
+  if( self->compressed_list_len ) {
+    self->compressed_list = (uchar *) *alloc_mem;
+    *alloc_mem = (uchar *) *alloc_mem + self->compressed_list_len;
+    for( ulong i=0; i < self->compressed_list_len; ++i) { self->compressed_list[i] = fd_rng_uchar( rng ) % 0x80; }
+  } else {
+    self->compressed_list = NULL;
+  }
+  return mem;
+}
+
 void *fd_gossip_lowest_slot_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_gossip_lowest_slot_t *self = (fd_gossip_lowest_slot_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_lowest_slot_t);
@@ -3080,7 +3105,17 @@ void *fd_gossip_lowest_slot_generate( void *mem, void **alloc_mem, fd_rng_t * rn
   } else {
     self->slots = NULL;
   }
-  self->i_dont_know = fd_rng_ulong( rng );
+  self->stash_len = fd_rng_ulong( rng ) % 8;
+  if( self->stash_len ) {
+    self->stash = (fd_gossip_deprecated_epoch_incomplete_slots_t *) *alloc_mem;
+    *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_deprecated_epoch_incomplete_slots_t)*self->stash_len;
+    for( ulong i=0; i < self->stash_len; i++ ) {
+      fd_gossip_deprecated_epoch_incomplete_slots_new( self->stash + i );
+      fd_gossip_deprecated_epoch_incomplete_slots_generate( self->stash + i, alloc_mem, rng );
+    }
+  } else {
+    self->stash = NULL;
+  }
   self->wallclock = fd_rng_ulong( rng );
   return mem;
 }
