@@ -331,7 +331,7 @@ int pretty_num(char* st, uint64_t cnt, char* suffix)
 }
 
 #define MAX_LINES 128
-#define MAX_LINE_WIDTH 256
+#define MAX_LINE_WIDTH 512
 
 void* mon_thread(void* arg)
 {
