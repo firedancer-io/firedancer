@@ -843,6 +843,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
           }
         }
       }
+      /* remove the fec entry in forest */
+      fd_forest_fec_remove( ctx->forest, shred->slot, shred->fec_set_idx );
     }
 
     /* Insert the shred into the map. */
@@ -989,10 +991,6 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx->stem ) ) {
     return;
   }
-<<<<<<< HEAD
-=======
-
->>>>>>> cea85c43d (repair: rip out force complete)
 }
 static void
 privileged_init( fd_topo_t *      topo,

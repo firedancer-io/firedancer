@@ -9,6 +9,7 @@ static void ver_inc( ulong ** ver ) {
 void *
 fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   FD_TEST( fd_ulong_is_pow2( ele_max ) );
+  ulong fec_max = ele_max * 32; // FIXME: on average around 32 FECs per slot
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -42,6 +43,8 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) );
   void * frontier = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) );
   void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) );
+  void * fec_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_shreds_pool_align(), fd_fec_shreds_pool_footprint( fec_max ) );
+  void * fec_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_shreds_map_align(),         fd_fec_shreds_map_footprint ( fec_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_forest_align() ) == (ulong)shmem + footprint );
 
   forest->root           = ULONG_MAX;
@@ -51,6 +54,8 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   forest->ancestry_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_ancestry_join( fd_forest_ancestry_new( ancestry, ele_max, seed       ) ) );
   forest->frontier_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_frontier_join( fd_forest_frontier_new( frontier, ele_max, seed       ) ) );
   forest->orphaned_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_orphaned_join( fd_forest_orphaned_new( orphaned, ele_max, seed       ) ) );
+  forest->fec_pool_gaddr = fd_wksp_gaddr_fast( wksp, fd_fec_shreds_pool_join( fd_fec_shreds_pool_new( fec_pool, fec_max ) ) );
+  forest->fec_map_gaddr  = fd_wksp_gaddr_fast( wksp, fd_fec_shreds_map_join ( fd_fec_shreds_map_new ( fec_map, fec_max, seed ) ) );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( forest->magic ) = FD_FOREST_MAGIC;
@@ -132,8 +137,6 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
   root_ele->sibling          = null;
   root_ele->buffered_idx     = 0;
   root_ele->complete_idx     = 0;
-
-  fd_forest_ele_idxs_null( root_ele->idxs );
 
   forest->root = fd_forest_pool_idx( pool, root_ele );
   fd_forest_frontier_ele_insert( frontier, root_ele, pool ); /* cannot fail */
@@ -339,8 +342,6 @@ acquire( fd_forest_t * forest, ulong slot ) {
   ele->buffered_idx = UINT_MAX;
   ele->complete_idx = UINT_MAX;
 
-  fd_forest_ele_idxs_null( ele->idxs ); /* FIXME expensive */
-
   return ele;
 }
 
@@ -386,6 +387,50 @@ fd_forest_query( fd_forest_t * forest, ulong slot ) {
   return query( forest, slot );
 }
 
+void
+fd_forest_fec_remove( fd_forest_t * forest, ulong slot, uint fec_idx ) {
+  fd_fec_shreds_map_t * fec_map  = fd_forest_fec_map( forest );
+  fd_fec_shreds_t     * fec_pool = fd_forest_fec_pool( forest );
+
+  ulong key = (slot << 32) | fec_idx;
+  fd_fec_shreds_t * fec = fd_fec_shreds_map_ele_remove( fec_map, &key, NULL, fec_pool );
+  if( FD_UNLIKELY( !fec ) ) return; /* not found */
+  fd_fec_shreds_pool_ele_release( fec_pool, fec ); /* cannot fail */
+}
+
+static void
+fec_idx_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) {
+  fd_fec_shreds_map_t * fec_map  = fd_forest_fec_map( forest );
+  fd_fec_shreds_t     * fec_pool = fd_forest_fec_pool( forest );
+
+  // nearest multiple of 32 rounded down
+  uint  fec_idx = (shred_idx / 32U) * 32U;
+  ulong key     = (slot << 32) | fec_idx;
+
+  fd_fec_shreds_t * fec = fd_fec_shreds_map_ele_query( fec_map, &key, NULL, fec_pool );
+  if( FD_UNLIKELY( !fec ) ) {
+    fec = fd_fec_shreds_pool_ele_acquire( fec_pool );
+    fec->key = key;
+    fd_fec_shred_idxs_null( fec->rcvd ); /* fast, 1 word */
+    fd_fec_shreds_map_ele_insert( fec_map, fec, fec_pool ); /* cannot fail */
+  }
+  fd_fec_shred_idxs_insert( fec->rcvd, shred_idx % 32U );
+}
+
+int
+fd_forest_fec_shred_test( fd_forest_t const * forest, ulong slot, uint shred_idx ) {
+  fd_fec_shreds_map_t const * fec_map  = fd_forest_fec_map_const( forest );
+  fd_fec_shreds_t     const * fec_pool = fd_forest_fec_pool_const( forest );
+
+  // nearest multiple of 32 rounded down
+  uint  fec_idx = (shred_idx / 32U) * 32U;
+  ulong key     = slot << 32 | fec_idx;
+
+  fd_fec_shreds_t const * fec = fd_fec_shreds_map_ele_query_const( fec_map, &key, NULL, fec_pool );
+  if( FD_UNLIKELY( !fec ) ) return 0; /* not found */
+  return fd_fec_shred_idxs_test( fec->rcvd, shred_idx % 32U );
+}
+
 fd_forest_ele_t *
 fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int slot_complete ) {
 # if FD_FOREST_USE_HANDHOLDING
@@ -415,8 +460,8 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off
     fd_forest_ancestry_ele_insert( fd_forest_ancestry( forest ), ele, pool );
     link( forest, parent, ele );
   }
-  fd_forest_ele_idxs_insert( ele->idxs, shred_idx );
-  while( fd_forest_ele_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) ele->buffered_idx++;
+  fec_idx_insert( forest, slot, shred_idx );
+  while( fd_forest_fec_shred_test( forest, slot, ele->buffered_idx + 1U ) ) ele->buffered_idx++;
   ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
   advance_frontier( forest, slot, parent_off );
   return ele;
@@ -571,7 +616,7 @@ fd_forest_iter_next( fd_forest_iter_t iter, fd_forest_t const * forest ) {
 
     if( ele->complete_idx != UINT_MAX &&
         next_shred_idx < ele->complete_idx &&
-        !fd_forest_ele_idxs_test( ele->idxs, next_shred_idx ) ) {
+        !fd_forest_fec_shred_test( forest, ele->slot, next_shred_idx ) ) {
       iter.shred_idx = next_shred_idx;
       break;
     }
