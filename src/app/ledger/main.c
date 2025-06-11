@@ -720,14 +720,6 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
-  fd_exec_para_cb_ctx_t exec_para_ctx = {
-    .func       = bpf_tpool_wrapper,
-    .para_arg_1 = args->tpool
-  };
-  fd_bpf_scan_and_create_bpf_program_cache_entry_para( args->slot_ctx,
-                                                       args->runtime_spad,
-                                                       &exec_para_ctx );
-
   /* After both snapshots have been loaded in, we can determine if we should
       start distributing rewards. */
 

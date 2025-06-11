@@ -2962,7 +2962,7 @@ fd_runtime_reverify_cached_programs( fd_exec_slot_ctx_t * slot_ctx,
   fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
   for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
     fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
-    fd_bpf_program_reverify( slot_ctx, account, runtime_spad );
+    fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
   }
 
   if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
@@ -2988,7 +2988,7 @@ fd_runtime_reverify_cached_programs( fd_exec_slot_ctx_t * slot_ctx,
 
     for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
       fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
-      fd_bpf_program_reverify( slot_ctx, account, runtime_spad );
+      fd_bpf_program_update_program_cache( slot_ctx, account, runtime_spad );
     }
   }
 }

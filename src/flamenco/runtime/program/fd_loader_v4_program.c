@@ -862,6 +862,12 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
 
+      /* The program may be in the cache but could have failed verification in the current epoch. */
+      if( FD_UNLIKELY( prog->failed_verification ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+
       /* After the program is deployed, we wait a slot before adding it to our program cache. Agave, on the other hand,
          updates their program cache after every transaction. Because of this, for a program that was deployed in the
          current slot, Agave would log "Program is not deployed", while we would log "Program is not cached" since

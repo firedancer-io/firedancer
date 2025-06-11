@@ -2466,6 +2466,15 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
+    /* The program may be in the cache but could have failed verification in the current epoch. */
+    if( FD_UNLIKELY( prog->failed_verification ) ) {
+      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L446 */
     fd_borrowed_account_drop( &program_account );
 

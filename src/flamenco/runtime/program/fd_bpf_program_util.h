@@ -10,34 +10,34 @@
 struct fd_sbpf_validated_program {
   ulong magic;
 
-  ulong last_updated_slot;
-  ulong entry_pc;
-  ulong text_cnt;
-  ulong text_off;
-  ulong text_sz;
+   /* For any programs that fail verification, we retain this flag for the current epoch to
+      prevent any reverification attempts for the remainder of the epoch (instead of
+      removing them from the cache). When `failed_verification` is set, the value of all other
+      fields in this struct are undefined. */
+   uchar failed_verification;
 
-  ulong rodata_sz;
+   /* Stores the last epoch verification checks were ran for a program. Programs are reverified
+      the first time they are mentioned in a transaction in an epoch, and then never again
+      until the next epoch. This is because feature set changes across the epoch boundary can
+      make existing deployed programs invalid. If `last_epoch_verification_ran` != current epoch,
+      then we run the verification and update `failed_verification` if it fails. */
+   ulong last_epoch_verification_ran;
+
+   ulong entry_pc;
+   ulong text_cnt;
+   ulong text_off;
+   ulong text_sz;
+
+   ulong rodata_sz;
 
   /* We keep the pointer to the calldests raw memory around, so that we can easily copy the entire
      data structures (including the private header) later. */
-  void * calldests_shmem;
-  fd_sbpf_calldests_t * calldests;
+   void *                calldests_shmem;
+   fd_sbpf_calldests_t * calldests;
+   uchar *               rodata;
 
-  uchar * rodata;
-
-  /* Backing memory for calldests and rodata */
-  // uchar calldests_shmem[];
-  // uchar rodata[];
-
-  /* SBPF version, SIMD-0161 */
-  ulong sbpf_version;
-
-  /* Used to check if the program needs to be reverified. Programs are reverified
-     the first time they are mentioned in a transaction in an epoch, and then never again
-     until the next epoch. This is because feature set changes across the epoch boundary can
-     make existing deployed programs invalid. When iterating over programs to
-     reverify, we ignore programs that have `last_verified_epoch` equal to the current epoch. */
-  ulong last_verified_epoch;
+   /* SBPF version, SIMD-0161 */
+   ulong sbpf_version;
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 
@@ -95,21 +95,23 @@ fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
                           ulong                 slot,
                           fd_features_t const * features );
 
-/* Reverifies a single program for the current epoch, given its pubkey.
-   Silently returns if the program does not already exist in the cache, or if the
-   program has already been reverified for the current epoch. If it exists,
-   it will be removed from the cache if any of the following checks fail:
-   - The account does not exist.
-   - The programdata cannot be read from the account or programdata account
-   - The ELF info cannot be parsed.
-   - The sBPF program fails loading validations.
+/* Updates the program cache for a single program. This function is called for every program
+   that is referenced in a transaction, plus every single account in a lookup table referenced
+   in the transaction. This function...
+   - Reads the programdata from an account, given the pubkey
+   - Creates a program cache entry for the program if it doesn't exist in the cache already
+   - Reverifies programs every epoch
+      - Lazily reverifies programs as they are invoked in a transaction (only once per program per epoch)
+      - Invalidates programs that fail verification until the next epoch
+      - Updates the program cache entry for the program after reverification (syscalls, calldests, etc)
 
-   On success, the program's `last_verified_epoch` field is updated to the current epoch.
-   This program will not be reverified again until it is invoked in a following epoch. */
+   With this design, the program cache is designed to only grow as new programs are deployed / invoked. If a program fails
+   verification, it stays in the cache so that repeated calls won't DOS the validator by forcing reverifications (since we
+   won't be able to distinguish failed verifications from new deployments). */
 void
-fd_bpf_program_reverify( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_pubkey_t const *  program_pubkey,
-                         fd_spad_t *          runtime_spad );
+fd_bpf_program_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
+                                     fd_pubkey_t const *  program_pubkey,
+                                     fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END
 
