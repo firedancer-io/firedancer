@@ -193,7 +193,7 @@ fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
   ulong blocks_len = history->bits_bitvec_len;
 
 
-  if( slot > history->next_slot - 1UL ) {
+  if( slot >= history->next_slot ) {
     return FD_SLOT_HISTORY_SLOT_FUTURE;
   } else if ( slot < fd_ulong_sat_sub( history->next_slot, slot_history_max_entries ) ) {
     return FD_SLOT_HISTORY_SLOT_TOO_OLD;

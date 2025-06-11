@@ -38,15 +38,14 @@ $(call add-objs, tests/fd_dump_pb,fd_flamenco)
 
 $(call add-hdrs,fd_rent_lists.h)
 
-$(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
-
 ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_txn_rw_conflicts,test_txn_rw_conflicts,fd_flamenco fd_funk fd_ballet fd_util, $(SECP256K1_LIBS))
 endif
 
 ifdef FD_HAS_ATOMIC
+$(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
 $(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h)
-$(call add-objs,fd_runtime fd_runtime_init ,fd_flamenco)
+$(call add-objs,fd_runtime fd_runtime_init,fd_flamenco)
 endif
 
 endif
@@ -63,10 +62,7 @@ $(call make-bin,fd_blockstore_tool,fd_blockstore_tool,fd_util fd_flamenco fd_bal
 endif
 
 ifdef FD_HAS_ATOMIC
-
 ifdef FD_HAS_HOSTED
 #$(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
-# TODO: Flakes
-# $(call run-unit-test,test_txncache,)
 endif
 endif

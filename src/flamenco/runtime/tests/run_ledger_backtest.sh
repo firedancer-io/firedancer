@@ -140,43 +140,48 @@ fi
 echo_notice "Starting on-demand ingest and replay"
 echo "
 [layout]
-     affinity = \"auto\"
-     bank_tile_count = 1
-     shred_tile_count = 4
-     exec_tile_count = 4
- [tiles]
-     [tiles.archiver]
-         enabled = true
-         end_slot = $END_SLOT
-         archiver_path = \"$DUMP/$LEDGER/rocksdb\"
-     [tiles.replay]
-         snapshot = \"$SNAPSHOT\"
-         funk_sz_gb = $FUNK_PAGES
-         funk_txn_max = 64
-         funk_rec_max = $INDEX_MAX
-         cluster_version = \"$CLUSTER_VERSION\"
-         enable_features = [ \"$ONE_OFFS\" ]
-         funk_file = \"$DUMP/$LEDGER/backtest.funk\"
-     [tiles.gui]
-         enabled = false
- [blockstore]
-     shred_max = 16777216
-     block_max = 8192
-     txn_max = 1048576
-     alloc_max = 10737418240
-     file = \"$DUMP/$LEDGER/backtest.blockstore\"
- [consensus]
-     vote = false
- [development]
-     sandbox = false
-     no_agave = true
-     no_clone = true
- [log]
-     level_stderr = \"INFO\"
-     path = \"$LOG\"
- [paths]
-     identity_key = \"$DUMP_DIR/identity.json\"
-     vote_account = \"$DUMP_DIR/vote.json\"
+  affinity = \"auto\"
+  bank_tile_count = 1
+  shred_tile_count = 4
+  exec_tile_count = 4
+[tiles]
+  [tiles.archiver]
+    enabled = true
+    end_slot = $END_SLOT
+    archiver_path = \"$DUMP/$LEDGER/rocksdb\"
+  [tiles.replay]
+    snapshot = \"$SNAPSHOT\"
+    funk_sz_gb = $FUNK_PAGES
+    funk_txn_max = 64
+    funk_rec_max = $INDEX_MAX
+    cluster_version = \"$CLUSTER_VERSION\"
+    enable_features = [ \"$ONE_OFFS\" ]
+    funk_file = \"$DUMP/$LEDGER/backtest.funk\"
+  [tiles.gui]
+    enabled = false
+[blockstore]
+  shred_max = 16777216
+  block_max = 8192
+  txn_max = 1048576
+  alloc_max = 10737418240
+  file = \"$DUMP/$LEDGER/backtest.blockstore\"
+[consensus]
+  vote = false
+[runtime.limits.txncache]
+  max_rooted_slots = 300
+  max_live_slots = 512
+  max_txn_per_slot = 16384
+  max_txn_per_slot_override = true
+[development]
+  sandbox = false
+  no_agave = true
+  no_clone = true
+[log]
+  level_stderr = \"INFO\"
+  path = \"$LOG\"
+[paths]
+  identity_key = \"$DUMP_DIR/identity.json\"
+  vote_account = \"$DUMP_DIR/vote.json\"
 " > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [ ! -f $DUMP_DIR/identity.json ]; then

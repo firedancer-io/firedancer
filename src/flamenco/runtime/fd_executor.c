@@ -304,12 +304,20 @@ fd_validate_fee_payer( fd_txn_account_t * account,
 
 static int
 status_check_tower( ulong slot, void * _ctx ) {
+  /* TODO remove these after we've figured out the sensible order of these checks. */
+  static ulong check_tower_same_slot = 0UL;
+  static ulong check_tower_rooted    = 0UL;
+  static ulong check_tower_history   = 0UL;
+
   fd_exec_txn_ctx_t * ctx = (fd_exec_txn_ctx_t *)_ctx;
+
   if( slot==ctx->slot ) {
+    FD_ATOMIC_FETCH_AND_ADD( &check_tower_same_slot, 1UL );
     return 1;
   }
 
-  if( fd_txncache_is_rooted_slot( ctx->status_cache, slot ) ) {
+  if( fd_txncache_is_rooted_slot_locked( ctx->txncache, slot ) ) {
+    FD_ATOMIC_FETCH_AND_ADD( &check_tower_rooted, 1UL );
     return 1;
   }
 
@@ -320,9 +328,16 @@ status_check_tower( ulong slot, void * _ctx ) {
     FD_LOG_ERR(( "Unable to read and decode slot history sysvar" ));
   }
 
+  /* Agave checks against ancestors, we check against slot_history.  On
+     the Agave side, both ancestors and slot_history are updated during
+     new_from_parent().  The two checks should be equivalent, as long as
+     our status cache stores the same set of transactions as Agave, and
+     unrooted slots in the status cache are present in both ancestors
+     and slot_history. */
   if( fd_sysvar_slot_history_find_slot( slot_history,
                                         slot,
                                         ctx->runtime_pub_wksp ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
+    FD_ATOMIC_FETCH_AND_ADD( &check_tower_history, 1UL );
     return 1;
   }
 
@@ -330,9 +345,9 @@ status_check_tower( ulong slot, void * _ctx ) {
 }
 
 static int
-fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_executor_check_txncache( fd_exec_txn_ctx_t * txn_ctx ) {
 
-  if( FD_UNLIKELY( !txn_ctx->status_cache ) ) {
+  if( FD_UNLIKELY( !txn_ctx->txncache ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -349,15 +364,17 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off),(ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
   curr_query.txnhash = txn_ctx->blake_txn_msg_hash.uc;
+  curr_query.key_sz  = sizeof(txn_ctx->blake_txn_msg_hash.uc);
+  curr_query.flags   = fd_ulong_if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX, FD_TXNCACHE_FLAG_NONCE_TXN, FD_TXNCACHE_FLAG_REGULAR_TXN );
 
-  // TODO: figure out if it is faster to batch query properly and loop all txns again
-  int err;
-  fd_txncache_query_batch( txn_ctx->status_cache,
+  int query_result;
+  fd_txncache_query_batch( txn_ctx->txncache,
                            &curr_query,
                            1UL,
                            (void *)txn_ctx,
-                           status_check_tower, &err );
-  return err;
+                           status_check_tower,
+                           &query_result );
+  return query_result==FD_TXNCACHE_QUERY_PRESENT ? FD_RUNTIME_EXECUTE_GENERIC_ERR : FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3596-L3605 */
@@ -370,7 +387,7 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3604 */
-  err = fd_executor_check_status_cache( txn_ctx );
+  err = fd_executor_check_txncache( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -1275,7 +1292,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   ctx->features     = slot_ctx->epoch_ctx->features;
-  ctx->status_cache = slot_ctx->status_cache;
+  ctx->txncache     = slot_ctx->status_cache;
 
   ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
 

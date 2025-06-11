@@ -850,45 +850,8 @@ fd_snapshot_create_write_version( fd_snapshot_ctx_t * snapshot_ctx ) {
 static inline void
 fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t * snapshot_ctx ) {
 
-  /* First convert the existing status cache into a snapshot-friendly format. */
-
-  fd_bank_slot_deltas_t slot_deltas_new = {0};
-  int err = fd_txncache_get_entries( snapshot_ctx->status_cache,
-                                     &slot_deltas_new,
-                                     snapshot_ctx->spad );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Failed to get entries from the status cache" ));
-  }
-  ulong   bank_slot_deltas_sz = fd_bank_slot_deltas_size( &slot_deltas_new );
-  uchar * out_status_cache    = fd_spad_alloc( snapshot_ctx->spad,
-                                               FD_BANK_SLOT_DELTAS_ALIGN,
-                                               bank_slot_deltas_sz );
-  fd_bincode_encode_ctx_t encode_status_cache = {
-    .data    = out_status_cache,
-    .dataend = out_status_cache + bank_slot_deltas_sz,
-  };
-  if( FD_UNLIKELY( fd_bank_slot_deltas_encode( &slot_deltas_new, &encode_status_cache ) ) ) {
-    FD_LOG_ERR(( "Failed to encode the status cache" ));
-  }
-
-  /* Now write out the encoded buffer to the tar archive. */
-
-  err = fd_tar_writer_new_file( snapshot_ctx->writer, FD_SNAPSHOT_STATUS_CACHE_FILE );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Failed to create the status cache file" ));
-  }
-  err = fd_tar_writer_write_file_data( snapshot_ctx->writer, out_status_cache, bank_slot_deltas_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Failed to create the status cache file" ));
-  }
-  err = fd_tar_writer_fini_file( snapshot_ctx->writer );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Failed to create the status cache file" ));
-  }
-
-  /* Registers all roots and unconstipates the status cache. */
-
-  fd_txncache_flush_constipated_slots( snapshot_ctx->status_cache );
+  (void)snapshot_ctx;
+  FD_LOG_CRIT(( "Agave snapshot generation is not supported" ));
 
 }
 

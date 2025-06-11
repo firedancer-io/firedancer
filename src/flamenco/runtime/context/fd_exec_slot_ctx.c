@@ -473,7 +473,6 @@ fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
                                        fd_bank_slot_deltas_t * slot_deltas,
                                        fd_spad_t *             runtime_spad ) {
-
   fd_txncache_t * status_cache = ctx->status_cache;
   if( !status_cache ) {
     FD_LOG_WARNING(("No status cache in slot ctx"));
@@ -491,7 +490,7 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
   }
   fd_txncache_insert_t * insert_vals = fd_spad_alloc_check( runtime_spad, alignof(fd_txncache_insert_t), num_entries * sizeof(fd_txncache_insert_t) );
 
-  /* Dumb sort for 300 slot entries to insert in order. */
+  /* Dumb sort slot entries to insert in order. */
   fd_slot_delta_t ** deltas = fd_spad_alloc_check( runtime_spad, alignof(fd_slot_delta_t*), slot_deltas->slot_deltas_len * sizeof(fd_slot_delta_t*) );
 
   long curr = -1;
@@ -515,9 +514,6 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
   for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
     fd_slot_delta_t * slot_delta = deltas[i];
     ulong slot = slot_delta->slot;
-    if( slot_delta->is_root ) {
-      fd_txncache_register_root_slot( ctx->status_cache, slot );
-    }
     for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
       fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
       fd_hash_t * blockhash = &pair->hash;
@@ -525,25 +521,39 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
       for( ulong k = 0; k < pair->value.statuses_len; k++ ) {
         fd_cache_status_t * status = &pair->value.statuses[k];
         uchar * result = results + k;
+        /* This tosses away error codes propagated in Agave snapshots.
+         */
         *result = (uchar)status->result.discriminant;
         insert_vals[idx++] = (fd_txncache_insert_t){
           .blockhash = blockhash->uc,
           .slot = slot,
           .txnhash = status->key_slice,
-          .result = result
+          .key_sz  = FD_TXNCACHE_KEY_SIZE,
+          .result = result,
+          /* It is safe, albeit potentially slow, to assume that all
+             snapshot transactions are nonce transactions. */
+          .flags = FD_TXNCACHE_FLAG_NONCE_TXN | FD_TXNCACHE_FLAG_SNAPSHOT
         };
       }
+    }
+    if( slot_delta->is_root ) {
+      fd_txncache_register_root_slot( ctx->status_cache, slot );
     }
   }
   fd_txncache_insert_batch( ctx->status_cache, insert_vals, num_entries );
 
   for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
     fd_slot_delta_t * slot_delta = deltas[i];
-    ulong slot = slot_delta->slot;
     for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
       fd_status_pair_t * pair      = &slot_delta->slot_delta_vec[j];
       fd_hash_t *        blockhash = &pair->hash;
-      fd_txncache_set_txnhash_offset( ctx->status_cache, slot, blockhash->uc, pair->value.txn_idx );
+      /* This adjustment in offset has to be after we insert all the
+         transactions from the snapshot.  The key slices in the snapshot
+         are already truncated to 20 bytes and should be inserted
+         verbatim.  If the offsets are set to non-zero before snapshot
+         loading is complete, then we would erroneously truncate the key
+         slices once again. */
+      FD_TEST( fd_txncache_set_nonce_txnhash_offset( ctx->status_cache, blockhash->uc, pair->value.txn_idx ) );
     }
   }
 

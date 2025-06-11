@@ -5,12 +5,12 @@
 #include "../types/fd_types.h"
 #include <math.h>
 
+#include "../../disco/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack_cost.h"
+
 /* A txn cache is a concurrent map for saving the result (status) of
-   transactions that have executed.  In addition to supporting fast
-   concurrent insertion and query of transaction results, the txn
-   cache supports serialization of its state into a standard bincode
-   format for serving the state to other nodes via. snapshot responses,
-   and then restoring snapshots produced by other nodes.
+   transactions that have executed, and for fast concurrent queries of
+   transaction results.
 
    The txn cache is designed to do two operations fast,
 
@@ -24,8 +24,9 @@
 
    Both of these operations are concurrent and lockless, assuming there
    are no other (non-insert/query) operations occuring on the txn cache.
-   Most other operations lock the entire structure and will prevent both
-   insertion and query from proceeding.
+   Most other operations, such as purging transactions from the
+   structure, lock the entire structure and will prevent both insertion
+   and query from proceeding.
 
    The txn cache is both CPU and memory sensitive.  A transaction result
    is 1 byte, and the stored transaction hashes are 20 bytes, so
@@ -41,7 +42,7 @@
      - The transactions to be queried are stored in a structure that
        looks like a
 
-         hash_map<blockhash, hash_map<txnhash, vec<(slot, status)>>>
+         hash_map<blockhash, hash_map<txnhash, list<(slot, txn_result)>>>
 
        The top level hash_map is a probed hash map, and the txnhash map
        is a chained hash map, where the items come from a pool of pages
@@ -72,8 +73,8 @@
          // 3. Write the transaction into the page and the map
 
             page.txns[ idx ] = txn;
-            page.txns[ idx ].next = by_blockhash.txns[ txnhash ].idx;
-            by_blockhash.txns[ txnhash ].head.compare_and_swap( current, idx );
+            page.txns[ idx ].next = by_blockhash.txns[ txnhash ].head;
+            by_blockhash.txns[ txnhash ].head.compare_and_swap( head, idx );
 
        Removal of a blockhash from this structure is simple because it
        does not need to be concurrent (the caller will only remove
@@ -83,139 +84,108 @@
        hash_map as empty.  This is fast since there are at most 4,800
        pages to restore and restoration is a simple memcpy.
 
-     - Another structure is required to support serialization of
-       snapshots from the cache.  Serialization must produce a binary
-       structure that encodes essentially:
+     - Another set of structures are required to support nonce
+       transactions.  In the worst case, every single nonce transaction
+       could reference a unique blockhash.  If we were to provision the
+       by_blockhash map to support this, it would be impractically
+       large, and the vast majority of the chained maps would be
+       unoccupied.  This is extremely wasteful.  So instead, we organize
+       nonce transactions into the following structures:
 
-         hash_map<slot, hash_map<blockhash, vec<(txnhash, txn_result)>>>
+         hash_map<txnhash, slot>
+         hash_map<slot, list<idx>>
 
-       For each slot that is rooted.  Observe that we can't reuse the
-       structure used for queries, since it's not grouped by slot, we
-       would have to iterate all of the transactions to do this grouping
-       which is not feasible.
+       Both top level hash_maps are linearly probed hash maps.  The
+       second hash_map essentially takes you from a slot number to a
+       list which links together entries in the first hash_map that
+       belong to said slot.  The second hash_map is there to support
+       fast purging.  On purge of a slot, we can quickly iterate over
+       only the nonce transactions in that slot, without having to
+       iterate over the entirety of the first hash_map.  Similar to the
+       by_blockhash map, removal of a slot does not need to be
+       concurrent, as the caller will only remove at the end of a slot,
+       and takes a full write lock while doing so.
 
-       We can't add the slot to that index, since then query would not
-       be fast.  Queries are just against (blockhash, txnhash) pairs,
-       they don't know which slot might have included it.
+       Creating a new entry in the by_slot hash map happens once per
+       slot, so the cost amortizes to zero.  Inserting a transaction
+       into this pair of structures can be done with two
+       compare-and-swaps:
 
-       So we need a second index for this information.  The index is
-       going to line up with what we described above, the root hash map
-       will be probed, and the nested hash map will be chained.  The
-       vector of results will also use a pool of pages.
+         // 1. Find an entry for the txnhash in the first probed hash map.
 
-       In this case the page pool is for a different reason: we know a
-       sensible upper bound for the number of transactions that could be
-       alive in the entire cache at any point in time, but we don't know
-       quite how to bound it for a single slot or blockhash.  Well, we
-       do: the bound is 524,288 per (slot, blockhash) pair but we would
-       need to allocate all that memory up front.  Instead, we bound the
-       total number of slots and transactions per slot, assume the
-       transactions must be distributed somehow within the blockhashes,
-       and then give some overhead for unoccupied page entries.
+            let by_txnhash = hash_map[ txnhash ];
 
-       The insertion process for this structure is similar to the one
-       above, except the vector is not a chained map but just a regular
-       vector.
+         // 2. Install the new slot number.
 
-         // 1. Find the (slot, blockhash) in the probed hash map.
+            by_txnhash.slot.compare_and_swap( empty, slot );
 
-            let by_slot_blockhash = hash_map[ slot ][ blockhash ];
+         // 3. Find the entry for the slot in the second probed hash map.
 
-         // 2. Request space for the transaction from the current page
+            let by_slot = hash_map[ slot ];
 
-            let page = by_slot_blockhash.pages.back();
-            let idx = page.used.fetch_add( 1 );
+         // 4. Link the txn into the list.
 
-         // 3. Write the transaction into the page and the map
+            by_txnhash.next = by_slot.head;
+            by_slot.head.compare_and_swap( head, by_txnhash.idx );
 
-            page.txns[ idx ] = txn;
-            by_slot_blockhash.txn_count += 1;
-
-       The final increment is OK even with concurrent inserts because
-       no reader will try to observe the txn_count until the slot is
-       rooted, at which point nothing could be being inserted into it
-       and the txn_count will be finalized. */
-
-#include "../fd_flamenco_base.h"
+       More details can be found in the implementation. */
 
 #define FD_TXNCACHE_ALIGN (128UL)
 
 #define FD_TXNCACHE_MAGIC (0xF17EDA2CE5CAC4E0) /* FIREDANCE SCACHE V0 */
 
-/* The duration of history to keep around in the txn cache before aging
-   it out.  This must be at least 150, otherwise we could forget about
-   transactions for blockhashes that are still valid to use, and let
-   duplicate transactions make it into a produced block.
+#define FD_TXNCACHE_MAX_ROOTED_SLOTS_LOWER_BOUND (151UL)
 
-   Beyond 150, any value is valid.  The value used here, 300 comes from
-   Agave, and corresponds to roughly 2 minutes of history assuming there
-   are no forks, with an extra 12.8 seconds of history for slots that
-   are in progress but have not rooted yet.  On a production validator
-   without RPC support, the value should probably be configurable and
-   always set to strictly 150. */
+/* The Solana consensus protocol has an implied restriction on the
+   number of transactions in a slot.  At the time of writing, a slot
+   might have 50,000,000 CUs, but a transaction requires at least around
+   1020 CUs, so there could be at most ~50K transactions in a slot.
 
-#define FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS (300UL)
+   For Firedancer, we use this limit when running in production, but the
+   number of transactions per slot is configurable for development and
+   preformance tuning. */
 
-/* A note on live slots ...
+#define FD_TXNCACHE_MAX_TRANSACTIONS_PER_SLOT_LOWER_BOUND (FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND/FD_PACK_MIN_TXN_COST)
 
-   The maximum number of live slots is the sum of the rooted and
-   unrooted slots.  The rooted slots are explicitly capped at 300 for
-   this structure (implying we keep around 2 minutes of history
-   around for queries and snapshots).
+/* Keys are truncated to 20 bytes when inserting into the txn cache.
+   Typically, keys are transaction message hashes, which are 32 bytes.
+   They could also be transaction signatures, which are 64 bytes.
+   This cannot be changed willy-nilly, because keys get serialized out
+   and loaded from snapshots, and more importantly this affects the
+   key index flooring logic. */
 
-   For the unrooted slots, we must root at least one slot in an epoch
-   for an epoch transition to occur successfully to the next one, so
-   assuming every slot is unconfirmed for some reason, and the prior
-   epoch was rooted at the first slot in the epoch, and the next epoch
-   is rooted at the last slot, there could be
+#define FD_TXNCACHE_KEY_SIZE (20UL)
 
-      432,000 + 432,000 - 31 = 863,969
+/* Result codes stored in the txn cache.  Currently only an indication
+   of whether the transaction execution returned success or not.
 
-   Live slots on the validator.  This is clearly impractical as each
-   bank consumes a lof of memory to store slot state, so the
-   validator would crash long before this.
+   There's enough bits to store richer information if needed in the
+   future, such as the actual error code returned by the executor.  We
+   don't do that because all we care about when querying the txn cache
+   is whether the transaction executed or not.  The mere presence of a
+   transaction in the txn cache tells us that it executed, or landed on
+   chain, regardless of whether the execution was entirely successful or
+   not, because only executed/committed transactions are inserted into
+   the txn cache. */
+#define FD_TXNCACHE_RESULT_OK  (0)
+#define FD_TXNCACHE_RESULT_ERR (1)
 
-   For now we just pick a number: 2048, based on running on mainnet.
-   We take into account that apart from the 450 recent blockhashes,
-   there are also nonce accounts used as blockhashes by transactions
-   and they contribute significantly to entries being filled up.
+/* Bit-or flags for specifying insert/query mode. */
+#define FD_TXNCACHE_FLAG_REGULAR_TXN (1UL)    /* This is a regular non-nonce transaction. */
+#define FD_TXNCACHE_FLAG_NONCE_TXN   (1UL<<1) /* This is a nonce transaction. */
+#define FD_TXNCACHE_FLAG_SNAPSHOT    (1UL<<2) /* This is a snapshot transaction. */
 
-   TODO: This number might be unbounded, more testing required with
-   mainnet before deciding an actual number. */
-
-#define FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS (2048UL)
-
-/* The Solana consensus protocol has an implied restriction on the number
-   transactions in a slot.  A slot might have 50,000,000+ CUs,
-   but a transaction requires at least around 1500 CUs, so there could
-   be at most 33,333 transactions in a slot.
-
-   For Firedancer, we respect this limit when running in production, but
-   for development and preformance tuning this limit is removed, and
-   instead we will produce and accept at most 524,288 transactions per
-   slot.  This is chosen arbitrarily and works out to around ~1.3M TPS,
-   however such a value does not exist in the consensus protocol. */
-
-#define FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT (524288UL)
-
-/* This number is not a strict bound but is a reasonable max allowed of
-   slots that can be constipated. As of the writing of this comment, the only
-   use case for constipating the status cache is to generate a snapshot. We
-   will use constipation here because we want the root to stay frozen while
-   we generate the full state of a node for a given rooted slot. This max
-   size gives us roughly 1024 slots * 0.4secs / 60 secs/min = ~6.8 minutes from
-   when we root a slot to when the status cache is done getting serialized into
-   the snapshot format. This SHOULD be enough time because serializing the
-   status cache into a Solana snapshot is done on the order of seconds and is
-   one of the first things that is done during snapshot creation. */
-
-#define FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS (1024UL)
+/* Results from querying the txn cache. */
+#define FD_TXNCACHE_QUERY_ABSENT  (0)
+#define FD_TXNCACHE_QUERY_PRESENT (1)
 
 struct fd_txncache_insert {
   uchar const * blockhash;
   uchar const * txnhash;
+  ulong         key_sz;
   ulong         slot;
   uchar const * result;
+  ulong         flags;
 };
 
 typedef struct fd_txncache_insert fd_txncache_insert_t;
@@ -223,19 +193,11 @@ typedef struct fd_txncache_insert fd_txncache_insert_t;
 struct fd_txncache_query {
   uchar const * blockhash;
   uchar const * txnhash;
+  ulong         key_sz;
+  ulong         flags;
 };
 
 typedef struct fd_txncache_query fd_txncache_query_t;
-
-struct fd_txncache_snapshot_entry {
-   ulong slot;
-   uchar blockhash[ 32 ];
-   uchar txnhash[ 20 ];
-   ulong txn_idx;
-   uchar result;
-};
-
-typedef struct fd_txncache_snapshot_entry fd_txncache_snapshot_entry_t;
 
 /* Forward declare opaque handle */
 struct fd_txncache_private;
@@ -279,22 +241,13 @@ fd_txncache_align( void );
 FD_FN_CONST ulong
 fd_txncache_footprint( ulong max_rooted_slots,
                        ulong max_live_slots,
-                       ulong max_txn_per_slot,
-                       ulong max_constipated_slots );
-
-static inline ulong
-fd_txncache_max_constipated_slots_est( ulong stall_duration_secs ) {
-  double stall_slots_d = (double)stall_duration_secs * 0.4;
-  ulong  stall_slots   = (ulong)ceil( stall_slots_d );
-  return stall_slots;
-}
+                       ulong max_txn_per_slot );
 
 void *
 fd_txncache_new( void * shmem,
                  ulong  max_rooted_slots,
                  ulong  max_live_slots,
-                 ulong  max_txn_per_slot,
-                 ulong  max_constipated_slots );
+                 ulong  max_txn_per_slot );
 
 fd_txncache_t *
 fd_txncache_join( void * shtc );
@@ -322,19 +275,6 @@ void
 fd_txncache_register_root_slot( fd_txncache_t * tc,
                                 ulong           slot );
 
-/* fd_txncache_register_constipated_slot is the "constipated" version of
-   fd_txncache_register_root_slot. This means that older root slots will not
-   get purged nor will the newer root slots actually be rooted. All the slots
-   that are marked as constipated will be flushed down to the set of rooted
-   slots when fd_txncache_flush_constipated_slots is called. */
-
-void
-fd_txncache_register_constipated_slot( fd_txncache_t * tc,
-                                       ulong           slot );
-
-void
-fd_txncache_flush_constipated_slots( fd_txncache_t * tc );
-
 /* fd_txncache_root_slots returns the list of live slots currently
    tracked by the txn cache.  There will be at most max_root_slots
    slots, which will be written into the provided out_slots.  It is
@@ -350,29 +290,6 @@ void
 fd_txncache_root_slots( fd_txncache_t * tc,
                         ulong *         out_slots );
 
-/* fd_txncache_snapshot writes the current state of a txn cache into a
-   binary format suitable for serving to other nodes via snapshot
-   responses.  The write function is called in a streaming fashion with
-   the binary data, the size of the data, and the ctx pointer provided
-   to this function.  The write function should return 0 on success and
-   -1 on failure, this function will propgate a failure to write back to
-   the caller immediately, so this function also returns 0 on success
-   and -1 on failure.
-
-   IMPORTANT!  THIS ASSUMES THERE ARE NO CONCURRENT INSERTS OCCURING ON
-   THE TXN CACHE AT THE ROOT SLOTS DURING SNAPSHOTTING.  OTHERWISE THE
-   SNAPSHOT MIGHT BE NOT CONTAIN ALL OF THE DATA, ALTHOUGH IT WILL NOT
-   CAUSE CORRUPTION.  THIS IS ASSUMED OK BECAUSE YOU CANNOT MODIFY A
-   ROOTED SLOT.
-
-   This is a cheap operation and will not cause any pause in insertion
-   or query operations. */
-
-int
-fd_txncache_snapshot( fd_txncache_t * tc,
-                      void *          ctx,
-                      int ( * write )( uchar const * data, ulong data_sz, void * ctx ) );
-
 /* fd_txncache_insert_batch inserts a batch of transaction results into
    a txn cache.  Assumes tc points to a txn cache, txns is a list of
    transaction results to be inserted, and txns_cnt is the count of the
@@ -380,10 +297,15 @@ fd_txncache_snapshot( fd_txncache_t * tc,
    have any lifetime interest in the results memory provided once this
    call returns.
 
-   Returns 1 on success and 0 on failure.  The only reason insertion can
-   fail is because the txn cache is full, which should never happen in
-   practice if the caller sizes the bounds correctly.  This is mostly
-   here to support testing and fuzzing.
+   Returns 1 on success and 0 on failure.  The only reasons insertion
+   can fail are because (1) the txn cache is full or (2) duplicate
+   transactions are concurrently inserted.  Neither should ever happen
+   in production if the caller sizes the bounds correctly and the caller
+   doesn't dispatch conflicting transactions on the same fork.
+   Duplicate transactions necessarily reference the same fee payer
+   account, and therefore should be serialized due to conflicts on the
+   writeable fee payer account.  The return code is mostly here to
+   support testing and fuzzing.
 
    This is a cheap, high performance, concurrent operation and can occur
    at the same time as queries and arbitrary other insertions. */
@@ -405,10 +327,15 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
    executed, and queries_cnt is the count of the queries list.
    out_results must be at least as large as queries_cnt and will be
    filled with 0 or 1 if the transaction is not present or present
-   respectively.
+   respectively, at some point during the query.
 
    This is a cheap, high performance, concurrent operation and can occur
-   at the same time as queries and arbitrary other insertions. */
+   at the same time as queries and arbitrary other insertions.
+   Crucially, callers of this function should not expect guaranteed
+   presence of concurrently inserted transactions.
+   Visibility of inserted transactions in subsequent queries need to be
+   ensured via external synchronizations, if desired.
+ */
 
 void
 fd_txncache_query_batch( fd_txncache_t *             tc,
@@ -418,39 +345,33 @@ fd_txncache_query_batch( fd_txncache_t *             tc,
                          int ( * query_func )( ulong slot, void * ctx ),
                          int *                       out_results );
 
-/* fd_txncache_set_txnhash_offset sets the correct offset value for the
-   txn hash "key slice" in the blockcache and slotblockcache. This is used
-   primarily for snapshot restore since in firedancer we always use the
-   offset of 0. Return an error if the cache entry isn't found. */
-int
-fd_txncache_set_txnhash_offset( fd_txncache_t * tc,
-                                ulong slot,
-                                uchar blockhash[ 32 ],
-                                ulong txnhash_offset );
+/* fd_txncache_set_nonce_txnhash_offset sets the txnhash offset in the
+   nonce txn slotcache.  This is used solely for snapshot restore since
+   in Firedancer we always use an offset of 0 after snapshot restore.
+   Return an error if the cache entry isn't found.
 
-/* fd_txncache_is_rooted_slot returns 1 is `slot` is rooted, 0 otherwise. */
+   Returns 1 on success and 0 on failure.
+
+   THIS IS NOT THREAD SAFE and should only be called during snapshot
+   restore. */
+int
+fd_txncache_set_nonce_txnhash_offset( fd_txncache_t * tc,
+                                      uchar           blockhash[ 32 ],
+                                      ulong           txnhash_offset );
+
+/* fd_txncache_is_rooted_slot returns 1 is `slot` is rooted, 0 otherwise.
+   Acquires a read lock.
+ */
 int
 fd_txncache_is_rooted_slot( fd_txncache_t * tc,
-                            ulong slot );
+                            ulong           slot );
 
-/* fd_txncache_get_entries is responsible for converting the rooted state of
-   the status cache back into fd_bank_slot_deltas_t, which is the decoded
-   format used by Agave. This is a helper method used to generate Agave-
-   compatible snapshots. */
-
+/* fd_txncache_is_rooted_slot_locked returns 1 is `slot` is rooted, 0 otherwise.
+   Assumes a read lock has been acquired.
+ */
 int
-fd_txncache_get_entries( fd_txncache_t *         tc,
-                         fd_bank_slot_deltas_t * bank_slot_deltas,
-                         fd_spad_t *             spad );
-
-/* fd_txncache_{is,set}_constipated is used to set and determine if the
-   status cache is currently in a constipated state. */
-
-int
-fd_txncache_get_is_constipated( fd_txncache_t * tc );
-
-int
-fd_txncache_set_is_constipated( fd_txncache_t * tc, int is_constipated );
+fd_txncache_is_rooted_slot_locked( fd_txncache_t * tc,
+                                   ulong           slot );
 
 FD_PROTOTYPES_END
 

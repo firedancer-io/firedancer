@@ -5,9 +5,12 @@ max_page_size = "huge"
 heap_size_gib = 4
 
 [runtime.limits]
-max_live_slots = 512
-snapshot_grace_period_seconds = 15
 max_vote_accounts = 32
+
+[runtime.limits.txncache]
+max_live_slots = 512
+max_txn_per_slot = 8192
+max_txn_per_slot_override = true
 
 [layout]
 verify_tile_count = 1

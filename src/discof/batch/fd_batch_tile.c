@@ -3,7 +3,6 @@
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/runtime/fd_hashes.h"
-#include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
@@ -26,7 +25,6 @@ struct fd_snapshot_tile_ctx {
   char            funk_file[ PATH_MAX ];
 
   /* Shared data structures. */
-  fd_txncache_t * status_cache;
   ulong         * is_constipated;
   fd_funk_t       funk[1];
 
@@ -178,20 +176,6 @@ unprivileged_init( fd_topo_t      * topo,
   memcpy( ctx->funk_file, tile->replay.funk_file, sizeof(tile->replay.funk_file) );
 
   /**********************************************************************/
-  /* status cache                                                       */
-  /**********************************************************************/
-
-  ulong status_cache_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
-  if( FD_UNLIKELY( status_cache_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "no status cache object id" ));
-  }
-
-  ctx->status_cache = fd_txncache_join( fd_topo_obj_laddr( topo, status_cache_obj_id ) );
-  if( FD_UNLIKELY( !ctx->status_cache ) ) {
-    FD_LOG_ERR(( "no status cache" ));
-  }
-
-  /**********************************************************************/
   /* constipated fseq                                                   */
   /**********************************************************************/
 
@@ -259,7 +243,6 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
     .out_dir                  = ctx->out_dir,
     .is_incremental           = (uchar)is_incremental,
     .funk                     = ctx->funk,
-    .status_cache             = ctx->status_cache,
     .tmp_fd                   = is_incremental ? ctx->tmp_inc_fd              : ctx->tmp_fd,
     .snapshot_fd              = is_incremental ? ctx->incremental_snapshot_fd : ctx->full_snapshot_fd,
     /* These parameters are ignored if the snapshot is not incremental. */

@@ -49,3 +49,5 @@ if [ $status -eq 0 ]; then
 else
     send_slack_message "@here Nightly Backtest Ledger Tests Failed"
 fi
+
+make run-runtime-test-nightly-txncache > ~/nightly_run_txncache.txt

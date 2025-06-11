@@ -651,11 +651,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->exec.funk_file ));
 
-  //FIXME
-  /********************************************************************/
-  /* setup txncache                                                   */
-  /********************************************************************/
-
   /********************************************************************/
   /* setup txn ctx                                                    */
   /********************************************************************/
@@ -669,6 +664,22 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->runtime_pub_wksp = ctx->runtime_public_wksp;
   if( FD_UNLIKELY( !ctx->txn_ctx->runtime_pub_wksp ) ) {
     FD_LOG_ERR(( "Failed to find public wksp" ));
+  }
+
+  /********************************************************************/
+  /* setup txncache                                                   */
+  /********************************************************************/
+  ulong txncache_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
+  if( FD_UNLIKELY( txncache_id == ULONG_MAX ) ) {
+    FD_LOG_CRIT(( "could not find txncache obj" ));
+  }
+  void * txncache_mem = fd_topo_obj_laddr( topo, txncache_id );
+  if( FD_UNLIKELY( txncache_mem == NULL ) ) {
+    FD_LOG_CRIT(( "could not find txncache mem" ));
+  }
+  ctx->txn_ctx->txncache = fd_txncache_join( txncache_mem );
+  if (ctx->txn_ctx->txncache == NULL) {
+    FD_LOG_CRIT(( "failed to join txncache" ));
   }
 
   /********************************************************************/

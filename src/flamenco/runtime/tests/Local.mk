@@ -25,3 +25,6 @@ run-runtime-test-nightly: $(OBJDIR)/bin/fd_ledger
 
 run-runtime-backtest-nightly: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_nightly_backtest.sh -l mainnet-327443157  -s snapshot-327493391-9z5sYZhTCUbMKvXKotuCqN1y5TTt9T4PpxJzE6FLoQiz.tar.zst -y 750 -m 950000000 -e 327593391 -c 2.1.11
+
+run-runtime-test-nightly-txncache: $(OBJDIR)/unit-test/test_txncache
+	$(OBJDIR)/unit-test/test_txncache

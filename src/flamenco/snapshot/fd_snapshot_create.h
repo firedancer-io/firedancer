@@ -53,7 +53,6 @@ struct fd_snapshot_ctx {
 
   /* The two data structures from the runtime referenced by the snapshot service. */
   fd_funk_t *       funk;                      /* Funk handle. */
-  fd_txncache_t *   status_cache;              /* Status cache handle. */
 
   uchar             is_incremental;            /* If it is incremental, set the fields and pass in data from the previous full snapshot. */
   ulong             last_snap_slot;            /* Full snapshot slot. */

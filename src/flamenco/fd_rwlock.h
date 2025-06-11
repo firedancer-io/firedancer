@@ -37,6 +37,12 @@ fd_rwlock_unwrite( fd_rwlock_t * lock ) {
   lock->value = 0;
 }
 
+static inline int
+fd_rwlock_iswrite( fd_rwlock_t * lock ) {
+  return FD_VOLATILE_CONST(lock->value) == 0xFFFF;
+}
+
+/* Can be recursed. */
 static inline void
 fd_rwlock_read( fd_rwlock_t * lock ) {
 # if FD_HAS_THREADS
