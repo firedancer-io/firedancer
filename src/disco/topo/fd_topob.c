@@ -31,7 +31,7 @@ fd_topob_new( void * mem,
   return topo;
 }
 
-void
+fd_topo_wksp_t *
 fd_topob_wksp( fd_topo_t *  topo,
                char const * name ) {
   if( FD_UNLIKELY( !topo || !name || !strlen( name ) ) ) FD_LOG_ERR(( "NULL args" ));
@@ -42,6 +42,7 @@ fd_topob_wksp( fd_topo_t *  topo,
   strncpy( wksp->name, name, sizeof(wksp->name) );
   wksp->id = topo->wksp_cnt;
   topo->wksp_cnt++;
+  return wksp;
 }
 
 fd_topo_obj_t *
@@ -351,6 +352,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "benchs",
     "net",
     "sock",
+    "ibeth",
     "quic",
     "bundle",
     "verify",
