@@ -2483,6 +2483,22 @@ struct fd_gossip_vote {
 typedef struct fd_gossip_vote fd_gossip_vote_t;
 #define FD_GOSSIP_VOTE_ALIGN alignof(fd_gossip_vote_t)
 
+struct fd_gossip_deprecated_compression_type {
+  uint discriminant;
+};
+typedef struct fd_gossip_deprecated_compression_type fd_gossip_deprecated_compression_type_t;
+#define FD_GOSSIP_DEPRECATED_COMPRESSION_TYPE_ALIGN alignof(fd_gossip_deprecated_compression_type_t)
+
+/* Encoded Size: Dynamic */
+struct fd_gossip_deprecated_epoch_incomplete_slots {
+  ulong first;
+  fd_gossip_deprecated_compression_type_t compression;
+  ulong compressed_list_len;
+  uchar* compressed_list;
+};
+typedef struct fd_gossip_deprecated_epoch_incomplete_slots fd_gossip_deprecated_epoch_incomplete_slots_t;
+#define FD_GOSSIP_DEPRECATED_EPOCH_INCOMPLETE_SLOTS_ALIGN alignof(fd_gossip_deprecated_epoch_incomplete_slots_t)
+
 /* Encoded Size: Dynamic */
 struct fd_gossip_lowest_slot {
   uchar u8;
@@ -2491,7 +2507,8 @@ struct fd_gossip_lowest_slot {
   ulong lowest;
   ulong slots_len;
   ulong* slots;
-  ulong i_dont_know;
+  ulong stash_len;
+  fd_gossip_deprecated_epoch_incomplete_slots_t * stash;
   ulong wallclock;
 };
 typedef struct fd_gossip_lowest_slot fd_gossip_lowest_slot_t;
@@ -5256,6 +5273,31 @@ ulong fd_gossip_vote_size( fd_gossip_vote_t const * self );
 static inline ulong fd_gossip_vote_align( void ) { return FD_GOSSIP_VOTE_ALIGN; }
 int fd_gossip_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_gossip_vote_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+static inline void fd_gossip_deprecated_compression_type_new_disc( fd_gossip_deprecated_compression_type_t * self, uint discriminant ) { self->discriminant = discriminant; }
+static inline void fd_gossip_deprecated_compression_type_new( fd_gossip_deprecated_compression_type_t * self ) { self->discriminant = (uint)ULONG_MAX; }
+int fd_gossip_deprecated_compression_type_encode( fd_gossip_deprecated_compression_type_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_deprecated_compression_type_walk( void * w, fd_gossip_deprecated_compression_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_deprecated_compression_type_size( fd_gossip_deprecated_compression_type_t const * self );
+static inline ulong fd_gossip_deprecated_compression_type_align( void ) { return FD_GOSSIP_DEPRECATED_COMPRESSION_TYPE_ALIGN; }
+int fd_gossip_deprecated_compression_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_deprecated_compression_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+FD_FN_PURE uchar fd_gossip_deprecated_compression_type_is_Uncompressed( fd_gossip_deprecated_compression_type_t const * self );
+FD_FN_PURE uchar fd_gossip_deprecated_compression_type_is_GZip( fd_gossip_deprecated_compression_type_t const * self );
+FD_FN_PURE uchar fd_gossip_deprecated_compression_type_is_BZip2( fd_gossip_deprecated_compression_type_t const * self );
+enum {
+fd_gossip_deprecated_compression_type_enum_Uncompressed = 0,
+fd_gossip_deprecated_compression_type_enum_GZip = 1,
+fd_gossip_deprecated_compression_type_enum_BZip2 = 2,
+};
+void fd_gossip_deprecated_epoch_incomplete_slots_new( fd_gossip_deprecated_epoch_incomplete_slots_t * self );
+int fd_gossip_deprecated_epoch_incomplete_slots_encode( fd_gossip_deprecated_epoch_incomplete_slots_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_gossip_deprecated_epoch_incomplete_slots_walk( void * w, fd_gossip_deprecated_epoch_incomplete_slots_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_gossip_deprecated_epoch_incomplete_slots_size( fd_gossip_deprecated_epoch_incomplete_slots_t const * self );
+static inline ulong fd_gossip_deprecated_epoch_incomplete_slots_align( void ) { return FD_GOSSIP_DEPRECATED_EPOCH_INCOMPLETE_SLOTS_ALIGN; }
+int fd_gossip_deprecated_epoch_incomplete_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_deprecated_epoch_incomplete_slots_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_gossip_lowest_slot_new( fd_gossip_lowest_slot_t * self );
 int fd_gossip_lowest_slot_encode( fd_gossip_lowest_slot_t const * self, fd_bincode_encode_ctx_t * ctx );
