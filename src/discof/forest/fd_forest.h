@@ -30,10 +30,25 @@
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
-#define SET_NAME fd_forest_ele_idxs
-#define SET_MAX  FD_SHRED_BLK_MAX
+#define SET_NAME fd_fec_shred_idxs
+#define SET_MAX  32
 #include "../../util/tmpl/fd_set.c"
 
+struct fd_fec_shreds {
+  ulong key; /* slot | fec_set_idx */
+  ulong next; /* internal use by fd_fec_shreds_pool, fd_map_chain */
+  fd_fec_shred_idxs_t rcvd[fd_fec_shred_idxs_word_cnt];
+};
+typedef struct fd_fec_shreds fd_fec_shreds_t;
+
+#define POOL_NAME fd_fec_shreds_pool
+#define POOL_T    fd_fec_shreds_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME  fd_fec_shreds_map
+#define MAP_ELE_T fd_fec_shreds_t
+#define MAP_KEY   key
+#include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_forest_ele_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
@@ -53,10 +68,6 @@ struct __attribute__((aligned(128UL))) fd_forest_ele {
 
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
-
-  fd_forest_ele_idxs_t cmpl[fd_forest_ele_idxs_word_cnt]; /* fec complete idxs */
-  fd_forest_ele_idxs_t fecs[fd_forest_ele_idxs_word_cnt]; /* fec set idxs */
-  fd_forest_ele_idxs_t idxs[fd_forest_ele_idxs_word_cnt]; /* data shred idxs */
 };
 typedef struct fd_forest_ele fd_forest_ele_t;
 
@@ -111,6 +122,10 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* map of slot to ele (leaf that needs repair) */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
+
+  ulong fec_pool_gaddr; /* gaddr of fd_fec_shreds_pool */
+  ulong fec_map_gaddr;  /* gaddr of fd_fec_shreds_map */
+
   ulong magic;          /* ==FD_FOREST_MAGIC */
 };
 typedef struct fd_forest fd_forest_t;
@@ -130,6 +145,7 @@ fd_forest_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_forest_footprint( ulong ele_max ) {
+  ulong fec_max = ele_max * 32; // FIXME: on average around 32 FECs per slot
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -137,13 +153,17 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_forest_t),  sizeof(fd_forest_t)              ),
-      fd_fseq_align(),           fd_fseq_footprint()                  ),
-      fd_forest_pool_align(),       fd_forest_pool_footprint( ele_max )     ),
+      alignof(fd_forest_t),         sizeof(fd_forest_t) ),
+      fd_fseq_align(),              fd_fseq_footprint() ),
+      fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max ) ),
       fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max ) ),
+      fd_fec_shreds_pool_align(),   fd_fec_shreds_pool_footprint( fec_max ) ),
+      fd_fec_shreds_map_align(),    fd_fec_shreds_map_footprint ( fec_max ) ),
     fd_forest_align() );
 }
 
@@ -279,6 +299,32 @@ fd_forest_orphaned_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphaned_gaddr );
 }
 
+/* fd_forest_{fec_pool, fec_pool_const} returns pointer in the caller's address
+   space to forest's fec pool. */
+
+FD_FN_PURE static inline fd_fec_shreds_t *
+fd_forest_fec_pool( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->fec_pool_gaddr );
+}
+
+FD_FN_PURE static inline fd_fec_shreds_t const *
+fd_forest_fec_pool_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->fec_pool_gaddr );
+}
+
+/* fd_forest_{fec_map, fec_map_const} returns pointer in the caller's
+   address space to forest's fec map. */
+
+FD_FN_PURE static inline fd_fec_shreds_map_t *
+fd_forest_fec_map( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->fec_map_gaddr );
+}
+
+FD_FN_PURE static inline fd_fec_shreds_map_t const *
+fd_forest_fec_map_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->fec_map_gaddr );
+}
+
 /* fd_forest_root_slot returns forest's root slot.  Assumes
    forest is a current local join. */
 
@@ -291,6 +337,13 @@ fd_forest_root_slot( fd_forest_t const * forest ) {
 fd_forest_ele_t *
 fd_forest_query( fd_forest_t * forest, ulong slot );
 
+int
+fd_forest_fec_shred_test( fd_forest_t * forest, ulong slot, uint shred_idx );
+
+void
+fd_forest_fec_remove( fd_forest_t * forest, ulong slot, uint fec_idx );
+
+
 /* Operations */
 
 /* fd_forest_shred_insert inserts a new shred into the forest.
@@ -300,7 +353,7 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
    Returns the inserted forest ele. */
 
 fd_forest_ele_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, uint fec_set_idx, int data_complete, int slot_complete );
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ushort parent_off, uint shred_idx, int slot_complete );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot
