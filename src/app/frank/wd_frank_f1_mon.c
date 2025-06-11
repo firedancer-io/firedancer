@@ -363,8 +363,10 @@ void* mon_thread(void* arg)
         if (!first)
             ascii_move_to(from, to);
 
-        if (first)
-            printf("\033[?25l\033[2J"); // hide cursor, clear screen on first frame
+        /* switch to alternate buffer, clear, hide cursor */
+        if (first) {
+            printf("\033[?1049h\033[2J\033[?25l");
+        }
         
         from[0] = 0;
 
@@ -578,7 +580,7 @@ void* mon_thread(void* arg)
     }
     state->stopped = 1;
 
-    printf("\033[?25h"); // show cursor
+    printf("\033[?25h\033[?1049l");
 
     return 0;
 }
