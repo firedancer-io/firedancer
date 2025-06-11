@@ -547,11 +547,11 @@ void* mon_thread(void* arg)
             }
             out_st[out_pos] = '\0';
 
-            // only print changed lines
+            /* only print changed lines – clear to EOL first */
             if (strcmp(buffer_prev[li], buffer_curr[li]) != 0) {
-                printf("\033[%d;1H%s", li + 1, buffer_curr[li]);
+                printf("\033[%d;1H\033[K%s", li + 1, buffer_curr[li]);
                 strcpy(buffer_prev[li], buffer_curr[li]);
-            }
+             }
         }
 
         // update animation states
