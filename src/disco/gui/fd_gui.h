@@ -317,6 +317,8 @@ struct fd_gui {
     ulong startup_waiting_for_supermajority_slot;
     ulong startup_waiting_for_supermajority_stake_pct;
 
+    int schedule_strategy;
+
     ulong identity_account_balance;
     ulong vote_account_balance;
     ulong estimated_slot_duration_nanos;
@@ -418,6 +420,7 @@ fd_gui_new( void *             shmem,
             char const *       cluster,
             uchar const *      identity_key,
             int                is_voting,
+            int                schedule_strategy,
             fd_topo_t *        topo );
 
 fd_gui_t *

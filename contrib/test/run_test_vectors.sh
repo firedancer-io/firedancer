@@ -45,6 +45,7 @@ cat contrib/test/test-vectors-fixtures/vm-interp-fixtures/*.list | xargs -P $NUM
 find dump/test-vectors/vm_interp/fixtures/v0 -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 find dump/test-vectors/vm_interp/fixtures/v1 -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 find dump/test-vectors/vm_interp/fixtures/v2 -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
+find dump/test-vectors/vm_interp/fixtures/v3 -type f -name '*.fix' | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824
 
 LOG=$LOG_PATH/test_exec_precompiles
 cat contrib/test/test-vectors-fixtures/precompile-fixtures/*.list | xargs -P $NUM_PROCESSES -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --wksp-page-sz 1073741824

@@ -267,6 +267,7 @@ typedef struct {
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      int    schedule_strategy;
     } gui;
 
     struct {

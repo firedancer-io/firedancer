@@ -833,7 +833,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd4\xaa\xef\x53\x4b\x5a\xa1\xad\x90\xf8\x49\xb9\x13\x45\x25\x3c\x4c\x39\x46\x28\xb4\xb6\xb4\xfa\x41\x0d\xb5\x1e\xa1\x4f\xa8\xf5"},
                                  /* FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap */
     .name                      = "relax_authority_signer_check_for_lookup_table_creation",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {2, 2, 0},
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, stop_sibling_instruction_search_at_parent)>>3,
@@ -1143,7 +1143,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\x4d\x3c\x51\x23\x21\xd3\xe9\x47\x3d\xc8\x19\x36\x5e\x45\xf8\x09\x81\x7b\xaf\xff\x69\x17\x9f\x2e\x58\x3d\xf1\x6e\xc8\x10\x6b"},
                                  /* tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ */
     .name                      = "timely_vote_credits",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {2, 2, 0},
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, remaining_compute_units_syscall_enabled)>>3,
@@ -1301,7 +1301,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\xeb\x8b\x43\x43\x80\x51\xa1\x77\x30\xda\xfa\x17\x13\xc7\x34\x05\xe6\xe3\x35\x39\x8a\x57\x63\x96\x99\xb4\x10\xf0\xd6\x5e\x87"},
                                  /* wLckV1a64ngtcKPRGU4S4grVTestXjmNjxBjaKZrAcn */
     .name                      = "cost_model_requested_write_lock_cost",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {2, 2, 0},
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_gossip_duplicate_proof_ingestion)>>3,
@@ -1322,7 +1322,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa1\xc5\x8f\xd3\x78\xb5\xe0\xfd\x51\x5e\x90\xf9\x71\xc6\x61\x77\xef\x58\x74\xfb\xd9\x46\x9a\x1e\x4d\x8a\x45\x3b\x36\xb9\x61\x4e"},
                                  /* BtVN7YjDzNE6Dk7kTT7YTDgMNUZTNgiSJgsdzAeTg2jF */
     .name                      = "remove_rounding_in_fee_calculation",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {2, 2, 0},
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_tower_sync_ix)>>3,

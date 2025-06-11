@@ -934,6 +934,7 @@ fd_topo_initialize( config_t * config ) {
       tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
       tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
       tile->gui.send_buffer_size_mb       = config->tiles.gui.send_buffer_size_mb;
+      tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "exec" ) ) ) {

@@ -1992,6 +1992,24 @@
       ]
     },
     {
+      "name": "gossip_deprecated_compression_type",
+      "type": "enum",
+      "variants": [
+        { "name": "Uncompressed" },
+        { "name": "GZip" },
+        { "name": "BZip2" }
+      ]
+    },
+    {
+      "name": "gossip_deprecated_epoch_incomplete_slots",
+      "type": "struct",
+      "fields": [
+        { "name": "first", "type": "ulong" },
+        { "name": "compression", "type": "gossip_deprecated_compression_type" },
+        { "name": "compressed_list", "type": "vector", "element": "uchar" }
+      ]
+    },
+    {
       "name": "gossip_lowest_slot",
       "type": "struct",
       "fields": [
@@ -2000,7 +2018,7 @@
         { "name": "root", "type": "ulong" },
         { "name": "lowest", "type": "ulong" },
         { "name": "slots", "type": "vector", "element": "ulong" },
-        { "name": "i_dont_know", "type": "ulong" },
+        { "name": "stash", "type": "vector", "element": "gossip_deprecated_epoch_incomplete_slots" },
         { "name": "wallclock", "type": "ulong" }
       ]
     },

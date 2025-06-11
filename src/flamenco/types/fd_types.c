@@ -17541,6 +17541,176 @@ ulong fd_gossip_vote_size( fd_gossip_vote_t const * self ) {
   return size;
 }
 
+FD_FN_PURE uchar fd_gossip_deprecated_compression_type_is_Uncompressed(fd_gossip_deprecated_compression_type_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_gossip_deprecated_compression_type_is_GZip(fd_gossip_deprecated_compression_type_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_gossip_deprecated_compression_type_is_BZip2(fd_gossip_deprecated_compression_type_t const * self) {
+  return self->discriminant == 2;
+}
+int fd_gossip_deprecated_compression_type_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+static int fd_gossip_deprecated_compression_type_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_gossip_deprecated_compression_type_inner_decode_footprint( discriminant, ctx, total_sz );
+}
+int fd_gossip_deprecated_compression_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_gossip_deprecated_compression_type_t);
+  void const * start_data = ctx->data;
+  int err =  fd_gossip_deprecated_compression_type_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = start_data;
+  return err;
+}
+static void fd_gossip_deprecated_compression_type_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_deprecated_compression_type_t * self = (fd_gossip_deprecated_compression_type_t *)struct_mem;
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+}
+void * fd_gossip_deprecated_compression_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_deprecated_compression_type_t * self = (fd_gossip_deprecated_compression_type_t *)mem;
+  fd_gossip_deprecated_compression_type_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_deprecated_compression_type_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_deprecated_compression_type_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+
+void fd_gossip_deprecated_compression_type_walk( void * w, fd_gossip_deprecated_compression_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_gossip_deprecated_compression_type", level++);
+  switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "Uncompressed", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "GZip", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 2: {
+    fun( w, self, "BZip2", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_gossip_deprecated_compression_type", level-- );
+}
+ulong fd_gossip_deprecated_compression_type_size( fd_gossip_deprecated_compression_type_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  }
+  return size;
+}
+
+int fd_gossip_deprecated_compression_type_encode( fd_gossip_deprecated_compression_type_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return err;
+}
+
+int fd_gossip_deprecated_epoch_incomplete_slots_encode( fd_gossip_deprecated_epoch_incomplete_slots_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->first, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_gossip_deprecated_compression_type_encode( &self->compression, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->compressed_list_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->compressed_list_len ) {
+    err = fd_bincode_bytes_encode( self->compressed_list, self->compressed_list_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+static int fd_gossip_deprecated_epoch_incomplete_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_gossip_deprecated_compression_type_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong compressed_list_len;
+  err = fd_bincode_uint64_decode( &compressed_list_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( compressed_list_len ) {
+    *total_sz += 8UL + compressed_list_len;
+    err = fd_bincode_bytes_decode_footprint( compressed_list_len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  return 0;
+}
+int fd_gossip_deprecated_epoch_incomplete_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_gossip_deprecated_epoch_incomplete_slots_t);
+  void const * start_data = ctx->data;
+  int err = fd_gossip_deprecated_epoch_incomplete_slots_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = start_data;
+  return err;
+}
+static void fd_gossip_deprecated_epoch_incomplete_slots_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_deprecated_epoch_incomplete_slots_t * self = (fd_gossip_deprecated_epoch_incomplete_slots_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->first, ctx );
+  fd_gossip_deprecated_compression_type_decode_inner( &self->compression, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->compressed_list_len, ctx );
+  if( self->compressed_list_len ) {
+    self->compressed_list = *alloc_mem;
+    fd_bincode_bytes_decode_unsafe( self->compressed_list, self->compressed_list_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->compressed_list_len;
+  } else
+    self->compressed_list = NULL;
+}
+void * fd_gossip_deprecated_epoch_incomplete_slots_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_gossip_deprecated_epoch_incomplete_slots_t * self = (fd_gossip_deprecated_epoch_incomplete_slots_t *)mem;
+  fd_gossip_deprecated_epoch_incomplete_slots_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_gossip_deprecated_epoch_incomplete_slots_t);
+  void * * alloc_mem = &alloc_region;
+  fd_gossip_deprecated_epoch_incomplete_slots_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_gossip_deprecated_epoch_incomplete_slots_new(fd_gossip_deprecated_epoch_incomplete_slots_t * self) {
+  fd_memset( self, 0, sizeof(fd_gossip_deprecated_epoch_incomplete_slots_t) );
+  fd_gossip_deprecated_compression_type_new( &self->compression );
+}
+void fd_gossip_deprecated_epoch_incomplete_slots_walk( void * w, fd_gossip_deprecated_epoch_incomplete_slots_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_deprecated_epoch_incomplete_slots", level++ );
+  fun( w, &self->first, "first", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fd_gossip_deprecated_compression_type_walk( w, &self->compression, fun, "compression", level );
+  if( self->compressed_list_len ) {
+    fun( w, NULL, "compressed_list", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->compressed_list_len; i++ )
+      fun( w, self->compressed_list + i, "compressed_list", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "compressed_list", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_deprecated_epoch_incomplete_slots", level-- );
+}
+ulong fd_gossip_deprecated_epoch_incomplete_slots_size( fd_gossip_deprecated_epoch_incomplete_slots_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += fd_gossip_deprecated_compression_type_size( &self->compression );
+  do {
+    size += sizeof(ulong);
+    size += self->compressed_list_len;
+  } while(0);
+  return size;
+}
+
 int fd_gossip_lowest_slot_encode( fd_gossip_lowest_slot_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint8_encode( (uchar)(self->u8), ctx );
@@ -17558,8 +17728,14 @@ int fd_gossip_lowest_slot_encode( fd_gossip_lowest_slot_t const * self, fd_binco
       err = fd_bincode_uint64_encode( self->slots[i], ctx );
     }
   }
-  err = fd_bincode_uint64_encode( self->i_dont_know, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->stash_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->stash_len ) {
+    for( ulong i=0; i < self->stash_len; i++ ) {
+      err = fd_gossip_deprecated_epoch_incomplete_slots_encode( self->stash + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
   err = fd_bincode_uint64_encode( self->wallclock, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -17585,8 +17761,16 @@ static int fd_gossip_lowest_slot_decode_footprint_inner( fd_bincode_decode_ctx_t
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
-  err = fd_bincode_uint64_decode_footprint( ctx );
+  ulong stash_len;
+  err = fd_bincode_uint64_decode( &stash_len, ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( stash_len ) {
+    *total_sz += FD_GOSSIP_DEPRECATED_EPOCH_INCOMPLETE_SLOTS_ALIGN + sizeof(fd_gossip_deprecated_epoch_incomplete_slots_t)*stash_len;
+    for( ulong i=0; i < stash_len; i++ ) {
+      err = fd_gossip_deprecated_epoch_incomplete_slots_decode_footprint_inner( ctx, total_sz );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return 0;
@@ -17615,7 +17799,17 @@ static void fd_gossip_lowest_slot_decode_inner( void * struct_mem, void * * allo
     }
   } else
     self->slots = NULL;
-  fd_bincode_uint64_decode_unsafe( &self->i_dont_know, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->stash_len, ctx );
+  if( self->stash_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_GOSSIP_DEPRECATED_EPOCH_INCOMPLETE_SLOTS_ALIGN );
+    self->stash = *alloc_mem;
+    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(fd_gossip_deprecated_epoch_incomplete_slots_t)*self->stash_len;
+    for( ulong i=0; i < self->stash_len; i++ ) {
+      fd_gossip_deprecated_epoch_incomplete_slots_new( self->stash + i );
+      fd_gossip_deprecated_epoch_incomplete_slots_decode_inner( self->stash + i, alloc_mem, ctx );
+    }
+  } else
+    self->stash = NULL;
   fd_bincode_uint64_decode_unsafe( &self->wallclock, ctx );
 }
 void * fd_gossip_lowest_slot_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -17642,7 +17836,12 @@ void fd_gossip_lowest_slot_walk( void * w, fd_gossip_lowest_slot_t const * self,
       fun( w, self->slots + i, "slots", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );
     fun( w, NULL, "slots", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
   }
-  fun( w, &self->i_dont_know, "i_dont_know", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  if( self->stash_len ) {
+    fun( w, NULL, "stash", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->stash_len; i++ )
+      fd_gossip_deprecated_epoch_incomplete_slots_walk(w, self->stash + i, fun, "gossip_deprecated_epoch_incomplete_slots", level );
+    fun( w, NULL, "stash", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
+  }
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_lowest_slot", level-- );
 }
@@ -17656,7 +17855,11 @@ ulong fd_gossip_lowest_slot_size( fd_gossip_lowest_slot_t const * self ) {
     size += sizeof(ulong);
     size += self->slots_len * sizeof(ulong);
   } while(0);
-  size += sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->stash_len; i++ )
+      size += fd_gossip_deprecated_epoch_incomplete_slots_size( self->stash + i );
+  } while(0);
   size += sizeof(ulong);
   return size;
 }

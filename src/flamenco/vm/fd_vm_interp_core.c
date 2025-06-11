@@ -66,9 +66,6 @@
   interp_jump_table[ 0x97 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x97 : &&interp_0x97depr;
   interp_jump_table[ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? &&interp_0x9f : &&interp_0x9fdepr;
 
-  /* SIMD-0173: CALLX */
-  interp_jump_table[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? &&interp_0x8d : &&interp_0x8ddepr;
-
   /* SIMD-0174: PQR */
   interp_jump_table[ 0x36 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x36 : &&sigill;
   interp_jump_table[ 0x3e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? &&interp_0x3e : &&sigill;
@@ -120,6 +117,9 @@
   interp_jump_table[ 0x85 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? &&interp_0x85 : &&interp_0x85depr;
   interp_jump_table[ 0x95 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? &&interp_0x95 : &&interp_0x9d;
   interp_jump_table[ 0x9d ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? &&interp_0x9d : &&sigill;
+
+  /* SIMD-0173 + SIMD-0179: CALLX */
+  interp_jump_table[ 0x8d ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? &&interp_0x8d : &&interp_0x8ddepr;
 
   /* Unpack the VM state */
 
@@ -799,19 +799,13 @@ interp_exec:
         FD_VM_INTERP_STACK_PUSH;
         pc = entry_pc - 1;
       } else {
-
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
-        if( FD_UNLIKELY( target_pc>text_cnt ) ) {
-          /* ...to match state of Agave VM when faulting
-             Note: this check MUST be BEFORE fd_sbpf_calldests_test,
-             because it prevents overflowing calldests. */
+        if( FD_UNLIKELY( target_pc>=text_cnt ) ) {
+          goto sigcall; /* different return between 0x85 and 0x8d */
+        }
+        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
           goto sigcall;
         }
-
-        if( FD_UNLIKELY( !fd_sbpf_calldests_valid_idx( calldests, target_pc ) || !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
-          goto sigcall;
-        }
-
         FD_VM_INTERP_STACK_PUSH;
         pc = target_pc - 1;
       }
@@ -861,29 +855,20 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x8d) { /* FD_SBPF_OP_CALL_REG */
-
     FD_VM_INTERP_STACK_PUSH;
-
-    ulong vaddr = reg_src;
-
-    /* Notes: Agave checks region and target_pc before updating the pc.
-       To match their state, we do the same, even though we could simply
-       update the pc and let BRANCH_END fail.
-       Also, Agave doesn't check alignment. */
-
-    ulong region = vaddr >> 32;
-    /* ulong align  = vaddr & 7UL; */
-    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
-    if( FD_UNLIKELY( (region!=1UL) | (target_pc>=text_cnt) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
+    ulong target_pc = (reg_src - vm->text_off) / 8UL;
+    if( FD_UNLIKELY( target_pc>=text_cnt ) ) goto sigtextbr;
+    if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
+      goto sigcall;
+    }
     pc = target_pc - 1;
-
   } FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x8ddepr) { /* FD_SBPF_OP_CALL_REG */
 
     FD_VM_INTERP_STACK_PUSH;
 
-    ulong vaddr = reg[ imm & 15U ];
+    ulong vaddr = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? reg_src : reg[ imm & 15U ];
 
     /* Notes: Agave checks region and target_pc before updating the pc.
        To match their state, we do the same, even though we could simply
@@ -892,7 +877,7 @@ interp_exec:
 
     ulong region = vaddr >> 32;
     /* ulong align  = vaddr & 7UL; */
-    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK)/8UL) - text_word_off;
+    ulong target_pc = ((vaddr & FD_VM_OFFSET_MASK) - vm->text_off) / 8UL;
     if( FD_UNLIKELY( (region!=1UL) | (target_pc>=text_cnt) ) ) goto sigtextbr; /* Note: untaken branches don't consume BTB */
     pc = target_pc - 1;
 
