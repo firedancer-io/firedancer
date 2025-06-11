@@ -2,6 +2,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include <math.h>
+#include "fd_contact_info.h"
 
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
@@ -403,43 +404,6 @@ struct fd_msg_stats_elem {
 /* Receive type statistics table. */
 typedef struct fd_msg_stats_elem fd_msg_stats_elem_t;
 
-/* Internal struct for maintaining
-   a contact_info_v2 entry */
-typedef struct {
-  fd_crds_data_t crd;
-  fd_gossip_contact_info_v2_t * ci;
-  fd_gossip_ip_addr_t addrs[FD_GOSSIP_SOCKET_TAG_MAX];
-  fd_gossip_socket_entry_t sockets[FD_GOSSIP_SOCKET_TAG_MAX];
-  // uint extentions[1]; /* Unused */
-} fd_gossip_node_contact_t;
-
-static void
-fd_gossip_init_node_contact( fd_gossip_node_contact_t * contact ) {
-  fd_crds_data_new_disc( &contact->crd, fd_crds_data_enum_contact_info_v2 );
-  contact->ci = &contact->crd.inner.contact_info_v2;
-  contact->ci->addrs = contact->addrs;
-  contact->ci->sockets = contact->sockets;
-}
-
-/* Internal node address book.
-   Both ip addr and port* are stored
-   in network order
-
-   * contact_info_v2 stores port numbers
-   in host order, so they need to be converted
-   when copying over. See
-   fd_gossip_refresh_contact_info_v2_sockets() */
-
-typedef struct {
-  fd_gossip_peer_addr_t gossip;
-  fd_gossip_peer_addr_t serve_repair;
-  fd_gossip_peer_addr_t tvu;
-  fd_gossip_peer_addr_t tpu;
-  fd_gossip_peer_addr_t tpu_quic;
-  fd_gossip_peer_addr_t tpu_vote;
-  fd_gossip_peer_addr_t tpu_vote_quic;
-} fd_gossip_node_addrs_t;
-
 /* Global data for gossip service */
 struct fd_gossip {
     /* Concurrency lock */
@@ -449,10 +413,7 @@ struct fd_gossip {
     fd_spad_t * decode_spad; /* For holding CRDS decode artifacts */
 
     /* My official contact info in the gossip protocol */
-    fd_gossip_node_contact_t my_contact;
-    fd_gossip_node_addrs_t my_node_addrs;
-    /* My gossip port address (ptr to gossip entry in my node addrs) */
-    fd_gossip_peer_addr_t * my_addr;
+    fd_contact_info_t my_contact;
     /* My public key (ptr to entry in my contact info) */
     fd_pubkey_t * public_key;
 
@@ -595,6 +556,8 @@ fd_gossip_new ( void * shmem, ulong seed ) {
   if ( scratch_top > (ulong)shmem + fd_gossip_footprint() ) {
     FD_LOG_ERR(("Not enough space allocated for gossip"));
   }
+
+  fd_contact_info_init( &glob->my_contact );
   return glob;
 }
 
@@ -660,54 +623,6 @@ fd_gossip_port_from_socketaddr( fd_gossip_socket_addr_t const * addr ) {
   }
 }
 
-
-void
-fd_gossip_contact_info_v2_to_v1( fd_gossip_contact_info_v2_t const * v2,
-                                 fd_gossip_contact_info_v1_t *       v1 ) {
-  memset( v1, 0, sizeof(fd_gossip_contact_info_v1_t) );
-  v1->id = v2->from;
-  v1->shred_version = v2->shred_version;
-  v1->wallclock = v2->wallclock;
-  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_GOSSIP, &v1->gossip );
-  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR, &v1->serve_repair );
-  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU, &v1->tpu );
-  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU_VOTE, &v1->tpu_vote );
-  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TVU, &v1->tvu );
-}
-
-int
-fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * contact_info,
-                                            uchar                               proto_ident,
-                                            fd_gossip_socket_addr_t *           out_addr ) {
-  ushort port = 0;
-  for( ulong i = 0UL; i<contact_info->sockets_len; i++ ) {
-    fd_gossip_socket_entry_t const * socket_entry = &contact_info->sockets[ i ];
-    port = (ushort)( port + socket_entry->offset );
-    if( socket_entry->key==proto_ident ) {
-      if( socket_entry->index>=contact_info->addrs_len) {
-        continue;
-      }
-
-      /* fd_gossip_socket_addr->inner and fd_gossip_ip_addr
-         are slightly different, so we can't just
-         out_addr->ip = contact_info->addrs[ idx ] */
-      fd_gossip_ip_addr_t * tmp = &contact_info->addrs[ socket_entry->index ];
-      if( FD_LIKELY( tmp->discriminant == fd_gossip_ip_addr_enum_ip4 ) ) {
-        out_addr->discriminant = fd_gossip_socket_addr_enum_ip4;
-        out_addr->inner.ip4.addr = tmp->inner.ip4;
-        out_addr->inner.ip4.port = port;
-      } else {
-        out_addr->discriminant = fd_gossip_socket_addr_enum_ip6;
-        out_addr->inner.ip6.addr = tmp->inner.ip6;
-        out_addr->inner.ip6.port = port;
-      }
-      return 1;
-    }
-  }
-
-  return 0;
-}
-
 /* Convert my style of address to solana style */
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src ) {
@@ -735,8 +650,6 @@ fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t cons
 #define GOSSIP_ADDR_FMT FD_IP4_ADDR_FMT ":%u"
 #define GOSSIP_ADDR_FMT_ARGS( k ) FD_IP4_ADDR_FMT_ARGS( (k).addr ), fd_ushort_bswap( (k).port )
 
-static void
-fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs, fd_gossip_node_contact_t * ci_int );
 
 /* Set the gossip configuration */
 int
@@ -747,18 +660,15 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   fd_base58_encode_32( config->public_key->uc, NULL, keystr );
   FD_LOG_NOTICE(("configuring address " GOSSIP_ADDR_FMT " id %s", GOSSIP_ADDR_FMT_ARGS( config->my_addr ), keystr));
 
-  fd_gossip_init_node_contact( &glob->my_contact );
+  fd_contact_info_insert_socket( &glob->my_contact, &config->my_addr, FD_GOSSIP_SOCKET_TAG_GOSSIP );
 
-  glob->my_contact.ci->from = *config->public_key;
-  glob->public_key = &glob->my_contact.ci->from;
+  fd_gossip_contact_info_v2_t * info = &glob->my_contact.ci_crd;
+  info->from = *config->public_key;
+  glob->public_key = &info->from;
 
-  fd_gossip_peer_addr_copy( &glob->my_node_addrs.gossip, &config->my_addr );
-  fd_gossip_refresh_contact_info_v2_sockets( &glob->my_node_addrs, &glob->my_contact );
-  glob->my_addr = &glob->my_node_addrs.gossip;
-
-  glob->my_contact.ci->shred_version = config->shred_version;
-  glob->my_contact.ci->outset = (ulong)config->node_outset;
-  glob->my_contact.ci->version = config->my_version;
+  info->shred_version = config->shred_version;
+  info->outset = (ulong)config->node_outset;
+  info->version = config->my_version;
 
   glob->deliver_fun = config->deliver_fun;
   glob->deliver_arg = config->deliver_arg;
@@ -773,150 +683,34 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
 }
 
 /* Updates the sockets and addrs lists in contact_info_v2 */
-static void
-fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs, fd_gossip_node_contact_t * ci_int ) {
-  fd_gossip_contact_info_v2_t * info = ci_int->ci;
-  ushort last_port = 0;
-  uchar addr_cnt = 0;
-  uchar sock_cnt = 0;
 
-  /* contact_info_v2 stores port numbers in host order,
-     ip addresses remain in network order... */
-  ushort gossip_port = fd_ushort_bswap( addrs->gossip.port );
-  ushort serve_repair_port = fd_ushort_bswap( addrs->serve_repair.port );
-  ushort tvu_port = fd_ushort_bswap( addrs->tvu.port );
-  ushort tpu_port = fd_ushort_bswap( addrs->tpu.port );
-  ushort tpu_quic_port = fd_ushort_bswap( addrs->tpu_quic.port );
-  ushort tpu_vote_port = fd_ushort_bswap( addrs->tpu_vote.port );
-  ushort tpu_vote_quic_port = fd_ushort_bswap( addrs->tpu_vote_quic.port );
+static int
+fd_gossip_update_addr_internal( fd_gossip_t * glob, const fd_gossip_peer_addr_t * my_addr, uchar tag ) {
 
-  /* Loop is bounded by number of if( xx_port > 0 ... ) statements  + 1, so 7. */
-  for(;;) {
-    fd_gossip_peer_addr_t const * min_addr = NULL;
-    ushort min_port = USHORT_MAX;
-    uchar min_key = 0;
+  fd_gossip_lock( glob );
+  int res = fd_contact_info_insert_socket( &glob->my_contact, my_addr, tag );
+  fd_gossip_unlock( glob );
 
-    /* Find the next socket to add to the list, based on next min port number */
-    if( gossip_port > 0 && gossip_port > last_port && gossip_port < min_port ) {
-      min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
-      min_addr = &addrs->gossip;
-      min_port = gossip_port;
-    }
-    if( serve_repair_port > 0 && serve_repair_port > last_port && serve_repair_port < min_port ) {
-      min_key = FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR;
-      min_addr = &addrs->serve_repair;
-      min_port = serve_repair_port;
-    }
-    if( tvu_port > 0 && tvu_port > last_port && tvu_port < min_port ) {
-      min_key = FD_GOSSIP_SOCKET_TAG_TVU;
-      min_addr = &addrs->tvu;
-      min_port = tvu_port;
-    }
-    if( tpu_port > 0 && tpu_port > last_port && tpu_port < min_port ) {
-      min_key = FD_GOSSIP_SOCKET_TAG_TPU;
-      min_addr = &addrs->tpu;
-      min_port = tpu_port;
-    }
-    if( tpu_quic_port > 0 && tpu_quic_port > last_port && tpu_quic_port < min_port ) {
-      min_key = FD_GOSSIP_SOCKET_TAG_TPU_QUIC;
-      min_addr = &addrs->tpu_quic;
-      min_port = tpu_quic_port;
-    }
-    if( tpu_vote_port > 0 && tpu_vote_port > last_port && tpu_vote_port < min_port ) {
-      min_key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
-      min_addr = &addrs->tpu_vote;
-      min_port = tpu_vote_port;
-    }
-    if( tpu_vote_quic_port > 0 && tpu_vote_quic_port > last_port && tpu_vote_quic_port < min_port ) {
-      min_key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC;
-      min_addr = &addrs->tpu_vote_quic;
-      min_port = tpu_vote_quic_port;
-    }
-    if( min_port==USHORT_MAX ) {
-      break;
-    }
 
-    if( FD_UNLIKELY( sock_cnt >= FD_GOSSIP_SOCKET_TAG_MAX )) {
-      FD_LOG_ERR(("Too many sockets in contact info, possible broken implementation of fd_gossip_refresh_contact_info_v2_sockets"));
-    }
-
-    /* Check if ip addr exists in addrs list already */
-    uchar min_addr_idx = 0;
-    for( ; min_addr_idx < addr_cnt; min_addr_idx++ ) {
-      if( info->addrs[min_addr_idx].inner.ip4 == min_addr->addr ) {
-      break;
-      }
-    }
-
-    if( min_addr_idx == addr_cnt ) {
-      /* ip addr not found, add it */
-      fd_gossip_ip_addr_new_disc( &info->addrs[ addr_cnt ], fd_gossip_ip_addr_enum_ip4 );
-      info->addrs[ addr_cnt ].inner.ip4 = min_addr->addr;
-      min_addr_idx = addr_cnt;
-      addr_cnt++;
-    }
-
-    info->sockets[ sock_cnt ].index = min_addr_idx;
-    info->sockets[ sock_cnt ].offset = (ushort)( min_port - last_port );
-    info->sockets[ sock_cnt ].key = min_key;
-    sock_cnt++;
-    last_port = min_port;
-
-    if( FD_UNLIKELY( min_key == FD_GOSSIP_SOCKET_TAG_TPU ) ){
-      /* FIXME: This is a hack around the fact that TPU and TPU vote
-         share the same port. */
-      info->sockets[ sock_cnt ].index = min_addr_idx;
-      info->sockets[ sock_cnt ].offset = 0U;
-      info->sockets[ sock_cnt ].key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
-      sock_cnt++;
-    }
-    if( FD_UNLIKELY( min_key == FD_GOSSIP_SOCKET_TAG_TPU_QUIC ) )  {
-      info->sockets[ sock_cnt ].index = min_addr_idx;
-      info->sockets[ sock_cnt ].offset = 0U;
-      info->sockets[ sock_cnt ].key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE_QUIC;
-      sock_cnt++;
-    }
-  }
-
-  info->addrs_len = addr_cnt;
-  info->sockets_len = sock_cnt;
-  info->extensions_len = 0;
+  return res;
 }
 
 int
 fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * my_addr ) {
   FD_LOG_NOTICE(("updating address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *my_addr ) ));
-
-  fd_gossip_lock( glob );
-  fd_gossip_peer_addr_copy( &glob->my_node_addrs.gossip, my_addr );
-
-  fd_gossip_refresh_contact_info_v2_sockets( &glob->my_node_addrs, &glob->my_contact );
-  fd_gossip_unlock( glob );
-  return 0;
+  return fd_gossip_update_addr_internal( glob, my_addr, FD_GOSSIP_SOCKET_TAG_GOSSIP );
 }
 
 int
 fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * serve ) {
   FD_LOG_NOTICE(("updating repair service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *serve ) ));
-
-  fd_gossip_lock( glob );
-  fd_gossip_peer_addr_copy( &glob->my_node_addrs.serve_repair, serve );
-
-  fd_gossip_refresh_contact_info_v2_sockets( &glob->my_node_addrs, &glob->my_contact );
-  fd_gossip_unlock( glob );
-  return 0;
+  return fd_gossip_update_addr_internal( glob, serve, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR );
 }
 
 int
 fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu ) {
   FD_LOG_NOTICE(("updating tvu service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tvu ) ));
-
-  fd_gossip_lock( glob );
-  fd_gossip_peer_addr_copy( &glob->my_node_addrs.tvu, tvu );
-
-  fd_gossip_refresh_contact_info_v2_sockets( &glob->my_node_addrs, &glob->my_contact );
-  fd_gossip_unlock( glob );
-  return 0;
+  return fd_gossip_update_addr_internal( glob, tvu, FD_GOSSIP_SOCKET_TAG_TVU );
 }
 
 int
@@ -926,32 +720,26 @@ fd_gossip_update_tpu_addr( fd_gossip_t * glob,
   FD_LOG_NOTICE(("updating tpu service address "      GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tpu      ) ));
   FD_LOG_NOTICE(("updating tpu_quic service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tpu_quic ) ));
 
-  fd_gossip_lock( glob );
-  fd_gossip_peer_addr_copy( &glob->my_node_addrs.tpu, tpu );
-  fd_gossip_peer_addr_copy( &glob->my_node_addrs.tpu_quic, tpu_quic );
-
-  fd_gossip_refresh_contact_info_v2_sockets( &glob->my_node_addrs, &glob->my_contact );
-  fd_gossip_unlock( glob );
-
-  return 0;
+  int res = fd_gossip_update_addr_internal( glob, tpu, FD_GOSSIP_SOCKET_TAG_TPU );
+  res    |= fd_gossip_update_addr_internal( glob, tpu_quic, FD_GOSSIP_SOCKET_TAG_TPU_QUIC );
+  return res;
 }
 
 int
 fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu_vote ) {
   FD_LOG_NOTICE(("updating tpu vote service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tpu_vote ) ));
 
-  fd_gossip_lock( glob );
-  fd_gossip_peer_addr_copy(&glob->my_node_addrs.tpu_vote, tpu_vote);
+  return fd_gossip_update_addr_internal( glob, tpu_vote, FD_GOSSIP_SOCKET_TAG_TPU_VOTE );
+}
 
-  fd_gossip_refresh_contact_info_v2_sockets( &glob->my_node_addrs, &glob->my_contact );
-  fd_gossip_unlock( glob );
-
-  return 0;
+ushort
+fd_gossip_get_shred_version( fd_gossip_t const * glob ) {
+  return fd_contact_info_get_shred_version( &glob->my_contact);
 }
 
 void
 fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version ) {
-  glob->my_contact.ci->shred_version = shred_version;
+  fd_contact_info_set_shred_version( &glob->my_contact, shred_version );
 }
 
 /* Add an event to the queue of pending timed events. */
@@ -1372,7 +1160,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   /* The "value" in the request is always my own contact info (v2) */
   fd_crds_value_t * value = &req->value;
   fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info_v2);
-  value->data.inner.contact_info_v2 = glob->my_contact.crd.inner.contact_info_v2;
+  value->data.inner.contact_info_v2 = glob->my_contact.ci_crd;
   fd_gossip_sign_crds_value(glob, value);
 
   for( fd_gossip_filter_selection_iter_t iter = fd_gossip_filter_selection_iter_init( selected_filters );
@@ -1703,10 +1491,10 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
         fd_gossip_peer_addr_t peer_addr = { .addr = socket_addr.inner.ip4.addr,
                                             /* FIXME: hardcode to ip4 inner? */
                                             .port = fd_ushort_bswap( fd_gossip_port_from_socketaddr( &socket_addr ) ) };
-        if( glob->my_contact.ci->shred_version==0U &&
+        if( fd_gossip_get_shred_version( glob )==0U &&
             fd_gossip_is_allowed_entrypoint( glob, &peer_addr ) ) {
           FD_LOG_NOTICE(( "using shred version %lu", (ulong)crd->data.inner.contact_info_v2.shred_version ));
-          glob->my_contact.ci->shred_version = crd->data.inner.contact_info_v2.shred_version;
+          fd_gossip_set_shred_version( glob, crd->data.inner.contact_info_v2.shred_version );
         }
       }
     }
@@ -1828,9 +1616,9 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
 static void
 fd_gossip_push_updated_contact(fd_gossip_t * glob) {
   /* See if we have a shred version yet */
-  if( glob->my_contact.ci->shred_version==0U )
+  if ( fd_gossip_get_shred_version( glob )==0U )
     return;
-  /* Update every 1 secs */
+
   if( (glob->now - glob->last_contact_time)<(long)1e9 )
     return;
 
@@ -1843,8 +1631,13 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
   }
 
   glob->last_contact_time = glob->now;
-  glob->my_contact.ci->wallclock = FD_NANOSEC_TO_MILLI( glob->now );
-  fd_gossip_push_value_nolock( glob, &glob->my_contact.crd, &glob->last_contact_info_v2_key );
+  glob->my_contact.ci_crd.wallclock = FD_NANOSEC_TO_MILLI( glob->now );
+
+  fd_crds_data_t ci_v2;
+  fd_crds_data_new_disc( &ci_v2, fd_crds_data_enum_contact_info_v2 );
+  ci_v2.inner.contact_info_v2 = glob->my_contact.ci_crd;
+
+  fd_gossip_push_value_nolock( glob, &ci_v2, &glob->last_contact_info_v2_key );
 }
 
 /* Respond to a pull request */
@@ -2341,7 +2134,7 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   if( fd_peer_table_key_cnt( glob->peers )!=0 &&
       ( glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]==0 ||
         glob->metrics.recv_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]==0 ) ) {
-    FD_LOG_WARNING(( "received no CRDS traffic! Likely bad shred version (current: %u)", glob->my_contact.ci->shred_version ));
+    FD_LOG_WARNING(( "received no CRDS traffic! Likely bad shred version (current: %u)", glob->my_contact.ci_crd.shred_version ));
   }
 
   glob->recv_pkt_cnt = 0;
@@ -2569,10 +2362,6 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   return 0;
 }
 
-ushort
-fd_gossip_get_shred_version( fd_gossip_t const * glob ) {
-  return glob->my_contact.ci->shred_version;
-}
 
 void
 fd_gossip_set_stake_weights( fd_gossip_t * gossip,
@@ -2635,3 +2424,4 @@ fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * a
   }
   return 0;
 }
+
