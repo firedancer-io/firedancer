@@ -1181,10 +1181,6 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
   elf_ctx.has_features = true;
   dump_sorted_features( &txn_ctx->features, &elf_ctx.features, txn_ctx->spad );
 
-  /* ElfLoaderCtx -> elf_sz */
-  /* TODO: this should be removed */
-  elf_ctx.elf_sz = prog->rodata_sz;
-
   /* ElfLoaderCtx -> deploy_checks
      We hardcode this to true and rely the fuzzer to toggle this as it pleases */
   elf_ctx.deploy_checks = true;

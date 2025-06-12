@@ -16,29 +16,8 @@ fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
     return 0UL;
   }
 
-  ulong elf_sz = input->elf_sz;
-  void const * _bin;
-
-  /* elf_sz will be passed as arguments to elf loader functions.
-     pb decoder allocates memory for elf.data based on its actual size,
-     not elf_sz !.
-     If elf_sz is larger than the size of actual elf data, this may result
-     in out-of-bounds accesses which will upset ASAN (however intentional).
-     So in this case we just copy the data into a memory region of elf_sz bytes
-
-     ! The decoupling of elf_sz and the actual binary size is intentional to test
-      underflow/overflow behavior */
-  if ( elf_sz > input->elf.data->size ){
-    void * tmp = fd_valloc_malloc( valloc, 1UL, elf_sz );
-    if ( FD_UNLIKELY( !tmp ) ){
-      return 0UL;
-    }
-    fd_memcpy( tmp, input->elf.data->bytes, input->elf.data->size );
-    fd_memset( (uchar*)tmp + input->elf.data->size, 0, elf_sz - input->elf.data->size );
-    _bin = tmp;
-  } else {
-    _bin = input->elf.data->bytes;
-  }
+  void const * elf_bin = input->elf.data->bytes;
+  ulong        elf_sz  = input->elf.data->size;
 
   // Allocate space for captured effects
   ulong output_end = (ulong)output_buf + output_bufsz;
@@ -58,7 +37,7 @@ fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
 
   do{
 
-    if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, _bin, elf_sz, input->deploy_checks, FD_SBPF_V0, FD_SBPF_V3 ) ) ) {
+    if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, elf_bin, elf_sz, input->deploy_checks, FD_SBPF_V0, FD_SBPF_V3 ) ) ) {
       /* return incomplete effects on execution failures */
       break;
     }
@@ -74,7 +53,7 @@ fd_runtime_fuzz_sbpf_load_run( fd_runtime_fuzz_runner_t * runner,
 
     fd_vm_syscall_register_all( syscalls, 0 );
 
-    int res = fd_sbpf_program_load( prog, _bin, elf_sz, syscalls, input->deploy_checks );
+    int res = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, input->deploy_checks );
     if( FD_UNLIKELY( res ) ) {
       break;
     }
