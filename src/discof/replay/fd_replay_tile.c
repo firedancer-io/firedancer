@@ -674,13 +674,7 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
   fd_funk_txn_pool_t * txn_pool = fd_funk_txn_pool( ctx->funk );
   while( txn!=rooted_txn ) {
     ulong slot = txn->xid.ul[0];
-    if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
-      FD_LOG_INFO(( "Registering slot %lu", slot ));
-      fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
-    } else {
-      FD_LOG_INFO(( "Registering constipated slot %lu", slot ));
-      fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
-    }
+    fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, slot );
     txn = fd_funk_txn_parent( txn, txn_pool );
   }
 
@@ -759,7 +753,6 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
       FD_LOG_NOTICE(( "Ready to create an incremental snapshot" ));
       updated_fseq = fd_batch_fseq_pack( 1, 1, wmk );
     }
-    fd_txncache_set_is_constipated( ctx->slot_ctx->status_cache, 1 );
     fd_fseq_update( ctx->is_constipated, updated_fseq );
   }
 }
@@ -830,7 +823,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
 static fd_funk_txn_t*
 get_rooted_txn( fd_replay_tile_ctx_t * ctx,
-                fd_funk_txn_t *     to_root_txn,
+                fd_funk_txn_t *        to_root_txn,
                 uchar                  is_constipated ) {
 
   /* We need to get the rooted transaction that we are publishing into. This
@@ -855,11 +848,7 @@ get_rooted_txn( fd_replay_tile_ctx_t * ctx,
       }
 
       ctx->false_root = txn;
-      if( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) {
-        fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
-      } else {
-        fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
-      }
+      fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, txn->xid.ul[0] );
     }
     return ctx->false_root;
   } else {

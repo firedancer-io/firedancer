@@ -107,11 +107,13 @@ struct fd_configf {
     ulong heap_size_gib;
 
     struct {
-      ulong max_rooted_slots;
-      ulong max_live_slots;
-      ulong max_transactions_per_slot;
-      ulong snapshot_grace_period_seconds;
       ulong max_vote_accounts;
+      struct {
+        ulong max_rooted_slots;
+        ulong max_live_slots;
+        ulong max_txn_per_slot;
+        int   max_txn_per_slot_override;
+      } txncache;
     } limits;
   } runtime;
 

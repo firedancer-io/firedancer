@@ -68,7 +68,7 @@ struct fd_exec_txn_ctx {
 
   /* All pointers starting here are valid local joins in txn execution. */
   fd_features_t                   features;
-  fd_txncache_t *                 status_cache;
+  fd_txncache_t *                 txncache;
   ulong                           prev_lamports_per_signature;
   int                             enable_exec_recording;
   ulong                           total_epoch_stake;
