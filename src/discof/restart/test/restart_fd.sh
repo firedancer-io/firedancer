@@ -74,9 +74,6 @@ echo "
     max_account_records = 10000000
     heap_size_gib = 32
     max_database_transactions = 1024
-    [funk.filemap]
-        enabled = true
-        path = \"$FUNK_FILE\"
 " > wen_restart.toml
 
 sudo gdb --args build/native/gcc/bin/firedancer-dev dev --config wen_restart.toml

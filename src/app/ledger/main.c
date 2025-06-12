@@ -1,7 +1,6 @@
 #include <errno.h>
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_hashes.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
@@ -32,15 +31,12 @@ struct fd_ledger_args {
   char const *          checkpt_funk;            /* wksp checkpoint for a funk wksp */
   char const *          checkpt_status_cache;    /* status cache checkpoint */
   char const *          restore;                 /* wksp restore */
-  char const *          restore_funk;            /* wksp restore for a funk wksp */
   char const *          allocator;               /* allocator used during replay (libc/wksp) */
   ulong                 shred_max;               /* maximum number of shreds*/
   ulong                 slot_history_max;        /* number of slots stored by blockstore*/
   ulong                 txns_max;                /* txns_max*/
   uint                  index_max;               /* size of funk index (same as rec max) */
-  char const *          funk_file;               /* path to funk backing store */
   ulong                 funk_page_cnt;
-  fd_funk_close_file_args_t funk_close_args;
   char const *          snapshot;                /* path to agave snapshot */
   char const *          incremental;             /* path to agave incremental snapshot */
   char const *          genesis;                 /* path to agave genesis */
@@ -905,20 +901,23 @@ parse_rocksdb_list( fd_ledger_args_t * args,
 
 void
 init_funk( fd_ledger_args_t * args ) {
-  fd_funk_t * funk;
-  if( args->restore_funk ) {
-    funk = fd_funk_recover_checkpoint( args->funk, args->funk_file, 1, args->restore_funk, &args->funk_close_args );
-  } else  {
-    funk = fd_funk_open_file( args->funk, args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
+  ulong funk_tag = 42UL;
+  void * funk_shmem = fd_funk_new( fd_wksp_alloc_laddr(
+      args->funk_wksp,
+      fd_funk_align(),
+      fd_funk_footprint( args->txns_max, args->index_max ),
+      funk_tag
+    ),
+    funk_tag,
+    args->hashseed,
+    args->txns_max,
+    args->index_max
+  );
+  if( FD_UNLIKELY( !funk_shmem ) ) {
+    FD_LOG_ERR(( "Failed to allocate shmem for funk" ));
   }
-  if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Failed to join funk" ));
-  args->funk_wksp = fd_funk_wksp( funk );
-  FD_LOG_NOTICE(( "Funk database is at %s:0x%lx", fd_wksp_name( args->wksp ), fd_wksp_gaddr_fast( args->funk_wksp, funk ) ));
-}
-
-void
-cleanup_funk( fd_ledger_args_t * args ) {
-  fd_funk_close_file( &args->funk_close_args );
+  fd_funk_join( args->funk, funk_shmem );
+  FD_LOG_NOTICE(( "Funk database is at %s:0x%lx", fd_wksp_name( args->wksp ), fd_wksp_gaddr_fast( args->funk_wksp, args->funk ) ));
 }
 
 void
@@ -1148,7 +1147,7 @@ ingest( fd_ledger_args_t * args ) {
     fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->runtime_spad );
   }
 
-  if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
+  if( !args->snapshot && (args->restore != NULL) ) {
     fd_runtime_recover_banks( slot_ctx, 0, 1, args->runtime_spad );
   }
 
@@ -1194,8 +1193,6 @@ ingest( fd_ledger_args_t * args ) {
 #endif
 
   checkpt( args );
-
-  cleanup_funk( args );
 }
 
 int
@@ -1353,8 +1350,6 @@ replay( fd_ledger_args_t * args ) {
 
   fd_ledger_main_teardown( args );
 
-  cleanup_funk( args );
-
   return ret;
 
   } FD_SPAD_FRAME_END;
@@ -1376,8 +1371,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          reset                 = fd_env_strip_cmdline_int   ( &argc, &argv, "--reset",                 NULL, 0                                                  );
   char const * cmd                   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cmd",                   NULL, NULL                                               );
   uint        index_max              = fd_env_strip_cmdline_uint  ( &argc, &argv, "--index-max",             NULL, 450000000                                          );
-  ulong        txns_max              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--txn-max",               NULL,      1000                                          );
-  char const * funk_file             = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--funk-file",             NULL, NULL                                               );
+  ulong        txns_max              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--txn-max",               NULL,      100                                          );
   int          verify_funk           = fd_env_strip_cmdline_int   ( &argc, &argv, "--verify-funky",          NULL, 0                                                  );
   char const * snapshot              = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--snapshot",              NULL, NULL                                               );
   char const * incremental           = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--incremental",           NULL, NULL                                               );
@@ -1390,7 +1384,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   uint         verify_acc_hash       = fd_env_strip_cmdline_uint  ( &argc, &argv, "--verify-acc-hash",       NULL, 1                                                  );
   uint         check_acc_hash        = fd_env_strip_cmdline_uint  ( &argc, &argv, "--check-acc-hash",        NULL, 1                                                  );
   char const * restore               = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--restore",               NULL, NULL                                               );
-  char const * restore_funk          = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--funk-restore",          NULL, NULL                                               );
   char const * shredcap              = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--shred-cap",             NULL, NULL                                               );
   ulong        trash_hash            = fd_env_strip_cmdline_ulong ( &argc, &argv, "--trash-hash",            NULL, ULONG_MAX                                          );
   char const * mini_db_dir           = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--minified-rocksdb",      NULL, NULL                                               );
@@ -1463,6 +1456,16 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   }
   args->wksp = wksp;
 
+  args->funk_wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ,
+    funk_page_cnt*(1UL<<18),
+    0,
+    "funk",
+    0
+  );
+  if( FD_UNLIKELY( !args->funk_wksp ) ) {
+    FD_LOG_ERR(( "failed to create funk workspace" ));
+  }
+
   if( checkpt_status_cache && checkpt_status_cache[0] != '\0' ) {
     FD_LOG_NOTICE(( "Creating status cache wksp" ));
     fd_wksp_t * status_cache_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 23UL, 0, "status_cache_wksp", 0UL );
@@ -1493,9 +1496,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->txns_max                = txns_max;
   args->index_max               = index_max;
   args->funk_page_cnt           = funk_page_cnt;
-  args->funk_file               = funk_file;
   args->restore                 = restore;
-  args->restore_funk            = restore_funk;
   args->mini_db_dir             = mini_db_dir;
   args->funk_only               = funk_only;
   args->copy_txn_status         = copy_txn_status;

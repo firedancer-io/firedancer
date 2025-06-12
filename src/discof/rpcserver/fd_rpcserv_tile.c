@@ -166,8 +166,6 @@ privileged_init( fd_topo_t *      topo,
   uchar * spad_mem_cur = spad_mem;
   args->spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RPC_SCRATCH_MAX ) );
 
-  /* Open funk after replay tile is booted */
-
   /* Blockstore setup */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );

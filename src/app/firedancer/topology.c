@@ -92,7 +92,7 @@ setup_topo_funk( fd_topo_t *  topo,
   FD_TEST( fd_pod_insert_ulong(  topo->props, "funk", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_records,       "obj.%lu.rec_max",  obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, heap_size_gib<<30,         "obj.%lu.heap_max", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, heap_size_gib*(1UL<<30),   "obj.%lu.heap_max", obj->id ) );
   ulong funk_footprint = fd_funk_footprint( max_database_transactions, max_account_records );
   if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [funk] parameters" ));
 

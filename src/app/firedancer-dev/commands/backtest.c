@@ -71,8 +71,6 @@ backtest_topo( config_t * config ) {
 
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  replay_tile->replay.enable_bank_hash_cmp = 0;
-
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */
   /**********************************************************************/
@@ -284,6 +282,7 @@ backtest_topo( config_t * config ) {
 
     /* Override */
     if( !strcmp( tile->name, "replay" ) ) {
+      tile->replay.enable_bank_hash_cmp = 0;
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {
         strncpy( tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(tile->replay.enable_features[i]) );
