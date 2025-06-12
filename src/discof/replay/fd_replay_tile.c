@@ -2338,6 +2338,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Try to move the bank hash comparison watermark forward */
     for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
       if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
+        bank_hash_cmp->watermark = cmp_slot;
         break;
       }
       int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
@@ -2372,7 +2373,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     fd_bank_hash_cmp_unlock( bank_hash_cmp );
     ctx->flags = EXEC_FLAG_READY_NEW;
-  } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
+  } // end of if( FD_UNLIKELY( ( flags & EXEC_FLAG_FINISHED_SLOT ) ) )
 
   long now = fd_log_wallclock();
   if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
