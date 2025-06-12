@@ -67,8 +67,8 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                    summed[('pack_transaction_deleted', None)] + \
                    summed[('pack_transaction_inserted', 'expired')]
 
-    pack_invalid = summed[('pack_transaction_dropped_partial_bundle', None)] + \
-                   summed[('pack_transaction_inserted', 'bundle_blacklist')] + \
+    pack_invalid_bundle = summed[('pack_transaction_dropped_partial_bundle', None)]
+    pack_invalid = summed[('pack_transaction_inserted', 'bundle_blacklist')] + \
                    summed[('pack_transaction_inserted', 'write_sysvar')] + \
                    summed[('pack_transaction_inserted', 'estimation_fail')] + \
                    summed[('pack_transaction_inserted', 'duplicate_account')] + \
@@ -139,9 +139,10 @@ pack_retained:        {pack_retained:10,}
 pack_leader_slot:     {pack_leader_slot:10,}
 pack_expired:         {pack_expired:10,}
 pack_invalid:         {pack_invalid:10,}
+pack_invalid_bundle   {pack_invalid_bundle:10,}
 
 COMPUTED PACK IN:     {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed:10,}
-COMPUTED PACK OUT:    {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid:10,}
+COMPUTED PACK OUT:    {pack_cranked + in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - pack_invalid_bundle:10,}
 RECONCILE PACK IN:    {recon_pack_in:10,}
 
 bank_invalid:         {bank_invalid:10,}
@@ -150,8 +151,8 @@ block_fail:           {block_fail:10,}
 block_success:        {block_success:10,}
 ----------------------------------------
 COMPUTED TOTAL IN:    {pack_cranked + in_block_engine + in_gossip + in_udp + in_quic:10,}
-COMPUTED TOTAL OUT:   {verify_overrun + verify_failed + verify_parse + verify_dedup + dedup_dedup + resolv_retained + resolv_failed + pack_retained + pack_leader_slot + pack_expired + pack_invalid + bank_invalid + block_fail + block_success:10,}
-UNACCOUNTED:          {pack_cranked + in_block_engine + in_gossip + in_udp + in_quic - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - bank_invalid - block_fail - block_success:10,}
+COMPUTED TOTAL OUT:   {verify_overrun + verify_failed + verify_parse + verify_dedup + dedup_dedup + resolv_retained + resolv_failed + pack_retained + pack_leader_slot + pack_expired + pack_invalid + pack_invalid_bundle + bank_invalid + block_fail + block_success:10,}
+UNACCOUNTED:          {pack_cranked + in_block_engine + in_gossip + in_udp + in_quic - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - pack_invalid_bundle - bank_invalid - block_fail - block_success:10,}
 """)
 
 def main():
