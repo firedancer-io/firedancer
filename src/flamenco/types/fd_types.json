@@ -589,6 +589,8 @@
     {
       "name": "rust_duration",
       "type": "struct",
+      "normalizer": "fd_rust_duration_normalize",
+      "validator": "fd_rust_duration_footprint_validator",
       "fields": [
         { "name": "seconds", "type": "ulong" },
         { "name": "nanoseconds", "type": "uint" }

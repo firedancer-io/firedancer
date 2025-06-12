@@ -255,3 +255,32 @@ void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
 void fd_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   FD_LOG_ERR(("TODO: Implement"));
 }
+
+// https://github.com/serde-rs/serde/blob/49d098debdf8b5c38bfb6868f455c6ce542c422c/serde/src/de/impls.rs#L2374
+//
+// During the call to Duration::new(...), it normalizes the seconds and nanoseconds automatically.  We need to
+// match this behavior correctly
+//
+void
+fd_rust_duration_normalize ( fd_rust_duration_t * self ) {
+  if( self->nanoseconds < 1000000000U )
+    return;
+  uint secs = self->nanoseconds/1000000000U;
+  self->seconds += secs;
+  self->nanoseconds -= secs * 1000000000U;
+}
+
+// https://github.com/serde-rs/serde/blob/49d098debdf8b5c38bfb6868f455c6ce542c422c/serde/src/de/impls.rs#L2203
+//
+// There is an overflow check at line 2373 that turns an overflow into an encoding error
+//
+int
+fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
+  fd_rust_duration_t *d = (fd_rust_duration_t *) ctx->data;
+  if( d->nanoseconds < 1000000000U )
+    return FD_BINCODE_SUCCESS;
+  ulong out;
+  if( __builtin_uaddl_overflow( d->seconds, d->nanoseconds/1000000000U, &out ) )
+    return FD_BINCODE_ERR_ENCODING;
+  return FD_BINCODE_SUCCESS;
+}
