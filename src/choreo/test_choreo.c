@@ -395,250 +395,15 @@ test_vote_simple( fd_wksp_t * wksp ) {
                                       slot 331233201 <-(all voters voted for 0)
                                        /           \
    (2 voters voted for 1)-> slot 331233202         |
-                                            slot 331233205 <-(3 voters voted for 1)
-                                                   |
-                                            slot 331233206 <-(3 voters voted for 5)
-
-  Suppose voter#0 voted for slot 331233202 after replaying slot 331233202;
-  When voter#0 replay slot 6, it should realize that fork 0-1-5-6
-  (1) passes the lockout check because 5>2+2
-  (2) passes the switch check because 60%>38% stake has voted for slot 5
-*/
-void
-test_vote_switch_check( fd_wksp_t * wksp ) {
-  /**********************************************************************/
-  /* Initialize funk                                                    */
-  /**********************************************************************/
-  fd_funk_close_file_args_t funk_close_args;
-  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
-  FD_TEST( funk );
-
-  /**********************************************************************/
-  /* Initialize ghost tree                                              */
-  /*********************************************************************/
-  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
-  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
-
-  ghost_init( ghost, 331233200, funk );
-  ghost_insert( ghost, 331233200, 331233201, funk );
-  ghost_insert( ghost, 331233201, 331233202, funk );
-  ghost_insert( ghost, 331233201, 331233205, funk );
-  ghost_insert( ghost, 331233205, 331233206, funk );
-
-  /**********************************************************************/
-  /* Initialize voters, stakes, epoch and funk_txns                     */
-  /**********************************************************************/
-  ulong voter_cnt = 5;
-  voter_t voters[voter_cnt];
-  init_vote_accounts( voters, voter_cnt );
-
-  ulong stakes[] = {10000, 10000, 10000, 10000, 10000};
-  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
-
-  /**********************************************************************/
-  /* Setup funk_txns for each slot with vote account funk records       */
-  /**********************************************************************/
-  void * tower_mems[voter_cnt];
-  fd_tower_t * towers[voter_cnt];
-  for(ulong i = 0; i < voter_cnt; i++) {
-    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
-    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
-  }
-
-  /**********************************************************************/
-  /* Initialize landed votes per validator in funk                      */
-  /**********************************************************************/
-  voter_vote_for_slot( wksp, towers[0], funk, 331233200, 331233201, &voters[0] );
-  voter_vote_for_slot( wksp, towers[1], funk, 331233200, 331233201, &voters[1] );
-  voter_vote_for_slot( wksp, towers[2], funk, 331233200, 331233201, &voters[2] );
-  voter_vote_for_slot( wksp, towers[3], funk, 331233200, 331233201, &voters[3] );
-  voter_vote_for_slot( wksp, towers[4], funk, 331233200, 331233201, &voters[4] );
-
-  voter_vote_for_slot( wksp, towers[0], funk, 331233201, 331233202, &voters[0] );
-  voter_vote_for_slot( wksp, towers[1], funk, 331233201, 331233202, &voters[1] );
-
-  voter_vote_for_slot( wksp, towers[2], funk, 331233201, 331233205, &voters[2] );
-  voter_vote_for_slot( wksp, towers[3], funk, 331233201, 331233205, &voters[3] );
-  voter_vote_for_slot( wksp, towers[4], funk, 331233201, 331233205, &voters[4] );
-
-  voter_vote_for_slot( wksp, towers[2], funk, 331233205, 331233206, &voters[2] );
-
-  /**********************************************************************/
-  /* Initialize tower, spad and setup forks                             */
-  /**********************************************************************/
-  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
-  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202 );
-
-  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
-  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
-
-  fd_forks_t * forks;
-  ulong frontier1 = 331233202;
-  ulong frontier2 = 331233206;
-  INIT_FORKS( frontier1 );
-  ADD_FRONTIER_TO_FORKS( frontier2 );
-
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
-
-  /**********************************************************************/
-  /*                   Try to vote for slot 331233206                   */
-  /*              We should NOT switch to a different fork              */
-  /**********************************************************************/
-  ulong try_to_vote_slot = frontier2;
-  // Validate fd_tower_switch_check returns 0
-  FD_TEST( !fd_tower_switch_check( tower, epoch, ghost, forks, funk, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
-
-  FD_TEST( vote_slot==ULONG_MAX );
-
-  /**********************************************************************/
-  /*                  Give fork 331233205 enough stake                  */
-  /*                   Try to vote for slot 331233206                   */
-  /*                We should switch to a different fork                */
-  /**********************************************************************/
-  // fd_tower_vote( towers[3], 331233205 );
-  // fd_tower_vote( towers[4], 331233205 );
-
-  voter_vote_for_slot( wksp, towers[3], funk, 331233205, 331233206, &voters[3] );
-  voter_vote_for_slot( wksp, towers[4], funk, 331233205, 331233206, &voters[4] );
-
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
-  // Validate fd_tower_switch_check returns 1
-  FD_TEST( fd_tower_switch_check( tower, epoch, ghost, forks, funk, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
-  vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
-  FD_TEST( vote_slot==frontier2 );
-  FD_TEST( fd_tower_votes_cnt( tower )==3 );
-  fd_tower_vote( tower, vote_slot );
-  FD_TEST( fd_tower_votes_cnt( tower )==2 );
-
-  fd_funk_close_file( &funk_close_args );
-}
-
-/*                                                        / -- 331233206
-                                             / -- 331233202 -- 331233203
-  (all voters voted for 331233200)-> 331233200 -- 331233201 -- 331233205
-                                             \ -- 331233204 -- 331233208
-
-  Consider 4 voters, each voting for 331233206, 331233203, 331233205 and 331233208.
-*/
-void
-test_vote_switch_check_4forks( fd_wksp_t * wksp ) {
-  /**********************************************************************/
-  /* Initialize funk                                                    */
-  /**********************************************************************/
-  fd_funk_close_file_args_t funk_close_args;
-  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
-  FD_TEST( funk );
-
-  /**********************************************************************/
-  /* Initialize ghost tree                                              */
-  /*********************************************************************/
-  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
-  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
-
-  ghost_init( ghost, 331233200, funk );
-  ghost_insert( ghost, 331233200, 331233201, funk );
-  ghost_insert( ghost, 331233201, 331233202, funk );
-  ghost_insert( ghost, 331233202, 331233203, funk );
-  ghost_insert( ghost, 331233201, 331233204, funk );
-  ghost_insert( ghost, 331233201, 331233205, funk );
-  ghost_insert( ghost, 331233202, 331233206, funk );
-  ghost_insert( ghost, 331233204, 331233208, funk );
-
-  /**********************************************************************/
-  /* Initialize voters, stakes, epoch and funk_txns                     */
-  /**********************************************************************/
-  ulong voter_cnt = 4;
-  voter_t voters[voter_cnt];
-  init_vote_accounts( voters, voter_cnt );
-
-  ulong stakes[] = {10000, 10000, 10000, 20001};
-  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
-
-  /**********************************************************************/
-  /* Setup funk_txns for each slot with vote account funk records       */
-  /**********************************************************************/
-  void * tower_mems[voter_cnt];
-  fd_tower_t * towers[voter_cnt];
-  for(ulong i = 0; i < voter_cnt; i++) {
-    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
-    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
-  }
-
-  /**********************************************************************/
-  /* Initialize landed votes per validator in funk                      */
-  /**********************************************************************/
-  voter_vote_for_slot( wksp, towers[0], funk, 331233200, 331233201, &voters[0] );
-  voter_vote_for_slot( wksp, towers[1], funk, 331233200, 331233201, &voters[1] );
-  voter_vote_for_slot( wksp, towers[2], funk, 331233200, 331233201, &voters[2] );
-  voter_vote_for_slot( wksp, towers[3], funk, 331233200, 331233201, &voters[3] );
-
-  voter_vote_for_slot( wksp, towers[0], funk, 331233202, 331233202, &voters[0] );
-  voter_vote_for_slot( wksp, towers[1], funk, 331233202, 331233202, &voters[1] );
-
-  voter_vote_for_slot( wksp, towers[0], funk, 331233206, 331233206, &voters[0] );
-
-  voter_vote_for_slot( wksp, towers[1], funk, 331233203, 331233203, &voters[1] );
-
-  voter_vote_for_slot( wksp, towers[2], funk, 331233205, 331233205, &voters[2] );
-
-  voter_vote_for_slot( wksp, towers[3], funk, 331233204, 331233204, &voters[3] );
-
-  voter_vote_for_slot( wksp, towers[3], funk, 331233208, 331233208, &voters[3] );
-
-  /**********************************************************************/
-  /* Initialize tower, spad and setup forks                             */
-  /**********************************************************************/
-  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
-  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202, 331233203 );
-
-  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
-  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
-
-  fd_forks_t * forks;
-  ulong frontier1 = 331233206;
-  ulong frontier2 = 331233203;
-  ulong frontier3 = 331233205;
-  ulong frontier4 = 331233208;
-  INIT_FORKS( frontier1 );
-  ADD_FRONTIER_TO_FORKS( frontier2 );
-  ADD_FRONTIER_TO_FORKS( frontier3 );
-  ADD_FRONTIER_TO_FORKS( frontier4 );
-
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier3 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier4 );
-
-  /**********************************************************************/
-  /*             Try to switch from 331233203 to 331233208              */
-  /*      Switch rule allows switching from 331233203 to 331233208      */
-  /*         GCA(3, 8)=1 and weight(4)+weight(5)=40%%+20%%>38%%         */
-  /**********************************************************************/
-  ulong try_to_vote_slot = frontier4;
-  FD_TEST( try_to_vote_slot==fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
-
-  FD_TEST( vote_slot==frontier4 );
-
-  fd_funk_close_file( &funk_close_args );
-}
-
-/*                                    slot 331233200 <-(no vote has landed yet)
-                                            |
-                                      slot 331233201 <-(all voters voted for 0)
-                                       /           \
-   (2 voters voted for 1)-> slot 331233202         |
                                             slot 331233203 <-(3 voters voted for 1)
                                                    |
                                             slot 331233204 <-(3 voters voted for 5)
                                                   |
-                                            slot 331233205 <-(3 voters voted for 6
+                                            slot 331233205 <-(3 voters voted for 6)
 
   Suppose voter#0 voted for slot 331233202 after replaying slot 331233202;
-  When voter#0 replay slot 331233204, it should find that fork 0-1-3-4 fails the lockout rule
-  However, when replaying slot 331233205, fork 0-1-3-4-5 should pass the lockout rule
+  When voter#0 replays slot 331233204, fork 200-201-203-204 should fail the lockout rule;
+  When voter#0 replays slot 331233205, fork 200-201-203-204-205 should pass the lockout rule
 */
 void
 test_vote_lockout_check( fd_wksp_t * wksp ) {
@@ -718,7 +483,7 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   fd_forks_update( forks, epoch, funk, ghost, frontier1 );
   fd_forks_update( forks, epoch, funk, ghost, frontier2 );
 
-/**********************************************************************/
+  /**********************************************************************/
   /*                   Try to vote for slot 331233204                   */
   /*              We should NOT switch to a different fork              */
   /**********************************************************************/
@@ -754,6 +519,16 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   fd_funk_close_file( &funk_close_args );
 }
 
+/*  slot 331233200 - slot 331233201 - slot 331233202 - ... - slot 331233209
+
+  Suppose voter#0 and voter#1 voted for 331233200-331233201-331233202 (landed in slot 331233203)
+  Suppose voter#2, #3 and #4 voted for all the slots above (landed in slot 331233210)
+  When voter#4 replays slot 331233210, it cannot vote for it due to threshold check failure (60%<66%)
+
+  Suppose voter#1 voted for 2 more slots 331233203 and 331233204 (landed in 331233210)
+  When voter#4 replays slot 331233210, threshold check should now pass because 80%>66% stake (voter #1,
+  #2, #3, #4) would succeed in simulating a vote for slot 331233210; see detailed explanations below
+ */
 void
 test_vote_threshold_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
@@ -867,39 +642,264 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
 
   /**********************************************************************/
   /*                   Try to vote for slot 331233210                   */
-  /*              We should NOT switch to a different fork              */
+  /*             Validate that fd_tower_threshold_check fails           */
   /**********************************************************************/
 
   ulong try_to_vote_slot = frontier1;
   FD_TEST( try_to_vote_slot==fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot );
   fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &try_to_vote_slot, NULL, forks->pool );
-  // Validate fd_tower_threshold_check returns 0
   FD_TEST( !fd_tower_threshold_check( tower, epoch, funk, fork->slot_ctx->funk_txn, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
-  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
-  FD_TEST( vote_slot==ULONG_MAX );
+  FD_TEST( ULONG_MAX==fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad ) );
 
   /**********************************************************************/
   /*   Suppose one more voter pass vote simulation for slot 331233210   */
-  /*                We should switch to a different fork                */
+  /*              We should be able to vote for 331233210               */
   /**********************************************************************/
 
-  /* When simulating a vote for slot 331233210 with the tower above, the last 2 entries above will expire,
-     leaving the first 3 entries; Given that 2 >= (10-THRESHOLD_DEPTH), threshold check will pass. */
-  voter_vote_for_slot( wksp, towers[0], funk, 331233203, 331233210, &voters[0] );
   voter_vote_for_slot( wksp, towers[1], funk, 331233203, 331233210, &voters[1] );
   voter_vote_for_slot( wksp, towers[1], funk, 331233204, 331233210, &voters[1] );
-
   fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-
-  // Validate fd_tower_threshold_check returns 1
+  /* Now, when simulating a vote for slot 331233210 with towers[1], the tower entries for slot
+    331233204 and 331233203 will expire, leaving (331233202, 3) at the top of towers[1]. Given
+    that 331233202 >= (331233210 - THRESHOLD_DEPTH), threshold check will now pass. */
   FD_TEST( fd_tower_threshold_check( tower, epoch, funk, fork->slot_ctx->funk_txn, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
-  vote_slot = fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad );
-  FD_TEST( vote_slot==frontier1 );
+  FD_TEST( frontier1==fd_tower_vote_slot( tower, epoch, funk, forks, try_to_vote_slot, ghost, spad ) );
 
   fd_funk_close_file( &funk_close_args );
 }
 
-/*
+/*                                    slot 331233200 <-(no vote has landed yet)
+                                            |
+                                      slot 331233201 <-(all voters voted for 0)
+                                       /           \
+   (2 voters voted for 1)-> slot 331233202         |
+                                            slot 331233205 <-(3 voters voted for 1)
+                                                   |
+                                            slot 331233206 <-(2 voters voted for 5)
+
+  Suppose voter#0 voted for slot 331233202 after replaying slot 331233202;
+  When voter#0 replays slot 331233206, it should see that fork 200-201-205-206
+  (1) passes the lockout check because 331233205>331233202+2
+  (2) passes the switch check because 40%>38% stake voted for slot 331233205 (landed in slot 331233206)
+
+  However, if there is only 1 voter voted for slot 331233205, switch check will fail (20%<38%).
+*/
+void
+test_vote_switch_check( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /*********************************************************************/
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  ghost_init( ghost, 331233200, funk );
+  ghost_insert( ghost, 331233200, 331233201, funk );
+  ghost_insert( ghost, 331233201, 331233202, funk );
+  ghost_insert( ghost, 331233201, 331233205, funk );
+  ghost_insert( ghost, 331233205, 331233206, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 5;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {10000, 10000, 10000, 10000, 10000};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  voter_vote_for_slot( wksp, towers[0], funk, 331233200, 331233201, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, 331233200, 331233201, &voters[1] );
+  voter_vote_for_slot( wksp, towers[2], funk, 331233200, 331233201, &voters[2] );
+  voter_vote_for_slot( wksp, towers[3], funk, 331233200, 331233201, &voters[3] );
+  voter_vote_for_slot( wksp, towers[4], funk, 331233200, 331233201, &voters[4] );
+
+  voter_vote_for_slot( wksp, towers[0], funk, 331233201, 331233202, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, 331233201, 331233202, &voters[1] );
+
+  voter_vote_for_slot( wksp, towers[2], funk, 331233201, 331233205, &voters[2] );
+  voter_vote_for_slot( wksp, towers[3], funk, 331233201, 331233205, &voters[3] );
+  voter_vote_for_slot( wksp, towers[4], funk, 331233201, 331233205, &voters[4] );
+
+  voter_vote_for_slot( wksp, towers[2], funk, 331233205, 331233206, &voters[2] );
+
+  /**********************************************************************/
+  /* Initialize tower, spad and setup forks                             */
+  /**********************************************************************/
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202 );
+
+  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+
+  fd_forks_t * forks;
+  ulong frontier1 = 331233202;
+  ulong frontier2 = 331233206;
+  INIT_FORKS( frontier1 );
+  ADD_FRONTIER_TO_FORKS( frontier2 );
+
+  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
+  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+
+  /**********************************************************************/
+  /*             Try to vote for slot 331233206 (frontier2)             */
+  /*              We should NOT switch to a different fork              */
+  /**********************************************************************/
+  FD_TEST( !fd_tower_switch_check( tower, epoch, ghost, forks, funk, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
+  FD_TEST( ULONG_MAX==fd_tower_vote_slot( tower, epoch, funk, forks, frontier2, ghost, spad ) );
+
+  /**********************************************************************/
+  /*       Increase fork 331233205 from 20% stake to 40%>38% stake      */
+  /*             Try to vote for slot 331233206 (frontier2)             */
+  /*                We should switch to a different fork                */
+  /**********************************************************************/
+  voter_vote_for_slot( wksp, towers[4], funk, 331233205, 331233206, &voters[4] );
+
+  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+  FD_TEST( fd_tower_switch_check( tower, epoch, ghost, forks, funk, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
+  ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, frontier2, ghost, spad );
+  FD_TEST( vote_slot==frontier2 );
+  FD_TEST( fd_tower_votes_cnt( tower )==3 ); /* 331233200, 331233201, 331233202 */
+  fd_tower_vote( tower, vote_slot );
+  FD_TEST( fd_tower_votes_cnt( tower )==2 ); /* 331233200, 331233206 */
+  FD_TEST( fd_tower_votes_peek_tail_const( tower )->slot==frontier2 );
+
+  fd_funk_close_file( &funk_close_args );
+}
+
+/* Below is the tree in our slides for switch check during the milestone demo
+                                      / -- 331233206
+                         / -- 331233202 -- 331233203
+    331233200 -> 331233201 -- 331233205
+                         \ -- 331233204 -- 331233208
+
+  Consider 4 voters, each voting for 331233206, 331233203, 331233205 and 331233208.
+                          with stake 10000      10000      10000         20001
+  Slot 331233208 is voted with stake 20001, so it is the ghost head (i.e., best slot);
+  Suppose voter#1 voted for slot 331233203, and it replays slot 331233208; Switch check from
+  331233203 to 331233208 will pass with the support of 60% stake from 331233205 and 331233208
+*/
+void
+test_vote_switch_check_demo_forks( fd_wksp_t * wksp ) {
+  /**********************************************************************/
+  /* Initialize funk                                                    */
+  /**********************************************************************/
+  fd_funk_close_file_args_t funk_close_args;
+  fd_funk_t * funk = fd_funk_open_file( "", 1, 0, 1000, 100, 1*(1UL<<30), FD_FUNK_OVERWRITE, &funk_close_args );
+  FD_TEST( funk );
+
+  /**********************************************************************/
+  /* Initialize ghost tree                                              */
+  /*********************************************************************/
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
+
+  ghost_init( ghost, 331233200, funk );
+  ghost_insert( ghost, 331233200, 331233201, funk );
+  ghost_insert( ghost, 331233201, 331233202, funk );
+  ghost_insert( ghost, 331233202, 331233203, funk );
+  ghost_insert( ghost, 331233202, 331233206, funk );
+  ghost_insert( ghost, 331233201, 331233205, funk );
+  ghost_insert( ghost, 331233201, 331233204, funk );
+  ghost_insert( ghost, 331233204, 331233208, funk );
+
+  /**********************************************************************/
+  /* Initialize voters, stakes, epoch and funk_txns                     */
+  /**********************************************************************/
+  ulong voter_cnt = 4;
+  voter_t voters[voter_cnt];
+  init_vote_accounts( voters, voter_cnt );
+
+  ulong stakes[] = {10000, 10000, 10000, 20001};
+  fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
+
+  /**********************************************************************/
+  /* Setup funk_txns for each slot with vote account funk records       */
+  /**********************************************************************/
+  void * tower_mems[voter_cnt];
+  fd_tower_t * towers[voter_cnt];
+  for(ulong i = 0; i < voter_cnt; i++) {
+    tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
+  }
+
+  /**********************************************************************/
+  /* Initialize landed votes per validator in funk                      */
+  /**********************************************************************/
+  voter_vote_for_slot( wksp, towers[0], funk, 331233200, 331233201, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, 331233200, 331233201, &voters[1] );
+  voter_vote_for_slot( wksp, towers[2], funk, 331233200, 331233201, &voters[2] );
+  voter_vote_for_slot( wksp, towers[3], funk, 331233200, 331233201, &voters[3] );
+
+  voter_vote_for_slot( wksp, towers[0], funk, 331233202, 331233202, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, 331233202, 331233202, &voters[1] );
+
+  voter_vote_for_slot( wksp, towers[0], funk, 331233206, 331233206, &voters[0] );
+
+  voter_vote_for_slot( wksp, towers[1], funk, 331233203, 331233203, &voters[1] );
+
+  voter_vote_for_slot( wksp, towers[2], funk, 331233205, 331233205, &voters[2] );
+
+  voter_vote_for_slot( wksp, towers[3], funk, 331233204, 331233204, &voters[3] );
+
+  voter_vote_for_slot( wksp, towers[3], funk, 331233208, 331233208, &voters[3] );
+
+  /**********************************************************************/
+  /* Initialize tower, spad and setup forks                             */
+  /**********************************************************************/
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
+  fd_tower_t * tower = TOWER( tower_mem, 331233200, 331233201, 331233202, 331233203 );
+
+  void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+
+  fd_forks_t * forks;
+  ulong frontier1 = 331233206;
+  ulong frontier2 = 331233203;
+  ulong frontier3 = 331233205;
+  ulong frontier4 = 331233208;
+  INIT_FORKS( frontier1 );
+  ADD_FRONTIER_TO_FORKS( frontier2 );
+  ADD_FRONTIER_TO_FORKS( frontier3 );
+  ADD_FRONTIER_TO_FORKS( frontier4 );
+
+  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
+  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+  fd_forks_update( forks, epoch, funk, ghost, frontier3 );
+  fd_forks_update( forks, epoch, funk, ghost, frontier4 );
+
+  /**********************************************************************/
+  /*             Try to switch from 331233203 to 331233208              */
+  /*      Switch rule allows switching from 331233203 to 331233208      */
+  /**********************************************************************/
+  FD_TEST( frontier4==fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot );
+  ulong vote_slot = fd_tower_vote_slot( tower, epoch, funk, forks, frontier4, ghost, spad );
+  FD_TEST( vote_slot==frontier4 );
+
+  fd_funk_close_file( &funk_close_args );
+}
+
+/* Below are some forks captured from testnet
 [331233129, 331233223]
                 └── [331233228, 331233303]
                                 ├── [331233304, 331233307]
@@ -909,9 +909,12 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
                                                                                 └── [331233326, 331233435]
                                                                                                 └── [331233440, 331233470]
                                 └── [331233308]
+  The fork frontiers are 331233308, 331233324 and 331233470.
+  Suppose 331233470 is the fork with 80% stake voted and we were voting on one of the other two forks.
+  We should be able to switch our fork to the majority fork 331233470.
 */
 void
-test_full_tower( fd_wksp_t * wksp ) {
+test_vote_switch_check_testnet_forks( fd_wksp_t * wksp ) {
   /**********************************************************************/
   /* Initialize funk                                                    */
   /**********************************************************************/
@@ -925,71 +928,33 @@ test_full_tower( fd_wksp_t * wksp ) {
   void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ), 1UL );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 0UL, FD_BLOCK_MAX ) );
 
-  ghost_init( ghost, 331233272, funk );
-  ghost_insert( ghost, 331233272, 331233273, funk );
-  ghost_insert( ghost, 331233273, 331233274, funk );
-  ghost_insert( ghost, 331233274, 331233275, funk );
-  ghost_insert( ghost, 331233275, 331233276, funk );
-  ghost_insert( ghost, 331233276, 331233277, funk );
-  ghost_insert( ghost, 331233277, 331233278, funk );
-  ghost_insert( ghost, 331233278, 331233279, funk );
-  ghost_insert( ghost, 331233279, 331233280, funk );
-  ghost_insert( ghost, 331233280, 331233281, funk );
-  ghost_insert( ghost, 331233281, 331233282, funk );
-  ghost_insert( ghost, 331233282, 331233283, funk );
-  ghost_insert( ghost, 331233283, 331233284, funk );
-  ghost_insert( ghost, 331233284, 331233285, funk );
-  ghost_insert( ghost, 331233285, 331233286, funk );
-  ghost_insert( ghost, 331233286, 331233287, funk );
-  ghost_insert( ghost, 331233287, 331233288, funk );
-  ghost_insert( ghost, 331233288, 331233289, funk );
-  ghost_insert( ghost, 331233289, 331233290, funk );
-  ghost_insert( ghost, 331233290, 331233291, funk );
-  ghost_insert( ghost, 331233291, 331233292, funk );
-  ghost_insert( ghost, 331233292, 331233293, funk );
-  ghost_insert( ghost, 331233293, 331233294, funk );
-  ghost_insert( ghost, 331233294, 331233295, funk );
-  ghost_insert( ghost, 331233295, 331233296, funk );
-  ghost_insert( ghost, 331233296, 331233297, funk );
-  ghost_insert( ghost, 331233297, 331233298, funk );
-  ghost_insert( ghost, 331233298, 331233299, funk );
-  ghost_insert( ghost, 331233299, 331233300, funk );
-  ghost_insert( ghost, 331233300, 331233301, funk );
-  ghost_insert( ghost, 331233301, 331233302, funk );
-  ghost_insert( ghost, 331233302, 331233303, funk );
-  ghost_insert( ghost, 331233303, 331233304, funk );
-  ghost_insert( ghost, 331233304, 331233305, funk );
-  ghost_insert( ghost, 331233305, 331233306, funk );
-  ghost_insert( ghost, 331233305, 331233307, funk );
+#define LINEAR_NODES( start, end ) \
+  for( ulong slot=start; slot<end; slot++ ) ghost_insert( ghost, slot, slot+1, funk );
+  ghost_init( ghost, 331233129, funk );
+  LINEAR_NODES( 331233129, 331233223 );
+  ghost_insert( ghost, 331233223, 331233228, funk );
+  LINEAR_NODES( 331233228, 331233303 );
   ghost_insert( ghost, 331233303, 331233308, funk );
-  ghost_insert( ghost, 331233308, 331233309, funk );
+  ghost_insert( ghost, 331233303, 331233304, funk );
+  LINEAR_NODES( 331233304, 331233307 );
   ghost_insert( ghost, 331233307, 331233310, funk );
-  ghost_insert( ghost, 331233310, 331233311, funk );
-  ghost_insert( ghost, 331233311, 331233312, funk );
-  ghost_insert( ghost, 331233312, 331233313, funk );
-  ghost_insert( ghost, 331233313, 331233314, funk );
-  ghost_insert( ghost, 331233314, 331233315, funk );
-  ghost_insert( ghost, 331233315, 331233316, funk );
-  ghost_insert( ghost, 331233316, 331233317, funk );
-  ghost_insert( ghost, 331233317, 331233318, funk );
-  ghost_insert( ghost, 331233318, 331233319, funk );
-  ghost_insert( ghost, 331233319, 331233320, funk );
-  ghost_insert( ghost, 331233320, 331233321, funk );
-  ghost_insert( ghost, 331233321, 331233322, funk );
-  ghost_insert( ghost, 331233322, 331233323, funk );
+  LINEAR_NODES( 331233310, 331233319 );
   ghost_insert( ghost, 331233319, 331233324, funk );
-  ghost_insert( ghost, 331233324, 331233325, funk );
+  ghost_insert( ghost, 331233319, 331233320, funk );
+  LINEAR_NODES( 331233320, 331233323 );
   ghost_insert( ghost, 331233323, 331233326, funk );
-  ghost_insert( ghost, 331233326, 331233327, funk );
+  LINEAR_NODES( 331233326, 331233435 );
+  ghost_insert( ghost, 331233435, 331233440, funk );
+  LINEAR_NODES( 331233440, 331233470 );
 
   /**********************************************************************/
   /* Initialize voters, stakes, epoch and funk_txns                     */
   /**********************************************************************/
-  ulong voter_cnt = 5;
+  ulong voter_cnt = 2;
   voter_t voters[voter_cnt];
   init_vote_accounts( voters, voter_cnt );
 
-  ulong stakes[] = {12, 27, 16, 7, 38};
+  ulong stakes[] = {20, 80};
   fd_epoch_t * epoch = mock_epoch( wksp, voter_cnt, stakes, voters );
 
   /**********************************************************************/
@@ -997,71 +962,51 @@ test_full_tower( fd_wksp_t * wksp ) {
   /**********************************************************************/
   void * tower_mems[voter_cnt];
   fd_tower_t * towers[voter_cnt];
-  for(ulong i = 0; i < voter_cnt; i++) {
+  for( ulong i=0; i<voter_cnt; i++ ) {
     tower_mems[i] = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
-    towers[i] = TOWER( tower_mems[i], 331233272, 331233273, 331233274,
-                       331233275, 331233276, 331233277, 331233278,
-                       331233279, 331233280, 331233281, 331233282,
-                       331233283, 331233284, 331233285, 331233286,
-                       331233287, 331233288, 331233289, 331233290,
-                       331233291, 331233292, 331233293, 331233294,
-                       331233295, 331233296, 331233297, 331233298,
-                       331233299, 331233300, 331233301, 331233302);
+    towers[i] = fd_tower_join( fd_tower_new( tower_mems[i] ) );
   }
 
   /**********************************************************************/
   /* Initialize landed votes per validator in funk                      */
   /**********************************************************************/
-
-  voter_vote_for_slot( wksp, towers[0], funk, 331233303, 331233304, &voters[0] );
-  voter_vote_for_slot( wksp, towers[1], funk, 331233303, 331233304, &voters[1] );
-  voter_vote_for_slot( wksp, towers[2], funk, 331233303, 331233304, &voters[2] );
-  voter_vote_for_slot( wksp, towers[3], funk, 331233303, 331233304, &voters[3] );
-  voter_vote_for_slot( wksp, towers[4], funk, 331233303, 331233304, &voters[4] );
+  /* Suppose voter#0 is voting on minority fork 331233308 */
+  for( ulong slot=331233228; slot<331233303; slot++ )
+    voter_vote_for_slot( wksp, towers[0], funk, slot, slot+1, &voters[0] );
+  voter_vote_for_slot( wksp, towers[1], funk, 331233302, 331233303, &voters[1] );
+  voter_vote_for_slot( wksp, towers[0], funk, 331233303, 331233308, &voters[0] );
+  /* Suppose voter#1 is voting on majority fork 331233470 */
+  voter_vote_for_slot( wksp, towers[1], funk, 331233303, 331233308, &voters[1] );
+  for( ulong slot=331233440; slot<331233470; slot++ )
+    voter_vote_for_slot( wksp, towers[1], funk, slot, slot+1, &voters[1] );
 
   /**********************************************************************/
   /* Initialize tower, spad and setup forks                             */
   /**********************************************************************/
-  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 6UL );
-  fd_tower_t * tower = TOWER( tower_mem, 331233272, 331233273, 331233274,
-                              331233275, 331233276, 331233277, 331233278,
-                              331233279, 331233280, 331233281, 331233282,
-                              331233283, 331233284, 331233285, 331233286,
-                              331233287, 331233288, 331233289, 331233290,
-                              331233291, 331233292, 331233293, 331233294,
-                              331233295, 331233296, 331233297, 331233298,
-                              331233299, 331233300, 331233301, 331233302 );
-  FD_TEST( tower );
-
   void * spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_TOWER_FOOTPRINT ), 5UL );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, FD_TOWER_FOOTPRINT ) );
+  FD_TEST( spad );
 
   fd_forks_t * forks;
-  ulong frontier1 = 331233304UL;
-  ulong frontier2 = 331233308UL;
+  ulong frontier1 = 331233308UL;
+  ulong frontier2 = 331233324UL;
+  ulong frontier3 = 331233470UL;
   INIT_FORKS( frontier1 );
   ADD_FRONTIER_TO_FORKS( frontier2 );
+  ADD_FRONTIER_TO_FORKS( frontier3 );
 
   fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_ghost_print( ghost, epoch, fd_ghost_root(ghost) );
+  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+  fd_forks_update( forks, epoch, funk, ghost, frontier3 );
 
-  voter_vote_for_slot( wksp, towers[1], funk, 331233304, 331233304, &voters[1] );
+  /**********************************************************************/
+  /* voter#0 should be able to switch to the majority fork 331233470    */
+  /**********************************************************************/
+  ulong vote_slot = fd_tower_vote_slot( towers[0], epoch, funk, forks, frontier3, ghost, spad );
+  FD_TEST( vote_slot==frontier3 );
+  fd_tower_vote( towers[0], frontier3 );
+  FD_TEST( fd_tower_votes_peek_tail_const( towers[0] )->slot==frontier3 );
 
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_ghost_print( ghost, epoch, fd_ghost_root(ghost) );
-
-  /* Everyone has voted for slot 331233302 in their towers by slot 331233303 */
-  // fd_tower_t * tower = mock_tower( wksp, 31, votes );
-
-  // ulong root = fd_tower_vote( tower, 331233303 );
-  // fd_tower_vote( tower, 331233303 );
-  // root = fd_tower_vote( tower, 331233304 );
-  // fd_tower_print( tower, root );
-
-  // fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &frontier, NULL, forks->pool );
-  // FD_TEST( fork );
-  // VOTE_FOR_SLOT( 331233303UL, 331233304, 0 );
-  FD_TEST( spad );
   fd_funk_close_file( &funk_close_args );
 }
 
@@ -2653,14 +2598,19 @@ main( int argc, char ** argv ) {
                                             0UL );
   FD_TEST( wksp );
 
+  /**********************************************************************/
+  /* Below are unit tests that we come up with ourselve                 */
+  /**********************************************************************/
   test_vote_simple( wksp );
-  test_vote_switch_check( wksp );
   test_vote_lockout_check( wksp );
   test_vote_threshold_check( wksp );
-  test_vote_switch_check_4forks( wksp );
-  test_full_tower( wksp );
+  test_vote_switch_check( wksp );
+  test_vote_switch_check_demo_forks( wksp );
+  test_vote_switch_check_testnet_forks( wksp );
 
-  /* Below are unit tests from Agave core/src/consensus/heaviest_subtree_fork_choice.rs */
+  /**********************************************************************/
+  /* Below are unit tests from Agave heaviest_subtree_fork_choice.rs    */
+  /**********************************************************************/
   test_agave_max_by_weight( wksp );
   test_agave_add_root_parent( wksp );
   test_agave_ancestor_iterator( wksp );
@@ -2721,7 +2671,9 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Skip 1 Agave unit test test_subtree_diff() "
                   "because it is only used in set_tree_root which has already been tested." ));
 
-  /* Below are unit tests from Agave core/src/consensus.rs */
+  /**********************************************************************/
+  /* Below are unit tests from Agave core/src/consensus.rs              */
+  /**********************************************************************/
   test_agave_collect_vote_lockouts_sums( wksp );
   test_agave_collect_vote_lockouts_root( wksp );
   test_agave_check_vote_threshold_forks( wksp );
