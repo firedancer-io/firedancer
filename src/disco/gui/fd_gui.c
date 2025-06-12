@@ -283,9 +283,9 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
   volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
+  cur->out.pack_invalid_bundle = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ];
   cur->out.pack_invalid =
-      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
+      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ]
@@ -1732,8 +1732,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
     fd_memcpy(txn_entry->signature, txn_payload->payload + txn->signature_off, FD_SHA512_HASH_SZ);
     txn_entry->timestamp_arrival_nanos     = txn_payload->scheduler_arrival_time_nanos;
-    txn_entry->compute_units_estimated     = cost_estimate           & 0x1FFFFFU;
-    txn_entry->compute_units_requested     = requested_execution_cus & 0x1FFFFFU;
+    txn_entry->compute_units_requested     = cost_estimate & 0x1FFFFFU;
     txn_entry->priority_fee                = priority_rewards;
     txn_entry->transaction_fee             = sig_rewards;
     txn_entry->timestamp_delta_start_nanos = (int)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
@@ -1778,7 +1777,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
 
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
     txn_entry->bank_idx                  = bank_idx                           & 0x3FU;
-    txn_entry->actual_consumed_cus       = txn_p->bank_cu.actual_consumed_cus & 0x1FFFFFU;
+    txn_entry->compute_units_consumed    = txn_p->bank_cu.actual_consumed_cus & 0x1FFFFFU;
     txn_entry->error_code                = (txn_p->flags >> 24)               & 0x3FU;
     txn_entry->timestamp_delta_end_nanos = (int)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
     txn_entry->txn_start_pct             = txn_start_pct;

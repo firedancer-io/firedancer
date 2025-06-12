@@ -129,6 +129,7 @@ struct fd_gui_txn_waterfall {
     ulong resolv_no_ledger;
     ulong resolv_retained;
     ulong pack_invalid;
+    ulong pack_invalid_bundle;
     ulong pack_expired;
     ulong pack_retained;
     ulong pack_wait_full;
@@ -241,11 +242,11 @@ struct __attribute__((packed)) fd_gui_txn {
   ulong tips;
   long timestamp_arrival_nanos;
 
-  uint compute_units_requested     : 21; /* <= 1.4M */
-  uint compute_units_estimated     : 21; /* <= 1.4M */
-  uint actual_consumed_cus         : 21; /* <= 1.4M */
-  uint bank_idx                    :  6; /* in [0, 64) */
-  uint error_code                  :  6; /* in [0, 64) */
+  /* compute_units_requested has both execution and non-execution cus */
+  uint compute_units_requested : 21; /* <= 1.4M */
+  uint compute_units_consumed  : 21; /* <= 1.4M */
+  uint bank_idx                :  6; /* in [0, 64) */
+  uint error_code              :  6; /* in [0, 64) */
   int timestamp_delta_start_nanos;
   int timestamp_delta_end_nanos;
 
