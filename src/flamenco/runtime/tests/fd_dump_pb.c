@@ -918,7 +918,7 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
       position = fd_cstr_append_cstr(position, encoded_signature);
       position = fd_cstr_append_cstr(position, "-");
       position = fd_cstr_append_ushort_as_text(position, '0', 0, instruction_idx, 3); // Assume max 3 digits
-      position = fd_cstr_append_cstr(position, ".bin");
+      position = fd_cstr_append_cstr(position, ".instrctx");
       fd_cstr_fini(position);
 
       FILE * file = fopen(output_filepath, "wb");
@@ -960,7 +960,7 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
       position = fd_cstr_append_cstr( position, txn_ctx->capture_ctx->dump_proto_output_dir );
       position = fd_cstr_append_cstr( position, "/txn-" );
       position = fd_cstr_append_cstr( position, encoded_signature );
-      position = fd_cstr_append_cstr(position, ".bin");
+      position = fd_cstr_append_cstr(position, ".txnctx");
       fd_cstr_fini(position);
 
       FILE * file = fopen(output_filepath, "wb");
@@ -1011,7 +1011,7 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
     if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
       char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
       char * position = fd_cstr_init( output_filepath );
-      position = fd_cstr_append_printf( position, "%s/block-%lu.bin", capture_ctx->dump_proto_output_dir, slot_ctx->slot_bank.slot );
+      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, slot_ctx->slot_bank.slot );
       fd_cstr_fini( position );
 
       FILE * file = fopen(output_filepath, "wb");
