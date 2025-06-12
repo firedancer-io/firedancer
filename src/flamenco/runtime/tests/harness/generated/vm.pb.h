@@ -122,8 +122,6 @@ typedef struct fd_exec_test_vm_context {
     uint64_t r9;
     uint64_t r10;
     uint64_t r11;
-    bool check_align;
-    bool check_size;
     /* for vm execution */
     uint64_t entry_pc;
     /* Bitset of valid call destinations (in terms of pc).
@@ -200,7 +198,7 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -210,7 +208,7 @@ extern "C" {
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT    {NULL, NULL}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO, 0}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -269,8 +267,6 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_R9_TAG           15
 #define FD_EXEC_TEST_VM_CONTEXT_R10_TAG          16
 #define FD_EXEC_TEST_VM_CONTEXT_R11_TAG          17
-#define FD_EXEC_TEST_VM_CONTEXT_CHECK_ALIGN_TAG  18
-#define FD_EXEC_TEST_VM_CONTEXT_CHECK_SIZE_TAG   19
 #define FD_EXEC_TEST_VM_CONTEXT_ENTRY_PC_TAG     20
 #define FD_EXEC_TEST_VM_CONTEXT_CALL_WHITELIST_TAG 21
 #define FD_EXEC_TEST_VM_CONTEXT_TRACING_ENABLED_TAG 22
@@ -313,8 +309,6 @@ X(a, STATIC,   SINGULAR, UINT64,   r8,               14) \
 X(a, STATIC,   SINGULAR, UINT64,   r9,               15) \
 X(a, STATIC,   SINGULAR, UINT64,   r10,              16) \
 X(a, STATIC,   SINGULAR, UINT64,   r11,              17) \
-X(a, STATIC,   SINGULAR, BOOL,     check_align,      18) \
-X(a, STATIC,   SINGULAR, BOOL,     check_size,       19) \
 X(a, STATIC,   SINGULAR, UINT64,   entry_pc,         20) \
 X(a, POINTER,  SINGULAR, BYTES,    call_whitelist,   21) \
 X(a, STATIC,   SINGULAR, BOOL,     tracing_enabled,  22) \
