@@ -219,6 +219,95 @@ make_vote_transaction( ulong i ) {
   FD_TEST( fd_txn_parse( p, sample_vote_sz, txn_scratch[i], NULL ) );
 }
 
+/* Makes enough of a durable nonce transaction to be scheduleable.
+   nonce_acct_idx and nonce_auth_idx are in [0, 8).  Accounts 0 and 1
+   are writable signers, accounts 2 and 3 are readonly signers, 4 and 5
+   are writable non-signers, and 6 and 7 are readonly nonsigners.  The
+   recent blockhash is a 32-byte repetition of the specified character.
+   i and priority are as in make_transaction. */
+static void
+make_nonce_transaction( ulong  i,
+                        double priority,
+                        uchar  nonce_acct_idx,
+                        uchar  nonce_auth_idx,
+                        char   recent_blockhash ) {
+  uchar * p = payload_scratch[ i ];
+  uchar * p_base = p;
+  fd_txn_t * t = (fd_txn_t*) txn_scratch[ i ];
+
+  uint loaded_data_sz = 10000U;
+  uint compute        = 10001U;
+
+  *(p++) = (uchar)2;
+  fd_memcpy( p,                                   &i,               sizeof(ulong)                                    );
+  fd_memcpy( p+sizeof(ulong),                     SIGNATURE_SUFFIX, FD_TXN_SIGNATURE_SZ - sizeof(ulong)-sizeof(uint) );
+  fd_memcpy( p+FD_TXN_SIGNATURE_SZ-sizeof(ulong), &compute,         sizeof(uint)                                     );
+  p += FD_TXN_SIGNATURE_SZ;
+
+  fd_memset( p, 'b', 64UL );
+  p += FD_TXN_SIGNATURE_SZ;
+
+  t->transaction_version = FD_TXN_VLEGACY;
+  t->signature_cnt = 2;
+  t->signature_off = 1;
+  t->message_off = 2*FD_TXN_SIGNATURE_SZ+1UL;
+  t->readonly_signed_cnt = 1;
+  t->readonly_unsigned_cnt = 5; /* 2 + compute budget, system program, recent blockhashes */
+  t->acct_addr_cnt = 11;
+
+
+  /* Add the recent blockhash */
+  t->recent_blockhash_off = (ushort)(p - p_base);
+  fd_memset( p, recent_blockhash, 32UL );         p += 32UL;
+
+  t->acct_addr_off = (ushort)(p - p_base);
+  for( ulong i=0UL; i<8UL; i++ ) { fd_memset( p, (char)('c' + i), FD_TXN_ACCT_ADDR_SZ ); p+=FD_TXN_ACCT_ADDR_SZ; }
+
+  static uchar const recent_blockhashes_sysvar[FD_TXN_ACCT_ADDR_SZ] = { SYSVAR_RECENT_BLKHASH_ID };
+
+  fd_memcpy( p, FD_COMPUTE_BUDGET_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ ); p += FD_TXN_ACCT_ADDR_SZ;
+  fd_memset( p, '\0',                         FD_TXN_ACCT_ADDR_SZ ); p += FD_TXN_ACCT_ADDR_SZ; /* system program */
+  fd_memcpy( p, recent_blockhashes_sysvar,    FD_TXN_ACCT_ADDR_SZ ); p += FD_TXN_ACCT_ADDR_SZ;
+
+  t->addr_table_lookup_cnt = 0;
+  t->addr_table_adtl_writable_cnt = 0;
+  t->addr_table_adtl_cnt = 0;
+  t->instr_cnt = 4;
+
+  uchar budget_prog_idx = 8;
+  uchar system_prog_idx = 9;
+
+  t->instr[ 0 ].program_id = system_prog_idx;
+  t->instr[ 0 ].acct_cnt = 3;
+  t->instr[ 0 ].data_sz = 4;
+  t->instr[ 0 ].acct_off = (ushort)(p - p_base);
+  *(p++) = nonce_acct_idx;
+  *(p++) = 10;
+  *(p++) = nonce_auth_idx;
+  t->instr[ 0 ].data_off = (ushort)(p - p_base);
+  FD_STORE( uint, p, 0x4U );  p += sizeof(uint);
+
+  uchar * ptrs[3];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ushort data_sz = fd_ushort_if( i==1UL, 9, 5 );
+    t->instr[ 1UL+i ].program_id = budget_prog_idx;
+    t->instr[ 1UL+i ].acct_cnt = 0;
+    t->instr[ 1UL+i ].data_sz = data_sz;
+    t->instr[ 1UL+i ].acct_off = (ushort)(p - p_base);
+    t->instr[ 1UL+i ].data_off = (ushort)(p - p_base);
+    ptrs[i] = p;
+    p += data_sz;
+  }
+
+  ulong rewards_per_cu = (ulong) (pow( 5.0, priority )*10000.0 / (double)compute);
+
+  *(ptrs[0]) = 2; fd_memcpy( ptrs[0]+1, &compute,        sizeof(uint)  );
+  *(ptrs[1]) = 3; fd_memcpy( ptrs[1]+1, &rewards_per_cu, sizeof(ulong) );
+  *(ptrs[2]) = 4; fd_memcpy( ptrs[2]+1, &loaded_data_sz, sizeof(uint)  );
+
+  payload_sz[ i ] = (ulong)(p-p_base);
+}
+
 static int
 insert( ulong i,
         fd_pack_t * pack ) {
@@ -1255,6 +1344,23 @@ test_duplicate_sig( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 }
 
+static inline void
+test_nonce( void ) {
+  FD_LOG_NOTICE(( "TEST DUPLICATE NONCE" ));
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
+  ulong i = 0UL;
+
+  make_nonce_transaction( i, 11.0, 4, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
+  make_nonce_transaction( i, 10.0, 4, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY        );
+  make_nonce_transaction( i, 14.0, 4, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
+  /* Changing any of the tuple makes it a different nonce */
+  make_nonce_transaction( i, 11.0, 5, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
+  make_nonce_transaction( i, 11.0, 4, 1, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
+  make_nonce_transaction( i, 11.0, 4, 0, 'j' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
+
+  make_nonce_transaction( i, 11.0, 4, 5, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_INVALID_NONCE         );
+}
+
 
 int
 main( int     argc,
@@ -1279,6 +1385,7 @@ main( int     argc,
   test_reject_writes_to_sysvars();
   test_reject();
   test_duplicate_sig();
+  test_nonce();
   performance_test( extra_benchmark );
   performance_test2();
   performance_end_block();

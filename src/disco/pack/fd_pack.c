@@ -27,6 +27,7 @@ struct fd_pack_private_ord_txn {
   union {
     fd_txn_p_t   txn[1];  /* txn is an alias for txn_e->txnp */
     fd_txn_e_t   txn_e[1];
+    fd_txn_e_t   _txn_e;  /* Non-array type needed for map_chain */
     struct{ uchar _sig_cnt; wrapped_sig_t sig; };
   };
 
@@ -50,6 +51,10 @@ struct fd_pack_private_ord_txn {
      that if we delete this transaction, we can also delete it from the
      expiration priority queue. */
   ulong expq_idx;
+
+  /* The noncemap map_chain fields */
+  ushort noncemap_next;
+  ushort noncemap_prev;
 
   /* We want rewards*compute_est to fit in a ulong so that r1/c1 < r2/c2 can be
      computed as r1*c2 < r2*c1, with the product fitting in a ulong.
@@ -256,6 +261,98 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #define MAP_KEY                sig
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0),(k1), FD_TXN_SIGNATURE_SZ) )
 #define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), 64UL )
+#include "../../util/tmpl/fd_map_chain.c"
+
+
+/* noncemap: A map from (nonce account, nonce authority, recent
+   blockhash) to a durable nonce transaction containing it.  We only
+   want to allow one transaction in the pool at a time with a given
+   (nonce account, recent blockhash) tuple value.  The question is: can
+   adding this limitation cause us to throw out potentially valuable
+   transaction?  The answer is yes, but only very rarely, and the
+   savings are worth it.  Suppose we have durable nonce transactions t1
+   and t2 that advance the same nonce account and have the same value
+   for the recent blockhash.
+
+   - If t1 lands on chain, then it will advance the nonce account, and
+   t2 will certainly not land on chain.
+   - If t1 fails with AlreadyExecuted, that means the nonce account was
+   advanced when t1 landed in a previous block, so t2 will certainly not
+   land on chain.
+   - If t1 fails with BlockhashNotFound, then the nonce account was
+   advanced in some previous transaction, so again, t2 will certainly
+   not land on chain.
+   - If t1 does not land on chain because of an issue with the fee
+   payer, it's possible that t2 could land on chain if it used a
+   different fee payer, but historical data shows this is unlikely.
+   - If t1 does not land on chain because it is part of a bundle that
+   fails for an unrelated reason, it's possible that t2 could land on
+   chain, but again, historical data says this is rare.
+
+   We need to include the nonce authority in the hash to prevent one
+   user from being able to DoS another user. */
+
+typedef struct {
+  uchar const * recent_blockhash;
+  fd_acct_addr_t const * nonce_acct;
+  fd_acct_addr_t const * nonce_auth;
+} noncemap_extract_t;
+
+/* k must be a valid, durable nonce transaction.  No error checking is
+   done. */
+static inline void
+noncemap_extract( fd_txn_e_t const   * k,
+                  noncemap_extract_t * out ) {
+  fd_txn_t const * txn = TXN(k->txnp);
+  out->recent_blockhash = fd_txn_get_recent_blockhash( txn, k->txnp->payload );
+
+  ulong nonce_idx = k->txnp->payload[ txn->instr[ 0 ].acct_off+0 ];
+  ulong autho_idx = k->txnp->payload[ txn->instr[ 0 ].acct_off+2 ];
+
+  ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, k->txnp->payload );
+  fd_acct_addr_t const * alt_adj = k->alt_accts - imm_cnt;
+  out->nonce_acct = fd_ptr_if( nonce_idx<imm_cnt, accts, alt_adj )+nonce_idx;
+  /* The nonce authority must be a signer, so it must be an immediate
+     account. */
+  out->nonce_auth = accts+autho_idx;
+}
+
+static inline int
+noncemap_key_eq_internal( fd_txn_e_t const * k0,
+                          fd_txn_e_t const * k1 ) {
+  noncemap_extract_t e0[1], e1[1];
+  noncemap_extract( k0, e0 );
+  noncemap_extract( k1, e1 );
+
+  if( FD_UNLIKELY( memcmp( e0->recent_blockhash, e1->recent_blockhash, 32UL ) ) ) return 0;
+  if( FD_UNLIKELY( memcmp( e0->nonce_acct,       e1->nonce_acct,       32UL ) ) ) return 0;
+  if( FD_UNLIKELY( memcmp( e0->nonce_auth,       e1->nonce_auth,       32UL ) ) ) return 0;
+  return 1;
+}
+
+static inline ulong
+noncemap_key_hash_internal( ulong              seed,
+                            fd_txn_e_t const * k ) {
+  /* TODO: This takes >100 cycles! */
+  noncemap_extract_t e[1];
+  noncemap_extract( k, e );
+  return fd_hash( seed,              e->recent_blockhash, 32UL ) ^
+         fd_hash( seed+ 864394383UL, e->nonce_acct,       32UL ) ^
+         fd_hash( seed+3818662446UL, e->nonce_auth,       32UL );
+}
+
+#define MAP_NAME               noncemap
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#define MAP_MULTI              0
+#define MAP_ELE_T              fd_pack_ord_txn_t
+#define MAP_PREV               noncemap_prev
+#define MAP_NEXT               noncemap_next
+#define MAP_IDX_T              ushort
+#define MAP_KEY_T              fd_txn_e_t
+#define MAP_KEY                _txn_e
+#define MAP_KEY_EQ(k0,k1)      noncemap_key_eq_internal( (k0), (k1) )
+#define MAP_KEY_HASH(key,seed) noncemap_key_hash_internal( (seed), (key) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 
@@ -498,6 +595,11 @@ struct fd_pack_private {
   ulong                  written_list_cnt;
   ulong                  written_list_max;
 
+  /* Noncemap is a map_chain that maps from tuples (nonce account,
+     recent blockhash value, nonce authority) to a transaction.  This
+     map stores exactly the transactions in pool that have the nonce
+     flag set. */
+  noncemap_t * noncemap;
 
   sig2txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
 
@@ -603,6 +705,7 @@ fd_pack_footprint( ulong                    pack_depth,
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
   ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
   ulong sig_chain_cnt      = sig2txn_chain_cnt_est( pack_depth );
+  ulong nonce_chain_cnt    = noncemap_chain_cnt_est( pack_depth );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
@@ -619,6 +722,7 @@ fd_pack_footprint( ulong                    pack_depth,
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz           ) ); /* acct_in_use    */
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_max_writers           ) ); /* writer_costs   */
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(fd_pack_addr_use_t*)*written_list_max    ); /* written_list   */
+  l = FD_LAYOUT_APPEND( l, noncemap_align (),   noncemap_footprint ( nonce_chain_cnt          ) ); /* noncemap       */
   l = FD_LAYOUT_APPEND( l, sig2txn_align  (),   sig2txn_footprint  ( sig_chain_cnt            ) ); /* signature_map  */
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_bundle_temp           ) ); /* bundle_temp_map*/
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight   ); /* use_by_bank    */
@@ -649,6 +753,7 @@ fd_pack_new( void                   * mem,
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
   ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
   ulong sig_chain_cnt      = sig2txn_chain_cnt_est( pack_depth );
+  ulong nonce_chain_cnt    = noncemap_chain_cnt_est( pack_depth );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
@@ -667,6 +772,7 @@ fd_pack_new( void                   * mem,
   void * _uses        = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz         ) );
   void * _writer_cost = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_max_writers         ) );
   void * _written_lst = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t*)*written_list_max  );
+  void * _noncemap    = FD_SCRATCH_ALLOC_APPEND( l,  noncemap_align(),    noncemap_footprint ( nonce_chain_cnt        ) );
   void * _sig_map     = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),     sig2txn_footprint  ( sig_chain_cnt          ) );
   void * _bundle_temp = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_bundle_temp         ) );
   void * _use_by_bank = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
@@ -722,6 +828,8 @@ fd_pack_new( void                   * mem,
   pack->written_list     = _written_lst;
   pack->written_list_cnt = 0UL;
   pack->written_list_max = written_list_max;
+
+  noncemap_new( _noncemap, nonce_chain_cnt, fd_rng_ulong( rng ) );
 
   sig2txn_new( _sig_map, sig_chain_cnt, fd_rng_ulong( rng ) );
 
@@ -788,6 +896,7 @@ fd_pack_join( void * mem ) {
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
   ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
   ulong sig_chain_cnt      = sig2txn_chain_cnt_est( pack_depth );
+  ulong nonce_chain_cnt    = noncemap_chain_cnt_est( pack_depth );
 
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
   int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block                           ) );
@@ -802,6 +911,7 @@ fd_pack_join( void * mem ) {
   pack->acct_in_use   = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_uses_tbl_sz          ) ) );
   pack->writer_costs  = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_max_writers          ) ) );
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t*)*written_list_max       );
+  pack->noncemap      = noncemap_join(   FD_SCRATCH_ALLOC_APPEND( l, noncemap_align(),   noncemap_footprint   ( nonce_chain_cnt         ) ) );
   pack->signature_map = sig2txn_join(    FD_SCRATCH_ALLOC_APPEND( l, sig2txn_align(),    sig2txn_footprint    ( sig_chain_cnt           ) ) );
   pack->bundle_temp_map=acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_bundle_temp          ) ) );
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight      );
@@ -846,6 +956,33 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
   out->txn->pack_cu.non_execution_cus       = (uint)(cost_estimate - requested_execution_cus - requested_loaded_accounts_data_cost);
 
   return fd_int_if( txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
+}
+
+/* Returns 0 on failure, 1 if not a durable nonce transaction, and 2 if
+   it is.  FIXME: These return codes are set to harmonize with
+   estimate_rewards_and_compute but -1/0/1 makes a lot more sense to me.
+   */
+static int
+fd_pack_validate_durable_nonce( fd_txn_e_t * txne ) {
+  fd_txn_t const * txn = TXN(txne->txnp);
+
+  /* First instruction invokes system program with 4 bytes of
+     instruction data with the little-endian value 4.  It also has 3
+     accounts: the nonce account, recent blockhashes sysvar, and the
+     nonce authority.  It seems like technically the nonce authority may
+     not need to be passed in, but we disallow that.  We also allow
+     trailing data and trailing accounts.  We want to organize the
+     checks somewhat to minimize cache misses. */
+  if( FD_UNLIKELY( txn->instr_cnt==0            ) ) return 1;
+  if( FD_UNLIKELY( txn->instr[ 0 ].data_sz<4UL  ) ) return 1;
+  if( FD_UNLIKELY( txn->instr[ 0 ].acct_cnt<3UL ) ) return 1; /* It seems like technically 2 is allowed, but never used */
+  if( FD_LIKELY  ( fd_uint_load_4( txne->txnp->payload + txn->instr[ 0 ].data_off )!=4U ) ) return 1;
+  /* The program has to be a static account */
+  fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, txne->txnp->payload );
+  if( FD_UNLIKELY( !fd_memeq( accts[ txn->instr[ 0 ].program_id ].b, null_addr.b, 32UL       ) ) ) return 1;
+  if( FD_UNLIKELY( !fd_txn_is_signer( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off+2 ] ) ) ) return 0;
+  /* We could check recent blockhash, but it's not necessary */
+  return 2;
 }
 
 /* Can the fee payer afford to pay a transaction with the specified
@@ -1162,11 +1299,17 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
      accessed with adj_lut[n]. */
   fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
+  ord->expires_at = expires_at;
+
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
+  int is_vote          = est_result==1;
 
-  ord->expires_at = expires_at;
-  int is_vote = est_result==1;
+  int nonce_result = fd_pack_validate_durable_nonce( txne );
+  if( FD_UNLIKELY( !nonce_result ) ) REJECT( INVALID_NONCE );
+  int is_durable_nonce = nonce_result==2;
+  ord->txn->flags &= ~FD_TXN_P_FLAGS_DURABLE_NONCE;
+  ord->txn->flags |= fd_uint_if( is_durable_nonce, FD_TXN_P_FLAGS_DURABLE_NONCE, 0U );
 
   int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !!pack->bundle_meta_sz );
   if( FD_UNLIKELY( validation_result ) ) {
@@ -1178,6 +1321,17 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
 
   int replaces = 0;
+  /* If it's a durable nonce and we already have one, delete one or the
+     other. */
+  if( FD_UNLIKELY( is_durable_nonce ) ) {
+    fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, txne, NULL, pack->pool );
+    if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
+      if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || COMPARE_WORSE( ord, same_nonce ) ) ) REJECT( NONCE_PRIORITY );
+      delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
+      replaces = 1;
+    }
+  }
+
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
     float threshold_score = (float)ord->rewards/(float)ord->compute_est;
     if( FD_UNLIKELY( !delete_worst( pack, threshold_score, is_vote ) ) )       REJECT( PRIORITY         );
@@ -1229,16 +1383,15 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   sig2txn_ele_insert( pack->signature_map, ord, pack->pool );
 
+  if( FD_UNLIKELY( is_durable_nonce ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
+
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
 
-  if( FD_LIKELY( is_vote ) ) {
-    treap_ele_insert( pack->pending_votes, ord, pack->pool );
-    return replaces ? FD_PACK_INSERT_ACCEPT_VOTE_REPLACE : FD_PACK_INSERT_ACCEPT_VOTE_ADD;
-  } else {
-    treap_ele_insert( insert_into,         ord, pack->pool );
-    return replaces ? FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE : FD_PACK_INSERT_ACCEPT_NONVOTE_ADD;
-  }
+  if( FD_LIKELY( is_vote ) ) insert_into = pack->pending_votes;
+
+  treap_ele_insert( insert_into, ord, pack->pool );
+  return (is_vote) | (replaces<<1) | (is_durable_nonce<<2);
 }
 #undef REJECT
 
@@ -1289,6 +1442,9 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
   if( FD_UNLIKELY( expires_at<pack->expire_before                                         ) ) err = FD_PACK_INSERT_REJECT_EXPIRED;
 
 
+  int replaces  = 0;
+  int any_nonce = 0;
+
   for( ulong i=0UL; (i<txn_cnt) && !err; i++ ) {
     fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)bundle[ i ];
 
@@ -1299,12 +1455,32 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord );
-    if( FD_UNLIKELY( !est_result ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL; break; }
+    if( FD_UNLIKELY( !est_result   ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL; break; }
+    int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
+    if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;   break; }
+    int is_durable_nonce = nonce_result==2;
+    any_nonce |= is_durable_nonce;
 
     bundle[ i ]->txnp->flags |= FD_TXN_P_FLAGS_BUNDLE;
-    bundle[ i ]->txnp->flags &= ~FD_TXN_P_FLAGS_INITIALIZER_BUNDLE;
-    bundle[ i ]->txnp->flags |= fd_uint_if( initializer_bundle, FD_TXN_P_FLAGS_INITIALIZER_BUNDLE, 0 );
+    bundle[ i ]->txnp->flags &= ~(FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_DURABLE_NONCE);
+    bundle[ i ]->txnp->flags |= fd_uint_if( initializer_bundle, FD_TXN_P_FLAGS_INITIALIZER_BUNDLE, 0U );
+    bundle[ i ]->txnp->flags |= fd_uint_if( is_durable_nonce,   FD_TXN_P_FLAGS_DURABLE_NONCE,      0U );
     ord->expires_at = expires_at;
+
+    if( FD_UNLIKELY( is_durable_nonce ) ) {
+      fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, ord->txn_e, NULL, pack->pool );
+      if( FD_LIKELY( same_nonce ) ) {
+        /* bundles take priority over non-bundles, and earlier bundles
+           take priority over later bundles. */
+        if( FD_UNLIKELY( same_nonce->txn->flags & FD_TXN_P_FLAGS_BUNDLE ) ) {
+          err = FD_PACK_INSERT_REJECT_NONCE_PRIORITY;
+          break;
+        } else {
+          delete_transaction( pack, same_nonce, 0, 0 );
+          replaces = 1;
+        }
+      }
+    }
 
     int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !initializer_bundle );
     if( FD_UNLIKELY( validation_result ) ) { err = validation_result; break; }
@@ -1325,7 +1501,6 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     if( FD_UNLIKELY( is_ib && 0UL==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) delete_transaction( pack, cur, 1, 0 );
   }
 
-  int replaces = 0;
   while( FD_UNLIKELY( pack->pending_txn_cnt+txn_cnt > pack->pack_depth ) ) {
     if( FD_UNLIKELY( !delete_worst( pack, FLT_MAX, 0 ) ) ) {
       fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
@@ -1457,8 +1632,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      x+1) which is x++ */
   pack->relative_bundle_idx = fd_ulong_max( bundle_idx+1UL, pack->relative_bundle_idx );
 
-  return replaces ? FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE : FD_PACK_INSERT_ACCEPT_NONVOTE_ADD;
-
+  return (0) | (replaces<<1) | (any_nonce<<2);
 }
 static inline void
 insert_bundle_impl( fd_pack_t           * pack,
@@ -1485,6 +1659,7 @@ insert_bundle_impl( fd_pack_t           * pack,
     treap_ele_insert( pack->pending_bundles, ord, pack->pool );
     pack->pending_txn_cnt++;
 
+    if( FD_UNLIKELY( ord->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
     sig2txn_ele_insert( pack->signature_map, ord, pack->pool );
 
     fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
@@ -1835,6 +2010,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     *(use_by_bank_txn++) = use_by_bank_cnt;
 
+    if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool );
     sig2txn_ele_remove_fast( pack->signature_map, cur, pool );
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
@@ -2198,6 +2374,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     pack->data_bytes_consumed   += cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
     pack->microblock_cnt        += 1UL;
 
+    if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool );
     sig2txn_ele_remove_fast( pack->signature_map, cur, pack->pool );
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
@@ -2665,6 +2842,10 @@ delete_transaction( fd_pack_t         * pack,
     release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
     FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
     FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
+  }
+
+  if( FD_UNLIKELY( containing->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) {
+    noncemap_ele_remove_fast( pack->noncemap, containing, pack->pool );
   }
   expq_remove( pack->expiration_q, containing->expq_idx );
   containing->root = FD_ORD_TXN_ROOT_FREE;
