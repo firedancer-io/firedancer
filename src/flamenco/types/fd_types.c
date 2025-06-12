@@ -4393,6 +4393,9 @@ int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_
 }
 static inline int fd_rust_duration_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  int err = fd_rust_duration_footprint_validator( ctx );
+  if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) )
+    return err;
   ctx->data = (void *)( (ulong)ctx->data + 12UL );
   return 0;
 }
@@ -4400,6 +4403,7 @@ static void fd_rust_duration_decode_inner( void * struct_mem, void * * alloc_mem
   fd_rust_duration_t * self = (fd_rust_duration_t *)struct_mem;
   fd_bincode_uint64_decode_unsafe( &self->seconds, ctx );
   fd_bincode_uint32_decode_unsafe( &self->nanoseconds, ctx );
+  fd_rust_duration_normalize( self );
 }
 void * fd_rust_duration_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_rust_duration_t * self = (fd_rust_duration_t *)mem;
