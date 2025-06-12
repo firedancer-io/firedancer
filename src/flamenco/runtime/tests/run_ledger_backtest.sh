@@ -152,7 +152,7 @@ echo "
      [tiles.replay]
          snapshot = \"$SNAPSHOT\"
          funk_sz_gb = $FUNK_PAGES
-         funk_txn_max = 1024
+         funk_txn_max = 64
          funk_rec_max = $INDEX_MAX
          cluster_version = \"$CLUSTER_VERSION\"
          enable_features = [ \"$ONE_OFFS\" ]
