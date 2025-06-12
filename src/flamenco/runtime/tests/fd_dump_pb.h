@@ -41,6 +41,11 @@
                 * If enabled, syscalls will be dumped to the specified output directory
                 * File name format is "syscall-<fn_name>-<base58_enc_sig>-<program_id_idx>-<instr_stack_sz>-<cus_remaining>.bin"
 
+        ELF:
+            --dump-elf-to-pb <0/1>
+                * If enabled, ELF files will be dumped to the specified output directory
+                * File name format is "elf-<base58_enc_sig>-<base58_enc_program_id>-<slot_number>.elfctx"
+
     Other notes:
         solana-conformance (https://github.com/firedancer-io/solana-conformance)
             * Allows decoding / executing / debugging of above Protobuf messages in an isolated environment
@@ -51,6 +56,7 @@
 #include "../info/fd_runtime_block_info.h"
 #include "../../vm/fd_vm.h"
 #include "harness/generated/block.pb.h"
+#include "harness/generated/elf.pb.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -95,6 +101,10 @@ fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name );
+
+void
+fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
+                         fd_pubkey_t const * program_id );
 
 FD_PROTOTYPES_END
 

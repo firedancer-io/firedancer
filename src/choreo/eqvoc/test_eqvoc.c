@@ -178,8 +178,8 @@ test_eqvoc_proof_to_chunks( FD_PARAM_UNUSED fd_eqvoc_t * eqvoc,
                                  FD_SHRED_TYPE_MERKLE_CODE_CHAINED );
 
   ulong sz        = ( shred1_sz + shred2_sz );
-  ulong chunk_cnt = sz / FD_EQVOC_PROOF_CHUNK_MAX;
-  ulong chunk_len = FD_EQVOC_PROOF_CHUNK_MAX;
+  ulong chunk_cnt = sz / FD_EQVOC_PROOF_CHUNK_SZ;
+  ulong chunk_len = FD_EQVOC_PROOF_CHUNK_SZ;
   chunk_cnt       = fd_ulong_if( (int)( sz % chunk_len ), chunk_cnt + 1, chunk_cnt );
 
   fd_gossip_duplicate_shred_t duplicate_shreds[chunk_cnt];
@@ -188,7 +188,7 @@ test_eqvoc_proof_to_chunks( FD_PARAM_UNUSED fd_eqvoc_t * eqvoc,
   }
 
   fd_eqvoc_proof_t proof = { 0 };
-  proof.producer = producer; 
+  proof.producer = producer;
   fd_memcpy( proof.shreds, shred1, shred1_sz );
   fd_memcpy( proof.shreds + shred1_sz, shred2, shred2_sz );
   fd_eqvoc_proof_to_chunks( &proof, duplicate_shreds );
@@ -263,7 +263,7 @@ main( int argc, char ** argv ) {
   test_eqvoc_proof_verify( eqvoc );
 
   ulong shred_szs[2]  = { FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ };
-  ulong chunk_lens[4] = { FD_EQVOC_PROOF_CHUNK_MAX, 117, 42, 20 };
+  ulong chunk_lens[4] = { FD_EQVOC_PROOF_CHUNK_SZ, 117, 42, 20 };
 
   for( ulong i = 0; i < sizeof( shred_szs ) / sizeof( ulong ); i++ ) {
     for( ulong j = 0; j < sizeof( shred_szs ) / sizeof( ulong ); j++ ) {

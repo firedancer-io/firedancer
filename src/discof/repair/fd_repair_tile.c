@@ -105,7 +105,8 @@ struct fd_repair_tile_ctx {
   // fd_fec_repair_t *  fec_repair;
   fd_fec_chainer_t * fec_chainer;
 
-  ulong * curr_turbine_slot;
+  ulong * turbine_slot0;
+  ulong * turbine_slot;
 
   uchar       identity_private_key[ 32 ];
   fd_pubkey_t identity_public_key;
@@ -150,9 +151,6 @@ struct fd_repair_tile_ctx {
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
-
-  ulong * first_turbine_slot; /* first slot we see over turbine
-                                 used to approximate init poh_slot */
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -790,23 +788,20 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
-    /* FIXME: This is a hack to initialize the poh_slot fseq. This
-       should be removed when we use msg passing instead of fseq. */
-    if( fd_fseq_query( ctx->first_turbine_slot ) == ULONG_MAX ) {
-      fd_fseq_update( ctx->first_turbine_slot, shred->slot );
-    }
-    if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) return; /* shred too old */
+    if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
+      FD_LOG_WARNING(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
+      return;
+    };
 
-    // FD_LOG_NOTICE(( "shred %lu %u", shred->slot, shred->idx ));
+    /* Update turbine_slot0 and turbine_slot. */
+
+    if( FD_UNLIKELY( fd_fseq_query( ctx->turbine_slot0 )==ULONG_MAX ) ) {
+      fd_fseq_update( ctx->turbine_slot0, shred->slot );
+    }
+    fd_fseq_update( ctx->turbine_slot, fd_ulong_max( shred->slot, fd_fseq_query( ctx->turbine_slot ) ) );
 
     /* Insert the shred sig (shared by all shred members in the FEC set)
        into the map. */
-
-    // FD_LOG_NOTICE(( "shred %lu %u %u", shred->slot, shred->idx, shred->fec_set_idx ));
-
-    if( FD_UNLIKELY( shred->slot > fd_fseq_query( ctx->curr_turbine_slot ) ) ) {
-      fd_fseq_update( ctx->curr_turbine_slot, shred->slot );
-    }
 
     fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
     if( FD_UNLIKELY( !fec_sig ) ) {
@@ -1252,13 +1247,17 @@ unprivileged_init( fd_topo_t *      topo,
   /* turbine_slot fseq                                                  */
   /**********************************************************************/
 
-  ulong current_turb_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turb_slot" );
-  FD_TEST( current_turb_slot_obj_id!=ULONG_MAX );
-  ctx->curr_turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_turb_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->curr_turbine_slot ) ) FD_LOG_ERR(( "repair tile has no turb_slot fseq" ));
-  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->curr_turbine_slot ) );
-  fd_fseq_update( ctx->curr_turbine_slot, 0UL );
+  ulong turbine_slot0_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turbine_slot0" );
+  FD_TEST( turbine_slot0_obj_id!=ULONG_MAX );
+  ctx->turbine_slot0 = fd_fseq_join( fd_topo_obj_laddr( topo, turbine_slot0_obj_id ) );
+  FD_TEST( ctx->turbine_slot0 );
+  FD_TEST( fd_fseq_query( ctx->turbine_slot0 )==ULONG_MAX );
 
+  ulong turbine_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "turbine_slot" );
+  FD_TEST( turbine_slot_obj_id!=ULONG_MAX );
+  ctx->turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, turbine_slot_obj_id ) );
+  FD_TEST( ctx->turbine_slot );
+  fd_fseq_update( ctx->turbine_slot, 0UL );
 
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
@@ -1275,18 +1274,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_repair_update_addr( ctx->repair, &ctx->repair_intake_addr, &ctx->repair_serve_addr );
-
-  /* TODO: this is a hack to set the first turbine slot so that replay
-     knows when we have caught up to a slot >= where we last voted. It
-    is assumed turbine has proceeded past the slot from which validator
-    stopped replaying and therefore also stopped voting (crashed,
-    shutdown, etc.). This is important for voting, because you need have
-    "read-back" your latest landed tower before you can vote. Using an
-    fseq is a temporary hack, and this will be replaced with the standard
-    frag-signaling pattern across tiles with a separate consensus tile. */
-  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
-  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
-  ctx->first_turbine_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_start( ctx->repair );

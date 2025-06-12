@@ -222,7 +222,6 @@ backtest_topo( config_t * config ) {
 
   strncpy( replay_tile->replay.identity_key_path, config->paths.identity_key, sizeof(replay_tile->replay.identity_key_path) );
   replay_tile->replay.ip_addr = config->net.ip_addr;
-  replay_tile->replay.vote = config->firedancer.consensus.vote;
   strncpy( replay_tile->replay.vote_account_path, config->paths.vote_account, sizeof(replay_tile->replay.vote_account_path) );
   replay_tile->replay.full_interval        = config->tiles.batch.full_interval;
   replay_tile->replay.incremental_interval = config->tiles.batch.incremental_interval;
@@ -268,20 +267,16 @@ backtest_topo( config_t * config ) {
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
   fd_topob_wksp( topo, "stake_out"    );
-  fd_topob_wksp( topo, "replay_send"  );
   fd_topob_wksp( topo, "replay_poh"   );
 
   fd_topob_link( topo, "stake_out",   "stake_out",   128UL, 40UL + 40200UL * 40UL, 1UL );
-  fd_topob_link( topo, "replay_send", "replay_send", 128UL, sizeof(fd_txn_p_t),    1UL );
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
   FOR(bank_tile_cnt) fd_topob_link( topo, "replay_poh", "replay_poh", 128UL, (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL );
 
   fd_topob_tile_out( topo, "replay", 0UL, "stake_out",   0UL );
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_send", 0UL );
   FOR(bank_tile_cnt) fd_topob_tile_out( topo, "replay", 0UL, "replay_poh", i );
 
   topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "stake_out",   0 ) ] ].permit_no_consumers = 1;
-  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_send", 0 ) ] ].permit_no_consumers = 1;
   FOR(bank_tile_cnt) topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_poh", i ) ] ].permit_no_consumers = 1;
 
   /**********************************************************************/
@@ -325,6 +320,8 @@ backtest_topo( config_t * config ) {
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
+  fd_topob_wksp( topo, "slot_fseqs"  ); /* fseqs for marked slots eg. turbine slot */
+
   /* blockstore_obj shared by replay and backtest tiles */
   fd_topob_wksp( topo, "blockstore" );
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo, "blockstore", config->firedancer.blockstore.shred_max, config->firedancer.blockstore.block_max, config->firedancer.blockstore.idx_max, config->firedancer.blockstore.txn_max, config->firedancer.blockstore.alloc_max );
@@ -332,12 +329,20 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, backtest_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
-  /* turb_slot_obj shared by replay and backtest tiles */
-  fd_topob_wksp( topo, "turb_slot" );
-  fd_topo_obj_t * turb_slot_obj = fd_topob_obj( topo, "fseq", "turb_slot" );
-  fd_topob_tile_uses( topo, replay_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, backtest_tile, turb_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, turb_slot_obj->id, "turb_slot" ) );
+  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
+  fd_topob_tile_uses( topo, backtest_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
+
+  fd_topo_obj_t * turbine_slot0_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
+  fd_topob_tile_uses( topo, backtest_tile, turbine_slot0_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, turbine_slot0_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot0_obj->id, "turbine_slot0" ) );
+
+  fd_topo_obj_t * turbine_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
+  fd_topob_tile_uses( topo, backtest_tile, turbine_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, turbine_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, turbine_slot_obj->id, "turbine_slot" ) );
 
   /* runtime_pub_obj shared by replay, exec and writer tiles */
   fd_topob_wksp( topo, "runtime_pub" );
@@ -378,17 +383,9 @@ backtest_topo( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, writer_fseq_obj->id, "writer_fseq.%lu", i ) );
   }
 
-  /* root_slot_obj shared by replay and backtest tiles */
-  fd_topob_wksp( topo, "root_slot" );
-  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
-  fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, backtest_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
-
   /* txncache_obj, busy_obj, poh_slot_obj and constipated_obj only by replay tile */
   fd_topob_wksp( topo, "tcache"      );
   fd_topob_wksp( topo, "bank_busy"   );
-  fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "constipate"  );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
       config->firedancer.runtime.limits.max_rooted_slots,
@@ -402,9 +399,6 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_uses( topo, replay_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
   }
-  fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
-  fd_topob_tile_uses( topo, replay_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_slot_obj->id, "poh_slot" ) );
   fd_topo_obj_t * constipated_obj = fd_topob_obj( topo, "fseq", "constipate" );
   fd_topob_tile_uses( topo, replay_tile, constipated_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, constipated_obj->id, "constipate" ) );
@@ -425,14 +419,6 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   initialize_stacks( config );
   fd_topo_t * topo = &config->topo;
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  /* FIXME: there's no PoH tile in this mini-topology,
-   *        but replay tile waits for `poh_slot!=ULONG_MAX` before starting to vote
-   *        -- vote updates the root for funk/blockstore publish */
-  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
-  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
-  ulong * poh = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
-  fd_fseq_update( poh, 0UL );
 
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
   for(;;) pause();

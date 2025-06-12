@@ -60,6 +60,7 @@ struct fd_ledger_args {
   int                   dump_txn_to_pb;          /* txn dumping: should txns be dumped */
   int                   dump_block_to_pb;        /* block dumping: should blocks be dumped */
   int                   dump_syscall_to_pb;      /* syscall dumping: should syscalls be dumped */
+  int                   dump_elf_to_pb;          /* elf dumping: should elfs be dumped */
   ulong                 dump_proto_start_slot;   /* instruction / txn dumping: what slot to start dumping*/
   char const *          dump_proto_sig_filter;   /* instruction / txn dumping: specify txn sig to dump at */
   char const *          dump_proto_output_dir;   /* instruction / txn dumping: output directory for protobuf messages */
@@ -665,7 +666,7 @@ fd_ledger_capture_setup( fd_ledger_args_t * args ) {
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
   int has_checkpt          = args->checkpt_path && args->checkpt_path[0] != '\0';
   int has_checkpt_funk     = args->checkpt_funk && args->checkpt_funk[0] != '\0';
-  int has_dump_to_protobuf = args->dump_insn_to_pb || args->dump_txn_to_pb || args->dump_block_to_pb || args->dump_syscall_to_pb;
+  int has_dump_to_protobuf = args->dump_insn_to_pb || args->dump_txn_to_pb || args->dump_block_to_pb || args->dump_syscall_to_pb || args->dump_elf_to_pb;
 
   if( has_solcap || has_checkpt || has_checkpt_funk || has_dump_to_protobuf ) {
     FILE * capture_file = NULL;
@@ -698,6 +699,7 @@ fd_ledger_capture_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->dump_txn_to_pb        = args->dump_txn_to_pb;
       args->capture_ctx->dump_block_to_pb      = args->dump_block_to_pb;
       args->capture_ctx->dump_syscall_to_pb    = args->dump_syscall_to_pb;
+      args->capture_ctx->dump_elf_to_pb        = args->dump_elf_to_pb;
       args->capture_ctx->dump_proto_sig_filter = args->dump_proto_sig_filter;
       args->capture_ctx->dump_proto_output_dir = args->dump_proto_output_dir;
       args->capture_ctx->dump_proto_start_slot = args->dump_proto_start_slot;
@@ -1407,6 +1409,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          dump_txn_to_pb        = fd_env_strip_cmdline_int   ( &argc, &argv, "--dump-txn-to-pb",        NULL, 0                                                  );
   int          dump_block_to_pb      = fd_env_strip_cmdline_int   ( &argc, &argv, "--dump-block-to-pb",      NULL, 0                                                  );
   int          dump_syscall_to_pb    = fd_env_strip_cmdline_int   ( &argc, &argv, "--dump-syscall-to-pb",    NULL, 0                                                  );
+  int          dump_elf_to_pb        = fd_env_strip_cmdline_int   ( &argc, &argv, "--dump-elf-to-pb",        NULL, 0                                                  );
   ulong        dump_proto_start_slot = fd_env_strip_cmdline_ulong ( &argc, &argv, "--dump-proto-start-slot", NULL, 0                                                  );
   char const * dump_proto_sig_filter = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dump-proto-sig-filter", NULL, NULL                                               );
   char const * dump_proto_output_dir = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dump-proto-output-dir", NULL, NULL                                               );
@@ -1516,6 +1519,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->dump_txn_to_pb          = dump_txn_to_pb;
   args->dump_block_to_pb        = dump_block_to_pb;
   args->dump_syscall_to_pb      = dump_syscall_to_pb;
+  args->dump_elf_to_pb          = dump_elf_to_pb;
   args->dump_proto_start_slot   = dump_proto_start_slot;
   args->dump_proto_sig_filter   = dump_proto_sig_filter;
   args->dump_proto_output_dir   = dump_proto_output_dir;

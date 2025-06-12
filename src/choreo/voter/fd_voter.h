@@ -148,10 +148,7 @@ typedef struct fd_voter_state fd_voter_state_t;
    that the record has not been modified. */
 
 fd_voter_state_t const *
-fd_voter_state( fd_funk_t * funk,
-                fd_funk_rec_query_t * query,
-                fd_funk_txn_t const * txn,
-                fd_funk_rec_key_t const * key );
+fd_voter_state( fd_funk_t * funk, fd_funk_rec_t const * rec );
 
 /* fd_voter_state_cnt returns the number of votes in the voter's tower.
    Assumes `state` is a valid fd_voter_state_t. */

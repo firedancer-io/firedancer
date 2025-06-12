@@ -299,7 +299,6 @@ typedef struct {
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
-      int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
       ulong exec_tile_count;
@@ -413,10 +412,6 @@ typedef struct {
     } send;
 
     struct {
-      char  identity_key_path[ PATH_MAX ];
-    } eqvoc;
-
-    struct {
       ushort  rpc_port;
       ushort  tpu_port;
       uint    tpu_ip_addr;
@@ -450,6 +445,11 @@ typedef struct {
       int archive_fd;
     } archiver;
 
+    struct {
+      char funk_file[ PATH_MAX ];
+      char identity_key_path[ PATH_MAX ];
+      char vote_acc_path[ PATH_MAX ];
+    } tower;
   };
 } fd_topo_tile_t;
 

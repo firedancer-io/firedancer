@@ -179,18 +179,6 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   fd_exec_epoch_ctx_t * epoch_ctx,
                   fd_spad_t *           runtime_spad );
 
-/* fd_forks_update updates `blockstore` and `ghost` with the latest
-   state resulting from replaying `slot`.  Assumes `slot` is a fork head
-   in the frontier.  In general, this should be called immediately after
-   `slot` has been replayed. */
-
-void
-fd_forks_update( fd_forks_t *          forks,
-                 fd_epoch_t *          epoch,
-                 fd_funk_t *           funk,
-                 fd_ghost_t *          ghost,
-                 ulong                 slot );
-
 /* fd_forks_publish publishes a new root into forks.  Assumes root is a
    valid slot that exists in the cluster and has already been replayed.
    This prunes all the existing forks in the frontier except descendants
@@ -198,9 +186,7 @@ fd_forks_update( fd_forks_t *          forks,
    when handholding is enabled).  */
 
 void
-fd_forks_publish( fd_forks_t *       fork,
-                  ulong              root,
-                  fd_ghost_t const * ghost );
+fd_forks_publish( fd_forks_t * fork, ulong root );
 
 /* fd_forks_print prints a forks as a list of the frontiers and number
    of forks (pool eles acquired). */

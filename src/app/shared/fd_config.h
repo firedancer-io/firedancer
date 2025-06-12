@@ -93,10 +93,6 @@ typedef struct fd_configh fd_configh_t;
 
 struct fd_configf {
   struct {
-    int vote;
-  } consensus;
-
-  struct {
     ulong shred_max;
     ulong block_max;
     ulong idx_max;

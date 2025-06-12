@@ -59,7 +59,7 @@ fd_epoch_forks_new( fd_epoch_forks_t * epoch_forks, void * epoch_ctx_base );
    clears out the fork entries which can be pruned at that point. It also picks
    the correct entry to use for the new epoch. */
 void
-fd_epoch_forks_publish( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost, ulong root );
+fd_epoch_forks_publish( fd_epoch_forks_t * epoch_forks, ulong root );
 
 /* epoch_forks_prepare creates a new entry for the fork crossing the epoch boundary,
    or returns the existing entry associated with the fork crossing the epoch boundary.
@@ -74,7 +74,7 @@ fd_epoch_forks_prepare( fd_epoch_forks_t *      epoch_forks,
 /* epoch_forks_get_epoch_ctx returns the correct entry index for the current epoch, or
    in the case of a new epoch fork, the correct entry index related to the fork. */
 ulong
-fd_epoch_forks_get_epoch_ctx( fd_epoch_forks_t * epoch_forks, fd_ghost_t * ghost, ulong curr_slot, ulong * opt_prev_slot );
+fd_epoch_forks_get_epoch_ctx( fd_epoch_forks_t * epoch_forks, ulong root, ulong curr_slot, ulong * opt_prev_slot );
 
 FD_PROTOTYPES_END
 

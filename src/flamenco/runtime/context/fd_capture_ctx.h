@@ -37,6 +37,9 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
 
   /* Syscall Capture */
   int                      dump_syscall_to_pb;
+
+  /* ELF Capture */
+  int                      dump_elf_to_pb;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )
