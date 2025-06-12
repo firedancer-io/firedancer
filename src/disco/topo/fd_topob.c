@@ -447,8 +447,11 @@ fd_topob_auto_layout( fd_topo_t * topo,
               if( FD_UNLIKELY( try_assign>=cpus->cpu_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
             }
 
+            ulong sibling = cpus->cpu[ cpu_ordering[ try_assign ] ].sibling;
             cpu_assigned[ cpu_ordering[ try_assign ] ] = 1;
-            cpu_assigned[ cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ] = 1;
+            if( sibling!=ULONG_MAX ) {
+              cpu_assigned[ sibling ] = 1;
+            }
             tile->cpu_idx = cpu_ordering[ try_assign ];
             while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
           } else {
