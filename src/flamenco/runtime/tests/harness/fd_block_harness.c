@@ -234,20 +234,18 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   uchar * pool_mem                      = fd_spad_alloc( runner->spad, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint( 10000UL ) );
   slot_bank->timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new( pool_mem, 10000UL ) );
   slot_bank->timestamp_votes.votes_root = NULL;
-
-  fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
-  slot_bank->slot                   = slot;
-  slot_bank->block_height           = test_ctx->slot_ctx.block_height;
-  slot_bank->prev_slot              = test_ctx->slot_ctx.prev_slot;
-  slot_bank->fee_rate_governor      = (fd_fee_rate_governor_t) {
-    .target_lamports_per_signature  = 10000UL,
-    .target_signatures_per_slot     = 20000UL,
-    .min_lamports_per_signature     = 5000UL,
-    .max_lamports_per_signature     = 100000UL,
-    .burn_percent                   = 50,
+  slot_bank->slot                       = slot;
+  slot_bank->block_height               = test_ctx->slot_ctx.block_height;
+  slot_bank->prev_slot                  = test_ctx->slot_ctx.prev_slot;
+  slot_bank->fee_rate_governor          = (fd_fee_rate_governor_t) {
+    .target_lamports_per_signature      = 10000UL,
+    .target_signatures_per_slot         = 20000UL,
+    .min_lamports_per_signature         = 5000UL,
+    .max_lamports_per_signature         = 100000UL,
+    .burn_percent                       = 50,
   };
-  slot_bank->capitalization         = test_ctx->slot_ctx.prev_epoch_capitalization;
-  slot_bank->lamports_per_signature = 5000UL;
+  slot_bank->capitalization             = test_ctx->slot_ctx.prev_epoch_capitalization;
+  slot_bank->lamports_per_signature     = 5000UL;
 
   /* Set up epoch context and epoch bank */
   /* TODO: Do we need any more of these? */
