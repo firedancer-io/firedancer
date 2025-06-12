@@ -9,7 +9,6 @@
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../funk/fd_funk_val.h"
 
 #define IN_KIND_GOSSIP ( 0)
@@ -278,7 +277,6 @@ after_frag( ctx_t *             ctx,
   ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
 
   if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) { /* snapshot slot */
-    fd_funk_open_file( ctx->funk, ctx->funk_file, 1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL );
     FD_TEST( ctx->funk );
     FD_TEST( fd_funk_txn_map( ctx->funk ) );
     update_epoch( ctx, sz );

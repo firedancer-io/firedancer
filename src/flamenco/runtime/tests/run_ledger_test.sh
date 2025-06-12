@@ -20,7 +20,7 @@ FUNK_PAGES="--funk-page-cnt 16"
 INDEX_MAX="--index-max 5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
-TILE_CPUS="--tile-cpus 5-15"
+TILE_CPUS="--tile-cpus 5-9"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}

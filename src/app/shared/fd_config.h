@@ -119,10 +119,6 @@ struct fd_configf {
     ulong max_account_records;
     ulong heap_size_gib;
     ulong max_database_transactions;
-    struct {
-      int  enabled;
-      char path[ PATH_MAX ];
-    } filemap;
   } funk;
 
   struct {
