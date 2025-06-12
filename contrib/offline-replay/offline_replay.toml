@@ -12,7 +12,7 @@
     [tiles.replay]
         snapshot = "{snapshot}"
         funk_sz_gb = {funk_pages}
-        funk_txn_max = 1024
+        funk_txn_max = 64
         funk_rec_max = {index_max}
         cluster_version = "{cluster_version}"
         funk_file = "{ledger}/backtest.funk"

@@ -241,6 +241,10 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "writer" );
   FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
 
+  /**********************************************************************/
+  /* Setup backtest->replay links in topo                               */
+  /**********************************************************************/
+
   /* The repair tile is replaced by the backtest tile for the repair to
      replay link.  The frag interface is a "slice", ie. entry batch,
      which is provided by the backtest tile, which reads in the entry
@@ -262,6 +266,22 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "batch_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "pack_replay", 0 ) ] ].permit_no_producers = 1;
   topo->links[ replay_tile->in_link_id[ fd_topo_find_tile_in_link( topo, replay_tile, "batch_replay", 0 ) ] ].permit_no_producers = 1;
+
+  /**********************************************************************/
+  /* More backtest->replay links in topo                                */
+  /**********************************************************************/
+
+  /* The tower tile is replaced by the backtest tile for the tower to
+     replay link.  The backtest tile simply sends monotonically
+     increasing rooted slot numbers to the replay tile, once after each
+     "replayed a full slot" notification received from the replay tile.
+     This allows the replay tile to advance its watermark, and publish
+     various data structures.  This is an oversimplified barebones mock
+     of the tower tile. */
+  fd_topob_wksp( topo, "tower_replay" );
+  fd_topob_link( topo, "tower_replay", "tower_replay", 128UL, 0UL, 1UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "back", 0UL, "tower_replay", 0UL );
 
   /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */

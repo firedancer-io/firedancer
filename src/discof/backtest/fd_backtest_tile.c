@@ -1,6 +1,7 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_disco.h"
 #include "../../disco/stem/fd_stem.h"
+#include "../../choreo/tower/fd_tower.h"
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
@@ -32,6 +33,8 @@ typedef struct {
   ulong                  replay_in_wmark;
   fd_replay_notif_msg_t  replay_notification;
 
+  ulong                  tower_replay_out_idx;
+
   ulong                  playback_started;
   ulong                  end_slot;
   ulong                  start_slot;
@@ -41,6 +44,8 @@ typedef struct {
   fd_valloc_t            valloc;
   long                   replay_time;
   ulong                  slot_cnt;
+
+  fd_tower_t *           tower;
 } ctx_t;
 
 FD_FN_PURE static inline ulong
@@ -123,12 +128,25 @@ notify_one_slot( ctx_t * ctx, fd_stem_context_t * stem ) {
 }
 
 static void
+notify_tower_root( ctx_t *             ctx,
+                   fd_stem_context_t * stem,
+                   ulong               tsorig,
+                   ulong               tspub ) {
+  ulong replayed_slot = ctx->replay_notification.slot_exec.slot;
+  ulong root          = fd_tower_vote( ctx->tower, replayed_slot );
+  if( FD_LIKELY( root != FD_SLOT_NULL ) ) {
+    fd_stem_publish( stem, ctx->tower_replay_out_idx, root, 0UL, 0UL, 0UL, tsorig, tspub );
+  }
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
-  void * alloc_shmem                   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  void * alloc_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  void * tower_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, 4096UL );
 
   /* Allocator */
@@ -137,6 +155,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "fd_alloc_join failed" ) );
   }
   ctx->valloc = fd_alloc_virtual( ctx->alloc );
+
+  /* Tower */
+  ctx->tower = fd_tower_join( fd_tower_new( tower_mem ) );
+  if( FD_UNLIKELY( !ctx->tower ) ) {
+    FD_LOG_ERR( ( "fd_tower_join failed" ) );
+  }
 
   ctx->rocksdb_curr_idx = 0;
   ctx->rocksdb_end_idx  = 0;
@@ -154,6 +178,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_in_mem              = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_in_chunk0           = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in_link->dcache );
   ctx->replay_in_wmark            = fd_dcache_compact_wmark( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
+
+  ctx->tower_replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_replay", 0 );
+  FD_TEST( ctx->tower_replay_out_idx!= ULONG_MAX );
 
   ctx->playback_started           = 0;
   ctx->end_slot          = tile->archiver.end_slot;
@@ -242,8 +269,8 @@ after_frag( ctx_t * ctx,
             ulong                             seq FD_PARAM_UNUSED,
             ulong                             sig FD_PARAM_UNUSED,
             ulong                             sz FD_PARAM_UNUSED,
-            ulong                             tsorig FD_PARAM_UNUSED,
-            ulong                             tspub FD_PARAM_UNUSED,
+            ulong                             tsorig,
+            ulong                             tspub,
             fd_stem_context_t *               stem ) {
   if( FD_LIKELY( ctx->replay_notification.type==FD_REPLAY_SLOT_TYPE ) ) {
     ulong slot            = ctx->replay_notification.slot_exec.slot;
@@ -289,6 +316,7 @@ after_frag( ctx_t * ctx,
                     FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
       }
     }
+    notify_tower_root( ctx, stem, tsorig, tspub );
     notify_one_slot( ctx, stem );
 
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
