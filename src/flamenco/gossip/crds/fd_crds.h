@@ -1,10 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_crds_h
 #define HEADER_fd_src_flamenco_gossip_fd_crds_h
 
-#include "../../util/fd_util.h"
+#include "../../../util/fd_util.h"
+#include "../../../util/net/fd_net_headers.h"
+#include "../fd_gossip_private.h"
 
-struct fd_crds_value_private;
-typedef struct fd_crds_value_private fd_crds_value_t;
+struct fd_crds_entry_private;
+typedef struct fd_crds_entry_private fd_crds_entry_t;
 
 struct fd_crds_private;
 typedef struct fd_crds_private fd_crds_t;
@@ -12,27 +14,22 @@ typedef struct fd_crds_private fd_crds_t;
 struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
+#define CRDS_MASK_ITER_SIZE (16UL)
+
 FD_PROTOTYPES_BEGIN
-
-long
-fd_crds_value_wallclock( fd_crds_value_t const * value );
-
-uchar const *
-fd_crds_value_pubkey( fd_crds_value_t const * value );
-
-uchar const *
-fd_crds_value_hash( fd_crds_value_t const * value );
 
 FD_FN_CONST ulong
 fd_crds_align( void );
 
 FD_FN_CONST ulong
-fd_crds_footprint( ulong ele_max );
+fd_crds_footprint( ulong ele_max,
+                   ulong purged_max );
 
 void *
 fd_crds_new( void *     shmem,
              fd_rng_t * rng,
-             ulong      ele_max );
+             ulong      ele_max,
+             ulong      purged_max );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
@@ -41,7 +38,7 @@ fd_crds_join( void * shcrds );
    store.  CRDS values from staked nodes expire roughly an epoch after
    they are created, and values from non-staked nodes expire after 15
    seconds.
-   
+
    There is one exception, when the node is first bootstrapping, and
    has not yet seen any staked nodes, values do not expire at all. */
 
@@ -60,7 +57,7 @@ fd_crds_expire( fd_crds_t * crds,
    are also excluded from the sampling.  Peers with a different shred
    version than us, or with an invalid gossip socket address are also
    excluded from the sampling.
-   
+
    If no valid peer can be found, the returned fd_ip4_port_t will be
    zeroed out.  The caller should check for this case and handle it
    appropriately.  On success, the returned fd_ip4_port_t is a socket
@@ -85,7 +82,7 @@ fd_crds_sample_peer( fd_crds_t const * crds );
    does this by evicting an existing value from the pool and structures
    if there is no free space. */
 
-fd_crds_value_t *
+fd_crds_entry_t *
 fd_crds_acquire( fd_crds_t * crds );
 
 /* fd_crds_release releases a CRDS value back to the storage pool.  The
@@ -96,14 +93,47 @@ fd_crds_acquire( fd_crds_t * crds );
 
 void
 fd_crds_release( fd_crds_t *       crds,
-                 fd_crds_value_t * value );
+                 fd_crds_entry_t * value );
+
+/* fd_crds_populate_preflight fills in the minimum information necessary
+   for valid calls to the following functions
+      - fd_crds_upserts()
+      - fd_crds_value_hash()
+
+   This avoids a full memcpy of the CRDS data, which is only needed in
+   fd_crds_insert(). Supplied view and payload are assumed to be error
+   free (i.e., no possibility of OOBs when correctly used). */
+
+void
+fd_crds_populate_preflight( fd_gossip_view_crds_value_t const * view,
+                            uchar const *                       view_payload,
+                            fd_crds_entry_t *                   out_value );
+
+/* fd_crds_populate_full fills in the information necessary
+   for a valid fd_crds_insert call from a given CRDS view and the corresponding
+   payload. view and payload are assumed to be error free (i.e., no possibility
+   of OOBs when correctly used).
+
+   Contact Info (CI) messages will also additionally populate an entry in the
+   crds contact info table.
+
+   has_preflight_info can be set if the entry was
+   previously populated with fd_crds_populate_preflight. */
+
+void
+fd_crds_populate_full( fd_crds_t *                         crds,
+                       fd_gossip_view_crds_value_t const * view,
+                       uchar const *                       view_payload,
+                       long                                now,
+                       uchar                               has_upsert_info,
+                       fd_crds_entry_t *                   out_value );
 
 /* fd_crds_upserts checks if inserting the value into the CRDS would
    succeed.  An insert will fail if the value is already present in the
    CRDS with a newer timestamp, or if the value is not present. */
-
+int
 fd_crds_upserts( fd_crds_t *       crds,
-                 fd_crds_value_t * value );
+                 fd_crds_entry_t * value );
 
 /* fd_crds_insert inserts and indexes a previously acquired CRDS value
    into the data store, so that it can be returned by future queries.
@@ -113,9 +143,21 @@ fd_crds_upserts( fd_crds_t *       crds,
    release the value when it expires, or when it must be evicted to
    make room for a new value. */
 
-void
+int
 fd_crds_insert( fd_crds_t *       crds,
-                fd_crds_value_t * value );
+                fd_crds_entry_t * value,
+                int               from_push_msg );
+
+/* fd_crds_value_hash returns a pointer to the 32b sha256 hash of the
+   entry's value hash. This is used for constructing a bloom filter. */
+uchar const *
+fd_crds_value_hash( fd_crds_entry_t const * value );
+
+/* Returns 1 if the provided pubkey (assumed 32b) has a corresponding Contact Info
+   entry in the table. */
+int
+fd_crds_has_contact_info( fd_crds_t const * crds,
+                          uchar const *     pubkey );
 
 ulong
 fd_crds_purged_len( fd_crds_t * crds );
@@ -124,22 +166,42 @@ uchar const *
 fd_crds_purged( fd_crds_t * crds,
                 ulong       idx );
 
-fd_crds_mask_iter_t
+
+/* fd_crds_mask_iter_{init,next,done,value} provide an iterator to
+   iterate over the CRDS values in the table that whose hashes match
+   a given mask. In the Gossip CRDS filter, the mask is applied on
+   the most significant 8 bytes of the CRDS value's hash.
+
+   The Gossip CRDS filter encodes the mask in two values: `mask` and
+   `mask_bits`. For example, if we set `mask_bits` to 5 and 0b01010 as
+   `mask`, we get the following 64-bit bitmask:
+                        01010 11111111111.....
+
+   Therefore, we can frame a mask match as a CRDS value's hash whose
+   most significant `mask_bits` is `mask`. We can trivially define
+   the range of matching hash values by setting the non-mask bits to
+   all 0s or 1s to get the start and end values respectively. */
+
+fd_crds_mask_iter_t *
 fd_crds_mask_iter_init( fd_crds_t const * crds,
                         ulong             mask,
-                        ulong             mask_bits );
+                        uint              mask_bits,
+                        void *            iter_mem );
 
-fd_crds_mask_iter_t
-fd_crds_mask_iter_next( fd_crds_mask_iter_t it );
+fd_crds_mask_iter_t *
+fd_crds_mask_iter_next( fd_crds_mask_iter_t * it,
+                        fd_crds_t const * crds );
 
 int
-fd_crds_mask_iter_done( fd_crds_mask_iter_t it );
+fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
+                        fd_crds_t const * crds );
 
-fd_crds_value_t const *
-fd_crds_mask_iter_value( fd_crds_mask_iter_t it );
+fd_crds_entry_t const *
+fd_crds_mask_iter_value( fd_crds_mask_iter_t * it,
+                         fd_crds_t const * crds );
 
 ulong
-fd_crds_len( void );
+fd_crds_len( fd_crds_t * crds );
 
 FD_PROTOTYPES_END
 

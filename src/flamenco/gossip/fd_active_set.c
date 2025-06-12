@@ -98,7 +98,7 @@ fd_active_set_nodes( fd_active_set_t * active_set,
     fd_active_set_peer_t * peer = entry->nodes[ (entry->nodes_idx+i) % 12UL ];
 
     int must_push_if_peer_is_origin = ignore_prunes_if_peer_is_origin && !memcmp( peer->pubkey, origin, 32UL );
-    int must_push_own_values = identity_eq_origin && !memcmp( peer->pubkey, identity_pubkey, 32UL );
+    int must_push_own_values = identity_eq_origin && !memcmp( peer->pubkey, identity_pubkey, 32UL ); /* why ? */
     if( FD_UNLIKELY( fd_bloom_contains( peer->bloom, origin, 32UL ) && !must_push_own_values && !must_push_if_peer_is_origin ) ) continue;
     out_nodes[ out_idx++ ] = stake_bucket*12UL + i;
   }
@@ -106,19 +106,25 @@ fd_active_set_nodes( fd_active_set_t * active_set,
 }
 
 void
-fd_active_set_prune( fd_active_set_t * active_set,
+fd_active_set_prunes( fd_active_set_t * active_set,
                      uchar const *     identity_pubkey,
                      ulong             identity_stake,
-                     uchar const *     peer,
-                     uchar const *     destination,
+                     uchar const *     peers,
+                     ulong             peers_len,
                      uchar const *     origin,
-                     ulong             origin_stake ) {
+                     ulong             origin_stake,
+                     ulong *           opt_out_node_idx ) {
   if( FD_UNLIKELY( !memcmp( identity_pubkey, origin, 32UL ) ) ) return;
 
   ulong bucket = fd_active_set_stake_bucket( fd_ulong_min( identity_stake, origin_stake ) );
   for( ulong i=0UL; i<12UL; i++ ) {
-    if( FD_UNLIKELY( !memcmp( active_set->entries[ bucket ]->nodes[ i ]->pubkey, destination, 32UL ) ) ) {
-      fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, peer, 32UL );
+    if( FD_UNLIKELY( !memcmp( active_set->entries[ bucket ]->nodes[ i ]->pubkey, origin, 32UL ) ) ) {
+      for( ulong j=0UL; j<peers_len; j++ ) {
+          fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, &peers[i*32UL], 32UL );
+      }
+      if( opt_out_node_idx ) {
+        *opt_out_node_idx = bucket*12UL + i;
+      }
       return;
     }
   }

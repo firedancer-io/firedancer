@@ -20,7 +20,7 @@
 
    Once a peer has been pinged, we wait up to twenty seconds for a
    response before trying again.  We repeatedly retry pinging the peer
-   until the peer responds, or their most recent mesage becomes older
+   until the peer responds, or their most recent message becomes older
    than two minutes.
 
    Once a peer is validated by responding to a ping with a valid pong,
@@ -87,7 +87,7 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
 /* fd_ping_tracker_active returns 1 if a peer is actively responding to
    pings at the provided address, and we can send data to them, or zero
    otherwise.
-   
+
    This should be called before sending any kind of gossip data to a
    peer (except ping messages themselves).  This does not send out new
    pings or update the ping tracker. */
@@ -119,5 +119,16 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );
+
+/* fd_ping_tracker_response_hash generates a hash of a ping token, to be
+   embedded in a corresponding pong message that is then verified by the ping
+   sender.
+
+   Assumes both token and hash are the starting address of a 32byte region of
+   memory */
+
+void
+fd_ping_tracker_hash_ping_token( uchar const * token,
+                                 uchar *       out_hash );
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_ping_tracker_h */
