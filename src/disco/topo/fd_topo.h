@@ -447,6 +447,13 @@ typedef struct {
       int archive_fd;
     } archiver;
 
+    struct {
+      char dump_path[ PATH_MAX ];
+
+      /* Set internally by the capture tile */
+      int shreds_fd;
+      int requests_fd;
+    } kappa;
   };
 } fd_topo_tile_t;
 
