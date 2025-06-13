@@ -89,7 +89,7 @@ typedef struct {
    All input links will be automatically polled by the tile
    infrastructure, and output links will automatically source and manage
    credits from consumers. */
-typedef struct {
+struct fd_topo_tile {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
@@ -280,12 +280,9 @@ typedef struct {
       ulong max_vote_accounts;
 
       int   tx_metadata_storage;
+      ulong funk_obj_id;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
-      uint  funk_rec_max;
-      ulong funk_sz_gb;
-      ulong funk_txn_max;
-      char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
@@ -300,9 +297,6 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
-      ulong bank_tile_count;
-      ulong exec_tile_count;
-      ulong writer_tile_cuont;
       ulong full_interval;
       ulong incremental_interval;
 
@@ -323,7 +317,7 @@ typedef struct {
     struct {
       int   in_wen_restart;
       int   tower_checkpt_fileno;
-      char  funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
       char  tower_checkpt[ PATH_MAX ];
       char  identity_key_path[ PATH_MAX ];
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -332,11 +326,11 @@ typedef struct {
     } restart;
 
     struct {
-      char funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
     } exec;
 
     struct {
-      char funk_file[ PATH_MAX ];
+      ulong funk_obj_id;
     } writer;
 
     struct {
@@ -383,7 +377,6 @@ typedef struct {
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
-      uint    shred_tile_cnt;
     } repair;
 
     struct {
@@ -412,6 +405,7 @@ typedef struct {
     } send;
 
     struct {
+      ulong   funk_obj_id;
       ushort  rpc_port;
       ushort  tpu_port;
       uint    tpu_ip_addr;
@@ -423,6 +417,7 @@ typedef struct {
     } rpcserv;
 
     struct {
+      ulong funk_obj_id;
       ulong full_interval;
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
@@ -437,7 +432,6 @@ typedef struct {
     } pktgen;
 
     struct {
-      int   enabled;
       ulong end_slot;
       char  archiver_path[ PATH_MAX ];
 
@@ -446,12 +440,14 @@ typedef struct {
     } archiver;
 
     struct {
-      char funk_file[ PATH_MAX ];
-      char identity_key_path[ PATH_MAX ];
-      char vote_acc_path[ PATH_MAX ];
+      ulong funk_obj_id;
+      char  identity_key_path[ PATH_MAX ];
+      char  vote_acc_path[ PATH_MAX ];
     } tower;
   };
-} fd_topo_tile_t;
+};
+
+typedef struct fd_topo_tile fd_topo_tile_t;
 
 typedef struct {
   ulong id;
@@ -530,10 +526,13 @@ fd_topo_workspace_align( void ) {
   return 4096UL;
 }
 
-FD_FN_PURE static inline void *
+static inline void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
                    ulong             obj_id ) {
   fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
+  FD_TEST( obj->id == obj_id );
+  FD_TEST( obj->offset );
   return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
 }
 
@@ -658,6 +657,42 @@ fd_topo_link_reliable_consumer_cnt( fd_topo_t const *      topo,
   }
 
   return cnt;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_tile_consumer_cnt( fd_topo_t const *      topo,
+                           fd_topo_tile_t const * tile ) {
+  (void)topo;
+  return tile->out_cnt;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_tile_reliable_consumer_cnt( fd_topo_t const *      topo,
+                                    fd_topo_tile_t const * tile ) {
+  ulong reliable_cons_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ i ];
+    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+      for( ulong k=0UL; k<tile->out_cnt; k++ ) {
+        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
+          reliable_cons_cnt++;
+        }
+      }
+    }
+  }
+  return reliable_cons_cnt;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_tile_producer_cnt( fd_topo_t const *     topo,
+                           fd_topo_tile_t const * tile ) {
+  (void)topo;
+  ulong in_cnt = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+    in_cnt++;
+  }
+  return in_cnt;
 }
 
 /* Join (map into the process) all shared memory (huge/gigantic pages)

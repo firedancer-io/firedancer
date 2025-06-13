@@ -95,47 +95,26 @@ struct fake_funk {
     fd_funk_t _real[1];
     std::map<ulong,fake_txn*> _txns;
     ulong _lastxid = 0;
-#ifdef TEST_FUNK_FILE
-    fd_funk_close_file_args_t close_args;
-#endif
 
     fake_funk(int * argc, char *** argv) {
       fd_boot( argc, argv );
       ulong txn_max = 128;
       uint  rec_max = 1<<16;
 
-#ifdef TEST_FUNK_FILE
-      FD_TEST( fd_funk_open_file( _real, "funk_test_file", 1, 1234U, txn_max, rec_max, FD_SHMEM_GIGANTIC_PAGE_SZ, FD_FUNK_OVERWRITE, &close_args ) );
-      _wksp = fd_funk_wksp( _real );
-
-#else
       ulong  numa_idx = fd_shmem_numa_idx( 0 );
       _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
       void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );
       FD_TEST( fd_funk_join( _real, fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) ) );
-#endif
 
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
     }
     ~fake_funk() {
       for (auto i : _txns)
         delete i.second;
-#ifdef TEST_FUNK_FILE
-      fd_funk_close_file( &close_args );
-      unlink( "funk_test_file" );
-#endif
       for( auto i : fake_rec::_all )
         FD_LOG_NOTICE(( "leaked record 0x%lx!", (ulong)i ));
 
     }
-
-#ifdef TEST_FUNK_FILE
-    void reopen_file() {
-      fd_funk_close_file( &close_args );
-      FD_TEST( fd_funk_open_file( _real, "funk_test_file", 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, &close_args ) );
-      _wksp = fd_funk_wksp( _real );
-    }
-#endif
 
     fake_txn * pick_unfrozen_txn() {
       fake_txn* list[MAX_TXNS];

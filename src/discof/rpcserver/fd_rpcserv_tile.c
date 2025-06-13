@@ -14,7 +14,6 @@
 #include "../../disco/fd_disco.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../disco/keyguard/fd_keyload.h"
 
 #include <errno.h>
@@ -26,9 +25,6 @@
 
 struct fd_rpcserv_tile_ctx {
   fd_rpcserver_args_t args;
-  char funk_file[ PATH_MAX ];
-
-  int activated;
 
   fd_rpc_ctx_t * ctx;
 
@@ -83,12 +79,7 @@ before_credit( fd_rpcserv_tile_ctx_t * ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-
-  if( FD_UNLIKELY( !ctx->activated ) ) {
-    *charge_busy = 0;
-  } else {
-    *charge_busy = fd_rpc_ws_poll( ctx->ctx );
-  }
+  *charge_busy = fd_rpc_ws_poll( ctx->ctx );
 }
 
 static void
@@ -136,23 +127,9 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
   (void)stem;
 
   if( FD_LIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
-    if( FD_UNLIKELY( !ctx->activated ) ) {
-      fd_rpcserver_args_t * args = &ctx->args;
-      fd_funk_t * funk = fd_funk_open_file(
-        args->funk, ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
-      if( FD_UNLIKELY( !funk ) ) {
-        FD_LOG_ERR(( "failed to join a funky" ));
-      }
-
-      ctx->activated = 1;
-      fd_rpc_start_service( args, ctx->ctx );
-    }
-
     fd_rpc_replay_after_frag( ctx->ctx, &ctx->replay_notif_in_state );
-
   } else if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     fd_rpc_stake_after_frag( ctx->ctx, ctx->args.leaders );
-
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }
@@ -188,9 +165,6 @@ privileged_init( fd_topo_t *      topo,
 
   uchar * spad_mem_cur = spad_mem;
   args->spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RPC_SCRATCH_MAX ) );
-
-  strncpy( ctx->funk_file, tile->replay.funk_file, sizeof(ctx->funk_file) );
-  /* Open funk after replay tile is booted */
 
   /* Blockstore setup */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
@@ -242,8 +216,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  ctx->activated = 0;
-
   fd_topo_link_t * replay_notif_in_link   = &topo->links[ tile->in_link_id[ REPLAY_NOTIF_IDX ] ];
   ctx->replay_notif_in_mem    = topo->workspaces[ topo->objs[ replay_notif_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_notif_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_notif_in_mem, replay_notif_in_link->dcache );
@@ -253,6 +225,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );
   ctx->stake_in_wmark  = fd_dcache_compact_wmark ( ctx->stake_in_mem, stake_in_link->dcache, stake_in_link->mtu );
+
+  fd_rpcserver_args_t * args = &ctx->args;
+  if( FD_UNLIKELY( !fd_funk_join( args->funk, fd_topo_obj_laddr( topo, tile->rpcserv.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
+  fd_rpc_start_service( args, ctx->ctx );
 }
 
 static ulong

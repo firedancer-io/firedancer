@@ -4,7 +4,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 
 #define GOSSIP_IN_IDX  (0UL)
@@ -18,7 +17,6 @@ struct fd_restart_tile_ctx {
   fd_funk_t             funk[1];
   fd_epoch_bank_t       epoch_bank;
   int                   is_funk_active;
-  char                  funk_file[ PATH_MAX ];
   fd_spad_t *           runtime_spad;
   int                   tower_checkpt_fileno;
   fd_pubkey_t           identity, coordinator, genesis_hash;
@@ -114,10 +112,10 @@ unprivileged_init( fd_topo_t      * topo,
   /* funk                                                               */
   /**********************************************************************/
 
-  /* TODO: Same as what happens in the batch tile, eventually, funk should
-     be joined via a shared topology object. */
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->restart.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
   ctx->is_funk_active = 0;
-  memcpy( ctx->funk_file, tile->restart.funk_file, sizeof(tile->restart.funk_file) );
 
   /**********************************************************************/
   /* spad                                                               */
@@ -346,16 +344,6 @@ after_credit( fd_restart_tile_ctx_t * ctx,
               int *                   opt_poll_in FD_PARAM_UNUSED,
               int *                   charge_busy FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
-    /* Setting these parameters are not required because we are joining the
-       funk that was setup in the replay tile. */
-    fd_funk_t * funk = fd_funk_open_file(
-        ctx->funk, ctx->funk_file,
-        1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READ_WRITE, NULL );
-    if( FD_UNLIKELY( !funk ) ) {
-      FD_LOG_ERR(( "fd_funk_open_file failed" ));
-    } else {
-      FD_LOG_NOTICE(("Restart tile joins funk successfully"));
-    }
     ctx->is_funk_active = 1;
 
     /* Decode the slot bank from funk, referencing fd_runtime_recover_banks() in fd_runtime_init.c */

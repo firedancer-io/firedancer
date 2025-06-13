@@ -1159,7 +1159,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
   if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing gossip_sign link" ));
   ctx->shred_tile_cnt = shred_tile_idx;
-  FD_TEST( ctx->shred_tile_cnt == tile->repair.shred_tile_cnt );
+  FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
 
   /* Scratch mem setup */
 

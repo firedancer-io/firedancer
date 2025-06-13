@@ -11,7 +11,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "../../discof/rpcserver/fd_rpc_service.h"
-#include "../../funk/fd_funk_filemap.h"
 
 #define SHAM_LINK_CONTEXT fd_rpc_ctx_t
 #define SHAM_LINK_STATE   fd_replay_notif_msg_t
@@ -27,13 +26,16 @@ static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
 
-  char const * funk_file = fd_env_strip_cmdline_cstr( argc, argv, "--funk-file", NULL, NULL );
-  if( FD_UNLIKELY( !funk_file ))
-    FD_LOG_ERR(( "--funk-file argument is required" ));
-  fd_funk_t * funk = fd_funk_open_file( args->funk, funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
-  if( !funk ) {
+  const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, NULL );
+  if( FD_UNLIKELY( !funk_wksp_name ))
+    FD_LOG_ERR(( "--funk-wksp-name argument is required" ));
+  fd_wksp_t * funk_wksp = fd_wksp_attach( funk_wksp_name );
+  if( FD_UNLIKELY( !funk_wksp ))
+    FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", funk_wksp_name ));
+  void * funk_shmem = fd_wksp_laddr_fast( funk_wksp, 0 );
+  fd_funk_t * funk = fd_funk_join( args->funk, funk_shmem );
+  if( FD_UNLIKELY( !funk ))
     FD_LOG_ERR(( "failed to join funk" ));
-  }
 
   char const * blockstore_file = fd_env_strip_cmdline_cstr( argc, argv, "--blockstore-file", NULL, NULL );
   if( FD_UNLIKELY( !blockstore_file ))
@@ -100,17 +102,16 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
   args->offline = 1;
 
-  char const * funk_file = fd_env_strip_cmdline_cstr( argc, argv, "--funk-file", NULL, NULL );
-  if( FD_UNLIKELY( !funk_file ))
-    FD_LOG_ERR(( "--funk-file argument is required" ));
-  char const * restore = fd_env_strip_cmdline_cstr ( argc, argv, "--restore-funk", NULL, NULL );
-  fd_funk_t * funk = NULL;
-  if( restore != NULL ) {
-    funk = fd_funk_recover_checkpoint( args->funk, funk_file, 1, restore, NULL );
-  } else {
-    funk = fd_funk_open_file( args->funk, funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
-  }
-  if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Failed to join funk database" ));
+  const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, NULL );
+  if( FD_UNLIKELY( !funk_wksp_name ))
+    FD_LOG_ERR(( "--funk-wksp-name argument is required" ));
+  fd_wksp_t * funk_wksp = fd_wksp_attach( funk_wksp_name );
+  if( FD_UNLIKELY( !funk_wksp ))
+    FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", funk_wksp_name ));
+  void * funk_shmem = fd_wksp_laddr_fast( funk_wksp, 0 );
+  fd_funk_t * funk = fd_funk_join( args->funk, funk_shmem );
+  if( FD_UNLIKELY( !funk ))
+    FD_LOG_ERR(( "failed to join funk" ));
 
   fd_wksp_t * wksp;
   const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, NULL );

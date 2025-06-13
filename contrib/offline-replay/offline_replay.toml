@@ -11,13 +11,13 @@
         file = "{ledger}/backtest.blockstore"
     [tiles.replay]
         snapshot = "{snapshot}"
-        funk_sz_gb = {funk_pages}
-        funk_txn_max = 64
-        funk_rec_max = {index_max}
         cluster_version = "{cluster_version}"
-        funk_file = "{ledger}/backtest.funk"
     [tiles.gui]
         enabled = false
+[funk]
+    heap_size_gb = {funk_pages}
+    max_account_records = {index_max}
+    max_database_transactions = 64
 [runtime]
     heap_size_gib = {heap_size}
 [blockstore]

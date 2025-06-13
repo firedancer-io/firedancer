@@ -50,10 +50,6 @@ echo "
     [tiles.replay]
         capture = \"firedancer-dev.solcap\"
         snapshot = \"$FULL_SNAPSHOT\"
-        funk_sz_gb = 32
-        funk_rec_max = 10000000
-        funk_txn_max = 1024
-        funk_file = \"/tmp/localnet.funk\"
         cluster_version = \"2.0.14\"
     [tiles.gui]
         enabled = false
@@ -72,6 +68,10 @@ echo "
     txn_max = 1024
     alloc_max = 10737418240
     file = \"/tmp/localnet.blockstore\"
+[funk]
+    max_account_records = 10000000
+    heap_size_gib = 32
+    max_database_transactions = 1024
 [log]
     path = \"firedancer-dev.log\"
     level_stderr = \"INFO\"

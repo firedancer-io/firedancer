@@ -9,7 +9,6 @@
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_filemap.h"
 #include "../../funk/fd_funk_val.h"
 
 #define IN_KIND_GOSSIP ( 0)
@@ -278,7 +277,6 @@ after_frag( ctx_t *             ctx,
   ulong parent_slot = fd_ulong_extract_lsb( sig, 32 );
 
   if( FD_UNLIKELY( (uint)parent_slot == UINT_MAX ) ) { /* snapshot slot */
-    fd_funk_open_file( ctx->funk, ctx->funk_file, 1UL, 0UL, 0UL, 0UL, 0UL, FD_FUNK_READONLY, NULL );
     FD_TEST( ctx->funk );
     FD_TEST( fd_funk_txn_map( ctx->funk ) );
     update_epoch( ctx, sz );
@@ -343,9 +341,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                     ) );
   ctx->scratch = fd_tower_join( fd_tower_new( scratch_mem                   ) );
 
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->batch.funk_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "Failed to join database cache" ));
+  }
+
   ctx->epoch_voters_buf = voter_mem;
 
-  memcpy( ctx->funk_file, tile->tower.funk_file, PATH_MAX );
   memcpy( ctx->identity_key->uc, fd_keyload_load( tile->tower.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
   memcpy( ctx->vote_acc->uc, fd_keyload_load( tile->tower.vote_acc_path, 1 ), sizeof(fd_pubkey_t) );
 

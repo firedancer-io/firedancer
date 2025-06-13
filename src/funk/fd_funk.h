@@ -295,7 +295,7 @@ FD_FN_CONST ulong
 fd_funk_footprint( ulong txn_max,
                    ulong rec_max );
 
-/* fd_wksp_new formats an unused wksp allocation with the appropriate
+/* fd_funk_new formats an unused wksp allocation with the appropriate
    alignment and footprint as a funk.  Caller is not joined on return.
    Returns shmem on success and NULL on failure (shmem NULL, shmem
    misaligned, zero wksp_tag, shmem is not backed by a wksp ...  logs
@@ -327,8 +327,8 @@ fd_funk_new( void * shmem,
    (joins are local to a thread group). */
 
 fd_funk_t *
-fd_funk_join( void * ljoin,
-              void * shfunk );
+fd_funk_join( fd_funk_t * ljoin,
+              void *      shfunk );
 
 /* fd_funk_leave leaves a funk join.  Returns the memory region used for
    join on success (caller has ownership on return and the caller is no
