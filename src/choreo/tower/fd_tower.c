@@ -472,8 +472,8 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
       } else {
         FD_LOG_ERR(( "[%s] unknown state->discriminant %u", __func__, state->discriminant ));
       }
+      fd_tower_votes_push_tail( tower, vote );
     }
-    fd_tower_votes_push_tail( tower, vote );
 
     if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) return 0;
     else fd_tower_votes_remove_all( tower ); /* reset the tower and try again  */
