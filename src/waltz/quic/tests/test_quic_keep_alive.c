@@ -133,10 +133,10 @@ test_quic_revive( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   }
 
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_TIMED_OUT );
-  FD_TEST( server_conn->svc_time == LONG_MAX );
-  FD_TEST( fd_quic_get_state( server_quic )->svc_queue[ FD_QUIC_SVC_TIMEOUT ].head == server_conn->conn_idx );
-  FD_TEST( server_conn->svc_next == UINT_MAX );
-  FD_TEST( server_conn->svc_prev == UINT_MAX );
+  FD_TEST( server_conn->svc_meta.next_timeout == ULONG_MAX );
+  FD_TEST( fd_quic_get_state( server_quic )->svc_timers->queues[FD_QUIC_SVC_TIMEOUT].head == server_conn->conn_idx );
+  FD_TEST( server_conn->svc_meta.private.dlist.next == FD_QUIC_SVC_DLIST_IDX_INVAL );
+  FD_TEST( server_conn->svc_meta.private.dlist.prev == FD_QUIC_SVC_DLIST_IDX_INVAL );
 
   {
     /* artificial test changes */
@@ -150,7 +150,7 @@ test_quic_revive( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   fd_quic_stream_send( stream, "hello", 5, 1 );
   fd_quic_service( client_quic ); /* Send it, aio will receive on server */
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-  FD_TEST( server_conn->svc_type == FD_QUIC_SVC_INSTANT || server_conn->svc_type == FD_QUIC_SVC_ACK_TX );
+  FD_TEST( server_conn->svc_meta.private.svc_type == FD_QUIC_SVC_INSTANT || server_conn->svc_meta.private.svc_type == FD_QUIC_SVC_DYNAMIC );
   FD_TEST( server_quic->metrics.conn_timeout_revived_cnt == 1 );
 }
 
@@ -162,8 +162,8 @@ test_hs_with_timeout( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
 
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
-  fd_quic_svc_validate( server_quic );
-  fd_quic_svc_validate( client_quic );
+  fd_quic_state_validate( server_quic );
+  fd_quic_state_validate( client_quic );
 
   fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
   FD_TEST( client_conn );
@@ -176,17 +176,18 @@ test_hs_with_timeout( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   fd_quic_service( server_quic );
 
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_TIMED_OUT );
-  FD_TEST( server_conn->svc_time == LONG_MAX );
-  FD_TEST( fd_quic_get_state( server_quic )->svc_queue[ FD_QUIC_SVC_TIMEOUT ].head == server_conn->conn_idx );
-  FD_TEST( server_conn->svc_next == UINT_MAX );
-  FD_TEST( server_conn->svc_prev == UINT_MAX );
+  FD_TEST( server_conn->svc_meta.private.svc_type == FD_QUIC_SVC_TIMEOUT );
+  FD_TEST( server_conn->svc_meta.next_timeout == ULONG_MAX );
+  FD_TEST( fd_quic_get_state( server_quic )->svc_timers->queues[FD_QUIC_SVC_TIMEOUT].head == server_conn->conn_idx );
+  FD_TEST( server_conn->svc_meta.private.dlist.next == FD_QUIC_SVC_DLIST_IDX_INVAL );
+  FD_TEST( server_conn->svc_meta.private.dlist.prev == FD_QUIC_SVC_DLIST_IDX_INVAL );
   FD_TEST( server_quic->metrics.conn_timeout_cnt == 1 );
 
   client_conn->last_activity = now; /* to not trigger self timeout */
   fd_quic_service( client_quic );   /* client send, trigger revival on server */
 
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE );
-  FD_TEST( server_conn->svc_type == FD_QUIC_SVC_INSTANT );
+  FD_TEST( server_conn->svc_meta.private.svc_type == FD_QUIC_SVC_INSTANT );
   FD_TEST( server_quic->metrics.conn_timeout_revived_cnt == 1 );
 }
 
@@ -302,13 +303,11 @@ main( int argc, char ** argv ) {
   server_quic->config.initial_rx_max_stream_data = 1<<16;
   client_quic->config.initial_rx_max_stream_data = 1<<16;
 
-<<<<<<< HEAD
   server_quic->config.idle_timeout = 1000;
   client_quic->config.idle_timeout = 1000;
-=======
-  server_quic->config.idle_timeout = 1e7;
-  client_quic->config.idle_timeout = 1e9;
->>>>>>> f0b376b5d (Reapply "quic: redesign service queues")
+
+  server_quic->config.ack_delay = 1e6;
+  client_quic->config.ack_delay = 1e6;
 
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );

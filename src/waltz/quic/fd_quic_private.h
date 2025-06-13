@@ -179,10 +179,6 @@ fd_quic_conn_service( fd_quic_t *      quic,
                       ulong            now );
 
 
-/* Deallocate the oldest timed out connection. Will update the free_conn_list. */
-void
-fd_quic_free_timed_out( fd_quic_t * quic );
-
 /* Memory management **************************************************/
 
 fd_quic_conn_t *
