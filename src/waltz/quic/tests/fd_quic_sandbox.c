@@ -315,6 +315,9 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->srx->rx_max_data_ackd = 0UL;
   conn->tx_initial_max_stream_data_uni = 0UL;
 
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_svc_schedule( state->svc_timers, conn );
+
   /* TODO set a realistic packet number */
 
   return conn;

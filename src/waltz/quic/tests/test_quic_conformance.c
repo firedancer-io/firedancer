@@ -637,6 +637,7 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_t *                  quic    = sandbox->quic;
+  fd_quic_state_t *            state   = fd_quic_get_state( quic );
   fd_quic_conn_t *             conn    = fd_quic_sandbox_new_conn_established( sandbox, rng );
   fd_quic_metrics_t *          metrics = &conn->quic->metrics;
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
@@ -649,7 +650,8 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
     conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     sandbox->wallclock += (ulong)10e6;
-    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_schedule( state->svc_timers, conn );
     fd_quic_service( quic );
     FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
     next_pkt_number++;
@@ -679,7 +681,8 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
     conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     sandbox->wallclock += (ulong)10e6;
-    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_schedule( state->svc_timers, conn );
     fd_quic_service( quic );
     FD_TEST( conn->pkt_number[2] == next_pkt_number );
     FD_TEST( *metrics_alloc_fail_cnt > alloc_fail_cnt );
@@ -718,7 +721,8 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
     conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     sandbox->wallclock += (ulong)10e6;
-    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_schedule( state->svc_timers, conn );
     fd_quic_service( quic );
     FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
     next_pkt_number++;

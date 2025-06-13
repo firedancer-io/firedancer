@@ -105,6 +105,7 @@ test_multiple_connections( fd_quic_svc_timers_t * timers,
   fd_quic_conn_t * conns[conn_cnt]; /* array of conn ptrs */
   for( uint i=0; i<conn_cnt; i++ ) {
     conns[i] = (fd_quic_conn_t *)(conn_base + i * conn_sz);
+    conns[i]->state = FD_QUIC_CONN_STATE_ACTIVE;
   }
 
   ulong now = 1000UL;
@@ -192,6 +193,7 @@ main( int argc, char ** argv ) {
 
   {
     fd_quic_conn_t * conn = (fd_quic_conn_t *)create_mock_conns( &limits , 1);
+    conn->state = FD_QUIC_CONN_STATE_ACTIVE;
     test_svc_schedule( timers, conn );
     test_svc_cancel( timers, conn );
     free( conn );
