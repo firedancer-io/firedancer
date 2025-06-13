@@ -120,13 +120,12 @@ test_quic_ping_frame( fd_quic_sandbox_t * sandbox,
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
   conn->ack_gen->is_elicited = 0;
-  FD_TEST( conn->svc_type == FD_QUIC_SVC_WAIT );
+  FD_TEST( conn->svc_meta.idx == FD_QUIC_SVC_IDX_INVAL );
 
   uchar buf[1] = {0x01};
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sizeof(buf) );
   FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( conn->ack_gen->is_elicited == 1 );
-  FD_TEST( conn->svc_type == FD_QUIC_SVC_ACK_TX );
 }
 
 /* Test an ALPN failure when acting as a server */
@@ -569,13 +568,13 @@ test_quic_conn_free( fd_quic_sandbox_t * sandbox,
   for( ulong j=0UL; j<conn_max; j++ ) {
     FD_TEST( fd_quic_conn_at_idx( state, j )->our_conn_id == 0UL );
   }
-  fd_quic_svc_validate( quic );
+  fd_quic_state_validate( quic );
 
   /* Create a bunch of conns */
   for( ulong j=0UL; j<conn_max; j++ ) {
     FD_TEST( fd_quic_sandbox_new_conn_established( sandbox, rng ) );
   }
-  fd_quic_svc_validate( quic );
+  fd_quic_state_validate( quic );
 
   /* Ensure each conn is in conn_id_map */
   static fd_quic_conn_map_t sentinel[1] = {0};
@@ -590,7 +589,7 @@ test_quic_conn_free( fd_quic_sandbox_t * sandbox,
     FD_TEST( conn->our_conn_id == cid ); /* CID is kept */
     FD_TEST( fd_quic_conn_query1( state->conn_map, cid, sentinel )->conn==conn );
   }
-  fd_quic_svc_validate( quic );
+  fd_quic_state_validate( quic );
 
   /* Now, allocate new conns.  CIDs should be replaced one by one. */
   for( ulong i=0UL; i<conn_max; i++ ) {
@@ -606,7 +605,7 @@ test_quic_conn_free( fd_quic_sandbox_t * sandbox,
     ulong const new_cid = conn->our_conn_id;
     FD_TEST( fd_quic_conn_query1( state->conn_map, new_cid, sentinel )->conn==conn );
   }
-  fd_quic_svc_validate( quic );
+  fd_quic_state_validate( quic );
 
   /* Finally, validate that packet handlers count freed conns as
      "keys not available" in metrics.  (Logically, for the receiver

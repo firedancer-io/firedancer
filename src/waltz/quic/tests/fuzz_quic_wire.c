@@ -21,6 +21,7 @@
 #include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
+#include "../fd_quic_svc_q.h"
 
 #include <assert.h>
 #include <stdlib.h> /* putenv, atexit */
@@ -133,6 +134,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_tls_test_sign_ctx( test_signer, rng );
   fd_quic_config_test_signer( quic, test_signer );
 
+  g_clock = 0UL;
   quic->cb.now = test_clock;
   quic->config.retry = enable_retry;
 
@@ -159,7 +161,12 @@ LLVMFuzzerTestOneInput( uchar const * data,
                          0U, 0U,
                          1  /* we are the server */ );
   assert( conn );
-  assert( conn->svc_type == FD_QUIC_SVC_WAIT );
+  fd_quic_svc_schedule( state->svc_timers, conn );
+  {
+    fd_quic_svc_event_t* event = fd_quic_svc_get_event( state->svc_timers, conn );
+    assert( event );
+    assert( event->timeout > g_clock );
+  }
 
   conn->tx_max_data                            =       512UL;
   conn->tx_initial_max_stream_data_uni         =        64UL;
@@ -173,7 +180,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     conn->keys_avail = 0xff;
   }
 
-  g_clock = 1000UL;
+         g_clock = 1000UL;
+  ulong og_clock = g_clock;
 
   /* Calls fuzz entrypoint */
   send_udp_packet( quic, data, size );
@@ -182,35 +190,38 @@ LLVMFuzzerTestOneInput( uchar const * data,
      schedule in response to a single packet. */
   long svc_quota = fd_long_max( (long)size, 1000L );
 
-  while( state->svc_queue[ FD_QUIC_SVC_INSTANT ].tail!=UINT_MAX ) {
+  while( g_clock == fd_quic_svc_timers_next(state->svc_timers, ULONG_MAX, 0).timeout ) {
     fd_quic_service( quic );
     assert( --svc_quota > 0 );
   }
-  assert( conn->svc_type != FD_QUIC_SVC_INSTANT );
+  const ulong event_idx = conn->svc_meta.idx;
+  assert( event_idx == FD_QUIC_SVC_IDX_INVAL || state->svc_timers[ event_idx ].timeout > g_clock );
 
-  /* Generate ACKs */
-  while( state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head != UINT_MAX ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head );
-    g_clock = conn->svc_time;
+  /* Generate ACKs, if any left */
+  fd_quic_svc_event_t next = fd_quic_svc_timers_next( state->svc_timers, ULONG_MAX, 0 );
+  while( next.conn && next.timeout <= og_clock + quic->config.ack_threshold ) {
+    g_clock = next.timeout;
     fd_quic_service( quic );
     assert( --svc_quota > 0 );
+    next = fd_quic_svc_timers_next( state->svc_timers, ULONG_MAX, 0 );
   }
-  assert( conn->svc_type != FD_QUIC_SVC_INSTANT &&
-          conn->svc_type != FD_QUIC_SVC_ACK_TX );
+  assert( next.timeout > og_clock+quic->config.ack_threshold );
 
   /* Simulate conn timeout */
-  while( state->svc_queue[ FD_QUIC_SVC_WAIT ].head != UINT_MAX ) {
-    ulong idle_timeout_ts = conn->last_activity + quic->config.idle_timeout + 1UL;
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_WAIT ].head );
+  while( next.conn ) {
+    ulong idle_timeout_ts = next.conn->last_activity + quic->config.idle_timeout + 1UL;
 
     /* Idle timeouts should not be scheduled significantly late */
-    assert( conn->svc_time < idle_timeout_ts + (ulong)2e9 );
+    assert( next.timeout < idle_timeout_ts + (ulong)2e9 );
 
-    g_clock = conn->svc_time;
+    g_clock = next.timeout;
     fd_quic_service( quic );
     assert( --svc_quota > 0 );
+    next = fd_quic_svc_timers_next( state->svc_timers, ULONG_MAX, 0 );
   }
-  assert( conn->svc_type == UINT_MAX );
+
+  /* connection should be dead */
+  assert( conn->svc_meta.idx == FD_QUIC_SVC_IDX_INVAL );
   assert( conn->state == FD_QUIC_CONN_STATE_DEAD || conn->state == FD_QUIC_CONN_STATE_INVALID );
 
   /* freed stream resources */
@@ -218,7 +229,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   assert( conn->used_streams->sentinel );
   assert( conn->send_streams->sentinel );
   assert( !conn->tls_hs );
-
 
   fd_quic_delete( fd_quic_leave( fd_quic_fini( quic ) ) );
   fd_aio_delete( fd_aio_leave( aio ) );
