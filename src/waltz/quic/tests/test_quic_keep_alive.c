@@ -116,7 +116,6 @@ test_quic_let_die( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   FD_TEST( called_final );
 }
 
-
 static void
 test_quic_free_timed_out( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   fd_quic_conn_t * orig_client_conn = test_init( client_quic, server_quic );
@@ -212,13 +211,11 @@ main( int argc, char ** argv ) {
   server_quic->config.initial_rx_max_stream_data = 1<<16;
   client_quic->config.initial_rx_max_stream_data = 1<<16;
 
-<<<<<<< HEAD
   server_quic->config.idle_timeout = 1000;
   client_quic->config.idle_timeout = 1000;
-=======
-  server_quic->config.idle_timeout = 1e7;
-  client_quic->config.idle_timeout = 1e9;
->>>>>>> f0b376b5d (Reapply "quic: redesign service queues")
+
+  server_quic->config.ack_delay = 1e6;
+  client_quic->config.ack_delay = 1e6;
 
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
