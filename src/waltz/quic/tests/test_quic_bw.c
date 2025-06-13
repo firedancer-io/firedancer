@@ -274,7 +274,7 @@ main( int     argc,
   FD_TEST( client_quic->metrics.conn_closed_cnt==1 );
   FD_TEST( server_quic->metrics.conn_closed_cnt==1 );
   FD_TEST( conn_final_cnt==2 );
-  FD_TEST( server_quic->metrics.pkt_no_conn_cnt==0 );
+  for( int i=0; i<4; i++ ) FD_TEST( server_quic->metrics.pkt_no_conn_cnt[i]==0 );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
