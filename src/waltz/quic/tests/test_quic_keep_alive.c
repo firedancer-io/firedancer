@@ -47,8 +47,8 @@ test_init( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
 
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
-  fd_quic_svc_validate( server_quic );
-  fd_quic_svc_validate( client_quic );
+  fd_quic_state_validate( server_quic );
+  fd_quic_state_validate( client_quic );
 
   fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
   FD_TEST( client_conn );
@@ -73,8 +73,7 @@ test_init( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
 static ulong
 walk_timeout_period( fd_quic_t * client_quic, fd_quic_t * server_quic, int eighths ) {
 
-  /* FIXME: when svc_queue fixed, make sure these are different
-     and use idle_timeout = their min */
+  /* AMANTODO: update to check min computed on the actual conn  */
   FD_TEST( client_quic->config.idle_timeout == server_quic->config.idle_timeout );
   ulong const idle_timeout = client_quic->config.idle_timeout;
   ulong const timestep     = idle_timeout>>3;
@@ -303,8 +302,13 @@ main( int argc, char ** argv ) {
   server_quic->config.initial_rx_max_stream_data = 1<<16;
   client_quic->config.initial_rx_max_stream_data = 1<<16;
 
+<<<<<<< HEAD
   server_quic->config.idle_timeout = 1000;
   client_quic->config.idle_timeout = 1000;
+=======
+  server_quic->config.idle_timeout = 1e7;
+  client_quic->config.idle_timeout = 1e9;
+>>>>>>> f0b376b5d (Reapply "quic: redesign service queues")
 
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
@@ -325,5 +329,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-
-

@@ -3,7 +3,23 @@
 
 #include "fd_quic_common.h"
 
+#define FD_QUIC_SVC_INSTANT (0U)  /* as soon as possible */
+#define FD_QUIC_SVC_DYNAMIC (1U)  /* some dynamic amount of time */
+#define FD_QUIC_SVC_TIMEOUT (2U)  /* timeout - never serviced, a graveyard */
+#define FD_QUIC_SVC_CNT     (3U)  /* number of FD_QUIC_SVC_{...} levels */
+
+/* fd_quic_svc_queue_t is a simple doubly linked list. */
+
+struct fd_quic_svc_queue {
+  uint cnt;
+  uint head;
+  uint tail;
+};
+
+typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
+
 /* sentinel index */
+
 #define FD_QUIC_SVC_IDX_INVAL  (~0UL)
 
 struct fd_quic_svc_timers_conn_meta {
