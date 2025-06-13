@@ -98,10 +98,11 @@ struct fd_http_server_request {
   void *       ctx;           /* The user provided context pointer passed when constructing the HTTP server */
 
   struct {
-    char const * content_type;      /* The NUL terminated value of the Content-Type header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
-    char const * accept_encoding;   /* The NUL terminated value of the Accept-Encoding header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
-    int          upgrade_websocket; /* True if the client has provided an `Upgrade: websocket` header, valid `Sec-WebSocket-Key` and supported `Sec-Websocket-Version`, indicating that the
-                                       responder should upgrade the connection to a WebSocket by setting `upgrade_websocket` to 1 in the response */
+    char const * content_type;         /* The NUL terminated value of the Content-Type header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
+    char const * accept_encoding;      /* The NUL terminated value of the Accept-Encoding header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
+    int          compress_websocket;   /* True if the client has provided an `Sec-WebSocket-Protocol: compress-zstd` header indicating that the responder can choose to compress WebSocket frames with ZStandard.  Only large (>200 bytes) Server -> Client messages are compressed */
+    int          upgrade_websocket;    /* True if the client has provided an `Upgrade: websocket` header, valid `Sec-WebSocket-Key` and supported `Sec-Websocket-Version`, indicating that the
+                                          responder should upgrade the connection to a WebSocket by setting `upgrade_websocket` to 1 in the response */
   } headers;
 
   union {
@@ -139,6 +140,7 @@ typedef struct fd_http_server_request fd_http_server_request_t;
 struct fd_http_server_response {
   ulong status;                  /* Status code of the HTTP response */
   int   upgrade_websocket;       /* 1 if we should send a websocket upgrade response */
+  int   compress_websocket;      /* 1 if we should add a `Sec-WebSocket-Protocol: compress-zstd` header to the response  */
 
   char const * content_type;     /* Content-Type to set in the HTTP response */
   char const * cache_control;    /* Cache-Control to set in the HTTP response */

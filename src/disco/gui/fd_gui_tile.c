@@ -266,6 +266,11 @@ gui_http_request( fd_http_server_request_t const * request ) {
     return (fd_http_server_response_t){
       .status            = 200,
       .upgrade_websocket = 1,
+#ifdef FD_HAS_ZSTD
+      .compress_websocket = request->headers.compress_websocket,
+#else
+      .compress_websocket = 0,
+#endif
     };
   } else if( FD_LIKELY( !strcmp( request->path, "/favicon.svg" ) ) ) {
     return (fd_http_server_response_t){
