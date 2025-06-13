@@ -105,9 +105,6 @@ fd_quic_conn_new( void *                   mem,
 
   conn->quic     = quic;
   conn->state    = FD_QUIC_CONN_STATE_INVALID;
-  conn->svc_type = UINT_MAX;
-  conn->svc_prev = UINT_MAX;
-  conn->svc_next = UINT_MAX;
 
   quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_INVALID ]++;
 
@@ -130,6 +127,9 @@ fd_quic_conn_new( void *                   mem,
                                  quic->limits.inflight_frame_cnt,
                                  state->pkt_meta_pool );
 
+
+  /* Initialize service timers */
+  fd_quic_svc_timers_init_conn( conn );
 
   return conn;
 }
@@ -166,4 +166,14 @@ fd_quic_conn_reason_name( uint reason ) {
   char const * name = fd_quic_conn_reason_names[reason];
 
   return name ? name : "N/A";
+}
+
+void
+fd_quic_conn_validate_init( fd_quic_t * quic ) {
+  fd_quic_state_t * state    = fd_quic_get_state( quic );
+  ulong             conn_cnt = quic->limits.conn_cnt;
+  for( ulong j=0UL; j<conn_cnt; j++ ) {
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
+    conn->visited         = 0U;
+  }
 }

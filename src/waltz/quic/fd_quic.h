@@ -100,9 +100,6 @@ typedef struct fd_quic_conn fd_quic_conn_t;
 struct fd_quic_stream;
 typedef struct fd_quic_stream fd_quic_stream_t;
 
-struct fd_quic_state_private;
-typedef struct fd_quic_state_private fd_quic_state_t;
-
 /* fd_quic_limits_t defines the memory layout of an fd_quic_t object.
    Limits are immutable and valid for the lifetime of an fd_quic_t
    (i.e. outlasts joins, until fd_quic_delete) */
@@ -136,6 +133,7 @@ struct fd_quic_layout {
   int   lg_slot_cnt;       /* see conn_map_new                 */
   ulong hs_pool_off;       /* offset of the handshake pool     */
   ulong stream_pool_off;   /* offset of the stream pool        */
+  ulong svc_timers_off;    /* offset of the service timers     */
   ulong pkt_meta_pool_off; /* offset of the pkt_meta pool      */
 };
 
@@ -332,7 +330,7 @@ union fd_quic_metrics {
     ulong pkt_oversz_cnt;           /* number of QUIC packets dropped due to being too large */
     ulong pkt_decrypt_fail_cnt[4];  /* number of packets that failed decryption due to auth tag */
     ulong pkt_no_key_cnt[4];        /* number of packets that failed decryption due to missing key */
-    ulong pkt_no_conn_cnt;          /* number of packets with unknown conn ID (excl. Initial) */
+    ulong pkt_no_conn_cnt[4];       /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
     ulong frame_tx_alloc_cnt[3];    /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
     ulong pkt_verneg_cnt;           /* number of QUIC version negotiation packets or packets with wrong version */
     ulong pkt_retransmissions_cnt;  /* number of pkt_meta retries */
@@ -553,7 +551,7 @@ fd_quic_conn_let_die( fd_quic_conn_t * conn,
 /* fd_quic_get_next_wakeup returns the next requested service time.
    This is only intended for unit tests. */
 
-FD_QUIC_API ulong
+FD_QUIC_API long
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
 /* fd_quic_service services the next QUIC connection at each service
@@ -580,13 +578,13 @@ fd_quic_service_sampled( fd_quic_t *              quic,
   return cnt;
 }
 
-/* fd_quic_svc_validate checks for violations of service queue and free
+/* fd_quic_state_validate checks for violations of service queue and free
    list invariants, such as cycles in linked lists.  Prints to warning/
    error log and exits the process if checks fail.  Intended for use in
    tests. */
 
 void
-fd_quic_svc_validate( fd_quic_t * quic );
+fd_quic_state_validate( fd_quic_t * quic );
 
 /* Stream Send API ****************************************************/
 
