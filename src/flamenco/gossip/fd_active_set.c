@@ -105,6 +105,21 @@ fd_active_set_nodes( fd_active_set_t * active_set,
   return out_idx;
 }
 
+uchar const *
+fd_active_set_node_pubkey( fd_active_set_t * active_set,
+                           ulong             peer_idx ){
+  ulong bucket = peer_idx / FD_ACTIVE_SET_PEERS_PER_ENTRY;
+  ulong idx    = peer_idx % FD_ACTIVE_SET_PEERS_PER_ENTRY;
+  if( FD_UNLIKELY( bucket>=FD_ACTIVE_SET_STAKE_ENTRIES ) ) {
+    FD_LOG_ERR(( "peer_idx out of range" ));
+  }
+  if( FD_UNLIKELY( active_set->entries[ bucket ]->nodes_len<=idx ) ) {
+    FD_LOG_ERR(( "peer_idx out of range within bucket" ));
+  }
+
+  return active_set->entries[ bucket ]->nodes[ idx ]->pubkey;
+}
+
 void
 fd_active_set_prunes( fd_active_set_t * active_set,
                      uchar const *     identity_pubkey,
