@@ -622,7 +622,6 @@ int
 fd_tower_switch_check( fd_tower_t const * tower,
                        fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
-                       fd_forks_t const * forks,
                        fd_funk_t *        funk,
                        ulong              switch_slot,
                        fd_spad_t *        runtime_spad );

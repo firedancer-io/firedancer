@@ -122,7 +122,6 @@ int
 fd_tower_switch_check( fd_tower_t const * tower,
                        fd_epoch_t const * epoch,
                        fd_ghost_t const * ghost,
-                       fd_forks_t const * forks,
                        fd_funk_t *        funk,
                        ulong              switch_slot,
                        fd_spad_t *        runtime_spad ) {
@@ -182,13 +181,29 @@ fd_tower_switch_check( fd_tower_t const * tower,
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
       void * tower_mem = fd_spad_alloc( runtime_spad, fd_tower_align(), fd_tower_footprint() );
 
-      /* Iterate through all the fork frontiers */
-      for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
-           !voter_stake_counted && !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
-           iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
-        fd_fork_t * candidate_fork = fd_fork_frontier_iter_ele( iter, forks->frontier, forks->pool );
+      /* Iterate through all the **leaf** nodes in the ghost tree */
+      fd_ghost_node_t const * node_pool    = fd_ghost_node_pool_const( ghost );
+      fd_ghost_node_map_t const * node_map = fd_ghost_node_map_const( ghost );
+      for( fd_ghost_node_map_iter_t iter = fd_ghost_node_map_iter_init( node_map, node_pool );
+           !fd_ghost_node_map_iter_done( iter, node_map, node_pool );
+           iter = fd_ghost_node_map_iter_next( iter, node_map, node_pool ) ) {
+        fd_ghost_node_t const * node = fd_ghost_node_map_iter_ele_const( iter, node_map, node_pool );
+        if( FD_LIKELY( node->child_idx!=fd_ghost_node_pool_idx_null( node_pool ) ) )
+          continue;
+
+        /* Get the funk_txn for the ghost tree leaf node */
+        ulong candidate_slot = node->slot;
+        fd_funk_txn_xid_t xid;
+        xid.ul[0] = xid.ul[1] = candidate_slot;
+        fd_funk_txn_map_query_t funk_txn_query[1];
+        fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+        FD_TEST( fd_funk_txn_map_query_try( &txn_map, &xid, NULL, funk_txn_query, 0 )==FD_MAP_SUCCESS );
+        FD_TEST( funk_txn_query->ele );
+        fd_funk_txn_t * candidate_funk_txn = funk_txn_query->ele;
+
+        /* Query the landed vote from voter in this funk_txn */
         fd_tower_t * voter_tower   = fd_tower_join( fd_tower_new( tower_mem ) );
-        fd_tower_from_vote_acc( voter_tower, funk, candidate_fork->slot_ctx->funk_txn, &voter->rec );
+        fd_tower_from_vote_acc( voter_tower, funk, candidate_funk_txn, &voter->rec );
 
         /* Iterate through all the (slot, conf) in voter_tower  */
         for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( voter_tower );
@@ -201,7 +216,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
            * 2. slot+conf is greater or equal to my last voted slot
            * 3. GCA(candidate fork slot, my last voted slot) is an ancestor of the switch slot
            * 4. slot is not an ancestor of my last voted slot */
-          fd_ghost_node_t const * gca = fd_ghost_gca( ghost, candidate_fork->slot, my_last_vote->slot );
+          fd_ghost_node_t const * gca = fd_ghost_gca( ghost, candidate_slot, my_last_vote->slot );
           if( FD_LIKELY( vote->slot>root->slot &&
                          vote->slot+vote->conf>=my_last_vote->slot &&
                          fd_ghost_is_ancestor( ghost, gca->slot, switch_slot ) &&
@@ -390,7 +405,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
       try to switch if we pass lockout and switch threshold. */
 
   if( FD_UNLIKELY( fd_tower_lockout_check( tower, ghost, head->slot ) &&
-                   fd_tower_switch_check( tower, epoch, ghost, forks, funk, head->slot, runtime_spad ) ) ) {
+                   fd_tower_switch_check( tower, epoch, ghost, funk, head->slot, runtime_spad ) ) ) {
     FD_LOG_DEBUG(( "[%s] success (lockout switch). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
     return head->slot;
   }
