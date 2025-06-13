@@ -833,7 +833,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 
   FD_MCNT_ENUM_COPY(   SEND, PKT_CRYPTO_FAILED,           ctx->quic->metrics.pkt_decrypt_fail_cnt    );
   FD_MCNT_ENUM_COPY(   SEND, PKT_NO_KEY,                  ctx->quic->metrics.pkt_no_key_cnt          );
-  FD_MCNT_SET(         SEND, PKT_NO_CONN,                 ctx->quic->metrics.pkt_no_conn_cnt         );
+  FD_MCNT_ENUM_COPY(   SEND, PKT_NO_CONN,                 ctx->quic->metrics.pkt_no_conn_cnt         );
   FD_MCNT_ENUM_COPY(   SEND, FRAME_TX_ALLOC,              ctx->quic->metrics.frame_tx_alloc_cnt      );
   FD_MCNT_SET(         SEND, PKT_NET_HEADER_INVALID,      ctx->quic->metrics.pkt_net_hdr_err_cnt     );
   FD_MCNT_SET(         SEND, PKT_QUIC_HEADER_INVALID,     ctx->quic->metrics.pkt_quic_hdr_err_cnt    );
