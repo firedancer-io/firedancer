@@ -81,10 +81,172 @@ test_tower_vote( void ) {
   fd_tower_delete( fd_tower_leave( tower ) );
 }
 
+
+#include "../../util/wksp/fd_wksp.h"
+#include "../../flamenco/runtime/program/fd_vote_program.c"
+
+void
+check_lockouts( fd_tower_t * tower ) {
+  ulong i=0;
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower );
+       !fd_tower_votes_iter_done_rev( tower, iter );
+       iter = fd_tower_votes_iter_prev( tower, iter ) ) {
+    ulong num_votes = fd_ulong_checked_sub_expect( fd_tower_votes_cnt( tower ),
+                                                   i++, "`i` is less than `vote_state.votes.len()`" );
+
+    ulong min_lockout = fd_min( fd_tower_votes_iter_ele( tower, iter )->conf, MAX_LOCKOUT_HISTORY );
+    FD_TEST( (ulong)pow( INITIAL_LOCKOUT, (double)min_lockout )==(ulong)pow( INITIAL_LOCKOUT, (double)(num_votes) ) );
+  }
+}
+
+ulong
+last_locked_out_slot_wrapped( fd_tower_vote_t * lockout ) {
+  fd_vote_lockout_t converted={ .slot=lockout->slot, .confirmation_count=(uint)lockout->conf };
+  return last_locked_out_slot( &converted );
+}
+
+void
+test_tower_agave( void ) {
+  /* This function contains the 7 unit tests from tower_vote_state.rs in Agave. */
+
+  ulong page_cnt = 1;
+  char * _page_sz = "gigantic";
+  ulong  numa_idx = fd_shmem_numa_idx( 0 );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
+                                            page_cnt,
+                                            fd_shmem_cpu_idx( numa_idx ),
+                                            "wksp",
+                                            0UL );
+  FD_TEST( wksp );
+
+  ulong root = ULONG_MAX;
+
+  /* test_basic_vote_state */
+  {
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
+
+    root = fd_tower_vote( tower, 1 );
+    FD_TEST( 1==fd_tower_votes_cnt( tower ) );
+    FD_TEST( 1==fd_tower_votes_peek_index( tower, 0 )->slot );
+    FD_TEST( 1==fd_tower_votes_peek_index( tower, 0 )->conf );
+    FD_TEST( ULONG_MAX==root );
+
+    root = fd_tower_vote( tower, 2 );
+    FD_TEST( 2==fd_tower_votes_cnt( tower ) );
+    FD_TEST( 1==fd_tower_votes_peek_index( tower, 0 )->slot );
+    FD_TEST( 2==fd_tower_votes_peek_index( tower, 0 )->conf );
+    FD_TEST( 2==fd_tower_votes_peek_index( tower, 1 )->slot );
+    FD_TEST( 1==fd_tower_votes_peek_index( tower, 1 )->conf );
+  }
+
+  /* test_vote_lockout */
+  {
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
+
+    for( ulong i=0; i<MAX_LOCKOUT_HISTORY+1; i++ ) {
+      root = fd_tower_vote( tower, i );
+    }
+    FD_TEST( MAX_LOCKOUT_HISTORY==fd_tower_votes_cnt( tower ) );
+    FD_TEST( 0==root );
+    check_lockouts( tower );
+
+    ulong i=0;
+    for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( tower );
+         !fd_tower_votes_iter_done_rev( tower, iter );
+         iter = fd_tower_votes_iter_prev( tower, iter ) ) {
+      ulong expected_count = MAX_LOCKOUT_HISTORY-i;
+      FD_TEST( fd_tower_votes_iter_ele( tower, iter )->conf==expected_count );
+      i++;
+    }
+
+    ulong top_vote = fd_tower_votes_peek_head( tower )->slot;
+    ulong slot = last_locked_out_slot_wrapped( fd_tower_votes_peek_tail( tower ) );
+    root = fd_tower_vote( tower, slot );
+    FD_TEST( top_vote==root );
+
+    slot = last_locked_out_slot_wrapped( fd_tower_votes_peek_head( tower ) );
+    root = fd_tower_vote( tower, slot );
+    FD_TEST( 2==fd_tower_votes_cnt( tower ) );
+  }
+
+  /* test_vote_double_lockout_after_expiration */
+  {
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
+
+    for( ulong i=0; i<3; i++ ) root = fd_tower_vote( tower, i );
+    check_lockouts( tower );
+
+    root = fd_tower_vote( tower, 2+INITIAL_LOCKOUT+1 );
+    check_lockouts( tower );
+
+    root = fd_tower_vote( tower, 2+INITIAL_LOCKOUT+2 );
+    check_lockouts( tower );
+
+    root = fd_tower_vote( tower, 2+INITIAL_LOCKOUT+3 );
+    check_lockouts( tower );
+  }
+
+  /* test_expire_multiple_votes */
+  {
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
+
+    for( ulong i=0; i<3; i++ ) root = fd_tower_vote( tower, i );
+    FD_TEST( 3==fd_tower_votes_peek_index( tower, 0 )->conf );
+
+    ulong expire_slot = last_locked_out_slot_wrapped( fd_tower_votes_peek_index( tower, 1 ) )+1;
+    root = fd_tower_vote( tower, expire_slot );
+    FD_TEST( 2==fd_tower_votes_cnt( tower ) );
+
+    FD_TEST( 0==fd_tower_votes_peek_index( tower, 0 )->slot );
+    FD_TEST( expire_slot==fd_tower_votes_peek_index( tower, 1 )->slot );
+
+    root = fd_tower_vote( tower, expire_slot+1 );
+    FD_TEST( 3==fd_tower_votes_peek_index( tower, 0 )->conf );
+    FD_TEST( 2==fd_tower_votes_peek_index( tower, 1 )->conf );
+    FD_TEST( 1==fd_tower_votes_peek_index( tower, 2 )->conf );
+  }
+
+  /* test_multiple_root_progress */
+  {
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
+
+    for( ulong i=0; i<MAX_LOCKOUT_HISTORY+1; i++ ) {
+      root = fd_tower_vote( tower, i );
+    }
+    FD_TEST( 0==root );
+
+    root = fd_tower_vote( tower, MAX_LOCKOUT_HISTORY+1 );
+    FD_TEST( 1==root );
+
+    root = fd_tower_vote( tower, MAX_LOCKOUT_HISTORY+2 );
+    FD_TEST( 2==root );
+  }
+
+  /* test_vote_state_roots */
+  {
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
+    ulong original_root = 5;
+
+    root = fd_tower_vote( tower, 6 );
+    root = fd_tower_vote( tower, 7 );
+
+    FD_TEST( 2==fd_tower_votes_cnt( tower ) );
+    FD_TEST( 6==fd_tower_votes_peek_index( tower, 0 )->slot );
+    FD_TEST( 7==fd_tower_votes_peek_index( tower, 1 )->slot );
+    FD_TEST( root==ULONG_MAX ); // root is not updated yet (still the original root)
+
+    for( ulong i=8; i<=MAX_LOCKOUT_HISTORY+8; i++ ) root = fd_tower_vote( tower, i );
+    FD_TEST( root>original_root ); // root is updated now and is greater than the original root
+    FD_TEST( root==8 ); // based on running the test_tower_agave() function
+  }
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   test_tower_vote();
+  test_tower_agave();
+  FD_LOG_NOTICE(( "Test tower done." ));
   fd_halt();
   return 0;
 }
