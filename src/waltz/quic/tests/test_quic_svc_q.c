@@ -66,7 +66,7 @@ test_svc_schedule( fd_quic_svc_timers_t * timers,
 
   /* Verify we kept the earlier time */
   fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now, 0 );
-  FD_TEST( next.timeout == now + 50UL );
+  FD_TEST( next.timeout == now + 50L );
 
   FD_LOG_NOTICE(( "fd_quic_svc_schedule test passed" ));
 }
@@ -78,7 +78,7 @@ test_svc_cancel( fd_quic_svc_timers_t * timers,
 
   /* Schedule event */
   long now = 1000UL;
-  conn->svc_meta.next_timeout = now + 100UL;
+  conn->svc_meta.next_timeout = now + 100L;
   fd_quic_svc_schedule( timers, conn );
   FD_TEST( conn->svc_meta.idx != FD_QUIC_SVC_IDX_INVAL );
 
@@ -111,24 +111,24 @@ test_multiple_connections( fd_quic_svc_timers_t * timers,
 
   /* Schedule connections in order */
   for( int i=0; i<10; i++ ) {
-    conns[i]->svc_meta.next_timeout = now + (ulong)(i * 10);
+    conns[i]->svc_meta.next_timeout = now + (long)(i * 10);
     fd_quic_svc_schedule( timers, conns[i] );
   }
 
   /* Pop them in order and verify */
   for( int i=0; i<10; i++ ) {
-    fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100UL, 1 );
+    fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100L, 1 );
     FD_TEST( next.conn    == conns[i] );
-    FD_TEST( next.timeout == now + (ulong)(i * 10) );
+    FD_TEST( next.timeout == now + (long)(i * 10) );
   }
 
   /* Queue should be empty now */
-  fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100UL, 0 );
+  fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100L, 0 );
   FD_TEST( next.conn == NULL );
 
   /* Schedule out of order and verify they come out in order */
   for( int i=9; i>=0; i-- ) {
-    conns[i]->svc_meta.next_timeout = now + (ulong)(i * 10);
+    conns[i]->svc_meta.next_timeout = now + (long)(i * 10);
     fd_quic_svc_schedule( timers, conns[i] );
   }
 
@@ -153,13 +153,13 @@ test_multiple_connections( fd_quic_svc_timers_t * timers,
 
   /* Pop them in order and verify */
   for( int i=0; i<10; i++ ) {
-    fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100UL, 1 );
+    fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100L, 1 );
     FD_TEST( next.conn    == conns[i] );
-    FD_TEST( next.timeout == now + (ulong)(i * 10) );
+    FD_TEST( next.timeout == now + (long)(i * 10) );
   }
 
   /* Queue should be empty now */
-  next = fd_quic_svc_timers_next( timers, now + 100UL, 0 );
+  next = fd_quic_svc_timers_next( timers, now + 100L, 0 );
   FD_TEST( next.conn == NULL );
 
   free( conn_base );

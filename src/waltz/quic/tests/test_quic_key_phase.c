@@ -131,7 +131,7 @@ client_fibre_fn( void * vp_arg ) {
   while( conn && conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
     fd_quic_service( quic, now );
 
-    ulong next_wakeup = fd_quic_get_next_wakeup( quic );
+    long next_wakeup = fd_quic_get_next_wakeup( quic );
 
     /* wake up at either next service or next send, whichever is sooner */
     fd_fibre_wait_until( (long)next_wakeup );

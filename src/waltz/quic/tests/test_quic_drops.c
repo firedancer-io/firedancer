@@ -152,7 +152,7 @@ client_fibre_fn( void * vp_arg ) {
   ulong sent      = 0;
 
   while( !client_done ) {
-    ulong next_wakeup = fd_quic_get_next_wakeup( quic );
+    long next_wakeup = fd_quic_get_next_wakeup( quic );
 
     /* wake up at either next service or next send, whichever is sooner */
     fd_fibre_wait_until( fd_long_min( (long)next_wakeup, next_send ) );
@@ -195,12 +195,12 @@ client_fibre_fn( void * vp_arg ) {
       if( !stream ) {
         if( conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
           FD_LOG_WARNING(( "Client unable to obtain a stream. now: %lu", (ulong)now ));
-          ulong live = next_wakeup + (ulong)1e9;
+          long live = next_wakeup + (long)1e9;
           do {
             next_wakeup = fd_quic_get_next_wakeup( quic );
 
             if( next_wakeup > live ) {
-              live = next_wakeup + (ulong)next_wakeup;
+              live = next_wakeup + next_wakeup;
               FD_LOG_WARNING(( "Client waiting for a stream time: %lu", (ulong)now ));
             }
 

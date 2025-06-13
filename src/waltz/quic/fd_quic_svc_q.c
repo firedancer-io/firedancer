@@ -10,7 +10,7 @@
                          (p)[0] = (t); \
                          t.conn->svc_meta.idx = (ulong)((p)-heap); \
                        } while( 0 )
-#define PRQ_TIMEOUT_T ulong
+#define PRQ_TIMEOUT_T long
 #include "../../util/tmpl/fd_prq.c"
 typedef fd_quic_svc_event_t fd_quic_svc_queue_prq_t;
 
@@ -57,7 +57,7 @@ fd_quic_svc_timers_init( void * mem,
 void
 fd_quic_svc_timers_init_conn( fd_quic_conn_t * conn ) {
   conn->svc_meta.idx          = FD_QUIC_SVC_IDX_INVAL;
-  conn->svc_meta.next_timeout = ULONG_MAX;
+  conn->svc_meta.next_timeout = LONG_MAX;
 }
 
 /* END SETUP FUNCTIONS *********************************************/
@@ -79,12 +79,12 @@ void
 fd_quic_svc_schedule( fd_quic_svc_timers_t * timers,
                       fd_quic_conn_t       * conn ) {
   ulong idx    = conn->svc_meta.idx;
-  ulong expiry = conn->svc_meta.next_timeout;
+  long expiry = conn->svc_meta.next_timeout;
 
   if( FD_UNLIKELY( idx != FD_QUIC_SVC_IDX_INVAL ) ) {
     /* find current expiry */
     fd_quic_svc_event_t * event      = timers + idx;
-    ulong                 cur_expiry = event->timeout;
+    long                  cur_expiry = event->timeout;
 
     if( FD_LIKELY( cur_expiry == expiry ) ) {
       return;
@@ -134,7 +134,7 @@ fd_quic_svc_event_t
 fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
                          long                   now,
                          int                    pop ) {
-  fd_quic_svc_event_t next = { .timeout = ULONG_MAX, .conn = NULL };
+  fd_quic_svc_event_t next = { .timeout = LONG_MAX, .conn = NULL };
 
   if( FD_UNLIKELY( fd_quic_svc_queue_prq_cnt( timers ) == 0 )) {
     return next;
