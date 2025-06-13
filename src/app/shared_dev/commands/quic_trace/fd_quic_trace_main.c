@@ -287,8 +287,8 @@ quic_trace_cmd_fn( args_t *   args,
     (*state_bucket)++;
 
     switch( conns[j].state ) {
-      case FD_QUIC_CONN_STATE_DEAD:
       case FD_QUIC_CONN_STATE_INVALID:
+        /* indicates the connection is free */
         break;
       default:
         if( trace_ctx->dump_conns ) {
