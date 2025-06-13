@@ -135,6 +135,7 @@ struct fd_quic_layout {
   int   lg_slot_cnt;       /* see conn_map_new                 */
   ulong hs_pool_off;       /* offset of the handshake pool     */
   ulong stream_pool_off;   /* offset of the stream pool        */
+  ulong svc_timers_off;    /* offset of the service timers     */
   ulong pkt_meta_pool_off; /* offset of the pkt_meta pool      */
 };
 
@@ -571,13 +572,13 @@ fd_quic_get_next_wakeup( fd_quic_t * quic );
 FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );
 
-/* fd_quic_svc_validate checks for violations of service queue and free
+/* fd_quic_state_validate checks for violations of service queue and free
    list invariants, such as cycles in linked lists.  Prints to warning/
    error log and exits the process if checks fail.  Intended for use in
    tests. */
 
 void
-fd_quic_svc_validate( fd_quic_t * quic );
+fd_quic_state_validate( fd_quic_t * quic );
 
 /* Stream Send API ****************************************************/
 
