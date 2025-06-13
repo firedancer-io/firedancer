@@ -1,5 +1,4 @@
 #include "fd_vm_private.h"
-#include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../features/fd_features.h"
 

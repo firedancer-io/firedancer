@@ -6,7 +6,6 @@
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_epoch_ctx.h"
 #include "../../vm/fd_vm.h"
 #include "fd_builtin_programs.h"
 

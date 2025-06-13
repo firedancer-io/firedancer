@@ -51,6 +51,15 @@ setup_topo_blockstore( fd_topo_t *  topo,
 }
 
 static fd_topo_obj_t *
+setup_topo_banks( fd_topo_t *  topo,
+                  char const * wksp_name,
+                  ulong        max_banks ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "banks", wksp_name );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_banks, "obj.%lu.max_banks", obj->id ) );
+  return obj;
+}
+
+static fd_topo_obj_t *
 setup_topo_fec_sets( fd_topo_t * topo, char const * wksp_name, ulong sz ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "fec_sets", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, sz, "obj.%lu.sz",   obj->id ) );
@@ -294,6 +303,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "metric"      );
   fd_topob_wksp( topo, "replay"      );
   fd_topob_wksp( topo, "runtime_pub" );
+  fd_topob_wksp( topo, "banks"       );
   fd_topob_wksp( topo, "exec"        );
   fd_topob_wksp( topo, "writer"      );
   fd_topob_wksp( topo, "blockstore"  );
@@ -463,7 +473,14 @@ fd_topo_initialize( config_t * config ) {
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
+
+  /* Setup a shared wksp object for banks. */
+
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_banks );
+  fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   /* Setup a shared wksp object for fec sets. */
 
@@ -479,6 +496,8 @@ fd_topo_initialize( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
   /* Setup a shared wksp object for runtime pub. */
+
+  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
 
   fd_topob_tile_uses( topo, replay_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, batch_tile,  runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );

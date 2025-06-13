@@ -4,7 +4,7 @@
 #include "fd_executor_err.h"
 #include "fd_system_ids.h"
 #include "fd_runtime.h"
-#include "context/fd_exec_epoch_ctx.h"
+#include "fd_bank_mgr.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "sysvar/fd_sysvar_rent.h"
 
@@ -272,8 +272,8 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
-  fd_rent_t rent    = borrowed_acct->instr_ctx->txn_ctx->rent;
-  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, acct->vt->get_data_len( acct ) );
+  fd_rent_t * rent        = fd_bank_mgr_rent_query( borrowed_acct->instr_ctx->txn_ctx->bank_mgr );
+  ulong       min_balance = fd_rent_exempt_minimum_balance( rent, acct->vt->get_data_len( acct ) );
   return acct->vt->get_lamports( acct ) >= min_balance;
 }
 

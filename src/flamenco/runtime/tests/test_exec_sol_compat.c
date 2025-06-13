@@ -67,7 +67,6 @@ main( int     argc,
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
-
     // Init runner
     fd_runtime_fuzz_runner_t * runner = sol_compat_setup_runner();
 

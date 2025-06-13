@@ -83,7 +83,7 @@ _get_stake_weights( fd_solana_manifest_t const * manifest,
   if( FD_UNLIKELY( !weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
 
   /* FIXME: This will crash because the spad is not set up. */
-  ulong weight_cnt = fd_stake_weights_by_node( vaccs, weights, NULL );
+  ulong weight_cnt = fd_stake_weights_by_node( NULL, weights, NULL );
   if( FD_UNLIKELY( weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
 
   *out_cnt = weight_cnt;

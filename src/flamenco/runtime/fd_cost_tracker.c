@@ -1,4 +1,5 @@
 #include "fd_cost_tracker.h"
+#include "fd_bank_mgr.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE static inline ulong
@@ -323,7 +324,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *        self,
                       fd_spad_t *                spad ) {
   // Set limits appropriately
   self->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  self->block_cost_limit   = FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, raise_block_limits_to_50m ) ? FD_MAX_BLOCK_UNITS_SIMD_0207 : FD_MAX_BLOCK_UNITS;
+  self->block_cost_limit   = FD_FEATURE_ACTIVE_BM( slot_ctx->bank_mgr, raise_block_limits_to_50m ) ? FD_MAX_BLOCK_UNITS_SIMD_0207 : FD_MAX_BLOCK_UNITS;
   self->vote_cost_limit    = FD_MAX_VOTE_UNITS;
 
   /* Init cost tracker map

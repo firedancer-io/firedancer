@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_choreo_forks_fd_forks_h
 #define HEADER_fd_src_choreo_forks_fd_forks_h
 
-#include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
@@ -176,7 +175,6 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   ulong                 parent_slot,
                   fd_funk_t *           funk,
                   fd_blockstore_t *     blockstore,
-                  fd_exec_epoch_ctx_t * epoch_ctx,
                   fd_spad_t *           runtime_spad );
 
 /* fd_forks_publish publishes a new root into forks.  Assumes root is a

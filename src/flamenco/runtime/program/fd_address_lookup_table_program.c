@@ -5,6 +5,7 @@
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
+#include "../fd_bank_mgr.h"
 #include "fd_native_cpi.h"
 
 #include <string.h>
@@ -300,7 +301,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L137-L142 */
 
-  fd_rent_t const * rent              = &ctx->txn_ctx->rent;
+  fd_rent_t const * rent              = fd_bank_mgr_rent_query( ctx->txn_ctx->bank_mgr );
   ulong             tbl_acct_data_len = 0x38UL;
   ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, tbl_acct_data_len );
                     required_lamports = fd_ulong_max( required_lamports, 1UL );
@@ -710,10 +711,10 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L317-L321 */
-  fd_rent_t       const * rent              = &ctx->txn_ctx->rent;
-  ulong                   required_lamports = fd_rent_exempt_minimum_balance( rent, new_table_data_sz );
-                          required_lamports = fd_ulong_max    ( required_lamports, 1UL );
-                          required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+  fd_rent_t const * rent              = fd_bank_mgr_rent_query( ctx->txn_ctx->bank_mgr );
+  ulong             required_lamports = fd_rent_exempt_minimum_balance( rent, new_table_data_sz );
+                    required_lamports = fd_ulong_max    ( required_lamports, 1UL );
+                    required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   if( required_lamports ) {
     fd_pubkey_t const * payer_key = NULL;

@@ -75,8 +75,8 @@ struct fd_snapshot_ctx {
   fd_tar_writer_t * writer;     /* Tar writer. */
   fd_hash_t         snap_hash;  /* Snapshot hash. */
   fd_hash_t         acc_hash;   /* Account hash. */
-  fd_slot_bank_t    slot_bank;  /* Obtained from funk. */
-  fd_epoch_bank_t   epoch_bank; /* Obtained from funk. */
+  // fd_slot_bank_t    slot_bank;  /* Obtained from funk. */
+  // fd_epoch_bank_t   epoch_bank; /* Obtained from funk. */
   fd_features_t *   features;
 };
 typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;

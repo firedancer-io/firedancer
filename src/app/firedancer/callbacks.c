@@ -38,6 +38,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub = {
 };
 
 static ulong
+banks_footprint( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  return fd_banks_footprint( VAL("max_banks") );
+}
+
+static ulong
+banks_align( fd_topo_t const *     topo FD_FN_UNUSED,
+             fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_banks_align();
+}
+
+static void
+banks_new( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_banks") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_banks = {
+  .name      = "banks",
+  .footprint = banks_footprint,
+  .align     = banks_align,
+  .new       = banks_new,
+};
+
+static ulong
 blockstore_footprint( fd_topo_t const *     topo,
                       fd_topo_obj_t const * obj ) {
   return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");

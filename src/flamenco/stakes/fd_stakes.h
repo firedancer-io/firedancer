@@ -3,7 +3,6 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
-#include "../runtime/fd_borrowed_account.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -47,9 +46,9 @@ struct fd_accumulate_delegations_task_args {
 typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;
 
 ulong
-fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
-                          fd_stake_weight_t *        weights,
-                          fd_spad_t *                runtime_spad );
+fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
+                          fd_stake_weight_t *               weights,
+                          fd_spad_t *                       runtime_spad );
 
 
 void
@@ -107,7 +106,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_stakes_t const *        stakes,
+                           fd_stakes_global_t const * stakes,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,

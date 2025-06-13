@@ -452,14 +452,12 @@ sol_compat_instr_fixture( fd_runtime_fuzz_runner_t * runner,
   }
 
   int ok = 0;
-  FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
   sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_runtime_fuzz_instr_run );
 
   // Compare effects
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg, runner->spad );
-  } FD_SPAD_FRAME_END;
 
   // Cleanup
   pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );

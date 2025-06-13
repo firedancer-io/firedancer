@@ -7,6 +7,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/runtime/fd_executor.h"
+#include "../../flamenco/runtime/fd_bank_mgr.h"
 
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_filemap.h"
@@ -52,6 +53,11 @@ struct fd_writer_tile_ctx {
 
   /* Local joins of exec tile txn ctx.  Read-only. */
   fd_exec_txn_ctx_t *         txn_ctx[ FD_PACK_MAX_BANK_TILES ];
+
+  /* Local join of bank manager. R/W */
+  fd_bank_mgr_t *              bank_mgr;
+  fd_banks_t *                 banks;
+  fd_bank_t *                  bank;
 };
 typedef struct fd_writer_tile_ctx fd_writer_tile_ctx_t;
 
@@ -65,6 +71,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_writer_tile_ctx_t),  sizeof(fd_writer_tile_ctx_t) );
+  l       = FD_LAYOUT_APPEND( l, alignof(fd_bank_mgr_t),          sizeof(fd_bank_mgr_t) );
   l       = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -146,12 +153,16 @@ during_frag( fd_writer_tile_ctx_t * ctx,
 
     if( FD_LIKELY( sig==FD_WRITER_SLOT_SIG ) ) {
       //FIXME this should be replaced by bank mgr
+
       fd_runtime_public_replay_writer_slot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
       fd_exec_slot_ctx_t * slot_ctx = fd_wksp_laddr_fast( ctx->runtime_public_wksp, msg->slot_ctx_gaddr );
       if( FD_UNLIKELY( !slot_ctx ) ) {
         FD_LOG_CRIT(( "Unable to join slot_ctx at gaddr 0x%lx", msg->slot_ctx_gaddr ));
       }
       ctx->slot_ctx = slot_ctx;
+
+      ctx->bank_mgr = fd_bank_mgr_join( ctx->bank_mgr, ctx->funk, ctx->slot_ctx->funk_txn );
+      ctx->bank = fd_banks_get_bank( ctx->banks, ctx->slot_ctx->funk_txn->xid.ul[0] );
       return;
     }
 
@@ -189,7 +200,8 @@ during_frag( fd_writer_tile_ctx_t * ctx,
         FD_SPIN_PAUSE();
       }
       FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-        fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info, ctx->spad );
+        FD_TEST( ctx->bank );
+        fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info, ctx->spad, ctx->bank_mgr, ctx->banks, ctx->bank );
       } FD_SPAD_FRAME_END;
     }
     /* Notify the replay tile. */
@@ -233,6 +245,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_writer_tile_ctx_t), sizeof(fd_writer_tile_ctx_t) );
+  void * bank_mgr_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bank_mgr_t), sizeof(fd_bank_mgr_t) );
   void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT ) );
   ulong scratch_alloc_mem    = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
@@ -367,6 +380,26 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_CRIT(( "writer tile %lu fseq setup failed", ctx->tile_idx ));
   }
   fd_fseq_update( ctx->fseq, FD_WRITER_STATE_NOT_BOOTED );
+
+  /********************************************************************/
+  /* Bank manager                                                    */
+  /********************************************************************/
+
+  ctx->bank_mgr = fd_bank_mgr_join( bank_mgr_mem, ctx->funk, NULL );
+
+  /********************************************************************/
+  /* Bank                                                             */
+  /********************************************************************/
+
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  if( FD_UNLIKELY( banks_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "Could not find topology object for banks" ));
+  }
+
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  if( FD_UNLIKELY( !ctx->banks ) ) {
+    FD_LOG_ERR(( "Failed to join banks" ));
+  }
 }
 
 static ulong

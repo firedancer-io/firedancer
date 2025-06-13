@@ -362,6 +362,8 @@ fd_restart_init( fd_restart_t *              restart,
                  uchar *                     out_buf,
                  ulong *                     out_buf_len,
                  fd_spad_t *                 runtime_spad ) {
+  (void)runtime_spad;
+
   restart->funk_root                       = funk_root;
   restart->epoch_schedule                  = epoch_schedule;
   restart->root_epoch                      = fd_slot_to_epoch( epoch_schedule, restart->funk_root, NULL ),
@@ -385,7 +387,7 @@ fd_restart_init( fd_restart_t *              restart,
   FD_TEST( FD_RESTART_EPOCHS_MAX==2 );
   for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     if( epoch_stakes[e]->vote_accounts_root==NULL ) FD_LOG_ERR(( "vote account information is missing for epoch#%lu", restart->root_epoch+e ));
-    restart->num_vote_accts[e]                 = fd_stake_weights_by_node( epoch_stakes[e], restart->stake_weights[e], runtime_spad );
+    // restart->num_vote_accts[e]                 = fd_stake_weights_by_node( epoch_stakes[e], restart->stake_weights[e], runtime_spad );
     restart->total_stake[e]                    = 0;
     restart->total_stake_received[e]           = 0;
     restart->total_stake_received_and_voted[e] = 0;
