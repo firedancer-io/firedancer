@@ -9,6 +9,7 @@
 #include "fd_quic_proto.h"
 #include "fd_quic_proto.c"
 #include "fd_quic_retry.h"
+#include "fd_quic_svc_q.h"
 
 #define FD_TEMPL_FRAME_CTX fd_quic_frame_ctx_t
 #include "templ/fd_quic_frame_handler_decl.h"
@@ -147,6 +148,13 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong log_footprint = fd_quic_log_buf_footprint( log_depth );
   if( FD_UNLIKELY( !log_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_log_buf_footprint for depth %lu", log_depth )); return 0UL; }
   offs += log_footprint;
+
+  /* allocate space for service timers */
+  offs                       = fd_ulong_align_up( offs, fd_quic_svc_timers_align() );
+  layout->svc_timers_off     = offs;
+  ulong svc_timers_footprint = fd_quic_svc_timers_footprint( limits->conn_cnt );
+  if( FD_UNLIKELY( !svc_timers_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_svc_timers_footprint" )); return 0UL; }
+  offs                       += svc_timers_footprint;
 
   return offs;
 }
@@ -464,9 +472,10 @@ fd_quic_init( fd_quic_t * quic ) {
   state->conn_sz   = layout.conn_footprint;
 
   /* initialize free_conns */
-  state->free_conn_list = UINT_MAX;
+  state->free_conn_list = 0;
 
-  fd_quic_conn_t * last = NULL;
+  fd_quic_conn_t   _catch[1] = {{.conn_idx = UINT_MAX }};
+  fd_quic_conn_t * last      = _catch;
   for( ulong j = 0; j < limits->conn_cnt; ++j ) {
     void * conn_mem  = (void *)( conn_laddr );
     conn_laddr      += layout.conn_footprint;
@@ -478,10 +487,12 @@ fd_quic_init( fd_quic_t * quic ) {
     }
 
     /* used for indexing */
-    conn->conn_idx = (uint)j;
+    conn->conn_idx  = (uint)j;
+    conn->conn_next = UINT_MAX;
 
     /* add to free list */
-    *fd_ptr_if( last!=NULL, &last->svc_next, &state->free_conn_list ) = (uint)j;
+    last->conn_next = (uint)j;
+    conn->conn_prev = last->conn_idx;
 
     last = conn;
   }
@@ -496,14 +507,8 @@ fd_quic_init( fd_quic_t * quic ) {
   }
 
   /* State: Initialize service queue */
-
-  for( uint j=0U; j<FD_QUIC_SVC_CNT; j++ ) {
-    state->svc_queue[j].head = UINT_MAX;
-    state->svc_queue[j].tail = UINT_MAX;
-  }
-  state->svc_delay[ FD_QUIC_SVC_INSTANT ] = 0UL;
-  state->svc_delay[ FD_QUIC_SVC_ACK_TX  ] = quic->config.ack_delay;
-  state->svc_delay[ FD_QUIC_SVC_WAIT    ] = (quic->config.idle_timeout)>>(quic->config.keep_alive);
+  ulong svc_base    = (ulong)quic + layout.svc_timers_off;
+  state->svc_timers = fd_quic_svc_timers_init( (void *)svc_base, limits->conn_cnt );
 
   /* Check TX AIO */
 
@@ -660,147 +665,67 @@ fd_quic_reconstruct_pkt_num( ulong pktnum_comp,
   return candidate_pn;
 }
 
-static void
-fd_quic_svc_unqueue( fd_quic_state_t * state,
-                     fd_quic_conn_t *  conn ) {
-
-  fd_quic_svc_queue_t * queue    = &state->svc_queue[ conn->svc_type ];
-  uint                  prev_idx = conn->svc_prev;
-  uint                  next_idx = conn->svc_next;
-  fd_quic_conn_t *      prev_ele = fd_quic_conn_at_idx( state, prev_idx );
-  fd_quic_conn_t *      next_ele = fd_quic_conn_at_idx( state, next_idx );
-
-  *fd_ptr_if( next_idx!=UINT_MAX, &next_ele->svc_prev, &queue->head ) = prev_idx;
-  *fd_ptr_if( prev_idx!=UINT_MAX, &prev_ele->svc_next, &queue->tail ) = next_idx;
-
+/* fd_quic_svc_prep_schedule sets conn->svc_meta.next_timeout to
+   min of current and provided expiry time. */
+static inline void
+fd_quic_svc_prep_schedule( fd_quic_conn_t * conn,
+                           ulong            expiry ) {
+  conn->svc_meta.next_timeout = fd_ulong_min( conn->svc_meta.next_timeout, expiry );
 }
 
-void
-fd_quic_svc_schedule( fd_quic_state_t * state,
-                      fd_quic_conn_t *  conn,
-                      uint              svc_type ) {
-  if( FD_UNLIKELY( svc_type >= FD_QUIC_SVC_CNT ) ) {
-    FD_LOG_ERR(( "fd_quic_svc_schedule called with invalid svc_type (%u)", svc_type ));
-  }
-  if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
-    FD_LOG_ERR(( "fd_quic_svc_schedule called with invalid conn" ));
-  }
-
-  int  is_queued = conn->svc_type < FD_QUIC_SVC_CNT;
-  long cur_delay = (long)conn->svc_time - (long)state->now;
-  long tgt_delay = (long)state->svc_delay[ svc_type ];
-
-  /* Don't reschedule if already scheduled sooner */
-  if( is_queued && cur_delay<=tgt_delay ) return;
-
-  /* Remove entry from current queue */
-  if( is_queued ) {
-    fd_quic_svc_unqueue( state, conn );
-    is_queued = 0;
-  }
-
-  /* Add into new queue */
-  fd_quic_svc_queue_t * queue        = &state->svc_queue[ svc_type ];
-  uint                  old_tail_idx = queue->tail;
-  fd_quic_conn_t *      old_tail_ele = fd_quic_conn_at_idx( state, old_tail_idx );
-  conn->svc_type = svc_type;
-  conn->svc_time = state->now + (ulong)tgt_delay;
-  conn->svc_prev = UINT_MAX;
-  conn->svc_next = old_tail_idx;
-  *fd_ptr_if( old_tail_idx!=UINT_MAX, &old_tail_ele->svc_prev, &queue->head ) = (uint)conn->conn_idx;
-  queue->tail    = (uint)conn->conn_idx;
-
+/* fd_quic_svc_prep_schedule_now sets conn->svc_meta.next_timeout to
+   current time. For when state is not already available */
+static inline void
+fd_quic_svc_prep_schedule_now( fd_quic_conn_t * conn ) {
+  fd_quic_svc_prep_schedule( conn, fd_quic_get_state(conn->quic)->now );
 }
 
-/* fd_quic_svc_queue_validate checks the following:
-   - dlist prev and next chains are in agreement
-   - all nodes belong to the same list
-   - no cycles in list
-   - no excessive delays (assumes no monotonically increasing timestamp) */
-
-static void
-fd_quic_svc_queue_validate( fd_quic_t * quic,
-                            uint        svc_type ) {
-  FD_TEST( svc_type < FD_QUIC_SVC_CNT );
-  fd_quic_state_t * state = fd_quic_get_state( quic );
-  ulong now = state->now;
-
-  ulong cnt  = 0UL;
-  uint  prev = UINT_MAX;
-  uint  node = state->svc_queue[ svc_type ].tail;
-  while( node!=UINT_MAX ) {
-    FD_TEST( node <= quic->limits.conn_cnt );
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, node );
-    FD_TEST( conn->state != FD_QUIC_CONN_STATE_INVALID );
-    FD_TEST( conn->svc_type == svc_type );
-    FD_TEST( conn->svc_time <= now + state->svc_delay[ svc_type ] );
-    FD_TEST( conn->svc_prev == prev );
-    conn->visited = 1U;
-
-    prev = node;
-    node = conn->svc_next;
-    cnt++;
-    FD_TEST( cnt <= quic->limits.conn_cnt );
-
-  }
-  FD_TEST( prev == state->svc_queue[ svc_type ].head );
+/* Scheduling helper. Retrieves timers from conn to call schedule */
+static inline void
+fd_quic_svc_schedule1( fd_quic_conn_t * conn ) {
+  fd_quic_svc_schedule( fd_quic_get_state(conn->quic)->svc_timers, conn );
 }
 
 /* validates the free conn list doesn't cycle, point nowhere, leak, or point to live conn */
 static void
 fd_quic_conn_free_validate( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  /* initialize visited */
+  fd_quic_conn_validate_init( quic );
+
   ulong cnt  = 0UL;
   uint  node = state->free_conn_list;
   while( node!=UINT_MAX ) {
     FD_TEST( node <= quic->limits.conn_cnt );
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, node );
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_INVALID );
-    FD_TEST( conn->svc_prev == UINT_MAX );
-    FD_TEST( conn->svc_type == UINT_MAX );
     conn->visited = 1U;
-    node = conn->svc_next;
+    node = conn->conn_next;
     cnt++;
     FD_TEST( cnt <= quic->limits.conn_cnt );
+  }
+
+  for( ulong j=0UL; j < quic->limits.conn_cnt; j++ ) {
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
+    FD_TEST( conn->conn_idx==j );
+    if( conn->state == FD_QUIC_CONN_STATE_INVALID ) {
+      FD_TEST( conn->visited );
+    } else {
+      FD_TEST( !conn->visited );
+    }
   }
 }
 
 void
-fd_quic_svc_validate( fd_quic_t * quic ) {
+fd_quic_state_validate( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  for( ulong j=0UL; j < quic->limits.conn_cnt; j++ ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
-    FD_TEST( conn->conn_idx==j );
-    conn->visited = 0U;
-    if( conn->state == FD_QUIC_CONN_STATE_INVALID ) {
-      FD_TEST( conn->svc_type==UINT_MAX );
-      FD_TEST( conn->svc_prev==UINT_MAX );
-      continue;
-    }
-  }
 
-  fd_quic_svc_queue_validate( quic, FD_QUIC_SVC_INSTANT );
-  fd_quic_svc_queue_validate( quic, FD_QUIC_SVC_ACK_TX  );
-  fd_quic_svc_queue_validate( quic, FD_QUIC_SVC_WAIT    );
-
-  for( ulong j=0UL; j < quic->limits.conn_cnt; j++ ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
-    FD_TEST( conn->conn_idx==j );
-    if( conn->state == FD_QUIC_CONN_STATE_INVALID ) {
-      FD_TEST( conn->svc_type==UINT_MAX );
-      FD_TEST( conn->svc_prev==UINT_MAX );
-      FD_TEST( !conn->visited );
-      continue;
-    }
-    FD_TEST( conn->visited );  /* if assertion fails, the conn was leaked */
-  }
+  /* init visited for svc_timers_validate to use */
+  fd_quic_conn_validate_init( quic );
+  FD_TEST( fd_quic_svc_timers_validate( state->svc_timers, quic ) );
 
   fd_quic_conn_free_validate( quic );
-  for( ulong j=0UL; j < quic->limits.conn_cnt; j++ ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
-    FD_TEST( conn->conn_idx==j );
-    FD_TEST( conn->visited );
-  }
 }
 
 /* Helpers for generating fd_quic_log entries */
@@ -855,7 +780,8 @@ fd_quic_conn_error1( fd_quic_conn_t * conn,
   conn->reason = reason;
 
   /* set connection to be serviced ASAP */
-  fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+  fd_quic_svc_prep_schedule_now( conn );
+  fd_quic_svc_schedule1( conn );
 }
 
 static void
@@ -1286,7 +1212,8 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   }
 
   /* schedule send */
-  fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+  fd_quic_svc_prep_schedule_now( conn );
+  fd_quic_svc_schedule1( conn );
 
   return FD_QUIC_SUCCESS;
 }
@@ -1318,7 +1245,8 @@ fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
     conn->srx->rx_max_data  = rx_max_data;
     conn->flags            |= FD_QUIC_CONN_FLAGS_MAX_DATA;
     conn->upd_pkt_number    = FD_QUIC_PKT_NUM_PENDING;
-    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    fd_quic_svc_prep_schedule_now( conn );
+    fd_quic_svc_schedule1( conn );
   }
 }
 
@@ -1879,7 +1807,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   conn->exp_pkt_number[0] = fd_ulong_max( conn->exp_pkt_number[0], pkt_number+1UL );
 
   /* insert into service queue */
-  fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+  fd_quic_svc_prep_schedule( conn, state->now );
 
   /* return number of bytes consumed */
   return tot_sz;
@@ -2091,7 +2019,7 @@ fd_quic_handle_v1_retry(
   /* send the INITIAL */
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
-  fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+  fd_quic_svc_prep_schedule_now( conn );
 
   return cur_sz;
 }
@@ -2127,14 +2055,12 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
     ( !!(pkt->ack_flag & ACK_FLAG_RQD) ) &
     ( ( pkt->enc_level == fd_quic_enc_level_initial_id   ) |
       ( pkt->enc_level == fd_quic_enc_level_handshake_id ) );
-  uint svc_type;
   if( ack_sz_threshold_hit | force_instant_ack ) {
     conn->unacked_sz = 0UL;
-    svc_type = FD_QUIC_SVC_INSTANT;
+    fd_quic_svc_prep_schedule( conn, state->now );
   } else {
-    svc_type = FD_QUIC_SVC_ACK_TX;
+    fd_quic_svc_prep_schedule( conn, state->now + quic->config.ack_delay );
   }
-  fd_quic_svc_schedule( state, conn, svc_type );
 
   return res;
 }
@@ -2392,6 +2318,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   /* if we get here we parsed all the frames, so ack the packet */
   int ack_type = fd_quic_lazy_ack_pkt( quic, conn, pkt );
   quic->metrics.ack_tx[ ack_type ]++;
+
+  fd_quic_svc_schedule( state->svc_timers, conn );
 
   if( pkt->rtt_ack_time ) {
     fd_quic_sample_rtt( conn, (long)pkt->rtt_ack_time, (long)pkt->rtt_ack_delay );
@@ -2973,10 +2901,6 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     return 1;
   }
 
-  //FD_DEBUG( FD_LOG_DEBUG(( "svc_poll conn=%p svc_type=%u", (void *)conn, conn->svc_type )); )
-  conn->svc_type = UINT_MAX;
-  conn->svc_time = LONG_MAX;
-
   if( FD_UNLIKELY( now >= conn->last_activity + ( conn->idle_timeout_ticks / 2 ) ) ) {
     if( FD_UNLIKELY( now >= conn->last_activity + conn->idle_timeout_ticks ) ) {
       if( FD_LIKELY( conn->state != FD_QUIC_CONN_STATE_DEAD ) ) {
@@ -3019,68 +2943,31 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     fd_quic_conn_free( quic, conn );
     break;
   default:
-    fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
+    /* prep idle timeout or keep alive at idle timeout/2 */
+    fd_quic_svc_prep_schedule( conn, state->now + (conn->idle_timeout_ticks>>(quic->config.keep_alive)) );
+    fd_quic_svc_schedule( state->svc_timers, conn );
     break;
   }
 
   return 1;
 }
 
-static int
-fd_quic_svc_poll_head( fd_quic_t * quic,
-                       uint        svc_type,
-                       ulong       now ) {
-  fd_quic_state_t * state = fd_quic_get_state( quic );
-
-  /* Peek head of queue */
-  fd_quic_svc_queue_t * queue = &state->svc_queue[ svc_type ];
-  if( queue->head==UINT_MAX ) return 0;
-  fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, queue->head );
-  if( conn->svc_time > now ) return 0;
-
-  /* Remove head of queue */
-  uint             prev_idx = conn->svc_prev;
-  fd_quic_conn_t * prev_ele = fd_quic_conn_at_idx( state, prev_idx );
-  *fd_ptr_if( prev_idx!=UINT_MAX, &prev_ele->svc_next, &queue->tail ) = UINT_MAX;
-  queue->head = prev_idx;
-
-  return fd_quic_svc_poll( quic, conn, now );
-}
-
-static int
-fd_quic_svc_poll_tail( fd_quic_t * quic,
-                       uint        svc_type,
-                       ulong       now ) {
-  fd_quic_state_t * state = fd_quic_get_state( quic );
-
-  /* Peek tail of queue */
-  fd_quic_svc_queue_t * queue = &state->svc_queue[ svc_type ];
-  if( queue->tail==UINT_MAX ) return 0;
-  fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, queue->tail );
-  if( conn->svc_time > now ) return 0;
-
-  /* Remove tail of queue */
-  uint             next_idx = conn->svc_next;
-  fd_quic_conn_t * next_ele = fd_quic_conn_at_idx( state, next_idx );
-  *fd_ptr_if( next_idx!=UINT_MAX, &next_ele->svc_prev, &queue->head ) = UINT_MAX;
-  queue->tail = next_idx;
-
-  return fd_quic_svc_poll( quic, conn, now );
-}
-
 int
 fd_quic_service( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  ulong now = fd_quic_now( quic );
+  ulong now  = fd_quic_now( quic );
   state->now = now;
 
   long now_ticks = fd_tickcount();
 
-  int cnt = 0;
-  cnt += fd_quic_svc_poll_tail( quic, FD_QUIC_SVC_INSTANT, now );
-  cnt += fd_quic_svc_poll_head( quic, FD_QUIC_SVC_ACK_TX,  now );
-  cnt += fd_quic_svc_poll_head( quic, FD_QUIC_SVC_WAIT,    now );
+  fd_quic_svc_timers_t * timers = state->svc_timers;
+  fd_quic_svc_event_t    next   = fd_quic_svc_timers_next( timers, now, 1 /* pop */);
+  if( FD_UNLIKELY( next.conn == NULL ) ) {
+    return 0;
+  }
+
+  int cnt = fd_quic_svc_poll( quic, next.conn, now );
 
   long delta_ticks = fd_tickcount() - now_ticks;
 
@@ -3690,7 +3577,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
   if( conn->tx_ptr != conn->tx_buf_conn ) {
     fd_quic_tx_buffered( quic, conn );
-    fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+    fd_quic_svc_prep_schedule( conn, state->now );
     return;
   }
 
@@ -3868,7 +3755,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
       /* reschedule, since some data was unable to be sent */
       /* TODO might want to add a backoff here */
-      fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+      fd_quic_svc_prep_schedule( conn, state->now );
 
       break;
     }
@@ -3959,7 +3846,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
       /* this situation is unlikely to improve, so kill the connection */
       fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
-      fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+      fd_quic_svc_prep_schedule_now( conn );
       quic->metrics.conn_aborted_cnt++;
       break;
     }
@@ -3969,8 +3856,6 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
     /* we have committed the packet into the buffer, so inc pkt_number */
     conn->pkt_number[pn_space]++;
-
-    fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
 
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
@@ -4005,6 +3890,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 void
 fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
   (void)now;
+  conn->svc_meta.next_timeout = ULONG_MAX;
 
   /* Send new rtt measurement probe? */
   if( FD_UNLIKELY(now > conn->last_ack + (ulong)conn->rtt_period_ticks) ) {
@@ -4073,7 +3959,6 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         /* schedule another fd_quic_conn_service to free the conn */
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD ); /* TODO need draining state wait for 3 * TPO */
         quic->metrics.conn_closed_cnt++;
-        fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
 
         break;
 
@@ -4084,7 +3969,6 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         /* schedule another fd_quic_conn_service to free the conn */
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_aborted_cnt++;
-        fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
 
         break;
 
@@ -4184,15 +4068,10 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
   conn->tls_hs = NULL;
 
-  /* remove connection from service queue */
-  if( FD_LIKELY( conn->svc_type != UINT_MAX ) ) {
-    fd_quic_svc_unqueue( state, conn );
-  }
+  fd_quic_svc_cancel( state->svc_timers, conn );
 
   /* put connection back in free list */
-  conn->svc_type        = UINT_MAX;
-  conn->svc_prev        = UINT_MAX;
-  conn->svc_next        = state->free_conn_list;
+  conn->free_conn_next  = state->free_conn_list;
   state->free_conn_list = conn->conn_idx;
 
   FD_COMPILER_MFENCE();
@@ -4290,11 +4169,12 @@ fd_quic_connect( fd_quic_t *  quic,
 
   fd_quic_gen_initial_secret_and_keys( conn, &peer_conn_id, /* is_server */ 0 );
 
-  fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
-
   /* set "called_conn_new" to indicate we should call conn_final
      upon teardown */
   conn->called_conn_new = 1;
+
+  fd_quic_svc_prep_schedule( conn, state->now );
+  fd_quic_svc_schedule( state->svc_timers, conn );
 
   /* everything initialized */
   return conn;
@@ -4352,17 +4232,13 @@ fd_quic_conn_create( fd_quic_t *               quic,
   insert_entry->conn = conn;
 
   /* remove from free list */
-  state->free_conn_list = conn->svc_next;
-  conn->svc_next        = UINT_MAX;
+  state->free_conn_list = conn->conn_next;
+  conn->conn_next       = UINT_MAX;
 
   /* initialize connection members */
   fd_quic_conn_clear( conn );
 
   conn->server              = !!server;
-  conn->svc_type            = UINT_MAX;
-  conn->svc_prev            = UINT_MAX;
-  conn->svc_next            = UINT_MAX;
-  conn->svc_time            = LONG_MAX;
   conn->our_conn_id         = our_conn_id;
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = self_ip_addr, /* may be 0, if outgoing */
@@ -4451,8 +4327,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
   quic->metrics.conn_alloc_cnt++;
   quic->metrics.conn_created_cnt++;
 
-  /* immediately schedule it */
-  fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
+  fd_quic_svc_timers_init_conn( conn );
+
+  /* prep idle timeout or keep alive at idle timeout/2 */
+  ulong delay = quic->config.idle_timeout>>(quic->config.keep_alive);
+  fd_quic_svc_prep_schedule( conn, state->now+delay );
 
   /* return connection */
   return conn;
@@ -4460,22 +4339,10 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
 ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic ) {
-  /* FIXME not optimized for performance */
-  fd_quic_state_t * state = fd_quic_get_state( quic );
-  if( state->svc_queue[ FD_QUIC_SVC_INSTANT ].tail != UINT_MAX ) return 0UL;
-
-  long ack_wakeup  = LONG_MAX;
-  long wait_wakeup = LONG_MAX;
-  if( state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head != UINT_MAX ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head );
-    ack_wakeup = (long)conn->svc_time;
-  }
-  if( state->svc_queue[ FD_QUIC_SVC_WAIT ].head != UINT_MAX ) {
-    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_WAIT ].head );
-    wait_wakeup = (long)conn->svc_time;
-  }
-
-  return (ulong)fd_long_max( fd_long_min( ack_wakeup, wait_wakeup ), 0L );
+  fd_quic_state_t *   state = fd_quic_get_state( quic );
+  ulong               now   = state->now;
+  fd_quic_svc_event_t next  = fd_quic_svc_timers_next( state->svc_timers, now, 0 );
+  return next.timeout;
 }
 
 /* frame handling function default definitions */
@@ -4594,7 +4461,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     }
 
     if( exit ) {
-      if( expiry != ~0ul ) fd_quic_svc_schedule1( conn, FD_QUIC_SVC_WAIT );
+      fd_quic_svc_prep_schedule( conn, expiry );
       return;
     };
 
@@ -4701,7 +4568,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     }
 
     /* reschedule to ensure the data gets processed */
-    fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+    fd_quic_svc_prep_schedule_now( conn );
 
     /* free pkt_meta */
     fd_quic_pkt_meta_remove_range( &tracker->sent_pkt_metas[enc_level],
@@ -4930,7 +4797,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
                 stream->stream_flags |= FD_QUIC_STREAM_FLAGS_UNSENT;
 
-                fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+                fd_quic_svc_prep_schedule_now( conn );
               } else {
                 /* if no data to send, check whether fin bits are set */
                 if( ( stream->state & fin_state_mask ) == fin_state_mask ) {
@@ -5483,7 +5350,7 @@ fd_quic_handle_conn_close_frame( fd_quic_conn_t * conn ) {
   }
 
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-  fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+  fd_quic_svc_prep_schedule_now( conn );
 }
 
 static ulong
@@ -5577,7 +5444,7 @@ fd_quic_handle_handshake_done_frame(
   }
 
   /* Instantly acknowledge the first HANDSHAKE_DONE frame */
-  fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+  fd_quic_svc_prep_schedule_now( conn );
 
   /* RFC 9001 4.9.2. Discarding Handshake Keys
      > An endpoint MUST discard its Handshake keys when the
@@ -5634,7 +5501,8 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
   }
 
   /* set connection to be serviced ASAP */
-  fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+  fd_quic_svc_prep_schedule_now( conn );
+  fd_quic_svc_schedule1( conn );
 }
 
 void
