@@ -1,3 +1,4 @@
+#include "epoch/fd_epoch.h"
 #include "tower/fd_tower.h"
 #include "forks/fd_forks.h"
 #include "ghost/fd_ghost.h"
@@ -12,6 +13,14 @@ struct voter {
   fd_pubkey_t identity;
 };
 typedef struct voter voter_t;
+
+typedef struct {
+  fd_funk_t *  funk;
+  fd_epoch_t * epoch;
+  fd_ghost_t * ghost;
+  ulong        confirmed;
+  ulong        finalized;
+} tower_tile_ctx_t;
 
 fd_tower_t *
 make_tower(void * tower_mem, size_t n, ...) {
@@ -309,6 +318,98 @@ mock_forks( fd_wksp_t * wksp, fd_funk_txn_t * funk_txn, ulong slot ) {
     } \
   } while(0);
 
+/* This update_ghost function is copied from fd_tower_tile.c */
+static void
+update_ghost( tower_tile_ctx_t * ctx, fd_funk_txn_t * txn ) {
+  fd_funk_t *  funk  = ctx->funk;
+  fd_epoch_t * epoch = ctx->epoch;
+  fd_ghost_t * ghost = ctx->ghost;
+
+  fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
+  for( ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
+    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+
+    /* TODO we can optimize this funk query to only check through the
+       last slot on this fork this function was called on. currently
+       rec_query_global traverses all the way back to the root. */
+
+    fd_voter_t *             voter = &epoch_voters[i];
+
+    /* Fetch the vote account's vote slot and root slot from the vote
+       account, re-trying if there is a Funk conflict. */
+
+    ulong vote = FD_SLOT_NULL;
+    ulong root = FD_SLOT_NULL;
+
+    for(;;) {
+      fd_funk_rec_query_t   query;
+      /* fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, &voter->rec, NULL, &query ); */
+      /* if( FD_UNLIKELY( !rec ) ) break; */
+      /* fd_voter_state_t const * state = fd_voter_state( funk, rec ); */
+      fd_voter_state_t const * state = fd_voter_state( funk, &query, txn, &voter->rec );
+      if( FD_UNLIKELY( !state ) ) break;
+      vote = fd_voter_state_vote( state );
+      root = fd_voter_state_root( state );
+      if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) break;
+    }
+
+    /* Only process votes for slots >= root. Ghost requires vote slot
+        to already exist in the ghost tree. */
+
+    if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
+      fd_ghost_replay_vote( ghost, voter, vote );
+
+      /* Check if it has crossed the equivocation safety and optimistic
+         confirmation thresholds. */
+
+      fd_ghost_node_t const * node = fd_ghost_query( ghost, vote );
+
+      /* Error if the node's vote slot is not in ghost. This is an
+         invariant violation, because we know their tower must be on the
+         same fork as this current one that we're processing, and so by
+         definition their vote slot must be in our ghost (ie. we can't
+         have rooted past it or be on a different fork). */
+
+      if( FD_UNLIKELY( !node ) ) FD_LOG_ERR(( "[%s] voter %s's vote slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), vote ));
+
+      fd_ghost_replay_vote( ghost, voter, vote );
+      double pct = (double)node->replay_stake / (double)epoch->total_stake;
+      if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) ctx->confirmed = fd_ulong_max( ctx->confirmed, node->slot );
+    }
+
+    /* Check if this voter's root >= ghost root. We can't process
+        other voters' roots that precede the ghost root. */
+
+    if( FD_LIKELY( root != FD_SLOT_NULL && root >= fd_ghost_root( ghost )->slot ) ) {
+      fd_ghost_node_t const * node = fd_ghost_query( ghost, root );
+
+      /* Error if the node's root slot is not in ghost. This is an
+         invariant violation, because we know their tower must be on the
+         same fork as this current one that we're processing, and so by
+         definition their root slot must be in our ghost (ie. we can't
+         have rooted past it or be on a different fork). */
+
+      if( FD_UNLIKELY( !node ) ) FD_LOG_ERR(( "[%s] voter %s's root slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), root ));
+
+      fd_ghost_rooted_vote( ghost, voter, root );
+      double pct = (double)node->rooted_stake / (double)epoch->total_stake;
+      if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) ctx->finalized = fd_ulong_max( ctx->finalized, node->slot );
+    }
+  }
+}
+
+#define UPDATE_GHOST( SLOT ) \
+  do { \
+    tower_tile_ctx_t ctx = { \
+      .funk = funk, \
+      .epoch = epoch, \
+      .ghost = ghost \
+    }; \
+    fd_fork_t *     fork = fd_fork_frontier_ele_query( forks->frontier, &SLOT, NULL, forks->pool ); \
+    fd_funk_txn_t * txn  = fork->slot_ctx->funk_txn; \
+    update_ghost( &ctx, txn ); \
+  } while (0);
+
 void
 test_vote_simple( fd_wksp_t * wksp ) {
   /**********************************************************************/
@@ -374,8 +475,7 @@ test_vote_simple( fd_wksp_t * wksp ) {
   ulong frontier = 331233205;
   INIT_FORKS( frontier );
   ulong curr_slot = frontier;
-
-  fd_forks_update( forks, epoch, funk, ghost, curr_slot );
+  UPDATE_GHOST( curr_slot );
 
   /**********************************************************************/
   /* Vote for slot 5 and check that the tower grows by 1                */
@@ -480,8 +580,8 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
   ulong frontier2 = 331233204;
   INIT_FORKS( frontier1 );
   ADD_FRONTIER_TO_FORKS( frontier2 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+  UPDATE_GHOST( frontier1 );
+  UPDATE_GHOST( frontier2 );
 
   /**********************************************************************/
   /*                   Try to vote for slot 331233204                   */
@@ -505,7 +605,7 @@ test_vote_lockout_check( fd_wksp_t * wksp ) {
 
   frontier2 = 331233205;
   ADD_FRONTIER_TO_FORKS( frontier2 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+  UPDATE_GHOST( frontier2 );
 
   // Validate fd_tower_lockout_check returns 1
   FD_TEST( fd_tower_lockout_check( tower, ghost, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot ) );
@@ -637,8 +737,7 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
   fd_forks_t * forks;
   ulong frontier1 = 331233210UL;
   INIT_FORKS( frontier1 );
-
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
+  UPDATE_GHOST( frontier1 );
 
   /**********************************************************************/
   /*                   Try to vote for slot 331233210                   */
@@ -658,7 +757,7 @@ test_vote_threshold_check( fd_wksp_t * wksp ) {
 
   voter_vote_for_slot( wksp, towers[1], funk, 331233203, 331233210, &voters[1] );
   voter_vote_for_slot( wksp, towers[1], funk, 331233204, 331233210, &voters[1] );
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
+  UPDATE_GHOST( frontier1 );
   /* Now, when simulating a vote for slot 331233210 with towers[1], the tower entries for slot
     331233204 and 331233203 will expire, leaving (331233202, 3) at the top of towers[1]. Given
     that 331233202 >= (331233210 - THRESHOLD_DEPTH), threshold check will now pass. */
@@ -757,9 +856,8 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
   ulong frontier2 = 331233206;
   INIT_FORKS( frontier1 );
   ADD_FRONTIER_TO_FORKS( frontier2 );
-
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+  UPDATE_GHOST( frontier1 );
+  UPDATE_GHOST( frontier2 );
 
   /**********************************************************************/
   /*             Try to vote for slot 331233206 (frontier2)             */
@@ -775,7 +873,7 @@ test_vote_switch_check( fd_wksp_t * wksp ) {
   /**********************************************************************/
   voter_vote_for_slot( wksp, towers[4], funk, 331233205, 331233206, &voters[4] );
 
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
+  UPDATE_GHOST( frontier2 );
   FD_TEST( fd_tower_switch_check( tower, epoch, ghost, forks, funk, fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot, spad ) );
   ulong vote_slot  = fd_tower_vote_slot( tower, epoch, funk, forks, frontier2, ghost, spad );
   FD_TEST( vote_slot==frontier2 );
@@ -883,10 +981,10 @@ test_vote_switch_check_demo_forks( fd_wksp_t * wksp ) {
   ADD_FRONTIER_TO_FORKS( frontier3 );
   ADD_FRONTIER_TO_FORKS( frontier4 );
 
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier3 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier4 );
+  UPDATE_GHOST( frontier1 );
+  UPDATE_GHOST( frontier2 );
+  UPDATE_GHOST( frontier3 );
+  UPDATE_GHOST( frontier4 );
 
   /**********************************************************************/
   /*             Try to switch from 331233203 to 331233208              */
@@ -995,9 +1093,9 @@ test_vote_switch_check_testnet_forks( fd_wksp_t * wksp ) {
   ADD_FRONTIER_TO_FORKS( frontier2 );
   ADD_FRONTIER_TO_FORKS( frontier3 );
 
-  fd_forks_update( forks, epoch, funk, ghost, frontier1 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier2 );
-  fd_forks_update( forks, epoch, funk, ghost, frontier3 );
+  UPDATE_GHOST( frontier1 );
+  UPDATE_GHOST( frontier2 );
+  UPDATE_GHOST( frontier3 );
 
   /**********************************************************************/
   /* voter#0 should be able to switch to the majority fork 331233470    */
@@ -1689,7 +1787,7 @@ test_agave_collect_vote_lockouts_sums( fd_wksp_t * wksp ) {
   fd_forks_t * forks;
   ulong curr_slot = 1;
   INIT_FORKS( curr_slot );
-  fd_forks_update( forks, epoch, funk, ghost, curr_slot );
+  UPDATE_GHOST( curr_slot );
 
   FD_TEST( fd_ghost_query( ghost, 0 )->weight==2 );
   FD_TEST( fd_ghost_query( ghost, fd_ghost_root( ghost )->slot )->weight==2 );
@@ -1768,7 +1866,7 @@ test_agave_collect_vote_lockouts_root( fd_wksp_t * wksp ) {
   fd_forks_t * forks;
   ulong curr_slot = FD_TOWER_VOTE_MAX;
   INIT_FORKS( curr_slot );
-  fd_forks_update( forks, epoch, funk, ghost, curr_slot );
+  UPDATE_GHOST( curr_slot );
 
   for( ulong slot=0; slot<FD_TOWER_VOTE_MAX; slot++ )
     FD_TEST( fd_ghost_query( ghost, slot )->weight==2 );
@@ -1855,7 +1953,8 @@ test_agave_check_vote_threshold_forks( fd_wksp_t * wksp ) {
 
   fd_forks_t * forks;
   INIT_FORKS( THRESHOLD_DEPTH );
-  fd_forks_update( forks, epoch, funk, ghost, THRESHOLD_DEPTH );
+  ulong threshold_depth=THRESHOLD_DEPTH;
+  UPDATE_GHOST( threshold_depth );
 
   // CASE 1: Record the first VOTE_THRESHOLD tower votes for fork 2. We want to
   // evaluate a vote on slot VOTE_THRESHOLD_DEPTH. The nth most recent vote should be
@@ -1949,7 +2048,8 @@ test_agave_check_vote_threshold_deep_and_shallow_below_threshold( fd_wksp_t * wk
 
   fd_forks_t * forks;
   INIT_FORKS( THRESHOLD_DEPTH );
-  fd_forks_update( forks, epoch, funk, ghost, THRESHOLD_DEPTH );
+  ulong threshold_depth=THRESHOLD_DEPTH;
+  UPDATE_GHOST( threshold_depth );
 
   {
     fd_funk_txn_xid_t xid;
@@ -2138,18 +2238,25 @@ test_agave_is_slot_confirmed_tests( fd_wksp_t * wksp ) {
 
   fd_forks_t * forks;
   INIT_FORKS( slot );
-  fd_forks_update( forks, epoch, funk, ghost, slot );
-  FD_TEST( forks->confirmed==0 );
+  tower_tile_ctx_t ctx = {
+      .funk = funk,
+      .epoch = epoch,
+      .ghost = ghost
+  };
+  fd_fork_t *     fork = fd_fork_frontier_ele_query( forks->frontier, &slot, NULL, forks->pool );
+  fd_funk_txn_t * txn  = fork->slot_ctx->funk_txn;
+  update_ghost( &ctx, txn );
+  FD_TEST( ctx.confirmed==0 );
   FD_LOG_NOTICE(( "Pass Agave unit test is_slot_confirmed_unknown_slot" )); /* no votes yet */
 
   voter_vote_for_slot( wksp, towers[0], funk, slot, slot, &voters[0] );
-  fd_forks_update( forks, epoch, funk, ghost, slot );
-  FD_TEST( forks->confirmed==0 );
+  update_ghost( &ctx, txn );
+  FD_TEST( ctx.confirmed==0 );
   FD_LOG_NOTICE(( "Pass Agave unit test is_slot_confirmed_not_enough_stake_failure" ));
 
   voter_vote_for_slot( wksp, towers[1], funk, slot, slot, &voters[1] );
-  fd_forks_update( forks, epoch, funk, ghost, slot );
-  FD_TEST( forks->confirmed==slot );
+  update_ghost( &ctx, txn );
+  FD_TEST( ctx.confirmed==slot );
   FD_LOG_NOTICE(( "Pass Agave unit test is_slot_confirmed_pass" ));
 
   fd_funk_close_file( &funk_close_args );
