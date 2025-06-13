@@ -1601,6 +1601,18 @@ fd_feature_id_t const ids[] = {
     .name                      = "mask_out_rent_epoch_in_vm_serialization",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, disable_zk_elgamal_proof_program)>>3,
+    .id                        = {"\x0e\xcb\x71\x9e\x06\x4c\x3a\xec\xc3\xa9\x71\xb0\x61\x33\x9b\x7e\xdc\x71\xc0\x35\x81\x8f\xf0\x0a\xb0\x53\x46\xaa\x28\xd7\x0b\xe1"},
+                                 /* zkdoVwnSFnSLtGJG7irJPEYUpmb4i7sGMGcnN6T9rnC */
+    .name                      = "disable_zk_elgamal_proof_program",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, reenable_zk_elgamal_proof_program)>>3,
+    .id                        = {"\x0e\xcb\x76\x6d\x26\x21\xec\xbb\xf2\xbc\x2e\x97\x6c\x5b\xa0\x50\x3c\xcc\xe4\xb5\x24\xba\x7b\x74\x4e\xf8\x46\x28\x79\xe1\x8d\x2c"},
+                                 /* zkemPXcuM3G4wpMDZ36Cpw34EjUpvm1nuioiSGbGZPR */
+    .name                      = "reenable_zk_elgamal_proof_program",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1841,6 +1853,8 @@ fd_feature_id_query( ulong prefix ) {
   case 0x0272a3278356fa9c: return &ids[ 231 ];
   case 0x494f963ae12b5106: return &ids[ 232 ];
   case 0x210aba8db8103506: return &ids[ 233 ];
+  case 0xec3a4c069e71cb0e: return &ids[ 234 ];
+  case 0xbbec21266d76cb0e: return &ids[ 235 ];
   default: break;
   }
   return NULL;
@@ -2080,4 +2094,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, verify_retransmitter_signature       
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_turbine_extended_fanout_experiments              )>>3==231UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_retransmitter_signed_fec_sets                 )>>3==232UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, mask_out_rent_epoch_in_vm_serialization                 )>>3==233UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_zk_elgamal_proof_program                        )>>3==234UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reenable_zk_elgamal_proof_program                       )>>3==235UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
