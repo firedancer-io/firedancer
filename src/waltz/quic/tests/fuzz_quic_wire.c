@@ -161,11 +161,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
                          0U, 0U,
                          1  /* we are the server */ );
   assert( conn );
-  fd_quic_svc_schedule( state->svc_timers, conn );
+  fd_quic_svc_timers_schedule( state->svc_timers, conn, g_clock );
   {
-    fd_quic_svc_event_t* event = fd_quic_svc_get_event( state->svc_timers, conn );
-    assert( event );
-    assert( event->timeout > g_clock );
+    fd_quic_svc_event_t event = fd_quic_svc_timers_get_event( state->svc_timers, conn, g_clock );
+    assert( event.conn );
+    assert( event.timeout > g_clock );
   }
 
   conn->tx_max_data                            =       512UL;
@@ -194,8 +194,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     fd_quic_service( quic );
     assert( --svc_quota > 0 );
   }
-  const ulong event_idx = conn->svc_meta.idx;
-  assert( event_idx == FD_QUIC_SVC_IDX_INVAL || state->svc_timers[ event_idx ].timeout > g_clock );
+  const ulong event_idx = conn->svc_meta.private.prq_idx;
+  assert( event_idx == FD_QUIC_SVC_PRQ_IDX_INVAL || state->svc_timers->prq[ event_idx ].timeout > g_clock );
 
   /* Generate ACKs, if any left */
   fd_quic_svc_event_t next = fd_quic_svc_timers_next( state->svc_timers, ULONG_MAX, 0 );
@@ -221,7 +221,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   }
 
   /* connection should be dead */
-  assert( conn->svc_meta.idx == FD_QUIC_SVC_IDX_INVAL );
+  assert( conn->svc_meta.private.prq_idx == FD_QUIC_SVC_PRQ_IDX_INVAL );
   assert( conn->state == FD_QUIC_CONN_STATE_DEAD || conn->state == FD_QUIC_CONN_STATE_INVALID );
 
   /* freed stream resources */
