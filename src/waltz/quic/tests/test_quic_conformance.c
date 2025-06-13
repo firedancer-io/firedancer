@@ -120,7 +120,7 @@ test_quic_ping_frame( fd_quic_sandbox_t * sandbox,
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
   conn->ack_gen->is_elicited = 0;
-  FD_TEST( conn->svc_meta.idx == FD_QUIC_SVC_IDX_INVAL );
+  FD_TEST( conn->svc_meta.private.prq_idx != FD_QUIC_SVC_PRQ_IDX_INVAL );
 
   uchar buf[1] = {0x01};
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sizeof(buf) );
@@ -651,7 +651,7 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     sandbox->wallclock += (long)10e6;
     conn->svc_meta.next_timeout = sandbox->wallclock;
-    fd_quic_svc_schedule( state->svc_timers, conn );
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
     fd_quic_service( quic, sandbox->wallclock );
     FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
     next_pkt_number++;
@@ -682,7 +682,7 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     sandbox->wallclock += (long)10e6;
     conn->svc_meta.next_timeout = sandbox->wallclock;
-    fd_quic_svc_schedule( state->svc_timers, conn );
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
     fd_quic_service( quic, sandbox->wallclock );
     FD_TEST( conn->pkt_number[2] == next_pkt_number );
     FD_TEST( *metrics_alloc_fail_cnt > alloc_fail_cnt );
@@ -722,7 +722,7 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     sandbox->wallclock += (long)10e6;
     conn->svc_meta.next_timeout = sandbox->wallclock;
-    fd_quic_svc_schedule( state->svc_timers, conn );
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
     fd_quic_service( quic, sandbox->wallclock );
     FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
     next_pkt_number++;

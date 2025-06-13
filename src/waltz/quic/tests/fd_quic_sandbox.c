@@ -307,7 +307,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->peer_enc_level     = fd_quic_enc_level_appdata_id;
   conn->keys_avail         = 1U<<fd_quic_enc_level_appdata_id;
 
-  conn->idle_timeout_ticks  = FD_QUIC_SANDBOX_IDLE_TIMEOUT;
+  conn->idle_timeout_ns     = FD_QUIC_SANDBOX_IDLE_TIMEOUT;
   conn->last_activity       = sandbox->wallclock;
 
   /* Reset flow control limits */
@@ -317,6 +317,9 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->srx->rx_tot_data      = 0UL;
   conn->srx->rx_max_data_ackd = 0UL;
   conn->tx_initial_max_stream_data_uni = 0UL;
+
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
 
   /* TODO set a realistic packet number */
 

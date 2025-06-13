@@ -97,8 +97,7 @@ struct fd_quic_conn {
   fd_quic_svc_timers_conn_meta_t svc_meta;
 
   /* Dlist membership  */
-  uint               conn_next;
-  uint               conn_prev;
+  uint               free_conn_next;
 
   ulong              our_conn_id;
 
@@ -213,7 +212,7 @@ struct fd_quic_conn {
   uchar                peer_enc_level;
 
   /* idle timeout arguments */
-  long                 idle_timeout_ticks;
+  long                 idle_timeout_ns;
   long                 last_activity;
   long                 last_ack;
   long                 let_die_ticks; /* stop keep-alive after this time */
@@ -291,7 +290,7 @@ fd_quic_conn_get_context( fd_quic_conn_t * conn );
 
 /* set all conns to not visited, used for validation */
 void
-fd_quic_conn_validate_init( fd_quic_t* quic);
+fd_quic_conn_validate_init( fd_quic_t * quic );
 
 FD_PROTOTYPES_END
 
