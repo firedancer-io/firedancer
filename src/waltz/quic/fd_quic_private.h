@@ -112,9 +112,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* last arp/routing tables update */
   ulong ip_table_upd;
 
-  /* state for QUIC sampling */
-  fd_quic_pretty_print_t quic_pretty_print;
-
   /* secret for generating RETRY tokens */
   uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ];
   uchar retry_iv    [FD_QUIC_RETRY_IV_SZ];
