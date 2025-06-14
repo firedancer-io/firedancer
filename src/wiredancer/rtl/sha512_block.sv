@@ -326,7 +326,7 @@ always_ff@(posedge clk) begin
         piped_islast    <= '0;
     end else begin
         // It is preferred to use the registered version of:
-        // c01_i_ctrl and c01_i_valid, assumming that none 
+        // c01_i_ctrl and c01_i_valid, assuming that none 
         // of the pipes is ever queried for bit [0]. Otherwise
         // {p[CYCLES_BLOCK-1:0], c00_i_ctrl[...] & c00_i_valid}
         piped_isfirst   <= { piped_isfirst[CYCLES_BLOCK-1:1], c01_i_ctrl[CTRL_BIT_FIRST] & c01_i_valid, 1'b0 };
