@@ -542,9 +542,9 @@ index d7c8a12..8cfff9b 100644
 --- a/db/blob/blob_file_meta.h
 +++ b/db/blob/blob_file_meta.h
 @@ -5,6 +5,7 @@
- 
+
  #pragma once
- 
+
 +#include <cstdint>
  #include <cassert>
  #include <iosfwd>
@@ -688,7 +688,11 @@ if [[ $ACTION == 0 ]]; then
   echo
   echo "[~] Running $0 fetch check install"
 
-  read -r -p "[?] Continue? (y/N) " choice
+  if [[ "${FD_AUTO_INSTALL_PACKAGES:-}" == "1" ]]; then
+    choice=y
+  else
+    read -r -p "[?] Continue? (y/N) " choice
+  fi
   case "$choice" in
     y|Y)
       echo
