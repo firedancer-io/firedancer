@@ -2549,6 +2549,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
     if( FD_UNLIKELY( !gmsg ) ) {
       glob->metrics.recv_pkt_corrupted_msg += 1UL;
       FD_LOG_WARNING(( "corrupt gossip message" ));
+      __asm__("int $3");
       fd_gossip_unlock( glob );
       return -1;
     }
@@ -2556,6 +2557,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
     if( FD_UNLIKELY( decoded_sz != msglen ) ) {
       glob->metrics.recv_pkt_corrupted_msg += 1UL;
       FD_LOG_WARNING(( "corrupt gossip message" ));
+      __asm__("int $3");
       fd_gossip_unlock( glob );
       return -1;
     }

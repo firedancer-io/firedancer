@@ -418,6 +418,11 @@ struct fd_config {
       char  archiver_path[ PATH_MAX ];
     } archiver;
 
+    struct {
+      int  enabled;
+      char folder_path[ PATH_MAX ];
+    } kappa;
+
   } tiles;
 };
 

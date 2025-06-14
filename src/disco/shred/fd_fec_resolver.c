@@ -24,6 +24,7 @@ struct __attribute__((aligned(32UL))) set_ctx {
   ulong                 fec_set_idx;
   /* The shred index of the first parity shred in this FEC set */
   ulong                 parity_idx0;
+  long                  first_shred_ts;
   uchar                 data_variant;
   uchar                 parity_variant;
   /* If this FEC set has resigned shreds, this is our signature of the
@@ -311,7 +312,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
                                uchar const          * leader_pubkey,
                                fd_fec_set_t const * * out_fec_set,
                                fd_shred_t const   * * out_shred,
-                               fd_bmtree_node_t     * out_merkle_root ) {
+                               fd_bmtree_node_t     * out_merkle_root,
+                               long                 * out_first_shred_ts ) {
   /* Unpack variables */
   ulong partial_depth = resolver->partial_depth;
   ulong done_depth    = resolver->done_depth;
@@ -466,6 +468,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     ctx->total_rx_shred_cnt = 0UL;
     ctx->data_variant   = fd_uchar_if(  is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
     ctx->parity_variant = fd_uchar_if( !is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
+    ctx->first_shred_ts = fd_log_wallclock();
 
     if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) & !!(resolver->signer) ) ) {
       resolver->signer( resolver->sign_ctx, ctx->retransmitter_sig.u, _root->hash );
@@ -693,6 +696,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   freelist_push_tail( free_list, freelist_pop_head( complete_list ) );
 
   *out_fec_set = set;
+  *out_first_shred_ts = ctx->first_shred_ts;
 
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
 }
@@ -731,7 +735,8 @@ fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
 int
 fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
                                 fd_shred_t const *    last_shred,
-                                fd_fec_set_t const ** out_fec_set ) {
+                                fd_fec_set_t const ** out_fec_set,
+                                long               * out_first_shred_ts ) {
 
   /* Error if last_shred is obviously invalid... don't even
      try to process the associated FEC set. */
@@ -822,6 +827,7 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t *   resolver,
 
   fd_fec_set_t        * set  = ctx->set;
   fd_bmtree_commit_t  * tree = ctx->tree;
+  *out_first_shred_ts = ctx->first_shred_ts;
 
   ctx_ll_insert( done_ll_sentinel, ctx_map_insert( done_map, ctx->sig ) );
   if( FD_UNLIKELY( ctx_map_key_cnt( done_map ) > done_depth ) ) ctx_map_remove( done_map, ctx_ll_remove( done_ll_sentinel->prev ) );
