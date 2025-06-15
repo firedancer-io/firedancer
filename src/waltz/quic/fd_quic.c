@@ -2935,7 +2935,7 @@ fd_quic_service( fd_quic_t * quic ) {
 
   fd_quic_svc_timers_t * timers = state->svc_timers;
   if( FD_UNLIKELY( fd_quic_svc_cnt_events( timers ) != quic->metrics.conn_active_cnt ) ) {
-    FD_LOG_ERR(( "%lu out of %lu connections are in timer",
+    FD_LOG_WARNING(( "%lu out of %lu connections are in timer",
                  fd_quic_svc_cnt_events( timers ),
                  quic->metrics.conn_active_cnt ));
   }
