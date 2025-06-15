@@ -2469,9 +2469,9 @@ fd_quic_process_packet( fd_quic_t * quic,
 
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
       if( FD_UNLIKELY( fd_quic_svc_cnt_events( state->svc_timers ) != quic->metrics.conn_active_cnt ) ) {
-        FD_LOG_ERR(( "only %lu out of %lu connections are in timer",
-                     fd_quic_svc_cnt_events( state->svc_timers ),
-                     quic->metrics.conn_active_cnt ));
+        FD_LOG_WARNING(( "only %lu out of %lu connections are in timer",
+                          fd_quic_svc_cnt_events( state->svc_timers ),
+                          quic->metrics.conn_active_cnt ));
       }
 
       /* 0UL means no progress, so fail */
@@ -2503,9 +2503,9 @@ fd_quic_process_packet( fd_quic_t * quic,
      only one_rtt packets currently have short headers */
   fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
   if( FD_UNLIKELY( fd_quic_svc_cnt_events( state->svc_timers ) != quic->metrics.conn_active_cnt ) ) {
-    FD_LOG_ERR(( "only %lu out of %lu connections are in timer",
-                  fd_quic_svc_cnt_events( state->svc_timers ),
-                  quic->metrics.conn_active_cnt ));
+    FD_LOG_WARNING(( "only %lu out of %lu connections are in timer",
+                      fd_quic_svc_cnt_events( state->svc_timers ),
+                      quic->metrics.conn_active_cnt ));
   }
 }
 
