@@ -244,7 +244,11 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
       .addr = in_dests[i].ip4_addr,
       .port = fd_ushort_bswap( in_dests[i].udp_port ),
     };
-    fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
+    int dup = fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
+    if( !dup ) {
+      ulong hash_src = 0xfffffUL & fd_ulong_hash( (ulong)in_dests[i].ip4_addr | ((ulong)repair_peer.port<<32) );
+      FD_LOG_INFO(( "Added repair peer: pubkey %s hash_src %lu", FD_BASE58_ENC_32_ALLOCA(in_dests[i].pubkey), hash_src ));
+    }
   }
 }
 
@@ -346,7 +350,7 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
      ^                ^             ^
      0                4             68 */
 
-  /* https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L874 */
+  /* https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1258 */
 
   fd_memcpy( buf+64, buf, 4 );
   buf    += 64UL;
@@ -356,7 +360,7 @@ fd_repair_sign_and_send( fd_repair_tile_ctx_t *  repair_tile_ctx,
 
      [ discriminant ] [ payload ]
      ^                ^
-     0                4 */
+     buf              buf+4 */
 
   fd_signature_t sig;
   repair_signer( repair_tile_ctx, sig.uc, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
@@ -783,6 +787,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( fd_fseq_query( ctx->turbine_slot0 )==ULONG_MAX ) ) {
       fd_fseq_update( ctx->turbine_slot0, shred->slot );
+      FD_LOG_NOTICE(("First turbine slot %lu", shred->slot));
     }
     fd_fseq_update( ctx->turbine_slot, fd_ulong_max( shred->slot, fd_fseq_query( ctx->turbine_slot ) ) );
 
@@ -916,7 +921,6 @@ after_credit( fd_repair_tile_ctx_t * ctx,
      // TODO definitely need to limit this to a certain number of rq per iteration.
      // we dont refresh actives at most once per iter, and agave clients only accept until 1024 rq per iter annway
   *charge_busy = 1;
-  // FD_LOG_NOTICE(("after credit"));
 
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsrepair < (long)20e6 ) ) return; /* space to after_frag, honestly */
