@@ -89,6 +89,7 @@ fd_http_server_method_str( uchar method ) {
   switch( method ) {
     case FD_HTTP_SERVER_METHOD_GET:  return "GET";
     case FD_HTTP_SERVER_METHOD_POST: return "POST";
+    case FD_HTTP_SERVER_METHOD_PUT:  return "PUT";
     default: break;
   }
 
@@ -456,6 +457,7 @@ read_conn_http( fd_http_server_t * http,
   if( FD_LIKELY( method_len==3UL && !strncmp( method, "GET", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_GET;
   else if( FD_LIKELY( method_len==4UL && !strncmp( method, "POST", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_POST;
   else if( FD_LIKELY( method_len==7UL && !strncmp( method, "OPTIONS", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_OPTIONS;
+  else if( FD_LIKELY( method_len==3UL && !strncmp( method, "PUT", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_PUT;
 
   if( FD_UNLIKELY( method_enum==UCHAR_MAX ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD );
@@ -464,7 +466,7 @@ read_conn_http( fd_http_server_t * http,
 
   ulong content_len = 0UL;
   ulong content_length_len = 0UL;
-  if( FD_UNLIKELY( method_enum==FD_HTTP_SERVER_METHOD_POST ) ) {
+  if( FD_UNLIKELY( method_enum==FD_HTTP_SERVER_METHOD_POST || method_enum==FD_HTTP_SERVER_METHOD_PUT ) ) {
     char const * content_length = NULL;
     for( ulong i=0UL; i<num_headers; i++ ) {
       if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) && headers[ i ].value_len>0UL ) ) {
@@ -601,7 +603,8 @@ read_conn_http( fd_http_server_t * http,
   };
 
   switch( method_enum ) {
-    case FD_HTTP_SERVER_METHOD_POST: {
+    case FD_HTTP_SERVER_METHOD_POST:
+    case FD_HTTP_SERVER_METHOD_PUT: {
       request.post.body     = (uchar*)conn->request_bytes+result;
       request.post.body_len = content_len;
     } break;
