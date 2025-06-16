@@ -12,20 +12,23 @@
       "name": "hash",
       "type": "opaque",
       "walktype": "FD_FLAMENCO_TYPE_HASH256",
-      "size": "32"
+      "size": "32",
+      "agave": "solana_hash::Hash"
     },
     {
       "name": "pubkey",
       "type": "opaque",
       "walktype": "FD_FLAMENCO_TYPE_HASH256",
       "size": "32",
-      "emitprotos": false
+      "emitprotos": false,
+      "agave": "solana_pubkey::Pubkey"
     },
     {
       "name": "signature",
       "type": "opaque",
       "walktype": "FD_FLAMENCO_TYPE_SIG512",
-      "size": "64"
+      "size": "64",
+      "agave": "solana_signature::Signature"
     },
     {
       "name": "gossip_ip4_addr",
@@ -49,7 +52,8 @@
       "fields": [
         { "name": "lamports_per_signature", "type": "ulong" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9"
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9",
+      "agave": "solana_fee_calculator::FeeCalculator"
     },
     {
       "name": "hash_age",
