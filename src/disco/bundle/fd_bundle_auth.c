@@ -5,6 +5,8 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 
+#define FD_BUNDLE_AUTH_REQUEST_TIMEOUT ((long)5e9) /* 5 seconds */
+
 /* fd_bundle_auther_t generates auth tokens and keeps them refreshed. */
 
 /* FIXME consider rewriting this with coroutines or light threads */
@@ -36,10 +38,7 @@ fd_bundle_auther_handle_request_fail( fd_bundle_auther_t * auther ) {
 
 static void
 fd_bundle_auther_req_challenge( fd_bundle_auther_t *   auther,
-                                fd_grpc_client_t *     client,
-                                char const *           host,
-                                ulong                  host_len,
-                                ushort                 port ) {
+                                fd_grpc_client_t *     client ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return;
 
   auth_GenerateAuthChallengeRequest req = {0};
@@ -48,18 +47,21 @@ fd_bundle_auther_req_challenge( fd_bundle_auther_t *   auther,
   req.pubkey.size = 32;
 
   static char const path[] = "/auth.AuthService/GenerateAuthChallenge";
-  int req_ok = fd_grpc_client_request_start(
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       client,
-      host, host_len, port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge,
       &auth_GenerateAuthChallengeRequest_msg, &req,
       NULL, 0
   );
-  if( FD_UNLIKELY( !req_ok ) ) return;
+  if( FD_UNLIKELY( !request ) ) return;
 
   auther->state      = FD_BUNDLE_AUTH_STATE_WAIT_CHALLENGE;
   auther->needs_poll = 0;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock()+FD_BUNDLE_AUTH_REQUEST_TIMEOUT );
 
   FD_LOG_INFO(( "Requesting bundle auth challenge" ));
 }
@@ -97,10 +99,7 @@ fail:
 static void
 fd_bundle_auther_req_tokens( fd_bundle_auther_t *   auther,
                              fd_grpc_client_t *     client,
-                             fd_keyguard_client_t * keyguard,
-                             char const *           host,
-                             ulong                  host_len,
-                             ushort                 port ) {
+                             fd_keyguard_client_t * keyguard ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return;
 
   auth_GenerateAuthTokensRequest req = {0};
@@ -121,18 +120,21 @@ fd_bundle_auther_req_tokens( fd_bundle_auther_t *   auther,
   req.signed_challenge.size = 64UL;
 
   static char const path[] = "/auth.AuthService/GenerateAuthTokens";
-  int req_ok = fd_grpc_client_request_start(
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       client,
-      host, host_len, port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens,
       &auth_GenerateAuthTokensRequest_msg, &req,
       NULL, 0
   );
-  if( FD_UNLIKELY( !req_ok ) ) return;
+  if( FD_UNLIKELY( !request ) ) return;
 
   auther->state      = FD_BUNDLE_AUTH_STATE_WAIT_TOKENS;
   auther->needs_poll = 0;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock()+FD_BUNDLE_AUTH_REQUEST_TIMEOUT );
 
   FD_LOG_DEBUG(( "Requesting bundle auth tokens" ));
 }
@@ -174,16 +176,13 @@ fail:
 void
 fd_bundle_auther_poll( fd_bundle_auther_t *   auther,
                        fd_grpc_client_t *     client,
-                       fd_keyguard_client_t * keyguard,
-                       char const *           host,
-                       ulong                  host_len,
-                       ushort                 port ) {
+                       fd_keyguard_client_t * keyguard ) {
   switch( auther->state ) {
   case FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE:
-    fd_bundle_auther_req_challenge( auther, client, host, host_len, port );
+    fd_bundle_auther_req_challenge( auther, client );
     break;
   case FD_BUNDLE_AUTH_STATE_REQ_TOKENS:
-    fd_bundle_auther_req_tokens( auther, client, keyguard, host, host_len, port );
+    fd_bundle_auther_req_tokens( auther, client, keyguard );
     break;
   default:
     break;

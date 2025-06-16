@@ -19,14 +19,10 @@
 #include <sys/socket.h> /* socket */
 #include <netinet/in.h>
 
+#define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
+
 static void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
-  if( ( !!ctx->bundle_subscription_live ) |
-      ( !!ctx->packet_subscription_live ) ) {
-    /* Client was connected before but now is not.  Inform user. */
-    FD_LOG_WARNING(( "Disconnected from bundle server" ));
-  }
-
   if( FD_UNLIKELY( ctx->tcp_sock >= 0 ) ) {
     if( FD_UNLIKELY( 0!=close( ctx->tcp_sock ) ) ) {
       FD_LOG_ERR(( "close(tcp_sock=%i) failed (%i-%s)", ctx->tcp_sock, errno, fd_io_strerror( errno ) ));
@@ -49,9 +45,6 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   }
 # endif
 
-  /* No need to free, self-contained object */
-  ctx->grpc_client = NULL;
-
   fd_bundle_tile_backoff( ctx, fd_tickcount() );
 
   fd_bundle_auther_handle_request_fail( &ctx->auther );
@@ -69,9 +62,6 @@ fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
   connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) );
   return errno;
 }
-
-/* Provided by fdctl/firedancer version.c */
-extern char const fdctl_version_string[];
 
 static void
 fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
@@ -152,11 +142,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   }
 # endif /* FD_HAS_OPENSSL */
 
-  ctx->grpc_client = fd_grpc_client_new( ctx->grpc_client_mem, &fd_bundle_client_grpc_callbacks, ctx->grpc_metrics, ctx, ctx->grpc_buf_max, ctx->map_seed );
-  if( FD_UNLIKELY( !ctx->grpc_client ) ) {
-    FD_LOG_CRIT(( "fd_grpc_client_new failed" )); /* unreachable */
-  }
-  fd_grpc_client_set_version( ctx->grpc_client, fdctl_version_string, strlen( fdctl_version_string ) );
+  fd_grpc_client_reset( ctx->grpc_client );
 }
 
 static int
@@ -177,15 +163,18 @@ fd_bundle_client_request_builder_info( fd_bundle_tile_t * ctx ) {
 
   block_engine_BlockBuilderFeeInfoRequest req = block_engine_BlockBuilderFeeInfoRequest_init_default;
   static char const path[] = "/block_engine.BlockEngineValidator/GetBlockBuilderFeeInfo";
-  int req_ok = fd_grpc_client_request_start(
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       ctx->grpc_client,
-      ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo,
       &block_engine_BlockBuilderFeeInfoRequest_msg, &req,
       ctx->auther.access_token, ctx->auther.access_token_sz
   );
-  if( FD_UNLIKELY( !req_ok ) ) return;
+  if( FD_UNLIKELY( !request ) ) return;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
 
   ctx->builder_info_wait = 1;
 }
@@ -196,15 +185,18 @@ fd_bundle_client_subscribe_packets( fd_bundle_tile_t * ctx ) {
 
   block_engine_SubscribePacketsRequest req = block_engine_SubscribePacketsRequest_init_default;
   static char const path[] = "/block_engine.BlockEngineValidator/SubscribePackets";
-  int req_ok = fd_grpc_client_request_start(
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       ctx->grpc_client,
-      ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets,
       &block_engine_SubscribePacketsRequest_msg, &req,
       ctx->auther.access_token, ctx->auther.access_token_sz
   );
-  if( FD_UNLIKELY( !req_ok ) ) return;
+  if( FD_UNLIKELY( !request ) ) return;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_HEADER,
+      fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
 
   ctx->packet_subscription_wait = 1;
 }
@@ -215,15 +207,18 @@ fd_bundle_client_subscribe_bundles( fd_bundle_tile_t * ctx ) {
 
   block_engine_SubscribeBundlesRequest req = block_engine_SubscribeBundlesRequest_init_default;
   static char const path[] = "/block_engine.BlockEngineValidator/SubscribeBundles";
-  int req_ok = fd_grpc_client_request_start(
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       ctx->grpc_client,
-      ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles,
       &block_engine_SubscribeBundlesRequest_msg, &req,
       ctx->auther.access_token, ctx->auther.access_token_sz
   );
-  if( FD_UNLIKELY( !req_ok ) ) return;
+  if( FD_UNLIKELY( !request ) ) return;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_HEADER,
+      fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
 
   ctx->bundle_subscription_wait = 1;
 }
@@ -252,9 +247,49 @@ fd_bundle_client_keepalive_due( fd_bundle_tile_t const * ctx,
   return now_ticks >= deadline;
 }
 
-void
-fd_bundle_client_step( fd_bundle_tile_t * ctx,
-                       int *              charge_busy ) {
+int
+fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
+                                 long               io_ticks ) {
+  /* Drive auth */
+  if( FD_UNLIKELY( ctx->auther.needs_poll ) ) {
+    fd_bundle_auther_poll( &ctx->auther, ctx->grpc_client, ctx->keyguard_client );
+    return 1;
+  }
+  if( FD_UNLIKELY( ctx->auther.state!=FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return 0;
+
+  /* Request block builder info */
+  int const builder_info_expired = ( ctx->builder_info_valid_until_ticks - io_ticks )<0;
+  if( FD_UNLIKELY( ( ( !ctx->builder_info_avail ) |
+                     ( !builder_info_expired    ) ) &
+                   ( !ctx->builder_info_wait      ) ) ) {
+    fd_bundle_client_request_builder_info( ctx );
+    return 1;
+  }
+
+  /* Subscribe to packets */
+  if( FD_UNLIKELY( !ctx->packet_subscription_live && !ctx->packet_subscription_wait ) ) {
+    fd_bundle_client_subscribe_packets( ctx );
+    return 1;
+  }
+
+  /* Subscribe to bundles */
+  if( FD_UNLIKELY( !ctx->bundle_subscription_live && !ctx->bundle_subscription_wait ) ) {
+    fd_bundle_client_subscribe_bundles( ctx );
+    return 1;
+  }
+
+  /* Send a PING */
+  if( FD_UNLIKELY( fd_bundle_client_keepalive_due( ctx, io_ticks ) ) ) {
+    fd_bundle_client_send_ping( ctx );
+    return 1;
+  }
+
+  return 0;
+}
+
+static void
+fd_bundle_client_step1( fd_bundle_tile_t * ctx,
+                        int *              charge_busy ) {
 
   /* Wait for TCP socket to connect */
   if( FD_UNLIKELY( !ctx->tcp_sock_connected ) ) {
@@ -311,42 +346,35 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
   long io_ts = fd_tickcount();
   if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, io_ts ) ) ) return;
 
-  /* Drive auth */
-  if( FD_UNLIKELY( ctx->auther.needs_poll ) ) {
-    fd_bundle_auther_poll( &ctx->auther, ctx->grpc_client, ctx->keyguard_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
-    *charge_busy = 1;
-    return;
-  }
-  if( FD_UNLIKELY( ctx->auther.state!=FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return;
+  *charge_busy |= fd_bundle_client_step_reconnect( ctx, io_ts );
+}
 
-  /* Request block builder info */
-  if( FD_UNLIKELY( !ctx->builder_info_live && !ctx->builder_info_wait ) ) {
-    fd_bundle_client_request_builder_info( ctx );
-    goto busy_exit;
-  }
+static void
+fd_bundle_client_log_status( fd_bundle_tile_t * ctx ) {
+  int status = fd_bundle_client_status( ctx );
 
-  /* Subscribe to packets */
-  if( FD_UNLIKELY( !ctx->packet_subscription_live && !ctx->packet_subscription_wait ) ) {
-    fd_bundle_client_subscribe_packets( ctx );
-    goto busy_exit;
-  }
+  int const connected_now    = ( status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
+  int const connected_before = ( ctx->bundle_status_recent==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
 
-  /* Subscribe to bundles */
-  if( FD_UNLIKELY( !ctx->bundle_subscription_live && !ctx->bundle_subscription_wait ) ) {
-    fd_bundle_client_subscribe_bundles( ctx );
-    goto busy_exit;
+  if( FD_UNLIKELY( connected_now!=connected_before ) ) {
+    long ts = fd_log_wallclock();
+    if( FD_LIKELY( ts-(ctx->last_bundle_status_log_ts) >= (long)1e6 ) ) {
+      if( connected_now ) {
+        FD_LOG_NOTICE(( "Connected to bundle server" ));
+      } else {
+        FD_LOG_WARNING(( "Disconnected from bundle server" ));
+      }
+      ctx->bundle_status_logged = (uchar)status;
+    }
   }
+}
 
-  /* Send a PING */
-  if( FD_UNLIKELY( fd_bundle_client_keepalive_due( ctx, io_ts ) ) ) {
-    fd_bundle_client_send_ping( ctx );
-    goto busy_exit;
-  }
-
-  return;
-busy_exit:
-  *charge_busy = 1;
-  return;
+void
+fd_bundle_client_step( fd_bundle_tile_t * ctx,
+                       int *              charge_busy ) {
+  /* Edge-trigger logging with rate limiting */
+  fd_bundle_client_step1( ctx, charge_busy );
+  fd_bundle_client_log_status( ctx );
 }
 
 void
@@ -635,15 +663,6 @@ fd_bundle_client_handle_packet_batch(
   }
 }
 
-static void
-fd_bundle_client_log_progress( fd_bundle_tile_t * ctx ) {
-  if( ( !!ctx->packet_subscription_live ) &
-      ( !!ctx->bundle_subscription_live ) &
-      ( !!ctx->builder_info_live        ) ) {
-    FD_LOG_NOTICE(( "Connected to bundle server" ));
-  }
-}
-
 /* Handle a BlockBuilderFeeInfoResponse from a GetBlockBuilderFeeInfo
    gRPC call. */
 
@@ -652,8 +671,6 @@ fd_bundle_client_handle_builder_fee_info(
     fd_bundle_tile_t * ctx,
     pb_istream_t *     istream
 ) {
-  _Bool changed = !ctx->builder_info_avail;
-
   block_engine_BlockBuilderFeeInfoResponse res = block_engine_BlockBuilderFeeInfoResponse_init_default;
   if( FD_UNLIKELY( !pb_decode( istream, &block_engine_BlockBuilderFeeInfoResponse_msg, &res ) ) ) {
     ctx->metrics.decode_fail_cnt++;
@@ -672,9 +689,9 @@ fd_bundle_client_handle_builder_fee_info(
     return;
   }
 
+  long validity_duration_ticks = (long)( fd_tempo_tick_per_ns( NULL ) * (60e9 * 5.) ); /* 5 minutes */
   ctx->builder_info_avail = 1;
-  ctx->builder_info_live  = 1;
-  if( changed ) fd_bundle_client_log_progress( ctx );
+  ctx->builder_info_valid_until_ticks = fd_tickcount() + validity_duration_ticks;
 }
 
 static void
@@ -691,21 +708,16 @@ fd_bundle_client_grpc_rx_start(
     ulong  request_ctx
 ) {
   fd_bundle_tile_t * ctx = app_ctx;
-  _Bool changed = 0;
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
     ctx->packet_subscription_live = 1;
     ctx->packet_subscription_wait = 0;
-    changed = 1;
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
     ctx->bundle_subscription_live = 1;
     ctx->bundle_subscription_wait = 0;
-    changed = 1;
     break;
   }
-
-  if( changed ) fd_bundle_client_log_progress( ctx );
 }
 
 void
@@ -801,7 +813,7 @@ fd_url_unescape( char * const msg,
   return (ulong)( dst-msg );
 }
 
-static void
+void
 fd_bundle_client_grpc_rx_end(
     void *                app_ctx,
     ulong                 request_ctx,
@@ -848,6 +860,18 @@ fd_bundle_client_grpc_rx_end(
   }
 }
 
+void
+fd_bundle_client_grpc_rx_timeout(
+    void * app_ctx,
+    ulong  request_ctx,  /* FD_BUNDLE_CLIENT_REQ_{...} */
+    int    deadline_kind /* FD_GRPC_DEADLINE_{HEADER|RX_END} */
+) {
+  (void)deadline_kind;
+  FD_LOG_WARNING(( "Request timed out %s", fd_bundle_request_ctx_cstr( request_ctx ) ));
+  fd_bundle_tile_t * ctx = app_ctx;
+  ctx->defer_reset = 1;
+}
+
 static void
 fd_bundle_client_grpc_ping_ack( void * app_ctx ) {
   fd_bundle_tile_t * ctx = app_ctx;
@@ -862,6 +886,7 @@ fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
   .rx_start         = fd_bundle_client_grpc_rx_start,
   .rx_msg           = fd_bundle_client_grpc_rx_msg,
   .rx_end           = fd_bundle_client_grpc_rx_end,
+  .rx_timeout       = fd_bundle_client_grpc_rx_timeout,
   .ping_ack         = fd_bundle_client_grpc_ping_ack,
 };
 
@@ -910,6 +935,10 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
     return DISCONNECTED; /* possible timeout */
   }
 
+  if( FD_UNLIKELY( !fd_grpc_client_is_connected( ctx->grpc_client ) ) ) {
+    return DISCONNECTED;
+  }
+
   /* As far as we know, the bundle connection is alive and well. */
   return CONNECTED;
 }
@@ -917,3 +946,21 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
 #undef DISCONNECTED
 #undef CONNECTING
 #undef CONNECTED
+
+FD_FN_CONST char const *
+fd_bundle_request_ctx_cstr( ulong request_ctx ) {
+  switch( request_ctx ) {
+  case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
+    return "GenerateAuthChallenge";
+  case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
+    return "GenerateAuthTokens";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
+    return "SubscribePackets";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
+    return "SubscribeBundles";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
+    return "GetBlockBuilderFeeInfo";
+  default:
+    return "unknown";
+  }
+}

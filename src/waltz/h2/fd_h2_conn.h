@@ -238,11 +238,15 @@ fd_h2_tx( fd_h2_rbuf_t * rbuf_tx,
   fd_h2_rbuf_push( rbuf_tx, payload, payload_sz );
 }
 
-/* fd_h2_tx_ping attempts to enqueue a PING frame for sending. */
+/* fd_h2_tx_ping attempts to enqueue a PING frame for sending
+   (in fd_h2_tx_control). */
 
 int
 fd_h2_tx_ping( fd_h2_conn_t * conn,
                fd_h2_rbuf_t * rbuf_tx );
+
+/* fd_h2_conn_error enqueues a GOAWAY frame for sending
+   (in fd_h2_tx_control). */
 
 static inline void
 fd_h2_conn_error( fd_h2_conn_t * conn,
@@ -250,6 +254,25 @@ fd_h2_conn_error( fd_h2_conn_t * conn,
   /* Clear all other flags */
   conn->flags = FD_H2_CONN_FLAGS_SEND_GOAWAY;
   conn->conn_error = (uchar)err_code;
+}
+
+/* fd_h2_tx_rst_stream writes a RST_STREAM frame for sending.  rbuf_tx
+   must have at least sizeof(fd_h2_rst_stream_t) free space.  (This is
+   a low-level API) */
+
+static inline void
+fd_h2_tx_rst_stream( fd_h2_rbuf_t * rbuf_tx,
+                     uint           stream_id,
+                     uint           h2_err ) {
+  fd_h2_rst_stream_t rst_stream = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
+      .flags       = 0U,
+      .r_stream_id = fd_uint_bswap( stream_id )
+    },
+    .error_code = fd_uint_bswap( h2_err )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
 }
 
 FD_PROTOTYPES_END

@@ -98,8 +98,8 @@ struct fd_bundle_tile {
   uchar builder_pubkey[ 32 ];
   uchar builder_commission;  /* in [0,100] (percent) */
   uchar builder_info_avail : 1;  /* Block builder info available? (potentially stale) */
-  uchar builder_info_live  : 1;  /* Block builder info recent enough? */
   uchar builder_info_wait  : 1;  /* Request already in-flight? */
+  long  builder_info_valid_until_ticks;
 
   /* Bundle subscriptions */
   uchar packet_subscription_live : 1;  /* Want to subscribe to a stream? */
@@ -128,6 +128,8 @@ struct fd_bundle_tile {
   /* Check engine light */
   uchar bundle_status_recent;  /* most recently observed 'check engine light' */
   uchar bundle_status_plugin;  /* last 'plugin' update written */
+  uchar bundle_status_logged;
+  long  last_bundle_status_log_ts;
 };
 
 typedef struct fd_bundle_tile fd_bundle_tile_t;
@@ -152,6 +154,15 @@ extern fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks;
 void
 fd_bundle_client_step( fd_bundle_tile_t * bundle,
                        int *              charge_busy );
+
+/* fd_bundle_client_step_reconnect drives the 'reconnect' state machine.
+   Once the HTTP/2 conn is established (SETTINGS exchanged), this
+   function drives the auth logic, requests block builder info, sets up
+   packet and bundle subscriptions, and PINGs. */
+
+int
+fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
+                                 long               io_ticks );
 
 /* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
    forward progress for a randomized amount of time to prevent error
@@ -181,6 +192,26 @@ fd_bundle_client_grpc_rx_msg(
     ulong        request_ctx   /* FD_BUNDLE_CLIENT_REQ_{...} */
 );
 
+/* fd_bundle_client_grpc_rx_end is called by grpc_client when a gRPC
+   server-streaming response finishes. */
+
+void
+fd_bundle_client_grpc_rx_end(
+    void *                app_ctx,
+    ulong                 request_ctx,
+    fd_grpc_resp_hdrs_t * resp
+);
+
+/* fd_bundle_client_grpc_rx_timeout is called by grpc_client when a
+   gRPC request deadline gets exceeded. */
+
+void
+fd_bundle_client_grpc_rx_timeout(
+    void * app_ctx,
+    ulong  request_ctx, /* FD_BUNDLE_CLIENT_REQ_{...} */
+    int    deadline_kind /* FD_GRPC_DEADLINE_{HEADER|RX_END} */
+);
+
 /* fd_bundle_client_status provides a "check engine light".
 
    Returns 0 if the client has recently failed and is currently backing
@@ -199,6 +230,13 @@ fd_bundle_client_grpc_rx_msg(
 
 int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx );
+
+/* fd_bundle_request_ctx_cstr returns the gRPC method name for a
+   FD_BUNDLE_CLIENT_REQ_* ID.  Returns "unknown" the ID is not
+   recognized. */
+
+FD_FN_CONST char const *
+fd_bundle_request_ctx_cstr( ulong request_ctx );
 
 FD_PROTOTYPES_END
 
