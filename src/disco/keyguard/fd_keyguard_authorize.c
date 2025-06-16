@@ -83,19 +83,18 @@ fd_keyguard_authorize_repair( fd_keyguard_authority_t const * authority,
                               uchar const *                   data,
                               ulong                           sz,
                               int                             sign_type ) {
+  if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0; /* all repair messages use ED25519 signing */
+  if( FD_UNLIKELY( sz < sizeof(uint) ) )                          return 0; /* invalid kind */
 
-  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz<80 ) return 0;
+  /* FIXME make the schema available here... */
 
-  uint          discriminant = fd_uint_load_4( data );
-  uchar const * sender       = data+4;
-
-  if( discriminant< 8 ) return 0; /* window_index is min ID */
-  if( discriminant>11 ) return 0; /* ancestor_hashes is max ID */
-
-  if( 0!=memcmp( authority->identity_pubkey, sender, 32 ) ) return 0;
-
-  return 1;
+  switch( fd_uint_load_1_fast( data ) ) {
+  case  8U: return sz == 96UL && 0 == memcmp( authority->identity_pubkey, data + sizeof(uint), 32UL ); /* FD_REPAIR_KIND_SHRED_REQ */
+  case  9U: return sz == 96UL && 0 == memcmp( authority->identity_pubkey, data + sizeof(uint), 32UL ); /* FD_REPAIR_KIND_HIGHEST_SHRED_REQ */
+  case 10U: return sz == 88UL && 0 == memcmp( authority->identity_pubkey, data + sizeof(uint), 32UL ); /* FD_REPAIR_KIND_ORPHAN_REQ */
+  default: break;
+  }
+  return 0;
 }
 
 int
@@ -158,11 +157,9 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   }
 
   case FD_KEYGUARD_ROLE_REPAIR: {
-    int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
-                    fd_keyguard_authorize_ping( authority, data, sz, sign_type );
     int repair_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_REPAIR )) &&
                     fd_keyguard_authorize_repair( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !ping_ok && !repair_ok ) ) {
+    if( FD_UNLIKELY( !repair_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for repair (mask=%#lx)", payload_mask ));
       return 0;
     }
