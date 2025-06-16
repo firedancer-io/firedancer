@@ -21740,6 +21740,137 @@ int fd_addrlut_instruction_encode( fd_addrlut_instruction_t const * self, fd_bin
   return fd_addrlut_instruction_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
+int fd_pingpong_ping_encode( fd_pingpong_ping_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->from, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->token_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->token_len ) {
+    err = fd_bincode_bytes_encode( self->token, self->token_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_signature_encode( &self->signature, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+static int fd_pingpong_ping_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  int err = 0;
+  err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong token_len;
+  err = fd_bincode_uint64_decode( &token_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( token_len ) {
+    *total_sz += 8UL + token_len;
+    err = fd_bincode_bytes_decode_footprint( token_len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  err = fd_signature_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  return 0;
+}
+int fd_pingpong_ping_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_pingpong_ping_t);
+  void const * start_data = ctx->data;
+  int err = fd_pingpong_ping_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = start_data;
+  return err;
+}
+static void fd_pingpong_ping_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pingpong_ping_t * self = (fd_pingpong_ping_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->token_len, ctx );
+  if( self->token_len ) {
+    self->token = *alloc_mem;
+    fd_bincode_bytes_decode_unsafe( self->token, self->token_len, ctx );
+    *alloc_mem = (uchar *)(*alloc_mem) + self->token_len;
+  } else
+    self->token = NULL;
+  fd_signature_decode_inner( &self->signature, alloc_mem, ctx );
+}
+void * fd_pingpong_ping_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pingpong_ping_t * self = (fd_pingpong_ping_t *)mem;
+  fd_pingpong_ping_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_pingpong_ping_t);
+  void * * alloc_mem = &alloc_region;
+  fd_pingpong_ping_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_pingpong_ping_new(fd_pingpong_ping_t * self) {
+  fd_memset( self, 0, sizeof(fd_pingpong_ping_t) );
+  fd_pubkey_new( &self->from );
+  fd_signature_new( &self->signature );
+}
+void fd_pingpong_ping_walk( void * w, fd_pingpong_ping_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_pingpong_ping", level++ );
+  fd_pubkey_walk( w, &self->from, fun, "from", level );
+  if( self->token_len ) {
+    fun( w, NULL, "token", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->token_len; i++ )
+      fun( w, self->token + i, "token", FD_FLAMENCO_TYPE_UCHAR,   "uchar",   level );
+    fun( w, NULL, "token", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
+  }
+  fd_signature_walk( w, &self->signature, fun, "signature", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_pingpong_ping", level-- );
+}
+ulong fd_pingpong_ping_size( fd_pingpong_ping_t const * self ) {
+  ulong size = 0;
+  size += fd_pubkey_size( &self->from );
+  do {
+    size += sizeof(ulong);
+    size += self->token_len;
+  } while(0);
+  size += fd_signature_size( &self->signature );
+  return size;
+}
+
+int fd_pingpong_pong_encode( fd_pingpong_pong_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->from, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_hash_encode( &self->hash, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_signature_encode( &self->signature, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+static inline int fd_pingpong_pong_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( (ulong)ctx->data + 128UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = (void *)( (ulong)ctx->data + 128UL );
+  return 0;
+}
+static void fd_pingpong_pong_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pingpong_pong_t * self = (fd_pingpong_pong_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->from, alloc_mem, ctx );
+  fd_hash_decode_inner( &self->hash, alloc_mem, ctx );
+  fd_signature_decode_inner( &self->signature, alloc_mem, ctx );
+}
+void * fd_pingpong_pong_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_pingpong_pong_t * self = (fd_pingpong_pong_t *)mem;
+  fd_pingpong_pong_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_pingpong_pong_t);
+  void * * alloc_mem = &alloc_region;
+  fd_pingpong_pong_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_pingpong_pong_walk( void * w, fd_pingpong_pong_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_pingpong_pong", level++ );
+  fd_pubkey_walk( w, &self->from, fun, "from", level );
+  fd_hash_walk( w, &self->hash, fun, "hash", level );
+  fd_signature_walk( w, &self->signature, fun, "signature", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_pingpong_pong", level-- );
+}
+ulong fd_pingpong_pong_size( fd_pingpong_pong_t const * self ) {
+  ulong size = 0;
+  size += fd_pubkey_size( &self->from );
+  size += fd_hash_size( &self->hash );
+  size += fd_signature_size( &self->signature );
+  return size;
+}
+
 int fd_repair_request_header_encode( fd_repair_request_header_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_signature_encode( &self->signature, ctx );
@@ -21921,64 +22052,25 @@ ulong fd_repair_orphan_size( fd_repair_orphan_t const * self ) {
   return size;
 }
 
-int fd_repair_ancestor_hashes_encode( fd_repair_ancestor_hashes_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_repair_request_header_encode( &self->header, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_repair_ancestor_hashes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 148UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 148UL );
-  return 0;
-}
-static void fd_repair_ancestor_hashes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_repair_ancestor_hashes_t * self = (fd_repair_ancestor_hashes_t *)struct_mem;
-  fd_repair_request_header_decode_inner( &self->header, alloc_mem, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
-}
-void * fd_repair_ancestor_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_repair_ancestor_hashes_t * self = (fd_repair_ancestor_hashes_t *)mem;
-  fd_repair_ancestor_hashes_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_repair_ancestor_hashes_t);
-  void * * alloc_mem = &alloc_region;
-  fd_repair_ancestor_hashes_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_repair_ancestor_hashes_walk( void * w, fd_repair_ancestor_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_ancestor_hashes", level++ );
-  fd_repair_request_header_walk( w, &self->header, fun, "header", level );
-  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_ancestor_hashes", level-- );
-}
-ulong fd_repair_ancestor_hashes_size( fd_repair_ancestor_hashes_t const * self ) {
-  ulong size = 0;
-  size += fd_repair_request_header_size( &self->header );
-  size += sizeof(ulong);
-  return size;
-}
-
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex(fd_repair_protocol_t const * self) {
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_window_index(fd_repair_protocol_t const * self) {
   return self->discriminant == 0;
 }
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndex(fd_repair_protocol_t const * self) {
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_highest_window_index(fd_repair_protocol_t const * self) {
   return self->discriminant == 1;
 }
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphan(fd_repair_protocol_t const * self) {
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_orphan(fd_repair_protocol_t const * self) {
   return self->discriminant == 2;
 }
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndexWithNonce(fd_repair_protocol_t const * self) {
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_window_index_with_nonce(fd_repair_protocol_t const * self) {
   return self->discriminant == 3;
 }
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndexWithNonce(fd_repair_protocol_t const * self) {
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_highest_window_index_with_nonce(fd_repair_protocol_t const * self) {
   return self->discriminant == 4;
 }
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphanWithNonce(fd_repair_protocol_t const * self) {
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_orphan_with_nonce(fd_repair_protocol_t const * self) {
   return self->discriminant == 5;
 }
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyAncestorHashes(fd_repair_protocol_t const * self) {
+FD_FN_PURE uchar fd_repair_protocol_is_legacy_ancestor_hashes(fd_repair_protocol_t const * self) {
   return self->discriminant == 6;
 }
 FD_FN_PURE uchar fd_repair_protocol_is_pong(fd_repair_protocol_t const * self) {
@@ -22022,7 +22114,7 @@ int fd_repair_protocol_inner_decode_footprint( uint discriminant, fd_bincode_dec
     return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    err = fd_gossip_ping_decode_footprint_inner( ctx, total_sz );
+    err = fd_pingpong_pong_decode_footprint_inner( ctx, total_sz );
     if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -22042,8 +22134,6 @@ int fd_repair_protocol_inner_decode_footprint( uint discriminant, fd_bincode_dec
     return FD_BINCODE_SUCCESS;
   }
   case 11: {
-    err = fd_repair_ancestor_hashes_decode_footprint_inner( ctx, total_sz );
-    if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -22088,7 +22178,7 @@ static void fd_repair_protocol_inner_decode_inner( fd_repair_protocol_inner_t * 
     break;
   }
   case 7: {
-    fd_gossip_ping_decode_inner( &self->pong, alloc_mem, ctx );
+    fd_pingpong_pong_decode_inner( &self->pong, alloc_mem, ctx );
     break;
   }
   case 8: {
@@ -22104,7 +22194,6 @@ static void fd_repair_protocol_inner_decode_inner( fd_repair_protocol_inner_t * 
     break;
   }
   case 11: {
-    fd_repair_ancestor_hashes_decode_inner( &self->ancestor_hashes, alloc_mem, ctx );
     break;
   }
   }
@@ -22146,7 +22235,7 @@ void fd_repair_protocol_inner_new( fd_repair_protocol_inner_t * self, uint discr
     break;
   }
   case 7: {
-    fd_gossip_ping_new( &self->pong );
+    fd_pingpong_pong_new( &self->pong );
     break;
   }
   case 8: {
@@ -22162,7 +22251,6 @@ void fd_repair_protocol_inner_new( fd_repair_protocol_inner_t * self, uint discr
     break;
   }
   case 11: {
-    fd_repair_ancestor_hashes_new( &self->ancestor_hashes );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -22181,36 +22269,36 @@ void fd_repair_protocol_walk( void * w, fd_repair_protocol_t const * self, fd_ty
   fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_repair_protocol", level++);
   switch( self->discriminant ) {
   case 0: {
-    fun( w, self, "LegacyWindowIndex", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "legacy_window_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 1: {
-    fun( w, self, "LegacyHighestWindowIndex", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "legacy_highest_window_index", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 2: {
-    fun( w, self, "LegacyOrphan", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "legacy_orphan", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 3: {
-    fun( w, self, "LegacyWindowIndexWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "legacy_window_index_with_nonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 4: {
-    fun( w, self, "LegacyHighestWindowIndexWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "legacy_highest_window_index_with_nonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 5: {
-    fun( w, self, "LegacyOrphanWithNonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "legacy_orphan_with_nonce", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 6: {
-    fun( w, self, "LegacyAncestorHashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fun( w, self, "legacy_ancestor_hashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
     break;
   }
   case 7: {
     fun( w, self, "pong", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-    fd_gossip_ping_walk( w, &self->inner.pong, fun, "pong", level );
+    fd_pingpong_pong_walk( w, &self->inner.pong, fun, "pong", level );
     break;
   }
   case 8: {
@@ -22230,7 +22318,6 @@ void fd_repair_protocol_walk( void * w, fd_repair_protocol_t const * self, fd_ty
   }
   case 11: {
     fun( w, self, "ancestor_hashes", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-    fd_repair_ancestor_hashes_walk( w, &self->inner.ancestor_hashes, fun, "ancestor_hashes", level );
     break;
   }
   }
@@ -22241,7 +22328,7 @@ ulong fd_repair_protocol_size( fd_repair_protocol_t const * self ) {
   size += sizeof(uint);
   switch (self->discriminant) {
   case 7: {
-    size += fd_gossip_ping_size( &self->inner.pong );
+    size += fd_pingpong_pong_size( &self->inner.pong );
     break;
   }
   case 8: {
@@ -22256,10 +22343,6 @@ ulong fd_repair_protocol_size( fd_repair_protocol_t const * self ) {
     size += fd_repair_orphan_size( &self->inner.orphan );
     break;
   }
-  case 11: {
-    size += fd_repair_ancestor_hashes_size( &self->inner.ancestor_hashes );
-    break;
-  }
   }
   return size;
 }
@@ -22268,7 +22351,7 @@ int fd_repair_protocol_inner_encode( fd_repair_protocol_inner_t const * self, ui
   int err;
   switch (discriminant) {
   case 7: {
-    err = fd_gossip_ping_encode( &self->pong, ctx );
+    err = fd_pingpong_pong_encode( &self->pong, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -22284,11 +22367,6 @@ int fd_repair_protocol_inner_encode( fd_repair_protocol_inner_t const * self, ui
   }
   case 10: {
     err = fd_repair_orphan_encode( &self->orphan, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    break;
-  }
-  case 11: {
-    err = fd_repair_ancestor_hashes_encode( &self->ancestor_hashes, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
@@ -22309,7 +22387,7 @@ int fd_repair_response_inner_decode_footprint( uint discriminant, fd_bincode_dec
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_gossip_ping_decode_footprint_inner( ctx, total_sz );
+    err = fd_pingpong_ping_decode_footprint_inner( ctx, total_sz );
     if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -22334,7 +22412,7 @@ int fd_repair_response_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
 static void fd_repair_response_inner_decode_inner( fd_repair_response_inner_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_ping_decode_inner( &self->ping, alloc_mem, ctx );
+    fd_pingpong_ping_decode_inner( &self->ping, alloc_mem, ctx );
     break;
   }
   }
@@ -22355,7 +22433,7 @@ void * fd_repair_response_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
 void fd_repair_response_inner_new( fd_repair_response_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
   case 0: {
-    fd_gossip_ping_new( &self->ping );
+    fd_pingpong_ping_new( &self->ping );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -22375,7 +22453,7 @@ void fd_repair_response_walk( void * w, fd_repair_response_t const * self, fd_ty
   switch( self->discriminant ) {
   case 0: {
     fun( w, self, "ping", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
-    fd_gossip_ping_walk( w, &self->inner.ping, fun, "ping", level );
+    fd_pingpong_ping_walk( w, &self->inner.ping, fun, "ping", level );
     break;
   }
   }
@@ -22386,7 +22464,7 @@ ulong fd_repair_response_size( fd_repair_response_t const * self ) {
   size += sizeof(uint);
   switch (self->discriminant) {
   case 0: {
-    size += fd_gossip_ping_size( &self->inner.ping );
+    size += fd_pingpong_ping_size( &self->inner.ping );
     break;
   }
   }
@@ -22397,7 +22475,7 @@ int fd_repair_response_inner_encode( fd_repair_response_inner_t const * self, ui
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_gossip_ping_encode( &self->ping, ctx );
+    err = fd_pingpong_ping_encode( &self->ping, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }

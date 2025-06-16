@@ -379,9 +379,8 @@ struct fd_config {
     } gui;
 
     struct {
-      ushort repair_intake_listen_port;
-      ushort repair_serve_listen_port;
-      char   good_peer_cache_file[ PATH_MAX ];
+      ushort client_port;
+      ushort server_port;
     } repair;
 
     struct {

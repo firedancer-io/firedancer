@@ -3,7 +3,7 @@
 #define HEADER_fd_src_discof_tower_generated_fd_tower_tile_seccomp_h
 
 #include "../../../../src/util/fd_util_base.h"
-#include "../../../../src/util/log/fd_log.h"
+#include "../../../util/fd_util.h"
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/filter.h>

@@ -379,14 +379,9 @@ struct fd_topo_tile {
     } gossip;
 
     struct {
-      ushort  repair_intake_listen_port;
-      ushort  repair_serve_listen_port;
-      char    good_peer_cache_file[ PATH_MAX ];
-
-      /* non-config */
-
-      int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
+      ushort  client_port;
+      ushort  server_port;
       ulong   max_pending_shred_sets;
     } repair;
 
@@ -411,8 +406,8 @@ struct fd_topo_tile {
 
       /* non-config */
 
-      uint    ip_addr;
-      char  identity_key_path[ PATH_MAX ];
+      uint ip_addr;
+      char identity_key_path[PATH_MAX];
     } send;
 
     struct {
@@ -455,6 +450,7 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       char  vote_acc_path[ PATH_MAX ];
     } tower;
+
     struct {
       char   folder_path[ PATH_MAX ];
       ushort repair_intake_listen_port;
