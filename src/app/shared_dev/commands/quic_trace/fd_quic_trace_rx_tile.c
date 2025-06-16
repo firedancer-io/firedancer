@@ -31,10 +31,10 @@ before_frag( void * _ctx   FD_FN_UNUSED,
 }
 
 static void
-during_frag( void * _ctx   FD_PARAM_UNUSED,
+during_frag( void * _ctx,
              ulong  in_idx FD_PARAM_UNUSED,
              ulong  seq    FD_PARAM_UNUSED,
-             ulong  sig    FD_PARAM_UNUSED,
+             ulong  sig,
              ulong  chunk,
              ulong  sz,
              ulong  ctl ) {
@@ -53,8 +53,6 @@ during_frag( void * _ctx   FD_PARAM_UNUSED,
 static int
 bounds_check_conn( fd_quic_t *      quic,
                    fd_quic_conn_t * conn ) {
-  (void)quic;
-
   long conn_off = (long)((ulong)conn-(ulong)quic);
   return conn_off >= (long)quic->layout.conns_off && conn_off < (long)quic->layout.conn_map_off;
 }
@@ -469,14 +467,13 @@ fd_quic_trace_pkt( void *          ctx,
 
 static void
 after_frag( void * _ctx,
-            ulong  in_idx,
-            ulong  seq,
+            ulong  in_idx FD_PARAM_UNUSED,
+            ulong  seq FD_PARAM_UNUSED,
             ulong  sig,
             ulong  sz,
-            ulong  tsorig,
-            ulong  tspub,
-            fd_stem_context_t * stem ) {
-  (void)in_idx; (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
+            ulong  tsorig FD_PARAM_UNUSED,
+            ulong  tspub FD_PARAM_UNUSED,
+            fd_stem_context_t * stem FD_PARAM_UNUSED ) {
   ulong proto   = fd_disco_netmux_sig_proto( sig );
   uint  key_idx = proto == DST_PROTO_TPU_QUIC ? 0 : 1;
 

@@ -1617,6 +1617,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* As this is an INITIAL packet, change the status to DEAD, and allow
         it to be reaped */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
+    quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_initial_id ]++;
     return FD_QUIC_PARSE_FAIL;
   }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
@@ -2936,8 +2937,8 @@ fd_quic_svc_poll( fd_quic_t *      quic,
   conn->svc_type = UINT_MAX;
   conn->svc_time = LONG_MAX;
 
-  if( FD_UNLIKELY( now > conn->last_activity + ( conn->idle_timeout_ticks / 2 ) ) ) {
-    if( FD_UNLIKELY( now > conn->last_activity + conn->idle_timeout_ticks ) ) {
+  if( FD_UNLIKELY( now >= conn->last_activity + ( conn->idle_timeout_ticks / 2 ) ) ) {
+    if( FD_UNLIKELY( now >= conn->last_activity + conn->idle_timeout_ticks ) ) {
       if( FD_LIKELY( conn->state != FD_QUIC_CONN_STATE_DEAD ) ) {
         /* rfc9000 10.1 Idle Timeout
             "... the connection is silently closed and its state is discarded
@@ -4488,8 +4489,8 @@ static ulong
 fd_quic_handle_ping_frame(
     fd_quic_frame_ctx_t *  ctx,
     fd_quic_ping_frame_t * data FD_PARAM_UNUSED,
-    uchar const *          p0   FD_PARAM_UNUSED,
-    ulong                  p_sz FD_PARAM_UNUSED ) {
+    uchar const *          p0,
+    ulong                  p_sz ) {
   FD_DTRACE_PROBE_1( quic_handle_ping_frame, ctx->conn->our_conn_id );
   /* skip pings and pads */
   uchar const *       p     = p0;
