@@ -428,7 +428,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   void * restore_mem = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->restore = fd_snapshot_restore_new( restore_mem, funk, funk_txn, ctx->runtime_spad, ctx->slot_ctx, restore_manifest, restore_status_cache, restore_rent_fresh_account );
+  ctx->restore = fd_snapshot_restore_new( restore_mem, funk, funk_txn, ctx->runtime_spad, ctx->slot_ctx, restore_manifest, NULL, restore_rent_fresh_account );
   if( FD_UNLIKELY( !ctx->restore ) ) {
     FD_LOG_ERR(( "Failed to fd_snapshot_restore_new" ));
   }

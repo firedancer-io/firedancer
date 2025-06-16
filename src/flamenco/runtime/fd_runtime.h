@@ -51,9 +51,6 @@
 
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 
-/* TODO: increase this to default once we have enough memory to support a 95G status cache. */
-#define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
-
 void
 block_finalize_tpool_wrapper( void * para_arg_1,
                               void * para_arg_2,
@@ -572,7 +569,8 @@ void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad );
+                         fd_spad_t *                  finalize_spad,
+                         fd_txncache_t *              txncache );
 
 /* Epoch Boundary *************************************************************/
 

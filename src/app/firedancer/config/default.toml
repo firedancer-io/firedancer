@@ -287,11 +287,68 @@ user = ""
     heap_size_gib = 50
 
     [runtime.limits]
-        max_rooted_slots = 300
-        max_live_slots = 2048
-        max_transactions_per_slot = 65536
-        snapshot_grace_period_seconds = 409
         max_vote_accounts = 2000000
+
+        # The txncache stores transactions that have been executed in
+        # the recent past.  It is the equivalent of Agave's status
+        # cache.  It is used for detecting and dropping transactions
+        # that have been executed in the recent past, and that somehow
+        # made their way into the execution pipeline.  Therefore, the
+        # txncache plays an important role in preventing replay attacks.
+        # To support highly concurrent execution, the txncache has been
+        # designed to be largely lockfree.  Moreover, the txncache is
+        # fork-aware, meaning that the same transaction is allowed to
+        # appear multiple times in the txncache, so long as the
+        # transaction has been executed on different forks.
+        [runtime.limits.txncache]
+            # The number of rooted slots to keep around in the txncache.
+            #
+            # This needs to be at least 151, since 151 most recent
+            # blockhashes are valid for use in transactions.  Any value
+            # less than 151 will cause the txncache, and hence the
+            # validator, to fail to start.
+            #
+            # By default, we keep around up to 300 rooted slots, which
+            # allows for about 2 minutes of history to be queried.
+            #
+            # Lowering this value will reduce the memory footprint
+            # imposed by the txncache.  However, it is not recommended
+            # to set this lower, unless the validator is in dire need of
+            # memory.
+            max_rooted_slots = 300
+
+            # The number of live slots to keep around in the txncache.
+            #
+            # By default, this is 4096 slots, which is about half an
+            # hour.  The network would have to go that long without
+            # rooting a slot to cause the txncache to run out of live
+            # slots, and hence crash.
+            #
+            # This needs to be at least as large as max_rooted_slots.
+            # Ideally a fair bit larger than max_rooted_slots to
+            # accommodate a sufficient number of slots that are not
+            # rooted.
+            #
+            # Lowering this value will reduce the memory footprint
+            # imposed by the txncache.  However, it is not recommended
+            # to set this lower than the default, unless the validator
+            # is in dire need of memory.
+            max_live_slots = 4096
+
+            # The maximum number of transactions per slot to provision
+            # in the txncache.
+            #
+            # A value of 0 instructs the txncache to automatically set a
+            # sensible value for this based on current mainnet
+            # conditions.  There's typically no reason to set this
+            # higher except for benchmarking.
+            #
+            # By default, the validator will fail to start if this is
+            # set to lower than what's necessary for current mainnet
+            # conditions.  To override this check for benchmarking
+            # purposes, set max_txn_per_slot_override to true.
+            max_txn_per_slot = 0
+            max_txn_per_slot_override = false
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to

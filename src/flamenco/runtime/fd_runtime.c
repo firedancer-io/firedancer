@@ -1846,7 +1846,8 @@ void
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info,
-                         fd_spad_t *                  finalize_spad ) {
+                         fd_spad_t *                  finalize_spad,
+                         fd_txncache_t *              txncache ) {
 
   /* Store transaction info including logs */
   // fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
@@ -1865,20 +1866,21 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
 
-  // if( slot_ctx->status_cache ) {
-  //   fd_txncache_insert_t status_insert = {0};
-  //   uchar                result        = exec_txn_err == 0 ? 1 : 0;
+  if( txncache ) {
+    fd_txncache_insert_t status_insert = {0};
+    uchar                result        = (!exec_txn_err) ? FD_TXNCACHE_RESULT_OK : FD_TXNCACHE_RESULT_ERR;
 
-  //   fd_txncache_insert_t * curr_insert = &status_insert;
-  //   curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
-  //   curr_insert->slot      = slot_ctx->slot_bank.slot;
-  //   fd_hash_t * hash       = &txn_ctx->blake_txn_msg_hash;
-  //   curr_insert->txnhash   = hash->uc;
-  //   curr_insert->result    = &result;
-  //   if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, &status_insert, 1UL ) ) ) {
-  //     FD_LOG_ERR(( "Status cache is full, this should not be possible" ));
-  //   }
-  // }
+    status_insert.blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+    status_insert.slot      = slot_ctx->slot_bank.slot;
+    status_insert.txnhash   = txn_ctx->blake_txn_msg_hash.uc;
+    status_insert.key_sz    = sizeof(txn_ctx->blake_txn_msg_hash.uc);
+    status_insert.result    = &result;
+    status_insert.flags     = fd_ulong_if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX, FD_TXNCACHE_FLAG_NONCE_TXN, FD_TXNCACHE_FLAG_REGULAR_TXN );
+    if( FD_UNLIKELY( !fd_txncache_insert_batch( txncache, &status_insert, 1UL ) ) ) {
+      FD_LOG_CRIT(( "Status cache is full, this means either things aren't sized properly, or we haven't rooted a slot for too long" ));
+    }
+    // TODO For RPC, we might also wanna insert by signature.
+  }
 
   if( FD_UNLIKELY( exec_txn_err ) ) {
 
@@ -2069,7 +2071,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
     return;
   }
 
-  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad );
+  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info, task_info->txn_ctx->spad, slot_ctx->status_cache );
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
@@ -3992,11 +3994,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
-      if( slot_ctx->status_cache && !fd_txncache_get_is_constipated( slot_ctx->status_cache ) ) {
-        fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
-      } else if( slot_ctx->status_cache ) {
-        fd_txncache_register_constipated_slot( slot_ctx->status_cache, txn->xid.ul[0] );
-      }
+      fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
 
       if( slot_ctx->epoch_ctx->constipate_root ) {
         fd_funk_txn_t * parent = fd_funk_txn_parent( txn, txnpool );
@@ -4016,7 +4014,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
           slot_ctx->last_snapshot_slot         = slot_ctx->root_slot;
           slot_ctx->epoch_ctx->constipate_root = 1;
-          fd_txncache_set_is_constipated( slot_ctx->status_cache, 1 );
         }
 
         if( FD_UNLIKELY( !fd_funk_txn_publish( funk, txn, 1 ) ) ) {

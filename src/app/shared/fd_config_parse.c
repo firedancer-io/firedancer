@@ -90,10 +90,10 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  runtime.heap_size_gib                            );
 
-  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                  );
-  CFG_POP      ( ulong,  runtime.limits.max_live_slots                    );
-  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot         );
-  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds     );
+  CFG_POP      ( ulong,  runtime.limits.txncache.max_rooted_slots         );
+  CFG_POP      ( ulong,  runtime.limits.txncache.max_live_slots           );
+  CFG_POP      ( ulong,  runtime.limits.txncache.max_txn_per_slot         );
+  CFG_POP      ( bool,   runtime.limits.txncache.max_txn_per_slot_override);
   CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                 );
 
   return config;

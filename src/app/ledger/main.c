@@ -16,6 +16,10 @@
 #include "../../flamenco/snapshot/fd_snapshot.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 
+#define FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS (300UL)
+#define FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS   (512UL)
+#define FD_TXNCACHE_DEFAULT_MAX_TXN_PER_SLOT (50000UL)
+
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore */
   fd_wksp_t *           funk_wksp;               /* wksp for funk */
@@ -422,7 +426,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .out_dir        = ledger_args->snapshot_dir,
         .is_incremental = 0,
         .funk           = ledger_args->slot_ctx->funk,
-        .status_cache   = ledger_args->slot_ctx->status_cache,
         .tpool          = ledger_args->snapshot_tpool,
         .spad           = ledger_args->runtime_spad,
         .features       = &ledger_args->slot_ctx->epoch_ctx->features
@@ -443,7 +446,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .is_incremental           = 1,
         .spad                     = ledger_args->runtime_spad,
         .funk                     = ledger_args->slot_ctx->funk,
-        .status_cache             = ledger_args->slot_ctx->status_cache,
         .last_snap_slot           = ledger_args->last_snapshot_slot,
         .tpool                    = ledger_args->snapshot_tpool,
         .last_snap_acc_hash       = &ledger_args->last_snapshot_hash,
@@ -492,7 +494,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
           .is_incremental = 0,
           .spad           = ledger_args->runtime_spad,
           .funk           = ledger_args->slot_ctx->funk,
-          .status_cache   = ledger_args->slot_ctx->status_cache,
           .tpool          = ledger_args->snapshot_tpool
         };
         fd_create_snapshot_task( NULL, (ulong)&snapshot_ctx, (ulong)ledger_args, NULL, NULL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -531,7 +532,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
           .is_incremental = 0,
           .spad           = ledger_args->runtime_spad,
           .funk           = ledger_args->slot_ctx->funk,
-          .status_cache   = ledger_args->slot_ctx->status_cache,
           .tpool          = ledger_args->snapshot_tpool
         };
         fd_create_snapshot_task( NULL, (ulong)&snapshot_ctx, (ulong)ledger_args, NULL, NULL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1100,15 +1100,13 @@ ingest( fd_ledger_args_t * args ) {
     void * status_cache_mem = fd_spad_alloc_check( spad,
                                                    fd_txncache_align(),
                                                    fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                                                              FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-                                                                              MAX_CACHE_TXNS_PER_SLOT,
-                                                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+                                                                          FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                                                          FD_TXNCACHE_DEFAULT_MAX_TXN_PER_SLOT ) );
     FD_TEST( status_cache_mem );
     slot_ctx->status_cache  = fd_txncache_join( fd_txncache_new( status_cache_mem,
                                                                  FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                                  FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-                                                                 MAX_CACHE_TXNS_PER_SLOT,
-                                                                 FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+                                                                 FD_TXNCACHE_DEFAULT_MAX_TXN_PER_SLOT ) );
     FD_TEST( slot_ctx->status_cache );
   }
 
@@ -1284,17 +1282,17 @@ replay( fd_ledger_args_t * args ) {
   args->slot_ctx->funk       = funk;
   args->slot_ctx->blockstore = args->blockstore;
 
-  void * status_cache_mem = fd_spad_alloc_check( spad,
+  void * status_cache_mem = fd_spad_alloc_check(
+      spad,
       FD_TXNCACHE_ALIGN,
       fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                              FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-                             MAX_CACHE_TXNS_PER_SLOT,
-                             FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS) );
+                             FD_TXNCACHE_DEFAULT_MAX_TXN_PER_SLOT )
+  );
   args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem,
                                                                     FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                                     FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
-                                                                    MAX_CACHE_TXNS_PER_SLOT,
-                                                                    FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+                                                                    FD_TXNCACHE_DEFAULT_MAX_TXN_PER_SLOT ) );
   if( FD_UNLIKELY( !args->slot_ctx->status_cache ) ) {
     FD_LOG_ERR(( "Status cache was not allocated" ));
   }

@@ -52,6 +52,9 @@ struct fd_writer_tile_ctx {
 
   /* Local joins of exec tile txn ctx.  Read-only. */
   fd_exec_txn_ctx_t *         txn_ctx[ FD_PACK_MAX_BANK_TILES ];
+
+  /* Local join of txncache.  R/W. */
+  fd_txncache_t *             txncache;
 };
 typedef struct fd_writer_tile_ctx fd_writer_tile_ctx_t;
 
@@ -189,7 +192,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
         FD_SPIN_PAUSE();
       }
       FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-        fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info, ctx->spad );
+        fd_runtime_finalize_txn( ctx->slot_ctx, NULL, &info, ctx->spad, ctx->txncache );
       } FD_SPAD_FRAME_END;
     }
     /* Notify the replay tile. */
@@ -356,6 +359,22 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_CRIT(( "Failed to join funk" ));
   }
   FD_LOG_DEBUG(( "Just joined funk at file=%s", tile->writer.funk_file ));
+
+  /********************************************************************/
+  /* Setup txncache                                                   */
+  /********************************************************************/
+  ulong txncache_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
+  if( FD_UNLIKELY( txncache_id == ULONG_MAX ) ) {
+    FD_LOG_CRIT(( "could not find txncache obj" ));
+  }
+  void * txncache_mem = fd_topo_obj_laddr( topo, txncache_id );
+  if( FD_UNLIKELY( txncache_mem == NULL ) ) {
+    FD_LOG_CRIT(( "could not find txncache mem" ));
+  }
+  ctx->txncache = fd_txncache_join( txncache_mem );
+  if (ctx->txncache == NULL) {
+    FD_LOG_CRIT(( "failed to join txncache" ));
+  }
 
   /********************************************************************/
   /* Setup fseq                                                       */
