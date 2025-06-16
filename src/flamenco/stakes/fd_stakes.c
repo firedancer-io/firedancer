@@ -305,7 +305,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
   fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_stakes_t *     stakes     = &epoch_bank->stakes;
+  fd_stakes_delegation_t *     stakes     = &epoch_bank->stakes;
 
   // Initialize a temporary vote states cache
   ulong vote_states_pool_sz   = fd_vote_accounts_pair_t_map_size( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root )
@@ -413,7 +413,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
   fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_stakes_t *     stakes     = &epoch_bank->stakes;
+  fd_stakes_delegation_t *     stakes     = &epoch_bank->stakes;
 
   // Initialize a temporary vote states cache
   ulong vote_states_pool_sz   = fd_vote_accounts_pair_t_map_size( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root )
@@ -633,7 +633,7 @@ accumulate_stake_cache_delegations_tpool_task( void  *tpool,
    be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_stakes_t const *        stakes,
+                           fd_stakes_delegation_t const *        stakes,
                            fd_stake_history_t const * history,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
@@ -746,7 +746,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           fd_spad_t *           runtime_spad ) {
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_stakes_t *     stakes     = &epoch_bank->stakes;
+  fd_stakes_delegation_t *     stakes     = &epoch_bank->stakes;
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */

@@ -318,6 +318,30 @@ REDBLK_T * REDBLK_(predecessor)(REDBLK_T * pool, REDBLK_T * node);
 */
 REDBLK_T * REDBLK_(insert)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x);
 /*
+  E.g. my_node_t * my_rb_insert_or_replace(my_node_t * pool, my_node_t ** root, my_node_t * x, my_node_t ** out);
+
+  This function inserts a node into the red-black tree. If a matching node with the same key already exists,
+  it is replaced, and the replaced node is returned via the `out` pointer. The caller is responsible
+  for freeing the replaced node (if applicable). The inserted node is always returned.
+
+  Before calling this function, the new node should be allocated (typically from a pool) and
+  initialized with the required values (e.g., key and value).
+
+  For example:
+    my_node_t * n = my_rb_acquire(pool);     // Acquire from the pool
+    n->key = 123;                            // Initialize key
+    n->value = 456;                          // Initialize value
+    my_node_t * out = NULL;                  // Prepare to store replaced node
+
+    n = my_rb_insert_or_replace(pool, &root, n, &out);  // Insert or replace into the tree
+
+    if (out != NULL)
+      my_rb_release(pool, out);             // Release replaced node (if any)
+
+  The `insert_or_replace` function returns the new node after insertion.
+*/
+REDBLK_T * REDBLK_(insert_or_replace)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x, REDBLK_T ** out);
+/*
   E.g. my_node_t * my_rb_remove(my_node_t * pool, my_node_t ** root, my_node_t * z);
 
   Remove a node from a tree. The node must be a member of the tree,
@@ -855,6 +879,77 @@ REDBLK_IMPL_STATIC REDBLK_T * REDBLK_(insert)(REDBLK_T * pool, REDBLK_T ** root,
   parent = &pool[REDBLK_NIL];
   while (current != &pool[REDBLK_NIL]) {
     long c = REDBLK_(compare)(x, current);
+    parent = current;
+    current = (c < 0 ? &pool[current->REDBLK_LEFT] : &pool[current->REDBLK_RIGHT]);
+  }
+
+  /* setup new node */
+  x->REDBLK_PARENT = (uint)(parent - pool);
+  x->REDBLK_LEFT = REDBLK_NIL;
+  x->REDBLK_RIGHT = REDBLK_NIL;
+  x->REDBLK_COLOR = REDBLK_RED;
+
+  /* insert node in tree */
+  if (parent != &pool[REDBLK_NIL]) {
+    long c = REDBLK_(compare)(x, parent);
+    if (c < 0)
+      parent->REDBLK_LEFT = (uint)(x - pool);
+    else
+      parent->REDBLK_RIGHT = (uint)(x - pool);
+  } else {
+    *root = x;
+  }
+
+  REDBLK_(insertFixup)(pool, root, x);
+  return x;
+}
+
+/*
+  Insert a node into a tree, replacing any elements that have the same key. Typically, the node must be allocated
+  from a pool first.
+*/
+REDBLK_IMPL_STATIC REDBLK_T * REDBLK_(insert_or_replace)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x, REDBLK_T ** out) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, *root);
+  REDBLK_(validate_element)(pool, x);
+#endif
+
+  REDBLK_T * current;
+  REDBLK_T * parent;
+
+  /* find where node belongs */
+  current = *root;
+  if (current == NULL)
+    current = &pool[REDBLK_NIL];
+  parent = &pool[REDBLK_NIL];
+  while (current != &pool[REDBLK_NIL]) {
+    long c = REDBLK_(compare)(x, current);
+    if(c == 0) { /* Already in the tree so lets special case this */
+      if(out != NULL)
+        *out = current;
+
+      x->REDBLK_PARENT = current->REDBLK_PARENT;
+      x->REDBLK_LEFT = current->REDBLK_LEFT;
+      x->REDBLK_RIGHT = current->REDBLK_RIGHT;
+      x->REDBLK_COLOR = current->REDBLK_COLOR;
+
+      /* Lets wire this in */
+      if( x->REDBLK_LEFT != REDBLK_NIL )
+        pool[x->REDBLK_LEFT].REDBLK_PARENT = (uint)(x - pool);
+      if( x->REDBLK_RIGHT != REDBLK_NIL )
+        pool[x->REDBLK_RIGHT].REDBLK_PARENT = (uint)(x - pool);
+      if( x->REDBLK_PARENT != REDBLK_NIL ) {
+        if( pool[x->REDBLK_PARENT].REDBLK_LEFT == (uint)(current - pool) )
+          pool[x->REDBLK_PARENT].REDBLK_LEFT = (uint)(x - pool);
+        if( pool[x->REDBLK_PARENT].REDBLK_RIGHT == (uint)(current - pool) )
+          pool[x->REDBLK_PARENT].REDBLK_RIGHT = (uint)(x - pool);
+      }
+      if(*root == current)
+        *root = x;
+
+      return x;
+    }
+
     parent = current;
     current = (c < 0 ? &pool[current->REDBLK_LEFT] : &pool[current->REDBLK_RIGHT]);
   }

@@ -1,5 +1,3 @@
-src/flamenco/types/fd_types.h -diff linguist-generated
-src/flamenco/types/fd_types.c -diff linguist-generated
 src/flamenco/types/fd_types_reflect_generated.c -diff linguist-generated
 contrib/test/test-vectors-fixtures/** -diff linguist-generated
 src/flamenco/types/fixtures/** -diff binary

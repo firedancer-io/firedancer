@@ -1193,7 +1193,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                      .rewards = epoch_rewards->total_rewards };
 
     /* Populate vote and stake state info from vote and stakes cache for the stake vote rewards calculation */
-    fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+    fd_stakes_delegation_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
     fd_epoch_info_t epoch_info = {0};
     fd_epoch_info_new( &epoch_info );
 

@@ -193,7 +193,7 @@ prepare_new_epoch_execution( fd_exec_tile_ctx_t *            ctx,
 
   // FIXME account for this in exec spad footprint
   int err;
-  fd_stakes_t * stakes = fd_bincode_decode_spad( stakes, ctx->exec_spad, stakes_enc, epoch_msg->stakes_encoded_sz, &err );
+  fd_stakes_delegation_t * stakes = fd_bincode_decode_spad( stakes_delegation, ctx->exec_spad, stakes_enc, epoch_msg->stakes_encoded_sz, &err );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Could not decode stakes" ));
   }

@@ -93,15 +93,33 @@ main( int     argc,
 
     my_rb_node_t* root = NULL;
     my_rb_node_t* node;
+    my_rb_node_t* node2;
     for (ulong i = 0; i < max; ++i) {
       node = my_rb_acquire(pool);
       if (node == NULL)
         FD_LOG_ERR(("allocation failure"));
       node->key = list[i];
       node->val = list[i]*17UL;
-      my_rb_insert(pool, &root, node);
+      my_rb_node_t* out = NULL;
+      my_rb_insert_or_replace(pool, &root, node, &out);
       if (my_rb_find(pool, root, node) != node)
         FD_LOG_ERR(("search result wrong"));
+      if( out != NULL )
+        FD_LOG_ERR(("we should not be seeing a previous instance of this key"));
+
+      node2 = my_rb_acquire(pool);
+      if (node2 == NULL)
+        continue; // we might be at max, we don't need to test that..
+      node2->key = node->key;
+      node2->val = node->val;
+      my_rb_node_t* ret = my_rb_insert_or_replace(pool, &root, node2, &out);
+      if( ret != node2 )
+        FD_LOG_ERR(("insert_or_replace returned the wrong results"));
+      if( my_rb_find(pool, root, node2) != node2 )
+        FD_LOG_ERR(("search result wrong"));
+      if( out != node )
+        FD_LOG_ERR(("we should have replaced the previous copy"));
+      my_rb_release(pool, node);
     }
     if (my_rb_acquire(pool) != NULL)
       FD_LOG_ERR(("did not get NULL as expected"));
@@ -228,4 +246,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
