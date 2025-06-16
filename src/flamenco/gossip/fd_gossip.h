@@ -4,6 +4,7 @@
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
 #include "fd_contact_info.h"
+#include "../types/fd_types.h"
 
 #define FD_GOSSIP_RX_OK                         (0)
 
@@ -134,6 +135,11 @@ fd_gossip_metrics( fd_gossip_t const * gossip );
 void
 fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
                                fd_contact_info_t const * contact_info );
+
+void
+fd_gossip_stakes_update( fd_gossip_t *             gossip,
+                         fd_stake_weight_t const * stake_weights,
+                         ulong                     stake_weights_cnt );
 
 /* fd_gossip_advance advances the gossip protocol to the provided time,
    performing any necessary updates and actions along the way.  The

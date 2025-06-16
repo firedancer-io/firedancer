@@ -12,8 +12,31 @@
 #define BLOOM_FALSE_POSITIVE_RATE       (  0.1)
 #define BLOOM_NUM_KEYS                  (  8.0)
 
+/* TODO: hardcode a CRDS filter instead of using bloom tmpls ? */
 #define BLOOM_NAME    crds_bloom
 #include "tmpl/fd_bloom.c"
+
+struct stake_weight {
+  fd_pubkey_t key;
+  ulong       stake;
+  ulong       hash;
+};
+typedef struct stake_weight stake_weight_t;
+
+#define MAP_NAME               stake_map
+#define MAP_T                  stake_weight_t
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_HASH_T             ulong
+#define MAP_KEY_NULL           pubkey_null
+#define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
+#define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_HASH(key)      ((key).ui[3])
+#define MAP_KEY_MOVE(k0,k1)    (fd_memcpy((k0).key,(k1).key,sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_LG_SLOT_CNT        16 /* follow CRDS_MAX_CONTACT_INFO*2 */
+
+#include "../../util/tmpl/fd_map.c"
 
 struct failed_insert{
   uchar hash[32UL];
@@ -38,6 +61,7 @@ typedef struct push_state push_state_t;
 
 struct fd_gossip_private {
   uchar               identity_pubkey[ 32UL ];
+  ulong               identity_stake;
 
   fd_gossip_metrics_t metrics[1];
 
@@ -58,6 +82,8 @@ struct fd_gossip_private {
   /* TODO: has_shred_version */
   ushort              expected_shred_version;
 
+  stake_weight_t *    stake_weights;
+
   struct {
     failed_insert_t * entries;
     ulong             cursor; /* index into next entry to write to */
@@ -73,6 +99,7 @@ struct fd_gossip_private {
   void *              send_ctx;
 
   struct {
+    ulong                       wallclock_off;
     uchar                       crds_val[ 1232UL ]; /* CRDS value for the push message */
     ulong                       crds_val_sz;        /* Size of the CRDS value */
     fd_gossip_view_crds_value_t contact_info[ 1 ];  /* CRDS view for the contact info */
@@ -103,6 +130,7 @@ fd_gossip_footprint( ulong max_values ) {
   l = FD_LAYOUT_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
@@ -145,14 +173,16 @@ fd_gossip_new( void *                    shmem,
   void * failed_inserts = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), max_values/4*sizeof(failed_insert_t) ); /* FIXME: figure out better numbers */
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
   void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
 
   gossip->entrypoints_cnt = entrypoints_cnt;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
 
-  gossip->crds         = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4 ) );
-  gossip->active_set   = fd_active_set_join( fd_active_set_new( active_set, rng ) );
-  gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
-  gossip->bloom        = crds_bloom_join( crds_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4 ) );
+  gossip->active_set    = fd_active_set_join( fd_active_set_new( active_set, rng ) );
+  gossip->ping_tracker  = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
+  gossip->bloom         = crds_bloom_join( crds_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  gossip->stake_weights = stake_map_join( stake_map_new( stake_weights ) );
 
   gossip->failed_inserts.entries = (failed_insert_t *)failed_inserts;
   gossip->failed_inserts.cursor  = 0UL;
@@ -277,6 +307,36 @@ fd_gossip_set_my_contact_info(fd_gossip_t *             gossip,
                                       &gossip->my_contact_info.crds_val_sz );
   push_my_contact_info( gossip, contact_info->wallclock_nanos );
 }
+
+ulong
+get_stake( fd_gossip_t const * gossip,
+           uchar const * pubkey ) {
+  stake_weight_t const * entry = stake_map_query_const( gossip->stake_weights, *(fd_pubkey_t const *)pubkey, NULL );
+  if( FD_UNLIKELY( !entry ) ) {
+    return 0UL;
+  }
+  return entry->stake;
+}
+
+void
+fd_gossip_stakes_update( fd_gossip_t *             gossip,
+                         fd_stake_weight_t const * stake_weights,
+                         ulong                     stake_weights_cnt ){
+  stake_map_clear( gossip->stake_weights );
+
+  for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
+    stake_weight_t * entry = stake_map_insert( gossip->stake_weights, stake_weights[i].key );
+    if( FD_UNLIKELY( !entry ) ) {
+      FD_LOG_ERR(( "Failed to insert stake weight" ));
+    }
+    entry->stake = stake_weights[i].stake;
+  }
+
+  /* Update the identity stake */
+  gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
+}
+
+
 
 struct __attribute__((__packed__)) prune_sign_data_pre {
  uchar prefix[18UL];
@@ -466,8 +526,8 @@ rx_pull_request( fd_gossip_t *                         gossip,
 
     if( FD_UNLIKELY( !crds_bloom_contains( filter, fd_crds_value_hash( candidate ), 32UL ) ) ) continue;
 
-    uchar * crds_val;
-    ulong * crds_size;
+    uchar const * crds_val;
+    ulong *       crds_size;
     fd_crds_value( candidate, &crds_val, crds_size );
     push_state_append_crds( gossip, pull_resp, crds_val, *crds_size, now );
   }
@@ -508,6 +568,7 @@ push_state_insert( fd_gossip_t * gossip,
                             now );
   }
 }
+
 static int
 rx_pull_response( fd_gossip_t *                          gossip,
                   fd_gossip_view_pull_response_t const * pull_response,
@@ -577,6 +638,7 @@ rx_push( fd_gossip_t *                 gossip,
     /* TODO: pretty sure this is 15s now. */
     if( FD_UNLIKELY( value->wallclock.ts_nanos<now-30L*1000L*1000L*1000L || value->wallclock.ts_nanos>now+30L*1000L*1000L*1000L ) ) continue;
 
+    uchar const * origin_pubkey    = payload+value->pubkey_off;
     fd_crds_entry_t * candidate = fd_crds_acquire( gossip->crds );
     /* Separate upsert check prior to insertion to save us a memcpy if not upserting.
 
@@ -605,8 +667,12 @@ rx_push( fd_gossip_t *                 gossip,
       push_state_insert( gossip, payload, value, now );
     }
 
-
-    fd_prune_finder_record( gossip->prune_finder, payload+value->pubkey_off, relayer_pubkey, num_duplicates );
+    fd_prune_finder_record( gossip->prune_finder,
+                            origin_pubkey,
+                            get_stake( gossip, origin_pubkey ),
+                            relayer_pubkey,
+                            get_stake( gossip, relayer_pubkey ),
+                            num_duplicates );
   }
 
   return 0;
@@ -620,16 +686,14 @@ rx_prune( fd_gossip_t *                  gossip,
   if( FD_UNLIKELY( now-FD_MILLI_TO_NANOSEC(500L)>(long)prune->wallclock.ts_nanos ) ) return FD_GOSSIP_RX_PRUNE_ERR_STALE;
   else if( FD_UNLIKELY( !!memcmp( gossip->identity_pubkey, payload+prune->destination_off, 32UL ) ) ) return FD_GOSSIP_RX_PRUNE_ERR_DESTINATION;
 
-  ulong identity_stake = 0UL; /* FIXME */
-  ulong origin_stake   = 0UL; /* FIXME */
 
   fd_active_set_prunes( gossip->active_set,
                         gossip->identity_pubkey,
-                        identity_stake,
+                        gossip->identity_stake, /* FIXME: this should be cached. */
                         payload+prune->prunes_off,
                         prune->prunes_len.val,
                         payload+prune->origin_off,
-                        origin_stake,
+                        get_stake( gossip, payload+prune->origin_off ),
                         NULL /* TODO: use out_node_idx to update push states */ );
 
   return FD_GOSSIP_RX_OK;
@@ -664,7 +728,7 @@ rx_pong( fd_gossip_t *           gossip,
 
   fd_ping_tracker_register( gossip->ping_tracker,
                             pong->pubkey,
-                            0UL, /* FIXME: Get stake */
+                            get_stake( gossip, pong->pubkey ),
                             peer_address,
                             pong->ping_hash,
                             now );

@@ -14,7 +14,8 @@ typedef struct fd_crds_private fd_crds_t;
 struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
-#define CRDS_MASK_ITER_SIZE (16UL)
+#define CRDS_MASK_ITER_SIZE   (16UL)
+#define CRDS_MAX_CONTACT_INFO 2>>15 /* 32K max contact info entries in side table */
 
 FD_PROTOTYPES_BEGIN
 

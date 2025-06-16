@@ -1,8 +1,6 @@
 #include "../fd_contact_info.h"
 #include "../fd_gossip_private.h"
 
-#define CRDS_MAX_CONTACT_INFO 2>>15 /* 32K max contact info entries */
-
 struct fd_crds_contact_info_entry {
   fd_contact_info_t contact_info[1];
 
