@@ -331,7 +331,7 @@
       ]
     },
     {
-      "name": "stakes",
+      "name": "stakes_delegation",
       "type": "struct",
       "global": true,
       "fields": [
@@ -341,7 +341,7 @@
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
       ],
-      "comment": "https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202"
+      "comment": "https://github.com/anza-xyz/agave/blob/3e1c3a2f85b5b1d34031f2710d609347cfb77dfd/runtime/src/stakes.rs#L159"
     },
     {
       "name": "stakes_stake",
@@ -372,7 +372,8 @@
       "fields": [
         { "name": "vote_accounts", "type": "vector", "element":"pubkey" },
         { "name": "total_stake", "type": "ulong" }
-      ]
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L16"
     },
     {
       "name": "pubkey_node_vote_accounts_pair",
@@ -380,7 +381,8 @@
       "fields": [
         { "name": "key", "type": "pubkey" },
         { "name": "value", "type": "node_vote_accounts" }
-      ]
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L10"
     },
     {
       "name": "pubkey_pubkey_pair",
@@ -394,11 +396,12 @@
       "name": "epoch_stakes",
       "type": "struct",
       "fields": [
-        { "name": "stakes", "type": "stakes" },
+        { "name": "stakes", "type": "stakes_delegation", "comment": "https://github.com/anza-xyz/agave/blob/3e1c3a2f85b5b1d34031f2710d609347cfb77dfd/runtime/src/stakes/serde_stakes.rs#L84"},
         { "name": "total_stake", "type": "ulong" },
-        { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
-        { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
-      ]
+        { "name": "node_id_to_vote_accounts", "type": "map", "element": "pubkey_node_vote_accounts_pair", "key": "key" },
+        { "name": "epoch_authorized_voters", "type": "map", "element": "pubkey_pubkey_pair", "key": "key" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L23"
     },
     {
       "name": "epoch_epoch_stakes_pair",
@@ -457,7 +460,7 @@
         { "name": "rent_collector",        "type": "rent_collector" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "inflation",             "type": "inflation" },
-        { "name": "stakes",                "type": "stakes" },
+        { "name": "stakes",                "type": "stakes_delegation" },
         { "name": "unused_accounts",       "type": "unused_accounts" },
         { "name": "epoch_stakes",          "type": "vector", "element": "epoch_epoch_stakes_pair" },
         { "name": "is_delta",              "type": "bool" }
@@ -538,9 +541,10 @@
       "fields": [
         { "name": "stakes", "type": "stakes_stake" },
         { "name": "total_stake", "type": "ulong" },
-        { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
-        { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
-      ]
+        { "name": "node_id_to_vote_accounts", "type": "map", "element": "pubkey_node_vote_accounts_pair", "key": "key" },
+        { "name": "epoch_authorized_voters", "type": "map", "element": "pubkey_pubkey_pair", "key": "key" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L23"
     },
     {
       "name": "versioned_epoch_stakes",
@@ -1027,7 +1031,7 @@
       "name": "firedancer_bank",
       "type": "struct",
       "fields": [
-        { "name": "stakes",                "type": "stakes" },
+        { "name": "stakes",                "type": "stakes_delegation" },
         { "name": "recent_block_hashes",   "type": "recent_block_hashes" },
         { "name": "timestamp_votes",       "type": "clock_timestamp_votes" },
         { "name": "slot",                  "type": "ulong" },
@@ -1085,7 +1089,7 @@
       "type": "struct",
       "archival": "true",
       "fields": [
-        { "name": "stakes",                "type": "stakes" },
+        { "name": "stakes",                "type": "stakes_delegation" },
         { "name": "hashes_per_tick",       "type": "ulong" },
         { "name": "ticks_per_slot",        "type": "ulong" },
         { "name": "ns_per_slot",           "type": "uint128" },

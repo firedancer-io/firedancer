@@ -83,7 +83,7 @@ struct fd_exec_txn_ctx {
   fd_epoch_schedule_t             schedule;
   fd_rent_t                       rent;
   double                          slots_per_year;
-  fd_stakes_t                     stakes;
+  fd_stakes_delegation_t          stakes;
 
   fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
   fd_wksp_t *                     spad_wksp;                                   /* Workspace for the spad. */

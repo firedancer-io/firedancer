@@ -2219,7 +2219,7 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
                              fd_epoch_info_t *    temp_info ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
-  fd_stakes_t *     stakes     = &epoch_bank->stakes;
+  fd_stakes_delegation_t *     stakes     = &epoch_bank->stakes;
 
   /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
       This assumes that there is enough memory pre-allocated for the stakes cache. */
@@ -3581,7 +3581,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   };
 
   /* Initializes the stakes cache in the Bank structure. */
-  epoch_bank->stakes = (fd_stakes_t){
+  epoch_bank->stakes = (fd_stakes_delegation_t){
       .stake_delegations_pool = sacc_pool,
       .stake_delegations_root = sacc_root,
       .epoch                  = 0UL,

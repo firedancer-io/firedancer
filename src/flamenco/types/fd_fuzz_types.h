@@ -404,10 +404,10 @@ void *fd_stake_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_stakes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_stakes_t *self = (fd_stakes_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stakes_t);
-  fd_stakes_new(mem);
+void *fd_stakes_delegation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_stakes_delegation_t *self = (fd_stakes_delegation_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stakes_delegation_t);
+  fd_stakes_delegation_new(mem);
   fd_vote_accounts_generate( &self->vote_accounts, alloc_mem, rng );
   ulong stake_delegations_len = fd_rng_ulong( rng ) % 8;
   self->stake_delegations_pool = fd_delegation_pair_t_map_join_new( alloc_mem, stake_delegations_len );
@@ -495,29 +495,23 @@ void *fd_epoch_stakes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_epoch_stakes_t *self = (fd_epoch_stakes_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_stakes_t);
   fd_epoch_stakes_new(mem);
-  fd_stakes_generate( &self->stakes, alloc_mem, rng );
+  fd_stakes_delegation_generate( &self->stakes, alloc_mem, rng );
   self->total_stake = fd_rng_ulong( rng );
-  self->node_id_to_vote_accounts_len = fd_rng_ulong( rng ) % 8;
-  if( self->node_id_to_vote_accounts_len ) {
-    self->node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_node_vote_accounts_pair_t)*self->node_id_to_vote_accounts_len;
-    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      fd_pubkey_node_vote_accounts_pair_new( self->node_id_to_vote_accounts + i );
-      fd_pubkey_node_vote_accounts_pair_generate( self->node_id_to_vote_accounts + i, alloc_mem, rng );
-    }
-  } else {
-    self->node_id_to_vote_accounts = NULL;
+  ulong node_id_to_vote_accounts_len = fd_rng_ulong( rng ) % 8;
+  self->node_id_to_vote_accounts_pool = fd_pubkey_node_vote_accounts_pair_t_map_join_new( alloc_mem, node_id_to_vote_accounts_len );
+  self->node_id_to_vote_accounts_root = NULL;
+  for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
+    fd_pubkey_node_vote_accounts_pair_t_mapnode_t * node = fd_pubkey_node_vote_accounts_pair_t_map_acquire( self->node_id_to_vote_accounts_pool );
+    fd_pubkey_node_vote_accounts_pair_generate( &node->elem, alloc_mem, rng );
+    fd_pubkey_node_vote_accounts_pair_t_map_insert( self->node_id_to_vote_accounts_pool, &self->node_id_to_vote_accounts_root, node );
   }
-  self->epoch_authorized_voters_len = fd_rng_ulong( rng ) % 8;
-  if( self->epoch_authorized_voters_len ) {
-    self->epoch_authorized_voters = (fd_pubkey_pubkey_pair_t *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_pubkey_pair_t)*self->epoch_authorized_voters_len;
-    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
-      fd_pubkey_pubkey_pair_new( self->epoch_authorized_voters + i );
-      fd_pubkey_pubkey_pair_generate( self->epoch_authorized_voters + i, alloc_mem, rng );
-    }
-  } else {
-    self->epoch_authorized_voters = NULL;
+  ulong epoch_authorized_voters_len = fd_rng_ulong( rng ) % 8;
+  self->epoch_authorized_voters_pool = fd_pubkey_pubkey_pair_t_map_join_new( alloc_mem, epoch_authorized_voters_len );
+  self->epoch_authorized_voters_root = NULL;
+  for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
+    fd_pubkey_pubkey_pair_t_mapnode_t * node = fd_pubkey_pubkey_pair_t_map_acquire( self->epoch_authorized_voters_pool );
+    fd_pubkey_pubkey_pair_generate( &node->elem, alloc_mem, rng );
+    fd_pubkey_pubkey_pair_t_map_insert( self->epoch_authorized_voters_pool, &self->epoch_authorized_voters_root, node );
   }
   return mem;
 }
@@ -632,7 +626,7 @@ void *fd_versioned_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   fd_rent_collector_generate( &self->rent_collector, alloc_mem, rng );
   fd_epoch_schedule_generate( &self->epoch_schedule, alloc_mem, rng );
   fd_inflation_generate( &self->inflation, alloc_mem, rng );
-  fd_stakes_generate( &self->stakes, alloc_mem, rng );
+  fd_stakes_delegation_generate( &self->stakes, alloc_mem, rng );
   fd_unused_accounts_generate( &self->unused_accounts, alloc_mem, rng );
   self->epoch_stakes_len = fd_rng_ulong( rng ) % 8;
   if( self->epoch_stakes_len ) {
@@ -762,27 +756,21 @@ void *fd_versioned_epoch_stakes_current_generate( void *mem, void **alloc_mem, f
   fd_versioned_epoch_stakes_current_new(mem);
   fd_stakes_stake_generate( &self->stakes, alloc_mem, rng );
   self->total_stake = fd_rng_ulong( rng );
-  self->node_id_to_vote_accounts_len = fd_rng_ulong( rng ) % 8;
-  if( self->node_id_to_vote_accounts_len ) {
-    self->node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_node_vote_accounts_pair_t)*self->node_id_to_vote_accounts_len;
-    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      fd_pubkey_node_vote_accounts_pair_new( self->node_id_to_vote_accounts + i );
-      fd_pubkey_node_vote_accounts_pair_generate( self->node_id_to_vote_accounts + i, alloc_mem, rng );
-    }
-  } else {
-    self->node_id_to_vote_accounts = NULL;
+  ulong node_id_to_vote_accounts_len = fd_rng_ulong( rng ) % 8;
+  self->node_id_to_vote_accounts_pool = fd_pubkey_node_vote_accounts_pair_t_map_join_new( alloc_mem, node_id_to_vote_accounts_len );
+  self->node_id_to_vote_accounts_root = NULL;
+  for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
+    fd_pubkey_node_vote_accounts_pair_t_mapnode_t * node = fd_pubkey_node_vote_accounts_pair_t_map_acquire( self->node_id_to_vote_accounts_pool );
+    fd_pubkey_node_vote_accounts_pair_generate( &node->elem, alloc_mem, rng );
+    fd_pubkey_node_vote_accounts_pair_t_map_insert( self->node_id_to_vote_accounts_pool, &self->node_id_to_vote_accounts_root, node );
   }
-  self->epoch_authorized_voters_len = fd_rng_ulong( rng ) % 8;
-  if( self->epoch_authorized_voters_len ) {
-    self->epoch_authorized_voters = (fd_pubkey_pubkey_pair_t *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_pubkey_pair_t)*self->epoch_authorized_voters_len;
-    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
-      fd_pubkey_pubkey_pair_new( self->epoch_authorized_voters + i );
-      fd_pubkey_pubkey_pair_generate( self->epoch_authorized_voters + i, alloc_mem, rng );
-    }
-  } else {
-    self->epoch_authorized_voters = NULL;
+  ulong epoch_authorized_voters_len = fd_rng_ulong( rng ) % 8;
+  self->epoch_authorized_voters_pool = fd_pubkey_pubkey_pair_t_map_join_new( alloc_mem, epoch_authorized_voters_len );
+  self->epoch_authorized_voters_root = NULL;
+  for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
+    fd_pubkey_pubkey_pair_t_mapnode_t * node = fd_pubkey_pubkey_pair_t_map_acquire( self->epoch_authorized_voters_pool );
+    fd_pubkey_pubkey_pair_generate( &node->elem, alloc_mem, rng );
+    fd_pubkey_pubkey_pair_t_map_insert( self->epoch_authorized_voters_pool, &self->epoch_authorized_voters_root, node );
   }
   return mem;
 }
@@ -1558,7 +1546,7 @@ void *fd_firedancer_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng )
   fd_firedancer_bank_t *self = (fd_firedancer_bank_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_firedancer_bank_t);
   fd_firedancer_bank_new(mem);
-  fd_stakes_generate( &self->stakes, alloc_mem, rng );
+  fd_stakes_delegation_generate( &self->stakes, alloc_mem, rng );
   fd_recent_block_hashes_generate( &self->recent_block_hashes, alloc_mem, rng );
   fd_clock_timestamp_votes_generate( &self->timestamp_votes, alloc_mem, rng );
   self->slot = fd_rng_ulong( rng );
@@ -1626,7 +1614,7 @@ void *fd_epoch_bank_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_epoch_bank_t *self = (fd_epoch_bank_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_bank_t);
   fd_epoch_bank_new(mem);
-  fd_stakes_generate( &self->stakes, alloc_mem, rng );
+  fd_stakes_delegation_generate( &self->stakes, alloc_mem, rng );
   self->hashes_per_tick = fd_rng_ulong( rng );
   self->ticks_per_slot = fd_rng_ulong( rng );
   self->ns_per_slot = fd_rng_uint128( rng );

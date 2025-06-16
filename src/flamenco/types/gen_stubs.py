@@ -1594,7 +1594,12 @@ class MapMember(TypeNode):
         print(f'    {nodename} * node = {mapname}_acquire( self->{self.name}_pool );', file=body)
         print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
         print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
-        print(f'    {mapname}_insert( self->{self.name}_pool, &self->{self.name}_root, node );', file=body)
+        print(f'    {nodename} * out = NULL;;', file=body)
+        print(f'    {mapname}_insert_or_replace( self->{self.name}_pool, &self->{self.name}_root, node, &out );', file=body)
+        print(f'    if( out != NULL ) {{', file=body)
+        print(f'      // Unclear how to release the memory...', file=body)
+        print(f'      {mapname}_release( self->{self.name}_pool, out );', file=body)
+        print(f'    }}', file=body)
         print('  }', file=body)
 
     def emitDecodeInnerGlobal(self):
