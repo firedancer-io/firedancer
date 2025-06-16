@@ -459,9 +459,9 @@ fd_delegation_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   *alloc_mem = (uchar *)*alloc_mem + fd_delegation_pair_t_map_footprint( len );
   return fd_delegation_pair_t_map_join( fd_delegation_pair_t_map_new( map_mem, len ) );
 }
-/* https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202 */
+/* https://github.com/anza-xyz/agave/blob/3e1c3a2f85b5b1d34031f2710d609347cfb77dfd/runtime/src/stakes.rs#L159 */
 /* Encoded Size: Dynamic */
-struct fd_stakes {
+struct fd_stakes_delegation {
   fd_vote_accounts_t vote_accounts;
   fd_delegation_pair_t_mapnode_t * stake_delegations_pool;
   fd_delegation_pair_t_mapnode_t * stake_delegations_root;
@@ -469,10 +469,10 @@ struct fd_stakes {
   ulong epoch;
   fd_stake_history_t stake_history;
 };
-typedef struct fd_stakes fd_stakes_t;
-#define FD_STAKES_ALIGN alignof(fd_stakes_t)
+typedef struct fd_stakes_delegation fd_stakes_delegation_t;
+#define FD_STAKES_DELEGATION_ALIGN alignof(fd_stakes_delegation_t)
 
-struct fd_stakes_global {
+struct fd_stakes_delegation_global {
   fd_vote_accounts_global_t vote_accounts;
   ulong stake_delegations_pool_offset;
   ulong stake_delegations_root_offset;
@@ -480,13 +480,13 @@ struct fd_stakes_global {
   ulong epoch;
   fd_stake_history_t stake_history;
 };
-typedef struct fd_stakes_global fd_stakes_global_t;
-#define FD_STAKES_GLOBAL_ALIGN alignof(fd_stakes_global_t)
+typedef struct fd_stakes_delegation_global fd_stakes_delegation_global_t;
+#define FD_STAKES_DELEGATION_GLOBAL_ALIGN alignof(fd_stakes_delegation_global_t)
 
-static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_pool_join( void * struct_mem, ulong offset ) { // deque
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_delegation_stake_delegations_pool_join( void * struct_mem, ulong offset ) { // deque
   return (fd_delegation_pair_t_mapnode_t *)fd_delegation_pair_t_map_join( fd_type_pun( (uchar *)struct_mem + offset ) );
 }
-static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_stake_delegations_root_join( void * struct_mem, ulong offset ) { // deque
+static FD_FN_UNUSED fd_delegation_pair_t_mapnode_t * fd_stakes_delegation_stake_delegations_root_join( void * struct_mem, ulong offset ) { // deque
   return (fd_delegation_pair_t_mapnode_t *)fd_type_pun( (uchar *)struct_mem + offset );
 }
 typedef struct fd_stake_pair_t_mapnode fd_stake_pair_t_mapnode_t;
@@ -533,6 +533,7 @@ struct fd_bank_incremental_snapshot_persistence {
 typedef struct fd_bank_incremental_snapshot_persistence fd_bank_incremental_snapshot_persistence_t;
 #define FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN alignof(fd_bank_incremental_snapshot_persistence_t)
 
+/* https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L16 */
 /* Encoded Size: Dynamic */
 struct fd_node_vote_accounts {
   ulong vote_accounts_len;
@@ -542,6 +543,7 @@ struct fd_node_vote_accounts {
 typedef struct fd_node_vote_accounts fd_node_vote_accounts_t;
 #define FD_NODE_VOTE_ACCOUNTS_ALIGN alignof(fd_node_vote_accounts_t)
 
+/* https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L10 */
 /* Encoded Size: Dynamic */
 struct fd_pubkey_node_vote_accounts_pair {
   fd_pubkey_t key;
@@ -558,14 +560,55 @@ struct fd_pubkey_pubkey_pair {
 typedef struct fd_pubkey_pubkey_pair fd_pubkey_pubkey_pair_t;
 #define FD_PUBKEY_PUBKEY_PAIR_ALIGN alignof(fd_pubkey_pubkey_pair_t)
 
+typedef struct fd_pubkey_node_vote_accounts_pair_t_mapnode fd_pubkey_node_vote_accounts_pair_t_mapnode_t;
+#define REDBLK_T fd_pubkey_node_vote_accounts_pair_t_mapnode_t
+#define REDBLK_NAME fd_pubkey_node_vote_accounts_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_pubkey_node_vote_accounts_pair_t_mapnode {
+    fd_pubkey_node_vote_accounts_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_pubkey_node_vote_accounts_pair_t_mapnode_t *
+fd_pubkey_node_vote_accounts_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_pubkey_node_vote_accounts_pair_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_pubkey_node_vote_accounts_pair_t_map_footprint( len );
+  return fd_pubkey_node_vote_accounts_pair_t_map_join( fd_pubkey_node_vote_accounts_pair_t_map_new( map_mem, len ) );
+}
+typedef struct fd_pubkey_pubkey_pair_t_mapnode fd_pubkey_pubkey_pair_t_mapnode_t;
+#define REDBLK_T fd_pubkey_pubkey_pair_t_mapnode_t
+#define REDBLK_NAME fd_pubkey_pubkey_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_pubkey_pubkey_pair_t_mapnode {
+    fd_pubkey_pubkey_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_pubkey_pubkey_pair_t_mapnode_t *
+fd_pubkey_pubkey_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_pubkey_pubkey_pair_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_pubkey_pubkey_pair_t_map_footprint( len );
+  return fd_pubkey_pubkey_pair_t_map_join( fd_pubkey_pubkey_pair_t_map_new( map_mem, len ) );
+}
+/* https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L23 */
 /* Encoded Size: Dynamic */
 struct fd_epoch_stakes {
-  fd_stakes_t stakes;
+  fd_stakes_delegation_t stakes;
   ulong total_stake;
-  ulong node_id_to_vote_accounts_len;
-  fd_pubkey_node_vote_accounts_pair_t * node_id_to_vote_accounts;
-  ulong epoch_authorized_voters_len;
-  fd_pubkey_pubkey_pair_t * epoch_authorized_voters;
+  fd_pubkey_node_vote_accounts_pair_t_mapnode_t * node_id_to_vote_accounts_pool;
+  fd_pubkey_node_vote_accounts_pair_t_mapnode_t * node_id_to_vote_accounts_root;
+  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_pool;
+  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_root;
 };
 typedef struct fd_epoch_stakes fd_epoch_stakes_t;
 #define FD_EPOCH_STAKES_ALIGN alignof(fd_epoch_stakes_t)
@@ -630,7 +673,7 @@ struct fd_versioned_bank {
   fd_rent_collector_t rent_collector;
   fd_epoch_schedule_t epoch_schedule;
   fd_inflation_t inflation;
-  fd_stakes_t stakes;
+  fd_stakes_delegation_t stakes;
   fd_unused_accounts_t unused_accounts;
   ulong epoch_stakes_len;
   fd_epoch_epoch_stakes_pair_t * epoch_stakes;
@@ -707,14 +750,15 @@ struct fd_solana_accounts_db_fields {
 typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN alignof(fd_solana_accounts_db_fields_t)
 
+/* https://github.com/anza-xyz/agave/blob/de6ce29e1a7ecbdc6dc39527fce80beea404d314/runtime/src/epoch_stakes.rs#L23 */
 /* Encoded Size: Dynamic */
 struct fd_versioned_epoch_stakes_current {
   fd_stakes_stake_t stakes;
   ulong total_stake;
-  ulong node_id_to_vote_accounts_len;
-  fd_pubkey_node_vote_accounts_pair_t * node_id_to_vote_accounts;
-  ulong epoch_authorized_voters_len;
-  fd_pubkey_pubkey_pair_t * epoch_authorized_voters;
+  fd_pubkey_node_vote_accounts_pair_t_mapnode_t * node_id_to_vote_accounts_pool;
+  fd_pubkey_node_vote_accounts_pair_t_mapnode_t * node_id_to_vote_accounts_root;
+  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_pool;
+  fd_pubkey_pubkey_pair_t_mapnode_t * epoch_authorized_voters_root;
 };
 typedef struct fd_versioned_epoch_stakes_current fd_versioned_epoch_stakes_current_t;
 #define FD_VERSIONED_EPOCH_STAKES_CURRENT_ALIGN alignof(fd_versioned_epoch_stakes_current_t)
@@ -1386,7 +1430,7 @@ typedef struct fd_feature_entry fd_feature_entry_t;
 
 /* Encoded Size: Dynamic */
 struct fd_firedancer_bank {
-  fd_stakes_t stakes;
+  fd_stakes_delegation_t stakes;
   fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
   ulong slot;
@@ -1440,7 +1484,7 @@ typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
 
 /* Encoded Size: Dynamic */
 struct fd_epoch_bank {
-  fd_stakes_t stakes;
+  fd_stakes_delegation_t stakes;
   ulong hashes_per_tick;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
@@ -3549,15 +3593,15 @@ static inline int fd_stake_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx,
 }
 void * fd_stake_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_stakes_new( fd_stakes_t * self );
-int fd_stakes_encode( fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_stakes_walk( void * w, fd_stakes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_stakes_size( fd_stakes_t const * self );
-static inline ulong fd_stakes_align( void ) { return FD_STAKES_ALIGN; }
-int fd_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stakes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_stakes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_stakes_encode_global( fd_stakes_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_stakes_delegation_new( fd_stakes_delegation_t * self );
+int fd_stakes_delegation_encode( fd_stakes_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_stakes_delegation_walk( void * w, fd_stakes_delegation_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_stakes_delegation_size( fd_stakes_delegation_t const * self );
+static inline ulong fd_stakes_delegation_align( void ) { return FD_STAKES_DELEGATION_ALIGN; }
+int fd_stakes_delegation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_stakes_delegation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_stakes_delegation_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_stakes_delegation_encode_global( fd_stakes_delegation_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stakes_stake_new( fd_stakes_stake_t * self );
 int fd_stakes_stake_encode( fd_stakes_stake_t const * self, fd_bincode_encode_ctx_t * ctx );

@@ -499,8 +499,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
 
 static void
 fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
-                                       fd_stakes_t *       old_stakes,
-                                       fd_stakes_t *       new_stakes ) {
+                                       fd_stakes_delegation_t *       old_stakes,
+                                       fd_stakes_delegation_t *       new_stakes ) {
 
   /* The deserialized stakes cache that is used by the runtime can't be
      reserialized into the format that Agave uses. For every vote account

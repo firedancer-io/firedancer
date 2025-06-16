@@ -54,16 +54,16 @@ generate_replay_exec_epoch_msg( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Failed to get gaddr for bank hash cmp" ));
   }
 
-  ulong   stakes_encode_sz  = fd_stakes_size( &slot_ctx->epoch_ctx->epoch_bank.stakes ) + 128UL;
+  ulong   stakes_encode_sz  = fd_stakes_delegation_size( &slot_ctx->epoch_ctx->epoch_bank.stakes ) + 128UL;
   uchar * stakes_encode_mem = fd_spad_alloc( runtime_spad,
-                                             fd_stakes_align(),
+                                             fd_stakes_delegation_align(),
                                              stakes_encode_sz );
 
   fd_bincode_encode_ctx_t encode = {
     .data    = stakes_encode_mem,
     .dataend = stakes_encode_mem + stakes_encode_sz
   };
-  int err = fd_stakes_encode( &slot_ctx->epoch_ctx->epoch_bank.stakes, &encode );
+  int err = fd_stakes_delegation_encode( &slot_ctx->epoch_ctx->epoch_bank.stakes, &encode );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to encode stakes" ));
   }
