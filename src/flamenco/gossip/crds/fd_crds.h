@@ -148,10 +148,15 @@ fd_crds_insert( fd_crds_t *       crds,
                 fd_crds_entry_t * value,
                 int               from_push_msg );
 
+void
+fd_crds_value( fd_crds_entry_t const * entry,
+               uchar const **          value_bytes,
+               ulong *                 value_sz );
+
 /* fd_crds_value_hash returns a pointer to the 32b sha256 hash of the
    entry's value hash. This is used for constructing a bloom filter. */
 uchar const *
-fd_crds_value_hash( fd_crds_entry_t const * value );
+fd_crds_value_hash( fd_crds_entry_t const * entry );
 
 /* Returns 1 if the provided pubkey (assumed 32b) has a corresponding Contact Info
    entry in the table. */

@@ -12,6 +12,9 @@
 #define BLOOM_FALSE_POSITIVE_RATE       (  0.1)
 #define BLOOM_NUM_KEYS                  (  8.0)
 
+#define BLOOM_NAME    crds_bloom
+#include "tmpl/fd_bloom.c"
+
 struct failed_insert{
   uchar hash[32UL];
   long  wallclock_nanos; /* time when we last tried to insert */
@@ -50,7 +53,7 @@ struct fd_gossip_private {
   ulong               entrypoints_cnt;
 
   fd_rng_t *          rng;
-  fd_bloom_t *        bloom;
+  crds_bloom_t *      bloom;
 
   /* TODO: has_shred_version */
   ushort              expected_shred_version;
@@ -149,7 +152,7 @@ fd_gossip_new( void *                    shmem,
   gossip->crds         = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4 ) );
   gossip->active_set   = fd_active_set_join( fd_active_set_new( active_set, rng ) );
   gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
-  gossip->bloom        = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  gossip->bloom        = crds_bloom_join( crds_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
 
   gossip->failed_inserts.entries = (failed_insert_t *)failed_inserts;
   gossip->failed_inserts.cursor  = 0UL;
@@ -223,18 +226,18 @@ push_state_flush( fd_gossip_t *   gossip,
 static void
 push_state_append_crds( fd_gossip_t *                       gossip,
                         push_state_t *                      state,
-                        uchar const *                       payload,
-                        fd_gossip_view_crds_value_t const * crds_value,
+                        uchar const *                       crds_bytes,
+                        ulong                               crds_len,
                         long                                now ) {
   ulong remaining_space = sizeof(state->msg) - state->msg_sz;
-  if( FD_UNLIKELY( remaining_space<crds_value->length ) ) {
+  if( FD_UNLIKELY( remaining_space<crds_len ) ) {
     push_state_flush( gossip, state, now );
   }
-  if( FD_UNLIKELY( remaining_space<crds_value->length ) ) {
+  if( FD_UNLIKELY( remaining_space<crds_len ) ) {
     FD_LOG_ERR(( "Not enough space in push state to append CRDS value even after flushing" ));
   }
-  fd_memcpy( &state->msg[ state->msg_sz ], payload + crds_value->value_off, crds_value->length );
-  state->msg_sz   += crds_value->length;
+  fd_memcpy( &state->msg[ state->msg_sz ], crds_bytes, crds_len );
+  state->msg_sz   += crds_len;
   state->num_crds += 1UL;
 }
 
@@ -246,7 +249,7 @@ push_my_contact_info( fd_gossip_t * gossip, long now ){
     push_state_append_crds( gossip,
                             state,
                             gossip->my_contact_info.crds_val,
-                            gossip->my_contact_info.contact_info,
+                            gossip->my_contact_info.crds_val_sz,
                             now );
     state->has_my_ci = 1;
   }
@@ -256,7 +259,7 @@ push_my_contact_info( fd_gossip_t * gossip, long now ){
     push_state_append_crds( gossip,
                             state,
                             gossip->my_contact_info.crds_val,
-                            gossip->my_contact_info.contact_info,
+                            gossip->my_contact_info.crds_val_sz,
                             now );
     state->has_my_ci = 1;
   }
@@ -420,52 +423,57 @@ failed_inserts_purge( fd_gossip_t * gossip,
   }
 }
 
-// static int
-// rx_pull_request( fd_gossip_t *                    gossip,
-//                  fd_gossip_pull_request_t const * pull_request,
-//                  long                             now ) {
-//   /* TODO: Implement data budget? */
+static int
+rx_pull_request( fd_gossip_t *                         gossip,
+                 fd_gossip_view_pull_request_t const * pr_view,
+                 uchar const *                         payload,
+                 long                                  now ) {
+  /* TODO: Implement data budget? Or at least limit iteration range */
 
-//   fd_gossip_crds_data_t const * data = pull_request->value->data;
-//   if( FD_UNLIKELY( data->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_NOT_CONTACT_INFO;
+  fd_gossip_view_crds_value_t const * contact_info = pr_view->contact_info;
+  if( FD_UNLIKELY( contact_info->tag.val!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_NOT_CONTACT_INFO */;
 
-//   fd_gossip_contact_info_t const * contact_info = data->contact_info;
-//   if( FD_UNLIKELY( !memcmp( data->contact_info->pubkey, gossip->identity_pubkey, 32UL ) ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_LOOPBACK;
+  if( FD_UNLIKELY( !memcmp( payload+contact_info->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_LOOPBACK */;
 
-//   if( FD_UNLIKELY( !is_valid_address( node ) ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_INVALID_ADDRESS;
+  if( FD_UNLIKELY( !is_valid_address( node ) ) ) return -1 /* FD_GOSSIP_RX_ERR_PULL_REQUEST_INVALID_ADDRESS */;
 
-//   fd_gossip_crds_filter_t const * filter = pull_request->filter;
+  crds_bloom_t filter[1];
+  filter->keys_len = pr_view->bloom_keys_len.val;
+  filter->keys     = (ulong *)( payload + pr_view->bloom_keys_offset );
 
-//   /* TODO: Jitter? */
-//   long clamp_wallclock_lower_nanos = now - 15L*1000L*1000L*1000L;
-//   long clamp_wallclock_upper_nanos = now + 15L*1000L*1000L*1000L;
-//   if( FD_UNLIKELY( contact_info->wallclock<clamp_wallclock_lower_nanos || contact_info->wallclock>clamp_wallclock_upper_nanos ) ) return FD_GOSSIP_RX_ERR_PULL_REQUEST_WALLCLOCK;
+  filter->bits_len = pr_view->bloom_len.val;
+  filter->bits     = (ulong *)( payload + pr_view->bloom_bits_offset );
 
-//   ulong packet_sz = 0UL;
-//   uchar packet[ 1232UL ];
+  /* TODO: Jitter? */
+  long clamp_wallclock_lower_nanos = now - 15L*1000L*1000L*1000L;
+  long clamp_wallclock_upper_nanos = now + 15L*1000L*1000L*1000L;
+  if( FD_UNLIKELY( contact_info->wallclock.ts_nanos<clamp_wallclock_lower_nanos ||
+                   contact_info->wallclock.ts_nanos>clamp_wallclock_upper_nanos ) ) return -1; /* FD_GOSSIP_RX_ERR_PULL_REQUEST_WALLCLOCK; */
 
-//   for( fd_crds_iter_t it=fd_crds_mask_iter_init( gossip->crds, mask, mask_bits ); !fd_crds_mask_iter_done( it ); it=fd_crds_mask_iter_next(it) ) {
-//     fd_crds_value_t * candidate = fd_crds_mask_iter_value( it );
+  push_state_t pull_resp[1];
+  push_state_new( pull_resp, gossip->identity_pubkey );
+  pull_resp->msg[ 0 ] = FD_GOSSIP_MESSAGE_PULL_RESPONSE;
 
-//     /* TODO: Add jitter here? */
-//     if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock ) ) continue;
+  uchar iter_mem[ CRDS_MASK_ITER_SIZE ];
 
-//     ulong serialized_sz;
-//     error = serialize_crds_value_into_packet( candidate, packet, 1232UL-packet_sz, &serialized_sz );
-//     if( FD_LIKELY( !error ) ) {
-//       packet_sz += serialized_sz;
-//     } else {
-//       /* CRDS value can't fit into the packet anymore, just ship what
-//          we have now and start a new one. */
-//       gossip->tx_fn( gossip->tx_ctx, packet, packet_sz );
-//       packet_sz = 0UL;
-//     }
-//   }
+  for( fd_crds_mask_iter_t * it=fd_crds_mask_iter_init( gossip->crds, pr_view->mask.val, pr_view->mask_bits.val, iter_mem );
+       !fd_crds_mask_iter_done( it, gossip->crds );
+       it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
+    fd_crds_entry_t const * candidate = fd_crds_mask_iter_value( it, gossip->crds );
 
-//   /* TODO: Send packet if there's anything leftover */
+    /* TODO: Add jitter here? */
+    // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock ) ) continue;
 
-//   return 0;
-// }
+    if( FD_UNLIKELY( !crds_bloom_contains( filter, fd_crds_value_hash( candidate ), 32UL ) ) ) continue;
+
+    uchar * crds_val;
+    ulong * crds_size;
+    fd_crds_value( candidate, &crds_val, crds_size );
+    push_state_append_crds( gossip, pull_resp, crds_val, *crds_size, now );
+  }
+  push_state_flush( gossip, pull_resp, now );
+  return 0;
+}
 
 static void
 push_state_insert( fd_gossip_t * gossip,
@@ -484,15 +492,19 @@ push_state_insert( fd_gossip_t * gossip,
     for( ulong j=0UL; j<out_nodes_cnt; j++ ) {
       ulong idx = out_nodes[ j ];
       push_state_t * state = &gossip->active_push_state[ idx ];
-      push_state_append_crds( gossip, state, payload, value, now );
+      push_state_append_crds( gossip,
+                              state,
+                              payload+value->value_off,
+                              value->length,
+                              now );
     }
   } else {
     /* pick entrypoint to push value to ?? */
     ulong idx = fd_rng_ulong_roll( gossip->rng, gossip->entrypoints_cnt );
     push_state_append_crds( gossip,
                             &gossip->entrypt_push_state[idx],
-                            payload,
-                            value,
+                            payload+value->value_off,
+                            value->length,
                             now );
   }
 }
@@ -869,15 +881,15 @@ tx_pull_request( fd_gossip_t * gossip,
   uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
   ulong mask            = fd_rng_ulong( gossip->rng ) & ((1UL<<mask_bits)-1UL);
 
-  fd_bloom_t * filter   = gossip->bloom;
-  fd_bloom_initialize( filter, (ulong)max_items+1 ); /* TODO: check cast */
+  crds_bloom_t * filter   = gossip->bloom;
+  crds_bloom_initialize( filter, (ulong)max_items+1 ); /* TODO: check cast */
 
   uchar iter_mem[ CRDS_MASK_ITER_SIZE ];
 
   for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
        !fd_crds_mask_iter_done( it, gossip->crds );
        it = fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    fd_bloom_insert( filter, fd_crds_value_hash( fd_crds_mask_iter_value( it, gossip->crds ) ), 32UL );
+    crds_bloom_insert( filter, fd_crds_value_hash( fd_crds_mask_iter_value( it, gossip->crds ) ), 32UL );
   }
 
   ulong shift = 64UL-mask_bits;
@@ -885,7 +897,7 @@ tx_pull_request( fd_gossip_t * gossip,
     /* TODO: Make the purged list also a bplus, for fast finding of matching hashes? */
     uchar const * hash = fd_crds_purged( gossip->crds, i );
     if( FD_LIKELY( (fd_ulong_load_8( hash )>>shift)!=mask ) ) continue;
-    fd_bloom_insert( filter, hash, 32UL );
+    crds_bloom_insert( filter, hash, 32UL );
   }
 
   ulong fi_idx = failed_inserts_start_idx( gossip );
@@ -893,7 +905,7 @@ tx_pull_request( fd_gossip_t * gossip,
     /* TODO: Make the failed insert list also a bplus, for fast finding of matching hashes? */
     uchar const * hash = gossip->failed_inserts.entries[ fi_idx ].hash;
     if( FD_LIKELY( (fd_ulong_load_8( hash )>>shift)!=mask ) ) continue;
-    fd_bloom_insert( filter, hash, 32UL );
+    crds_bloom_insert( filter, hash, 32UL );
     fi_idx = (fi_idx+1UL)%gossip->failed_inserts.cap;
   }
 

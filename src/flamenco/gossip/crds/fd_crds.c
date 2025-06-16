@@ -685,9 +685,17 @@ fd_crds_insert( fd_crds_t *       crds,
   return 0;
 }
 
+void
+fd_crds_value( fd_crds_entry_t const *  entry,
+               uchar const **           value_bytes,
+               ulong *                  value_sz ) {
+  *value_bytes = entry->value_bytes;
+  *value_sz    = entry->value_sz;
+}
+
 uchar const *
-fd_crds_value_hash( fd_crds_entry_t const * value ){
-  return value->value_hash;
+fd_crds_value_hash( fd_crds_entry_t const * entry ) {
+  return entry->value_hash;
 }
 
 int
