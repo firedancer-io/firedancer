@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_quic_svc_q.h"
 #include "fd_quic_private.h"
 #include "fd_quic_conn.h"
@@ -80,6 +81,14 @@ fd_quic_svc_schedule( fd_quic_svc_timers_t * timers,
                       fd_quic_conn_t       * conn ) {
   ulong idx    = conn->svc_meta.idx;
   ulong expiry = conn->svc_meta.next_timeout;
+
+  /* if conn is invalid, do not schedule */
+  if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
+    FD_LOG_WARNING(( "fd_quic_svc_schedule called on invalid connection" ));
+    /* dump backtrace for debugging */
+    fd_quic_svc_timers_dump_backtrace();
+    return;
+  }
 
   if( FD_UNLIKELY( idx != FD_QUIC_SVC_IDX_INVAL ) ) {
     /* find current expiry */
@@ -165,4 +174,33 @@ fd_quic_svc_get_event( fd_quic_svc_timers_t * timers,
 ulong
 fd_quic_svc_cnt_events( fd_quic_svc_timers_t * timers ) {
   return fd_quic_svc_queue_prq_cnt( timers );
+}
+
+
+#include <dlfcn.h>
+#include <execinfo.h>
+#include <link.h>
+
+void
+fd_quic_svc_timers_dump_backtrace( void ) {
+  void * buffer[1024];
+  int bt_size = backtrace(buffer, 1024);
+
+  int i;
+  ulong offset;
+  Dl_info info;
+
+  for (i = 0; i < bt_size; i++) {
+    if (dladdr(buffer[i], &info) != 0) {
+      if (info.dli_sname == NULL)
+        info.dli_sname = "???";
+      if (info.dli_saddr == NULL)
+        info.dli_saddr = buffer[i];
+      offset = (ulong)buffer[i] - (ulong)info.dli_saddr;
+      FD_LOG_WARNING(( "%p <%s+%lu> at %s",
+        buffer[i], info.dli_sname, offset, info.dli_fname ));
+    } else {
+      FD_LOG_WARNING(( "%p", buffer[i] ));
+    }
+  }
 }

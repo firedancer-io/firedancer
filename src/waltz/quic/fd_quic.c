@@ -2271,7 +2271,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
-    fd_quic_svc_schedule( state->svc_timers, conn );
+    if( FD_LIKELY( conn ) ) {
+      fd_quic_svc_schedule( state->svc_timers, conn );
+    }
 
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
@@ -2869,7 +2871,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
   if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
     /* connection shouldn't have been scheduled,
        and is now removed, so just continue */
-    FD_LOG_ERR(( "Invalid conn in schedule %lu", conn->our_conn_id ));
+    FD_LOG_WARNING(( "Invalid conn in schedule %lu", conn->our_conn_id ));
     return 1;
   }
 
@@ -3992,12 +3994,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  /* no need to remove this connection from the events queue
-     free is called from two places:
-       fini    - service will never be called again. All events are destroyed
-       service - removes event before calling free. Event only allowed to be
-       enqueued once */
-
   /* remove all stream ids from map, and free stream */
 
   /* remove used streams */
@@ -4054,12 +4050,12 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
   conn->tls_hs = NULL;
 
+  /* remove from service queue */
   fd_quic_svc_cancel( state->svc_timers, conn );
 
   /* put connection back in free list */
   conn->free_conn_next  = state->free_conn_list;
   state->free_conn_list = conn->conn_idx;
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
 
   quic->metrics.conn_active_cnt--;
 
@@ -4085,7 +4081,6 @@ fd_quic_connect( fd_quic_t *  quic,
       return NULL;
     }
   }
-
 
   fd_rng_t * rng = state->_rng;
 

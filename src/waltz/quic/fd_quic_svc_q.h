@@ -96,4 +96,10 @@ fd_quic_svc_get_event( fd_quic_svc_timers_t * timers,
 ulong
 fd_quic_svc_cnt_events( fd_quic_svc_timers_t * timers );
 
+/* fd_quic_svc_timers_dump_backtrace dumps the backtrace of the current function
+   Primarily used for debugging. */
+void
+fd_quic_svc_timers_dump_backtrace( void );
+
+
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_svc_q_h */
