@@ -1,5 +1,8 @@
+#include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
-#include "../tiles.h" /* FD_TPU_PARSED_MTU */
+#include "../fd_txn_m_t.h"
+#include "../../waltz/grpc/fd_grpc_client_private.h"
+#include "../../waltz/h2/fd_h2_conn.h"
 
 FD_IMPORT_BINARY( test_bundle_response, "src/disco/bundle/test_bundle_response.binpb" );
 
@@ -61,7 +64,32 @@ test_bundle_env_create( test_bundle_env_t * env,
     .wmark  = fd_dcache_compact_wmark( dcache, dcache, FD_TPU_PARSED_MTU ),
     .idx    = 0UL,
   };
+
+  state->grpc_buf_max    = 4096UL;
+  state->grpc_client_mem = fd_wksp_alloc_laddr( wksp, fd_grpc_client_align(), fd_grpc_client_footprint( state->grpc_buf_max ), 1UL );
+  state->grpc_client     = fd_grpc_client_new( state->grpc_client_mem, &fd_bundle_client_grpc_callbacks, state->grpc_metrics, state, state->grpc_buf_max, 1UL );
+  fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
+  h2_conn->flags = 0;
+
+  state->ping_threshold_ticks = fd_ulong_pow2_up( (ulong)( (double)1e9 * fd_tempo_tick_per_ns( NULL ) ) );
+
   return env;
+}
+
+static void
+test_bundle_env_mock_conn( test_bundle_env_t * env ) {
+  fd_bundle_tile_t * ctx = env->state;
+  ctx->tcp_sock_connected       = 1;
+  ctx->grpc_client->h2_hs_done  = 1;
+  ctx->builder_info_avail       = 1;
+  ctx->bundle_subscription_live = 1;
+  ctx->packet_subscription_live = 1;
+  ctx->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  ctx->last_ping_rx_ts          = fd_tickcount();
+  FD_TEST( fd_bundle_client_status( ctx )==2 );
+  FD_TEST( fd_h2_rbuf_free_sz( ctx->grpc_client->frame_tx )>=2048UL );
+  FD_TEST( !fd_grpc_client_request_is_blocked( ctx->grpc_client ) );
+  FD_TEST( !fd_bundle_tile_should_stall( ctx, fd_tickcount() ) );
 }
 
 static void
@@ -149,6 +177,36 @@ test_missing_builder_fee_info( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
+/* Ensure that the client re-requests a stream if the server ends it */
+
+static void
+test_stream_ended( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+
+  fd_bundle_tile_t * state = env->state;
+  fd_h2_rbuf_t * rbuf_tx = fd_grpc_client_rbuf_tx( state->grpc_client );
+  FD_TEST( rbuf_tx->hi_off==0UL );
+  fd_grpc_resp_hdrs_t hdrs = {
+    .h2_status   = 200,
+    .grpc_status = FD_GRPC_STATUS_OK
+  };
+  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
+
+  /* Ensure that client doesn't immediately transmit */
+  long clock = fd_tickcount();
+  FD_TEST( fd_bundle_tile_should_stall( state, clock ) );
+  FD_TEST( !fd_bundle_tile_should_stall( state, state->backoff_until + 1L ) );
+
+  /* Client should send a SubscribeBundles request */
+  FD_TEST( fd_bundle_client_step_reconnect( state, clock )==1 );
+  FD_TEST( rbuf_tx->hi_off>=sizeof(fd_h2_frame_hdr_t) );
+  fd_h2_frame_hdr_t headers_hdr;
+  fd_h2_rbuf_pop_copy( rbuf_tx, &headers_hdr, sizeof(fd_h2_frame_hdr_t) );
+  FD_TEST( fd_h2_frame_type( headers_hdr.typlen )==FD_H2_FRAME_TYPE_HEADERS );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -158,14 +216,15 @@ main( int     argc,
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",     NULL, "normal"                     );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",    NULL, 96UL                         );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",    NULL, 256UL                        );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",    NULL, fd_shmem_numa_idx( cpu_idx ) );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 16UL );
   FD_TEST( wksp );
 
   test_data_path( wksp );
   test_missing_builder_fee_info( wksp );
+  test_stream_ended( wksp );
 
   fd_wksp_delete_anonymous( wksp );
 

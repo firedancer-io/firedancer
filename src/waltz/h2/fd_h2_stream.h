@@ -56,27 +56,22 @@ fd_h2_stream_open( fd_h2_stream_t *     stream,
 }
 
 static inline void
-fd_h2_stream_error1( fd_h2_rbuf_t * rbuf_tx,
-                     uint           stream_id,
-                     uint           h2_err ) {
-  fd_h2_rst_stream_t rst_stream = {
-    .hdr = {
-      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
-      .flags       = 0U,
-      .r_stream_id = fd_uint_bswap( stream_id )
-    },
-    .error_code = fd_uint_bswap( h2_err )
-  };
-  fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
-}
-
-static inline void
 fd_h2_stream_error( fd_h2_stream_t * stream,
                     fd_h2_rbuf_t *   rbuf_tx,
                     uint             h2_err ) {
-  fd_h2_stream_error1( rbuf_tx, stream->stream_id, h2_err );
+  fd_h2_tx_rst_stream( rbuf_tx, stream->stream_id, h2_err );
   stream->state = FD_H2_STREAM_STATE_CLOSED;
 }
+
+/* fd_h2_rst_stream generates a RST_STREAM frame on the given stream.
+   On return, the stream is in CLOSED state, and the underlying stream
+   object and map entry can be discarded.  conn->active_stream_cnt is
+   decremented accordingly. */
+
+void
+fd_h2_rst_stream( fd_h2_conn_t *   conn,
+                  fd_h2_rbuf_t *   rbuf_tx,
+                  fd_h2_stream_t * stream );
 
 static inline void
 fd_h2_stream_private_deactivate( fd_h2_stream_t * stream,

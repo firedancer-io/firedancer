@@ -1,7 +1,6 @@
 #include "fd_grpc_codec.h"
 #include "../h2/fd_h2_rbuf.h"
 #include "../h2/fd_hpack.h"
-#include "../../util/fd_util.h"
 
 static void
 test_h2_gen_request_hdr( void ) {
@@ -80,9 +79,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-
   test_h2_gen_request_hdr();
-
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

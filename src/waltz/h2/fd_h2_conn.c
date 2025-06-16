@@ -99,7 +99,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   if( FD_UNLIKELY( !stream ||
                    ( stream->state!=FD_H2_STREAM_STATE_OPEN        &&
                      stream->state!=FD_H2_STREAM_STATE_CLOSING_TX ) ) ) {
-    fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
     goto skip_frame;
   }
 
@@ -110,7 +110,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   conn->rx_wnd -= chunk_sz;
 
   if( FD_UNLIKELY( chunk_sz > stream->rx_wnd ) ) {
-    fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_FLOW_CONTROL );
+    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_FLOW_CONTROL );
     goto skip_frame;
   }
   stream->rx_wnd -= chunk_sz;
@@ -169,12 +169,12 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
       return 0;
     }
     if( FD_UNLIKELY( conn->stream_active_cnt[0] >= conn->self_settings.max_concurrent_streams ) ) {
-      fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
+      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
       return 1;
     }
     stream = cb->stream_create( conn, stream_id );
     if( FD_UNLIKELY( !stream ) ) {
-      fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
+      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
       return 1;
     }
     fd_h2_stream_open( stream, conn, stream_id );
@@ -246,7 +246,7 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
 
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
   if( FD_UNLIKELY( !stream ) ) {
-    fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_INTERNAL );
+    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_INTERNAL );
     return 1;
   }
 
@@ -528,13 +528,13 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
     }
 
     if( FD_UNLIKELY( !increment ) ) {
-      fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_PROTOCOL );
+      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_PROTOCOL );
       return 1;
     }
 
     fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
     if( FD_UNLIKELY( !stream ) ) {
-      fd_h2_stream_error1( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
       return 1;
     }
 

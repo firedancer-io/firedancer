@@ -13,11 +13,19 @@
 struct fd_grpc_client_private;
 typedef struct fd_grpc_client_private fd_grpc_client_t;
 
+struct fd_grpc_h2_stream;
+typedef struct fd_grpc_h2_stream fd_grpc_h2_stream_t;
+
 /* FD_GRPC_CLIENT_MAX_STREAMS specifies the max number of inflight
    unary and server-streaming requests.  Note that grpc_client does
    not scale well to large numbers due to O(n) algorithms. */
 
 #define FD_GRPC_CLIENT_MAX_STREAMS 8
+
+/* FD_GRPC_DEADLINE_* identify different types of request deadlines. */
+
+#define FD_GRPC_DEADLINE_HEADER 1 /* deadline by which Response-Headers are recevied */
+#define FD_GRPC_DEADLINE_RX_END 2 /* deadline by which 'end of stream' must have been reached */
 
 /* fd_grpc_client_metrics_t hold counters that are incremented by a
    grpc_client. */
@@ -90,8 +98,8 @@ struct fd_grpc_client_callbacks {
   void
   (* conn_established)( void * app_ctx );
 
-  /* conn_dead is called when the HTTP/2 connection ends.  This state is
-     not recoverable and the grpc_client should be recreated. */
+  /* conn_dead is called when the HTTP/2 connection ends.  To recover
+     from this condition, call fd_grpc_client_reset(). */
 
   void
   (* conn_dead)( void * app_ctx,
@@ -129,6 +137,14 @@ struct fd_grpc_client_callbacks {
               ulong                 request_ctx,
               fd_grpc_resp_hdrs_t * resp );
 
+  /* rx_timeout indicates that a request deadline was exceeded.
+     deadline_kind indicates which timer fired. */
+
+  void
+  (* rx_timeout)( void * app_ctx,
+                  ulong  request_ctx,
+                  int    deadline_kind );
+
   /* ping_ack delivers an acknowledgement of a PING that was previously
      sent by fd_h2_tx_ping. */
 
@@ -160,6 +176,13 @@ fd_grpc_client_new( void *                             mem,
 void *
 fd_grpc_client_delete( fd_grpc_client_t * client );
 
+/* fd_grpc_client_reset cancels all inflight requests and abandons the
+   HTTP/2 client connection.  Config params are kept intact (e.g. host,
+   port, version). */
+
+void
+fd_grpc_client_reset( fd_grpc_client_t * client );
+
 /* fd_grpc_client_set_version sets the gRPC client's version string
    (relayed via user-agent header).  No reference to the provided string
    is kept (the content is copied out to the client object).  version
@@ -173,6 +196,16 @@ void
 fd_grpc_client_set_version( fd_grpc_client_t * client,
                             char const *       version,
                             ulong              version_len );
+
+/* fd_grpc_client_set_authority sets the authority header to the
+   specified hostname and port number.  host_len should be <= 255,
+   otherwise host is truncated. */
+
+void
+fd_grpc_client_set_authority( fd_grpc_client_t * client,
+                              char const *       host,
+                              ulong              host_len,
+                              ushort             port );
 
 #if FD_HAS_OPENSSL
 
@@ -228,12 +261,9 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
      FD_GRPC_CLIENT_REQUEST_SZ_MAX.
    - rbuf_tx is empty.  (HTTP/2 frames all flushed out to sockets) */
 
-int
+fd_grpc_h2_stream_t *
 fd_grpc_client_request_start(
     fd_grpc_client_t *   client,
-    char const *         host, /* FIXME consider moving host:port to new() */
-    ulong                host_len,
-    ushort               port,
     char const *         path,
     ulong                path_len, /* in [0,128) */
     ulong                request_ctx,
@@ -242,6 +272,32 @@ fd_grpc_client_request_start(
     char const *         auth_token,
     ulong                auth_token_sz
 );
+
+/* fd_grpc_client_deadline_set sets a request deadline (used to
+   configure timeouts).  deadline_kind is FD_GRPC_DEADLINE_*.  Logs
+   error and aborts app if deadline_kind is unsupported.
+
+   Behavior for different deadline kinds:
+   - HEADER: Deadline by which gRPC Response-Headers must have been
+             received
+   - RX_END: Deadline by which the response stream must have been ended.
+             For unary responses, this is the point at which the message
+             has been fully received.  For server-streaming responses,
+             it is the point at which the last message has been
+             received, and there are no more messages remaining.  (Under
+             the hood, this is indicated by the HTTP/2 END_STREAM flag.) */
+
+void
+fd_grpc_client_deadline_set( fd_grpc_h2_stream_t * stream,
+                             int                   deadline_kind,
+                             long                  ts_nanos );
+
+/* fd_grpc_client_is_connected returns 1 if HTTP/2 SETTINGS were
+   exchanged, the TLS handshake is complete (if applicable), and the
+   conn hasn't died.  Otherwise, returns 0. */
+
+int
+fd_grpc_client_is_connected( fd_grpc_client_t * client );
 
 /* fd_grpc_client_request_is_blocked returns 1 if a call to
    fd_grpc_client_request_start would certainly fail.  Reasons include

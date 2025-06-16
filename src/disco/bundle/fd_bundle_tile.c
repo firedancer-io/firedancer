@@ -16,6 +16,9 @@
 
 #include "generated/fd_bundle_tile_seccomp.h"
 
+/* Provided by fdctl/firedancer version.c */
+extern char const fdctl_version_string[];
+
 FD_FN_CONST static ulong
 scratch_align( void ) {
   return alignof(fd_bundle_tile_t);
@@ -490,6 +493,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
+
+  ctx->grpc_client = fd_grpc_client_new( ctx->grpc_client_mem, &fd_bundle_client_grpc_callbacks, ctx->grpc_metrics, ctx, ctx->grpc_buf_max, ctx->map_seed );
+  if( FD_UNLIKELY( !ctx->grpc_client ) ) {
+    FD_LOG_CRIT(( "fd_grpc_client_new failed" )); /* unreachable */
+  }
+  fd_grpc_client_set_version( ctx->grpc_client, fdctl_version_string, strlen( fdctl_version_string ) );
+  fd_grpc_client_set_authority( ctx->grpc_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
 }
 
 static ulong
