@@ -104,7 +104,7 @@ typedef struct fd_forest_ele fd_forest_ele_t;
 
 struct __attribute__((aligned(128UL))) fd_forest {
   ulong root;           /* pool idx of the root */
-  ulong iter;           /* pool idx of the iterator */
+  ulong iter;           /* pool idx of the current iterator element */
   ulong wksp_gaddr;     /* wksp gaddr of fd_forest in the backing wksp, non-zero gaddr */
   ulong ver_gaddr;      /* wksp gaddr of version fseq, incremented on write ops */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
@@ -348,6 +348,9 @@ fd_forest_iter_init( fd_forest_t * forest );
 
 fd_forest_iter_t
 fd_forest_iter_next( fd_forest_iter_t iter, fd_forest_t const * forest );
+
+/* No more elements in the forest frontier, or the iterator got
+   invalidated, so we can start from top again. */
 
 int
 fd_forest_iter_done( fd_forest_iter_t iter, fd_forest_t const * forest );
