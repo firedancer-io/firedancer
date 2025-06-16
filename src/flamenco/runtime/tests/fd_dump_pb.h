@@ -78,7 +78,7 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
    will create an initial BlockContext type that saves some fields from the slot and epoch context, as well as any current
    builtins and sysvar accounts.
 
-   `fd_dump_block_to_protobuf_tx_only` takes an existing block context message and a runtime block and and dumps
+   `fd_dump_block_to_protobuf_tx_only` takes an existing block context message and a runtime block and dumps
    the transactions within the block to be replayed.
 
    CAVEATS: Currently, due to how spad frames are handled in the runtime, there is an edge case where block dumping will

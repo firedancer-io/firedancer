@@ -1193,7 +1193,7 @@ SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
      where thresh is an empirical minimum amount of sorting work to
      justify starting / stopping a thread.  (As written below, the gamma
      term is more like gamma T^2, which makes the other limit more like
-     the cube root of N ln N but doesn't change the the overall
+     the cube root of N ln N but doesn't change the overall
      conclusion.) */
 
   ulong thresh = (4096UL + sizeof(SORT_KEY_T)-1UL) / sizeof(SORT_KEY_T);

@@ -53,7 +53,7 @@
    allocation.)
    
    block_footprints are directly computed from these superblock
-   footprints and and the block counts are recomputed to squeeze some
+   footprints and the block counts are recomputed to squeeze some
    extra blocks into the superblocks that various integer roundings
    might have exposed.  We discard any sizeclasses that are redundant
    and any sizeclasses that are too small to be useful (blocks need to
