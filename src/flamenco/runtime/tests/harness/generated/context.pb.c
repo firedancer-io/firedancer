@@ -18,9 +18,6 @@ PB_BIND(FD_EXEC_TEST_ACCT_STATE, fd_exec_test_acct_state_t, AUTO)
 PB_BIND(FD_EXEC_TEST_VOTE_ACCOUNT, fd_exec_test_vote_account_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_STAKE_ACCOUNT, fd_exec_test_stake_account_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_INFLATION, fd_exec_test_inflation_t, AUTO)
 
 
