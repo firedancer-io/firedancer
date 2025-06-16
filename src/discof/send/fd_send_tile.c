@@ -16,7 +16,6 @@
 #include "../../disco/shred/fd_stake_ci.h"
 
 #include "../../flamenco/fd_flamenco.h"
-#include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/leaders/fd_leaders.h"
