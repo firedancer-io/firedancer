@@ -59,18 +59,6 @@ typedef struct fd_exec_test_vote_account {
     uint64_t stake;
 } fd_exec_test_vote_account_t;
 
-typedef struct fd_exec_test_stake_account {
-    /* Pubkey of the stake account */
-    pb_byte_t stake_account_pubkey[32];
-    /* The voter pubkey whom this stake account delegated to */
-    pb_byte_t voter_pubkey[32];
-    /* Other fields */
-    uint64_t stake;
-    uint64_t activation_epoch;
-    uint64_t deactivation_epoch;
-    double warmup_cooldown_rate;
-} fd_exec_test_stake_account_t;
-
 /* Epoch bank inflation parameters */
 typedef struct fd_exec_test_inflation {
     double initial;
@@ -118,7 +106,8 @@ typedef struct fd_exec_test_slot_context {
     uint64_t prev_slot;
     /* Last slot lamports per signature */
     uint64_t prev_lps;
-    /* Previous epoch's capitalization */
+    /* Previous slot's capitalization.
+ TODO: I was very smart and named this incorrectly. This should be fixed in the future. */
     uint64_t prev_epoch_capitalization;
 } fd_exec_test_slot_context_t;
 
@@ -132,7 +121,6 @@ extern "C" {
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT   {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
-#define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_DEFAULT  {{0}, {0}, 0, 0, 0, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, 0, 0, 0}
@@ -140,7 +128,6 @@ extern "C" {
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
-#define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_ZERO     {{0}, {0}, 0, 0, 0, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, 0, 0, 0}
@@ -159,12 +146,6 @@ extern "C" {
 #define FD_EXEC_TEST_ACCT_STATE_SEED_ADDR_TAG    7
 #define FD_EXEC_TEST_VOTE_ACCOUNT_VOTE_ACCOUNT_TAG 1
 #define FD_EXEC_TEST_VOTE_ACCOUNT_STAKE_TAG      2
-#define FD_EXEC_TEST_STAKE_ACCOUNT_STAKE_ACCOUNT_PUBKEY_TAG 1
-#define FD_EXEC_TEST_STAKE_ACCOUNT_VOTER_PUBKEY_TAG 2
-#define FD_EXEC_TEST_STAKE_ACCOUNT_STAKE_TAG     3
-#define FD_EXEC_TEST_STAKE_ACCOUNT_ACTIVATION_EPOCH_TAG 4
-#define FD_EXEC_TEST_STAKE_ACCOUNT_DEACTIVATION_EPOCH_TAG 5
-#define FD_EXEC_TEST_STAKE_ACCOUNT_WARMUP_COOLDOWN_RATE_TAG 6
 #define FD_EXEC_TEST_INFLATION_INITIAL_TAG       1
 #define FD_EXEC_TEST_INFLATION_TERMINAL_TAG      2
 #define FD_EXEC_TEST_INFLATION_TAPER_TAG         3
@@ -218,16 +199,6 @@ X(a, STATIC,   SINGULAR, UINT64,   stake,             2)
 #define FD_EXEC_TEST_VOTE_ACCOUNT_DEFAULT NULL
 #define fd_exec_test_vote_account_t_vote_account_MSGTYPE fd_exec_test_acct_state_t
 
-#define FD_EXEC_TEST_STAKE_ACCOUNT_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, stake_account_pubkey,   1) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, voter_pubkey,      2) \
-X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
-X(a, STATIC,   SINGULAR, UINT64,   activation_epoch,   4) \
-X(a, STATIC,   SINGULAR, UINT64,   deactivation_epoch,   5) \
-X(a, STATIC,   SINGULAR, DOUBLE,   warmup_cooldown_rate,   6)
-#define FD_EXEC_TEST_STAKE_ACCOUNT_CALLBACK NULL
-#define FD_EXEC_TEST_STAKE_ACCOUNT_DEFAULT NULL
-
 #define FD_EXEC_TEST_INFLATION_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, DOUBLE,   initial,           1) \
 X(a, STATIC,   SINGULAR, DOUBLE,   terminal,          2) \
@@ -268,7 +239,6 @@ extern const pb_msgdesc_t fd_exec_test_feature_set_t_msg;
 extern const pb_msgdesc_t fd_exec_test_seed_address_t_msg;
 extern const pb_msgdesc_t fd_exec_test_acct_state_t_msg;
 extern const pb_msgdesc_t fd_exec_test_vote_account_t_msg;
-extern const pb_msgdesc_t fd_exec_test_stake_account_t_msg;
 extern const pb_msgdesc_t fd_exec_test_inflation_t_msg;
 extern const pb_msgdesc_t fd_exec_test_epoch_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
@@ -278,7 +248,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 #define FD_EXEC_TEST_SEED_ADDRESS_FIELDS &fd_exec_test_seed_address_t_msg
 #define FD_EXEC_TEST_ACCT_STATE_FIELDS &fd_exec_test_acct_state_t_msg
 #define FD_EXEC_TEST_VOTE_ACCOUNT_FIELDS &fd_exec_test_vote_account_t_msg
-#define FD_EXEC_TEST_STAKE_ACCOUNT_FIELDS &fd_exec_test_stake_account_t_msg
 #define FD_EXEC_TEST_INFLATION_FIELDS &fd_exec_test_inflation_t_msg
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FIELDS &fd_exec_test_epoch_context_t_msg
 #define FD_EXEC_TEST_SLOT_CONTEXT_FIELDS &fd_exec_test_slot_context_t_msg
@@ -291,7 +260,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 /* fd_exec_test_EpochContext_size depends on runtime parameters */
 #define FD_EXEC_TEST_INFLATION_SIZE              45
 #define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           117
-#define FD_EXEC_TEST_STAKE_ACCOUNT_SIZE          110
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
@@ -299,7 +267,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 #define org_solana_sealevel_v1_SeedAddress fd_exec_test_SeedAddress
 #define org_solana_sealevel_v1_AcctState fd_exec_test_AcctState
 #define org_solana_sealevel_v1_VoteAccount fd_exec_test_VoteAccount
-#define org_solana_sealevel_v1_StakeAccount fd_exec_test_StakeAccount
 #define org_solana_sealevel_v1_Inflation fd_exec_test_Inflation
 #define org_solana_sealevel_v1_EpochContext fd_exec_test_EpochContext
 #define org_solana_sealevel_v1_SlotContext fd_exec_test_SlotContext
@@ -307,7 +274,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_SEED_ADDRESS_INIT_DEFAULT FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_DEFAULT FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_DEFAULT FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_STAKE_ACCOUNT_INIT_DEFAULT FD_EXEC_TEST_STAKE_ACCOUNT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_DEFAULT FD_EXEC_TEST_INFLATION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SLOT_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT
@@ -315,7 +281,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_SEED_ADDRESS_INIT_ZERO FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_ZERO FD_EXEC_TEST_ACCT_STATE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_ZERO FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_STAKE_ACCOUNT_INIT_ZERO FD_EXEC_TEST_STAKE_ACCOUNT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_ZERO FD_EXEC_TEST_INFLATION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_ZERO FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SLOT_CONTEXT_INIT_ZERO FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO
