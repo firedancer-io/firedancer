@@ -208,27 +208,32 @@ fd_keyguard_payload_matches_gossip( uchar const * data,
   return 0;
 }
 
+  /* fd_keyguard_payload_matches_repair checks if data is a feasible
+     Repair payload.  There are currently only four possible payloads to
+     sign.
+
+     A 32-byte hash for Pong responses.
+
+     A 96-byte payload for Shred, HighestShred requests.
+
+     A 88-byte payload for Orphan requests.
+
+     Every Repair message is prefixed with a 4-byte kind to indicate its
+     variant. */
+
 FD_FN_PURE static int
 fd_keyguard_payload_matches_repair( uchar const * data,
                                     ulong         sz,
                                     int           sign_type ) {
+  if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0; /* all repair messages use ED25519 signing */
+  if( FD_UNLIKELY( sz < sizeof(uint) ) )                          return 0; /* invalid kind */
 
-  /* All repair messages except pings use raw signing */
-  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-
-  /* Every repair message contains a 4 byte enum variant tag (at the
-     beginning of the message) and a 32 byte public key (at an arbitrary
-     location). */
-  if( sz<36UL ) return 0;
-
-  /* There probably won't ever be more than 32 different repair message
-     types. */
-  if( (data[0] <0x20)
-    & (data[1]==0x00)
-    & (data[2]==0x00)
-    & (data[3]==0x00) )
-    return 1;
-
+  switch( fd_uint_load_1_fast( data ) ) {
+  case  8U: return sz == 96UL; /* FD_REPAIR_KIND_SHRED_REQ */
+  case  9U: return sz == 96UL; /* FD_REPAIR_KIND_HIGHEST_SHRED_REQ */
+  case 10U: return sz == 88UL; /* FD_REPAIR_KIND_ORPHAN_REQ */
+  default: break;
+  }
   return 0;
 }
 

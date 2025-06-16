@@ -163,10 +163,10 @@ backtest_topo( config_t * config ) {
      This allows the replay tile to advance its watermark, and publish
      various data structures.  This is an oversimplified barebones mock
      of the tower tile. */
-  fd_topob_wksp( topo, "tower_replay" );
-  fd_topob_link( topo, "tower_replay", "tower_replay", 128UL, 0UL, 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "back", 0UL, "tower_replay", 0UL );
+  fd_topob_wksp( topo, "root_out" );
+  fd_topob_link( topo, "root_out", "root_out", 128UL, 0UL, 1UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "root_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "back", 0UL, "root_out", 0UL );
 
   /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */

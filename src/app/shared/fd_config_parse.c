@@ -226,9 +226,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.gui.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.gui.send_buffer_size_mb                    );
 
-  CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
-  CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
-  CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
+  CFG_POP      ( ushort, tiles.repair.client_port                         );
+  CFG_POP      ( ushort, tiles.repair.server_port                         );
   CFG_POP      ( ulong,  tiles.repair.slot_max                           );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );

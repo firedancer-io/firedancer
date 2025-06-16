@@ -2251,7 +2251,32 @@
       "comment": "https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13"
     },
     {
+      "name": "pingpong_ping",
+      "packed": true,
+      "type": "struct",
+      "fields": [
+        { "name": "from",      "type": "pubkey"                       },
+        { "name": "token",     "type": "hash"                         },
+        { "name": "signature", "type": "signature"                    }
+      ],
+      "alignof": true,
+      "comment": "technically |token| >= 8, but set to 32 bytes. https://github.com/anza-xyz/agave/blob/v2.3.0/gossip/src/ping_pong.rs#L30"
+    },
+    {
+      "name": "pingpong_pong",
+      "packed": true,
+      "type": "struct",
+      "fields": [
+        { "name": "from",      "type": "pubkey"    },
+        { "name": "hash",      "type": "hash"      },
+        { "name": "signature", "type": "signature" }
+      ],
+      "alignof": true,
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.3.0/gossip/src/ping_pong.rs#L39"
+    },
+    {
       "name": "repair_request_header",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "signature", "type": "signature" },
@@ -2260,65 +2285,70 @@
         { "name": "timestamp", "type": "ulong" },
         { "name": "nonce", "type": "uint" }
       ],
+      "alignof": true,
       "comment": "https://github.com/anza-xyz/agave/blob/v2.2.7/core/src/repair/serve_repair.rs#L204-L210"
     },
     {
       "name": "repair_window_index",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "header", "type": "repair_request_header" },
         { "name": "slot", "type": "ulong" },
         { "name": "shred_index", "type": "ulong" }
-      ]
+      ],
+      "alignof": true,
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L242"
     },
     {
       "name": "repair_highest_window_index",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "header", "type": "repair_request_header" },
         { "name": "slot", "type": "ulong" },
         { "name": "shred_index", "type": "ulong" }
-      ]
+      ],
+      "alignof": true,
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L247"
     },
     {
       "name": "repair_orphan",
+      "packed": true,
       "type": "struct",
       "fields": [
         { "name": "header", "type": "repair_request_header" },
         { "name": "slot", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "repair_ancestor_hashes",
-      "type": "struct",
-      "fields": [
-        { "name": "header", "type": "repair_request_header" },
-        { "name": "slot", "type": "ulong" }
-      ]
+      ],
+      "alignof": true,
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L252"
     },
     {
       "name": "repair_protocol",
+      "packed": true,
       "type": "enum",
       "variants": [
-        { "name": "LegacyWindowIndex" },
-        { "name": "LegacyHighestWindowIndex" },
-        { "name": "LegacyOrphan" },
-        { "name": "LegacyWindowIndexWithNonce" },
-        { "name": "LegacyHighestWindowIndexWithNonce" },
-        { "name": "LegacyOrphanWithNonce" },
-        { "name": "LegacyAncestorHashes" },
-        { "name": "pong", "type": "gossip_ping" },
+        { "name": "legacy_window_index", "comment": "deprecated" },
+        { "name": "legacy_highest_window_index", "comment": "deprecated" },
+        { "name": "legacy_orphan", "comment": "deprecated" },
+        { "name": "legacy_window_index_with_nonce", "comment": "deprecated" },
+        { "name": "legacy_highest_window_index_with_nonce", "comment": "deprecated" },
+        { "name": "legacy_orphan_with_nonce", "comment": "deprecated" },
+        { "name": "legacy_ancestor_hashes", "comment": "deprecated" },
+        { "name": "pong", "type": "pingpong_pong" },
         { "name": "window_index", "type": "repair_window_index" },
         { "name": "highest_window_index", "type": "repair_highest_window_index" },
         { "name": "orphan", "type": "repair_orphan" },
-        { "name": "ancestor_hashes", "type": "repair_ancestor_hashes" }
-      ]
+        { "name": "ancestor_hashes", "comment": "deprecated" }
+      ],
+      "alignof": true,
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.3.0/core/src/repair/serve_repair.rs#L233"
     },
     {
       "name": "repair_response",
       "type": "enum",
       "variants": [
-        { "name": "ping", "type": "gossip_ping" }
+        { "name": "ping", "type": "pingpong_ping" }
       ]
     },
     {
