@@ -305,16 +305,16 @@ The phases are,
 **`StartupProgress`**
 | Field                                           | Type           | Description |
 |-------------------------------------------------|----------------|-------------|
-| phase                                           | `string`       | One of `initializing`, `searching_for_full_snapshot`, `downloading_full_snapshot`, `searching_for_incremental_snapshot`, `downldownloading_incremental_snapshot`, `cleaning_blockstore`, `cleaning_accounts`, `loading_ledger`, `processing_ledger`, `starting_services`, `halted`, `waiting_for_supermajority`, or `running` |
+| phase                                           | `string`       | One of `initializing`, `searching_for_full_snapshot`, `downloading_full_snapshot`, `searching_for_incremental_snapshot`, `downloading_incremental_snapshot`, `cleaning_blockstore`, `cleaning_accounts`, `loading_ledger`, `processing_ledger`, `starting_services`, `halted`, `waiting_for_supermajority`, or `running` |
 | downloading_full_snapshot_slot                  | `number\|null` | If the phase is at least `downloading_full_snapshot` or later, this is the slot that is being (or was) downloaded from the snapshot provider. Otherwise it is `null` |
-| downloading_full_snapshot_peer                  | `string\|null` | If the phase is at least `downloading_full_snapshot` or later, this is the peer RPC address that the snapshot is being downlaoded from. Otherwise it is `null` |
+| downloading_full_snapshot_peer                  | `string\|null` | If the phase is at least `downloading_full_snapshot` or later, this is the peer RPC address that the snapshot is being downloaded from. Otherwise it is `null` |
 | downloading_full_snapshot_elapsed_secs          | `number\|null` | If the phase is at least `downloading_full_snapshot` or later, this is the duration, in seconds that the validator has been downloading the snapshot for. Otherwise it is `null` |
 | downloading_full_snapshot_remaining_secs        | `number\|null` | If the phase is at least `downloading_full_snapshot` or later, this is the estimated duration, in seconds that the validator has left to download the snapshot. Otherwise it is `null` |
 | downloading_full_snapshot_throughput            | `number\|null` | If the phase is currently `downloading_full_snapshot`, this is the current download throughput in bytes per second. Otherwise it is `null` |
 | downloading_full_snapshot_total_bytes           | `number\|null` | If the phase is at least `downloading_full_snapshot` or later, this is the total size of the snapshot being downloaded in bytes. Otherwise it is `null` |
 | downloading_full_snapshot_current_bytes         | `number\|null` | If the phase is at least `downloading_full_snapshot` or later, this is the current size of the snapshot that has been downloaded in bytes. Otherwise it is `null` |
 | downloading_incremental_snapshot_slot           | `number\|null` | If the phase is at least `downloading_incremental_snapshot` or later, this is the slot that is being (or was) downloaded from the snapshot provider. Otherwise it is `null` |
-| downloading_incremental_snapshot_peer           | `string\|null` | If the phase is at least `downloading_incremental_snapshot` or later, this is the peer RPC address that the snapshot is being downlaoded from. Otherwise it is `null` |
+| downloading_incremental_snapshot_peer           | `string\|null` | If the phase is at least `downloading_incremental_snapshot` or later, this is the peer RPC address that the snapshot is being downloaded from. Otherwise it is `null` |
 | downloading_incremental_snapshot_elapsed_secs   | `number\|null` | If the phase is at least `downloading_incremental_snapshot` or later, this is the duration, in seconds that the validator has been downloading the snapshot for. Otherwise it is `null` |
 | downloading_incremental_snapshot_remaining_secs | `number\|null` | If the phase is at least `downloading_incremental_snapshot` or later, this is the estimated duration, in seconds that the validator has left to download the snapshot. Otherwise it is `null` |
 | downloading_incremental_snapshot_throughput     | `number\|null` | If the phase is currently `downloading_incremental_snapshot`, this is the current download throughput in bytes per second. Otherwise it is `null` |
@@ -324,6 +324,27 @@ The phases are,
 | ledger_max_slot                                 | `number\|null` | If the phase is at least `processing_ledger` or later, this is the maximum slot we need to replay up to in the ledger. Otherwise it is `null` |
 | waiting_for_supermajority_slot                  | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the slot that we are stopped at. Otherwise it is `null` |
 | waiting_for_supermajority_stake_percent         | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the percentage of stake that is currently online and gossiping to our node. Otherwise it is `null`. The validator will proceed with starting up once the stake percent reaches 80 |
+
+#### `summary.full_snapshot_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `347413100` |
+
+The final slot contained in the full snapshot used during the
+validator's boot sequence.  A full snapshot contains all of the on-chain
+account state that has accumulated since genesis.
+
+#### `summary.incremental_snapshot_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `347413197` |
+
+The final slot contained in the incremental snapshot used during the
+validator's boot sequence.  The incremental snapshot contains changes
+in account state accumulated since the last slot in the full snapshot.
+Since the full snapshot get generated more infrequently, the incremental
+snapshot saves the validator resources it would otherwise need to use to
+repair and replay all the slots since the full snapshot slot.
 
 #### `summary.schedule_strategy`
 | frequency  | type     | example |

@@ -394,6 +394,20 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_incremental_snapshot_slot( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "incremental_snapshot_slot" );
+    jsonp_ulong( gui, "value", gui->summary.startup_incremental_snapshot_slot );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_full_snapshot_slot( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "full_snapshot_slot" );
+    jsonp_ulong( gui, "value", gui->summary.startup_full_snapshot_slot );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_block_engine( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "block_engine", "update" );
     jsonp_open_object( gui, "value" );

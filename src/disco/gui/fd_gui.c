@@ -162,6 +162,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_completed_slot,
     fd_gui_printf_estimated_slot,
     fd_gui_printf_live_tile_timers,
+    fd_gui_printf_incremental_snapshot_slot,
+    fd_gui_printf_full_snapshot_slot,
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);

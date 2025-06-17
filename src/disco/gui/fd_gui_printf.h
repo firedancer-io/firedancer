@@ -17,6 +17,8 @@ void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_skipped_history( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
+void fd_gui_printf_incremental_snapshot_slot( fd_gui_t * gui );
+void fd_gui_printf_full_snapshot_slot( fd_gui_t * gui );
 void fd_gui_printf_block_engine( fd_gui_t * gui );
 void fd_gui_printf_tiles( fd_gui_t * gui );
 void fd_gui_printf_schedule_strategy( fd_gui_t * gui );
