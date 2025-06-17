@@ -428,7 +428,8 @@ fd_bundle_tile_publish_bundle_txn(
     fd_bundle_tile_t * ctx,
     void const *       txn,
     ulong              txn_sz,  /* <=FD_TXN_MTU */
-    ulong              bundle_txn_cnt
+    ulong              bundle_txn_cnt,
+    uint               source_ipv4
 ) {
   if( FD_UNLIKELY( !ctx->builder_info_avail ) ) {
     ctx->metrics.missing_builder_info_fail_cnt++; /* unreachable */
@@ -439,12 +440,14 @@ fd_bundle_tile_publish_bundle_txn(
   *txnm = (fd_txn_m_t) {
     .reference_slot = 0UL,
     .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0,
+    .txn_t_sz       = 0U,
     .block_engine   = {
       .bundle_id      = ctx->bundle_seq,
       .bundle_txn_cnt = bundle_txn_cnt,
       .commission     = (uchar)ctx->builder_commission
     },
+    .source_ipv4      = source_ipv4,
+    .source_tpu       = FD_TXN_M_TPU_SOURCE_BUNDLE,
   };
   memcpy( txnm->block_engine.commission_pubkey, ctx->builder_pubkey, 32UL );
   fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
@@ -468,20 +471,14 @@ static void
 fd_bundle_tile_publish_txn(
     fd_bundle_tile_t * ctx,
     void const *       txn,
-    ulong              txn_sz  /* <=FD_TXN_MTU */
+    ulong              txn_sz,  /* <=FD_TXN_MTU */
+    uint               source_ipv4
 ) {
   fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
-  *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0,
-    .block_engine   = {
-      .bundle_id         = 0UL,
-      .bundle_txn_cnt    = 1UL,
-      .commission        = 0,
-      .commission_pubkey = {0}
-    },
-  };
+  *txnm = (fd_txn_m_t) { 0UL };
+  txnm->payload_sz  = (ushort)txn_sz;
+  txnm->source_ipv4 = source_ipv4;
+  txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_BUNDLE;
   fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
 
   ulong sz  = fd_txn_m_realized_footprint( txnm, 0, 0 );
@@ -536,10 +533,14 @@ fd_bundle_client_visit_pb_bundle_txn(
     return true;
   }
 
+  uint _ip4;
+  uint ip4 = fd_uint_if( packet.has_meta, fd_cstr_to_ip4_addr( packet.meta.addr, &_ip4 ) ? _ip4 : 0U, 0U );
+
   fd_bundle_tile_publish_bundle_txn(
       ctx,
       packet.data.bytes, packet.data.size,
-      ctx->bundle_txn_cnt
+      ctx->bundle_txn_cnt,
+      ip4
   );
 
   return true;
@@ -648,7 +649,10 @@ fd_bundle_client_visit_pb_packet(
     return true;
   }
 
-  fd_bundle_tile_publish_txn( ctx, packet.data.bytes, packet.data.size );
+
+  uint _ip4;
+  uint ip4 = fd_uint_if( packet.has_meta, fd_cstr_to_ip4_addr( packet.meta.addr, &_ip4 ) ? _ip4 : 0U, 0U );
+  fd_bundle_tile_publish_txn( ctx, packet.data.bytes, packet.data.size, ip4 );
   ctx->metrics.packet_received_cnt++;
 
   return true;

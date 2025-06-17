@@ -64,7 +64,7 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
      packet is not an Internet packet, so it will not reach that
      destination.  The net tile, however, needs a valid dst IP to select
      the dst MAC address. */
-  ulong sig = fd_disco_netmux_sig( 0U, 0U, ctx->fake_dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong sig = fd_disco_netmux_sig( ctx->fake_dst_ip, 0U, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
   /* Send an Ethernet frame */
   ulong   chunk = ctx->chunk;

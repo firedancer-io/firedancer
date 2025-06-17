@@ -148,9 +148,12 @@ main( int     argc,
     ulong  wmark  = fd_dcache_compact_wmark ( base, dcache, FD_TPU_REASM_MTU );
     FD_TEST( chunk0<wmark );
 
-    FD_TEST( wmark-chunk0 == (slot_cnt-1UL)*FD_TPU_REASM_CHUNK_MTU );
+    /* wmark is aligned to the nearest even chunk (i.e. the nearest
+       chunk pair boundary), which is why we round down to the nearest
+       even here */
+    FD_TEST( wmark-chunk0 == ((slot_cnt-1UL)*FD_TPU_REASM_CHUNK_MTU & ~1UL) );
     FD_TEST( fd_chunk_to_laddr( base, chunk0 ) == ((uchar *)dcache) );
-    FD_TEST( fd_chunk_to_laddr( base, wmark  ) == ((uchar *)dcache)+((slot_cnt-1UL)*FD_TPU_REASM_MTU) );
+    FD_TEST( (ulong)fd_chunk_to_laddr( base, wmark  ) == (ulong)((uchar *)dcache)+(((slot_cnt-1UL)*FD_TPU_REASM_CHUNK_MTU & ~1UL) << FD_CHUNK_LG_SZ) );
   } while(0);
 
   /* Publish frags */
@@ -160,7 +163,7 @@ main( int     argc,
     FD_TEST( slot );
     uint idx = slot_get_idx( reasm, slot );
 
-    uchar * data = slot_get_data( reasm, idx );
+    uchar * data = slot_get_data_hdr( reasm, idx );
 
     int is_zero = 0;
     for( ulong b=0UL; b<FD_TPU_REASM_MTU; b++ ) is_zero |= data[b];
@@ -177,7 +180,7 @@ main( int     argc,
   for( ulong j=0UL; j<burst; j++ ) {
     fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, 0UL, j, 0UL );
     uint idx = slot_get_idx( reasm, slot );
-    uchar * data = slot_get_data( reasm, idx );
+    uchar * data = slot_get_data_hdr( reasm, idx );
     FD_TEST( slot->k.sz==8 );
     FD_TEST( FD_LOAD( ulong, data )==j );
   }
@@ -194,7 +197,7 @@ main( int     argc,
     FD_TEST( slot->k.state == FD_TPU_REASM_STATE_BUSY );
     FD_TEST( fd_tpu_reasm_frag( reasm, slot, transaction4, transaction4_sz, 0UL )
              == FD_TPU_REASM_SUCCESS );
-    FD_TEST( fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, 0UL )
+    FD_TEST( fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, 0UL, 0U, FD_TXN_M_TPU_SOURCE_QUIC )
              == FD_TPU_REASM_SUCCESS );
     FD_TEST( slot->k.state == FD_TPU_REASM_STATE_PUB );
     verify_state( reasm, mcache );
@@ -203,11 +206,12 @@ main( int     argc,
     fd_frag_meta_t * mline    = mcache + line_idx;
 
     FD_TEST( mline->seq == seq );
-    FD_TEST( mline->sz == transaction4_sz );
+    FD_TEST( mline->sz == transaction4_sz+sizeof(fd_txn_m_t) );
     FD_TEST( (ulong)(slot - slots) == pub_slots[ line_idx ] );
 
-    uchar const * data = fd_chunk_to_laddr_const( base, mline->chunk );
-    FD_TEST( 0==memcmp( data, transaction4, transaction4_sz ) );
+    fd_txn_m_t * data = (fd_txn_m_t *)fd_chunk_to_laddr_const( base, mline->chunk );
+    FD_TEST( data->payload_sz == transaction4_sz );
+    FD_TEST( 0==memcmp( fd_txn_m_payload( data ), transaction4, transaction4_sz ) );
 
     seq = fd_seq_inc( seq, 1UL );
   } while(0);
@@ -251,7 +255,7 @@ main( int     argc,
       } else {
         FD_TEST( fd_tpu_reasm_frag( reasm, slot, transaction4, transaction4_sz, 0UL )
                  == FD_TPU_REASM_SUCCESS );
-        FD_TEST( fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, fd_rng_long( rng ) )
+        FD_TEST( fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, fd_rng_long( rng ), 0U, FD_TXN_M_TPU_SOURCE_QUIC )
                  == FD_TPU_REASM_SUCCESS );
         seq = fd_seq_inc( seq, 1UL );
         check_free_diff( verify_state( reasm, mcache ), +1L );

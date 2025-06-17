@@ -6,6 +6,12 @@
 
 #include "../ballet/txn/fd_txn.h"
 
+#define FD_TXN_M_TPU_SOURCE_QUIC   (1UL)
+#define FD_TXN_M_TPU_SOURCE_UDP    (2UL)
+#define FD_TXN_M_TPU_SOURCE_GOSSIP (4UL)
+#define FD_TXN_M_TPU_SOURCE_BUNDLE (8UL)
+#define FD_TXN_M_TPU_SOURCE_SEND   (16UL)
+
 struct fd_txn_m {
   /* The computed slot that this transaction is referencing, aka. the
      slot number of the reference_blockhash.  If it could not be
@@ -18,7 +24,11 @@ struct fd_txn_m {
      so we just store this redundantly. */
   ushort    txn_t_sz;
 
-  /* 4 bytes of padding here */
+  /* Source tpu and IP address for this transaction. */
+  uint     source_ipv4;
+  uchar    source_tpu;
+
+  /* 7 bytes of padding here */
 
   struct {
     /* If the transaction is part of a bundle, the bundle_id will be
@@ -42,11 +52,12 @@ struct fd_txn_m {
        bundle. */
     ulong bundle_id;
     ulong bundle_txn_cnt;
-    uchar commission;
     uchar commission_pubkey[ 32 ];
-  } block_engine;
+    uchar commission;
 
-  /* alignof is 8, so 7 bytes of padding here */
+    /* alignof is 8, so 7 bytes of padding here */
+
+  } block_engine;
 
   /* There are three additional fields at the end here, which are
      variable length and not included in the size of this struct.
