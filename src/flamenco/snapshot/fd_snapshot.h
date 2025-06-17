@@ -77,7 +77,8 @@ fd_snapshot_load_new( uchar *                 mem,
                       fd_spad_t * *           exec_spads,
                       ulong                   spad_cnt,
                       fd_spad_t *             runtime_spad,
-                      fd_exec_para_cb_ctx_t * exec_para_ctx );
+                      fd_exec_para_cb_ctx_t * exec_para_ctx,
+                      const char *            additional_http_header );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
@@ -106,7 +107,8 @@ fd_snapshot_load_all( const char *         source_cstr,
                       int                  snapshot_type,
                       fd_spad_t * *        exec_spads,
                       ulong                exec_spad_cnt,
-                      fd_spad_t *          runtime_spad );
+                      fd_spad_t *          runtime_spad,
+                      const char *         additional_http_header );
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );

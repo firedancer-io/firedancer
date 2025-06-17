@@ -104,7 +104,8 @@ fd_snapshot_http_new( void *               mem,
                       uint                 dst_ipv4,
                       ushort               dst_port,
                       const char *         snapshot_dir,
-                      fd_snapshot_name_t * name_out );
+                      fd_snapshot_name_t * name_out,
+                      const char *         additional_http_header );
 
 void *
 fd_snapshot_http_delete( fd_snapshot_http_t * this );

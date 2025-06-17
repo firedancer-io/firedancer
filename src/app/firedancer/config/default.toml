@@ -1081,6 +1081,22 @@ user = ""
         snapshot = ""
         snapshot_url = ""
 
+        # Snapshots are downloaded over HTTP.  In some cases, private
+        # snapshot providers may require a custom header to be set to
+        # authenticate the request.
+        #
+        # The header key and value are unique to each provider and
+        # client, and should both be provided in the format
+        #
+        #  "Header-Name: Header-Value"
+        #
+        # For example,
+        #
+        #  "X-token: jdkiejugb-96f55e-122e-b5s6-22e33te66ee5s22e"
+        #
+        # If the value is empty, no custom header will be set.
+        snapshot_additional_http_header = ""
+
         # Where to obtain the incremental snapshot.
         #
         # If you have an incremental snapshot pre-downloaded somewhere,

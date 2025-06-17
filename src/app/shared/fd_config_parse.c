@@ -227,6 +227,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
   CFG_POP      ( cstr,   tiles.replay.snapshot_url                        );
   CFG_POP      ( cstr,   tiles.replay.snapshot_dir                        );
+  CFG_POP      ( cstr,   tiles.replay.snapshot_additional_http_header         );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );

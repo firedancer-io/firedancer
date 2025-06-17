@@ -389,6 +389,7 @@ struct fd_config {
       char  snapshot[ PATH_MAX ];
       char  snapshot_url[ PATH_MAX ];
       char  snapshot_dir[ PATH_MAX ];
+      char  snapshot_additional_http_header[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];

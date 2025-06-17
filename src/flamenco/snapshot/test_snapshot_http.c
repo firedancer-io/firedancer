@@ -7,7 +7,14 @@ main( int     argc,
 
   fd_snapshot_name_t name[1] = {{0}};
   fd_snapshot_http_t _http[1];
-  fd_snapshot_http_t * http = fd_snapshot_http_new( _http, "1.1.1.1:80", 0x01010101, 80, NULL, name );
+  fd_snapshot_http_t * http = fd_snapshot_http_new(
+    _http,
+    "1.1.1.1:80",
+    0x01010101,
+    80,
+    NULL,
+    name,
+    "X-custom-header: some_custom_header" );
   FD_TEST( http );
   FD_TEST( 0==memcmp( http->req_buf + http->req_tail,
       "GET /snapshot.tar.bz2 HTTP/1.1\r\n"
@@ -15,6 +22,7 @@ main( int     argc,
       "accept: */*\r\n"
       "accept-encoding: identity\r\n"
       "host: 1.1.1.1:80\r\n"
+      "X-custom-header: some_custom_header\r\n"
       "\r\n",
       (ulong)( http->req_head - http->req_tail ) ) );
   FD_TEST( fd_snapshot_http_delete( http )==_http );

@@ -138,6 +138,7 @@ struct fd_replay_tile_ctx {
   char const * incremental;
   char const * snapshot;
   char const * snapshot_dir;
+  char const * snapshot_additional_http_header;
   int          incremental_src_type;
   int          snapshot_src_type;
 
@@ -1622,7 +1623,8 @@ read_snapshot( void *              _ctx,
                fd_stem_context_t * stem,
                char const *        snapshot,
                char const *        incremental,
-               char const *        snapshot_dir ) {
+               char const *        snapshot_dir,
+               char const *        snapshot_additional_http_header ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
   fd_exec_para_cb_ctx_t exec_para_ctx_snap = {
@@ -1669,7 +1671,8 @@ read_snapshot( void *              _ctx,
                                                                     ctx->exec_spads,
                                                                     ctx->exec_spad_cnt,
                                                                     ctx->runtime_spad,
-                                                                    &exec_para_ctx_snap );
+                                                                    &exec_para_ctx_snap,
+                                                                    snapshot_additional_http_header );
       /* Load the prefetch manifest, and initialize the status cache and slot context,
          so that we can use these to kick off repair. */
       fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
@@ -1689,7 +1692,8 @@ read_snapshot( void *              _ctx,
                                                               ctx->exec_spads,
                                                               ctx->exec_spad_cnt,
                                                               ctx->runtime_spad,
-                                                              &exec_para_ctx_snap );
+                                                              &exec_para_ctx_snap,
+                                                              snapshot_additional_http_header );
 
     fd_snapshot_load_init( snap_ctx );
 
@@ -1728,7 +1732,8 @@ read_snapshot( void *              _ctx,
                           FD_SNAPSHOT_TYPE_INCREMENTAL,
                           ctx->exec_spads,
                           ctx->exec_spad_cnt,
-                          ctx->runtime_spad );
+                          ctx->runtime_spad,
+                          snapshot_additional_http_header );
   }
 
   fd_runtime_update_leaders( ctx->slot_ctx,
@@ -1912,7 +1917,13 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   uchar is_snapshot = strlen( ctx->snapshot ) > 0;
   if( is_snapshot ) {
-    read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental, ctx->snapshot_dir );
+    read_snapshot(
+      ctx,
+      stem,
+      ctx->snapshot,
+      ctx->incremental,
+      ctx->snapshot_dir,
+      ctx->snapshot_additional_http_header );
   }
 
   if( ctx->plugin_out->mem ) {
@@ -2535,13 +2546,14 @@ unprivileged_init( fd_topo_t *      topo,
   /* TOML paths                                                         */
   /**********************************************************************/
 
-  ctx->blockstore_checkpt  = tile->replay.blockstore_checkpt;
-  ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
-  ctx->funk_checkpt        = tile->replay.funk_checkpt;
-  ctx->genesis             = tile->replay.genesis;
-  ctx->incremental         = tile->replay.incremental;
-  ctx->snapshot            = tile->replay.snapshot;
-  ctx->snapshot_dir        = tile->replay.snapshot_dir;
+  ctx->blockstore_checkpt          = tile->replay.blockstore_checkpt;
+  ctx->tx_metadata_storage         = tile->replay.tx_metadata_storage;
+  ctx->funk_checkpt                = tile->replay.funk_checkpt;
+  ctx->genesis                     = tile->replay.genesis;
+  ctx->incremental                 = tile->replay.incremental;
+  ctx->snapshot                    = tile->replay.snapshot;
+  ctx->snapshot_dir                = tile->replay.snapshot_dir;
+  ctx->snapshot_additional_http_header = tile->replay.snapshot_additional_http_header;
 
   ctx->incremental_src_type = tile->replay.incremental_src_type;
   ctx->snapshot_src_type    = tile->replay.snapshot_src_type;
