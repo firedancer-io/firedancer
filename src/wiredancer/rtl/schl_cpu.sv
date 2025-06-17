@@ -11,7 +11,7 @@ built around a fixed 256-bit pipeline ALU that schedules the needed runtime
 math operations based on a generated fixed instruction stream. The implementation
 being generic allowed for a hardware-software codesign process where, combined
 with the Python reference implementation that you will find in sw/py/*, gave us
-the oppurtunity to optimize the architecture to balance the hardware footprint, 
+the opportunity to optimize the architecture to balance the hardware footprint, 
 mathematical complexity and runtime latency/throughput over the course of our 
 development (ending up with a very simple and efficient end result design)
 
