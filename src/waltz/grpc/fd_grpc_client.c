@@ -309,7 +309,8 @@ fd_ossl_log_error( char const * str,
                    ulong        len,
                    void *       ctx ) {
   (void)ctx;
-  FD_LOG_WARNING(( "%.*s", (int)len, str ));
+  if( len>0 && str[ len-1 ]=='\n' ) len--;
+  FD_LOG_INFO(( "%.*s", (int)len, str ));
   return 0;
 }
 
@@ -322,7 +323,11 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
     if( res<=0 ) {
       int error = SSL_get_error( ssl, res );
       if( FD_LIKELY( error==SSL_ERROR_WANT_READ || error==SSL_ERROR_WANT_WRITE ) ) return 1;
-      FD_LOG_WARNING(( "SSL_do_handshake failed (%i-%s)", error, fd_openssl_ssl_strerror( error ) ));
+      FD_LOG_INFO(( "SSL_do_handshake failed (%i-%s)", error, fd_openssl_ssl_strerror( error ) ));
+      long verify_result = SSL_get_verify_result( ssl );
+      if( error == SSL_ERROR_SSL && verify_result != X509_V_OK ) {
+        FD_LOG_WARNING(( "Certificate verification failed: %s", X509_verify_cert_error_string( verify_result ) ));
+      }
       ERR_print_errors_cb( fd_ossl_log_error, NULL );
       return 0;
     } else {

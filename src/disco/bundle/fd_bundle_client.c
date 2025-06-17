@@ -134,8 +134,14 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
     SSL_set_connect_state( ssl );
 
+    /* Indicate to endpoint which server name we want */
     if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, ctx->server_sni ) ) ) {
       FD_LOG_ERR(( "SSL_set_tlsext_host_name failed" ));
+    }
+
+    /* Enable hostname verification */
+    if( FD_UNLIKELY( !SSL_set1_host( ssl, ctx->server_sni ) ) ) {
+      FD_LOG_ERR(( "SSL_set1_host failed" ));
     }
 
     ctx->ssl = ssl;
@@ -354,16 +360,17 @@ fd_bundle_client_log_status( fd_bundle_tile_t * ctx ) {
   int status = fd_bundle_client_status( ctx );
 
   int const connected_now    = ( status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
-  int const connected_before = ( ctx->bundle_status_recent==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
+  int const connected_before = ( ctx->bundle_status_logged==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
 
   if( FD_UNLIKELY( connected_now!=connected_before ) ) {
     long ts = fd_log_wallclock();
-    if( FD_LIKELY( ts-(ctx->last_bundle_status_log_ts) >= (long)1e6 ) ) {
+    if( FD_LIKELY( ts-(ctx->last_bundle_status_log_nanos) >= (long)1e6 ) ) {
       if( connected_now ) {
         FD_LOG_NOTICE(( "Connected to bundle server" ));
       } else {
         FD_LOG_WARNING(( "Disconnected from bundle server" ));
       }
+      ctx->last_bundle_status_log_nanos = ts;
       ctx->bundle_status_logged = (uchar)status;
     }
   }
@@ -385,7 +392,7 @@ fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
   iter++;
 
   /* FIXME proper backoff */
-  long wait_ticks = (long)( 500e6 * fd_tempo_tick_per_ns( NULL ) );
+  long wait_ticks = (long)( 2e9 * fd_tempo_tick_per_ns( NULL ) );
   wait_ticks = (long)( fd_rng_ulong( ctx->rng ) & ( (1UL<<fd_ulong_find_msb_w_default( (ulong)wait_ticks, 0 ))-1UL ) );
 
   ctx->backoff_until = ts_ticks +   wait_ticks;
@@ -848,9 +855,9 @@ fd_bundle_client_grpc_rx_end(
   }
 
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
-    FD_LOG_WARNING(( "gRPC request failed (gRPC status %u-%s): %.*s",
-                     resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                     (int)resp->grpc_msg_len, resp->grpc_msg ));
+    FD_LOG_INFO(( "gRPC request failed (gRPC status %u-%s): %.*s",
+                  resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
+                  (int)resp->grpc_msg_len, resp->grpc_msg ));
     fd_bundle_client_request_failed( ctx, request_ctx );
     if( resp->grpc_status==FD_GRPC_STATUS_UNAUTHENTICATED ||
         resp->grpc_status==FD_GRPC_STATUS_PERMISSION_DENIED ) {

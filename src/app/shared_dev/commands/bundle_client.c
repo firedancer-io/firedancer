@@ -53,6 +53,7 @@ bundle_client_topo( config_t *   config ) {
   bundle_tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
   bundle_tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
   bundle_tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
+  bundle_tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
 
   strncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
 
