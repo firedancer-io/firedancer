@@ -1177,6 +1177,12 @@ dynamic_port_range = "8900-9000"
         # [3e3,3600e3]
         keepalive_interval_millis = 5000
 
+        # By default, the TLS certificate of the bundle server is
+        # verified against the CA certs in /etc/ssl/certs, if the URL
+        # specifies https.  To disable certificate verification, set
+        # this option to 'false'.
+        tls_cert_verify = true
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute

@@ -392,6 +392,7 @@ fd_topo_initialize( config_t * config ) {
       tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
       tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
       tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
+      tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
       tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
 

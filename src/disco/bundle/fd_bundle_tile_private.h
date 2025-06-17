@@ -58,7 +58,6 @@ struct fd_bundle_tile {
   SSL_CTX *    ssl_ctx;
   SSL *        ssl;
   fd_alloc_t * ssl_alloc;
-  uint         skip_cert_verify : 1;
 # endif /* FD_HAS_OPENSSL */
 
   /* Config */
@@ -129,7 +128,7 @@ struct fd_bundle_tile {
   uchar bundle_status_recent;  /* most recently observed 'check engine light' */
   uchar bundle_status_plugin;  /* last 'plugin' update written */
   uchar bundle_status_logged;
-  long  last_bundle_status_log_ts;
+  long  last_bundle_status_log_nanos;
 };
 
 typedef struct fd_bundle_tile fd_bundle_tile_t;

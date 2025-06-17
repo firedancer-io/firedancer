@@ -6,8 +6,10 @@
 #include "../../waltz/http/fd_url.h"
 
 #include <errno.h>
+#include <dirent.h> /* opendir */
 #include <stdio.h> /* snprintf */
 #include <fcntl.h> /* F_SETFL */
+#include <unistd.h> /* close */
 #include <sys/mman.h> /* PROT_READ (seccomp) */
 #include <sys/uio.h> /* writev */
 #include <netinet/in.h> /* AF_INET */
@@ -68,6 +70,15 @@ metrics_write( fd_bundle_tile_t * ctx ) {
 
 static void
 during_housekeeping( fd_bundle_tile_t * ctx ) {
+  long log_interval_ns = (long)30e9;
+  int  status          = fd_bundle_client_status( ctx );
+  long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
+  long now_ns          = fd_log_wallclock();
+  if( FD_UNLIKELY( status!=FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
+    FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
+    ctx->last_bundle_status_log_nanos = now_ns;
+  }
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ctx->identity_switched = 1;
     fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
@@ -306,8 +317,55 @@ fd_ossl_keylog_callback( SSL const *  ssl,
 }
 
 static void
+fd_bundle_tile_load_certs( SSL_CTX * ssl_ctx ) {
+  X509_STORE * ca_certs = X509_STORE_new();
+  if( FD_UNLIKELY( !ca_certs ) ) {
+    FD_LOG_ERR(( "X509_STORE_new failed" ));
+  }
+
+  static char const default_dir[] = "/etc/ssl/certs/";
+  DIR * dir = opendir( default_dir );
+  if( FD_UNLIKELY( !dir ) ) {
+    FD_LOG_ERR(( "opendir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
+  }
+
+  struct dirent * entry;
+  while( (entry = readdir( dir )) ) {
+    if( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) continue;
+
+    char cert_path[ PATH_MAX ];
+    char * p = fd_cstr_init( cert_path );
+    p = fd_cstr_append_text( p, default_dir, sizeof(default_dir)-1 );
+    p = fd_cstr_append_cstr_safe( p, entry->d_name, (ulong)(cert_path+sizeof(cert_path)-1) - (ulong)p );
+    fd_cstr_fini( p );
+
+    if( !X509_STORE_load_locations( ca_certs, cert_path, NULL ) ) {
+      /* Not all files in /etc/ssl/certs are valid certs, so ignore errors */
+      continue;
+    }
+  }
+
+  STACK_OF(X509) * cert_list = X509_STORE_get1_all_certs( ca_certs );
+  FD_LOG_INFO(( "Loaded %d CA certs from %s into OpenSSL", sk_X509_num( cert_list ), default_dir ));
+  if( fd_log_level_logfile()==0 ) {
+    for( int i=0; i<sk_X509_num( cert_list ); i++ ) {
+      X509 * cert = sk_X509_value( cert_list, i );
+      FD_LOG_DEBUG(( "Loaded CA cert \"%s\"", X509_NAME_oneline( X509_get_subject_name( cert ), NULL, 0 ) ));
+    }
+  }
+  sk_X509_pop_free( cert_list, X509_free );
+
+  SSL_CTX_set_cert_store( ssl_ctx, ca_certs );
+
+  if( FD_UNLIKELY( 0!=closedir( dir ) ) ) {
+    FD_LOG_ERR(( "closedir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
+  }
+}
+
+static void
 fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
-                             void *             alloc_mem ) {
+                             void *             alloc_mem,
+                             int                tls_cert_verify ) {
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
   if( FD_UNLIKELY( !alloc ) ) {
     FD_LOG_ERR(( "fd_alloc_new failed" ));
@@ -345,6 +403,11 @@ fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
 
   if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (const unsigned char *)"\x02h2", 3 ) ) ) {
     FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
+  }
+
+  if( tls_cert_verify ) {
+    fd_bundle_tile_load_certs( ssl_ctx );
+    SSL_CTX_set_verify( ssl_ctx, SSL_VERIFY_PEER, NULL );
   }
 
   if( FD_LIKELY( ctx->keylog_fd >= 0 ) ) {
@@ -398,7 +461,7 @@ privileged_init( fd_topo_t *      topo,
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special
      initializer to do it before seccomp happens in the process. */
-  fd_bundle_tile_init_openssl( ctx, alloc_mem );
+  fd_bundle_tile_init_openssl( ctx, alloc_mem, tile->bundle.tls_cert_verify );
 
 # endif /* FD_HAS_OPENSSL */
 
@@ -488,9 +551,9 @@ unprivileged_init( fd_topo_t *      topo,
       ( (double)tile->bundle.keepalive_interval_nanos * fd_tempo_tick_per_ns( NULL ) ) );
   ctx->ping_randomize = fd_rng_ulong( ctx->rng );
 
-  /* Force tile to output a plugin message on startup */
   ctx->bundle_status_plugin = 127;
   ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
+  ctx->last_bundle_status_log_nanos = fd_log_wallclock();
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
 
