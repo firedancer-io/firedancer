@@ -369,7 +369,7 @@ fd_config_fill( fd_config_t * config,
   }
 
   if( FD_LIKELY( config->is_live_cluster) ) {
-    if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
+    // if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
     if( FD_UNLIKELY( config->development.netns.enabled ) )                       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )     FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
