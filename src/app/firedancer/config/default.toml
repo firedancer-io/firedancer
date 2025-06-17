@@ -305,7 +305,7 @@ user = ""
 
     # The size of the funk heap in gigabytes.  This value must be large
     # enough to store all Solana accounts uncompressed.
-    heap_size_gb = 32
+    heap_size_gib = 32
 
     # The max amount of concurrent database transactions.  These are
     # used to track conflicting versions of accounts until such
