@@ -213,7 +213,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   hdr->udp->check = 0U;
 
   ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong chunk     = ctx->net_out_chunk;
   fd_stem_publish( stem, ctx->net_out_idx, sig, chunk, packet_sz, 0UL, tsorig, tspub );

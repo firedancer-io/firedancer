@@ -668,7 +668,7 @@ send_shred( fd_shred_ctx_t                 * ctx,
 
   ulong pkt_sz = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong const chunk = ctx->net_out_chunk;
   fd_stem_publish( stem, NET_OUT_IDX, sig, chunk, pkt_sz, 0UL, tsorig, tspub );
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );

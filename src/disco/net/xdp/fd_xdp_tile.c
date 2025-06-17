@@ -950,7 +950,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   }
 
   /* tile can decide how to partition based on src ip addr and src port */
-  ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
+  ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, proto, 14UL+8UL+iplen );
 
   /* Peek the mline for an old frame */
   fd_frag_meta_t * mline = out->mcache + fd_mcache_line_idx( out->seq, out->depth );

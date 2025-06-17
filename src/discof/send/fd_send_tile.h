@@ -10,6 +10,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/fd_disco.h"
+#include "../../disco/fd_txn_m_t.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"

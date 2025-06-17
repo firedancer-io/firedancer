@@ -143,7 +143,7 @@ quic_tx_aio_send( void *                    _ctx,
 
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+    ulong sig = fd_disco_netmux_sig( ip_dst, 0U, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
     ulong tspub = (ulong)ctx->now;
 
@@ -415,7 +415,12 @@ after_frag( fd_send_tile_ctx_t * ctx,
     /* send to gossip and dedup */
     fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
     uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
-    fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
+    fd_txn_m_t * txnm = (fd_txn_m_t *)msg_to_gossip;
+    *txnm = (fd_txn_m_t) { 0UL };
+    txnm->payload_sz = (ushort)txn->payload_sz;
+    txnm->source_ipv4 = 0U; /* todo ... validator ip */
+    txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_SEND;
+    fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), txn->payload, sizeof(fd_txn_m_t)+txn->payload_sz );
     fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
     gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
         gossip_verify_out->wmark );
