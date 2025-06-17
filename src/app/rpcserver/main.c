@@ -26,9 +26,8 @@ static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
 
-  const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, NULL );
-  if( FD_UNLIKELY( !funk_wksp_name ))
-    FD_LOG_ERR(( "--funk-wksp-name argument is required" ));
+  const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, "fd1_funk.wksp" );
+  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", funk_wksp_name ));
   fd_wksp_t * funk_wksp = fd_wksp_attach( funk_wksp_name );
   if( FD_UNLIKELY( !funk_wksp ))
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", funk_wksp_name ));
