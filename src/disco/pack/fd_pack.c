@@ -943,6 +943,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
   /* precompile_sigs <= 16320, so after the addition,
      sig_rewards < 83,000,000 */
   sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
+  sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 
   /* No fancy CU estimation in this version of pack
   for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {

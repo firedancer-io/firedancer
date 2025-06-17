@@ -85,6 +85,9 @@
  */
 #define FD_PACK_MAX_TXN_PER_BUNDLE      5UL
 
+/* The percentage of the transaction fees that are burned */
+#define FD_PACK_TXN_FEE_BURN_PCT        50UL
+
 
 /* The Solana network and Firedancer implementation details impose
    several limits on what pack can produce.  These limits are grouped in
