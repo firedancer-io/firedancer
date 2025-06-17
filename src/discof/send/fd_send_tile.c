@@ -1,6 +1,7 @@
 #include "fd_send_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/fd_txn_m_t.h"
 #include "generated/fd_send_tile_seccomp.h"
 
 #include <errno.h>
@@ -407,8 +408,13 @@ after_frag( fd_send_tile_ctx_t * ctx,
     /* send to gossip and dedup */
     fd_send_link_out_t * gossip_verify_out = ctx->gossip_verify_out;
     uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
-    fd_memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
-    fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, txn->payload_sz, 0UL, 0, 0 );
+    fd_txn_m_t * txnm = (fd_txn_m_t *)msg_to_gossip;
+    *txnm = (fd_txn_m_t) { 0UL };
+    txnm->payload_sz = (ushort)txn->payload_sz;
+    txnm->source_ipv4 = ctx->src_ip_addr;
+    txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_SEND;
+    fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), txn->payload, txn->payload_sz );
+    fd_stem_publish( stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );
     gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
         gossip_verify_out->wmark );
   }

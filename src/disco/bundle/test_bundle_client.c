@@ -22,6 +22,15 @@ test_bundle_rx( fd_wksp_t * wksp ) {
   test_bundle_env_t env[1]; test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
 
+  /* A SubscribePacketsResponse message with 2 packets included. The
+     first packet is 1 byte { 0x48 }, the second packet is 2 bytes
+     {0x48, 0x48}.
+
+     message SubscribePacketsResponse {
+      shared.Header header = 1;
+      packet.PacketBatch batch = 2;
+    }
+  */
   static uchar subscribe_packets_msg[] = {
     0x12, 0x13, 0x0a, 0x07, 0x0a, 0x01, 0x48, 0x12,
     0x02, 0x08, 0x01, 0x0a, 0x08, 0x0a, 0x02, 0x48,
@@ -39,9 +48,11 @@ test_bundle_rx( fd_wksp_t * wksp ) {
     env->out_mcache[ i ].tspub  = 0U;
   }
 
+  const ulong packet1_sz = 1UL;
+  const ulong packet2_sz = 2UL;
   fd_frag_meta_t expected[2] = {
-    { .seq=0UL, .sig=0UL, .chunk=0, .sz=sizeof(fd_txn_m_t)+8, .ctl=0 },
-    { .seq=1UL, .sig=0UL, .chunk=2, .sz=sizeof(fd_txn_m_t)+8, .ctl=0 }
+    { .seq=0UL, .sig=0UL, .chunk=0, .sz=sizeof(fd_txn_m_t)+packet1_sz, .ctl=0 },
+    { .seq=1UL, .sig=0UL, .chunk=2, .sz=sizeof(fd_txn_m_t)+packet2_sz, .ctl=0 }
   };
   FD_TEST( fd_memeq( env->out_mcache, expected, 2*sizeof(fd_frag_meta_t) ) );
 
