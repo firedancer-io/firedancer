@@ -3,15 +3,17 @@
 
 FD_IMPORT_BINARY( file0, "src/disco/gui/dist/assets/firedancer-D_J0EzUc.svg" );
 FD_IMPORT_BINARY( file1, "src/disco/gui/dist/assets/firedancer_logo-CrgwxzPk.svg" );
-FD_IMPORT_BINARY( file2, "src/disco/gui/dist/assets/index-C5pxjCUW.js" );
-FD_IMPORT_BINARY( file3, "src/disco/gui/dist/assets/index-CULNhLeN.css" );
-FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-DdJHC3EJ.js" );
-FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-Dobne4Xk.css" );
+FD_IMPORT_BINARY( file2, "src/disco/gui/dist/assets/index-BMXHEY98.js" );
+FD_IMPORT_BINARY( file3, "src/disco/gui/dist/assets/index-DHGJ33nl.js" );
+FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-Dobne4Xk.css" );
+FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-LRr8f3PD.css" );
 FD_IMPORT_BINARY( file6, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
 FD_IMPORT_BINARY( file7, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-CjmW70MP.woff2" );
 FD_IMPORT_BINARY( file8, "src/disco/gui/dist/assets/privateYou-DxC3xn7b.svg" );
-FD_IMPORT_BINARY( file9, "src/disco/gui/dist/index.html" );
-FD_IMPORT_BINARY( file10, "src/disco/gui/dist/LICENSE_DEPENDENCIES" );
+FD_IMPORT_BINARY( file9, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-B0u6u4eV.woff" );
+FD_IMPORT_BINARY( file10, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-C_5wUCW5.woff2" );
+FD_IMPORT_BINARY( file11, "src/disco/gui/dist/index.html" );
+FD_IMPORT_BINARY( file12, "src/disco/gui/dist/LICENSE_DEPENDENCIES" );
 
 fd_http_static_file_t STATIC_FILES[] = {
     {
@@ -25,22 +27,22 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file1_sz,
     },
     {
-        .name = "/assets/index-C5pxjCUW.js",
+        .name = "/assets/index-BMXHEY98.js",
         .data = file2,
         .data_len = &file2_sz,
     },
     {
-        .name = "/assets/index-CULNhLeN.css",
+        .name = "/assets/index-DHGJ33nl.js",
         .data = file3,
         .data_len = &file3_sz,
     },
     {
-        .name = "/assets/index-DdJHC3EJ.js",
+        .name = "/assets/index-Dobne4Xk.css",
         .data = file4,
         .data_len = &file4_sz,
     },
     {
-        .name = "/assets/index-Dobne4Xk.css",
+        .name = "/assets/index-LRr8f3PD.css",
         .data = file5,
         .data_len = &file5_sz,
     },
@@ -60,14 +62,24 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file8_sz,
     },
     {
-        .name = "/index.html",
+        .name = "/assets/roboto-mono-latin-400-normal-B0u6u4eV.woff",
         .data = file9,
         .data_len = &file9_sz,
     },
     {
-        .name = "/LICENSE_DEPENDENCIES",
+        .name = "/assets/roboto-mono-latin-400-normal-C_5wUCW5.woff2",
         .data = file10,
         .data_len = &file10_sz,
+    },
+    {
+        .name = "/index.html",
+        .data = file11,
+        .data_len = &file11_sz,
+    },
+    {
+        .name = "/LICENSE_DEPENDENCIES",
+        .data = file12,
+        .data_len = &file12_sz,
     },
     {0}
 };
