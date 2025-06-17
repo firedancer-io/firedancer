@@ -216,7 +216,7 @@ fd_tpu_reasm_frag( fd_tpu_reasm_t *      reasm,
     return FD_TPU_REASM_ERR_SZ;
   }
 
-  uchar * msg = slot_get_data( reasm, slot_idx );
+  uchar * msg = slot_get_data_pkt_payload( reasm, slot_idx );
   fd_memcpy( msg+sz0, data, data_sz );
 
   slot->k.sz = (ushort)( sz1 & FD_TPU_REASM_SZ_MASK );
@@ -229,7 +229,9 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       fd_frag_meta_t *      mcache,
                       void *                base,  /* Assumed aligned FD_CHUNK_ALIGN */
                       ulong                 seq,
-                      long                  tspub ) {
+                      long                  tspub,
+                      uint                  source_ipv4,
+                      uchar                 source_tpu ) {
 
   ulong depth = reasm->depth;
 
@@ -238,9 +240,9 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
 
   /* Derive chunk index */
   uint    slot_idx = slot_get_idx( reasm, slot );
-  uchar * data     = slot_get_data( reasm, slot_idx );
-  ulong   chunk    = fd_laddr_to_chunk( base, data );
-  if( FD_UNLIKELY( ( (ulong)data<(ulong)base ) |
+  uchar * buf      = slot_get_data( reasm, slot_idx );
+  ulong   chunk    = fd_laddr_to_chunk( base, buf );
+  if( FD_UNLIKELY( ( (ulong)buf<(ulong)base ) |
                    ( chunk>UINT_MAX          ) ) ) {
     FD_LOG_CRIT(( "invalid base %p for slot %p in tpu_reasm %p",
                   base, (void *)slot, (void *)reasm ));
@@ -260,17 +262,23 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   }
 
   /* Publish to mcache */
-  ulong sz          = slot->k.sz;
+  ulong sz  = slot->k.sz;
   ulong ctl         = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
   ulong tsorig_comp = slot->tsorig_comp;
   ulong tspub_comp  = fd_frag_meta_ts_comp( tspub );
 
+  fd_txn_m_t * txnm = (fd_txn_m_t *)buf;
+  *txnm = (fd_txn_m_t) { 0UL };
+  txnm->payload_sz = (ushort)sz;
+  txnm->source_ipv4 = source_ipv4;
+  txnm->source_tpu  = source_tpu;
+
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # elif FD_HAS_SSE
-  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # else
-  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # endif
 
   /* Mark new slot as published */
@@ -313,7 +321,9 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
                            fd_frag_meta_t * mcache,
                            void *           base,  /* Assumed aligned FD_CHUNK_ALIGN */
                            ulong            seq,
-                           long             tspub ) {
+                           long             tspub,
+                           uint             source_ipv4,
+                           uchar            source_tpu ) {
 
   ulong depth = reasm->depth;
   if( FD_UNLIKELY( sz>FD_TPU_REASM_MTU ) ) return FD_TPU_REASM_ERR_SZ;
@@ -349,7 +359,12 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
   /* Copy data into new slot */
   FD_COMPILER_MFENCE();
   slot->k.sz = sz & FD_TPU_REASM_SZ_MASK;
-  fd_memcpy( buf, data, sz );
+  fd_txn_m_t * txnm = (fd_txn_m_t *)buf;
+  *txnm = (fd_txn_m_t) { 0UL };
+  txnm->payload_sz = (ushort)slot->k.sz,
+  txnm->source_ipv4 = source_ipv4;
+  txnm->source_tpu  = source_tpu;
+  fd_memcpy( buf + sizeof(fd_txn_m_t), data, sz );
   FD_COMPILER_MFENCE();
   slot->k.state = FD_TPU_REASM_STATE_PUB;
   FD_COMPILER_MFENCE();
@@ -361,11 +376,11 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
   uint  tsorig_comp = slot->tsorig_comp;
   uint  tspub_comp  = (uint)fd_frag_meta_ts_comp( tspub );
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # elif FD_HAS_SSE
-  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # else
-  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, sz, ctl, tsorig_comp, tspub_comp );
+  fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # endif
 
   /* Free old slot */

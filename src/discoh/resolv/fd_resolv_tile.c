@@ -327,8 +327,11 @@ after_frag( fd_resolv_ctx_t *   ctx,
       case 1: {
         fd_completed_bank_t * frag = (fd_completed_bank_t *)ctx->_bank_msg;
 
-        blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
-        if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
+        /* blockhash_ring is initalized to all zeros. blockhash=0 is an illegal map query */
+        if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
+          blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
+          if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
+        }
 
         memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, frag->hash, 32UL );
         ctx->blockhash_ring_idx++;

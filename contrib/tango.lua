@@ -219,10 +219,7 @@ function tango.dissector (tvb, pinfo, tree)
   if link_name == "net_netmux" or link_name == "quic_netmux" or link_name == "shred_netmux" or link_name == "net_quic" or link_name == "quic_net" or link_name == "shred_net" or link_name == "net_shred" then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "gossip_dedup" then
-    local dissector = Dissector.get("solana.tpu.udp")
-    dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" then
+  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or "quic_verify" or link_name == "gossip_verif" or link_name == "send_txns" or link_name == "gossip_dedup" then
     local dissector = Dissector.get("fd_txn_m_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "poh_shred" then
@@ -263,9 +260,6 @@ function tango.dissector (tvb, pinfo, tree)
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "poh_pack" then
     local dissector = Dissector.get("fd_became_leader_t")
-    dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "quic_verify" then
-    local dissector = Dissector.get("solana.tpu.udp")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   end
 end
@@ -544,6 +538,16 @@ local fd_txnm = Proto("fd_txn_m_t", "FD Transaction with Payload and Metadata")
 -- Define fields
 local f_ref_slot = ProtoField.uint64("fd_txn_m_t.reference_slot", "Reference Slot"  )
 local f_txn_t_sz = ProtoField.uint16("fd_txn_m_t.txn_t_sz",       "Size of fd_txn_t")
+local f_source_ipv4 = ProtoField.ipv4("fd_txn_m_t.source_ipv4",       "IP Address")
+
+local source_tpu_enum = {
+    [1] = "QUIC",
+    [2] = "UDP",
+    [4] = "GOSSIP",
+    [8] = "BUNDLE",
+    [16] = "SEND"
+}
+local f_source_tpu = ProtoField.uint8("fd_txn_m_t.source_tpu",       "Source TPU", base.DEC, source_tpu_enum)
 local f_payload_sz = ProtoField.uint16("fd_txn_m_t.payload_sz",       "Size of payload")
 local f_bundle_id = ProtoField.uint64("fd_txn_m_t.bundle_id",       "Bundle ID")
 local f_bundle_txn_cnt = ProtoField.uint64("fd_txn_m_t.bundle_txn_cnt",       "Bundle Transaction Count")
@@ -552,7 +556,7 @@ local f_bundle_pubkey = ProtoField.bytes("fd_txn_m_t.bundle_commission_pubkey", 
 local f_alt_entry = ProtoField.bytes("fd_txn_m_t.alt_entry",       "Address Lookup Table Account Address")
 
 -- Add the fields to the protocol
-fd_txnm.fields = { f_ref_slot, f_txn_t_sz, f_payload_sz, f_bundle_id, f_bundle_txn_cnt, f_bundle_commission, f_bundle_pubkey, f_alt_entry }
+fd_txnm.fields = { f_ref_slot, f_txn_t_sz, f_source_ipv4, f_source_tpu, f_payload_sz, f_bundle_id, f_bundle_txn_cnt, f_bundle_commission, f_bundle_pubkey, f_alt_entry }
 
 function fd_txnm.dissector(buffer, pinfo, tree)
   local subtree = tree:add(fd_txnm, buffer(), "fd_txn_m_t")
@@ -563,21 +567,26 @@ function fd_txnm.dissector(buffer, pinfo, tree)
   subtree:add_le(f_ref_slot, buffer(0, 8))
   subtree:add_le(f_payload_sz, buffer(8, 2))
   subtree:add_le(f_txn_t_sz, buffer(10, 2))
+  subtree:add(f_source_ipv4, buffer(12, 4))
+  subtree:add_le(f_source_tpu, buffer(16, 1))
 
-  local payload_start = 16
-  if true then
-    subtree:add_le(f_bundle_id, buffer(16, 8))
-    subtree:add_le(f_bundle_txn_cnt, buffer(24, 8))
-    subtree:add_le(f_bundle_commission, buffer(32, 1))
-    subtree:add(f_bundle_pubkey, buffer(33, 32))
-    payload_start = 72
-  end
-  
+  subtree:add_le(f_bundle_id, buffer(24, 8))
+  subtree:add_le(f_bundle_txn_cnt, buffer(32, 8))
+  subtree:add_le(f_bundle_commission, buffer(40, 1))
+  subtree:add(f_bundle_pubkey, buffer(41, 32))
+  local payload_start = 80
+
   local payload_tree = tree:add(buffer(payload_start,payload_sz), "Solana Transaction")
   local udp_dissector = Dissector.get("solana.tpu.udp")
   udp_dissector:call(buffer(payload_start,payload_sz):tvb(), pinfo, payload_tree)
 
   local offset = payload_start + payload_sz
+
+  -- pre-dedup frags don't have fields after the payload
+  if offset == buffer:len() then
+    return
+  end
+
   -- Align to 2
   if offset % 2 == 1 then
     offset = offset+1
@@ -600,7 +609,6 @@ function fd_txnm.dissector(buffer, pinfo, tree)
     end
   end
 end
-
 
 
 local udp_port = DissectorTable.get("udp.port")

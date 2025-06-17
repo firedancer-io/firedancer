@@ -408,7 +408,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
 
     ctx->metrics.rx_pkt_cnt++;
     ulong chunk = fd_laddr_to_chunk( base, eth_hdr );
-    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), 0U, proto, hdr_sz );
+    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
     /* default for repair intake is to send to [shreds] to shred tile.
