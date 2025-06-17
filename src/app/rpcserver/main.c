@@ -27,30 +27,29 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
 
   const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, "fd1_funk.wksp" );
-  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", funk_wksp_name ));
+  if( FD_UNLIKELY( !funk_wksp_name ))
+    FD_LOG_ERR(( "--funk-wksp-name argument is required" ));
   fd_wksp_t * funk_wksp = fd_wksp_attach( funk_wksp_name );
   if( FD_UNLIKELY( !funk_wksp ))
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", funk_wksp_name ));
-  void * funk_shmem = fd_wksp_laddr_fast( funk_wksp, 0 );
+  fd_wksp_tag_query_info_t info;
+  ulong tag = 1;
+  if( fd_wksp_tag_query( funk_wksp, &tag, 1, &info, 1 ) <= 0 ) {
+    FD_LOG_ERR(( "workspace does not contain a funk" ));
+  }
+  void * funk_shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
   fd_funk_t * funk = fd_funk_join( args->funk, funk_shmem );
   if( FD_UNLIKELY( !funk ))
     FD_LOG_ERR(( "failed to join funk" ));
 
-  char const * blockstore_file = fd_env_strip_cmdline_cstr( argc, argv, "--blockstore-file", NULL, NULL );
-  if( FD_UNLIKELY( !blockstore_file ))
-    FD_LOG_ERR(( "--blockstore-file argument is required" ));
-  args->blockstore_fd = open( blockstore_file, O_RDONLY );
-  if( args->blockstore_fd == -1 ) {
-    FD_LOG_ERR(( "failed to open blockstore file" ));
-  }
+  args->blockstore_fd = -1;
 
-  const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );
+  const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_blockstore.wksp" );
   FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
   fd_wksp_t * wksp = fd_wksp_attach( wksp_name );
   if( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
-  fd_wksp_tag_query_info_t info;
-  ulong tag = 1;
+  tag = 1;
   if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
     FD_LOG_ERR(( "workspace \"%s\" does not contain a blockstore", wksp_name ));
   }
@@ -101,13 +100,18 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
   args->offline = 1;
 
-  const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, NULL );
+  const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, "fd1_funk.wksp" );
   if( FD_UNLIKELY( !funk_wksp_name ))
     FD_LOG_ERR(( "--funk-wksp-name argument is required" ));
   fd_wksp_t * funk_wksp = fd_wksp_attach( funk_wksp_name );
   if( FD_UNLIKELY( !funk_wksp ))
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", funk_wksp_name ));
-  void * funk_shmem = fd_wksp_laddr_fast( funk_wksp, 0 );
+  fd_wksp_tag_query_info_t info;
+  ulong tag = 1;
+  if( fd_wksp_tag_query( funk_wksp, &tag, 1, &info, 1 ) <= 0 ) {
+    FD_LOG_ERR(( "workspace does not contain a funk" ));
+  }
+  void * funk_shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
   fd_funk_t * funk = fd_funk_join( args->funk, funk_shmem );
   if( FD_UNLIKELY( !funk ))
     FD_LOG_ERR(( "failed to join funk" ));
@@ -130,8 +134,7 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
     FD_LOG_NOTICE(( "restoring blockstore wksp %s", restore ));
     fd_wksp_restore( wksp, restore, preview->seed );
   }
-  fd_wksp_tag_query_info_t info;
-  ulong tag = 1;
+  tag = 1;
   if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
     FD_LOG_ERR(( "workspace does not contain a blockstore" ));
   }
