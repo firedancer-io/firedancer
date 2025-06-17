@@ -6,9 +6,6 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
-PB_BIND(FD_EXEC_TEST_MICROBLOCK, fd_exec_test_microblock_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_BLOCK_CONTEXT, fd_exec_test_block_context_t, 2)
 
 
