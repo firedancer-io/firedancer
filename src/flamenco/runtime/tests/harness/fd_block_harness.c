@@ -397,71 +397,64 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
   /* Prepare raw transaction pointers and block / microblock infos */
-  ulong microblock_cnt = test_ctx->microblocks_count;
+  ulong txn_cnt = test_ctx->txns_count;
 
-  // For fuzzing, we're using a single microblock batch that contains all microblocks
+  // For fuzzing, we're using a single microblock batch that contains a single microblock containing all transactions
   fd_runtime_block_info_t *    block_info       = fd_spad_alloc( runner->spad, alignof(fd_runtime_block_info_t), sizeof(fd_runtime_block_info_t) );
   fd_microblock_batch_info_t * batch_info       = fd_spad_alloc( runner->spad, alignof(fd_microblock_batch_info_t), sizeof(fd_microblock_batch_info_t) );
-  fd_microblock_info_t *       microblock_infos = fd_spad_alloc( runner->spad, alignof(fd_microblock_info_t), microblock_cnt * sizeof(fd_microblock_info_t) );
+  fd_microblock_info_t *       microblock_info  = fd_spad_alloc( runner->spad, alignof(fd_microblock_info_t), sizeof(fd_microblock_info_t) );
   fd_memset( block_info, 0, sizeof(fd_runtime_block_info_t) );
   fd_memset( batch_info, 0, sizeof(fd_microblock_batch_info_t) );
-  fd_memset( microblock_infos, 0, microblock_cnt * sizeof(fd_microblock_info_t) );
+  fd_memset( microblock_info, 0, sizeof(fd_microblock_info_t) );
 
   block_info->microblock_batch_cnt   = 1UL;
-  block_info->microblock_cnt         = microblock_cnt;
+  block_info->microblock_cnt         = 1UL;
   block_info->microblock_batch_infos = batch_info;
 
-  batch_info->microblock_cnt         = microblock_cnt;
-  batch_info->microblock_infos       = microblock_infos;
+  batch_info->microblock_cnt         = 1UL;
+  batch_info->microblock_infos       = microblock_info;
 
   ulong batch_signature_cnt          = 0UL;
   ulong batch_txn_cnt                = 0UL;
   ulong batch_account_cnt            = 0UL;
+  ulong signature_cnt                = 0UL;
+  ulong account_cnt                  = 0UL;
 
-  for( ulong i=0UL; i<microblock_cnt; i++ ) {
-    fd_exec_test_microblock_t const * input_microblock = &test_ctx->microblocks[i];
-    fd_microblock_info_t *            microblock_info  = &microblock_infos[i];
-    fd_microblock_hdr_t *             microblock_hdr   = fd_spad_alloc( runner->spad, alignof(fd_microblock_hdr_t), sizeof(fd_microblock_hdr_t) );
-    fd_memset( microblock_hdr, 0, sizeof(fd_microblock_hdr_t) );
+  fd_microblock_hdr_t * microblock_hdr = fd_spad_alloc( runner->spad, alignof(fd_microblock_hdr_t), sizeof(fd_microblock_hdr_t) );
+  fd_memset( microblock_hdr, 0, sizeof(fd_microblock_hdr_t) );
 
-    ulong txn_cnt       = input_microblock->txns_count;
-    ulong signature_cnt = 0UL;
-    ulong account_cnt   = 0UL;
+  fd_txn_p_t * txn_ptrs = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_p_t * txn = &txn_ptrs[i];
 
-    fd_txn_p_t * txn_ptrs = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
+    ushort _instr_count, _addr_table_cnt;
+    ulong msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &test_ctx->txns[i], &_instr_count, &_addr_table_cnt );
 
-    for( ulong j=0UL; j<txn_cnt; j++ ) {
-      fd_txn_p_t * txn = &txn_ptrs[j];
+    // Reject any transactions over 1232 bytes
+    if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) {
+      return NULL;
+    }
+    txn->payload_sz = msg_sz;
 
-      ushort _instr_count, _addr_table_cnt;
-      ulong msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &input_microblock->txns[j], &_instr_count, &_addr_table_cnt );
-
-      // Reject any transactions over 1232 bytes
-      if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) {
-        return NULL;
-      }
-      txn->payload_sz = msg_sz;
-
-      // Reject any transactions that cannot be parsed
-      if( FD_UNLIKELY( !fd_txn_parse( txn->payload, msg_sz, TXN( txn ), NULL ) ) ) {
-        return NULL;
-      }
-
-      signature_cnt += TXN( txn )->signature_cnt;
-      account_cnt   += fd_txn_account_cnt( TXN( txn ), FD_TXN_ACCT_CAT_ALL );
+    // Reject any transactions that cannot be parsed
+    if( FD_UNLIKELY( !fd_txn_parse( txn->payload, msg_sz, TXN( txn ), NULL ) ) ) {
+      return NULL;
     }
 
-    microblock_hdr->txn_cnt         = txn_cnt;
-    microblock_info->microblock.raw = (uchar *)microblock_hdr;
-
-    microblock_info->signature_cnt  = signature_cnt;
-    microblock_info->account_cnt    = account_cnt;
-    microblock_info->txns           = txn_ptrs;
-
-    batch_signature_cnt            += signature_cnt;
-    batch_txn_cnt                  += txn_cnt;
-    batch_account_cnt              += account_cnt;
+    signature_cnt += TXN( txn )->signature_cnt;
+    account_cnt   += fd_txn_account_cnt( TXN( txn ), FD_TXN_ACCT_CAT_ALL );
   }
+
+  microblock_hdr->txn_cnt         = txn_cnt;
+  microblock_info->microblock.raw = (uchar *)microblock_hdr;
+
+  microblock_info->signature_cnt  = signature_cnt;
+  microblock_info->account_cnt    = account_cnt;
+  microblock_info->txns           = txn_ptrs;
+
+  batch_signature_cnt            += signature_cnt;
+  batch_txn_cnt                  += txn_cnt;
+  batch_account_cnt              += account_cnt;
 
   block_info->signature_cnt = batch_info->signature_cnt = batch_signature_cnt;
   block_info->txn_cnt       = batch_info->txn_cnt       = batch_txn_cnt;
