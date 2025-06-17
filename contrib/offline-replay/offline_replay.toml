@@ -15,7 +15,7 @@
     [tiles.gui]
         enabled = false
 [funk]
-    heap_size_gb = {funk_pages}
+    heap_size_gib = {funk_pages}
     max_account_records = {index_max}
     max_database_transactions = 64
 [runtime]

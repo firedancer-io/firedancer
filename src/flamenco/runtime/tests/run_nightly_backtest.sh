@@ -100,7 +100,7 @@ echo "
     [tiles.gui]
         enabled = false
 [funk]
-    heap_size_gb = $FUNK_PAGES
+    heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX
     max_database_transactions = 1024
 [runtime]

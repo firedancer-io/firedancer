@@ -1,6 +1,7 @@
 #include "fd_dump_pb.h"
 #include "harness/generated/block.pb.h"
 #include "harness/generated/invoke.pb.h"
+#include "harness/generated/txn.pb.h"
 #include "harness/generated/vm.pb.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
@@ -556,12 +557,10 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
                                                   fd_runtime_block_info_t const * block_info,
                                                   fd_exec_slot_ctx_t const *      slot_ctx,
                                                   fd_spad_t *                     spad ) {
-  /* BlockContext -> microblocks */
-  block_context->microblocks_count = 0U;
-  block_context->microblocks       = fd_spad_alloc( spad, alignof(fd_exec_test_microblock_t), block_info->microblock_cnt *
-                                                                                              block_info->microblock_batch_cnt *
-                                                                                              sizeof(fd_exec_test_microblock_t) );
-  fd_memset( block_context->microblocks, 0, block_info->microblock_cnt * block_info->microblock_batch_cnt * sizeof(fd_exec_test_microblock_t) );
+  /* BlockContext -> txns */
+  block_context->txns_count = 0U;
+  block_context->txns       = fd_spad_alloc( spad, alignof(fd_exec_test_sanitized_transaction_t), block_info->txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
+  fd_memset( block_context->txns, 0, block_info->txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
 
   /* BlockContext -> acct_states
      Allocate additional space for the remaining accounts */
@@ -585,17 +584,11 @@ create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *
       ulong                        txn_cnt         = microblock_info->microblock.hdr->txn_cnt;
       if (txn_cnt==0UL) continue;
 
-      fd_exec_test_microblock_t * out_block = &block_context->microblocks[block_context->microblocks_count++];
-
-      out_block->txns_count = (pb_size_t)txn_cnt;
-      out_block->txns       = fd_spad_alloc( spad, alignof(fd_exec_test_sanitized_transaction_t), txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
-      memset( out_block->txns, 0, txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
-
-      /* BlockContext -> microblocks -> txns */
+      /* BlockContext -> txns */
       for( ulong k=0UL; k<txn_cnt; k++ ) {
         fd_txn_p_t const * txn_ptr      = &microblock_info->txns[k];
         fd_txn_t const * txn_descriptor = TXN( txn_ptr );
-        dump_sanitized_transaction( slot_ctx->funk, slot_ctx->funk_txn, txn_descriptor, txn_ptr->payload, spad, &out_block->txns[k] );
+        dump_sanitized_transaction( slot_ctx->funk, slot_ctx->funk_txn, txn_descriptor, txn_ptr->payload, spad, &block_context->txns[block_context->txns_count++] );
 
         /* BlockContext -> acct_states */
         /* Dump account + alut + programdata accounts (if applicable). There's a lot more brute force work since none of the borrowed accounts are set up yet. We have to:
