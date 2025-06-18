@@ -2,6 +2,7 @@
 
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../util/log/fd_log.h"
+#include "crds/fd_crds.h"
 
 #define FD_PING_TRACKER_STATE_INVALID    (0)
 #define FD_PING_TRACKER_STATE_VALID      (1)
@@ -280,6 +281,7 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
 
 void
 fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
+                          fd_crds_t *           crds,
                           uchar const *         peer_pubkey,
                           ulong                 peer_stake,
                           fd_ip4_port_t const * peer_address,
@@ -298,6 +300,8 @@ fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
   remove_tracking( ping_tracker, peer );
   peer->state = FD_PING_TRACKER_STATE_VALID;
   waiting_list_ele_push_tail( ping_tracker->waiting, peer, ping_tracker->pool );
+
+  fd_crds_peer_active( crds, peer_pubkey );
 }
 
 int
@@ -321,6 +325,7 @@ fd_ping_tracker_active( fd_ping_tracker_t const * ping_tracker,
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
+                             fd_crds_t *            crds,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token ) {
@@ -343,7 +348,12 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
 
     if( FD_UNLIKELY( next->last_rx_nanos<now-20L*1000L*1000L*1000L ) ) {
       /* The peer is no longer sending us contact information, no need
-         to ping it and instead remove it from the table. */
+         to ping it and instead remove it from the table. Also, if it
+         marks a previously active peer as inactive, notify crds. */
+      if( next->state==FD_PING_TRACKER_STATE_REFRESHING ||
+          next->state==FD_PING_TRACKER_STATE_VALID ) {
+               fd_crds_peer_inactive( crds, next->identity_pubkey.b );
+         }
       peer_map_ele_remove_fast( ping_tracker->peers, next, ping_tracker->pool );
       lru_list_ele_remove( ping_tracker->lru, next, ping_tracker->pool );
       remove_tracking( ping_tracker, next );

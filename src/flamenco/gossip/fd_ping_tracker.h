@@ -30,6 +30,7 @@
 
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
+#include "crds/fd_crds.h"
 
 #define FD_PING_TRACKER_ALIGN (128UL)
 
@@ -74,10 +75,13 @@ fd_ping_tracker_track( fd_ping_tracker_t *   ping_tracker,
    that they can be considered as valid.  It should be called any time
    a peer sends a valid-looking pong.  Valid looking, because it might
    not be ponging an actual ping token we sent, but this function will
-   validate that before marking the peer as active. */
+   validate that before marking the peer as active.
+
+   If a peer is marked as active, notify crds. */
 
 void
 fd_ping_tracker_register( fd_ping_tracker_t *   ping_tracker,
+                          fd_crds_t *           crds,
                           uchar const *         peer_pubkey,
                           ulong                 peer_stake,
                           fd_ip4_port_t const * peer_address,
@@ -103,7 +107,9 @@ fd_ping_tracker_active( fd_ping_tracker_t const * ping_tracker,
    needs to be sent to a peer.  If a ping request needs to be sent, the
    peer pubkey is returned in out_peer_pubkey.  The caller should send a
    ping message to the peer.  The structure assumes the ping will be
-   sent, and updates internal state accordingly.
+   sent, and updates internal state accordingly. If a previously
+   active peer is marked inactive (because they didn't respond to a
+   ping), the tracker will notify crds accordingly.
 
    Returns 1 if a ping request needs to be sent, or 0 if no ping request
    is needed.
@@ -116,6 +122,7 @@ fd_ping_tracker_active( fd_ping_tracker_t const * ping_tracker,
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
+                             fd_crds_t *            crds,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );

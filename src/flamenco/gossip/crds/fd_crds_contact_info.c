@@ -3,6 +3,7 @@
 
 struct fd_crds_contact_info_entry {
   fd_contact_info_t contact_info[1];
+  uchar             is_active;
 
   struct{
     ulong next;

@@ -730,6 +730,7 @@ rx_pong( fd_gossip_t *           gossip,
   if( FD_UNLIKELY( is_entrypoint( gossip, peer_address ) )) return 0;
 
   fd_ping_tracker_register( gossip->ping_tracker,
+                            gossip->crds,
                             pong->pubkey,
                             get_stake( gossip, pong->pubkey ),
                             peer_address,
@@ -847,6 +848,7 @@ tx_ping( fd_gossip_t * gossip,
   fd_ip4_port_t const * peer_address;
   while( fd_ping_tracker_pop_request( gossip->ping_tracker,
                                       now,
+                                      gossip->crds,
                                       &peer_pubkey,
                                       &peer_address,
                                       &ping_token ) ) {
@@ -976,7 +978,7 @@ tx_pull_request( fd_gossip_t * gossip,
     fi_idx = (fi_idx+1UL)%gossip->failed_inserts.cap;
   }
 
-  fd_ip4_port_t peer = fd_crds_sample_peer( gossip->crds );
+  fd_ip4_port_t peer = fd_crds_peer_sample( gossip->crds );
   if( FD_UNLIKELY( !peer.l )) {
     /* Choose random entrypoint */
     peer = random_entrypoint( gossip );

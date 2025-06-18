@@ -47,25 +47,7 @@ void
 fd_crds_expire( fd_crds_t * crds,
                 long        now );
 
-/* fd_crds_sample_peer randomly selects a peer node from the CRDS based
-   weighted by stake.  Peers with a ContactInfo that hasn't been
-   refreshed in more than 60 seconds are considered offline, and are
-   downweighted in the selection by a factor of 100.  They are still
-   included to mitigate eclipse attacks.  Peers with no ContactInfo in
-   the CRDS are not included in the selection.  The current node is
-   also excluded from the selection.  Low stake peers which are not
-   active in the ping tracker, because they aren't responding to pings
-   are also excluded from the sampling.  Peers with a different shred
-   version than us, or with an invalid gossip socket address are also
-   excluded from the sampling.
 
-   If no valid peer can be found, the returned fd_ip4_port_t will be
-   zeroed out.  The caller should check for this case and handle it
-   appropriately.  On success, the returned fd_ip4_port_t is a socket
-   address suitable for sending a gossip pull request. */
-
-fd_ip4_port_t
-fd_crds_sample_peer( fd_crds_t const * crds );
 
 /* fd_crds_acquire acquires a CRDS value from the storage pool in the
    CRDS so that it can be written to by the caller.  The value will
@@ -149,6 +131,13 @@ fd_crds_insert( fd_crds_t *       crds,
                 fd_crds_entry_t * value,
                 int               from_push_msg );
 
+ulong
+fd_crds_purged_len( fd_crds_t * crds );
+
+uchar const *
+fd_crds_purged( fd_crds_t * crds,
+                ulong       idx );
+
 void
 fd_crds_value( fd_crds_entry_t const * entry,
                uchar const **          value_bytes,
@@ -159,19 +148,64 @@ fd_crds_value( fd_crds_entry_t const * entry,
 uchar const *
 fd_crds_value_hash( fd_crds_entry_t const * entry );
 
+
 /* Returns 1 if the provided pubkey (assumed 32b) has a corresponding Contact Info
    entry in the table. */
 int
-fd_crds_has_contact_info( fd_crds_t const * crds,
-                          uchar const *     pubkey );
+fd_crds_peer_has_contact_info( fd_crds_t const * crds,
+                               uchar const *     pubkey );
 
 ulong
-fd_crds_purged_len( fd_crds_t * crds );
+fd_crds_peer_count( fd_crds_t const * crds );
 
+/* The CRDS table tracks whether a peer is active or not to determine whether
+   it should be sampled (see sample APIs). fd_crds_peer_{active,inactive}
+   provide a way to manage this state for a given peer.
+
+   A peer's active state is typicallly determined by its ping/pong status. */
+void
+fd_crds_peer_active( fd_crds_t * crds,
+                     uchar const * peer_pubkey );
+
+void
+fd_crds_peer_inactive( fd_crds_t * crds,
+                       uchar const * peer_pubkey );
+
+/************************ Begin Sample APIs ********************************/
+
+/* fd_crds_bucket_* sample APIs are meant to be used by fd_active_set.
+   Each bucket has a unique sampler. */
 uchar const *
-fd_crds_purged( fd_crds_t * crds,
-                ulong       idx );
+fd_crds_bucket_sample_and_remove( fd_crds_t const * crds,
+                                  ulong bucket );
 
+/* fd_crds_bucket adds back in a peer that was previously
+   sampled with fd_crds_bucket_sample_and_remove.  */
+void
+fd_crds_bucket_add( fd_crds_t *   crds,
+                    ulong         bucket,
+                    uchar const * pubkey );
+
+
+/* fd_crds_sample_peer randomly selects a peer node from the CRDS based
+   weighted by stake.  Peers with a ContactInfo that hasn't been
+   refreshed in more than 60 seconds are considered offline, and are
+   downweighted in the selection by a factor of 100.  They are still
+   included to mitigate eclipse attacks.  Peers with no ContactInfo in
+   the CRDS are not included in the selection.  The current node is
+   also excluded from the selection.  Low stake peers which are not
+   active in the ping tracker, because they aren't responding to pings
+   are also excluded from the sampling.  Peers with a different shred
+   version than us, or with an invalid gossip socket address are also
+   excluded from the sampling.
+
+   If no valid peer can be found, the returned fd_ip4_port_t will be
+   zeroed out.  The caller should check for this case and handle it
+   appropriately.  On success, the returned fd_ip4_port_t is a socket
+   address suitable for sending a gossip pull request. */
+
+fd_ip4_port_t
+fd_crds_peer_sample( fd_crds_t const * crds );
 
 /* fd_crds_mask_iter_{init,next,done,value} provide an iterator to
    iterate over the CRDS values in the table that whose hashes match

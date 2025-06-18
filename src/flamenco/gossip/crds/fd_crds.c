@@ -698,14 +698,48 @@ fd_crds_value_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
 }
 
-int
-fd_crds_has_contact_info( fd_crds_t const * crds,
-                          uchar const *     pubkey ) {
+inline static fd_crds_key_t
+make_contact_info_key( uchar const * pubkey ) {
   fd_crds_key_t key[1];
   key->tag = FD_CRDS_TAG_CONTACT_INFO;
   fd_memcpy( key->pubkey, pubkey, 32UL );
+  return *key;
+}
 
-  return lookup_map_idx_query( crds->lookup_map, key, ULONG_MAX, crds->pool ) != ULONG_MAX;
+int
+fd_crds_peer_has_contact_info( fd_crds_t const * crds,
+                          uchar const *     pubkey ) {
+  fd_crds_key_t key = make_contact_info_key( pubkey );
+  return lookup_map_idx_query( crds->lookup_map, &key, ULONG_MAX, crds->pool ) != ULONG_MAX;
+}
+
+ulong
+fd_crds_peer_count( fd_crds_t const * crds ){
+  return crds_contact_info_pool_used( crds->contact_info.pool );
+}
+
+static inline void
+set_peer_active_status( fd_crds_t *   crds,
+                        uchar const * peer_pubkey,
+                        uchar         status ) {
+  fd_crds_key_t key = make_contact_info_key( peer_pubkey );
+
+  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
+  /* TODO: error handling? This technically should never hit */
+  if( FD_UNLIKELY( !peer_ci ) ) return;
+  fd_crds_contact_info_entry_t * ci = peer_ci->contact_info.ci;
+  ci->is_active = status;
+}
+void
+fd_crds_peer_active( fd_crds_t *   crds,
+                     uchar const * peer_pubkey ) {
+  set_peer_active_status( crds, peer_pubkey, 1 /* active */ );
+}
+
+void
+fd_crds_peer_inactive( fd_crds_t *   crds,
+                       uchar const * peer_pubkey ) {
+  set_peer_active_status( crds, peer_pubkey, 0 /* inactive */ );
 }
 
 struct fd_crds_mask_iter_private {
