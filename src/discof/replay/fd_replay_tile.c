@@ -2493,13 +2493,8 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-<<<<<<< HEAD
   void * slice_buf           = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
-  void * manifest_reader_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stream_reader_align(), fd_stream_reader_footprint() );
-=======
-  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
   void * manifest_reader_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_frag_reader_align(), fd_frag_reader_footprint() );
->>>>>>> 8be2fb855 (working scafold for http)
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {

@@ -13,9 +13,15 @@
 #define FILE_READ_MAX 8UL<<20
 
 #define CLUSTER_SNAPSHOT_SLOT 326672166UL
-#define PEER1 "http://emfr-ccn-solana-testnet-val2.jumpisolated.com:8899"
+#define PEER1 "http://emfr-ccn-solana-testnet-val2.jumpisolated.com"
 #define PEER2 "http://emfr-ccn-solana-testnet-val2.jumpisolated.com:8899"
 #define PEER3 "http://emfr-ccn-solana-testnet-val2.jumpisolated.com:8899"
+
+fd_ip4_port_t const peers[ 16UL ] = {
+  { .addr = FD_IP4_ADDR( 145, 40, 95, 69 ), .port = 8899 },
+  { .addr = FD_IP4_ADDR( 145, 40, 95, 69 ), .port = 8899 },
+  { .addr = FD_IP4_ADDR( 145, 40, 95, 69 ), .port = 8899 }
+};
 
 struct fd_snaprd_tile {
   fd_stream_writer_t * writer;
@@ -24,11 +30,7 @@ struct fd_snaprd_tile {
   fd_incremental_snapshot_archive_entry_t incremental_snapshot_entry;
 
   fd_snapshot_reader_t * snapshot_reader;
-
-  /* TODO: this could change to be a message
-     communication with replay */
-  ulong *              replay_snap_fseq;
-  uint                 num_aborts;
+  uint                   num_aborts;
 
   struct {
     char path[ PATH_MAX ];

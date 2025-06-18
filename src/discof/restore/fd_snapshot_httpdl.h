@@ -2,6 +2,9 @@
 #define HEADER_fd_src_discof_restore_fd_snapshot_httpdl_h
 
 #include "../../util/fd_util_base.h"
+#include "../../util/net/fd_net_headers.h"
+#include "fd_snapshot_archive.h"
+#include "fd_snapshot_reader_metrics.h"
 
 /* fd_snapshot_httpdl.h provides APIs for streaming download of Solana
    snapshots via HTTP.  It is currently hardcoded to use non-blocking
@@ -30,8 +33,15 @@
 
 #define FD_SNAPSHOT_HTTP_DEFAULT_HOPS (4UL)
 
+#define FD_SNAPSHOT_HTTP_MAX_NODES (16UL)
+
+#define FD_SNAPSHOT_REQUEST_TIMEOUT (10e9) /* 10 seconds */
+
 struct fd_snapshot_httpdl {
-  /* Http parameters */
+  /* List of RPC node addresses */
+  fd_ip4_port_t peers[ 16UL ];
+  ulong         peers_cnt;
+
   uint   ipv4;
   ushort port;
 
@@ -39,7 +49,6 @@ struct fd_snapshot_httpdl {
   ushort hops;
   int    socket_fd;
   int    state;
-  long   req_timeout;
   long   req_deadline;
 
   /* Http request path */
@@ -74,10 +83,18 @@ struct fd_snapshot_httpdl {
 
   ulong write_total;
 
-  /* Snapshot file to download into */
-  char  snapshot_path[ FD_SNAPSHOT_HTTP_FILE_PATH_MAX ];
-  int   snapshot_fd;
+  /* File to store downloaded snapshot contents.
+     Named as <snapshot-type>-<slot>-<hash>-partial.tar.zst */
+  char snapshot_archive_path[ PATH_MAX ];
+  int   full_snapshot_fd;
+  int   incremental_snapshot_fd;
 
+  /* snapshot entries */
+  fd_snapshot_archive_entry_t full_snapshot_entry;
+  fd_incremental_snapshot_archive_entry_t incremental_snapshot_entry;
+
+  /* metrics */
+  fd_snapshot_reader_metrics_t metrics;
 };
 
 typedef struct fd_snapshot_httpdl fd_snapshot_httpdl_t;
@@ -93,6 +110,17 @@ fd_snapshot_httpdl_footprint( void ) {
 }
 
 fd_snapshot_httpdl_t *
-fd_snapshot_httpdl_new( void * mem );
+fd_snapshot_httpdl_new( void *              mem,
+                        ulong               peers_cnt,
+                        fd_ip4_port_t const peers[ FD_SNAPSHOT_HTTP_MAX_NODES ],
+                        char const *        snapshot_archive_path );
+
+void
+fd_snapshot_httpdl_set_path( fd_snapshot_httpdl_t * self,
+                             char const *           path,
+                             ulong                  path_len );
+
+void *
+fd_snapshot_httpdl_delete( fd_snapshot_httpdl_t * self );
 
 #endif /* HEADER_fd_src_discof_restore_fd_snapshot_httpdl_h */
