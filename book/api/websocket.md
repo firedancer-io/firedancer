@@ -230,14 +230,14 @@ landed a vote for, and the current highest replayed slot on the
 validators fork choice. A distance of more than 150 means the validator
 is considered delinquent.
 
-#### `summary.uptime_nanos`
+#### `summary.startup_time_nanos`
 | frequency | type     | example             |
 |-----------|----------|---------------------|
-| *Once*    | `string` |  `"21785299176204"` |
+| *Once*    | `string` |  `"1719910299914232"` |
 
-The length of time in nanoseconds that the validator has been running.
-Running time is approximately measured since application startup, and
-includes time to download a snapshot and catch up to the cluster.
+A UNIX timestamp in nanoseconds of the validator's startup.  The timestamp is
+taken by the gui tile during boot, so it occurs before the validator downloads a
+snapshot and fully catches up to the cluster.
 
 #### `summary.startup_progress`
 | frequency       | type              | example |
@@ -1000,22 +1000,23 @@ a leader publishes two different blocks for their leader slot, and we
 initially replay one but the cluster votes on the other one.
 
 **`SlotPublish`**
-| Field                | Type           | Description |
-|----------------------|----------------|-------------|
-| slot                 | `number`       | Identity of the slot, counting up from zero for the first slot in the chain |
-| mine                 | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
-| skipped              | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
-| duration_nanos       | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
-| completed_time_nanos | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
-| level                | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
-| transactions         | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| vote_transactions    | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
-| failed_transactions  | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transactions which do not pay fees and are not included in the block |
-| max_compute_units    | `number\|null`    | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
-| compute_units        | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verfication programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
-| transaction_fee      | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
-| priority_fee         | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
-| tips                 | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
+| Field                        | Type           | Description |
+|------------------------------|----------------|-------------|
+| slot                         | `number`       | Identity of the slot, counting up from zero for the first slot in the chain |
+| mine                         | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
+| skipped                      | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
+| duration_nanos               | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
+| completed_time_nanos         | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
+| level                        | `string`       | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
+| success_nonvote_transactions | `number\|null` | Total number of successfully executed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| failed_nonvote_transactions  | `number\|null` | Total number of failed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| success_vote_transactions    | `number\|null` | Total number of successfully executed vote transactions in the block |
+| failed_vote_transactions     | `number\|null` | Total number of failed vote transactions in the block.  This should be near-zero in a healthy cluster |
+| max_compute_units            | `number\|null` | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
+| compute_units                | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verfication programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
+| transaction_fee              | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
+| priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
+| tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
 #### `slot.skipped_history`
 | frequency      | type       | example |

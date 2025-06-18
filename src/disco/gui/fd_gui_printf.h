@@ -11,7 +11,7 @@ void fd_gui_printf_version( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_commit_hash( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
-void fd_gui_printf_uptime_nanos( fd_gui_t * gui );
+void fd_gui_printf_startup_time_nanos( fd_gui_t * gui );
 void fd_gui_printf_vote_state( fd_gui_t * gui );
 void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_skipped_history( fd_gui_t * gui );
