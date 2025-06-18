@@ -142,16 +142,16 @@ parse_url( fd_url_t *   url_,
   fd_url_t * url = fd_url_parse_cstr( url_, url_str, url_str_len, url_err );
   if( FD_UNLIKELY( !url ) ) {
     switch( *url_err ) {
-    scheme_err:
-    case FD_URL_ERR_SCHEME:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: must start with `http://` or `https://`", (int)url_str_len, url_str ));
-      break;
-    case FD_URL_ERR_HOST_OVERSZ:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: domain name is too long", (int)url_str_len, url_str ));
-      break;
-    default:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`", (int)url_str_len, url_str ));
-      break;
+      scheme_err:
+      case FD_URL_ERR_SCHEME:
+        FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: must start with `http://` or `https://`", (int)url_str_len, url_str ));
+        break;
+      case FD_URL_ERR_HOST_OVERSZ:
+        FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: domain name is too long", (int)url_str_len, url_str ));
+        break;
+      default:
+        FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`", (int)url_str_len, url_str ));
+        break;
     }
   }
 
@@ -328,6 +328,8 @@ fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
     FD_LOG_ERR(( "SSL_CTX_new failed" ));
   }
 
+  SSL_CTX_set_verify( ssl_ctx, ctx->skip_cert_verify ? SSL_VERIFY_NONE : SSL_VERIFY_PEER, NULL );
+
   if( FD_UNLIKELY( !SSL_CTX_set_ex_data( ssl_ctx, 0, ctx ) ) ) {
     FD_LOG_ERR(( "SSL_CTX_set_ex_data failed" ));
   }
@@ -348,7 +350,27 @@ fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
     SSL_CTX_set_keylog_callback( ssl_ctx, fd_ossl_keylog_callback );
   }
 
-  ctx->ssl_ctx = ssl_ctx;
+  if( FD_LIKELY( !ctx->skip_cert_verify ) ) {
+    /* preload the certificate to avoid syscalls after entering the
+       sandbox */
+    X509_STORE *store = X509_STORE_new();
+    STACK_OF( X509_INFO ) *cert_infos;
+
+    BIO *bio = BIO_new_file( "/etc/ssl/certs/ca-certificates.crt", "r" );
+    cert_infos = PEM_X509_INFO_read_bio( bio, NULL, NULL, NULL);
+
+    for( int i=0; i<sk_X509_INFO_num( cert_infos ); i++ ) {
+      X509_INFO *info = sk_X509_INFO_value( cert_infos, i );
+      if( info->x509 ) X509_STORE_add_cert( store, info->x509 );
+      if( info->crl )  X509_STORE_add_crl ( store, info->crl );
+    }
+
+    SSL_CTX_set_cert_store( ssl_ctx, store );
+    BIO_free( bio );
+    sk_X509_INFO_pop_free( cert_infos, X509_INFO_free );
+
+    ctx->ssl_ctx = ssl_ctx;
+  }
 }
 
 #endif /* FD_HAS_OPENSSL */
@@ -391,6 +413,8 @@ privileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->bundle.key_log_path, errno, fd_io_strerror( errno ) ));
     }
   }
+
+  ctx->skip_cert_verify = !!tile->bundle.skip_cert_verify;
 
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special

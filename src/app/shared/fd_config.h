@@ -338,6 +338,7 @@ struct fd_config {
       char tip_distribution_authority[ FD_BASE58_ENCODED_32_SZ ];
       uint commission_bps;
       ulong keepalive_interval_millis;
+      int skip_cert_verify; /* 1 to skip cert verification, 0 to verify */
     } bundle;
 
     struct {

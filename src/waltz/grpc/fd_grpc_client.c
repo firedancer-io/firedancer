@@ -8,6 +8,7 @@
 #include "../openssl/fd_openssl.h"
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/x509_vfy.h>
 #include "../h2/fd_h2_rbuf_ossl.h"
 #endif
 

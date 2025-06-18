@@ -200,6 +200,7 @@ struct fd_topo_tile {
       ulong buf_sz;
       ulong ssl_heap_sz;
       ulong keepalive_interval_nanos;
+      int   skip_cert_verify; /* 1 to skip cert verification, 0 to verify */
     } bundle;
 
     struct {

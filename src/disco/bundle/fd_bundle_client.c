@@ -11,6 +11,9 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
+#if FD_HAS_OPENSSL
+#include <openssl/x509_vfy.h>
+#endif
 
 #include <fcntl.h>
 #include <errno.h>
@@ -146,6 +149,18 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
     if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, ctx->server_sni ) ) ) {
       FD_LOG_ERR(( "SSL_set_tlsext_host_name failed" ));
+    }
+
+    /* In addition to sending the Server Name Indication (SNI) during
+       the handshake, explicitly configure OpenSSL to verify that the
+       peer certificate's Subject Alternative Name / Common Name match
+       the expected hostname.  This is required because simply setting
+       the SNI does not guarantee hostname validation.
+       deps.sh guarantees modern OpenSSL (openssl-3.5.0) */
+    if( FD_LIKELY( !ctx->skip_cert_verify ) ) {
+      if( FD_UNLIKELY( !SSL_set1_host( ssl, ctx->server_sni ) ) ) {
+        FD_LOG_ERR(( "SSL_set1_host failed" ));
+      }
     }
 
     ctx->ssl = ssl;
