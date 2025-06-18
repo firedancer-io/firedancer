@@ -881,6 +881,75 @@ REDBLK_IMPL_STATIC REDBLK_T * REDBLK_(insert)(REDBLK_T * pool, REDBLK_T ** root,
 }
 
 /*
+  Insert a node into a tree, replacing any elements that have the same key. Typically, the node must be allocated
+  from a pool first.
+*/
+REDBLK_IMPL_STATIC REDBLK_T * REDBLK_(insertOrReplace)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x, REDBLK_T ** out) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, *root);
+  REDBLK_(validate_element)(pool, x);
+#endif
+
+  REDBLK_T * current;
+  REDBLK_T * parent;
+
+  /* find where node belongs */
+  current = *root;
+  if (current == NULL)
+    current = &pool[REDBLK_NIL];
+  parent = &pool[REDBLK_NIL];
+  while (current != &pool[REDBLK_NIL]) {
+    long c = REDBLK_(compare)(x, current);
+    if(c == 0) { /* Already in the tree so lets special case this */
+      if(out != NULL)
+        *out = current;
+
+      x->REDBLK_PARENT = current->REDBLK_PARENT;
+      x->REDBLK_LEFT = current->REDBLK_LEFT;
+      x->REDBLK_RIGHT = current->REDBLK_RIGHT;
+      x->REDBLK_COLOR = current->REDBLK_COLOR;
+
+      /* Lets wire this in */
+      if( x->REDBLK_LEFT != REDBLK_NIL )
+        pool[x->REDBLK_LEFT].REDBLK_PARENT = (uint)(x - pool);
+      if( x->REDBLK_RIGHT != REDBLK_NIL )
+        pool[x->REDBLK_RIGHT].REDBLK_PARENT = (uint)(x - pool);
+      if( x->REDBLK_PARENT != REDBLK_NIL ) {
+        if( pool[x->REDBLK_PARENT].REDBLK_LEFT == (uint)(current - pool) )
+          pool[x->REDBLK_PARENT].REDBLK_LEFT = (uint)(x - pool);
+        if( pool[x->REDBLK_PARENT].REDBLK_RIGHT == (uint)(current - pool) )
+          pool[x->REDBLK_PARENT].REDBLK_RIGHT = (uint)(x - pool);
+      }
+
+      return x;
+    }
+
+    parent = current;
+    current = (c < 0 ? &pool[current->REDBLK_LEFT] : &pool[current->REDBLK_RIGHT]);
+  }
+
+  /* setup new node */
+  x->REDBLK_PARENT = (uint)(parent - pool);
+  x->REDBLK_LEFT = REDBLK_NIL;
+  x->REDBLK_RIGHT = REDBLK_NIL;
+  x->REDBLK_COLOR = REDBLK_RED;
+
+  /* insert node in tree */
+  if (parent != &pool[REDBLK_NIL]) {
+    long c = REDBLK_(compare)(x, parent);
+    if (c < 0)
+      parent->REDBLK_LEFT = (uint)(x - pool);
+    else
+      parent->REDBLK_RIGHT = (uint)(x - pool);
+  } else {
+    *root = x;
+  }
+
+  REDBLK_(insertFixup)(pool, root, x);
+  return x;
+}
+
+/*
   Restore tree invariants after a delete
 */
 static void REDBLK_(deleteFixup)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
