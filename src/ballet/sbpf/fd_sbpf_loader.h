@@ -18,10 +18,11 @@
 #define FD_SBPF_ERR_INVALID_ELF (1)
 #define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
-#define FD_SBPF_V0 (0UL)
-#define FD_SBPF_V1 (1UL)
-#define FD_SBPF_V2 (2UL)
-#define FD_SBPF_V3 (3UL)
+#define FD_SBPF_VERSION_COUNT (4UL)
+#define FD_SBPF_V0            (0UL)
+#define FD_SBPF_V1            (1UL)
+#define FD_SBPF_V2            (2UL)
+#define FD_SBPF_V3            (3UL)
 
 /* Program struct *****************************************************/
 
