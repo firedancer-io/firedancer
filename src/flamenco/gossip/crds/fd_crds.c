@@ -66,10 +66,18 @@ struct fd_crds_entry_private {
     This key field is the key for the hash table. */
   fd_crds_key_t key[1];
 
-  union{
+  union {
+    /* fd_crds manages a separate contact info table */
     struct {
-      long                           instance_creation_wallclock_nanos;
       fd_crds_contact_info_entry_t * ci;
+      long                           instance_creation_wallclock_nanos;
+      uchar                          is_active;
+      struct {
+        ulong prev;
+        ulong next;
+      } dlist;
+
+      /* TODO: stake-ordered treap/pq? */
     } contact_info;
     struct {
       /* TODO: only needed for upsert/override checks. Can we use offsets into
@@ -92,6 +100,7 @@ struct fd_crds_entry_private {
 
   uchar   value_hash[ 32UL ]; /* The hash of the encoded value, used for pull requests */
   ulong   num_duplicates;
+  ulong   stake; /* Used by samplers and evict treap */
 
   /* Pool fields. Not in use when pool element is acquired */
   struct {
@@ -115,7 +124,6 @@ struct fd_crds_entry_private {
      make room.  This is accomplished with a treap sorted by stake, so
      the lowest stake message is removed. */
   struct {
-    ulong stake;
     ulong parent;
     ulong left;
     ulong right;
@@ -171,7 +179,7 @@ fd_crds_entry_wallclock( fd_crds_entry_t const * entry ){
 #define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; })) /* which means we don't need to give a real
                                                                           implementation to cmp either */
 #define TREAP_IDX_T     ulong
-#define TREAP_LT(e0,e1) ((e0)->evict.stake<(e1)->evict.stake)
+#define TREAP_LT(e0,e1) ((e0)->stake<(e1)->stake)
 
 #define TREAP_PARENT    evict.parent
 #define TREAP_LEFT      evict.left
@@ -196,6 +204,13 @@ fd_crds_entry_wallclock( fd_crds_entry_t const * entry ){
 #define DLIST_PREV      expire.prev
 #define DLIST_NEXT      expire.next
 
+#include "../../../util/tmpl/fd_dlist.c"
+
+
+#define DLIST_NAME  crds_contact_info_dlist
+#define DLIST_ELE_T fd_crds_entry_t
+#define DLIST_PREV  contact_info.dlist.prev
+#define DLIST_NEXT  contact_info.dlist.next
 #include "../../../util/tmpl/fd_dlist.c"
 
 #define TREAP_NAME      hash_treap
@@ -417,6 +432,15 @@ fd_crds_join( void * shcrds ) {
   return crds;
 }
 
+static inline void
+remove_contact_info( fd_crds_t *                    crds,
+                     fd_crds_entry_t *              ci ) {
+  crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, ci, crds->pool );
+  crds_contact_info_pool_ele_release( crds->contact_info.pool, ci->contact_info.ci );
+  /* TODO: Emit this eviction as a gossip update event */
+  /* TODO: Sampler updates */
+}
+
 void
 fd_crds_expire( fd_crds_t * crds,
                 long        now ) {
@@ -436,11 +460,7 @@ fd_crds_expire( fd_crds_t * crds,
     crds_pool_ele_release( crds->pool, head );
 
     if( FD_UNLIKELY( is_contact_info( head->key ) ) ) {
-      fd_crds_contact_info_entry_t * ci = head->contact_info.ci;
-
-      crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, ci, crds->contact_info.pool );
-      crds_contact_info_pool_ele_release( crds->contact_info.pool, ci );
-      /* TODO: Emit this eviction as a gossip update event */
+      remove_contact_info( crds, head );
     }
   }
 
@@ -460,11 +480,7 @@ fd_crds_expire( fd_crds_t * crds,
     crds_pool_ele_release( crds->pool, head );
 
     if( FD_UNLIKELY( is_contact_info( head->key ) ) ) {
-      fd_crds_contact_info_entry_t * ci = head->contact_info.ci;
-
-      crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, ci, crds->contact_info.pool );
-      crds_contact_info_pool_ele_release( crds->contact_info.pool, ci );
-      /* TODO: Emit this eviction as a gossip update event */
+      remove_contact_info( crds, head );
     }
   }
 
@@ -486,7 +502,7 @@ fd_crds_acquire( fd_crds_t * crds ) {
     FD_TEST( !evict_treap_fwd_iter_done( head ) );
     fd_crds_entry_t * evict = evict_treap_fwd_iter_ele( head, crds->pool );
 
-    if( FD_LIKELY( !evict->evict.stake ) ) {
+    if( FD_LIKELY( !evict->stake ) ) {
       unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, evict, crds->pool );
     } else {
       staked_expire_dlist_ele_remove( crds->staked_expire_dlist, evict, crds->pool );
@@ -514,8 +530,8 @@ fd_crds_release( fd_crds_t *       crds,
 
 void
 fd_crds_populate_preflight( fd_gossip_view_crds_value_t const * view,
-                         uchar const *                       view_payload,
-                         fd_crds_entry_t *                   out_value ) {
+                            uchar const *                       view_payload,
+                            fd_crds_entry_t *                   out_value ) {
   static fd_sha256_t sha2[1];
   /* Construct key */
   fd_crds_key_t * key = out_value->key;
@@ -553,14 +569,16 @@ void
 fd_crds_populate_full( fd_crds_t *                         crds,
                        fd_gossip_view_crds_value_t const * view,
                        uchar const *                       view_payload,
+                       ulong                               origin_stake,
                        long                                now,
-                       uchar                               has_upsert_info,
+                       uchar                               has_preflight_info,
                        fd_crds_entry_t *                   out_value ) {
-  if( FD_UNLIKELY( !has_upsert_info ) ){
+  if( FD_UNLIKELY( !has_preflight_info ) ){
     fd_crds_populate_preflight( view, view_payload, out_value );
   }
   out_value->num_duplicates         = 0UL;
   out_value->expire.wallclock_nanos = now;
+  out_value->stake                  = origin_stake;
 
   out_value->value_sz                = view->length;
   fd_memcpy( out_value->value_bytes, view_payload+view->value_off, view->length );
@@ -628,9 +646,11 @@ insert_purged( fd_crds_t *   crds,
 int
 fd_crds_insert( fd_crds_t *       crds,
                 fd_crds_entry_t * value,
-                int               from_push_message ) {
+                int               from_push_message,
+                long              now ) {
   /* TODO: Why Agave tracks route? PushRespose etc ... */
   fd_crds_entry_t * replace = lookup_map_ele_query( crds->lookup_map, value->key, NULL, crds->pool );
+  uchar is_replacing = 0UL;
   if( FD_LIKELY( replace ) ) {
     if( FD_UNLIKELY( !overrides( replace, value ) ) ) {
       if( FD_UNLIKELY( replace->hash.hash!=value->hash.hash ) ) {
@@ -646,11 +666,24 @@ fd_crds_insert( fd_crds_t *       crds,
       return (int)(replace->num_duplicates++);
     }
     replace->num_duplicates = 0;
+    is_replacing = 1;
 
     insert_purged( crds, fd_crds_value_hash( replace ), replace->wallclock_nanos );
 
+    if( FD_UNLIKELY( is_contact_info( replace->key ) ) ) {
+      crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, replace, crds->pool );
+      crds_contact_info_pool_ele_release( crds->contact_info.pool, replace->contact_info.ci );
+
+      /* Inherit is_active from replacee */
+      value->contact_info.is_active = replace->contact_info.is_active;
+      if( FD_UNLIKELY( value->stake!=replace->stake ||
+                       replace->wallclock_nanos<now-60*1000L*1000L*1000L ) ) {
+        /* TODO: this should trigger sampler update. Should this also check active state changes? */
+      }
+    }
+
     evict_treap_ele_remove( crds->evict_treap, replace, crds->pool );
-    if( FD_LIKELY( replace->evict.stake ) ) {
+    if( FD_LIKELY( replace->stake ) ) {
       staked_expire_dlist_ele_remove( crds->staked_expire_dlist, replace, crds->pool );
     } else {
       unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, replace, crds->pool );
@@ -658,17 +691,12 @@ fd_crds_insert( fd_crds_t *       crds,
     hash_treap_ele_remove( crds->hash_treap, replace, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, replace->key, NULL, crds->pool );
     crds_pool_ele_release( crds->pool, replace );
-    if( FD_UNLIKELY( is_contact_info( replace->key ) ) ) {
-      fd_crds_contact_info_entry_t * ci = replace->contact_info.ci;
-      crds_contact_info_dlist_ele_remove( crds->contact_info.dlist, ci, crds->contact_info.pool );
-      crds_contact_info_pool_ele_release( crds->contact_info.pool, ci );
-    }
   }
 
-  crds->has_staked_node |= value->evict.stake ? 1 : 0;
+  crds->has_staked_node |= value->stake ? 1 : 0;
 
   evict_treap_ele_insert( crds->evict_treap, value, crds->pool );
-  if( FD_LIKELY( value->evict.stake ) ) {
+  if( FD_LIKELY( value->stake ) ) {
     staked_expire_dlist_ele_push_tail( crds->staked_expire_dlist, value, crds->pool );
   } else {
     unstaked_expire_dlist_ele_push_tail( crds->unstaked_expire_dlist, value, crds->pool );
@@ -679,8 +707,12 @@ fd_crds_insert( fd_crds_t *       crds,
   if( FD_UNLIKELY( is_contact_info( value->key ) ) ) {
     /* TODO: Emit this as a gossip insert/update update */
     crds_contact_info_dlist_ele_push_tail( crds->contact_info.dlist,
-                                           value->contact_info.ci,
-                                           crds->contact_info.pool );
+                                           value,
+                                           crds->pool );
+    if( FD_UNLIKELY( !is_replacing ) ) {
+      /* TODO: need to insert this NEW peer into samplers. Updates are taken
+         care of above.  */
+    }
   }
   return 0;
 }
@@ -713,6 +745,11 @@ fd_crds_peer_has_contact_info( fd_crds_t const * crds,
   return lookup_map_idx_query( crds->lookup_map, &key, ULONG_MAX, crds->pool ) != ULONG_MAX;
 }
 
+int
+fd_crds_is_contact_info(  fd_crds_entry_t const * entry ) {
+  return is_contact_info( entry->key );
+}
+
 ulong
 fd_crds_peer_count( fd_crds_t const * crds ){
   return crds_contact_info_pool_used( crds->contact_info.pool );
@@ -727,8 +764,12 @@ set_peer_active_status( fd_crds_t *   crds,
   fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, &key, NULL, crds->pool );
   /* TODO: error handling? This technically should never hit */
   if( FD_UNLIKELY( !peer_ci ) ) return;
-  fd_crds_contact_info_entry_t * ci = peer_ci->contact_info.ci;
-  ci->is_active = status;
+  uchar old_status = peer_ci->contact_info.is_active;
+  peer_ci->contact_info.is_active = status;
+
+  if( FD_UNLIKELY( old_status!=status ) ) {
+    /* Trigger sampler update */
+  }
 }
 void
 fd_crds_peer_active( fd_crds_t *   crds,

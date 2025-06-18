@@ -47,7 +47,7 @@ void
 fd_crds_expire( fd_crds_t * crds,
                 long        now );
 
-
+/*************************** Begin Insertion APIs *****************************/
 
 /* fd_crds_acquire acquires a CRDS value from the storage pool in the
    CRDS so that it can be written to by the caller.  The value will
@@ -107,6 +107,7 @@ void
 fd_crds_populate_full( fd_crds_t *                         crds,
                        fd_gossip_view_crds_value_t const * view,
                        uchar const *                       view_payload,
+                       ulong                               origin_stake,
                        long                                now,
                        uchar                               has_upsert_info,
                        fd_crds_entry_t *                   out_value );
@@ -129,7 +130,8 @@ fd_crds_upserts( fd_crds_t *       crds,
 int
 fd_crds_insert( fd_crds_t *       crds,
                 fd_crds_entry_t * value,
-                int               from_push_msg );
+                int               from_push_msg,
+                long              now );
 
 ulong
 fd_crds_purged_len( fd_crds_t * crds );
@@ -137,6 +139,8 @@ fd_crds_purged_len( fd_crds_t * crds );
 uchar const *
 fd_crds_purged( fd_crds_t * crds,
                 ulong       idx );
+
+/*********************** Begin CRDS Value accessor APIs ***********************/
 
 void
 fd_crds_value( fd_crds_entry_t const * entry,
@@ -148,9 +152,13 @@ fd_crds_value( fd_crds_entry_t const * entry,
 uchar const *
 fd_crds_value_hash( fd_crds_entry_t const * entry );
 
+/************************ Begin Contact Info APIs *****************************/
 
-/* Returns 1 if the provided pubkey (assumed 32b) has a corresponding Contact Info
-   entry in the table. */
+int
+fd_crds_is_contact_info( fd_crds_entry_t const * key );
+
+/* Returns 1 if the provided pubkey (assumed 32b) has a corresponding Contact
+   Info entry in the table. */
 int
 fd_crds_peer_has_contact_info( fd_crds_t const * crds,
                                uchar const *     pubkey );
@@ -171,7 +179,7 @@ void
 fd_crds_peer_inactive( fd_crds_t * crds,
                        uchar const * peer_pubkey );
 
-/************************ Begin Sample APIs ********************************/
+/*************************** Begin Sample APIs ********************************/
 
 /* fd_crds_bucket_* sample APIs are meant to be used by fd_active_set.
    Each bucket has a unique sampler. */
@@ -206,6 +214,8 @@ fd_crds_bucket_add( fd_crds_t *   crds,
 
 fd_ip4_port_t
 fd_crds_peer_sample( fd_crds_t const * crds );
+
+/************************* Begin Mask Iter APIs *******************************/
 
 /* fd_crds_mask_iter_{init,next,done,value} provide an iterator to
    iterate over the CRDS values in the table that whose hashes match

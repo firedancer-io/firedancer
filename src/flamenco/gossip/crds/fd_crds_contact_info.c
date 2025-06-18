@@ -3,16 +3,9 @@
 
 struct fd_crds_contact_info_entry {
   fd_contact_info_t contact_info[1];
-  uchar             is_active;
-
   struct{
     ulong next;
   } pool;
-  struct{
-    ulong prev;
-    ulong next;
-  } list;
-
   /* TODO: Stake-ordered treap/pq ? */
 };
 
@@ -22,12 +15,6 @@ typedef struct fd_crds_contact_info_entry fd_crds_contact_info_entry_t;
 #define POOL_T     fd_crds_contact_info_entry_t
 #define POOL_NEXT  pool.next
 #include "../../../util/tmpl/fd_pool.c"
-
-#define DLIST_NAME  crds_contact_info_dlist
-#define DLIST_ELE_T fd_crds_contact_info_entry_t
-#define DLIST_PREV  list.prev
-#define DLIST_NEXT  list.next
-#include "../../../util/tmpl/fd_dlist.c"
 
 int
 fd_crds_contact_info_populate( fd_gossip_view_crds_value_t const * view,

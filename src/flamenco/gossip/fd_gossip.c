@@ -581,7 +581,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
 
   for( ulong i=0UL; i<pull_response->crds_values_len.val; i++ ) {
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
-    fd_crds_entry_t * candidate =  fd_crds_acquire( gossip->crds );
+    fd_crds_entry_t * candidate               = fd_crds_acquire( gossip->crds );
 
     /* Fill up with information needed for upsert check */
     fd_crds_populate_preflight( value, payload, candidate );
@@ -594,27 +594,34 @@ rx_pull_response( fd_gossip_t *                          gossip,
       continue;
     }
 
+    uchar const * origin_pubkey    = payload+value->pubkey_off;
+    ulong stake                    = get_stake( gossip, origin_pubkey );
+
     /* TODO: Is this jittered in Agave? */
     long accept_after_nanos;
     if( FD_UNLIKELY( !memcmp( payload+value->pubkey_off, gossip->identity_pubkey, 32UL ) ) ) {
       accept_after_nanos = 0L;
-    // } else if( !stake( payload+pull_response->from_off ) ) {
-    //   accept_after_nanos = now-15L*1000L*1000L*1000L;
+    } else if( !stake ) {
+      accept_after_nanos = now-15L*1000L*1000L*1000L;
     } else {
       accept_after_nanos = now-432000L*1000L*1000L*1000L;
     }
     int error = 0;
 
     if( FD_LIKELY( accept_after_nanos<=value->wallclock.ts_nanos ) ||
-                   fd_crds_has_contact_info( gossip->crds,
-                                             payload+value->pubkey_off ) ) {
+                   fd_crds_peer_has_contact_info( gossip->crds,
+                                                  origin_pubkey ) ) {
       fd_crds_populate_full( gossip->crds,
                              value,
                              payload,
+                             stake,
                              now,
                              1, /* has_upsert_info */
                              candidate );
-      error = fd_crds_insert( gossip->crds, candidate, 0 /* from_push_msg */ );
+      error = fd_crds_insert( gossip->crds,
+                              candidate,
+                              0 /* from_push_msg */,
+                              now );
     } else {
       failed_inserts_append( gossip, fd_crds_value_hash( candidate ), now );
       error = 1;
@@ -622,6 +629,16 @@ rx_pull_response( fd_gossip_t *                          gossip,
     if( FD_UNLIKELY( !!error ) )
       fd_crds_release( gossip->crds, candidate );
     else {
+      if( FD_UNLIKELY( fd_crds_is_contact_info( candidate ) ) ){
+         int active = fd_ping_tracker_active( gossip->ping_tracker,
+                                              origin_pubkey,
+                                              stake,
+                                              NULL /* TODO */,
+                                              now );
+          active ? fd_crds_peer_active( gossip->crds, origin_pubkey )
+                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey );
+
+      }
       push_state_insert( gossip, payload, value, now );
     }
   }
@@ -643,30 +660,46 @@ rx_push( fd_gossip_t *                 gossip,
 
     uchar const * origin_pubkey    = payload+value->pubkey_off;
     fd_crds_entry_t * candidate = fd_crds_acquire( gossip->crds );
-    /* Separate upsert check prior to insertion to save us a memcpy if not upserting.
+    /* Separate upsert check prior to insertion to save us a memcpy + lookup if not upserting.
 
        FIXME: Even if new value does not upsert, we still need to call crds_insert
        so that the purge table is correctly updated, but we don't need to perform
        the full population since the insert call terminates prior to any insertion
        in this case. This is pretty confusing, will need to clean up. */
     fd_crds_populate_preflight( value, payload, candidate );
+    ulong stake;
 
     if( FD_UNLIKELY( fd_crds_upserts( gossip->crds, candidate ) ) ) {
+      stake = get_stake( gossip, origin_pubkey );
       fd_crds_populate_full( gossip->crds,
                              value,
                              payload,
+                             stake,
                              now,
                              1 /* has_upsert_info */,
                              candidate );
     }
 
-    int error            = fd_crds_insert( gossip->crds, candidate, 1 /* from_push_msg */ );
+    int error            = fd_crds_insert( gossip->crds,
+                                           candidate,
+                                           1 /* from_push_msg */,
+                                           now );
     ulong num_duplicates = 0UL;
     if( FD_UNLIKELY( !!error ) ){
       fd_crds_release( gossip->crds, candidate );
       if( FD_UNLIKELY( error>0 ) )      num_duplicates = (ulong)error;
       else if( FD_UNLIKELY( error<0 ) ) num_duplicates = ULONG_MAX;
     } else {
+      if( FD_UNLIKELY( fd_crds_is_contact_info( candidate ) ) ){
+         int active = fd_ping_tracker_active( gossip->ping_tracker,
+                                              origin_pubkey,
+                                              stake,
+                                              NULL /* TODO */,
+                                              now );
+          active ? fd_crds_peer_active( gossip->crds, origin_pubkey )
+                 : fd_crds_peer_inactive( gossip->crds, origin_pubkey );
+
+      }
       push_state_insert( gossip, payload, value, now );
     }
 
