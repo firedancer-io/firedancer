@@ -20,7 +20,6 @@
   "graphTooltip": 0,
   "id": 3649,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "collapsed": false,
@@ -53,6 +52,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 20,
             "gradientMode": "hue",
@@ -117,6 +117,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -165,6 +166,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 20,
             "gradientMode": "hue",
@@ -229,6 +231,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -302,6 +305,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -313,7 +317,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.7",
+      "pluginVersion": "11.2.5",
       "targets": [
         {
           "datasource": {
@@ -375,6 +379,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -386,7 +391,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.7",
+      "pluginVersion": "11.2.5",
       "targets": [
         {
           "datasource": {
@@ -463,7 +468,7 @@
         "showThresholdMarkers": true,
         "sizing": "auto"
       },
-      "pluginVersion": "10.4.7",
+      "pluginVersion": "11.2.5",
       "targets": [
         {
           "datasource": {
@@ -501,6 +506,7 @@
             "axisPlacement": "auto",
             "axisSoftMin": 0,
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 20,
             "gradientMode": "hue",
@@ -568,6 +574,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -627,6 +634,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -638,7 +646,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.7",
+      "pluginVersion": "11.2.5",
       "targets": [
         {
           "datasource": {
@@ -675,6 +683,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 32,
             "gradientMode": "hue",
@@ -741,6 +750,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -801,6 +811,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -812,7 +823,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.7",
+      "pluginVersion": "11.2.5",
       "targets": [
         {
           "datasource": {
@@ -873,6 +884,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -884,7 +896,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.7",
+      "pluginVersion": "11.2.5",
       "targets": [
         {
           "datasource": {
@@ -921,6 +933,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 41,
             "gradientMode": "hue",
@@ -951,8 +964,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -987,6 +999,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1033,7 +1046,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_quic_txn_too_small{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_txn_undersz{instance=~\"$instance\"}[$__rate_interval]))\n",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Txn Undersz",
@@ -1046,7 +1059,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_quic_txn_too_large{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_txn_too_large{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Txn Oversz",
@@ -1101,6 +1114,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1131,8 +1145,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1163,6 +1176,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1211,6 +1225,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1241,8 +1256,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1273,6 +1287,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1334,6 +1349,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "hue",
@@ -1365,8 +1381,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1376,7 +1391,32 @@
           },
           "unit": "ops"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "Timeout"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 7,
@@ -1397,6 +1437,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1455,6 +1496,7 @@
     },
     {
       "datasource": {
+        "default": false,
         "type": "prometheus",
         "uid": "${datasource}"
       },
@@ -1473,6 +1515,7 @@
             "axisPlacement": "auto",
             "axisSoftMin": 0,
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "none",
@@ -1503,8 +1546,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
+                "color": "red"
               }
             ]
           }
@@ -1530,6 +1572,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1537,7 +1580,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(link_overrun_polling_frag_count{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])",
+          "expr": "sum(increase(link_overrun_polling_frag_count{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "QUIC drops",
           "range": true,
@@ -1578,7 +1621,7 @@
           "expr": "sum by (quic_enc_level) (increase(quic_pkt_crypto_failed{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])) != 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "QUIC Crypto Fail (({{quic_enc_level}}))",
+          "legendFormat": "QUIC Crypto Fail ({{quic_enc_level}})",
           "range": true,
           "refId": "D"
         },
@@ -1594,6 +1637,19 @@
           "legendFormat": "QUIC No Key ({{quic_enc_level}})",
           "range": true,
           "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(quic_pkt_no_conn{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]) != 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "QUIC No Conn",
+          "range": true,
+          "refId": "F"
         }
       ],
       "title": "QUIC RX Drops",
@@ -1616,6 +1672,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1646,8 +1703,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1678,7 +1734,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "10.4.7",
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1772,6 +1828,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1802,8 +1859,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1834,6 +1890,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1871,6 +1928,7 @@
             "axisPlacement": "auto",
             "axisSoftMin": 0,
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "none",
@@ -1901,8 +1959,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
+                "color": "red"
               }
             ]
           }
@@ -1928,6 +1985,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -1946,20 +2004,8 @@
       "type": "timeseries"
     },
     {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 40
-      },
-      "id": 8,
-      "panels": [],
-      "title": "Net Tile",
-      "type": "row"
-    },
-    {
       "datasource": {
+        "default": false,
         "type": "prometheus",
         "uid": "${datasource}"
       },
@@ -1975,229 +2021,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "gradientMode": "hue",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "pps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 41
-      },
-      "id": 9,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean"
-          ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(net_received_packets{instance=~\"$instance\"}[$__rate_interval])) - sum(rate(quic_received_packets{instance=~\"$instance\"}[$__rate_interval]))",
-          "instant": false,
-          "legendFormat": "RX pps",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "-sum(rate(net_sent_packets{instance=~\"$instance\"}[$__rate_interval])) + sum(rate(quic_sent_packets{instance=~\"$instance\"}[$__rate_interval]))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "TX pps",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Non-QUIC packets",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "gradientMode": "hue",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "bps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 8,
-        "x": 12,
-        "y": 41
-      },
-      "id": 10,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean"
-          ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "(sum(rate(net_received_bytes{instance=~\"$instance\"}[$__rate_interval])) - sum(rate(quic_received_bytes{instance=~\"$instance\"}[$__rate_interval])))*8",
-          "instant": false,
-          "legendFormat": "RX bitrate",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "expr": "-sum(rate(net_sent_bytes{instance=~\"$instance\"}[$__rate_interval]))*8",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "TX bitrate",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Non-QUIC bandwidth",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -2228,8 +2052,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -2242,12 +2065,12 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 20,
-        "y": 41
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 40
       },
-      "id": 6,
+      "id": 30,
       "options": {
         "legend": {
           "calcs": [],
@@ -2260,7 +2083,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "10.3.3",
+      "pluginVersion": "11.4.0",
       "targets": [
         {
           "datasource": {
@@ -2268,115 +2091,16 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "exemplar": false,
-          "expr": "sum(rate(net_xdp_rx_dropped_other{instance=~\"$instance\"}[$__rate_interval])) + sum(rate(net_xdp_rx_dropped_ring_full{instance=~\"$instance\"}[$__rate_interval]))",
-          "instant": false,
-          "legendFormat": "RX",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "-sum(rate(net_tx_dropped{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "rate(quic_pkt_retransmissions{instance=~\"$instance\"}[$__rate_interval])",
           "hide": false,
           "instant": false,
-          "legendFormat": "TX",
+          "legendFormat": "__auto",
           "range": true,
-          "refId": "B"
+          "refId": "A"
         }
       ],
-      "title": "Dropped Packet Rate",
+      "title": "QUIC Frame Retransmits",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Number of packets dropped in the current Grafana time interval",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 3,
-        "w": 4,
-        "x": 20,
-        "y": 47
-      },
-      "id": 5,
-      "maxDataPoints": 1,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "10.4.7",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "sum(increase(net_xdp_rx_dropped_other{instance=~\"$instance\"}[$__range]) + increase(net_xdp_rx_dropped_ring_full{instance=~\"$instance\"}[$__range]))",
-          "instant": true,
-          "legendFormat": "RX",
-          "range": false,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "sum(increase(net_tx_dropped{instance=~\"$instance\"}[$__range]))",
-          "hide": false,
-          "instant": true,
-          "legendFormat": "TX",
-          "range": false,
-          "refId": "B"
-        }
-      ],
-      "title": "Dropped Packets",
-      "type": "stat"
     }
   ],
   "refresh": "",
@@ -2405,9 +2129,9 @@
       {
         "allValue": ".*",
         "current": {
-          "selected": true,
-          "text": "All",
-          "value": "$__all"
+          "selected": false,
+          "text": "",
+          "value": ""
         },
         "datasource": {
           "type": "prometheus",
@@ -2437,9 +2161,9 @@
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "utc",
-  "title": "Firedancer Networking",
+  "timezone": "Europe/Berlin",
+  "title": "Firedancer QUIC",
   "uid": "fb867872-560e-46ec-b867-3b8907951824",
-  "version": 41,
+  "version": 56,
   "weekStart": ""
 }
