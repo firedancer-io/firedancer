@@ -715,3 +715,25 @@
 | <span class="metrics-name">send_&#8203;leader_&#8203;contact_&#8203;nonroutable</span> | counter | Total count of times leader contact is nonroutable |
 
 </div>
+
+## Accdb Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;total</span> | gauge | Total number of accounts currently in the account database |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;capacity</span> | gauge | Total capacity of accounts that can be stored in the account database |
+| <span class="metrics-name">accdb_&#8203;bytes_&#8203;read</span> | counter | Total number of bytes read from the account database |
+| <span class="metrics-name">accdb_&#8203;bytes_&#8203;written</span> | counter | Total number of bytes written to the account database |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;read</span> | counter | Total number of accounts read from the account database |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;written</span> | counter | Total number of accounts written to the account database |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;relocated</span> | counter | Total number of accounts moved in the account database during compaction |
+| <span class="metrics-name">accdb_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Total allocated size of the account database on disk |
+| <span class="metrics-name">accdb_&#8203;disk_&#8203;used_&#8203;bytes</span> | gauge | Total size of the account database on disk that is currently used |
+| <span class="metrics-name">accdb_&#8203;in_&#8203;compaction</span> | gauge | 1 if a compaction is currently in progress, 0 if not |
+| <span class="metrics-name">accdb_&#8203;compactions_&#8203;requested</span> | counter | Total number of compactions requested on the account database |
+| <span class="metrics-name">accdb_&#8203;compactions_&#8203;completed</span> | counter | Total number of compactions fully completed on the account database, less than or equal to the requested amount |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;relocated_&#8203;bytes</span> | counter | Total number of bytes moved in the account database during compaction |
+
+</div>

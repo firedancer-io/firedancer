@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 
+#include "../../util/fd_util.h"
+
 #include "generated/fd_tower_tile_seccomp.h"
 
 #include "../../choreo/fd_choreo.h"

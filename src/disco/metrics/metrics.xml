@@ -551,6 +551,22 @@ metric introduced.
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<tile name="accdb">
+    <gauge name="AccountsTotal" summary="Total number of accounts currently in the account database" />
+    <gauge name="AccountsCapacity" summary="Total capacity of accounts that can be stored in the account database" />
+    <counter name="BytesRead" summary="Total number of bytes read from the account database" />
+    <counter name="BytesWritten" summary="Total number of bytes written to the account database" />
+    <counter name="AccountsRead" summary="Total number of accounts read from the account database" />
+    <counter name="AccountsWritten" summary="Total number of accounts written to the account database" />
+    <counter name="AccountsRelocated" summary="Total number of accounts moved in the account database during compaction" />
+    <gauge name="DiskAllocatedBytes" summary="Total allocated size of the account database on disk" />
+    <gauge name="DiskUsedBytes" summary="Total size of the account database on disk that is currently used" />
+    <gauge name="InCompaction" summary="1 if a compaction is currently in progress, 0 if not" />
+    <counter name="CompactionsRequested" summary="Total number of compactions requested on the account database" />
+    <counter name="CompactionsCompleted" summary="Total number of compactions fully completed on the account database, less than or equal to the requested amount" />
+    <counter name="AccountsRelocatedBytes" summary="Total number of bytes moved in the account database during compaction" />
+</tile>
+
 <tile name="replay">
   <gauge name="Slot" label="The slot that is currently being executing" />
   <gauge name="LastVotedSlot" label="The last slot that was voted on" />

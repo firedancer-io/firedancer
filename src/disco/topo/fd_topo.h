@@ -252,6 +252,13 @@ struct fd_topo_tile {
     } store;
 
     struct {
+      char  path[ PATH_MAX ];
+      ulong max_accounts;
+      ulong max_unrooted_slots;
+      ulong cache_footprint;
+    } accdb;
+
+    struct {
       char   identity_key_path[ PATH_MAX ];
     } sign;
 

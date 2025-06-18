@@ -27,6 +27,7 @@ class Tile(Enum):
     SOCK = 21,
     REPAIR = 22,
     SEND = 23
+    ACCDB = 24
 
 class MetricType(Enum):
     COUNTER = 0

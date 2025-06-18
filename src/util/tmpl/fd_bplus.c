@@ -1364,9 +1364,9 @@ BPLUS_(query_const)( BPLUS_(t)   const * join,
 
   /* At this point, leaf might contain query.  Query the leaf */
 
-  pair_t const * pair     = leaf->pair;
-  ulong          pair_cnt = leaf->pair_cnt;
-  ulong          pair_idx = BPLUS_(private_pair_query)( pair, pair_cnt, query );
+  BPLUS_PAIR_T const * pair     = leaf->pair;
+  ulong                pair_cnt = leaf->pair_cnt;
+  ulong                pair_idx = BPLUS_(private_pair_query)( pair, pair_cnt, query );
 
   return fd_ptr_if( pair_idx<pair_cnt, &pair[ pair_idx ], NULL );
 }
@@ -1529,7 +1529,7 @@ BPLUS_(private_insert)( BPLUS_(t) *         join,
     new_leaf->pair_cnt = pair_min;
     new_leaf->prev_off = BPLUS_(private_off)( bplus, leaf );
     new_leaf->next_off = next_off;
-    memcpy( &new_leaf->pair[0], &leaf->pair[pair_min], sizeof(pair_t)*pair_min );
+    memcpy( &new_leaf->pair[0], &leaf->pair[pair_min], sizeof(BPLUS_PAIR_T)*pair_min );
 
     /* FIXME: BRANCHLESS? */
     ulong new_leaf_off = BPLUS_(private_off)( bplus, new_leaf );
