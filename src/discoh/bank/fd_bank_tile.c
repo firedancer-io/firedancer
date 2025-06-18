@@ -100,13 +100,10 @@ before_frag( fd_bank_ctx_t * ctx,
   return 0;
 }
 
-extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
 extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
 extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
-extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
+extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
-extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
-extern int    fd_ext_bank_verify_precompiles( void const * bank, void const * txn );
 
 static inline void
 during_frag( fd_bank_ctx_t * ctx,
@@ -179,12 +176,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     ctx->metrics.txn_load_address_lookup_tables[ result ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
-    int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
-    if( FD_UNLIKELY( precompile_result ) ) {
-      FD_MCNT_INC( BANK, PRECOMPILE_VERIFY_FAILURE, 1 );
-      continue;
-    }
-
     writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
@@ -201,8 +192,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uint consumed_acct_data_cus[   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps       [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_tips             [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
-
-  void * pre_balance_info = fd_ext_bank_pre_balance_info( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt );
 
   void * load_and_execute_output = fd_ext_bank_load_and_execute_txns( ctx->_bank,
                                                                       ctx->txn_abi_mem,
@@ -283,13 +272,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   }
 
   /* Commit must succeed so no failure path.  This function takes
-     ownership of the load_and_execute_output and pre_balance_info heap
-     allocations and will free them before it returns.  They should not
-     be reused.  Once commit is called, the transactions MUST be mixed
-     into the PoH otherwise we will fork and diverge, so the link from
-     here til PoH mixin must be completely reliable with nothing dropped. */
-  fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output, pre_balance_info );
-  pre_balance_info        = NULL;
+     ownership of the load_and_execute_output and will free it
+     before it returns.  They should not be reused.  Once commit
+     is called, the transactions MUST be mixed into the PoH otherwise
+     we will fork and diverge, so the link from here til PoH mixin
+     must be completely reliable with nothing dropped. */
+  fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output );
   load_and_execute_output = NULL;
 
   /* Indicate to pack tile we are done processing the transactions so
@@ -371,13 +359,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     ctx->metrics.txn_load_address_lookup_tables[ result ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
       execution_success = 0;
-      continue;
-    }
-
-    int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
-    if( FD_UNLIKELY( precompile_result ) ) {
-      execution_success = 0;
-      FD_MCNT_INC( BANK, PRECOMPILE_VERIFY_FAILURE, 1 );
       continue;
     }
 
