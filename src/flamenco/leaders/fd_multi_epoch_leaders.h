@@ -123,14 +123,13 @@ fd_multi_epoch_leaders_get_sorted_lscheds( fd_multi_epoch_leaders_t const * mlea
 
 
 /* fd_multi_epoch_leaders_get_next_slot returns the first slot on or after
-   start_slot that 'leader' will be leader. It only checks the epoch containing
-   start_slot. If it can't find one, returns ULONG_MAX.
+   start_slot that 'leader' will be leader. If it can't find one, returns ULONG_MAX.
 
    Failures cases include:
       - mleaders does not track the epoch containing start_slot
         - It was either never initialized with that epoch information, or
         - It was overwritten by another epoch with the same parity
-      - leader_q does not have a leader slot in the epoch containing start_slot
+      - leader_q does not have a leader slot in the epochs tracked
       - leader_q was part of the excluded_stake for that epoch, and the lsched
         returns FD_INDETERMINATE_LEADER as the leader for leader_q's slots.
 */

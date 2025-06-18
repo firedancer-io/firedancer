@@ -71,14 +71,22 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
   ulong epoch_idx = fd_multi_epoch_leaders_get_epoch_idx( mleaders, start_slot );
   if( FD_UNLIKELY( epoch_idx==ULONG_MAX ) ) return ULONG_MAX;
 
-  /* Find the leader in the epoch */
-  fd_epoch_leaders_t const * epoch_lsched = mleaders->lsched[ epoch_idx ];
-  ulong                      slot0        = epoch_lsched->slot0;
-  ulong                      slot_end     = slot0 + epoch_lsched->slot_cnt;
+  /* Start at epoch_idx and seek next slot (across epochs)  */
+  for( ulong i=0; i<MULTI_EPOCH_LEADERS_EPOCH_CNT; i++ ) {
+    ulong epoch_i = (epoch_idx + i) % MULTI_EPOCH_LEADERS_EPOCH_CNT;
 
-  for( ulong slot=start_slot; slot<slot_end; slot++ ) {
-    fd_pubkey_t const * leader = fd_epoch_leaders_get( epoch_lsched, slot );
-    if( FD_UNLIKELY( !memcmp( leader->key, leader_q->key, 32UL ) ) ) return slot;
+    fd_epoch_leaders_t const * epoch_lsched  = mleaders->lsched[ epoch_i ];
+    ulong                      slot0         = epoch_lsched->slot0;
+    ulong                      slot_end      = slot0 + epoch_lsched->slot_cnt;
+
+    /* skip older epochs */
+    if( FD_UNLIKELY( !mleaders->init_done[epoch_i] ) ) continue;
+
+    ulong start_slot_it = fd_ulong_max( start_slot, slot0 );
+    for( ulong slot=start_slot_it; slot<slot_end; slot++ ) {
+      fd_pubkey_t const * leader = fd_epoch_leaders_get( epoch_lsched, slot );
+      if( FD_UNLIKELY( !memcmp( leader->key, leader_q->key, 32UL ) ) ) return slot;
+    }
   }
 
   return ULONG_MAX;
